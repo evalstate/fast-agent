@@ -8,6 +8,13 @@ from typing import Any
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
+GENERATED_ARTIFACTS_IGNORE = shutil.ignore_patterns(
+    "build",
+    "__pycache__",
+    "*.egg-info",
+    "*.py[co]",
+)
+
 
 class CustomBuildHook(BuildHookInterface):
     """Custom build hook to copy examples to resources structure."""
@@ -61,7 +68,11 @@ class CustomBuildHook(BuildHookInterface):
                 target_dir.parent.mkdir(parents=True, exist_ok=True)
 
                 # Copy the entire directory tree
-                shutil.copytree(source_dir, target_dir)
+                shutil.copytree(
+                    source_dir,
+                    target_dir,
+                    ignore=GENERATED_ARTIFACTS_IGNORE,
+                )
                 print(f"  Copied {source_path} -> {target_path}")
             else:
                 print(f"  Warning: Source directory not found: {source_path}")
@@ -76,7 +87,11 @@ class CustomBuildHook(BuildHookInterface):
 
             if source_dir.exists():
                 target_dir.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copytree(source_dir, target_dir)
+                shutil.copytree(
+                    source_dir,
+                    target_dir,
+                    ignore=GENERATED_ARTIFACTS_IGNORE,
+                )
                 print(f"  Copied {source_path} -> {target_path}")
             else:
                 print(f"  Warning: Setup templates directory not found: {source_path}")
@@ -88,7 +103,11 @@ class CustomBuildHook(BuildHookInterface):
 
             if source_dir.exists():
                 target_dir.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copytree(source_dir, target_dir)
+                shutil.copytree(
+                    source_dir,
+                    target_dir,
+                    ignore=GENERATED_ARTIFACTS_IGNORE,
+                )
                 print(f"  Copied {source_path} -> {target_path}")
             else:
                 print(f"  Warning: Shared resources directory not found: {source_path}")
@@ -155,7 +174,6 @@ def _example_mappings() -> dict[str, Path]:
         "examples/researcher": examples_dir / "researcher",
         "examples/data-analysis": examples_dir / "data-analysis",
         "examples/markdown": examples_dir / "markdown",
-        "examples/mcp/state-transfer": examples_dir / "mcp" / "state-transfer",
         "examples/mcp/elicitations": examples_dir / "mcp" / "elicitations",
         "examples/tensorzero": examples_dir / "tensorzero",
         "examples/hf-toad-cards": examples_dir / "hf-toad-cards",

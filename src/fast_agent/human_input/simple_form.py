@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from mcp.types import ElicitRequestedSchema
+from mcp_types import ElicitRequestedSchema
 
 from fast_agent.human_input.form_fields import FormSchema
 from fast_agent.utils.async_utils import run_sync

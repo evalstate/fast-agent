@@ -8,6 +8,10 @@ from fast_agent.cli.commands.config import (
     _normalize_shell_updates,
 )
 from fast_agent.config import ShellSettings
+from fast_agent.constants import (
+    MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
+    MAX_PROCESS_POLL_WAIT_SECONDS,
+)
 from fast_agent.human_input.form_fields import FormSchema, IntegerField, StringField
 
 
@@ -46,6 +50,65 @@ def test_build_shell_form_allows_default_retained_output_quota() -> None:
     assert field.default == current.retained_output_max_bytes
     assert field.maximum is not None
     assert field.maximum >= current.retained_output_max_bytes
+
+
+def test_build_shell_form_uses_managed_process_wait_ceiling() -> None:
+    current = ShellSettings()
+    schema = _build_shell_form(current)
+
+    field = schema.fields["process_poll_max_wait_seconds"]
+    assert isinstance(field, IntegerField)
+    assert field.default == MAX_PROCESS_POLL_WAIT_SECONDS
+    assert field.maximum == MAX_PROCESS_POLL_WAIT_SECONDS
+
+
+def test_foreground_auto_await_setting_has_bounded_zero_opt_out() -> None:
+    current = ShellSettings()
+    schema = _build_shell_form(current)
+
+    field = schema.fields["foreground_auto_await_max_seconds"]
+    assert isinstance(field, IntegerField)
+    assert field.default == 240
+    assert field.minimum == 0
+    assert field.maximum == MAX_FOREGROUND_AUTO_AWAIT_SECONDS
+
+    assert ShellSettings(foreground_auto_await_max_seconds=0).foreground_auto_await_max_seconds == 0
+    assert (
+        ShellSettings.model_validate(
+            {"foreground_auto_await_max_seconds": "4m"}
+        ).foreground_auto_await_max_seconds
+        == 240
+    )
+    assert (
+        ShellSettings(
+            foreground_auto_await_max_seconds=MAX_FOREGROUND_AUTO_AWAIT_SECONDS
+        ).foreground_auto_await_max_seconds
+        == MAX_FOREGROUND_AUTO_AWAIT_SECONDS
+    )
+    with pytest.raises(ValueError):
+        ShellSettings(foreground_auto_await_max_seconds=MAX_FOREGROUND_AUTO_AWAIT_SECONDS + 1)
+    with pytest.raises(
+        TypeError,
+        match="foreground_auto_await_max_seconds must be an integer",
+    ):
+        ShellSettings.model_validate({"foreground_auto_await_max_seconds": True})
+    for value in (-0.1, 0.9, 1.1):
+        with pytest.raises(
+            TypeError,
+            match="foreground_auto_await_max_seconds must be an integer",
+        ):
+            ShellSettings.model_validate({"foreground_auto_await_max_seconds": value})
+
+
+def test_shell_settings_rejects_managed_process_wait_above_ceiling() -> None:
+    assert (
+        ShellSettings(
+            process_poll_max_wait_seconds=MAX_PROCESS_POLL_WAIT_SECONDS
+        ).process_poll_max_wait_seconds
+        == MAX_PROCESS_POLL_WAIT_SECONDS
+    )
+    with pytest.raises(ValueError):
+        ShellSettings(process_poll_max_wait_seconds=MAX_PROCESS_POLL_WAIT_SECONDS + 1)
 
 
 def test_normalize_shell_updates_supports_none_zero_and_positive_line_modes() -> None:
@@ -92,6 +155,18 @@ def test_normalize_shell_updates_rejects_boolean_timeout_values() -> None:
 
     assert "timeout_seconds" not in updates
     assert "warning_interval_seconds" not in updates
+
+
+def test_normalize_shell_updates_preserves_foreground_auto_await_opt_out() -> None:
+    updates = _normalize_shell_updates(
+        {
+            "output_display_lines": -1,
+            "output_byte_limit": 0,
+            "foreground_auto_await_max_seconds": 0,
+        }
+    )
+
+    assert updates["foreground_auto_await_max_seconds"] == 0
 
 
 def test_normalize_shell_updates_persists_filesystem_toggles() -> None:
@@ -229,3 +304,8 @@ def test_normalize_shell_updates_defaults_invalid_write_text_file_mode() -> None
 def test_shell_settings_write_text_file_mode_accepts_apply_patch_string() -> None:
     settings = ShellSettings.model_validate({"write_text_file_mode": "apply_patch"})
     assert settings.write_text_file_mode == "apply_patch"
+
+
+def test_shell_settings_write_text_file_mode_accepts_edit_file_string() -> None:
+    settings = ShellSettings.model_validate({"write_text_file_mode": "edit_file"})
+    assert settings.write_text_file_mode == "edit_file"

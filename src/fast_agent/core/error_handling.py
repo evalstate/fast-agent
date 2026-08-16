@@ -2,11 +2,8 @@
 Error handling utilities for agent operations.
 """
 
-import sys
-
-from rich import print
-
 from fast_agent.core.exceptions import FastAgentError
+from fast_agent.ui.console import error_console
 
 
 def handle_error(e: Exception, error_type: str, suggestion: str | None = None) -> None:
@@ -18,17 +15,17 @@ def handle_error(e: Exception, error_type: str, suggestion: str | None = None) -
         error_type: Type of error to display
         suggestion: Optional suggestion message to display
     """
-    print(f"\n[bold red]{error_type}:", file=sys.stderr)
+    error_console.print(f"\n[bold red]{error_type}:")
     if isinstance(e, FastAgentError):
-        print(e.message, file=sys.stderr)
+        error_console.print(e.message)
         details = e.details
     else:
-        print(str(e), file=sys.stderr)
+        error_console.print(str(e))
         details = ""
     if details:
-        print("\nDetails:", file=sys.stderr)
-        print(details, file=sys.stderr)
+        error_console.print("\nDetails:")
+        error_console.print(details)
     if suggestion:
-        print(f"\n{suggestion}", file=sys.stderr)
-        print(file=sys.stderr)
-        print("Visit https://fast-agent.ai/ for more information", file=sys.stderr)
+        error_console.print(f"\n{suggestion}")
+        error_console.print()
+        error_console.print("Visit https://fast-agent.ai/ for more information")

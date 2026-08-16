@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.command_actions import (
     PluginCommandActionContext,
     PluginCommandActionRegistry,
@@ -17,6 +18,8 @@ from fast_agent.core.exceptions import AgentConfigError
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from fast_agent.types import PromptMessageExtended
 
 
 def test_load_plugin_command_action_function_accepts_async_handler(tmp_path: Path) -> None:
@@ -229,11 +232,14 @@ def test_parse_plugin_command_action_specs_rejects_invalid_optional_strings() ->
 class _CommandAgent:
     name = "agent"
     context = None
-    config = None
+    config = AgentConfig(name=name)
     agent_registry = None
-    message_history = []
+    usage_accumulator = None
 
-    def load_message_history(self, messages):
+    def __init__(self) -> None:
+        self.message_history: list[PromptMessageExtended] = []
+
+    def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None:
         self.message_history = messages or []
 
     def get_agent(self, name: str):

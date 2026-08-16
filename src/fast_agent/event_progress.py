@@ -18,6 +18,8 @@ class ProgressAction(str, Enum):
     COMPACTING = "Compacting"
     ROUTING = "Routing"
     PLANNING = "Planning"
+    MONITORING = "Monitoring"
+    RUNNING = "Subagent Running"
     READY = "Ready"
     CALLING_TOOL = "Calling Tool"
     READING_RESOURCE = "Reading Resource"
@@ -28,6 +30,19 @@ class ProgressAction(str, Enum):
     SHUTDOWN = "Shutdown"
     AGGREGATOR_INITIALIZED = "Running"
     FATAL_ERROR = "Error"
+
+
+class SubagentMonitorSnapshot(BaseModel):
+    """Structured state for one live subagent monitor row."""
+
+    model: str | None = None
+    context_percentage: float | None = None
+    state: str
+    turn: int
+    input_tokens: int
+    cache_percentage: float | None = None
+    output_tokens: int
+    output_estimated: bool = False
 
 
 class ProgressEvent(BaseModel):
@@ -43,6 +58,7 @@ class ProgressEvent(BaseModel):
     tool_name: str | None = None
     tool_event: str | None = None
     tool_state: str | None = None
+    activity: str | None = None
     tool_terminal: bool = False
     process_elapsed_seconds: float | None = None
     process_command: str | None = None
@@ -56,6 +72,8 @@ class ProgressEvent(BaseModel):
     process_seconds_since_last_stderr: float | None = None
     process_stdout_bytes: int | None = None
     process_stderr_bytes: int | None = None
+    elapsed_seconds: float | None = None
+    subagent_monitor: SubagentMonitorSnapshot | None = None
     streaming_tokens: str | None = None  # Special field for streaming token count
     progress: float | None = None  # Current progress value
     total: float | None = None  # Total value for progress calculation

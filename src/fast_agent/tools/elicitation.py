@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from mcp.types import Tool as McpTool
+from mcp_types import Tool as McpTool
 from pydantic import BaseModel, Field
 
 from fast_agent.constants import HUMAN_INPUT_TOOL_NAME
@@ -145,7 +145,7 @@ def get_elicitation_tool() -> McpTool:
             "Each field may include label, help, default; numbers may include min/max; radio may include options (value/label). "
             "You may also add an optional message shown above the form."
         ),
-        inputSchema=_sanitized_elicitation_schema(),
+        input_schema=_sanitized_elicitation_schema(),
     )
 
 
@@ -470,5 +470,5 @@ def get_elicitation_fastmcp_tool() -> FunctionTool:
         "numbers support min/max; radio supports options (value/label); optional message is shown above the form."
     )
     # Harmonize input schema with the sanitized MCP schema for provider compatibility
-    tool.parameters = get_elicitation_tool().inputSchema
+    tool.parameters = get_elicitation_tool().input_schema
     return tool

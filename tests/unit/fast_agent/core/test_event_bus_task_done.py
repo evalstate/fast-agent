@@ -6,7 +6,7 @@ import pytest
 
 from fast_agent.core.logging.events import Event
 from fast_agent.core.logging.listeners import EventListener
-from fast_agent.core.logging.transport import AsyncEventBus
+from fast_agent.core.logging.transport import AsyncEventBus, NoOpTransport
 
 
 class CountingListener(EventListener):
@@ -25,7 +25,7 @@ async def test_task_done_called_on_happy_path() -> None:
     instead of timing out (which was the pre-fix behaviour)."""
     # Use a fresh bus instance (don't pollute the singleton)
     bus = AsyncEventBus.__new__(AsyncEventBus)
-    bus.transport = type("T", (), {"send_event": staticmethod(lambda e: asyncio.sleep(0))})()
+    bus.transport = NoOpTransport()
     bus.listeners = {}
     bus._queue = None
     bus._task = None

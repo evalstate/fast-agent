@@ -9,6 +9,7 @@ from fast_agent.ui.progress.process_poll import (
     format_process_output_activity,
     format_process_output_size,
     format_process_poll_countdown_track,
+    render_compact_process_monitor_stats,
     render_process_monitor_stats,
 )
 
@@ -99,6 +100,37 @@ def test_process_monitor_activity_clamps_subsecond_age_to_one_second() -> None:
     )
 
     assert rendered.plain.startswith("out  1s · err   —")
+
+
+def test_compact_process_monitor_stats_add_complete_fields_progressively() -> None:
+    stats = ProcessMonitorStats(
+        elapsed_seconds=70,
+        stdout_age_seconds=9,
+        stderr_age_seconds=2,
+        stdout_bytes=12_000,
+        stderr_bytes=500,
+        total_output_bytes=12_508,
+    )
+
+    activity = render_compact_process_monitor_stats(
+        stats,
+        include_elapsed=False,
+        include_size=False,
+    )
+    elapsed = render_compact_process_monitor_stats(
+        stats,
+        include_elapsed=True,
+        include_size=False,
+    )
+    size = render_compact_process_monitor_stats(
+        stats,
+        include_elapsed=True,
+        include_size=True,
+    )
+
+    assert activity.plain == "out 9s · err 2s"
+    assert elapsed.plain == "out 9s · err 2s · 1m10s"
+    assert size.plain == "out 9s · err 2s · 1m10s · 12.5KB"
 
 
 def test_cell_glyph_fills_top_to_bottom_left_column_first() -> None:

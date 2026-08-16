@@ -16,7 +16,8 @@ FastMCP server surface.
 This page describes **custom tool adapter mode**: you own the `FastMCP` server,
 register ordinary `@mcp.tool()` handlers, and call fast-agent through
 `HarnessMCPAdapter`. The default `fast-agent serve` path is **managed MCP
-server mode**. For interactive UI surfaces, use [MCP Apps adapter mode](fastmcp-apps.md).
+server mode**. For interactive UI surfaces, use the
+[FastMCP Apps Adapter](fastmcp-apps.md).
 
 If you just want to expose an agent quickly, use `fast-agent serve`:
 
@@ -141,11 +142,17 @@ sends that text to the agent.
 
 ## Sessions and handles
 
-MCP has an ambient `Mcp-Session-Id`, but it is not a universal application
-state handle. Server authors choose the state model.
+`Mcp-Session-Id` is an optional transport identifier, not a universal
+application state handle. Server authors choose the state model.
 
-For request-scoped tools, each MCP tool call opens a transient harness session.
-If your tool needs durable state, expose your own handle:
+In connection scope, an explicit `session_id` passed to `invoke_agent()`
+overrides the ambient MCP session ID and becomes the harness session key. If no
+explicit ID is supplied, the adapter uses `Mcp-Session-Id` when available.
+
+In request scope, every call gets a fresh transient harness session regardless
+of either ID. An explicit handle is retained as `requested_session_id` metadata,
+but does not by itself preserve harness history. Load and save durable
+application state using that handle:
 
 ```python
 @mcp.tool()
@@ -159,8 +166,9 @@ async def continue_review(repo: str, review_id: str, ctx: MCPContext) -> str:
     return response.text_content()
 ```
 
-The adapter preserves the ambient MCP session id as request metadata when it is
-not the effective harness session key.
+Managed agent-named tools do not expose this generic handle argument. Use a
+custom FastMCP tool, as above, or a custom `harness_app.entrypoint` when the
+application needs an explicit workspace, conversation, job, or review handle.
 
 ## Return values
 

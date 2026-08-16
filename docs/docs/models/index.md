@@ -7,9 +7,9 @@ social:
   alt: fast-agent social card — Getting Started with Models
 ---
 
-**`fast-agent`** has native support for **OpenAI Responses** and **Chat Completions**, **Anthropic Messages**, **Google GenAI** and **Amazon Bedrock** APIs. 
+**`fast-agent`** has native support for **OpenAI Responses** and **Chat Completions**, **Anthropic Messages**, **Google GenAI**, **DeepSeek Responses**, and **Amazon Bedrock** APIs.
 
-OpenAI Codex users can use their subscription with **`fast-agent`**, using their existing installation or logging in with `fast-agent auth login codex`.
+OpenAI Codex users can use their subscription with **`fast-agent`**, using their existing installation or logging in with `fast-agent auth provider login codex`.
 
 Chat Completions models are also available via **Microsoft Azure**, and supported Anthropic models are available on **Google Vertex**.
 
@@ -19,7 +19,10 @@ Local models with [**llama.cpp**](providers/llamacpp.md) are directly supported,
 
 #### Model Picker and Defaults
 
-In interactive mode, with no model specified or default configured, **`fast-agent`** shows a model selector on startup, highlighting available models.
+In an interactive, non-resumed run, **`fast-agent`** opens the model picker
+when no model resolves from an AgentCard, `--model`, `default_model`, or
+`FAST_AGENT_MODEL`. The picker is not used for `--resume`; the saved session
+model is restored.
 
 <div
   class="fa-terminal-demo"
@@ -58,6 +61,22 @@ fast-agent --model codexplan # Use the latest supported Codex Subscription Model
 
 Use `fast-agent model presets` to see the current shortcuts.
 
+### Interactive Model Commands
+
+In the TUI or an ACP client, `/model` shows the active agent's resolved model
+and supported runtime settings. Use explicit subcommands to make changes or
+inspect model configuration:
+
+```text
+/model
+/model switch
+/model reasoning high
+/model verbosity low
+/model doctor
+/model references
+/model catalog anthropic --all
+```
+
 ### Model Strings and Configuration
 
 Models in **fast-agent** are specified with a model string:
@@ -83,9 +102,10 @@ Start with the native providers for common use, or use additional providers for 
 | OpenAI Responses     | `gpt55`, `gpt54`, `gpt52`, `gpt-5-mini`, `codex`         | GPT-5 class models, reasoning, text verbosity, structured outputs, `web_search`, SSE/WebSocket transports, service tiers, connectors            |
 | Anthropic            | `fable`, `sonnet`, `opus`, `opus5`, `opus48`, `haiku`    | Claude 4.x/5, prompt caching, adaptive reasoning/effort, structured outputs, `web_search`, `web_fetch` where supported, long context, task budget |
 | Google               | `gemini`, `gemini35flash`                                | Gemini native API, structured outputs, thinking controls, text/image/PDF/audio/video input, YouTube links through media attachments             |
-| xAI / Grok           | `grok43`, `grok45`, `grok-4.3`, `grok-4.5`               | Grok models, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports                                                             |
+| DeepSeek             | `deepseek`, `deepseekpro`                                | Native stateless Responses API, reasoning, function tools, JSON Schema structured output, and web search                                       |
+| xAI / Grok           | `grok43`, `grok45`, `grok46`, `grok-4.3`, `grok-4.5`, `grok-4.6` | Grok models, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports                                                      |
 | Hugging Face         | `kimi`, `kimi26instant`, `deepseek-hf`, `glm`, `minimax` | Hugging Face Inference Providers routing, curated aliases, and HF MCP authentication                                                            |
-| Additional providers | `deepseek`, `qwen-turbo`, `gpt-oss`                      | Groq, DeepSeek, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints                                         |
+| Additional providers | `qwen-turbo`, `gpt-oss`                                  | Groq, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints                                                   |
 
 ### OpenAI Responses
 
@@ -105,6 +125,7 @@ Useful query parameters:
 - `web_search=on|off`
 - `transport=sse|ws|auto`
 - `service_tier=fast|flex` where supported
+- `poll_period=10..3600` for the default managed-process wait
 
 Use the `openai` provider for Chat Completions-style models such as `openai.gpt-4.1`.
 
@@ -133,6 +154,7 @@ Useful query parameters and config:
 - `task_budget=20k|128k|off` where supported
 - `anthropic.cache_mode: auto|prompt|off`
 - `anthropic.cache_ttl: 5m|1h`
+- `poll_period=10..3600` for the default managed-process wait
 
 `opus` and `opus5` resolve to `claude-opus-5`; use `opus48`, `opus47`, or `opus46` to pin an older
 Opus generation. Opus 5 does not support `web_fetch`, so use `web_search` alone or pin `opus48`
@@ -164,6 +186,23 @@ Useful query parameters:
 - `structured=json`
 - sampling controls such as `temperature`, `top_p`, and `top_k` where applicable
 
+### DeepSeek
+
+Use the native [DeepSeek provider](providers/deepseek/) for DeepSeek's
+stateless Responses API:
+
+```bash
+fast-agent --model deepseek
+fast-agent --model deepseekpro
+fast-agent --model "deepseek?reasoning=high"
+fast-agent --model "deepseek?web_search=true"
+```
+
+The native route supports `deepseek-v4-flash` and `deepseek-v4-pro`. Both
+provide reasoning, function tools, JSON Schema structured output, and
+provider-managed web search. Hugging Face aliases such as `deepseek-hf` are
+separate routes.
+
 ### xAI
 
 Use the [xAI provider](providers/xai/) for Grok models.
@@ -186,10 +225,9 @@ fast-agent --model "hf.moonshotai/Kimi-K2.6:novita?reasoning=on"
 
 ### Additional providers
 
-Use [Additional Providers](providers/additional/) for hosted OpenAI-compatible APIs, routers, and local endpoints such as Groq, DeepSeek, Aliyun, OpenRouter, Open Responses, TensorZero, and generic endpoints.
+Use [Additional Providers](providers/additional/) for hosted OpenAI-compatible APIs, routers, and local endpoints such as Groq, Aliyun, OpenRouter, Open Responses, TensorZero, and generic endpoints.
 
 ```bash
-fast-agent --model deepseek
 fast-agent --model qwen-turbo
 fast-agent --model groq.openai/gpt-oss-120b
 fast-agent --model openrouter.google/gemini-2.5-pro-exp-03-25:free
@@ -206,22 +244,25 @@ Model strings follow this format:
 provider.model_name[?reasoning=value][&query=value...]
 ```
 
-- **provider**: the LLM provider, for example `responses`, `anthropic`, `google`, `xai`,
+- **provider**: the LLM provider, for example `responses`, `anthropic`, `google`, `deepseek`, `xai`,
   `hf`, `azure`, `openrouter`, `generic`, or `tensorzero`
 - **model_name**: the model or deployment name
 - **query parameters**: provider/model-specific overrides such as `reasoning`, `structured`,
   `context`, `transport`, `service_tier`, `temperature` (`temp` alias), `web_search`,
-  `web_fetch`, `x_search`, `task_budget`, `max_tokens`, and `streaming_timeout`
+  `web_fetch`, `x_search`, `task_budget`, `max_tokens`, `streaming_timeout`, and
+  `poll_period`
 
 Examples:
 
 - `responses.gpt-5.5?reasoning=medium`
 - `responses.gpt-5.5?streaming_timeout=300`
+- `responses.gpt-5.5?poll_period=240`
 - `responses.gpt-5.5?web_search=on`
 - `sonnet?reasoning=4096`
 - `opus?web_search=on`
 - `opus48?web_search=on&web_fetch=on`
 - `gemini3?reasoning=auto`
+- `deepseek?reasoning=high`
 - `xai.grok-4.3?x_search=on`
 - `kimi26instant`
 - `hf.moonshotai/Kimi-K2.6:novita?reasoning=on`
@@ -238,7 +279,10 @@ Model specifications follow this precedence order, highest to lowest:
 1. Command-line arguments with `--model`
 1. Default model in `fast-agent.yaml`
 1. `FAST_AGENT_MODEL` environment variable
-1. System default (`gpt-5.4-mini?reasoning=low`)
+
+If none of these sources provides a model, interactive startup opens the
+picker. Unattended, server, batch, and programmatic runs must configure a model
+and otherwise fail with `No model configured`.
 
 ### Reasoning
 
@@ -249,7 +293,8 @@ You can also set reasoning directly in the model string query. This is especiall
 - `opus?reasoning=auto` (adaptive default)
 - `opus?reasoning=xhigh&task_budget=128k` (adaptive Opus + task budget)
 - `gemini3?reasoning=high`
-- `xai.grok-4.3?reasoning=none`
+- `deepseek?reasoning=max`
+- `xai.grok-4.3?reasoning=low`
 
 Reasoning, Verbosity and Task Budget settings are also available from the `/model` command, or by using ++f6++ or ++f7++ keys.
 
@@ -263,6 +308,19 @@ Set the maximum time between provider stream events with `streaming_timeout`:
 The value must be a positive, finite number of seconds or `none`. An explicit
 request-level `RequestParams(streaming_timeout=...)` value takes precedence over the model-string
 default.
+
+### Managed-process wait period
+
+Set the default wait used when `process(action="wait")` omits `wait_sec`:
+
+- `responses.gpt-5.5?poll_period=240`
+- `opus?poll_period=3000` for an intentionally long wait with a one-hour cache policy
+
+`poll_period` is local fast-agent runtime policy and is not sent to the provider.
+It must be an integer from 10 through 3600. It overrides catalogue and model-overlay
+defaults, but an explicit value above
+`shell_execution.process_poll_max_wait_seconds` is rejected. A wait still returns
+as soon as the managed process completes.
 
 ### Output token limit
 
@@ -312,11 +370,11 @@ default_model: "gpt-5-mini?reasoning=low"
 
 ## History saving
 
-You can save the conversation history to a file by sending a `***SAVE_HISTORY <filename>` message. This can then be reviewed, edited, loaded, or served with the `prompt-server` or replayed with the `playback` model.
+You can save the conversation history to a file by sending a `***SAVE_HISTORY <filename>` message. This can then be reviewed, edited, loaded with `fast_agent.load_prompt`, exposed by an external MCP prompt server, or replayed with the `playback` model.
 
 !!! Note "File Format / MCP Serialization"
 
-    If the filetype is `json`, fast-agent saves a `{"messages": [...]}` JSON container. It can contain either MCP `PromptMessage` objects (legacy) or `PromptMessageExtended` objects (preserves tool calls, channels, etc). `fast_agent.load_prompt` and `prompt-server` will load either the text or JSON format directly.
+    If the filetype is `json`, fast-agent saves a `{"messages": [...]}` JSON container. It can contain either MCP `PromptMessage` objects (legacy) or `PromptMessageExtended` objects (preserves tool calls, channels, etc). `fast_agent.load_prompt` loads either the text or JSON format directly.
 
 This can be helpful when developing applications to:
 

@@ -19,8 +19,8 @@ from acp.helpers import (
     text_block,
     tool_content,
 )
-from mcp.types import ContentBlock as MCPContentBlock
-from mcp.types import TextContent
+from mcp_types import ContentBlock as MCPContentBlock
+from mcp_types import TextContent
 
 from fast_agent.acp.content_conversion import convert_mcp_content_to_acp
 from fast_agent.acp.tool_call_context import get_acp_tool_call_meta

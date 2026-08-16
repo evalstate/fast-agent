@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.cli.runtime.session_resume import emit_resume_assistant_preview
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended

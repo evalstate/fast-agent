@@ -1,0 +1,69 @@
+{
+  "pmd_version": "7.26.0",
+  "minimum_tokens": 100,
+  "findings": [
+    {
+      "tokens": 201,
+      "paths": [
+        "fast_agent/cli/commands/serve.py",
+        "fast_agent/cli/commands/serve.py"
+      ],
+      "code_hash": "96d2151c46db4aa68a2ce3bc708ed246cfd6804f1f118fcfd82adbb00d6d0a17",
+      "rationale": "Typer requires explicit callback signatures for command introspection and help output."
+    },
+    {
+      "tokens": 166,
+      "paths": [
+        "fast_agent/cli/commands/acp.py",
+        "fast_agent/cli/commands/serve.py"
+      ],
+      "code_hash": "4a57c40dcc8a538df3a8ee9fce1f32738b1f82ec3e45bab3e2b7b9e370f61085",
+      "rationale": "Typer requires explicit callback signatures for command introspection and help output."
+    },
+    {
+      "tokens": 154,
+      "paths": [
+        "fast_agent/cli/commands/acp.py",
+        "fast_agent/cli/commands/serve.py"
+      ],
+      "code_hash": "c8f2e05dffb72cff748ae6705927961b8f631f023f91b2d0707c5dd4d066f013",
+      "rationale": "Typer requires explicit callback signatures for command introspection and help output."
+    },
+    {
+      "tokens": 145,
+      "paths": [
+        "fast_agent/llm/model_factory.py",
+        "fast_agent/llm/model_factory.py"
+      ],
+      "code_hash": "247c75b0123f69e9e3d6ab2d6bd8125dfa5db6f620e87e3ab3a6e8ea5a653ca6",
+      "rationale": "Model configuration and frozen query overrides intentionally expose parallel typed fields with distinct semantics."
+    },
+    {
+      "tokens": 116,
+      "paths": [
+        "fast_agent/llm/provider/openai/openresponses_streaming.py",
+        "fast_agent/llm/provider/openai/responses_streaming.py"
+      ],
+      "code_hash": "017aead745c6e9938427e479f01014560c16549389a9e524459e9ef800ab346d",
+      "rationale": "TYPE_CHECKING host contracts intentionally document the requirements of two independent streaming mixins."
+    },
+    {
+      "tokens": 107,
+      "paths": [
+        "fast_agent/cli/runtime/request_builders.py",
+        "fast_agent/cli/runtime/request_builders.py"
+      ],
+      "code_hash": "c0307832b13397b0ddd1ffe7b812267d87adad10c63153bc774d88ccdb4e65f8",
+      "rationale": "Public request-building boundaries intentionally retain explicit typed keyword signatures."
+    },
+    {
+      "tokens": 100,
+      "paths": [
+        "fast_agent/tools/docker_shell_environment.py",
+        "fast_agent/tools/local_shell_executor.py"
+      ],
+      "code_hash": "da6b65a264e8c74eab513a7313c2df608922d85ab53a739e1b662394052476a5",
+      "rationale": "Local and Docker executors intentionally adapt separate process lifecycles to the shared output tailer contract."
+    }
+  ]
+}

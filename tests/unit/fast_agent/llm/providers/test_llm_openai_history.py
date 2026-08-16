@@ -1,5 +1,5 @@
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 from openai.types.chat import ChatCompletionMessageParam
 
 from fast_agent.constants import REASONING

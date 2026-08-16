@@ -670,9 +670,9 @@ def test_resolve_catalog_provider_normalizes_aliases() -> None:
 
 
 def test_parse_catalog_arguments_uses_command_surface_usage() -> None:
-    parsed = models_manager._parse_catalog_arguments(None, command_name="models")
+    parsed = models_manager._parse_catalog_arguments(None, command_name="model")
 
-    assert parsed.error == "Usage: /models catalog <provider> [--all]"
+    assert parsed.error == "Usage: /model catalog <provider> [--all]"
 
 
 def test_parse_catalog_arguments_treats_blank_argument_as_missing() -> None:
@@ -707,35 +707,31 @@ async def test_models_command_normalizes_catalogued_help_alias() -> None:
 
 
 @pytest.mark.asyncio
-async def test_models_command_help_uses_models_surface() -> None:
+async def test_model_management_help_uses_model_surface() -> None:
     outcome = await models_manager.handle_models_command(
         _context(Settings()),
         agent_name="main",
         action="help",
         argument=None,
-        command_name="models",
     )
 
     rendered = "\n".join(str(message.text) for message in outcome.messages)
-    assert "models help" in rendered
-    assert "Usage: /models" in rendered
-    assert "Examples: /models doctor" in rendered
-    assert "Examples: /model doctor" not in rendered
+    assert "model help" in rendered
+    assert "Usage: /model" in rendered
+    assert "/model doctor" in rendered
 
 
 @pytest.mark.asyncio
-async def test_models_catalog_error_uses_models_surface() -> None:
+async def test_model_catalog_error_uses_model_surface() -> None:
     outcome = await models_manager.handle_models_command(
         _context(Settings()),
         agent_name="main",
         action="catalog",
         argument=None,
-        command_name="models",
     )
 
     rendered = "\n".join(str(message.text) for message in outcome.messages)
-    assert "Usage: /models catalog <provider> [--all]" in rendered
-    assert "Usage: /model catalog <provider> [--all]" not in rendered
+    assert "Usage: /model catalog <provider> [--all]" in rendered
 
 
 def test_parse_catalog_arguments_rejects_extra_provider() -> None:

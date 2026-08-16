@@ -1,13 +1,14 @@
 import asyncio
 import json
 
-from mcp.types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent
 from rich.console import Group
 from rich.syntax import Syntax
 from rich.text import Text
 
+from fast_agent.command_actions import MarkdownTextStyle
 from fast_agent.config import LoggerSettings, Settings
-from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS
+from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS, REASONING
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import console
@@ -38,7 +39,9 @@ class _CaptureContentDisplay(ConsoleDisplay):
         message_type: MessageType | None = None,
         check_markdown_markers: bool = False,
         render_markdown: bool | None = None,
+        markdown_styles: tuple[MarkdownTextStyle, ...] = (),
     ) -> None:
+        del markdown_styles
         self.displayed_content.append(content)
 
 
@@ -141,6 +144,7 @@ def test_assistant_reprint_banner_is_rendered_with_final_assistant_message() -> 
     message = PromptMessageExtended(
         role="assistant",
         content=[TextContent(type="text", text="Final answer")],
+        channels={REASONING: [TextContent(type="text", text="Considering the answer")]},
         stop_reason=LlmStopReason.END_TURN,
     )
 
@@ -156,8 +160,9 @@ def test_assistant_reprint_banner_is_rendered_with_final_assistant_message() -> 
 
     rendered = asyncio.run(_render())
     assert "FINAL RESPONSE" in rendered
-    assert rendered.index("FINAL RESPONSE") < rendered.index("▎◀ dev")
-    assert rendered.index("▎◀ dev") < rendered.index("Final answer")
+    assert rendered.index("▎◀ dev") < rendered.index("Considering the answer")
+    assert rendered.index("Considering the answer") < rendered.index("FINAL RESPONSE")
+    assert rendered.index("FINAL RESPONSE") < rendered.index("Final answer")
 
 
 def test_assistant_reprint_banner_can_be_disabled_in_logger_settings() -> None:
@@ -216,7 +221,7 @@ def test_reasoning_only_turn_does_not_emit_extra_gap_before_tool_result() -> Non
         },
         stop_reason=LlmStopReason.TOOL_USE,
     )
-    tool_result = CallToolResult(content=[TextContent(type="text", text="ok")], isError=False)
+    tool_result = CallToolResult(content=[TextContent(type="text", text="ok")], is_error=False)
 
     async def _render() -> str:
         with console.console.capture() as capture:
@@ -225,8 +230,8 @@ def test_reasoning_only_turn_does_not_emit_extra_gap_before_tool_result() -> Non
         return capture.get()
 
     rendered = asyncio.run(_render())
-    assert "Inspecting agent failure tracking\n\n▎▶ dev" in rendered
-    assert "Inspecting agent failure tracking\n\n\n▎▶ dev" not in rendered
+    assert "Inspecting agent failure tracking\n▎▶ dev" in rendered
+    assert "Inspecting agent failure tracking\n\n▎▶ dev" not in rendered
 
 
 def test_reasoning_then_text_has_single_blank_separator() -> None:

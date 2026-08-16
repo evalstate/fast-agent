@@ -134,6 +134,6 @@ def export_provider_credential(provider: str, path: Path) -> None:
     if token is None or credential is None:
         raise ProviderKeyError(
             f"{handler.display_name} OAuth token not configured",
-            f"Run `fast-agent auth login {handler.id}` first.",
+            f"Run `fast-agent auth provider login {handler.id}` first.",
         )
     export_oauth_credential(handler.id, credential, path)

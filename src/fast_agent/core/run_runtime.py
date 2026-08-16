@@ -25,9 +25,10 @@ from fast_agent.core.server_runtime import (
     resolve_server_instance_scope,
     run_server_mode,
 )
+from fast_agent.core.shutdown import TUI_SHUTDOWN_TIMEOUT_SECONDS, ShutdownBudget
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.tools.environment_registry import UnknownEnvironmentError, environment_name
-from fast_agent.ui.usage_display import display_usage_report
+from fast_agent.ui.usage_display import finalize_usage_report
 from fast_agent.utils.transports import uses_protocol_stdio
 
 if TYPE_CHECKING:
@@ -46,7 +47,6 @@ if TYPE_CHECKING:
     from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
-_PROMPT_EXIT_SHUTDOWN_TIMEOUT_SECONDS = 1.0
 
 
 class FastAgentRunMixin:
@@ -198,15 +198,16 @@ class FastAgentRunMixin:
         had_error: bool,
         settings: "RunSettings",
     ) -> None:
-        if had_error or settings.quiet_mode:
-            return
-
         managed_instances = state.runtime.managed_instances if state is not None else []
+        usage_agents: dict[str, object] = {}
         if managed_instances and not settings.server_mode:
-            self._print_usage_report(managed_instances[0].agents)
-            return
-        if active_agents:
-            self._print_usage_report(active_agents)
+            usage_agents = dict(managed_instances[0].agents)
+        elif active_agents:
+            usage_agents = dict(active_agents)
+        finalize_usage_report(
+            usage_agents,
+            show=not had_error and not settings.quiet_mode,
+        )
 
     async def _dispose_managed_instances(
         self,
@@ -233,13 +234,6 @@ class FastAgentRunMixin:
         settings: "RunSettings",
         shutdown_timeout: float | None = None,
     ) -> None:
-        try:
-            from fast_agent.ui.progress_display import progress_display
-
-            progress_display.stop()
-        except Exception:
-            pass
-
         await self._stop_watch_task()
         self._print_usage_summary_for_run(
             state,
@@ -262,10 +256,6 @@ class FastAgentRunMixin:
                 timeout_seconds=shutdown_timeout,
             )
 
-    def _print_usage_report(self, active_agents: dict[str, Any]) -> None:
-        """Print a formatted table of token usage for all agents."""
-        display_usage_report(active_agents, show_if_progress_disabled=False, subdued_colors=True)
-
     @asynccontextmanager
     async def run(
         self,
@@ -279,7 +269,7 @@ class FastAgentRunMixin:
         active_agents: dict[str, AgentProtocol] = {}
         had_error = False
         run_state: ManagedRunState | None = None
-        shutdown_timeout: float | None = None
+        shutdown_budget: ShutdownBudget | None = None
         lifecycle = FastAgentRunLifecycle(cast("FastAgent", self))
         lifecycle_state = None
         try:
@@ -325,8 +315,10 @@ class FastAgentRunMixin:
             yield run_state.wrapper
 
         except PromptExitError as e:
-            shutdown_timeout = _PROMPT_EXIT_SHUTDOWN_TIMEOUT_SECONDS
-            self._handle_error(e)
+            shutdown_budget = ShutdownBudget(
+                TUI_SHUTDOWN_TIMEOUT_SECONDS,
+                reason="interactive_exit",
+            )
             raise SystemExit(0) from e
         except (
             ServerConfigError,
@@ -351,15 +343,24 @@ class FastAgentRunMixin:
                         run_state,
                         active_agents,
                         had_error=had_error,
-                        shutdown_timeout=shutdown_timeout,
+                        shutdown_budget=shutdown_budget,
                         exc_type=exc_type,
                         exc=exc,
                         traceback=traceback,
                     )
                 finally:
                     if environment_name(lifecycle_state.runtime.shell_environment) is not None:
-                        with suppress(Exception):
-                            await lifecycle_state.runtime.shell_environment.close()
+
+                        async def close_environment() -> None:
+                            with suppress(Exception):
+                                await lifecycle_state.runtime.shell_environment.close()
+
+                        if shutdown_budget is None:
+                            await close_environment()
+                        else:
+                            await shutdown_budget.run("environment", close_environment)
+                    if shutdown_budget is not None:
+                        shutdown_budget.complete()
 
     async def start_server(
         self,

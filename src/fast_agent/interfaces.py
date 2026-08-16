@@ -17,7 +17,7 @@ from typing import (
 
 from a2a.types import AgentCard
 from mcp import Tool
-from mcp.types import GetPromptResult, ListToolsResult, Prompt, PromptMessage, ReadResourceResult
+from mcp_types import GetPromptResult, ListToolsResult, Prompt, PromptMessage, ReadResourceResult
 from pydantic import BaseModel
 from rich.text import Text
 
@@ -51,7 +51,6 @@ __all__ = [
     "MessageHistoryAgentProtocol",
     "ModelFactoryFunctionProtocol",
     "ModelT",
-    "SmartToolingCapable",
     "StreamingAgentProtocol",
     "ToolRunnerHookCapable",
     "TurnCancellationStateCapable",
@@ -414,23 +413,6 @@ class CardToolProvider(Protocol):
 
     @property
     def card_tool_names(self) -> Collection[str]: ...
-
-
-@runtime_checkable
-class SmartToolingCapable(Protocol):
-    """Optional capability for agents exposing smart-tool metadata/state."""
-
-    @property
-    def smart_tool_names(self) -> Collection[str]: ...
-
-    @smart_tool_names.setter
-    def smart_tool_names(self, value: Collection[str]) -> None: ...
-
-    @property
-    def parallel_smart_tool_calls(self) -> bool: ...
-
-    @parallel_smart_tool_calls.setter
-    def parallel_smart_tool_calls(self, value: bool) -> None: ...
 
 
 @runtime_checkable

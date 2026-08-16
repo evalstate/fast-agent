@@ -5,7 +5,7 @@ import logging
 from typing import TYPE_CHECKING
 
 import pytest
-from mcp.types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
@@ -39,7 +39,7 @@ def _build_agent(tmp_path: Path) -> McpAgent:
 
 
 def _result_payload(result: CallToolResult) -> dict[str, object]:
-    payload = result.structuredContent
+    payload = result.structured_content
     assert isinstance(payload, dict)
     return payload
 
@@ -59,6 +59,29 @@ async def test_edit_file_is_exposed_as_internal_runtime_tool(tmp_path: Path) -> 
         tool_names = {tool.name for tool in (await agent.list_tools()).tools}
         assert "edit_file" in tool_names
         assert "write_text_file" not in tool_names
+    finally:
+        await agent._aggregator.close()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_edit_file_creates_missing_file_without_writer_tool(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+    try:
+        result = await agent.call_tool(
+            "edit_file",
+            {
+                "path": "nested/created.txt",
+                "new_string": "created\n",
+            },
+        )
+        payload = _result_payload(result)
+
+        assert result.is_error is False
+        assert payload["success"] is True
+        assert payload["created"] is True
+        assert payload["replacements"] == 0
+        assert _read_text(tmp_path / "nested" / "created.txt") == "created\n"
     finally:
         await agent._aggregator.close()
 
@@ -88,7 +111,7 @@ async def test_edit_file_replaces_unique_multiline_match_and_returns_structured_
         )
         payload = _result_payload(result)
 
-        assert result.isError is False
+        assert result.is_error is False
         assert _read_text(project_file) == ('def hello():\n    print("hello")\n')
         assert payload["success"] is True
         assert payload["path"] == "src/utils.py"
@@ -122,7 +145,7 @@ async def test_edit_file_replace_all_updates_each_non_overlapping_match(tmp_path
         )
         payload = _result_payload(result)
 
-        assert result.isError is False
+        assert result.is_error is False
         assert _read_text(target_file) == "item one\nitem two\n"
         assert payload["success"] is True
         assert payload["replacements"] == 2
@@ -150,7 +173,7 @@ async def test_edit_file_reports_multiple_matches_with_line_locations(tmp_path: 
         )
         payload = _result_payload(result)
 
-        assert result.isError is True
+        assert result.is_error is True
         assert _read_text(target_file) == "alpha\nvalue\nbeta\nvalue\n"
         assert payload == {
             "success": False,
@@ -189,7 +212,7 @@ async def test_edit_file_reports_no_match_without_modifying_file(tmp_path: Path)
         )
         payload = _result_payload(result)
 
-        assert result.isError is True
+        assert result.is_error is True
         assert _read_text(target_file) == "alpha\nbeta\n"
         assert payload == {
             "success": False,
@@ -233,7 +256,7 @@ async def test_edit_file_reports_missing_file_and_directory_errors(tmp_path: Pat
             "success": False,
             "error": "file_not_found",
             "message": (
-                "File not found: missing.txt. Check the path, or use write_text_file to create it."
+                "File not found: missing.txt. Check the path, or omit old_string to create it."
             ),
             "path": "missing.txt",
         }
@@ -265,7 +288,7 @@ async def test_edit_file_deletion_preserves_missing_trailing_newline(tmp_path: P
         )
         payload = _result_payload(result)
 
-        assert result.isError is False
+        assert result.is_error is False
         assert _read_text(target_file) == "alpha\nomega"
         assert payload["success"] is True
         assert payload["line_start"] == 2
@@ -294,7 +317,7 @@ async def test_edit_file_can_replace_entire_file_and_preserve_trailing_newline(
         )
         payload = _result_payload(result)
 
-        assert result.isError is False
+        assert result.is_error is False
         assert _read_text(target_file) == "gamma\ndelta\n"
         assert payload["success"] is True
         assert payload["line_start"] == 1
@@ -321,7 +344,7 @@ async def test_edit_file_can_delete_entire_file_to_empty_contents(tmp_path: Path
         )
         payload = _result_payload(result)
 
-        assert result.isError is False
+        assert result.is_error is False
         assert _read_text(target_file) == ""
         assert payload["success"] is True
         assert payload["line_start"] == 1
@@ -352,7 +375,7 @@ async def test_edit_file_reports_multiline_ambiguity_with_match_locations(tmp_pa
         )
         payload = _result_payload(result)
 
-        assert result.isError is True
+        assert result.is_error is True
         assert payload == {
             "success": False,
             "error": "multiple_matches",
@@ -398,7 +421,7 @@ async def test_edit_file_is_whitespace_exact_and_supports_unicode_success(tmp_pa
             },
         )
 
-        assert whitespace_result.isError is True
+        assert whitespace_result.is_error is True
         assert _result_payload(whitespace_result) == {
             "success": False,
             "error": "no_match",
@@ -408,7 +431,7 @@ async def test_edit_file_is_whitespace_exact_and_supports_unicode_success(tmp_pa
             ),
             "path": "indent.py",
         }
-        assert unicode_result.isError is False
+        assert unicode_result.is_error is False
         assert _read_text(unicode_file) == "naïve\n"
     finally:
         await agent._aggregator.close()
@@ -434,7 +457,7 @@ async def test_edit_file_preserves_crlf_when_matching_exact_windows_newlines(
         )
         payload = _result_payload(result)
 
-        assert result.isError is False
+        assert result.is_error is False
         assert target_file.read_bytes() == b"gamma\r\ndelta\r\n"
         assert payload["success"] is True
         assert payload["line_start"] == 1
@@ -447,7 +470,7 @@ async def test_edit_file_preserves_crlf_when_matching_exact_windows_newlines(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_edit_file_reports_empty_old_string_no_op_and_encoding_errors(
+async def test_edit_file_reports_creation_refusal_no_op_and_encoding_errors(
     tmp_path: Path,
 ) -> None:
     empty_target = tmp_path / "empty.txt"
@@ -484,8 +507,11 @@ async def test_edit_file_reports_empty_old_string_no_op_and_encoding_errors(
 
         assert _result_payload(empty_result) == {
             "success": False,
-            "error": "empty_old_string",
-            "message": "Empty search string is not allowed.",
+            "error": "file_exists",
+            "message": (
+                "File already exists: empty.txt. Re-read it and provide old_string "
+                "for an exact replacement."
+            ),
             "path": "empty.txt",
         }
         assert _result_payload(no_op_result) == {

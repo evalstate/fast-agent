@@ -80,7 +80,7 @@ async def websocket_agent(model_name: str) -> LlmAgent:
 async def _generate_and_assert_websocket(agent: LlmAgent, prompt: str) -> None:
     result = await agent.generate(
         prompt,
-        request_params=RequestParams(maxTokens=200),
+        request_params=RequestParams(max_tokens=200),
     )
     assert result.stop_reason is LlmStopReason.END_TURN
     assert result.last_text()

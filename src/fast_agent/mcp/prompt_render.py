@@ -4,7 +4,7 @@ Utilities for rendering PromptMessageExtended objects for display.
 
 from collections.abc import Sequence
 
-from mcp.types import BlobResourceContents, ContentBlock, TextResourceContents
+from mcp_types import BlobResourceContents, ContentBlock, TextResourceContents
 
 from fast_agent.mcp.helpers.content_helpers import (
     get_resource_uri,
@@ -31,7 +31,7 @@ def render_content_blocks(content_blocks: Sequence[ContentBlock]) -> str:
             image = content
             image_data = image.data
             data_size = len(image_data) if image_data else 0
-            mime_type = image.mimeType
+            mime_type = image.mime_type
             image_info = f"[IMAGE: {mime_type}, {data_size} bytes]"
             rendered_parts.append(image_info)
 
@@ -45,7 +45,7 @@ def render_content_blocks(content_blocks: Sequence[ContentBlock]) -> str:
                 # Handle text resources
                 text = resource.text
                 text_length = len(text)
-                mime_type = resource.mimeType or "text/plain"
+                mime_type = resource.mime_type or "text/plain"
 
                 # Preview with truncation for long content
                 preview = text[:300] + ("..." if text_length > 300 else "")
@@ -58,7 +58,7 @@ def render_content_blocks(content_blocks: Sequence[ContentBlock]) -> str:
                 # Handle blob resources (binary data)
                 blob = resource.blob
                 blob_length = len(blob) if blob else 0
-                mime_type = resource.mimeType or "application/octet-stream"
+                mime_type = resource.mime_type or "application/octet-stream"
 
                 resource_info = f"[EMBEDDED BLOB RESOURCE: {mime_type}, {uri}, {blob_length} bytes]"
                 rendered_parts.append(resource_info)

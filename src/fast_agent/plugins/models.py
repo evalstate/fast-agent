@@ -1,17 +1,20 @@
-"""Data models for first-class fast-agent command plugins."""
+"""Data models for first-class fast-agent plugins."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from fast_agent.marketplace.provenance_io import repo_subdir_for_manifest_path
 from fast_agent.marketplace.update_status import CommonMarketplaceUpdateStatus
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Mapping
+
     from fast_agent.command_actions.models import PluginCommandActionSpec
+    from fast_agent.llm.usage_tracking import TurnUsage
 
 DEFAULT_PLUGIN_REGISTRIES = [
     "https://github.com/fast-agent-ai/card-packs",
@@ -37,7 +40,41 @@ class PluginManifest:
     version: str | None
     description: str | None
     commands: dict[str, PluginCommandActionSpec]
+    post_user_turn: PluginPostUserTurnSpec | None
     path: Path
+
+
+@dataclass(frozen=True)
+class PluginPostUserTurnSpec:
+    plugin_name: str
+    handler: str
+
+
+type PluginPostUserTurnResult = str | None
+type PluginPostUserTurnReturn = PluginPostUserTurnResult | Awaitable[PluginPostUserTurnResult]
+
+
+@dataclass(frozen=True, slots=True)
+class PluginPostUserTurnContext:
+    """Canonical usage exposed after one successful top-level interactive turn."""
+
+    plugin_name: str
+    agent_name: str
+    turn_usage: tuple[TurnUsage, ...]
+    session_usage: tuple[TurnUsage, ...]
+    config: Mapping[str, object]
+
+
+class PluginPostUserTurnFunction(Protocol):
+    __name__: str
+
+    def __call__(self, ctx: PluginPostUserTurnContext) -> PluginPostUserTurnReturn: ...
+
+
+@dataclass(frozen=True)
+class PluginContributions:
+    commands: dict[str, PluginCommandActionSpec]
+    post_user_turn: dict[str, PluginPostUserTurnSpec]
 
 
 @dataclass(frozen=True)

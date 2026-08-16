@@ -34,7 +34,7 @@ from fast_agent.agents.workflow.iterative_planner import ITERATIVE_PLAN_SYSTEM_P
 from fast_agent.agents.workflow.router_agent import (
     ROUTING_SYSTEM_INSTRUCTION,
 )
-from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, SMART_AGENT_INSTRUCTION
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.function_tool_support import (
     custom_class_supports_function_tools,
@@ -203,6 +203,9 @@ def _agent_config_from_decorator(
     save_trajectory: bool,
     human_input: bool,
     default: bool,
+    subagents: bool | None,
+    subagent_model: str | None,
+    harness_tools: bool,
     shell: bool,
     cwd: Path | None,
     request_params: RequestParams | None,
@@ -221,6 +224,9 @@ def _agent_config_from_decorator(
         save_trajectory=save_trajectory,
         human_input=human_input,
         default=default,
+        subagents=subagents,
+        subagent_model=subagent_model,
+        harness_tools=harness_tools,
         shell=shell,
         cwd=cwd,
         elicitation_handler=extra_kwargs.get("elicitation_handler"),
@@ -326,6 +332,9 @@ def _decorator_impl(
     shell: bool = False,
     cwd: Path | None = None,
     default: bool = False,
+    subagents: bool | None = None,
+    subagent_model: str | None = None,
+    harness_tools: bool = False,
     tools: dict[str, list[str]] | None = None,
     resources: dict[str, list[str]] | None = None,
     prompts: dict[str, list[str]] | None = None,
@@ -365,6 +374,9 @@ def _decorator_impl(
             shell=shell,
             cwd=cwd,
             default=default,
+            subagents=subagents,
+            subagent_model=subagent_model,
+            harness_tools=harness_tools,
             request_params=request_params,
             extra_kwargs=extra_kwargs,
         )
@@ -460,6 +472,9 @@ class DecoratorMixin:
         shell: bool = False,
         cwd: Path | None = None,
         default: bool = False,
+        subagents: bool | None = None,
+        subagent_model: str | None = None,
+        harness_tools: bool = False,
         elicitation_handler: ElicitationFnT | None = None,
         api_key: str | None = None,
         history_source: Any | None = None,
@@ -523,82 +538,9 @@ class DecoratorMixin:
                 shell=shell,
                 cwd=cwd,
                 default=default,
-                elicitation_handler=elicitation_handler,
-                tools=tools,
-                resources=resources,
-                prompts=prompts,
-                skills=skills,
-                function_tools=function_tools,
-                api_key=api_key,
-                agents_as_tools_options={
-                    "history_source": history_source,
-                    "history_merge_target": history_merge_target,
-                    "max_parallel": max_parallel,
-                    "child_timeout_sec": child_timeout_sec,
-                    "max_display_instances": max_display_instances,
-                },
-            ),
-        )
-
-    def smart(
-        self,
-        name: str = "default",
-        instruction_or_kwarg: str | Path | AnyUrl | None = None,
-        *,
-        instruction: str | Path | AnyUrl = SMART_AGENT_INSTRUCTION,
-        agents: list[str] | None = None,
-        servers: list[str] | None = None,
-        tools: dict[str, list[str]] | None = None,
-        resources: dict[str, list[str]] | None = None,
-        prompts: dict[str, list[str]] | None = None,
-        skills: SkillConfig = SKILLS_DEFAULT,
-        function_tools: FunctionToolsConfig = None,
-        model: str | None = None,
-        use_history: bool = True,
-        save_trajectory: bool = False,
-        request_params: RequestParams | None = None,
-        human_input: bool = False,
-        shell: bool = False,
-        cwd: Path | None = None,
-        default: bool = False,
-        elicitation_handler: ElicitationFnT | None = None,
-        api_key: str | None = None,
-        history_source: Any | None = None,
-        history_merge_target: Any | None = None,
-        max_parallel: int | None = None,
-        child_timeout_sec: int | None = None,
-        max_display_instances: int | None = None,
-    ) -> Callable[
-        [Callable[P, Coroutine[Any, Any, R]]],
-        DecoratedToolCapableAgentProtocol[P, R],
-    ]:
-        """Decorator to create and register a smart agent.
-
-        ``tools`` / ``resources`` / ``prompts`` filter MCP-discovered capabilities.
-        ``function_tools`` adds local Python tools exposed directly by the agent.
-        """
-        final_instruction_raw = (
-            instruction_or_kwarg if instruction_or_kwarg is not None else instruction
-        )
-        final_instruction = _resolve_instruction(final_instruction_raw)
-
-        return cast(
-            "Any",
-            _decorator_impl(
-                self,
-                AgentType.SMART,
-                name=name,
-                instruction=final_instruction,
-                child_agents=agents,
-                servers=servers,
-                model=model,
-                use_history=use_history,
-                save_trajectory=save_trajectory,
-                request_params=request_params,
-                human_input=human_input,
-                shell=shell,
-                cwd=cwd,
-                default=default,
+                subagents=subagents,
+                subagent_model=subagent_model,
+                harness_tools=harness_tools,
                 elicitation_handler=elicitation_handler,
                 tools=tools,
                 resources=resources,

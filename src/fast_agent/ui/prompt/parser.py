@@ -14,20 +14,22 @@ from fast_agent.commands.mcp_command_intents import (
 from fast_agent.commands.shared_command_intents import (
     MODEL_MANAGER_COMMAND_ACTIONS,
     HistoryActionIntent,
+    HistoryReviewAction,
     ModelCommandAction,
     SessionCommandIntent,
-    parse_agent_tool_intent,
-    parse_card_load_intent,
+    parse_agent_command_intent,
+    parse_card_command_intent,
     parse_current_agent_history_intent,
     parse_model_command_intent,
     parse_session_command_intent,
+    parse_subagents_command_intent,
 )
 from fast_agent.mcp.connect_targets import parse_connect_command_text
 from fast_agent.ui.command_payloads import (
     A2ACommand,
     AgentCommand,
     AttachCommand,
-    CardsCommand,
+    CardCommand,
     CheckCommand,
     ClearCommand,
     ClearSessionsCommand,
@@ -48,22 +50,24 @@ from fast_agent.ui.command_payloads import (
     ListPromptsCommand,
     ListSessionsCommand,
     ListToolsCommand,
-    LoadAgentCardCommand,
     LoadHistoryCommand,
     LoadPromptCommand,
+    McpAttachCommand,
     McpConnectCommand,
     McpDisconnectCommand,
     McpListCommand,
     McpReconnectCommand,
     ModelFastCommand,
+    ModelManagerCommand,
     ModelReasoningCommand,
-    ModelsCommand,
+    ModelStatusCommand,
     ModelSwitchCommand,
     ModelTaskBudgetCommand,
     ModelVerbosityCommand,
     ModelWebFetchCommand,
     ModelWebSearchCommand,
     ModelXSearchCommand,
+    PacksCommand,
     PinSessionCommand,
     PluginsCommand,
     ProcessCommand,
@@ -77,6 +81,7 @@ from fast_agent.ui.command_payloads import (
     ShowSystemCommand,
     ShowUsageCommand,
     SkillsCommand,
+    SubagentsCommand,
     SwitchAgentCommand,
     TitleSessionCommand,
     UnknownCommand,
@@ -91,11 +96,12 @@ type _ValueCommandFactory = Callable[[str | None], CommandPayload]
 type _ActionArgumentCommandFactory = Callable[[str, str | None], CommandPayload]
 type _HistoryTurnErrorFormatter = Callable[[str], str]
 type _NoArgumentCommandFactory = Callable[[], str | CommandPayload]
-type _RemainderCommandParser = Callable[[str], CommandPayload]
+type _RemainderCommandParser = Callable[[str], str | CommandPayload]
 type _PromptSubcommandParser = Callable[[str], CommandPayload]
 type _SlashAliasParser = Callable[[str], str | CommandPayload]
 
 _MODEL_VALUE_COMMAND_FACTORIES: dict[str, _ValueCommandFactory] = {
+    "status": lambda _value: ModelStatusCommand(),
     "reasoning": ModelReasoningCommand,
     "task_budget": ModelTaskBudgetCommand,
     "verbosity": ModelVerbosityCommand,
@@ -117,6 +123,7 @@ _SESSION_PAYLOAD_FACTORIES: dict[str, _ValueCommandFactory] = {
 }
 
 _MCP_SERVER_COMMAND_TYPES = {
+    "attach": McpAttachCommand,
     "disconnect": McpDisconnectCommand,
     "reconnect": McpReconnectCommand,
 }
@@ -141,8 +148,16 @@ def _parse_mcp_list_command(tokens: list[str], _remainder: str) -> CommandPayloa
     return McpListCommand()
 
 
+def _parse_mcp_status_command(tokens: list[str], _remainder: str) -> CommandPayload:
+    intent = parse_mcp_no_args_tokens(tokens, usage="Usage: /mcp status")
+    if intent.error:
+        return CommandError(intent.error)
+    return ShowMcpStatusCommand()
+
+
 _MCP_TOKEN_PARSERS: dict[str, _McpTokenParser] = {
     "list": _parse_mcp_list_command,
+    "status": _parse_mcp_status_command,
     **dict.fromkeys(_MCP_SERVER_COMMAND_TYPES, _parse_mcp_server_name_command),
 }
 
@@ -151,22 +166,29 @@ if set(_MCP_TOKEN_PARSERS) | {"connect"} != set(MCP_TOP_LEVEL_ACTIONS):
 
 _SLASH_ACTION_FACTORIES: dict[str, _ActionArgumentCommandFactory] = {
     "skills": SkillsCommand,
-    "cards": CardsCommand,
+    "packs": PacksCommand,
     "plugins": PluginsCommand,
 }
 
 _SIMPLE_SLASH_FACTORIES: dict[str, _NoArgumentCommandFactory] = {
-    "help": lambda: "HELP",
     "system": ShowSystemCommand,
     "usage": ShowUsageCommand,
     "markdown": ShowMarkdownCommand,
     "reload": ReloadAgentsCommand,
-    "mcpstatus": ShowMcpStatusCommand,
     "environment": EnvironmentCommand,
     "prompts": ListPromptsCommand,
     "exit": lambda: "EXIT",
     "stop": lambda: "STOP",
 }
+
+
+def _parse_help_command(remainder: str) -> str | CommandPayload:
+    topic = strip_casefold(remainder)
+    if not topic:
+        return "HELP"
+    if topic == "status":
+        return "HELP:STATUS"
+    return CommandError(message=f"Unexpected arguments for /help: {remainder}")
 
 
 def _parse_quoted_history_target(text: str) -> str | None:
@@ -225,16 +247,33 @@ def try_parse_hash_agent_command(text: str) -> HashAgentCommand | None:
     return parsed if isinstance(parsed, HashAgentCommand) else None
 
 
-def _parse_connect_command(remainder: str, *, usage: str) -> McpConnectCommand:
+def _parse_connect_command(
+    remainder: str,
+    *,
+    usage: str,
+    resolve_configured_name: bool = False,
+) -> McpConnectCommand:
     if not remainder:
-        return McpConnectCommand(request=None, error=usage)
+        return McpConnectCommand(
+            request=None,
+            error=usage,
+            resolve_configured_name=resolve_configured_name,
+        )
     try:
         return McpConnectCommand(
-            request=parse_connect_command_text(remainder),
+            request=parse_connect_command_text(
+                remainder,
+                resolve_configured_name=resolve_configured_name,
+            ),
             error=None,
+            resolve_configured_name=resolve_configured_name,
         )
     except ValueError as exc:
-        return McpConnectCommand(request=None, error=str(exc))
+        return McpConnectCommand(
+            request=None,
+            error=str(exc),
+            resolve_configured_name=resolve_configured_name,
+        )
 
 
 def _parse_attach_command(remainder: str) -> AttachCommand:
@@ -310,13 +349,15 @@ def _history_load_payload_from_intent(intent: HistoryActionIntent) -> LoadHistor
 
 
 def _history_review_payload_from_intent(
+    action: HistoryReviewAction,
     turn_index: int | None,
     turn_error: str | None,
 ) -> HistoryReviewCommand:
-    error = _history_turn_error_message("detail", turn_error)
+    error = _history_turn_error_message(action, turn_error)
     return HistoryReviewCommand(
         turn_index=None if error else turn_index,
         error=error,
+        action=action,
     )
 
 
@@ -353,6 +394,12 @@ _HISTORY_PAYLOAD_FACTORIES: dict[
     "save": lambda intent: SaveHistoryCommand(filename=intent.argument),
     "load": _history_load_payload_from_intent,
     "detail": lambda intent: _history_review_payload_from_intent(
+        "detail",
+        intent.turn_index,
+        intent.turn_error,
+    ),
+    "review": lambda intent: _history_review_payload_from_intent(
+        "review",
         intent.turn_index,
         intent.turn_error,
     ),
@@ -420,22 +467,21 @@ def _simple_session_payload_from_intent(
 
 
 def _parse_card_command(remainder: str) -> CommandPayload:
-    intent = parse_card_load_intent(remainder)
-    return LoadAgentCardCommand(
-        filename=intent.filename,
-        add_tool=intent.add_tool,
-        remove_tool=intent.remove_tool,
+    intent = parse_card_command_intent(remainder)
+    return CardCommand(
+        action="show" if intent.action == "unknown" else intent.action,
+        source=intent.source,
+        agent_name=intent.agent_name,
+        as_tool=intent.as_tool,
         error=intent.error,
     )
 
 
 def _parse_agent_command(remainder: str) -> CommandPayload:
-    intent = parse_agent_tool_intent(remainder, require_tool_agent=True)
+    intent = parse_agent_command_intent(remainder)
     return AgentCommand(
+        action="status" if intent.action == "unknown" else intent.action,
         agent_name=intent.agent_name,
-        add_tool=intent.add_tool,
-        remove_tool=intent.remove_tool,
-        dump=intent.dump,
         error=intent.error,
     )
 
@@ -451,7 +497,8 @@ def _parse_mcp_command(remainder: str) -> CommandPayload:
             sub_remainder,
             usage=(
                 "Usage: /mcp connect <target> [--name <server>] [--auth <token-value>] "
-                "[--timeout <seconds>] [--oauth|--no-oauth] [--reconnect|--no-reconnect]"
+                "[--timeout <seconds>] [--protocol auto|modern|legacy] "
+                "[--oauth|--no-oauth] [--reconnect|--no-reconnect]"
             ),
         )
 
@@ -482,8 +529,18 @@ def _mcp_invalid_arguments_payload(subcmd: str, message: str) -> CommandPayload:
 def _parse_connect_alias_command(remainder: str) -> McpConnectCommand:
     return _parse_connect_command(
         remainder,
-        usage="Usage: /connect <target>",
+        resolve_configured_name=True,
+        usage=(
+            "Usage: /connect <target> [--name <server>] [--auth <token-value>] "
+            "[--timeout <seconds>] [--protocol auto|modern|legacy] "
+            "[--oauth|--no-oauth] [--reconnect|--no-reconnect]"
+        ),
     )
+
+
+def _parse_subagents_command(remainder: str) -> SubagentsCommand:
+    intent = parse_subagents_command_intent(remainder)
+    return SubagentsCommand(action=intent.action, error=intent.error)
 
 
 def _single_token_or_raw_argument(remainder: str, tokens: list[str]) -> str:
@@ -535,7 +592,7 @@ def _parse_model_command(
     cmd_line: str,
     remainder: str,
     *,
-    default_action: ModelCommandAction = "reasoning",
+    default_action: ModelCommandAction = "status",
 ) -> CommandPayload:
     intent = parse_model_command_intent(remainder, default_action=default_action)
     if intent.error is not None:
@@ -544,37 +601,16 @@ def _parse_model_command(
     if factory is not None:
         return factory(intent.argument)
     if intent.action in MODEL_MANAGER_COMMAND_ACTIONS:
-        return ModelsCommand(
+        return ModelManagerCommand(
             action=intent.action,
             argument=intent.argument,
-            command_name="model",
         )
     return UnknownCommand(command=cmd_line)
-
-
-def _parse_models_command(remainder: str) -> CommandPayload:
-    intent = parse_model_command_intent(remainder, default_action="doctor")
-    if intent.error is not None:
-        return CommandError(message=f"Invalid /models arguments: {intent.error}")
-    if intent.action in MODEL_MANAGER_COMMAND_ACTIONS:
-        return ModelsCommand(
-            action=intent.action,
-            argument=intent.argument,
-            command_name="models",
-        )
-    invalid_action = intent.raw_subcommand or intent.action
-    return CommandError(
-        message=f"Invalid /models action '{invalid_action}'. Use /model for runtime model settings."
-    )
 
 
 def _parse_model_slash_command(remainder: str) -> CommandPayload:
     cmd_line = f"/model {remainder}".strip()
     return _parse_model_command(cmd_line, remainder)
-
-
-def _parse_models_slash_command(remainder: str) -> CommandPayload:
-    return _parse_models_command(remainder)
 
 
 def _parse_a2a_command(remainder: str) -> CommandPayload:
@@ -707,7 +743,15 @@ def _parse_slash_alias_command(
     return None
 
 
+def _parse_tool_command(remainder: str) -> CommandPayload:
+    tool_name = strip_to_none(remainder)
+    if tool_name is None:
+        return CommandError(message="Tool name required: /tool <tool-name>")
+    return ListToolsCommand(argument=tool_name)
+
+
 _COMMAND_PARSERS: dict[str, _RemainderCommandParser] = {
+    "help": _parse_help_command,
     "a2a": _parse_a2a_command,
     "tasks": lambda remainder: A2ACommand(action="tasks", argument=remainder or None),
     "compact": _parse_compact_command,
@@ -715,14 +759,15 @@ _COMMAND_PARSERS: dict[str, _RemainderCommandParser] = {
     "session": _parse_session_command,
     "card": _parse_card_command,
     "agent": _parse_agent_command,
+    "subagents": _parse_subagents_command,
     "mcp": _parse_mcp_command,
     "connect": _parse_connect_alias_command,
     "prompt": _parse_prompt_command,
     "model": _parse_model_slash_command,
-    "models": _parse_models_slash_command,
     "attach": _parse_attach_command,
     "check": lambda remainder: CheckCommand(argument=remainder or None),
     "commands": lambda remainder: CommandsCommand(argument=remainder or None),
+    "tool": _parse_tool_command,
     "tools": lambda remainder: ListToolsCommand(argument=strip_to_none(remainder)),
     "process": _parse_process_command,
     "processes": _parse_process_command,

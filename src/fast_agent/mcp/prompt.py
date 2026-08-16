@@ -7,7 +7,7 @@ This implementation is the canonical prompt helper for fast-agent runtime code.
 from pathlib import Path
 
 from mcp import CallToolRequest
-from mcp.types import ContentBlock, PromptMessage, ReadResourceResult, ResourceContents
+from mcp_types import ContentBlock, PromptMessage, ReadResourceResult, ResourceContents
 
 from fast_agent.mcp.mcp_content import Assistant, MCPPrompt, User
 from fast_agent.mcp.message_roles import MessageRole

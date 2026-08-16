@@ -2,7 +2,7 @@ from typing import Literal
 
 import pytest
 from mcp import Tool
-from mcp.types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent
 from pydantic import BaseModel
 
 from fast_agent.llm.internal.passthrough import PassthroughLLM
@@ -253,7 +253,7 @@ async def test_generate_strips_tools_for_deferred_structured_final_turn():
     tool = Tool(
         name="lookup",
         description="Lookup data.",
-        inputSchema={"type": "object", "properties": {}},
+        input_schema={"type": "object", "properties": {}},
     )
     llm = _GeneratePrepareHarness()
     messages = [
@@ -290,7 +290,7 @@ async def test_generate_keeps_tools_for_deferred_first_turn():
     tool = Tool(
         name="lookup",
         description="Lookup data.",
-        inputSchema={"type": "object", "properties": {}},
+        input_schema={"type": "object", "properties": {}},
     )
     llm = _GeneratePrepareHarness()
 
@@ -313,7 +313,7 @@ async def test_generate_strips_tools_for_no_tools_structured_policy():
     tool = Tool(
         name="lookup",
         description="Lookup data.",
-        inputSchema={"type": "object", "properties": {}},
+        input_schema={"type": "object", "properties": {}},
     )
     llm = _GeneratePrepareHarness()
 
@@ -352,7 +352,7 @@ def test_openai_prepare_structured_request_defers_with_tools_until_tool_result()
     tool = Tool(
         name="lookup",
         description="Lookup data.",
-        inputSchema={"type": "object", "properties": {}},
+        input_schema={"type": "object", "properties": {}},
     )
     llm = OpenAILLM(model="gpt-4.1")
     messages = [Prompt.user("call the tool")]
@@ -379,7 +379,7 @@ def test_structured_tool_policy_auto_uses_provider_default_and_allows_override()
     tool = Tool(
         name="lookup",
         description="Lookup data.",
-        inputSchema={"type": "object", "properties": {}},
+        input_schema={"type": "object", "properties": {}},
     )
     llm = _DefaultDeferOpenAIHarness(model="gpt-4.1")
     messages = [Prompt.user("call the tool")]
@@ -514,7 +514,7 @@ def test_openai_compatible_prepare_structured_request_defers_until_tool_result()
     tool = Tool(
         name="lookup",
         description="Lookup data.",
-        inputSchema={"type": "object", "properties": {}},
+        input_schema={"type": "object", "properties": {}},
     )
     llm = _CompatibleStructuredHarness()
     original = Prompt.user("call the tool")

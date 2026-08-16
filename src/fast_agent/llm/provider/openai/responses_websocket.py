@@ -7,12 +7,14 @@ import time
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
-from typing import Any, Protocol, cast
-from urllib.parse import urlparse, urlunparse
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
+from urllib.parse import parse_qs, urlparse, urlunparse
 
-import aiohttp
-from aiohttp import WSMsgType, WSServerHandshakeError
+from aiohttp import WSMsgType
+from openai import AsyncOpenAI
+from websockets.exceptions import ConnectionClosed, InvalidStatus
 
+from fast_agent.core.shutdown import write_shutdown_trace
 from fast_agent.llm.provider.openai.responses_events import (
     is_responses_failure_event,
     is_responses_terminal_event,
@@ -21,11 +23,19 @@ from fast_agent.llm.provider.openai.tool_event_helpers import (
     item_type_is_responses_function_tool_call,
 )
 from fast_agent.utils.numeric import int_or_none
-from fast_agent.utils.text import strip_str_to_none
+from fast_agent.utils.text import collapse_whitespace, strip_str_to_none
+
+if TYPE_CHECKING:
+    from types import TracebackType
+
+    from openai.types.websocket_connection_options import WebSocketConnectionOptions
 
 RESPONSES_WEBSOCKET_BETA_HEADER = "responses_websockets=2026-02-06"
 RESPONSES_WEBSOCKET_BETA_HEADER_NAME = "OpenAI-Beta"
 RESPONSES_CREATE_EVENT_TYPE = "response.create"
+RESPONSES_WEBSOCKET_MAX_MESSAGE_BYTES = 4 * 1024 * 1024
+RESPONSES_WEBSOCKET_CLOSE_TIMEOUT_SECONDS = 0.25
+RESPONSES_WEBSOCKET_ERROR_DETAIL_LENGTH = 1000
 _STREAM_START_EVENT_TYPES = {
     "response.output_item.added",
     "response.function_call_arguments.delta",
@@ -36,6 +46,19 @@ _STREAM_START_EVENT_TYPES = {
     "response.output_text.delta",
     "response.text.delta",
 }
+
+
+class ResponsesWebSocketKeepaliveOptions(TypedDict, total=False):
+    """Overrides for client-generated websocket Ping frames."""
+
+    ping_interval: float | None
+    ping_timeout: float | None
+
+
+class _SdkWebSocketConnectionOptions(ResponsesWebSocketKeepaliveOptions, total=False):
+    close_timeout: float | None
+    max_size: int | None
+    open_timeout: float | None
 
 
 class ResponsesWebSocketError(RuntimeError):
@@ -113,6 +136,38 @@ def _non_empty_string(value: Any) -> str | None:
     return strip_str_to_none(value)
 
 
+def _websocket_handshake_error_detail(body: bytes) -> str:
+    text = body.decode("utf-8", errors="replace")
+    try:
+        payload = json.loads(text)
+    except (json.JSONDecodeError, RecursionError):
+        payload = None
+
+    values: list[str] = []
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, str):
+            values.append(error)
+        elif isinstance(error, dict):
+            values.extend(
+                value
+                for key in ("code", "message", "detail")
+                if isinstance(value := error.get(key), str)
+            )
+        values.extend(
+            value
+            for key in ("error_description", "message", "detail")
+            if isinstance(value := payload.get(key), str)
+        )
+
+    normalized_values = (collapse_whitespace(value) for value in values)
+    detail = ": ".join(dict.fromkeys(value for value in normalized_values if value))
+
+    if len(detail) > RESPONSES_WEBSOCKET_ERROR_DETAIL_LENGTH:
+        return f"{detail[: RESPONSES_WEBSOCKET_ERROR_DETAIL_LENGTH - 1]}…"
+    return detail
+
+
 def resolve_responses_ws_url(base_url: str) -> str:
     """Build a WebSocket URL matching the Responses endpoint path."""
 
@@ -161,6 +216,7 @@ def build_ws_headers(
 
 class WebSocketLike(Protocol):
     closed: bool
+    close_code: int | None
 
     async def receive(self, timeout: float | None = None) -> Any: ...
 
@@ -175,6 +231,107 @@ class ClientSessionLike(Protocol):
     closed: bool
 
     async def close(self) -> Any: ...
+
+
+class ResponsesConnectionLike(Protocol):
+    async def recv_bytes(self) -> bytes: ...
+
+    async def send_raw(self, data: bytes | str) -> None: ...
+
+    async def close(self, *, code: int = 1000, reason: str = "") -> None: ...
+
+
+class ResponsesConnectionManagerLike(Protocol):
+    async def enter(self) -> ResponsesConnectionLike: ...
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None: ...
+
+
+@dataclass(frozen=True)
+class _WebSocketMessage:
+    type: WSMsgType
+    data: Any
+    extra: Any = None
+
+
+class _SdkWebSocket:
+    def __init__(self, connection: ResponsesConnectionLike) -> None:
+        self._connection = connection
+        self.closed = False
+        self.close_code: int | None = None
+        self._exception: BaseException | None = None
+
+    async def receive(self, timeout: float | None = None) -> _WebSocketMessage:
+        try:
+            if timeout is None:
+                data = await self._connection.recv_bytes()
+            else:
+                async with asyncio.timeout(timeout):
+                    data = await self._connection.recv_bytes()
+            return _WebSocketMessage(type=WSMsgType.BINARY, data=data)
+        except ConnectionClosed as exc:
+            self._record_closed(exc)
+            close = exc.rcvd or exc.sent
+            return _WebSocketMessage(
+                type=WSMsgType.CLOSED,
+                data=close.code if close else None,
+                extra=close.reason if close else None,
+            )
+        except Exception as exc:
+            self._exception = exc
+            return _WebSocketMessage(type=WSMsgType.ERROR, data=None)
+
+    async def send_str(self, payload: str, compress: int | None = None) -> None:
+        del compress
+        try:
+            await self._connection.send_raw(payload)
+        except ConnectionClosed as exc:
+            self._record_closed(exc)
+            raise
+        except Exception as exc:
+            self._exception = exc
+            raise
+
+    async def close(self) -> None:
+        if self.closed:
+            return
+        await self._connection.close()
+        self.closed = True
+        self.close_code = 1000
+
+    def exception(self) -> BaseException | None:
+        return self._exception
+
+    def _record_closed(self, exc: ConnectionClosed) -> None:
+        self.closed = True
+        self._exception = exc
+        close = exc.rcvd or exc.sent
+        self.close_code = close.code if close else None
+
+
+class _SdkClientSession:
+    def __init__(
+        self,
+        client: AsyncOpenAI,
+        manager: ResponsesConnectionManagerLike,
+    ) -> None:
+        self._client = client
+        self._manager = manager
+        self.closed = False
+
+    async def close(self) -> None:
+        if self.closed:
+            return
+        try:
+            await self._manager.__aexit__(None, None, None)
+        finally:
+            await self._client.close()
+            self.closed = True
 
 
 @dataclass(frozen=True)
@@ -322,6 +479,7 @@ class ManagedWebSocketConnection:
     session: ClientSessionLike
     websocket: WebSocketLike
     busy: bool = False
+    created_monotonic: float | None = None
     last_used_monotonic: float = 0.0
     session_state: WebSocketSessionState = field(default_factory=WebSocketSessionState)
 
@@ -331,39 +489,89 @@ async def connect_websocket(
     url: str,
     headers: Mapping[str, str],
     timeout_seconds: float | None = None,
+    keepalive_options: ResponsesWebSocketKeepaliveOptions | None = None,
 ) -> ManagedWebSocketConnection:
-    # Stream idleness is enforced while iterating websocket events, so avoid a
-    # second websocket/session timeout here. A separate wall-clock timeout would
-    # race the idle timeout logic and prematurely kill healthy long-running
-    # streams that are still producing events.
-    session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None))
+    websocket_base_url, extra_query = _responses_websocket_connection_parts(url)
+    api_key = _authorization_token(headers) or "unused"
+    client = AsyncOpenAI(
+        api_key=api_key,
+        websocket_base_url=websocket_base_url,
+    )
+    websocket_options: _SdkWebSocketConnectionOptions = {
+        # Preserve aiohttp's previous 4 MiB incoming-message limit.
+        "max_size": RESPONSES_WEBSOCKET_MAX_MESSAGE_BYTES,
+        # The outer fast-agent timeout remains authoritative.
+        "open_timeout": None,
+        # Allow a graceful close without letting a peer consume the TUI's
+        # two-second total shutdown budget.
+        "close_timeout": RESPONSES_WEBSOCKET_CLOSE_TIMEOUT_SECONDS,
+    }
+    if keepalive_options is not None:
+        if "ping_interval" in keepalive_options:
+            websocket_options["ping_interval"] = keepalive_options["ping_interval"]
+        if "ping_timeout" in keepalive_options:
+            websocket_options["ping_timeout"] = keepalive_options["ping_timeout"]
+    manager = client.responses.connect(
+        extra_query=extra_query,
+        extra_headers=dict(headers),
+        # The SDK forwards these options to websockets.connect but its generated
+        # TypedDict doesn't yet include open_timeout or Ping keepalive options.
+        websocket_connection_options=cast("WebSocketConnectionOptions", websocket_options),
+        # Keep SDK reconnect disabled. Fast-agent owns response-aware replay and
+        # resets connection-local continuation state before retrying.
+        max_retries=0,
+    )
     try:
         if timeout_seconds is None:
-            websocket = await session.ws_connect(url, headers=dict(headers), autoping=True)
+            connection = await manager.enter()
         else:
             async with asyncio.timeout(timeout_seconds):
-                websocket = await session.ws_connect(url, headers=dict(headers), autoping=True)
-    except WSServerHandshakeError as exc:
-        await session.close()
+                connection = await manager.enter()
+    except InvalidStatus as exc:
+        await asyncio.shield(_close_connection_attempt(client, manager))
+        message = str(exc)
+        detail = _websocket_handshake_error_detail(exc.response.body)
+        if detail:
+            message = f"{message}: {detail}"
         raise ResponsesWebSocketError(
-            str(exc),
-            status=exc.status,
+            message,
+            status=exc.response.status_code,
         ) from exc
-    except Exception:
-        await session.close()
+    except BaseException:
+        await asyncio.shield(_close_connection_attempt(client, manager))
         raise
+
+    session = _SdkClientSession(client, manager)
     return ManagedWebSocketConnection(
-        session=cast("ClientSessionLike", session),
-        websocket=cast("WebSocketLike", websocket),
+        session=session,
+        websocket=_SdkWebSocket(connection),
     )
 
 
 async def close_websocket_connection(connection: ManagedWebSocketConnection) -> None:
-    if not connection.websocket.closed:
-        with suppress(Exception):
-            await connection.websocket.close()
-    if not connection.session.closed:
-        await connection.session.close()
+    started_at = time.monotonic()
+    websocket_outcome = "already_closed" if connection.websocket.closed else "completed"
+    session_outcome = "already_closed" if connection.session.closed else "completed"
+    write_shutdown_trace("shutdown.websocket.start")
+    try:
+        if not connection.websocket.closed:
+            try:
+                await connection.websocket.close()
+            except Exception:
+                websocket_outcome = "failed"
+        if not connection.session.closed:
+            try:
+                await connection.session.close()
+            except BaseException:
+                session_outcome = "failed"
+                raise
+    finally:
+        write_shutdown_trace(
+            "shutdown.websocket.end",
+            elapsed_ms=round((time.monotonic() - started_at) * 1000, 3),
+            websocket_outcome=websocket_outcome,
+            session_outcome=session_outcome,
+        )
 
 
 async def send_response_request(
@@ -375,6 +583,38 @@ async def send_response_request(
     payload = _copy_arguments(planned_request.arguments)
     payload["type"] = planned_request.event_type
     await websocket.send_str(json.dumps(payload))
+
+
+async def _close_connection_attempt(
+    client: AsyncOpenAI,
+    manager: ResponsesConnectionManagerLike,
+) -> None:
+    with suppress(Exception):
+        await manager.__aexit__(None, None, None)
+    with suppress(Exception):
+        await client.close()
+
+
+def _responses_websocket_connection_parts(url: str) -> tuple[str, dict[str, object]]:
+    parsed = urlparse(url)
+    path = (parsed.path or "").rstrip("/")
+    if path.endswith("/responses"):
+        path = path[: -len("/responses")]
+    base_url = urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
+    query: dict[str, object] = {}
+    for key, values in parse_qs(parsed.query, keep_blank_values=True).items():
+        query[key] = values[0] if len(values) == 1 else values
+    return base_url, query
+
+
+def _authorization_token(headers: Mapping[str, str]) -> str | None:
+    authorization = headers.get("Authorization")
+    if authorization is None:
+        return None
+    scheme, separator, token = authorization.partition(" ")
+    if separator and scheme.lower() == "bearer" and token:
+        return token
+    return None
 
 
 def _copy_arguments(arguments: Mapping[str, Any]) -> dict[str, Any]:
@@ -553,23 +793,53 @@ class WebSocketResponsesStream:
         if close_code is None:
             close_code = getattr(self._websocket, "close_code", None)
         close_reason = getattr(message, "extra", None)
-        diagnostics = self._close_diagnostics(close_code, close_reason)
+        diagnostics = self._close_diagnostics(
+            close_code,
+            close_reason,
+            self._websocket.exception(),
+        )
         detail = "; ".join(diagnostics)
         raise ResponsesWebSocketError(
             "WebSocket stream closed before completion event" + (f" ({detail})" if detail else ""),
             stream_started=self._stream_started,
         )
 
-    def _close_diagnostics(self, close_code: Any, close_reason: Any) -> list[str]:
+    def _close_diagnostics(
+        self,
+        close_code: Any,
+        close_reason: Any,
+        websocket_error: BaseException | None,
+    ) -> list[str]:
         diagnostics = []
-        if close_code is not None:
-            diagnostics.append(f"close_code={close_code}")
-        if close_reason:
-            diagnostics.append(f"reason={close_reason}")
+        received_close_code: int | None = None
+        if isinstance(websocket_error, ConnectionClosed):
+            received = websocket_error.rcvd
+            sent = websocket_error.sent
+            if received is not None:
+                received_close_code = received.code
+                diagnostics.append(f"received_close_code={received.code}")
+                if received.reason:
+                    diagnostics.append(f"received_close_reason={received.reason}")
+            if sent is not None:
+                diagnostics.append(f"sent_close_code={sent.code}")
+                if sent.reason:
+                    diagnostics.append(f"sent_close_reason={sent.reason}")
+            if websocket_error.rcvd_then_sent is not None:
+                order = (
+                    "received_then_sent" if websocket_error.rcvd_then_sent else "sent_then_received"
+                )
+                diagnostics.append(f"close_order={order}")
+        else:
+            if close_code is not None:
+                diagnostics.append(f"close_code={close_code}")
+            if close_reason:
+                diagnostics.append(f"reason={close_reason}")
         diagnostics.append(f"events_seen={self._events_seen}")
         if self._last_frame_preview:
             diagnostics.append(f"last_frame={self._last_frame_preview}")
-        if close_code == 1008:
+        if received_close_code == 1008 or (
+            not isinstance(websocket_error, ConnectionClosed) and close_code == 1008
+        ):
             diagnostics.append(
                 "hint=policy_violation (account/feature may not permit Responses websocket beta)"
             )
@@ -744,11 +1014,13 @@ class WebSocketConnectionManager:
         self,
         *,
         idle_timeout_seconds: float = 300.0,
+        max_age_seconds: float = 0.0,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._mutex = asyncio.Lock()
         self._reusable_connection: ManagedWebSocketConnection | None = None
         self._idle_timeout_seconds = idle_timeout_seconds
+        self._max_age_seconds = max_age_seconds
         self._clock = clock
 
     async def acquire(
@@ -764,6 +1036,7 @@ class WebSocketConnectionManager:
 
             if reusable and reusable.busy and self._is_open(reusable):
                 temp = await create_connection()
+                self._mark_created(temp)
                 temp.busy = True
                 return temp, False
 
@@ -772,6 +1045,7 @@ class WebSocketConnectionManager:
                 self._reusable_connection = None
 
             fresh = await create_connection()
+            self._mark_created(fresh)
             fresh.busy = True
             self._reusable_connection = fresh
             return fresh, True
@@ -785,7 +1059,7 @@ class WebSocketConnectionManager:
     ) -> None:
         async with self._mutex:
             if reusable and self._reusable_connection is connection:
-                if keep and self._is_open(connection):
+                if keep and self._is_open(connection) and not self._is_too_old(connection):
                     connection.busy = False
                     connection.last_used_monotonic = self._clock()
                     return
@@ -808,13 +1082,23 @@ class WebSocketConnectionManager:
             return
         if reusable.busy:
             return
-        if self._idle_timeout_seconds <= 0:
-            return
-        elapsed = self._clock() - reusable.last_used_monotonic
-        if elapsed < self._idle_timeout_seconds:
+        idle_expired = (
+            self._idle_timeout_seconds > 0
+            and self._clock() - reusable.last_used_monotonic >= self._idle_timeout_seconds
+        )
+        if not idle_expired and not self._is_too_old(reusable):
             return
         await close_websocket_connection(reusable)
         self._reusable_connection = None
+
+    def _mark_created(self, connection: ManagedWebSocketConnection) -> None:
+        if connection.created_monotonic is None:
+            connection.created_monotonic = self._clock()
+
+    def _is_too_old(self, connection: ManagedWebSocketConnection) -> bool:
+        if self._max_age_seconds <= 0 or connection.created_monotonic is None:
+            return False
+        return self._clock() - connection.created_monotonic >= self._max_age_seconds
 
     @staticmethod
     def _is_open(connection: ManagedWebSocketConnection) -> bool:

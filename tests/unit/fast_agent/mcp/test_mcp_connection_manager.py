@@ -1,29 +1,73 @@
 import asyncio
 import logging
 import time
-from typing import Any, cast
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, cast
 
+import httpx2
 import pytest
-from anyio import create_task_group
-from mcp import ClientSession
+from anyio import CancelScope
+from mcp.client.streamable_http import streamable_http_client
+from mcp.client.subscriptions import (
+    ResourcesListChanged,
+    ResourceUpdated,
+    SubscriptionLost,
+)
+from mcp.shared.exceptions import MCPError
+from mcp_types import DiscoverResult, SubscriptionFilter
 
-from fast_agent.config import MCPServerAuthSettings, MCPServerSettings
+from fast_agent.config import MCPServerAuthSettings, MCPServerSettings, Settings
+from fast_agent.context import Context
 from fast_agent.core.exceptions import ServerInitializationError
 from fast_agent.mcp.auth.context import request_bearer_token
-from fast_agent.mcp.interfaces import ClientSessionFactory
+from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
+from fast_agent.mcp.client_gateway import (
+    _managed_http_transport_context,
+    _prepare_headers_and_auth,
+)
+from fast_agent.mcp.client_gateway import (
+    is_http_auth_challenge as _is_http_auth_challenge_error,
+)
 from fast_agent.mcp.mcp_connection_manager import (
     MCPConnectionManager,
     ServerConnection,
     _format_oauth_registration_404_details,
-    _is_http_auth_challenge_error,
     _is_oauth_registration_404_message,
     _is_oauth_timeout_message,
-    _managed_http_transport_context,
-    _prepare_headers_and_auth,
+    _run_subscription_loop,
     _server_lifecycle_task,
     _wait_for_initialized_with_startup_budget,
+    _wait_for_shutdown_with_optional_ping,
 )
 from fast_agent.mcp.oauth_client import OAuthEventHandler
+from fast_agent.mcp.transport_tracking import TransportChannelMetrics
+
+if TYPE_CHECKING:
+    from fast_agent.mcp.client_connection import MCPClientConnection
+
+
+@pytest.mark.asyncio
+async def test_http_response_hook_captures_session_id_and_auth_challenge() -> None:
+    config = MCPServerSettings(name="test", transport="http", url="https://example.com/mcp")
+    connection = ServerConnection(
+        "test",
+        config,
+        cast(
+            "Callable[[], MCPClientConnection]",
+            lambda: streamable_http_client(config.url or ""),
+        ),
+        MCPClientCallbackRuntime(server_name="test", server_config=config),
+    )
+    response = httpx2.Response(
+        401,
+        headers={"Mcp-Session-Id": "session-123"},
+        request=httpx2.Request("POST", config.url or ""),
+    )
+
+    await connection.capture_http_response(response)
+
+    assert connection._auth_challenge_received is True
+    assert connection.session_id == "session-123"
 
 
 def test_prepare_headers_respects_user_authorization(monkeypatch):
@@ -38,7 +82,7 @@ def test_prepare_headers_respects_user_authorization(monkeypatch):
         raise AssertionError("OAuth provider should not be built when Authorization header is set.")
 
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.build_oauth_provider",
+        "fast_agent.mcp.client_gateway.build_oauth_provider",
         _builder,
     )
 
@@ -62,7 +106,7 @@ def test_prepare_headers_respects_case_insensitive_authorization(monkeypatch):
         raise AssertionError("OAuth provider should not be built when authorization header is set.")
 
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.build_oauth_provider",
+        "fast_agent.mcp.client_gateway.build_oauth_provider",
         _builder,
     )
 
@@ -89,7 +133,7 @@ def test_prepare_headers_invokes_oauth_when_no_auth_headers(monkeypatch):
         return sentinel
 
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.build_oauth_provider",
+        "fast_agent.mcp.client_gateway.build_oauth_provider",
         _builder,
     )
 
@@ -112,7 +156,7 @@ def test_prepare_headers_auto_mode_does_not_build_oauth(monkeypatch):
         raise AssertionError("OAuth provider should not be built in auto mode.")
 
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.build_oauth_provider",
+        "fast_agent.mcp.client_gateway.build_oauth_provider",
         _builder,
     )
 
@@ -247,24 +291,11 @@ async def test_server_lifecycle_sets_initialized_on_startup_failure():
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-    class DummySession:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return None
-
-        async def initialize(self):
-            raise RuntimeError("boom")
-
-    def session_factory(*_args, **_kwargs):
-        return DummySession()
-
     server_conn = ServerConnection(
         server_name="test-server",
         server_config=MCPServerSettings(name="test-server", url="http://example.com/mcp"),
-        transport_context_factory=DummyTransportContext,
-        client_session_factory=session_factory,
+        client_connection_factory=cast("Callable[[], MCPClientConnection]", DummyTransportContext),
+        callback_runtime=_callback_runtime(),
     )
 
     lifecycle_task = asyncio.create_task(_server_lifecycle_task(server_conn))
@@ -284,29 +315,59 @@ def _make_server_connection() -> ServerConnection:
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-    class DummySession:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return None
-
-        async def initialize(self):
-            return None
-
-    def session_factory(*_args, **_kwargs):
-        return DummySession()
-
     return ServerConnection(
         server_name="test-server",
         server_config=MCPServerSettings(name="test-server", url="http://example.com/mcp"),
-        transport_context_factory=DummyTransportContext,
-        client_session_factory=session_factory,
+        client_connection_factory=cast("Callable[[], MCPClientConnection]", DummyTransportContext),
+        callback_runtime=_callback_runtime(),
     )
 
 
-def _dummy_client_session_factory(*_args: Any, **_kwargs: Any) -> ClientSession:
-    return cast("ClientSession", object())
+def _callback_runtime() -> MCPClientCallbackRuntime:
+    return MCPClientCallbackRuntime(
+        server_name="test-server",
+        server_config=MCPServerSettings(name="test-server", url="http://example.com/mcp"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_subscription_limit_error_is_not_retried() -> None:
+    class RejectedSubscription:
+        async def __aenter__(self):
+            raise MCPError(-32000, "Subscription limit reached")
+
+        async def __aexit__(self, exc_type, exc, tb):
+            del exc_type, exc, tb
+            return False
+
+    class SubscriptionLimitClient:
+        discover_result = DiscoverResult.model_validate(
+            {
+                "supportedVersions": ["2026-07-28"],
+                "capabilities": {"tools": {"listChanged": True}},
+            }
+        )
+
+        def __init__(self) -> None:
+            self.listen_calls = 0
+
+        def listen(self, **kwargs):
+            del kwargs
+            self.listen_calls += 1
+            return RejectedSubscription()
+
+    server_conn = _make_server_connection()
+    client = SubscriptionLimitClient()
+    server_conn.client = cast("Any", client)
+    server_conn.transport_metrics = TransportChannelMetrics()
+
+    await asyncio.wait_for(_run_subscription_loop(server_conn), timeout=0.1)
+
+    assert client.listen_calls == 1
+    assert server_conn.subscription_state == "error"
+    listen = server_conn.transport_metrics.snapshot().listen
+    assert listen is not None
+    assert listen.last_error == "Subscription limit reached"
 
 
 @pytest.mark.asyncio
@@ -368,11 +429,82 @@ async def test_startup_timeout_budget_resumes_after_oauth_wait_ends() -> None:
 
 
 class _DummyRegistry:
+    active_home = None
+    no_home = False
+
     def get_server_config(self, _server_name: str):
         return MCPServerSettings(name="demo", url="http://example.com/mcp")
 
 
+@pytest.mark.parametrize(
+    ("with_user_oauth_handler", "expected_console_output"),
+    [(False, True), (True, False)],
+)
+def test_managed_connection_preserves_oauth_console_output_without_user_handler(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    with_user_oauth_handler: bool,
+    expected_console_output: bool,
+) -> None:
+    manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
+    config = MCPServerSettings(name="demo", url="http://example.com/mcp")
+    server_conn = _make_server_connection()
+    captured_hooks: list[Any] = []
+    sentinel = object()
+
+    def _fake_create_client_connection(*_args, hooks, **_kwargs):
+        captured_hooks.append(hooks)
+        return sentinel
+
+    async def _user_oauth_handler(_event) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.mcp_connection_manager.create_client_connection",
+        _fake_create_client_connection,
+    )
+    factory = manager._client_connection_factory(
+        [server_conn],
+        server_name="demo",
+        config=config,
+        oauth_mode="auto",
+        oauth_active=True,
+        oauth_event_handler=_user_oauth_handler if with_user_oauth_handler else None,
+        allow_oauth_paste_fallback=True,
+        transport_metrics=None,
+    )
+
+    assert factory() is sentinel
+    assert len(captured_hooks) == 1
+    assert captured_hooks[0].oauth_event_handler is not None
+    assert captured_hooks[0].emit_oauth_console_output is expected_console_output
+
+
+def test_disabled_mcp_diagnostics_skips_timeline_metrics_and_ping_history() -> None:
+    settings = Settings.model_validate({"mcp": {"diagnostics": {"enabled": False}}})
+    manager = MCPConnectionManager(
+        server_registry=cast("Any", _DummyRegistry()),
+        context=Context(config=settings),
+    )
+    config = MCPServerSettings(name="demo", url="http://example.com/mcp")
+
+    assert manager._launch_transport_metrics(config) is None
+
+    connection = ServerConnection(
+        server_name="demo",
+        server_config=config,
+        client_connection_factory=lambda: cast("Any", object()),
+        callback_runtime=_callback_runtime(),
+    )
+    connection.record_ping_event("ping")
+
+    assert connection.build_ping_activity_buckets(30, 2) == ["none", "none"]
+
+
 class _DummyStdioRegistry:
+    active_home = None
+    no_home = False
+
     def __init__(self, config: MCPServerSettings) -> None:
         self._config = config
 
@@ -386,19 +518,27 @@ async def test_get_server_cancellation_cleans_up_pending_connection(
 ) -> None:
     manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
     server_conn = _make_server_connection()
+    lifecycle_complete = asyncio.Event()
+
+    async def _run_lifecycle() -> None:
+        await server_conn.wait_for_shutdown_request()
+        lifecycle_complete.set()
+        server_conn._lifecycle_complete_event.set()
 
     async def _fake_launch_server(
         *,
         server_name: str,
-        client_session_factory: ClientSessionFactory,
+        server_config: MCPServerSettings | None,
+        callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool | None = None,
         oauth_event_handler: OAuthEventHandler | None = None,
         allow_oauth_paste_fallback: bool = True,
     ) -> ServerConnection:
-        del server_name, client_session_factory, startup_timeout_seconds
+        del server_name, server_config, callback_runtime, startup_timeout_seconds
         del trigger_oauth, oauth_event_handler, allow_oauth_paste_fallback
         manager.running_servers["demo"] = server_conn
+        asyncio.create_task(_run_lifecycle())
         return server_conn
 
     monkeypatch.setattr(manager, "launch_server", _fake_launch_server)
@@ -406,7 +546,7 @@ async def test_get_server_cancellation_cleans_up_pending_connection(
     task = asyncio.create_task(
         manager.get_server(
             "demo",
-            client_session_factory=_dummy_client_session_factory,
+            callback_runtime=_callback_runtime(),
             startup_timeout_seconds=10.0,
         )
     )
@@ -420,6 +560,7 @@ async def test_get_server_cancellation_cleans_up_pending_connection(
     assert "demo" not in manager.running_servers
     assert server_conn._shutdown_event.is_set()
     assert server_conn._oauth_abort_event.is_set()
+    assert lifecycle_complete.is_set()
 
 
 @pytest.mark.asyncio
@@ -449,20 +590,23 @@ async def test_get_server_startup_timeout_cancels_blocked_lifecycle(
             transport="http",
             url="http://127.0.0.1:9/mcp",
         ),
-        transport_context_factory=HangingTransportContext,
-        client_session_factory=_dummy_client_session_factory,
+        client_connection_factory=cast(
+            "Callable[[], MCPClientConnection]", HangingTransportContext
+        ),
+        callback_runtime=_callback_runtime(),
     )
 
     async def _fake_launch_server(
         *,
         server_name: str,
-        client_session_factory: ClientSessionFactory,
+        server_config: MCPServerSettings | None,
+        callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool | None = None,
         oauth_event_handler: OAuthEventHandler | None = None,
         allow_oauth_paste_fallback: bool = True,
     ) -> ServerConnection:
-        del server_name, client_session_factory, startup_timeout_seconds
+        del server_name, server_config, callback_runtime, startup_timeout_seconds
         del trigger_oauth, oauth_event_handler, allow_oauth_paste_fallback
         manager.running_servers["demo"] = server_conn
         asyncio.create_task(_server_lifecycle_task(server_conn))
@@ -474,7 +618,7 @@ async def test_get_server_startup_timeout_cancels_blocked_lifecycle(
     with pytest.raises(ServerInitializationError):
         await manager.get_server(
             "demo",
-            client_session_factory=_dummy_client_session_factory,
+            callback_runtime=_callback_runtime(),
             startup_timeout_seconds=0.01,
         )
 
@@ -482,6 +626,7 @@ async def test_get_server_startup_timeout_cancels_blocked_lifecycle(
     assert "demo" not in manager.running_servers
     assert server_conn._shutdown_event.is_set()
     assert server_conn._oauth_abort_event.is_set()
+    assert server_conn._lifecycle_complete_event.is_set()
 
 
 @pytest.mark.asyncio
@@ -494,21 +639,22 @@ async def test_get_server_retries_with_oauth_after_401_startup(
     unhealthy._error_message = "HTTP Error: 401 Unauthorized for URL: http://example.com/mcp"
 
     healthy = _make_server_connection()
-    healthy.session = cast("Any", object())
+    healthy.client = cast("Any", object())
 
     calls: list[bool | None] = []
 
     async def _fake_launch_and_wait_for_server(
         *,
         server_name: str,
-        client_session_factory: ClientSessionFactory,
+        server_config: MCPServerSettings | None,
+        callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None,
         trigger_oauth: bool | None,
         oauth_event_handler: OAuthEventHandler | None,
         allow_oauth_paste_fallback: bool,
         timeout_action: str,
     ) -> ServerConnection:
-        del server_name, client_session_factory, startup_timeout_seconds
+        del server_name, server_config, callback_runtime, startup_timeout_seconds
         del oauth_event_handler, allow_oauth_paste_fallback, timeout_action
         trigger = trigger_oauth
         calls.append(trigger)
@@ -520,13 +666,14 @@ async def test_get_server_retries_with_oauth_after_401_startup(
         *,
         server_name: str,
         server_conn: ServerConnection,
-        client_session_factory: ClientSessionFactory,
+        server_config: MCPServerSettings | None,
+        callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None,
         oauth_event_handler: OAuthEventHandler | None,
         allow_oauth_paste_fallback: bool,
         timeout_action: str,
     ) -> ServerConnection:
-        del server_name, server_conn, client_session_factory, startup_timeout_seconds
+        del server_name, server_conn, server_config, callback_runtime, startup_timeout_seconds
         del oauth_event_handler, allow_oauth_paste_fallback, timeout_action
         calls.append(True)
         manager._server_oauth_mode["demo"] = "force"
@@ -538,7 +685,7 @@ async def test_get_server_retries_with_oauth_after_401_startup(
 
     server_conn = await manager.get_server(
         "demo",
-        client_session_factory=_dummy_client_session_factory,
+        callback_runtime=_callback_runtime(),
     )
 
     assert server_conn is healthy
@@ -561,7 +708,7 @@ async def test_get_server_formats_stdio_missing_executable_without_traceback(
         return _FailingStdioClient()
 
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.tracking_stdio_client",
+        "fast_agent.mcp.client_gateway.tracking_stdio_client",
         _failing_stdio_client,
     )
 
@@ -583,7 +730,7 @@ async def test_get_server_formats_stdio_missing_executable_without_traceback(
         with pytest.raises(ServerInitializationError) as exc_info:
             await manager.get_server(
                 "demo",
-                client_session_factory=_dummy_client_session_factory,
+                callback_runtime=_callback_runtime(),
                 startup_timeout_seconds=1.0,
             )
 
@@ -612,7 +759,7 @@ async def test_get_server_formats_stdio_missing_cwd_without_traceback(
     missing_cwd = str(tmp_path / "missing-dir")
 
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.tracking_stdio_client",
+        "fast_agent.mcp.client_gateway.tracking_stdio_client",
         _failing_stdio_client,
     )
 
@@ -635,7 +782,7 @@ async def test_get_server_formats_stdio_missing_cwd_without_traceback(
         with pytest.raises(ServerInitializationError) as exc_info:
             await manager.get_server(
                 "demo",
-                client_session_factory=_dummy_client_session_factory,
+                callback_runtime=_callback_runtime(),
                 startup_timeout_seconds=1.0,
             )
 
@@ -660,24 +807,30 @@ async def test_get_server_stdio_timeout_includes_recent_stderr(
     server_conn = ServerConnection(
         server_name="demo",
         server_config=config,
-        transport_context_factory=lambda: cast("Any", object()),
-        client_session_factory=_dummy_client_session_factory,
+        client_connection_factory=lambda: cast("Any", object()),
+        callback_runtime=_callback_runtime(),
     )
     server_conn.record_stdio_stderr("npm notice downloading desktop-commander")
     server_conn.record_stdio_stderr("npm warn request took longer than expected")
 
+    async def _run_lifecycle() -> None:
+        await server_conn.wait_for_shutdown_request()
+        server_conn._lifecycle_complete_event.set()
+
     async def _fake_launch_server(
         *,
         server_name: str,
-        client_session_factory: ClientSessionFactory,
+        server_config: MCPServerSettings | None,
+        callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool | None = None,
         oauth_event_handler: OAuthEventHandler | None = None,
         allow_oauth_paste_fallback: bool = True,
     ) -> ServerConnection:
-        del server_name, client_session_factory, startup_timeout_seconds
+        del server_name, server_config, callback_runtime, startup_timeout_seconds
         del trigger_oauth, oauth_event_handler, allow_oauth_paste_fallback
         manager.running_servers["demo"] = server_conn
+        asyncio.create_task(_run_lifecycle())
         return server_conn
 
     monkeypatch.setattr(manager, "launch_server", _fake_launch_server)
@@ -685,7 +838,7 @@ async def test_get_server_stdio_timeout_includes_recent_stderr(
     with pytest.raises(ServerInitializationError) as exc_info:
         await manager.get_server(
             "demo",
-            client_session_factory=_dummy_client_session_factory,
+            callback_runtime=_callback_runtime(),
             startup_timeout_seconds=0.01,
         )
 
@@ -705,11 +858,10 @@ async def test_connection_manager_exit_skips_grace_sleep_without_running_servers
             return False
 
     manager = _NoRunningServersManager(server_registry=cast("Any", _DummyRegistry()))
-    task_group = create_task_group()
+    task_group = asyncio.TaskGroup()
     await task_group.__aenter__()
     manager._task_group_active = True
     manager._task_group = task_group
-    manager._tg = task_group
 
     async def _unexpected_sleep(_delay: float) -> None:
         raise AssertionError("shutdown grace sleep should be skipped")
@@ -720,11 +872,10 @@ async def test_connection_manager_exit_skips_grace_sleep_without_running_servers
 
     assert manager._task_group_active is False
     assert manager._task_group is None
-    assert manager._tg is None
 
 
 @pytest.mark.asyncio
-async def test_connection_manager_exit_waits_briefly_after_requesting_shutdown(
+async def test_connection_manager_exit_needs_no_fixed_shutdown_sleep(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _RunningServersManager(MCPConnectionManager):
@@ -732,24 +883,414 @@ async def test_connection_manager_exit_waits_briefly_after_requesting_shutdown(
             return True
 
     manager = _RunningServersManager(server_registry=cast("Any", _DummyRegistry()))
-    task_group = create_task_group()
+    task_group = asyncio.TaskGroup()
     await task_group.__aenter__()
     manager._task_group_active = True
     manager._task_group = task_group
-    manager._tg = task_group
-    sleep_calls: list[float] = []
 
-    async def _fake_sleep(delay: float) -> None:
-        sleep_calls.append(delay)
+    async def _unexpected_sleep(_delay: float) -> None:
+        raise AssertionError("lifecycle completion replaces fixed shutdown sleeps")
 
-    monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
+    monkeypatch.setattr(asyncio, "sleep", _unexpected_sleep)
 
     await manager.__aexit__(None, None, None)
 
-    assert sleep_calls == [0.5]
     assert manager._task_group_active is False
     assert manager._task_group is None
-    assert manager._tg is None
+
+
+class _DerivedStateSimulator:
+    def __init__(
+        self,
+        *,
+        refresh_states: list[tuple[str, ...]] | None = None,
+        event_states: list[tuple[str, ...]] | None = None,
+    ) -> None:
+        self.current_uris: tuple[str, ...] = ()
+        self.refresh_states = list(refresh_states or [])
+        self.event_states = list(event_states or [])
+        self.refresh_count = 0
+        self.events: list[object] = []
+
+    def selected_materialized_resource_uris(self, server_name: str) -> tuple[str, ...]:
+        del server_name
+        return self.current_uris
+
+    async def refresh_subscription_state(self, server_name: str) -> tuple[str, ...]:
+        del server_name
+        self.refresh_count += 1
+        if self.refresh_states:
+            self.current_uris = self.refresh_states.pop(0)
+        return self.current_uris
+
+    async def handle_subscription_event(self, server_name: str, event: object) -> None:
+        del server_name
+        self.events.append(event)
+        if self.event_states:
+            self.current_uris = self.event_states.pop(0)
+
+
+class _ListenerContextSimulator:
+    def __init__(
+        self,
+        client: "_ListenerClientSimulator",
+        events: list[object],
+        honored: SubscriptionFilter,
+    ) -> None:
+        self.client = client
+        self.events = list(events)
+        self.honored = honored
+
+    async def __aenter__(self):
+        self.client.active_listeners += 1
+        self.client.max_active_listeners = max(
+            self.client.max_active_listeners,
+            self.client.active_listeners,
+        )
+        self.client.listen_opened.set()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        del exc_type, exc, tb
+        self.client.active_listeners -= 1
+        return False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self.events:
+            event = self.events.pop(0)
+            if isinstance(event, BaseException):
+                raise event
+            return event
+        await self.client.hold_open.wait()
+        raise StopAsyncIteration
+
+
+class _ListenerClientSimulator:
+    def __init__(
+        self,
+        discover_result: DiscoverResult | None,
+        *,
+        scripts: list[list[object]] | None = None,
+        honored_filters: list[SubscriptionFilter] | None = None,
+    ) -> None:
+        self.discover_result = discover_result
+        self.scripts = list(scripts or [])
+        self.honored_filters = list(honored_filters or [])
+        self.listen_calls: list[dict[str, Any]] = []
+        self.listen_opened = asyncio.Event()
+        self.hold_open = asyncio.Event()
+        self.active_listeners = 0
+        self.max_active_listeners = 0
+
+    def listen(self, **kwargs: Any) -> _ListenerContextSimulator:
+        self.listen_calls.append(kwargs)
+        events = self.scripts.pop(0) if self.scripts else []
+        honored = (
+            self.honored_filters.pop(0)
+            if self.honored_filters
+            else SubscriptionFilter.model_validate(kwargs)
+        )
+        return _ListenerContextSimulator(self, events, honored)
+
+
+async def _wait_until(predicate: Callable[[], bool]) -> None:
+    while not predicate():
+        await asyncio.sleep(0.001)
+
+
+def _modern_discovery(capabilities: dict[str, object]) -> DiscoverResult:
+    return DiscoverResult.model_validate(
+        {
+            "supportedVersions": ["2026-07-28"],
+            "capabilities": capabilities,
+        }
+    )
+
+
+def _subscription_server(
+    client: _ListenerClientSimulator,
+    derived_state: _DerivedStateSimulator,
+    *,
+    ready: bool = True,
+) -> ServerConnection:
+    server_conn = _make_server_connection()
+    server_conn.client = cast("Any", client)
+    server_conn.protocol_era = "modern"
+    server_conn._callback_runtime = MCPClientCallbackRuntime(
+        server_name="test-server",
+        server_config=server_conn.server_config,
+        aggregator=cast("Any", derived_state),
+    )
+    if ready:
+        server_conn._callback_runtime.mark_subscription_ready()
+    return server_conn
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("discover_result", "expected_filter"),
+    [
+        (None, None),
+        (_modern_discovery({}), None),
+        (
+            _modern_discovery({"tools": {"listChanged": True}}),
+            {
+                "tools_list_changed": True,
+                "prompts_list_changed": False,
+                "resources_list_changed": False,
+                "resource_subscriptions": (),
+            },
+        ),
+        (
+            _modern_discovery({"prompts": {"listChanged": True}}),
+            {
+                "tools_list_changed": False,
+                "prompts_list_changed": True,
+                "resources_list_changed": False,
+                "resource_subscriptions": (),
+            },
+        ),
+        (
+            _modern_discovery({"resources": {"subscribe": False, "listChanged": True}}),
+            {
+                "tools_list_changed": False,
+                "prompts_list_changed": False,
+                "resources_list_changed": True,
+                "resource_subscriptions": (),
+            },
+        ),
+        (
+            _modern_discovery({"resources": {"subscribe": True}}),
+            {
+                "tools_list_changed": False,
+                "prompts_list_changed": False,
+                "resources_list_changed": False,
+                "resource_subscriptions": (),
+            },
+        ),
+    ],
+)
+async def test_modern_listener_capability_matrix(
+    discover_result: DiscoverResult | None,
+    expected_filter: dict[str, Any] | None,
+) -> None:
+    client = _ListenerClientSimulator(discover_result)
+    server_conn = _subscription_server(client, _DerivedStateSimulator())
+
+    wait_task = asyncio.create_task(_wait_for_shutdown_with_optional_ping(server_conn))
+    if expected_filter is None:
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+    else:
+        await asyncio.wait_for(client.listen_opened.wait(), timeout=1)
+    server_conn.request_shutdown()
+    await wait_task
+
+    assert client.listen_calls == ([] if expected_filter is None else [expected_filter])
+    assert server_conn.subscription_state == ("disabled" if expected_filter is None else "open")
+
+
+@pytest.mark.asyncio
+async def test_dropped_subscription_epoch_converges_after_reack_refresh() -> None:
+    client = _ListenerClientSimulator(
+        _modern_discovery({"tools": {"listChanged": True}}),
+        scripts=[
+            [SubscriptionLost("simulated dropped epoch")],
+            [],
+        ],
+    )
+    derived_state = _DerivedStateSimulator(
+        refresh_states=[("ui://epoch/one",), ("ui://epoch/two",)]
+    )
+    server_conn = _subscription_server(client, derived_state)
+
+    wait_task = asyncio.create_task(_wait_for_shutdown_with_optional_ping(server_conn))
+    await asyncio.wait_for(
+        _wait_until(lambda: derived_state.refresh_count == 2),
+        timeout=1,
+    )
+    server_conn.request_shutdown()
+    await wait_task
+
+    assert derived_state.current_uris == ("ui://epoch/two",)
+    assert len(client.listen_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_partial_subscription_acknowledgment_reports_degraded_state() -> None:
+    client = _ListenerClientSimulator(
+        _modern_discovery({"tools": {"listChanged": True}}),
+        honored_filters=[SubscriptionFilter()],
+    )
+    derived_state = _DerivedStateSimulator()
+    server_conn = _subscription_server(client, derived_state)
+
+    wait_task = asyncio.create_task(_wait_for_shutdown_with_optional_ping(server_conn))
+    await asyncio.wait_for(
+        _wait_until(lambda: server_conn.subscription_state == "partial"),
+        timeout=1,
+    )
+    server_conn.request_shutdown()
+    await wait_task
+
+    assert derived_state.refresh_count == 1
+    assert len(client.listen_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_initial_attachment_commit_rotates_to_materialized_resource_uris() -> None:
+    client = _ListenerClientSimulator(
+        _modern_discovery({"resources": {"subscribe": True}}),
+        scripts=[[], []],
+    )
+    derived_state = _DerivedStateSimulator(
+        refresh_states=[
+            ("ui://component/initial",),
+            ("ui://component/initial",),
+        ]
+    )
+    server_conn = _subscription_server(client, derived_state, ready=False)
+
+    wait_task = asyncio.create_task(_wait_for_shutdown_with_optional_ping(server_conn))
+    await asyncio.wait_for(client.listen_opened.wait(), timeout=1)
+    assert derived_state.refresh_count == 0
+
+    server_conn._callback_runtime.mark_subscription_ready()
+    await asyncio.wait_for(_wait_until(lambda: len(client.listen_calls) == 2), timeout=1)
+    server_conn.request_shutdown()
+    await wait_task
+
+    assert [call["resource_subscriptions"] for call in client.listen_calls] == [
+        (),
+        ("ui://component/initial",),
+    ]
+    assert client.max_active_listeners == 1
+
+
+@pytest.mark.asyncio
+async def test_resource_events_rotate_serial_listener_without_planned_backoff() -> None:
+    client = _ListenerClientSimulator(
+        _modern_discovery({"resources": {"subscribe": True, "listChanged": True}}),
+        scripts=[
+            [],
+            [ResourcesListChanged()],
+            [ResourceUpdated(uri="ui://component/two")],
+            [],
+        ],
+    )
+    derived_state = _DerivedStateSimulator(
+        refresh_states=[
+            ("ui://component/one",),
+            ("ui://component/one",),
+            ("ui://component/two",),
+            ("ui://component/three",),
+        ],
+        event_states=[
+            ("ui://component/two",),
+            ("ui://component/three",),
+        ],
+    )
+    server_conn = _subscription_server(client, derived_state)
+
+    wait_task = asyncio.create_task(_wait_for_shutdown_with_optional_ping(server_conn))
+    await asyncio.wait_for(_wait_until(lambda: len(client.listen_calls) == 4), timeout=0.2)
+    server_conn.request_shutdown()
+    await wait_task
+
+    assert [call["resource_subscriptions"] for call in client.listen_calls] == [
+        (),
+        ("ui://component/one",),
+        ("ui://component/two",),
+        ("ui://component/three",),
+    ]
+    assert [type(event) for event in derived_state.events] == [
+        ResourcesListChanged,
+        ResourceUpdated,
+    ]
+    assert client.max_active_listeners == 1
+    assert client.active_listeners == 0
+
+
+@pytest.mark.asyncio
+async def test_connection_manager_does_not_leak_cancel_scope_into_caller() -> None:
+    manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
+
+    with CancelScope():
+        await manager.__aenter__()
+
+    await manager.__aexit__(None, None, None)
+
+
+@pytest.mark.asyncio
+async def test_disconnect_server_waits_for_lifecycle_cleanup() -> None:
+    manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
+    server_conn = _make_server_connection()
+    manager.running_servers["demo"] = server_conn
+    cleanup_started = asyncio.Event()
+    allow_cleanup = asyncio.Event()
+
+    async def _run_lifecycle() -> None:
+        await server_conn.wait_for_shutdown_request()
+        cleanup_started.set()
+        await allow_cleanup.wait()
+        server_conn._lifecycle_complete_event.set()
+
+    lifecycle_task = asyncio.create_task(_run_lifecycle())
+    disconnect_task = asyncio.create_task(manager.disconnect_server("demo"))
+
+    await cleanup_started.wait()
+    assert not disconnect_task.done()
+    assert manager.running_servers["demo"] is server_conn
+
+    allow_cleanup.set()
+    await disconnect_task
+    await lifecycle_task
+
+    assert "demo" not in manager.running_servers
+
+
+@pytest.mark.asyncio
+async def test_reconnect_does_not_overlap_old_runtime_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
+    old_conn = _make_server_connection()
+    new_conn = _make_server_connection()
+    new_conn.client = cast("Any", object())
+    manager.running_servers["demo"] = old_conn
+    cleanup_started = asyncio.Event()
+    allow_cleanup = asyncio.Event()
+    launch_started = asyncio.Event()
+
+    async def _run_old_lifecycle() -> None:
+        await old_conn.wait_for_shutdown_request()
+        cleanup_started.set()
+        await allow_cleanup.wait()
+        old_conn._lifecycle_complete_event.set()
+
+    async def _fake_launch_and_wait_for_server(**_kwargs: Any) -> ServerConnection:
+        launch_started.set()
+        manager.running_servers["demo"] = new_conn
+        return new_conn
+
+    lifecycle_task = asyncio.create_task(_run_old_lifecycle())
+    monkeypatch.setattr(manager, "_launch_and_wait_for_server", _fake_launch_and_wait_for_server)
+    reconnect_task = asyncio.create_task(
+        manager.reconnect_server("demo", callback_runtime=_callback_runtime())
+    )
+
+    await cleanup_started.wait()
+    assert not launch_started.is_set()
+
+    allow_cleanup.set()
+    assert await reconnect_task is new_conn
+    await lifecycle_task
+
+    assert launch_started.is_set()
+    assert manager.running_servers["demo"] is new_conn
 
 
 def test_is_oauth_timeout_message_requires_real_timeout_markers() -> None:

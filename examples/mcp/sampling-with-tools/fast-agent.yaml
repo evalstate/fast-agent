@@ -2,6 +2,7 @@ logger:
   level: error
   type: file
 mcp:
-  targets:
-    - name: sampling_tools
+  servers:
+    sampling_tools:
       target: "uv run sampling_tools_server.py"
+      protocol_mode: modern

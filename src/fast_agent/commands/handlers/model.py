@@ -897,7 +897,18 @@ async def handle_model_fast(
     return outcome
 
 
+async def handle_model_status(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    value: str | None = None,
+) -> CommandOutcome:
+    del value
+    return await handle_model_reasoning(ctx, agent_name=agent_name, value=None)
+
+
 MODEL_ACTION_HANDLERS: dict[str, ModelActionHandler] = {
+    "status": handle_model_status,
     "verbosity": handle_model_verbosity,
     "task_budget": handle_model_task_budget,
     "fast": handle_model_fast,

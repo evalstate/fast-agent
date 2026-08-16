@@ -6,8 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from mcp.types import (
-    AnyUrl,
+from mcp_types import (
     AudioContent,
     BlobResourceContents,
     CallToolRequest,
@@ -178,8 +177,10 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     )
 
     assert progress == [
-        "Export: preparing codex trace for agent 'dev' from 2 messages: "
-        "1 user, 1 assistant, 0 tool calls, 0 tool results."
+        (
+            "Export: preparing codex trace for agent 'dev' from 2 messages: "
+            "1 user, 1 assistant, 0 tool calls, 0 tool results."
+        )
     ]
     lines = (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
     records = [json.loads(line) for line in lines]
@@ -255,7 +256,7 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
             role="user",
             content=[
                 TextContent(type="text", text="check Alice's directory"),
-                ImageContent(type="image", data="aW1hZ2U=", mimeType="image/png"),
+                ImageContent(type="image", data="aW1hZ2U=", mime_type="image/png"),
             ],
         ),
         PromptMessageExtended(
@@ -330,10 +331,10 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
             role="user",
             tool_results={
                 error_call_id: CallToolResult(
-                    content=[TextContent(type="text", text="command not found")], isError=True
+                    content=[TextContent(type="text", text="command not found")], is_error=True
                 ),
                 call_id: CallToolResult(
-                    content=[TextContent(type="text", text="/workspace")], isError=False
+                    content=[TextContent(type="text", text="/workspace")], is_error=False
                 ),
             },
             channels={
@@ -533,8 +534,10 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
             "total_tool_use_tokens": 3,
             "root_prompt_tokens": 35,
             "root_completion_tokens": 8,
+            "root_cached_tokens": 7,
             "subagent_prompt_tokens": 11,
             "subagent_completion_tokens": 4,
+            "subagent_cached_tokens": 3,
         },
     }
 
@@ -1218,6 +1221,35 @@ def test_session_trace_exporter_uses_workspace_dir_for_default_output_path(
     assert not (other_cwd / expected_path.name).exists()
 
 
+def test_json_history_load_reuses_decoded_payload_for_timestamps(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    history_path = tmp_path / "history_dev.json"
+    timestamp = datetime(2026, 4, 22, 9, 15, tzinfo=timezone.utc)
+    _write_history_with_timestamps(
+        history_path,
+        messages=[
+            PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text="hello")],
+            )
+        ],
+        timestamps=[timestamp],
+    )
+
+    def _unexpected_reload(_path: str) -> list[PromptMessageExtended]:
+        raise AssertionError("JSON history should be decoded only once")
+
+    monkeypatch.setattr("fast_agent.session.trace_exporter.load_messages", _unexpected_reload)
+    loaded = SessionTraceExporter(session_manager=_build_manager(tmp_path))._load_history(
+        history_path
+    )
+
+    assert [message.all_text() for message in loaded.messages] == ["hello"]
+    assert loaded.timestamps == (timestamp,)
+
+
 def test_session_trace_exporter_uses_message_timestamps_for_turn_date(tmp_path: Path) -> None:
     manager = _build_manager(tmp_path)
     session_id = "2604201303-x5MNlH"
@@ -1380,7 +1412,7 @@ def test_session_trace_exporter_writes_native_codex_tool_items(tmp_path: Path) -
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="process exit code was 0")],
-                    isError=False,
+                    is_error=False,
                 )
             },
         ),
@@ -1475,7 +1507,7 @@ def test_session_trace_exporter_applies_privacy_sanitizer_to_codex_text(
             tool_results={
                 "call_Alice": CallToolResult(
                     content=[TextContent(type="text", text="Alice result")],
-                    isError=False,
+                    is_error=False,
                 )
             },
         ),
@@ -1700,7 +1732,7 @@ def test_session_trace_exporter_marks_tool_errors_in_codex_output(tmp_path: Path
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="process exit code was 1")],
-                    isError=True,
+                    is_error=True,
                 )
             },
         ),
@@ -1954,26 +1986,26 @@ def test_session_trace_exporter_preserves_user_attachment_content(tmp_path: Path
                 EmbeddedResource(
                     type="resource",
                     resource=TextResourceContents(
-                        uri=AnyUrl("file:///tmp/example.py"),
-                        mimeType="text/x-python",
+                        uri="file:///tmp/example.py",
+                        mime_type="text/x-python",
                         text="print('hello')",
                     ),
                 ),
                 EmbeddedResource(
                     type="resource",
                     resource=BlobResourceContents(
-                        uri=AnyUrl("file:///tmp/report.pdf"),
-                        mimeType="application/pdf",
+                        uri="file:///tmp/report.pdf",
+                        mime_type="application/pdf",
                         blob="cGRm",
                     ),
                 ),
                 ResourceLink(
                     type="resource_link",
-                    uri=AnyUrl("https://example.com/audio.mp3"),
-                    mimeType="audio/mpeg",
+                    uri="https://example.com/audio.mp3",
+                    mime_type="audio/mpeg",
                     name="audio.mp3",
                 ),
-                AudioContent(type="audio", data="d2F2", mimeType="audio/wav"),
+                AudioContent(type="audio", data="d2F2", mime_type="audio/wav"),
             ],
         ),
         PromptMessageExtended(
@@ -2064,20 +2096,20 @@ def test_session_trace_exporter_preserves_non_text_tool_outputs(tmp_path: Path) 
                         EmbeddedResource(
                             type="resource",
                             resource=BlobResourceContents(
-                                uri=AnyUrl("file:///tmp/report.pdf"),
-                                mimeType="application/pdf",
+                                uri="file:///tmp/report.pdf",
+                                mime_type="application/pdf",
                                 blob="cGRm",
                             ),
                         ),
                         ResourceLink(
                             type="resource_link",
-                            uri=AnyUrl("https://example.com/audio.mp3"),
-                            mimeType="audio/mpeg",
+                            uri="https://example.com/audio.mp3",
+                            mime_type="audio/mpeg",
                             name="audio.mp3",
                         ),
-                        AudioContent(type="audio", data="d2F2", mimeType="audio/wav"),
+                        AudioContent(type="audio", data="d2F2", mime_type="audio/wav"),
                     ],
-                    isError=False,
+                    is_error=False,
                 )
             },
         ),
@@ -2158,20 +2190,20 @@ def test_session_trace_exporter_preserves_tool_output_item_order(tmp_path: Path)
                         EmbeddedResource(
                             type="resource",
                             resource=BlobResourceContents(
-                                uri=AnyUrl("file:///tmp/report-a.pdf"),
-                                mimeType="application/pdf",
+                                uri="file:///tmp/report-a.pdf",
+                                mime_type="application/pdf",
                                 blob="YQ==",
                             ),
                         ),
                         TextContent(type="text", text="Fetched audio"),
                         ResourceLink(
                             type="resource_link",
-                            uri=AnyUrl("https://example.com/audio.mp3"),
-                            mimeType="audio/mpeg",
+                            uri="https://example.com/audio.mp3",
+                            mime_type="audio/mpeg",
                             name="audio.mp3",
                         ),
                     ],
-                    isError=False,
+                    is_error=False,
                 )
             },
         ),
@@ -2247,7 +2279,7 @@ def test_session_trace_exporter_preserves_user_content_alongside_tool_outputs(
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="process exit code was 0")],
-                    isError=False,
+                    is_error=False,
                 )
             },
         ),
@@ -2303,22 +2335,22 @@ def test_session_trace_exporter_preserves_assistant_attachment_content(tmp_path:
             role="assistant",
             content=[
                 TextContent(type="text", text="Here they are"),
-                ImageContent(type="image", data="aW1hZ2U=", mimeType="image/png"),
+                ImageContent(type="image", data="aW1hZ2U=", mime_type="image/png"),
                 EmbeddedResource(
                     type="resource",
                     resource=BlobResourceContents(
-                        uri=AnyUrl("file:///tmp/report.pdf"),
-                        mimeType="application/pdf",
+                        uri="file:///tmp/report.pdf",
+                        mime_type="application/pdf",
                         blob="cGRm",
                     ),
                 ),
                 ResourceLink(
                     type="resource_link",
-                    uri=AnyUrl("https://example.com/audio.mp3"),
-                    mimeType="audio/mpeg",
+                    uri="https://example.com/audio.mp3",
+                    mime_type="audio/mpeg",
                     name="audio.mp3",
                 ),
-                AudioContent(type="audio", data="d2F2", mimeType="audio/wav"),
+                AudioContent(type="audio", data="d2F2", mime_type="audio/wav"),
             ],
             stop_reason=LlmStopReason.END_TURN,
         ),

@@ -10,7 +10,7 @@ import json
 import os
 from importlib.metadata import version as get_version
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import uvicorn
 from a2a.server.agent_execution.agent_executor import AgentExecutor
@@ -35,14 +35,13 @@ from a2a.types import (
 )
 from fastapi import FastAPI
 from google.protobuf.json_format import MessageToDict
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     EmbeddedResource,
     ImageContent,
     ResourceLink,
     TextContent,
 )
-from pydantic import AnyUrl
 from starlette.responses import JSONResponse
 
 from fast_agent.a2a.content import part_from_content
@@ -62,6 +61,7 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.mcp.auth.huggingface import HuggingFaceOAuthOrHubTokenVerifier
+from fast_agent.mcp.uri_security import is_file_uri
 from fast_agent.tools.function_tool_loader import build_default_function_tool
 from fast_agent.types import (
     AgentAuth,
@@ -847,13 +847,21 @@ def _content_from_part(part: Part) -> list[Any]:
         return [TextContent(type="text", text=part.text)]
     if part.HasField("url"):
         label = part.filename or part.url
+        if is_file_uri(part.url):
+            return [
+                TextContent(
+                    type="text",
+                    text="[Local file URL attachment was rejected.]",
+                )
+            ]
         try:
+            urlsplit(part.url)
             return [
                 ResourceLink(
                     type="resource_link",
                     name=label,
-                    uri=AnyUrl(part.url),
-                    mimeType=part.media_type or None,
+                    uri=part.url,
+                    mime_type=part.media_type or None,
                 )
             ]
         except ValueError:
@@ -861,14 +869,14 @@ def _content_from_part(part: Part) -> list[Any]:
     if part.HasField("raw"):
         data = base64.b64encode(part.raw).decode("ascii")
         if part.media_type.startswith("image/"):
-            return [ImageContent(type="image", data=data, mimeType=part.media_type)]
+            return [ImageContent(type="image", data=data, mime_type=part.media_type)]
         label = part.filename or "attachment"
         return [
             EmbeddedResource(
                 type="resource",
                 resource=BlobResourceContents(
-                    uri=AnyUrl(f"attachment:///{quote(label)}"),
-                    mimeType=part.media_type or "application/octet-stream",
+                    uri=f"attachment:///{quote(label)}",
+                    mime_type=part.media_type or "application/octet-stream",
                     blob=data,
                 ),
             )

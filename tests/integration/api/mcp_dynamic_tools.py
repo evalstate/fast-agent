@@ -25,7 +25,7 @@ async def check_weather(location: str) -> str:
 
     # Toggle the dynamic tool
     if dynamic_tool_registered:
-        app.remove_tool("dynamic_tool")
+        app.local_provider.remove_tool("dynamic_tool")
         dynamic_tool_registered = False
     else:
         app.add_tool(

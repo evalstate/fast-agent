@@ -23,11 +23,15 @@ social:
 sudo apt-get install gnome-keyring seahorse
 ```
 
-## Identity Model
+## Server, endpoint, and OAuth resource
 
-- Tokens are keyed by the resource server’s base URL, not by server name.
-- Base URL = normalize the server URL by removing a trailing "/mcp" or "/sse" and ignoring query/fragment.
-- Renaming a server in config won’t affect tokens; changing the URL maps to a different identity.
+- A **server** is the configured name under `mcp.servers`, such as `myserver`.
+- Its **endpoint** is the exact HTTP or SSE URL fast-agent connects to.
+- Its **OAuth resource** is the normalized URL used to locate a stored credential.
+- The resource is derived by removing a trailing `/mcp` or `/sse` and ignoring
+  query/fragment components.
+- Multiple configured server names can share one OAuth resource and credential.
+- Renaming a configured server does not move its credential; changing its endpoint can.
 
 ## Minimal Config
 
@@ -53,34 +57,52 @@ Notes:
 - Scope is omitted by default. If a server requires a specific scope, set `auth.scope` (string or list).
 - Use `auth.client_metadata_url` when a server supports Client ID Metadata Document (CIMD)
   registration and requires a URL-based client ID. The URL must be HTTPS and include a non-root path.
-- STDIO servers do not use OAuth and are hidden in auth views.
+- STDIO servers do not use OAuth. They remain visible in `auth mcp list` with
+  authentication shown as `not-applicable`.
 
 ## Keychain Persistence
 
 - Default: tokens go to your OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service/KWallet).
 - If a keychain backend is not available, tokens are kept in memory for the session (no disk writes).
+- Proactive `auth mcp login` requires a writable keychain because an in-memory
+  credential would disappear as soon as that command exits. Servers configured
+  with `auth.persist: memory` authenticate only in the process that connects.
 - Linux: ensure a Secret Service (gnome‑keyring) or KWallet is installed and running if you want persistence.
 
 ## CLI Quick Reference
 
-- Show auth status (keyring backend, stored identities, configured servers → identities)
+- Combined provider and MCP overview:
   - `fast-agent auth`
-  - `fast-agent auth mcp status`
-  - Single target:
-    - `fast-agent auth mcp status https://example-server.modelcontextprotocol.io`
-    - `fast-agent auth mcp status myserver`
+  - `fast-agent auth --json`
 
-- Proactive login (perform OAuth and store tokens)
-  - By server name in config:
-    - `fast-agent auth mcp login myserver`
-  - By identity (ad hoc, no config):
-    - HTTP (default): `fast-agent auth mcp login https://example-server.modelcontextprotocol.io`
-    - SSE: `fast-agent auth mcp login https://example-server.modelcontextprotocol.io --transport sse`
+- List configured MCP servers and effective auth modes:
+  - `fast-agent auth mcp list`
+  - `fast-agent auth mcp list --json`
+  - `fast-agent auth mcp show myserver`
 
-- Clear tokens
-  - By identity (base URL): `fast-agent auth mcp logout --identity https://example-server.modelcontextprotocol.io`
-  - By server name (from config): `fast-agent auth mcp logout myserver`
-  - All identities: `fast-agent auth mcp logout --all`
+- List indexed local MCP OAuth credentials, including orphaned resources:
+  - `fast-agent auth mcp credentials`
+  - `fast-agent auth mcp credentials --json`
+
+- Proactive login:
+  - Configured server: `fast-agent auth mcp login myserver`
+  - Exact ad-hoc HTTP endpoint:
+    `fast-agent auth mcp login --endpoint https://example.com/custom/mcp`
+  - Exact ad-hoc SSE endpoint:
+    `fast-agent auth mcp login --endpoint https://example.com/events --transport sse`
+  - Login waits up to five minutes by default. Use `--timeout <seconds>` when
+    the authorization flow or server initialization needs longer.
+
+- Forget local OAuth tokens and client registration:
+  - Configured server: `fast-agent auth mcp forget myserver`
+  - OAuth resource:
+    `fast-agent auth mcp forget --resource https://example.com`
+  - All indexed MCP credentials:
+    `fast-agent auth mcp forget --all --yes`
+
+Positional MCP values always mean configured server names. Ad-hoc endpoints are
+accepted only through `--endpoint`, and fast-agent uses the supplied URL exactly.
+It does not append `/mcp` or `/sse`.
 
 - Check full app config (includes server OAuth flags and token presence):
   - `fast-agent check`
@@ -98,12 +120,25 @@ to an empty value to disable the built-in default.
   - A local callback server (`http://localhost:3030/callback`) captures the code; if the port is blocked, you’ll be prompted to paste the callback URL.
 
 - Proactive login (no agent session needed)
-  - `fast-agent auth mcp login https://example-server.modelcontextprotocol.io`
+  - `fast-agent auth mcp login myserver`
+  - Or use an exact ad-hoc endpoint:
+    `fast-agent auth mcp login --endpoint https://example-server.modelcontextprotocol.io/mcp`
   - Complete the link flow once; tokens will be reused next time.
 
-- Inspect and clear a specific identity
-  - `fast-agent auth mcp status https://example-server.modelcontextprotocol.io`
-  - `fast-agent auth mcp logout --identity https://example-server.modelcontextprotocol.io`
+- Inspect and forget a stored credential
+  - `fast-agent auth mcp show myserver`
+  - `fast-agent auth mcp credentials`
+  - `fast-agent auth mcp forget myserver`
+
+When multiple configured servers share one OAuth resource, `forget` lists every
+affected server before asking for confirmation. It removes only local tokens and
+client registration; server configuration and runtime connections are unchanged.
+
+Before 0.10, a client registration created without a completed token was not
+indexed. fast-agent backfills those records when the resource is still
+configured. If the server was also removed, use `forget --resource <exact-url>`
+when the resource URL is known; generic OS keyring APIs cannot enumerate an
+unindexed historical username.
 
 ## Troubleshooting
 
@@ -122,8 +157,9 @@ to an empty value to disable the built-in default.
 - Authorization header conflicts
   - When OAuth is enabled on a server, fast‑agent removes any preconfigured `Authorization`/`X‑HF‑Authorization` headers for that server’s transport so OAuth can proceed cleanly.
 
-- STDIO not listed
-  - Expected; STDIO transport does not use OAuth.
+- STDIO shows `not-applicable`
+  - Expected; the server remains visible for configuration completeness, but
+    STDIO transport does not use OAuth.
 
 ## Hosting fast-agent MCP on Hugging Face
 

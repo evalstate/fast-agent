@@ -86,7 +86,9 @@ def _handler_for_elicitation_mode(
     source: str,
     agent_name: str,
 ) -> ElicitationFnT | None:
-    mode_key = mode if mode in _ELICITATION_MODE_RESOLUTIONS else "forms"
+    mode_key = mode or "forms"
+    if mode_key not in _ELICITATION_MODE_RESOLUTIONS:
+        mode_key = "forms"
     resolution = _ELICITATION_MODE_RESOLUTIONS[mode_key]
     logger.debug(resolution.log_message.format(source=source, agent_name=agent_name))
     return resolution.handler

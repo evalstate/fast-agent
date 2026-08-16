@@ -29,12 +29,6 @@ logger:
   truncate_tools: true
 mcp:
   servers:
-    prompt_server:
-      command: "prompt-server"
-      args:
-        [
-          "simple.txt",
-          "multiturn.md",
-          "with_attachment.md",
-          "with_attachment_css.md",
-        ]
+    mcp_fixture:
+      command: "uv"
+      args: ["run", "mcp_fixture.py"]

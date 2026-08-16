@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal
@@ -10,27 +9,30 @@ from urllib.parse import urlparse
 
 import typer
 
-from fast_agent.cli.commands.server_helpers import generate_server_name
-from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
-from fast_agent.constants import (
-    DEFAULT_AGENT_INSTRUCTION,
-    DEFAULT_GO_AGENT_TYPE,
-    DEFAULT_SERVE_AGENT_TYPE,
-    SMART_AGENT_INSTRUCTION,
-)
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 from fast_agent.core.agent_card_paths import is_agent_card_path
+from fast_agent.mcp.connect_targets import (
+    McpProtocolMode,
+    NormalizedMcpTarget,
+    build_server_config_from_target,
+    infer_server_name,
+    normalize_connect_target_text,
+    redact_mcp_url,
+    render_redacted_target,
+    resolve_connect_auth_token,
+)
 from fast_agent.utils.collections import unique_preserve_order
 from fast_agent.utils.commandline import split_commandline
+from fast_agent.utils.text import strip_to_none
 
 from .run_request import (
     AgentRunRequest,
     ExecutionMode,
-    StdioServerConfig,
-    UrlServerConfig,
     resolve_execution_mode,
 )
 
 if TYPE_CHECKING:
+    from fast_agent.config import MCPServerSettings
     from fast_agent.llm.request_params import StructuredToolPolicy
 
 DEFAULT_AGENT_CARDS_DIR: Final[Path] = Path(".fast-agent/agent-cards")
@@ -44,47 +46,22 @@ class ResolvedInstructionOption:
 
 
 @dataclass(frozen=True, slots=True)
-class UrlServerMerge:
-    url_servers: dict[str, UrlServerConfig] | None
+class StartupMcpMerge:
+    servers: dict[str, MCPServerSettings] | None
     server_list: list[str] | None
-
-
-@dataclass(frozen=True, slots=True)
-class StdioServerMerge:
-    stdio_servers: dict[str, StdioServerConfig] | None
-    server_list: list[str] | None
+    notices: tuple[str, ...]
 
 
 def is_multi_model(model: str | None) -> bool:
     return bool(model and "," in model)
 
 
-def resolve_smart_agent_enabled(
-    model: str | None,
-    mode: Literal["interactive", "serve"],
-    *,
-    force_smart: bool,
-) -> bool:
-    if is_multi_model(model):
-        return False
-    if force_smart:
-        return True
-    if mode == "serve":
-        return DEFAULT_SERVE_AGENT_TYPE == "smart"
-    return DEFAULT_GO_AGENT_TYPE == "smart"
-
-
 def resolve_default_instruction(
     model: str | None,
     mode: Literal["interactive", "serve"],
-    *,
-    force_smart: bool = False,
 ) -> str:
-    return (
-        SMART_AGENT_INSTRUCTION
-        if resolve_smart_agent_enabled(model, mode, force_smart=force_smart)
-        else DEFAULT_AGENT_INSTRUCTION
-    )
+    del model, mode
+    return DEFAULT_AGENT_INSTRUCTION
 
 
 def merge_card_sources(
@@ -115,12 +92,11 @@ def normalize_explicit_card_sources(sources: list[str] | None) -> list[str] | No
 
 
 def _default_card_directories(home: Path | None) -> tuple[Path, Path]:
+    from fast_agent.cli.command_support import get_settings_or_exit
     from fast_agent.paths import resolve_home_paths
 
-    if home is not None:
-        home_paths = resolve_home_paths(override=home)
-    else:
-        home_paths = resolve_home_paths()
+    settings = get_settings_or_exit(home=home)
+    home_paths = resolve_home_paths(settings=settings, override=home)
     return home_paths.agent_cards, home_paths.tool_cards
 
 
@@ -145,6 +121,19 @@ def validate_shell_conflicts(*, shell_enabled: bool, no_shell: bool) -> None:
     """Validate unsupported shell option combinations."""
     if shell_enabled and no_shell:
         raise typer.BadParameter("Cannot combine --shell with --no-shell.")
+
+
+def validate_subagent_conflicts(
+    *,
+    subagents: bool | None,
+    subagent_model: str | None,
+) -> None:
+    """Reject an explicit disable paired with a fixed child model."""
+    if subagents is False and subagent_model is not None:
+        raise typer.BadParameter(
+            "Cannot combine --subagent-model with --no-subagents.",
+            param_hint="--subagent-model",
+        )
 
 
 def validate_execution_mode_inputs(
@@ -262,11 +251,9 @@ def resolve_instruction_option(
     instruction: str | None,
     model: str | None,
     mode: Literal["interactive", "serve"],
-    *,
-    force_smart: bool = False,
 ) -> ResolvedInstructionOption:
     """Resolve the instruction option (file or URL) to text and inferred agent name."""
-    resolved_instruction = resolve_default_instruction(model, mode, force_smart=force_smart)
+    resolved_instruction = resolve_default_instruction(model, mode)
     agent_name = "agent"
 
     if instruction:
@@ -322,96 +309,151 @@ def resolve_instance_scope(
     return instance_scope
 
 
-def _merge_url_servers(
+def _expand_startup_urls(urls: list[str] | None) -> list[str]:
+    expanded: list[str] = []
+    for occurrence, value in enumerate(urls or (), start=1):
+        for item in value.split(","):
+            url = strip_to_none(item)
+            if url is None:
+                raise typer.BadParameter(
+                    f"URL occurrence {occurrence} contains an empty value",
+                    param_hint="--url",
+                )
+            expanded.append(url)
+    return expanded
+
+
+def _allocate_startup_server_name(base_name: str, selected: set[str]) -> str:
+    if base_name not in selected:
+        selected.add(base_name)
+        return base_name
+    suffix = 1
+    while f"{base_name}_{suffix}" in selected:
+        suffix += 1
+    name = f"{base_name}_{suffix}"
+    selected.add(name)
+    return name
+
+
+def _normalize_startup_stdio_target(command_text: str) -> NormalizedMcpTarget:
+    try:
+        tokens = split_commandline(command_text, syntax="posix")
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--npx/--uvx/--stdio") from exc
+    if not tokens:
+        raise typer.BadParameter(
+            "STDIO command cannot be empty",
+            param_hint="--npx/--uvx/--stdio",
+        )
+    if tokens[0] in {"npx", "uvx"}:
+        return normalize_connect_target_text(command_text, syntax="posix")
+    return NormalizedMcpTarget(
+        mode="stdio",
+        transport="stdio",
+        url=None,
+        command=tokens[0],
+        args=tuple(tokens[1:]),
+        server_name=None,
+    )
+
+
+def _materialize_startup_mcp_servers(
+    *,
     server_list: list[str] | None,
-    urls: str | None,
+    urls: list[str] | None,
     auth: str | None,
     client_metadata_url: str | None,
-) -> UrlServerMerge:
-    url_servers: dict[str, UrlServerConfig] | None = None
-
-    if urls:
-        try:
-            parsed_urls = parse_server_urls(urls, auth)
-        except ValueError as exc:
-            raise typer.BadParameter(str(exc), param_hint="--url") from exc
-        raw_url_servers = generate_server_configs(parsed_urls)
-        url_servers = {}
-        for server_name, server_config in raw_url_servers.items():
-            normalized_config: UrlServerConfig = {
-                "transport": str(server_config["transport"]),
-                "url": str(server_config["url"]),
-            }
-            headers = server_config.get("headers")
-            if isinstance(headers, dict):
-                normalized_config["headers"] = {
-                    str(key): str(value) for key, value in headers.items()
-                }
-            if client_metadata_url:
-                normalized_config["auth"] = {
-                    "oauth": True,
-                    "client_metadata_url": client_metadata_url,
-                }
-            url_servers[server_name] = normalized_config
-
-        if url_servers and not server_list:
-            server_list = list(url_servers.keys())
-        elif url_servers and server_list:
-            server_list.extend(list(url_servers.keys()))
-
-    return UrlServerMerge(url_servers=url_servers, server_list=server_list)
-
-
-def _merge_stdio_servers(
-    server_list: list[str] | None,
     stdio_commands: list[str] | None,
-) -> StdioServerMerge:
-    if not stdio_commands:
-        return StdioServerMerge(stdio_servers=None, server_list=server_list)
-
-    stdio_servers: dict[str, StdioServerConfig] = {}
-
-    for i, stdio_cmd in enumerate(stdio_commands):
+    protocol_mode: McpProtocolMode | None,
+) -> StartupMcpMerge:
+    url_values = _expand_startup_urls(urls)
+    auth_token: str | None = None
+    if auth is not None and url_values:
         try:
-            parsed_command = split_commandline(stdio_cmd, syntax="posix")
+            auth_token = resolve_connect_auth_token(auth)
         except ValueError as exc:
-            print(f"Error parsing stdio command '{stdio_cmd}': {exc}", file=sys.stderr)
-            continue
+            raise typer.BadParameter(str(exc), param_hint="--auth") from exc
 
-        if not parsed_command:
-            print(f"Error: Empty stdio command: {stdio_cmd}", file=sys.stderr)
-            continue
+    targets: list[tuple[str, NormalizedMcpTarget, str | None, str | None]] = []
+    for occurrence, url in enumerate(url_values, start=1):
+        if not url.lower().startswith(("http://", "https://")):
+            raise typer.BadParameter(
+                f"URL occurrence {occurrence}: URL must have http or https scheme: "
+                f"{redact_mcp_url(url)}",
+                param_hint="--url",
+            )
+        try:
+            target = normalize_connect_target_text(url, syntax="posix")
+        except ValueError as exc:
+            raise typer.BadParameter(
+                f"URL occurrence {occurrence} is invalid: {redact_mcp_url(url)}",
+                param_hint="--url",
+            ) from exc
+        if target.mode != "url":
+            raise typer.BadParameter(
+                f"URL occurrence {occurrence} must use http or https: {redact_mcp_url(url)}",
+                param_hint="--url",
+            )
+        targets.append(("--url", target, auth_token, url))
 
-        command = parsed_command[0]
-        initial_args = parsed_command[1:] if len(parsed_command) > 1 else []
+    for command_text in stdio_commands or ():
+        targets.append(
+            (
+                "--npx/--uvx/--stdio",
+                _normalize_startup_stdio_target(command_text),
+                None,
+                None,
+            )
+        )
 
-        if initial_args:
-            for arg in initial_args:
-                if arg.endswith((".py", ".js", ".ts")):
-                    base_name = generate_server_name(arg)
-                    break
-            else:
-                base_name = generate_server_name(command)
-        else:
-            base_name = generate_server_name(command)
+    if not targets:
+        return StartupMcpMerge(servers=None, server_list=server_list, notices=())
+    if auth_token is not None and client_metadata_url:
+        raise typer.BadParameter(
+            "Cannot combine --auth with --client-metadata-url for startup MCP URLs",
+            param_hint="--auth",
+        )
 
-        server_name = base_name
-        if len(stdio_commands) > 1:
-            server_name = f"{base_name}_{i + 1}"
+    selected_names = set(server_list or ())
+    servers: dict[str, MCPServerSettings] = {}
+    notices: list[str] = []
+    common_overrides: dict[str, Any] = {}
+    if protocol_mode is not None:
+        common_overrides["protocol_mode"] = protocol_mode
 
-        stdio_config: StdioServerConfig = {
-            "transport": "stdio",
-            "command": command,
-            "args": initial_args.copy(),
-        }
-        stdio_servers[server_name] = stdio_config
+    for source, target, target_auth, input_url in targets:
+        server_name = _allocate_startup_server_name(infer_server_name(target), selected_names)
+        overrides = dict(common_overrides)
+        if target.mode == "url" and client_metadata_url:
+            overrides["auth"] = {
+                "oauth": True,
+                "client_metadata_url": client_metadata_url,
+            }
+        try:
+            built = build_server_config_from_target(
+                target,
+                server_name=server_name,
+                auth_token=target_auth,
+                overrides=overrides,
+            )
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc), param_hint=source) from exc
+        servers[server_name] = built.settings
+        resolved_target = render_redacted_target(target)
+        if target.mode == "url" and input_url is not None and built.settings.url != input_url:
+            resolved_target = redact_mcp_url(built.settings.url or target.url or input_url)
+            notices.append(
+                f"Resolved MCP URL '{redact_mcp_url(input_url)}' to '{resolved_target}'. "
+                "Automatic '/mcp' suffixing is deprecated; pass the complete URL explicitly."
+            )
+        notices.append(f"Startup MCP server '{server_name}': {resolved_target}")
 
-        if not server_list:
-            server_list = [server_name]
-        else:
-            server_list.append(server_name)
-
-    return StdioServerMerge(stdio_servers=stdio_servers, server_list=server_list)
+    merged_server_list = [*(server_list or ()), *servers]
+    return StartupMcpMerge(
+        servers=servers,
+        server_list=merged_server_list,
+        notices=tuple(notices),
+    )
 
 
 def build_agent_run_request(
@@ -420,9 +462,10 @@ def build_agent_run_request(
     instruction: str,
     config_path: str | None,
     servers: str | None,
-    urls: str | None,
+    urls: list[str] | None,
     auth: str | None,
     client_metadata_url: str | None,
+    mcp_protocol: McpProtocolMode | None = None,
     agent_cards: list[str] | None,
     card_tools: list[str] | None,
     model: str | None,
@@ -456,11 +499,12 @@ def build_agent_run_request(
     json_schema: str | None = None,
     schema_model: str | None = None,
     structured_tool_policy: str | None = None,
-    force_smart: bool = False,
     no_home: bool = False,
     attachments: list[str] | None = None,
     environment: str | None = None,
     workspace: Path | None = None,
+    subagents: bool | None = None,
+    subagent_model: str | None = None,
 ) -> AgentRunRequest:
     """Build a normalized runtime request from legacy CLI kwargs."""
     validate_no_home_conflicts(
@@ -469,6 +513,7 @@ def build_agent_run_request(
         resume=resume,
     )
     validate_shell_conflicts(shell_enabled=shell_enabled, no_shell=no_shell)
+    validate_subagent_conflicts(subagents=subagents, subagent_model=subagent_model)
     execution_mode = validate_execution_mode_inputs(
         message=message,
         prompt_file=prompt_file,
@@ -484,17 +529,15 @@ def build_agent_run_request(
 
     server_list = servers.split(",") if servers else None
 
-    url_merge = _merge_url_servers(
-        server_list,
-        urls,
-        auth,
-        client_metadata_url,
+    mcp_merge = _materialize_startup_mcp_servers(
+        server_list=server_list,
+        urls=urls,
+        auth=auth,
+        client_metadata_url=client_metadata_url,
+        stdio_commands=stdio_commands,
+        protocol_mode=mcp_protocol,
     )
-    url_servers = url_merge.url_servers
-    server_list = url_merge.server_list
-    stdio_merge = _merge_stdio_servers(server_list, stdio_commands)
-    stdio_servers = stdio_merge.stdio_servers
-    server_list = stdio_merge.server_list
+    server_list = mcp_merge.server_list
 
     if no_home:
         merged_agent_cards = normalize_explicit_card_sources(agent_cards)
@@ -535,8 +578,8 @@ def build_agent_run_request(
         trajectory_output=trajectory_output,
         trajectory_format=trajectory_format,
         resume=resume,
-        url_servers=url_servers,
-        stdio_servers=stdio_servers,
+        startup_mcp_servers=mcp_merge.servers,
+        mcp_startup_notices=mcp_merge.notices,
         agent_name=agent_name,
         target_agent_name=target_agent_name,
         environment=environment,
@@ -544,7 +587,6 @@ def build_agent_run_request(
         home=None if no_home else home,
         workspace=workspace,
         no_home=no_home,
-        force_smart=force_smart,
         shell_runtime=effective_shell_enabled,
         no_shell=no_shell,
         prefer_local_shell=prefer_local_shell,
@@ -565,6 +607,8 @@ def build_agent_run_request(
         quiet=quiet,
         timeout_seconds=timeout_seconds,
         missing_shell_cwd_policy=missing_shell_cwd_policy,
+        subagents=True if subagent_model is not None else subagents,
+        subagent_model=subagent_model,
     )
 
 
@@ -585,9 +629,10 @@ def build_command_run_request(
     instruction_option: str | None,
     config_path: str | None,
     servers: str | None,
-    urls: str | None,
+    urls: list[str] | None,
     auth: str | None,
     client_metadata_url: str | None,
+    mcp_protocol: McpProtocolMode | None = None,
     agent_cards: list[str] | None,
     card_tools: list[str] | None,
     model: str | None,
@@ -619,7 +664,6 @@ def build_command_run_request(
     prefer_local_shell: bool = False,
     no_shell: bool = False,
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None,
-    force_smart: bool = False,
     no_home: bool = False,
     json_schema: str | None = None,
     schema_model: str | None = None,
@@ -627,6 +671,8 @@ def build_command_run_request(
     attachments: list[str] | None = None,
     environment: str | None = None,
     workspace: Path | None = None,
+    subagents: bool | None = None,
+    subagent_model: str | None = None,
 ) -> AgentRunRequest:
     """Build a normalized request directly from command option values."""
     validate_no_home_conflicts(
@@ -635,13 +681,13 @@ def build_command_run_request(
         resume=resume,
     )
     validate_shell_conflicts(shell_enabled=shell_enabled, no_shell=no_shell)
+    validate_subagent_conflicts(subagents=subagents, subagent_model=subagent_model)
 
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
     resolved_instruction = resolve_instruction_option(
         instruction_option,
         model,
         mode,
-        force_smart=force_smart,
     )
 
     return build_agent_run_request(
@@ -652,6 +698,7 @@ def build_command_run_request(
         urls=urls,
         auth=auth,
         client_metadata_url=client_metadata_url,
+        mcp_protocol=mcp_protocol,
         agent_cards=agent_cards,
         card_tools=card_tools,
         model=model,
@@ -673,7 +720,6 @@ def build_command_run_request(
         home=home,
         workspace=workspace,
         no_home=no_home,
-        force_smart=force_smart,
         shell_enabled=shell_enabled,
         prefer_local_shell=prefer_local_shell,
         no_shell=no_shell,
@@ -690,4 +736,6 @@ def build_command_run_request(
         quiet=quiet,
         timeout_seconds=timeout_seconds,
         missing_shell_cwd_policy=missing_shell_cwd_policy,
+        subagents=subagents,
+        subagent_model=subagent_model,
     )

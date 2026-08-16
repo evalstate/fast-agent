@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from mcp.types import Tool
+from mcp_types import Tool
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 MODULE_PATH = PROJECT_ROOT / "src" / "fast_agent" / "mcp" / "mcp_aggregator.py"
@@ -26,9 +26,9 @@ if not hasattr(enum, "StrEnum"):
 if "a2a" not in sys.modules:
     a2a_module = types.ModuleType("a2a")
     a2a_types_module = types.ModuleType("a2a.types")
-    setattr(a2a_types_module, "AgentCard", object)
-    setattr(a2a_types_module, "AgentSkill", object)
-    setattr(a2a_module, "types", a2a_types_module)
+    setattr(a2a_types_module, "AgentCard", object)  # noqa: B010
+    setattr(a2a_types_module, "AgentSkill", object)  # noqa: B010
+    setattr(a2a_module, "types", a2a_types_module)  # noqa: B010
     sys.modules["a2a"] = a2a_module
     sys.modules["a2a.types"] = a2a_types_module
 
@@ -36,6 +36,7 @@ spec = importlib.util.spec_from_file_location("fast_agent.mcp.mcp_aggregator", M
 if spec is None or spec.loader is None:
     raise RuntimeError("Failed to load mcp_aggregator module for testing")
 _module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = _module
 spec.loader.exec_module(_module)
 
 MCPAggregator = _module.MCPAggregator
@@ -53,7 +54,7 @@ def test_get_server_instructions_does_not_implicitly_connect() -> None:
 
     aggregator._namespaced_tool_map = {
         "huggingface.tool_a": NamespacedTool(
-            tool=Tool(name="tool_a", inputSchema={"type": "object"}),
+            tool=Tool(name="tool_a", input_schema={"type": "object"}),
             server_name="huggingface",
             namespaced_tool_name="huggingface.tool_a",
         )

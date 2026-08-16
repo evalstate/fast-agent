@@ -15,23 +15,13 @@ if TYPE_CHECKING:
 
 
 async def handle_model(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
-    return await _handle_model_like(handler, arguments, heading_prefix="model")
-
-
-async def _handle_model_like(
-    handler: "SlashCommandHandler",
-    arguments: str | None,
-    *,
-    heading_prefix: str,
-) -> str:
-    direct_help = render_direct_command_help(heading_prefix, arguments)
+    direct_help = render_direct_command_help("model", arguments)
     if direct_help is not None:
         return direct_help
 
-    default_action = "reasoning" if heading_prefix == "model" else "doctor"
-    intent = parse_model_command_intent(arguments, default_action=default_action)
+    intent = parse_model_command_intent(arguments)
     if intent.error is not None:
-        return f"Invalid /{heading_prefix} arguments: {intent.error}"
+        return f"Invalid /model arguments: {intent.error}"
     if intent.action == "unknown":
         return handler._model_usage_text()
 
@@ -56,9 +46,5 @@ async def _handle_model_like(
             value=intent.argument,
         )
 
-    heading = (
-        heading_prefix
-        if intent.action == "reasoning" and intent.argument is None
-        else f"{heading_prefix}.{intent.action}"
-    )
+    heading = "model" if intent.action == "status" and not arguments else f"model.{intent.action}"
     return render_command_outcome_markdown(outcome, heading=heading)

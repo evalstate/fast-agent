@@ -7,12 +7,12 @@ from dataclasses import dataclass
 from shutil import get_terminal_size
 from typing import TYPE_CHECKING
 
-from rich import print as rich_print
 from rich.text import Text
 
 from fast_agent.commands.history_summaries import build_history_turn_report
 from fast_agent.types.conversation_summary import ConversationSummary
 from fast_agent.ui import history_display_rows as _row_extraction
+from fast_agent.ui.console import rich_print
 from fast_agent.ui.history_display_models import (
     HistoryChromeBar,
     HistoryDisplayRow,

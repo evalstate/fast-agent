@@ -22,10 +22,6 @@ def test_go_specific_options_include_agent_and_no_home() -> None:
     assert "--no-shell" in GO_SPECIFIC_OPTIONS
 
 
-def test_go_specific_options_include_smart() -> None:
-    assert "--smart" in GO_SPECIFIC_OPTIONS
-
-
 def test_go_specific_options_include_pack_flags() -> None:
     assert "--pack" in GO_SPECIFIC_OPTIONS
     assert "--card-pack" in GO_SPECIFIC_OPTIONS
@@ -35,3 +31,7 @@ def test_go_specific_options_include_pack_flags() -> None:
 def test_go_specific_options_include_environment_flags() -> None:
     assert "--environment" in GO_SPECIFIC_OPTIONS
     assert "-E" in GO_SPECIFIC_OPTIONS
+
+
+def test_go_specific_options_exclude_removed_smart_flag() -> None:
+    assert "--smart" not in GO_SPECIFIC_OPTIONS

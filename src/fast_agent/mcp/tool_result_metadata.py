@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 from weakref import WeakKeyDictionary
 
-from mcp.types import CallToolResult
+from mcp_types import CallToolResult
 
 if TYPE_CHECKING:
-    from mcp.types import ContentBlock
+    from mcp_types import ContentBlock
 
     from fast_agent.mcp.url_elicitation_required import (
         URLElicitationRequiredDisplayPayload,
@@ -18,6 +18,17 @@ if TYPE_CHECKING:
 _FATAL_TOOL_ERROR_META_KEY = "fast_agent/fatal_tool_error"
 _URL_ELICITATION_META_KEY = "fast_agent/url_elicitation_required"
 _MEDIA_PREVIEW_META_KEY = "fast_agent/media_preview_content"
+_DISPLAY_META_KEY = "fast_agent/display"
+
+
+class ToolResultDisplayMetadata(TypedDict, total=False):
+    suppress_display: bool
+    exit_code: int
+    output_line_count: int
+    read_text_file_path: str
+    read_text_file_line: int
+    read_text_file_limit: int
+    transport_channel: str
 
 
 _OBJECT_URL_ELICITATION_METADATA: WeakKeyDictionary[
@@ -107,3 +118,22 @@ def get_tool_result_media_preview(
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
         return None
     return cast("Sequence[ContentBlock]", value)
+
+
+def update_tool_result_display_metadata(
+    result: CallToolResult,
+    values: ToolResultDisplayMetadata,
+) -> None:
+    metadata = _metadata(result)
+    display = metadata.setdefault(_DISPLAY_META_KEY, {})
+    if not isinstance(display, dict):
+        display = {}
+        metadata[_DISPLAY_META_KEY] = display
+    display.update(values)
+
+
+def tool_result_display_metadata(result: CallToolResult) -> ToolResultDisplayMetadata:
+    value = (result.meta or {}).get(_DISPLAY_META_KEY)
+    if not isinstance(value, dict):
+        return {}
+    return cast("ToolResultDisplayMetadata", value)

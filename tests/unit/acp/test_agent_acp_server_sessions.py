@@ -5,12 +5,12 @@ import json
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import pytest
 from acp.exceptions import RequestError
 from acp.schema import AgentMessageChunk, SessionModeState, UserMessageChunk
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.acp.server.agent_acp_server import ACPSessionState, AgentACPServer
 from fast_agent.acp.server.session_store import ACPServerSessionStore, SessionStoreHost
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 class _Agent:
     instruction = ""
-    acp_commands: dict[str, object] = {}
+    acp_commands: ClassVar[dict[str, object]] = {}
 
     def __init__(self) -> None:
         self.config = SimpleNamespace(default=False)

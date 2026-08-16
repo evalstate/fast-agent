@@ -155,7 +155,6 @@ skills_main
 skills_remove
 skills_search
 skills_update
-state_transfer
 toad_cards
 workflow
 

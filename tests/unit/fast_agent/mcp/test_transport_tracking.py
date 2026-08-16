@@ -1,5 +1,11 @@
 import pytest
-from mcp.types import ErrorData, JSONRPCError, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
+from mcp_types import (
+    ErrorData,
+    JSONRPCError,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResponse,
+)
 
 from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName, TransportChannelMetrics
 
@@ -8,7 +14,7 @@ def test_ping_response_not_counted_as_post_response():
     metrics = TransportChannelMetrics()
     metrics.register_ping_request(1)
 
-    message = JSONRPCMessage(JSONRPCResponse(jsonrpc="2.0", id=1, result={}))
+    message = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
     metrics.record_event(
         ChannelEvent(
             channel="post-json",
@@ -24,6 +30,19 @@ def test_ping_response_not_counted_as_post_response():
     assert snapshot.post_json.notification_count == 0
 
 
+def test_successful_auto_legacy_fallback_resolves_discovery() -> None:
+    metrics = TransportChannelMetrics()
+    metrics.record_discovery_response(400)
+
+    metrics.resolve_negotiation(protocol_mode="auto", protocol_era="legacy")
+
+    discovery = metrics.snapshot().discovery
+    assert discovery is not None
+    assert discovery.state == "legacy-fallback"
+    assert discovery.status_code == 400
+    assert discovery.detail == "HTTP 400"
+
+
 def test_transport_message_counts_are_tallied_by_channel() -> None:
     metrics = TransportChannelMetrics()
 
@@ -31,28 +50,28 @@ def test_transport_message_counts_are_tallied_by_channel() -> None:
         ChannelEvent(
             channel="post-json",
             event_type="message",
-            message=JSONRPCMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call")),
+            message=JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call"),
         )
     )
     metrics.record_event(
         ChannelEvent(
             channel="get",
             event_type="message",
-            message=JSONRPCMessage(JSONRPCResponse(jsonrpc="2.0", id=1, result={})),
+            message=JSONRPCResponse(jsonrpc="2.0", id=1, result={}),
         )
     )
     metrics.record_event(
         ChannelEvent(
             channel="resumption",
             event_type="message",
-            message=JSONRPCMessage(JSONRPCRequest(jsonrpc="2.0", id=2, method="resources/read")),
+            message=JSONRPCRequest(jsonrpc="2.0", id=2, method="resources/read"),
         )
     )
     metrics.record_event(
         ChannelEvent(
             channel="stdio",
             event_type="message",
-            message=JSONRPCMessage(JSONRPCResponse(jsonrpc="2.0", id=2, result={})),
+            message=JSONRPCResponse(jsonrpc="2.0", id=2, result={}),
         )
     )
 
@@ -67,6 +86,25 @@ def test_transport_message_counts_are_tallied_by_channel() -> None:
     assert snapshot.resumption.request_count == 1
     assert snapshot.stdio is not None
     assert snapshot.stdio.response_count == 1
+
+
+def test_progress_notification_is_counted_on_request_scoped_sse_channel() -> None:
+    metrics = TransportChannelMetrics()
+    metrics.record_event(
+        ChannelEvent(
+            channel="post-sse",
+            event_type="message",
+            message=JSONRPCNotification(
+                jsonrpc="2.0",
+                method="notifications/progress",
+            ),
+        )
+    )
+
+    snapshot = metrics.snapshot()
+    assert snapshot.post_sse is not None
+    assert snapshot.post_sse.notification_count == 1
+    assert snapshot.post_sse.last_message_summary == "notify notifications/progress"
 
 
 def test_activity_bucket_priority_emits_public_state_strings():
@@ -139,6 +177,56 @@ def test_resumption_error_only_event_is_visible() -> None:
     assert snapshot.resumption.activity_buckets == ["none", "error"]
 
 
+def test_listen_channel_tracks_requests_notifications_and_state() -> None:
+    metrics = TransportChannelMetrics(bucket_seconds=60, bucket_count=2)
+
+    metrics.record_event(
+        ChannelEvent(
+            channel="listen",
+            event_type="message",
+            message=JSONRPCRequest(
+                jsonrpc="2.0",
+                id="listen-1",
+                method="subscriptions/listen",
+            ),
+        )
+    )
+    metrics.record_event(ChannelEvent(channel="listen", event_type="connect"))
+    metrics.record_event(
+        ChannelEvent(
+            channel="listen",
+            event_type="message",
+            detail="ToolsListChanged",
+        )
+    )
+
+    snapshot = metrics.snapshot()
+    assert snapshot.listen is not None
+    assert snapshot.listen.state == "open"
+    assert snapshot.listen.request_count == 1
+    assert snapshot.listen.notification_count == 1
+    assert snapshot.listen.last_message_summary == "ToolsListChanged"
+    assert snapshot.listen.activity_buckets == ["none", "request"]
+
+
+def test_unsupported_listen_channel_is_hidden() -> None:
+    metrics = TransportChannelMetrics()
+    metrics.record_event(
+        ChannelEvent(
+            channel="listen",
+            event_type="message",
+            message=JSONRPCRequest(
+                jsonrpc="2.0",
+                id="listen-1",
+                method="subscriptions/listen",
+            ),
+        )
+    )
+    metrics.record_event(ChannelEvent(channel="listen", event_type="unsupported"))
+
+    assert metrics.snapshot().listen is None
+
+
 @pytest.mark.parametrize("channel", ["get", "stdio"])
 def test_connect_then_disconnect_only_events_are_visible(channel: ChannelName) -> None:
     metrics = TransportChannelMetrics()
@@ -178,7 +266,7 @@ def test_response_channel_ignores_requests_until_response_arrives() -> None:
         ChannelEvent(
             channel="post-json",
             event_type="message",
-            message=JSONRPCMessage(JSONRPCRequest(jsonrpc="2.0", id=42, method="tools/call")),
+            message=JSONRPCRequest(jsonrpc="2.0", id=42, method="tools/call"),
         )
     )
 
@@ -188,7 +276,7 @@ def test_response_channel_ignores_requests_until_response_arrives() -> None:
         ChannelEvent(
             channel="get",
             event_type="message",
-            message=JSONRPCMessage(JSONRPCResponse(jsonrpc="2.0", id=42, result={})),
+            message=JSONRPCResponse(jsonrpc="2.0", id=42, result={}),
         )
     )
 
@@ -202,12 +290,10 @@ def test_response_channel_records_error_response() -> None:
         ChannelEvent(
             channel="get",
             event_type="message",
-            message=JSONRPCMessage(
-                JSONRPCError(
-                    jsonrpc="2.0",
-                    id=7,
-                    error=ErrorData(code=-32000, message="failed"),
-                )
+            message=JSONRPCError(
+                jsonrpc="2.0",
+                id=7,
+                error=ErrorData(code=-32000, message="failed"),
             ),
         )
     )
@@ -221,12 +307,10 @@ def test_response_channel_records_error_response() -> None:
 )
 def test_ping_request_variants_are_classified_as_ping(method: str) -> None:
     metrics = TransportChannelMetrics()
-    message = JSONRPCMessage(
-        JSONRPCRequest(
-            jsonrpc="2.0",
-            id=1,
-            method=method,
-        )
+    message = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=1,
+        method=method,
     )
 
     metrics.record_event(

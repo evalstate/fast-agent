@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import AsyncIterator
 
 import pytest
-from mcp.types import CallToolResult, TextContent, Tool
+from mcp_types import CallToolResult, TextContent, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
@@ -30,7 +30,7 @@ MAGIC_STRING = "MAGIC-ACCESS-PHRASE-9F1C"
 MAGIC_TOOL = Tool(
     name="fetch_magic_string",
     description="Returns the daily passphrase when the assistant must call a tool.",
-    inputSchema={
+    input_schema={
         "type": "object",
         "properties": {
             "purpose": {
@@ -86,7 +86,7 @@ async def _create_history(agent: LlmAgent) -> None:
     tool_call = await agent.generate(
         request,
         tools=[MAGIC_TOOL],
-        request_params=RequestParams(maxTokens=300),
+        request_params=RequestParams(max_tokens=300),
     )
     assert tool_call.stop_reason is LlmStopReason.TOOL_USE
     assert tool_call.tool_calls

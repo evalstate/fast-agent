@@ -1,16 +1,17 @@
 ---
 social:
-  title: Command Plugins
-  tagline: Add custom slash commands and workflow actions to fast-agent.
-  description: Add custom slash commands and workflow actions to fast-agent.
-  alt: fast-agent social card — Command Plugins
+  title: Plugins
+  tagline: Add slash commands and post-turn displays to fast-agent.
+  description: Add slash commands and post-turn displays to fast-agent.
+  alt: fast-agent social card — Plugins
 ---
 
-# Command Plugins
+# Plugins
 
-Command plugins package reusable slash commands such as `/find`, `/peek`, or
-`/edit-last`. They install into the active fast-agent home under
-`.fast-agent/plugins/` and are enabled by name from `fast-agent.yaml`.
+Plugins package reusable slash commands such as `/find`, `/peek`, or
+`/edit-last`, post-user-turn displays, or both. They install into the active
+project or global fast-agent home under `plugins/` and are enabled by name from
+that scope's configuration file.
 
 ```yaml
 plugins:
@@ -23,6 +24,26 @@ Install a plugin from the configured plugin registry:
 
 ```bash
 fast-agent plugins add agent-finder
+```
+
+From an interactive fast-agent session, `/plugins add` makes the scope
+explicit. If you omit it, fast-agent prompts with **global** as the default:
+
+```text
+/plugins add agent-finder
+/plugins add agent-finder --global
+/plugins add agent-finder --project
+```
+
+Global plugins are available across projects. Project plugins are available
+only in the active project and override global plugins with the same name.
+Plugin listings use one combined project-then-global index. Update commands use
+the same indices and can be filtered without renumbering:
+
+```text
+/plugins update all --global --yes
+/plugins update 4 --global
+/plugins update all --project --yes
 ```
 
 Manage installed plugins:
@@ -109,6 +130,78 @@ commands:
 Handlers use the same async command-action API as inline `commands:` entries.
 Relative handler paths resolve from the plugin directory, so published plugins
 can be moved between environments without editing command paths.
+
+### Post-user-turn display hooks
+
+Manifest schema v2 adds one optional display hook:
+
+```yaml
+schema_version: 2
+name: price-calculator
+version: 0.1.0
+description: Display estimated cost for the last turn and current session.
+hooks:
+  post_user_turn: ./price_calculator.py:display_cost
+```
+
+`post_user_turn` runs once after each successful top-level interactive user
+turn. It does not run for quiet nested sends, failed turns, programmatic
+`agent.send(...)` calls, or once per subagent. This boundary ensures parallel
+workflows, tool loops, retries, and subagents contribute to one consolidated
+display.
+
+The handler may be synchronous or asynchronous and returns trusted Rich markup
+as `str`, or `None` to display nothing:
+
+```python
+from fast_agent.plugins import PluginPostUserTurnContext
+
+
+def show_calls(ctx: PluginPostUserTurnContext) -> str | None:
+    if not ctx.turn_usage:
+        return None
+    return (
+        f"[dim]Provider calls:[/dim] {len(ctx.turn_usage)} last · {len(ctx.session_usage)} session"
+    )
+```
+
+The context contains:
+
+- `plugin_name` — manifest plugin name.
+- `agent_name` — top-level agent selected by the user.
+- `turn_usage` — canonical provider attempts for the completed user turn.
+- `session_usage` — cumulative canonical provider attempts for the selected
+  agent or parallel workflow.
+- `config` — the plugin's mapping from `plugins.config.<plugin-name>`.
+
+Handlers run in enabled-plugin order. A load or execution failure is logged and
+does not fail the completed agent turn or prevent later display plugins from
+running. Hooks require `schema_version: 2`; schema v1 remains supported for
+command-only plugins.
+
+### Price calculator
+
+The
+[card-packs registry](https://github.com/fast-agent-ai/card-packs/tree/main/plugins/price-calculator)
+includes a price calculator with a versioned catalog covering GPT-5.6, Kimi K3,
+DeepSeek V4 Flash and Pro, Muse Spark, and Grok 4.3 through 4.6. Install and
+enable it with:
+
+```bash
+fast-agent plugins add price-calculator
+```
+
+Use `/cost` for one rollup per top-level user turn, including explanatory
+subagent or parallel-child ledgers. Use `/cost detail` for the provider-attempt
+table with model, service tier, context band, token/cache partitions, and
+estimated cost.
+
+GPT-5.6 prompts above 272,000 tokens use the long-context table. Standard and
+Flex prices are supported; Fast-tier calls are shown as unpriced until a Fast
+price table is configured. Kimi K3, DeepSeek V4 Flash, and DeepSeek V4 Pro cache
+writes are also shown as unpriced because their supplied tables do not specify
+a cache-write rate. Unknown calls never count as zero: the display labels
+partial totals with the number of unpriced model calls.
 
 ## Build a Plugin
 

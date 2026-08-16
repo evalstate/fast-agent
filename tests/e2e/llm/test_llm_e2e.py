@@ -5,7 +5,7 @@ from typing import Annotated
 
 import pytest
 import pytest_asyncio
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     CallToolRequest,
     CallToolRequestParams,
@@ -15,7 +15,7 @@ from mcp.types import (
     TextContent,
     Tool,
 )
-from pydantic import AnyUrl, BaseModel, Field
+from pydantic import BaseModel, Field
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
@@ -102,7 +102,7 @@ _input_schema = {
 _tool = Tool(
     name="weather",
     description="call this to check the weather in a city",
-    inputSchema=_input_schema,
+    input_schema=_input_schema,
 )
 
 _const_input_schema = {
@@ -119,7 +119,7 @@ _const_input_schema = {
 _const_tool = Tool(
     name="const_mode",
     description="Demonstrates a tool schema that includes a const constraint.",
-    inputSchema=_const_input_schema,
+    input_schema=_const_input_schema,
 )
 
 
@@ -141,7 +141,7 @@ async def test_max_tokens_limit(llm_agent_setup, model_name):
     """Test generation with max tokens limit returns MAX_TOKENS stop reason."""
     agent = llm_agent_setup
     result: PromptMessageExtended = await agent.generate(
-        "write a 300 word story", RequestParams(maxTokens=15)
+        "write a 300 word story", RequestParams(max_tokens=15)
     )
     assert result.stop_reason is LlmStopReason.MAX_TOKENS
 
@@ -153,7 +153,7 @@ async def test_stop_sequence(llm_agent_setup, model_name):
     """Test generation with stop sequence returns STOP_SEQUENCE stop reason."""
     agent = llm_agent_setup
     result: PromptMessageExtended = await agent.generate(
-        "repeat after me, `one, two, three`.", RequestParams(stopSequences=[" two,"])
+        "repeat after me, `one, two, three`.", RequestParams(stop_sequences=[" two,"])
     )
     # oai reasoning models don't support this
     # we will also need to remove this for multimodal messages with oai
@@ -214,7 +214,7 @@ async def test_tool_user_continuation(llm_agent_setup, model_name):
     result = await agent.generate(
         "check the weather in new york",
         tools=[_tool],
-        request_params=RequestParams(maxTokens=200),
+        request_params=RequestParams(max_tokens=200),
     )
     assert LlmStopReason.TOOL_USE is result.stop_reason
     assert result.tool_calls
@@ -240,7 +240,7 @@ async def test_tool_const_schema(llm_agent_setup, model_name):
     result = await agent.generate(
         "call the const_mode tool so I can confirm the mode you must use.",
         tools=[_const_tool],
-        request_params=RequestParams(maxTokens=max_tokens),
+        request_params=RequestParams(max_tokens=max_tokens),
     )
 
     assert result.stop_reason is LlmStopReason.TOOL_USE
@@ -260,7 +260,7 @@ async def test_tool_calling_agent(llm_agent_setup, model_name):
     result = await agent.generate(
         "check the weather in new york",
         tools=[_tool],
-        request_params=RequestParams(maxTokens=300),
+        request_params=RequestParams(max_tokens=300),
     )
     assert LlmStopReason.TOOL_USE is result.stop_reason
     assert result.tool_calls
@@ -365,7 +365,7 @@ async def test_mcp_tool_result_image_reads_name(llm_agent_setup, model_name):
     tool_result = CallToolResult(
         content=[
             TextContent(type="text", text="Here's your image:"),
-            ImageContent(type="image", data=image_b64, mimeType="image/png"),
+            ImageContent(type="image", data=image_b64, mime_type="image/png"),
         ]
     )
 
@@ -419,7 +419,7 @@ async def test_mcp_tool_result_pdf_summarizes_name(llm_agent_setup, model_name):
     embedded_pdf = EmbeddedResource(
         type="resource",
         resource=BlobResourceContents(
-            uri=AnyUrl(f"file://{pdf_path}"), blob=pdf_b64, mimeType="application/pdf"
+            uri=f"file://{pdf_path}", blob=pdf_b64, mime_type="application/pdf"
         ),
     )
     tool_result = CallToolResult(

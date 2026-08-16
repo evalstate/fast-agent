@@ -68,7 +68,7 @@ class StubMcpAgent(StubAgent):
         name: str,
         instruction_template: str,
         source_path: Path | None = None,
-        agent_type: AgentType = AgentType.SMART,
+        agent_type: AgentType = AgentType.BASIC,
     ) -> None:
         super().__init__(
             name=name,
@@ -206,19 +206,19 @@ def test_refresh_execution_environment_context_preserves_client_summary() -> Non
 
 
 def test_build_agent_instruction_context_includes_agent_metadata(tmp_path: Path) -> None:
-    card_path = tmp_path / "cards" / "smart.md"
+    card_path = tmp_path / "cards" / "agent.md"
     agent = StubAgent(
-        name="smarty",
+        name="helper",
         instruction_template="Hello",
         source_path=card_path,
-        agent_type=AgentType.SMART,
+        agent_type=AgentType.BASIC,
     )
 
     context = build_agent_instruction_context(agent, {"workspaceRoot": "/workspace"})
 
     assert context["workspaceRoot"] == "/workspace"
-    assert context["agentName"] == "smarty"
-    assert context["agentType"] == AgentType.SMART.value
+    assert context["agentName"] == "helper"
+    assert context["agentType"] == AgentType.BASIC.value
     assert context["agentCardPath"] == str(card_path.resolve())
     assert context["agentCardDir"] == str(card_path.parent.resolve())
 
@@ -228,14 +228,14 @@ def test_build_agent_instruction_context_uses_internal_when_no_card_path() -> No
         name="agent",
         instruction_template="Hello",
         source_path=None,
-        agent_type=AgentType.SMART,
+        agent_type=AgentType.BASIC,
     )
 
     context = build_agent_instruction_context(agent, {"workspaceRoot": "/workspace"})
 
     assert context["workspaceRoot"] == "/workspace"
     assert context["agentName"] == "agent"
-    assert context["agentType"] == AgentType.SMART.value
+    assert context["agentType"] == AgentType.BASIC.value
     assert context["agentCardPath"] == "(internal)"
     assert context["agentCardDir"] == "(internal)"
 
@@ -249,7 +249,7 @@ def test_apply_instruction_context_resolves_agent_metadata_placeholders(tmp_path
             "Card={{agentCardPath}} Dir={{agentCardDir}} Root={{workspaceRoot}}"
         ),
         source_path=card_path,
-        agent_type=AgentType.SMART,
+        agent_type=AgentType.BASIC,
     )
 
     asyncio.run(apply_instruction_context([agent], {"workspaceRoot": "/workspace"}))
@@ -263,19 +263,19 @@ def test_apply_instruction_context_resolves_agent_metadata_placeholders(tmp_path
 
 
 def test_apply_instruction_context_sets_agent_metadata_on_mcp_agent(tmp_path: Path) -> None:
-    card_path = tmp_path / "cards" / "smart.md"
+    card_path = tmp_path / "cards" / "agent.md"
     agent = StubMcpAgent(
         name="planner",
         instruction_template="Agent {{agentName}} @ {{workspaceRoot}}",
         source_path=card_path,
-        agent_type=AgentType.SMART,
+        agent_type=AgentType.BASIC,
     )
 
     asyncio.run(apply_instruction_context([agent], {"workspaceRoot": "/workspace"}))
 
     assert agent.instruction_context["workspaceRoot"] == "/workspace"
     assert agent.instruction_context["agentName"] == "planner"
-    assert agent.instruction_context["agentType"] == AgentType.SMART.value
+    assert agent.instruction_context["agentType"] == AgentType.BASIC.value
     assert agent.instruction_context["agentCardPath"] == str(card_path.resolve())
     assert agent.instruction_context["agentCardDir"] == str(card_path.parent.resolve())
     assert agent.instruction == "Agent planner @ /workspace"
@@ -368,7 +368,7 @@ description: {description}
         name="agent-a",
         instruction_template="Skills:\n{{agentSkills}}",
         source_path=tmp_path / "cards" / "agent-a.md",
-        agent_type=AgentType.SMART,
+        agent_type=AgentType.BASIC,
     )
     agent_a.set_skill_manifests([manifests_by_name["skill-a"]])
 
@@ -376,7 +376,7 @@ description: {description}
         name="agent-b",
         instruction_template="Skills:\n{{agentSkills}}",
         source_path=tmp_path / "cards" / "agent-b.md",
-        agent_type=AgentType.SMART,
+        agent_type=AgentType.BASIC,
     )
     agent_b.set_skill_manifests([manifests_by_name["skill-b"]])
 
@@ -423,7 +423,7 @@ description: A test skill for unit testing
         name="planner",
         instruction_template="Skills:\n{{agentSkills}}",
         source_path=tmp_path / "cards" / "planner.md",
-        agent_type=AgentType.SMART,
+        agent_type=AgentType.BASIC,
     )
 
     asyncio.run(apply_instruction_context([agent], context))
@@ -468,7 +468,7 @@ description: A test skill for unit testing
         name="planner",
         instruction_template="Skills:\n{{agentSkills}}",
         source_path=tmp_path / "cards" / "planner.md",
-        agent_type=AgentType.SMART,
+        agent_type=AgentType.BASIC,
     )
     agent.config.skills = []
 

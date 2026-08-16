@@ -9,12 +9,11 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from rich import print as rich_print
 from rich.text import Text
 
 from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
 from fast_agent.mcp.connect_targets import ParsedMcpConnectRequest, infer_server_name
-from fast_agent.ui.console import console, ensure_blocking_console
+from fast_agent.ui.console import console, ensure_blocking_console, rich_print
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
@@ -124,6 +123,7 @@ async def handle_mcp_connect(
     prompt_provider: "AgentApp",
     agent: str,
     request: ParsedMcpConnectRequest,
+    resolve_configured_name: bool = False,
 ) -> "CommandOutcome | None":
     label = _connect_label(request)
     attached_before_connect = await _attached_servers_before_connect(prompt_provider, agent)
@@ -144,6 +144,7 @@ async def handle_mcp_connect(
                 manager=prompt_provider,
                 agent_name=agent,
                 request=request,
+                resolve_configured_name=resolve_configured_name,
                 on_progress=emit_progress,
             )
         )

@@ -5,10 +5,17 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
+from typing import Protocol
 
 import pytest
 from acp.helpers import text_block
-from acp.schema import ClientCapabilities, FileSystemCapabilities, Implementation, StopReason
+from acp.schema import (
+    ClientCapabilities,
+    FileSystemCapabilities,
+    Implementation,
+    PromptResponse,
+    StopReason,
+)
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
@@ -20,12 +27,16 @@ CONFIG_PATH = TEST_DIR / "fastagent.config.yaml"
 END_TURN: StopReason = "end_turn"
 
 
-def _get_session_id(response: object) -> str:
-    return getattr(response, "session_id", None) or getattr(response, "sessionId")
+class _SessionResponse(Protocol):
+    session_id: str
 
 
-def _get_stop_reason(response: object) -> str | None:
-    return getattr(response, "stop_reason", None) or getattr(response, "stopReason", None)
+def _get_session_id(response: _SessionResponse) -> str:
+    return response.session_id
+
+
+def _get_stop_reason(response: PromptResponse) -> StopReason:
+    return response.stop_reason
 
 
 def get_fast_agent_cmd() -> tuple:
@@ -69,14 +80,8 @@ async def test_acp_filesystem_support_enabled() -> None:
             client_info=Implementation(name="pytest-filesystem-client", version="0.0.1"),
         )
 
-        assert (
-            getattr(init_response, "protocol_version", None) == 1
-            or getattr(init_response, "protocolVersion", None) == 1
-        )
-        assert (
-            getattr(init_response, "agent_capabilities", None)
-            or getattr(init_response, "agentCapabilities", None) is not None
-        )
+        assert init_response.protocol_version == 1
+        assert init_response.agent_capabilities is not None
 
         # Create session
         session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))

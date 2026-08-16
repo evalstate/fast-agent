@@ -119,17 +119,24 @@ async def handle_show_markdown(ctx: CommandContext, *, agent_name: str) -> Comma
         title="Last Assistant Response",
         right_info="display",
         agent_name=agent_name,
-        render_markdown=True,
+        verbatim=True,
     )
 
     return outcome
 
 
-async def handle_show_mcp_status(ctx: CommandContext, *, agent_name: str) -> CommandOutcome:
+async def handle_show_mcp_status(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+) -> CommandOutcome:
     outcome = CommandOutcome()
     from fast_agent.ui.enhanced_prompt import show_mcp_status
 
-    await show_mcp_status(agent_name, cast("AgentApp", ctx.agent_provider))
+    await show_mcp_status(
+        agent_name,
+        cast("AgentApp", ctx.agent_provider),
+    )
     return outcome
 
 

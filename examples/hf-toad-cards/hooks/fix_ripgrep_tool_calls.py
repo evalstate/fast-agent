@@ -1,4 +1,4 @@
-"""Lightweight guard for the smart card-pack ripgrep helper."""
+"""Lightweight guard for the ripgrep helper card pack."""
 
 from __future__ import annotations
 
@@ -374,7 +374,7 @@ async def fix_ripgrep_tool_calls(ctx: "HookContext") -> None:
         seen_commands.add(normalized)
         args["command"] = cleaned
 
-    setattr(ctx.runner, "_ripgrep_seen_commands", seen_commands)
-    setattr(ctx.runner, "_ripgrep_command_count", command_count)
-    setattr(ctx.runner, "_ripgrep_command_budget", command_budget)
-    setattr(ctx.runner, "_ripgrep_budget_exhausted", budget_exhausted)
+    ctx.runner._ripgrep_seen_commands = seen_commands
+    ctx.runner._ripgrep_command_count = command_count
+    ctx.runner._ripgrep_command_budget = command_budget
+    ctx.runner._ripgrep_budget_exhausted = budget_exhausted

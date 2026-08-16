@@ -7,7 +7,7 @@ from typing import Any
 
 from a2a.types import AgentCard
 from mcp import Tool
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
@@ -542,7 +542,7 @@ class IterativePlanner(LlmAgent):
         )
 
         request_params = self._merge_request_params(
-            request_params, RequestParams(systemPrompt=self.instruction)
+            request_params, RequestParams(system_prompt=self.instruction)
         )
 
         # Get structured response from LLM

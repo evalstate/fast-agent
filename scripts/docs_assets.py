@@ -37,6 +37,7 @@ class TerminalCastScenario:
     idle_time_limit: float
     prompt: str
     shell_command: str
+    notes: str = ""
 
 
 @dataclass(frozen=True)
@@ -125,18 +126,45 @@ def _skills_over_mcp_scenario() -> TerminalCastScenario:
         idle_time_limit=float(os.environ.get("FAST_AGENT_SKILLS_MCP_DEMO_IDLE_TIME_LIMIT", "1.3")),
         prompt="",
         shell_command=command,
+        notes=(
+            "Live Hugging Face stable-v2 connection; demonstrates the SEP-2640 "
+            "Skills Extension Draft (d7490ecd) resource-manifest workflow, not "
+            "legacy index/archive servers."
+        ),
+    )
+
+
+def _mcp_tool_schema_scenario() -> TerminalCastScenario:
+    command = os.environ.get(
+        "FAST_AGENT_TOOL_SCHEMA_DEMO_COMMAND",
+        "fast-agent --model passthrough",
+    )
+    return TerminalCastScenario(
+        name="mcp-tool-schema",
+        title="fast-agent MCP structured output schema",
+        output=ASSETS / "tui" / "mcp-tool-schema.cast",
+        cols=int(os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_COLS", "110")),
+        rows=int(os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_ROWS", "32")),
+        idle_time_limit=float(os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_IDLE_TIME_LIMIT", "3.0")),
+        prompt="",
+        shell_command=command,
+        notes=(
+            "Live MCP connection; defaults to the Hugging Face MCP server at "
+            "http://localhost:3000/mcp and inspects hf_whoami."
+        ),
     )
 
 
 def _hf_image_generation_scenario() -> TerminalCastScenario:
     command = os.environ.get(
         "FAST_AGENT_HF_IMAGE_DEMO_COMMAND",
-        "fast-agent -x --model codexplan --url 'https://huggingface.co/mcp?bouquet=dynamic_space'",
+        "fast-agent -x --model codexplan",
     )
     prompt = os.environ.get(
         "FAST_AGENT_HF_IMAGE_DEMO_PROMPT",
         (
-            "generate a wide cinematic landscape: a quiet alpine lake at sunrise, "
+            "Use Z-Image to generate a wide cinematic landscape: "
+            "a quiet alpine lake at sunrise, "
             "dark pine silhouettes, snow-capped mountains, warm orange sky reflected "
             "in the water, bold simple shapes, high contrast, no text"
         ),
@@ -153,6 +181,37 @@ def _hf_image_generation_scenario() -> TerminalCastScenario:
     )
 
 
+def _elicitation_sandbox_scenario() -> TerminalCastScenario:
+    return TerminalCastScenario(
+        name="elicitation-sandbox",
+        title="Modern request-scoped MCP elicitation",
+        output=ASSETS / "mcp" / "elicitation-sandbox.cast",
+        cols=int(os.environ.get("FAST_AGENT_ELICITATION_DEMO_COLS", "96")),
+        rows=int(os.environ.get("FAST_AGENT_ELICITATION_DEMO_ROWS", "24")),
+        idle_time_limit=float(os.environ.get("FAST_AGENT_ELICITATION_DEMO_IDLE_TIME_LIMIT", "1.3")),
+        prompt="",
+        shell_command="uv run sandbox_demo.py",
+        notes="Runs the simulated t4-small quickstart with modern MCP request retries.",
+    )
+
+
+def _mcp_inspect_legacy_scenario() -> TerminalCastScenario:
+    return TerminalCastScenario(
+        name="mcp-inspect-legacy",
+        title="fast-agent legacy remote MCP status",
+        output=ASSETS / "mcp" / "mcp-inspect-legacy.cast",
+        cols=int(os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_COLS", "112")),
+        rows=int(os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_ROWS", "30")),
+        idle_time_limit=float(os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_IDLE_TIME_LIMIT", "1.3")),
+        prompt="",
+        shell_command="fast-agent -x --model passthrough",
+        notes=(
+            "Deterministic local legacy Streamable HTTP server; demonstrates "
+            "MCP-Session-Id capture, health pings, and a high-resolution timeline."
+        ),
+    )
+
+
 def _scenarios() -> dict[str, TerminalCastScenario]:
     scenarios = [
         _tui_shell_scenario(),
@@ -160,7 +219,10 @@ def _scenarios() -> dict[str, TerminalCastScenario]:
         _skills_direct_install_scenario(),
         _skills_slash_commands_scenario(),
         _skills_over_mcp_scenario(),
+        _mcp_tool_schema_scenario(),
         _hf_image_generation_scenario(),
+        _elicitation_sandbox_scenario(),
+        _mcp_inspect_legacy_scenario(),
     ]
     return {scenario.name: scenario for scenario in scenarios}
 
@@ -186,6 +248,7 @@ def _cast_recorders() -> dict[Path, CastRecorder]:
         scenario.output.relative_to(ROOT): CastRecorder(
             name=scenario.name,
             command=f"uv run scripts/docs.py cast-build {scenario.name}",
+            notes=scenario.notes,
         )
         for scenario in _scenarios().values()
     }
@@ -634,14 +697,23 @@ tmux attach-session -t "$SESSION" || true
 """
 
 
-def _hf_image_generation_record_script(scenario: TerminalCastScenario) -> str:
-    startup_wait = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_STARTUP_WAIT", "8")
-    response_wait = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_RESPONSE_WAIT", "35")
-    final_wait = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_FINAL_WAIT", "2")
-    typing_delay = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_TYPING_DELAY", "0.035")
+def _mcp_tool_schema_record_script(scenario: TerminalCastScenario) -> str:
+    startup_timeout = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_STARTUP_TIMEOUT", "30")
+    connect_timeout = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_CONNECT_TIMEOUT", "30")
+    schema_timeout = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_SCHEMA_TIMEOUT", "30")
+    prompt_timeout = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_PROMPT_TIMEOUT", "30")
+    input_schema_wait = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_INPUT_WAIT", "3.0")
+    output_schema_wait = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_OUTPUT_WAIT", "3.0")
+    output_page_wait = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_PAGE_WAIT", "2.5")
+    final_wait = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_FINAL_WAIT", "3.0")
+    typing_delay = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_TYPING_DELAY", "0.035")
+    server_url = os.environ.get(
+        "FAST_AGENT_TOOL_SCHEMA_DEMO_SERVER",
+        "http://localhost:3000/mcp",
+    )
     session = f"fast_agent_docs_{scenario.name.replace('-', '_')}"
     command = scenario.shell_command.replace("'", "'\"'\"'")
-    prompt = scenario.prompt.replace("'", "'\"'\"'")
+    server_url = server_url.replace("'", "'\"'\"'")
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
@@ -660,9 +732,156 @@ type_slow() {{
   done
 }}
 
+wait_for_pane() {{
+  local target="$1"
+  local pattern="$2"
+  local timeout="$3"
+  local attempts=$((timeout * 4))
+  local i
+  for (( i=0; i<attempts; i++ )); do
+    if tmux capture-pane -p -t "$target" -S -5000 | grep -Fq "$pattern"; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  tmux capture-pane -p -t "$target" -S -5000 >&2 || true
+  return 1
+}}
+
+wait_for_prompt() {{
+  local target="$1"
+  local timeout="$2"
+  local attempts=$((timeout * 4))
+  local i
+  for (( i=0; i<attempts; i++ )); do
+    if tmux capture-pane -p -t "$target" -S -8 | grep -Eq '^❯[[:space:]]*$'; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  tmux capture-pane -p -t "$target" -S -50 >&2 || true
+  return 1
+}}
+
 tmux kill-session -t "$SESSION" 2>/dev/null || true
 tmux new-session -d -s "$SESSION" -x {scenario.cols} -y {scenario.rows} \\
-  "DEMO_FAST_AGENT_HOME=\\$(mktemp -d) && printf '{{}}\\n' > \\\"\\$DEMO_FAST_AGENT_HOME/fast-agent.yaml\\\" && export FAST_AGENT_HOME=\\\"\\$DEMO_FAST_AGENT_HOME\\\" && DEMO_WORKDIR=\\$(mktemp -d -t fast-agent-hf-image.XXXXXX) && cd \\\"\\$DEMO_WORKDIR\\\" && unset ENVIRONMENT_DIR FAST_AGENT_RUNTIME_ENVIRONMENT VIRTUAL_ENV NO_COLOR && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 TUI__COMPLETION_MENU_RESERVED_LINES=${{TUI__COMPLETION_MENU_RESERVED_LINES:-4}} LOGGER__TERMINAL_IMAGES__ENABLED=true LOGGER__TERMINAL_IMAGES__BACKEND=halfcell LOGGER__TERMINAL_IMAGES__WIDTH=${{LOGGER__TERMINAL_IMAGES__WIDTH:-96}} LOGGER__TERMINAL_IMAGES__HEIGHT=${{LOGGER__TERMINAL_IMAGES__HEIGHT:-24}} bash --noprofile --norc"
+  "DEMO_FAST_AGENT_HOME=\\$(mktemp -d) && printf '{{}}\\n' > \\\"\\$DEMO_FAST_AGENT_HOME/fast-agent.yaml\\\" && export FAST_AGENT_HOME=\\\"\\$DEMO_FAST_AGENT_HOME\\\" && DEMO_WORKDIR=\\$(mktemp -d -t fast-agent-tool-schema.XXXXXX) && cd \\\"\\$DEMO_WORKDIR\\\" && unset ENVIRONMENT_DIR FAST_AGENT_RUNTIME_ENVIRONMENT VIRTUAL_ENV NO_COLOR && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 TUI__COMPLETION_MENU_RESERVED_LINES=${{TUI__COMPLETION_MENU_RESERVED_LINES:-4}} bash --noprofile --norc"
+tmux set-option -t "$SESSION" status off >/dev/null
+
+(
+  trap 'tmux kill-session -t "$SESSION" 2>/dev/null || true' EXIT
+  sleep 1
+  type_slow "$SESSION" '{command}' 0.035
+  tmux send-keys -t "$SESSION" Enter
+  wait_for_prompt "$SESSION" {startup_timeout}
+  type_slow "$SESSION" '/mcp connect {server_url} --name hf' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  wait_for_pane "$SESSION" "Connected MCP server 'hf'" {connect_timeout}
+  wait_for_prompt "$SESSION" {prompt_timeout}
+  type_slow "$SESSION" '/tool hf__hf_whoami' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  wait_for_pane "$SESSION" 'Structured output schema' {schema_timeout}
+  wait_for_prompt "$SESSION" {prompt_timeout}
+  tmux copy-mode -t "$SESSION"
+  tmux send-keys -X -t "$SESSION" search-backward 'Input schema'
+  sleep {input_schema_wait}
+  tmux send-keys -X -t "$SESSION" search-forward 'Structured output schema'
+  sleep {output_schema_wait}
+  tmux send-keys -X -t "$SESSION" page-down
+  sleep {output_page_wait}
+  tmux send-keys -X -t "$SESSION" search-backward 'Structured output schema'
+  sleep {final_wait}
+) &
+DRIVER_PID=$!
+
+tmux attach-session -t "$SESSION" || true
+wait "$DRIVER_PID"
+"""
+
+
+def _hf_image_generation_record_script(scenario: TerminalCastScenario) -> str:
+    startup_wait = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_STARTUP_WAIT", "8")
+    connect_timeout = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_CONNECT_TIMEOUT", "60")
+    whoami_timeout = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_WHOAMI_TIMEOUT", "60")
+    response_timeout = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_RESPONSE_TIMEOUT", "180")
+    prompt_timeout = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_PROMPT_TIMEOUT", "60")
+    status_wait = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_STATUS_WAIT", "2.5")
+    final_wait = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_FINAL_WAIT", "1")
+    typing_delay = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_TYPING_DELAY", "0.035")
+    session = f"fast_agent_docs_{scenario.name.replace('-', '_')}"
+    command = scenario.shell_command.replace("'", "'\"'\"'")
+    prompt = scenario.prompt.replace("'", "'\"'\"'")
+    whoami_prompt = os.environ.get(
+        "FAST_AGENT_HF_IMAGE_DEMO_WHOAMI_PROMPT",
+        (
+            "Identify my authenticated Hugging Face username. "
+            "Reply with only the username and no other account details."
+        ),
+    ).replace("'", "'\"'\"'")
+    server_url = os.environ.get(
+        "FAST_AGENT_HF_IMAGE_DEMO_SERVER",
+        "https://huggingface.co/mcp",
+    ).replace("'", "'\"'\"'")
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION='{session}'
+ROOT='{ROOT}'
+HF_TOKEN="${{HF_TOKEN:-}}"
+if [[ -z "$HF_TOKEN" ]]; then
+  HF_TOKEN="$(uv run python -c 'from huggingface_hub import get_token; print(get_token() or "")')"
+fi
+if [[ -z "$HF_TOKEN" ]]; then
+  echo "Set HF_TOKEN or log in with huggingface_hub before recording hf-image-generation." >&2
+  exit 2
+fi
+
+type_slow() {{
+  local target="$1"
+  local text="$2"
+  local delay="$3"
+  local i char
+  for (( i=0; i<${{#text}}; i++ )); do
+    char="${{text:i:1}}"
+    tmux send-keys -l -t "$target" "$char"
+    sleep "$delay"
+  done
+}}
+
+wait_for_pane() {{
+  local target="$1"
+  local pattern="$2"
+  local timeout="$3"
+  local attempts=$((timeout * 4))
+  local i
+  for (( i=0; i<attempts; i++ )); do
+    if tmux capture-pane -p -t "$target" -S -5000 | grep -Fq "$pattern"; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  tmux capture-pane -p -t "$target" -S -5000 >&2 || true
+  return 1
+}}
+
+wait_for_prompt() {{
+  local target="$1"
+  local timeout="$2"
+  local attempts=$((timeout * 4))
+  local i
+  for (( i=0; i<attempts; i++ )); do
+    if tmux capture-pane -p -t "$target" -S -8 | grep -Eq '^❯[[:space:]]*$'; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  tmux capture-pane -p -t "$target" -S -50 >&2 || true
+  return 1
+}}
+
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+tmux new-session -d -e "HF_TOKEN=$HF_TOKEN" -s "$SESSION" -x {scenario.cols} -y {scenario.rows} \\
+  "DEMO_FAST_AGENT_HOME=\\$(mktemp -d) && printf 'mcp:\\n  diagnostics:\\n    enabled: true\\n    timeline:\\n      steps: 60\\n      step_seconds: 1\\n' > \\\"\\$DEMO_FAST_AGENT_HOME/fast-agent.yaml\\\" && export FAST_AGENT_HOME=\\\"\\$DEMO_FAST_AGENT_HOME\\\" && DEMO_WORKDIR=\\$(mktemp -d -t fast-agent-hf-image.XXXXXX) && cd \\\"\\$DEMO_WORKDIR\\\" && unset ENVIRONMENT_DIR FAST_AGENT_RUNTIME_ENVIRONMENT VIRTUAL_ENV NO_COLOR && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 TUI__COMPLETION_MENU_RESERVED_LINES=${{TUI__COMPLETION_MENU_RESERVED_LINES:-4}} LOGGER__TERMINAL_IMAGES__ENABLED=true LOGGER__TERMINAL_IMAGES__BACKEND=halfcell LOGGER__TERMINAL_IMAGES__WIDTH=${{LOGGER__TERMINAL_IMAGES__WIDTH:-96}} LOGGER__TERMINAL_IMAGES__HEIGHT=${{LOGGER__TERMINAL_IMAGES__HEIGHT:-24}} bash --noprofile --norc"
 tmux set-option -t "$SESSION" status off >/dev/null
 
 (
@@ -670,9 +889,207 @@ tmux set-option -t "$SESSION" status off >/dev/null
   type_slow "$SESSION" '{command}' 0.035
   tmux send-keys -t "$SESSION" Enter
   sleep {startup_wait}
+  type_slow "$SESSION" '/mcp connect {server_url} --name hf --auth $HF_TOKEN --no-oauth' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  wait_for_pane "$SESSION" "Connected MCP server 'hf'" {connect_timeout}
+  wait_for_prompt "$SESSION" {prompt_timeout}
+  type_slow "$SESSION" '{whoami_prompt}' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  wait_for_pane "$SESSION" 'hf_whoami' {whoami_timeout}
+  wait_for_prompt "$SESSION" {prompt_timeout}
   type_slow "$SESSION" '{prompt}' {typing_delay}
   tmux send-keys -t "$SESSION" Enter
-  sleep {response_wait}
+  wait_for_pane "$SESSION" '[IMAGE 1:' {response_timeout}
+  wait_for_prompt "$SESSION" {prompt_timeout}
+  type_slow "$SESSION" '/mcp' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  sleep {status_wait}
+  sleep {final_wait}
+  tmux kill-session -t "$SESSION" 2>/dev/null || true
+) &
+
+tmux attach-session -t "$SESSION" || true
+"""
+
+
+def _mcp_inspect_legacy_record_script(scenario: TerminalCastScenario) -> str:
+    startup_wait = os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_STARTUP_WAIT", "4")
+    attach_timeout = os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_ATTACH_TIMEOUT", "30")
+    prompt_timeout = os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_PROMPT_TIMEOUT", "30")
+    status_timeout = os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_STATUS_TIMEOUT", "30")
+    ping_wait = os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_PING_WAIT", "3")
+    status_wait = os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_STATUS_WAIT", "2")
+    typing_delay = os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_TYPING_DELAY", "0.035")
+    session = f"fast_agent_docs_{scenario.name.replace('-', '_')}"
+    command = scenario.shell_command.replace("'", "'\"'\"'")
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION='{session}'
+ROOT='{ROOT}'
+PORT="${{FAST_AGENT_MCP_LEGACY_DEMO_PORT:-43177}}"
+SERVER_LOG="$(mktemp -t fast-agent-mcp-legacy.XXXXXX.log)"
+DEMO_FAST_AGENT_HOME="$(mktemp -d)"
+DEMO_WORKDIR="$(mktemp -d -t fast-agent-mcp-legacy.XXXXXX)"
+
+cleanup() {{
+  tmux kill-session -t "$SESSION" 2>/dev/null || true
+  if [[ -n "${{SERVER_PID:-}}" ]]; then
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+  fi
+  rm -rf "$DEMO_FAST_AGENT_HOME" "$DEMO_WORKDIR"
+  rm -f "$SERVER_LOG"
+}}
+trap cleanup EXIT
+
+type_slow() {{
+  local target="$1"
+  local text="$2"
+  local delay="$3"
+  local i char
+  for (( i=0; i<${{#text}}; i++ )); do
+    char="${{text:i:1}}"
+    tmux send-keys -l -t "$target" "$char"
+    sleep "$delay"
+  done
+}}
+
+wait_for_pane() {{
+  local target="$1"
+  local pattern="$2"
+  local timeout="$3"
+  local attempts=$((timeout * 4))
+  local i
+  for (( i=0; i<attempts; i++ )); do
+    if tmux capture-pane -p -t "$target" -S -5000 | grep -Fq "$pattern"; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  tmux capture-pane -p -t "$target" -S -5000 >&2 || true
+  return 1
+}}
+
+wait_for_prompt() {{
+  local target="$1"
+  local timeout="$2"
+  local attempts=$((timeout * 4))
+  local i
+  for (( i=0; i<attempts; i++ )); do
+    if tmux capture-pane -p -t "$target" -S -8 | grep -Eq '^❯[[:space:]]*$'; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  tmux capture-pane -p -t "$target" -S -50 >&2 || true
+  return 1
+}}
+
+cat > "$DEMO_FAST_AGENT_HOME/fast-agent.yaml" <<YAML
+mcp:
+  diagnostics:
+    enabled: true
+    timeline:
+      steps: 60
+      step_seconds: 1
+  servers:
+    legacy_remote:
+      transport: http
+      url: http://127.0.0.1:$PORT/mcp
+      protocol_mode: legacy
+      ping_interval_seconds: 1
+      max_missed_pings: 3
+      load_on_start: false
+YAML
+
+cd "$ROOT"
+uv run python scripts/docs_mcp_legacy_server.py --port "$PORT" >"$SERVER_LOG" 2>&1 &
+SERVER_PID=$!
+for _ in {{1..100}}; do
+  if curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null; then
+    break
+  fi
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    cat "$SERVER_LOG" >&2
+    exit 1
+  fi
+  sleep 0.1
+done
+curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null
+
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+tmux new-session -d -s "$SESSION" -x {scenario.cols} -y {scenario.rows} \\
+  "cd '$DEMO_WORKDIR' && export FAST_AGENT_HOME='$DEMO_FAST_AGENT_HOME' && unset ENVIRONMENT_DIR FAST_AGENT_RUNTIME_ENVIRONMENT VIRTUAL_ENV NO_COLOR && PYTHONWARNINGS=ignore::UserWarning TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 TUI__COMPLETION_MENU_RESERVED_LINES=${{TUI__COMPLETION_MENU_RESERVED_LINES:-4}} bash --noprofile --norc"
+tmux set-option -t "$SESSION" status off >/dev/null
+
+(
+  sleep 1
+  type_slow "$SESSION" '{command}' 0.035
+  tmux send-keys -t "$SESSION" Enter
+  sleep {startup_wait}
+  wait_for_prompt "$SESSION" {prompt_timeout}
+  type_slow "$SESSION" '/mcp attach legacy_remote' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  wait_for_pane "$SESSION" "Attached configured MCP server 'legacy_remote'" {attach_timeout}
+  wait_for_prompt "$SESSION" {prompt_timeout}
+  sleep {ping_wait}
+  type_slow "$SESSION" '/mcp' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  wait_for_pane "$SESSION" 'Docs Legacy Remote' {status_timeout}
+  sleep {status_wait}
+  tmux kill-session -t "$SESSION" 2>/dev/null || true
+) &
+
+tmux attach-session -t "$SESSION" || true
+"""
+
+
+def _elicitation_sandbox_record_script(scenario: TerminalCastScenario) -> str:
+    startup_wait = os.environ.get("FAST_AGENT_ELICITATION_DEMO_STARTUP_WAIT", "4")
+    field_wait = os.environ.get("FAST_AGENT_ELICITATION_DEMO_FIELD_WAIT", "0.45")
+    final_wait = os.environ.get("FAST_AGENT_ELICITATION_DEMO_FINAL_WAIT", "2")
+    typing_delay = os.environ.get("FAST_AGENT_ELICITATION_DEMO_TYPING_DELAY", "0.045")
+    session = f"fast_agent_docs_{scenario.name.replace('-', '_')}"
+    command = scenario.shell_command.replace("'", "'\"'\"'")
+    workdir = ROOT / "examples" / "mcp" / "elicitations"
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION='{session}'
+
+type_slow() {{
+  local target="$1"
+  local text="$2"
+  local delay="$3"
+  local i char
+  for (( i=0; i<${{#text}}; i++ )); do
+    char="${{text:i:1}}"
+    tmux send-keys -l -t "$target" "$char"
+    sleep "$delay"
+  done
+}}
+
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+tmux new-session -d -s "$SESSION" -x {scenario.cols} -y {scenario.rows} \\
+  "cd '{workdir}' && unset ENVIRONMENT_DIR FAST_AGENT_HOME FAST_AGENT_RUNTIME_HOME FAST_AGENT_RUNTIME_ENVIRONMENT VIRTUAL_ENV NO_COLOR && PS1='' TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 bash --noprofile --norc"
+tmux set-option -t "$SESSION" status off >/dev/null
+
+(
+  sleep 1
+  type_slow "$SESSION" '{command}' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  sleep {startup_wait}
+  tmux send-keys -t "$SESSION" Down
+  sleep {field_wait}
+  tmux send-keys -t "$SESSION" Down Space
+  sleep {field_wait}
+  tmux send-keys -t "$SESSION" Tab Home Delete 2
+  sleep {field_wait}
+  tmux send-keys -t "$SESSION" Tab Home Delete Delete Delete
+  type_slow "$SESSION" '1.00' {typing_delay}
+  sleep {field_wait}
+  tmux send-keys -t "$SESSION" Tab Enter
   sleep {final_wait}
   tmux kill-session -t "$SESSION" 2>/dev/null || true
 ) &
@@ -737,8 +1154,14 @@ def _record_script(scenario: TerminalCastScenario) -> str:
         return _skills_slash_commands_record_script(scenario)
     if scenario.name == "skills-over-mcp":
         return _skills_over_mcp_record_script(scenario)
+    if scenario.name == "mcp-tool-schema":
+        return _mcp_tool_schema_record_script(scenario)
     if scenario.name == "hf-image-generation":
         return _hf_image_generation_record_script(scenario)
+    if scenario.name == "mcp-inspect-legacy":
+        return _mcp_inspect_legacy_record_script(scenario)
+    if scenario.name == "elicitation-sandbox":
+        return _elicitation_sandbox_record_script(scenario)
 
     typing_delay = os.environ.get("FAST_AGENT_TUI_DEMO_TYPING_DELAY", "0.055")
     shell_delay = os.environ.get("FAST_AGENT_TUI_DEMO_SHELL_TYPING_DELAY", "0.045")

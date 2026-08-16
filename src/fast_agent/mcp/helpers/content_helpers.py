@@ -6,7 +6,7 @@ Helper functions for working with content objects (Fast Agent namespace).
 import json
 from typing import TYPE_CHECKING, Protocol, TypeGuard, cast
 
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     ContentBlock,
     EmbeddedResource,
@@ -46,7 +46,7 @@ def get_text(content: object) -> str | None:
     if isinstance(content, ResourceLink):
         name = content.name or "unknown"
         uri_str = str(content.uri)
-        mime_type = content.mimeType or "unknown"
+        mime_type = content.mime_type or "unknown"
         description = content.description or ""
 
         lines = [
@@ -153,7 +153,7 @@ def canonicalize_tool_result_content_for_llm(
     raw_content = getattr(result, "content", None)
     content = cast("list[ContentBlock]", list(raw_content)) if isinstance(raw_content, list) else []
 
-    structured_content = getattr(result, "structuredContent", None)
+    structured_content = getattr(result, "structured_content", None)
     if structured_content is None:
         return content
 
@@ -257,13 +257,11 @@ def resource_link(
     Returns:
         A ResourceLink object
     """
-    from pydantic import AnyUrl
-
     return ResourceLink(
         type="resource_link",
-        uri=AnyUrl(url),
+        uri=url,
         name=name or _extract_name_from_url(url),
-        mimeType=mime_type or _infer_mime_type(url),
+        mime_type=mime_type or _infer_mime_type(url),
         description=description,
     )
 

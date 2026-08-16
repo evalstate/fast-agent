@@ -56,7 +56,7 @@ def test_gpt_56_context_windows_follow_provider_limits() -> None:
 
 
 def test_managed_process_poll_folding_is_enabled_for_validated_models() -> None:
-    for model in ("grok-4.3", "grok-4.5"):
+    for model in ("grok-4.3", "grok-4.5", "grok-4.6"):
         grok = ModelDatabase.get_model_params(
             model,
             provider=Provider.XAI,
@@ -101,7 +101,7 @@ def test_anthropic_catalog_uses_posix_file_creation_guidance() -> None:
     for model in anthropic_models:
         assert (
             ModelDatabase.get_model_specific(model, provider=Provider.ANTHROPIC)
-            == ModelDatabase.ANTHROPIC_MODEL_SPECIFIC
+            == ModelDatabase.MODEL_PREFERS_HEREDOCS
         )
 
     assert (
@@ -109,7 +109,7 @@ def test_anthropic_catalog_uses_posix_file_creation_guidance() -> None:
             "claude-sonnet-4-6",
             provider=Provider.ANTHROPIC_VERTEX,
         )
-        == ModelDatabase.ANTHROPIC_MODEL_SPECIFIC
+        == ModelDatabase.MODEL_PREFERS_HEREDOCS
     )
 
 
@@ -240,7 +240,7 @@ def test_huggingface_qwen35_structured_output_uses_prompted_json_object_mode() -
     tool = Tool(
         name="lookup",
         description="Lookup data.",
-        inputSchema={"type": "object", "properties": {}},
+        input_schema={"type": "object", "properties": {}},
     )
     llm = _make_hf_llm("Qwen/Qwen3.5-397B-A17B")
 
@@ -457,19 +457,45 @@ def test_model_database_supports_mime_basic():
     assert ModelDatabase.supports_mime("gpt-4o", "png")
 
 
+def test_deepseek_v4_flash_uses_learned_shell_contract() -> None:
+    for model_name in (
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+        "deepseek-ai/DeepSeek-V4-Flash-0731",
+    ):
+        params = ModelDatabase.get_model_params(model_name)
+
+        assert params is not None
+        assert params.managed_process_poll_folding is True
+        assert params.shell_tool_name == "Shell"
+        assert params.shell_tool_requires_description is False
+        assert params.shell_edit_tool == "write_text_file"
+        assert params.model_specific == ModelDatabase.MODEL_PREFERS_WRITER_EDITOR
+        assert "heredoc" not in params.model_specific.casefold()
+
+
 def test_model_database_xai_grok_aliases_and_responses_transport():
     assert ModelDatabase.get_default_provider("grok") == Provider.XAI
     assert ModelDatabase.get_default_provider("grok-4.3") == Provider.XAI
     assert ModelDatabase.get_default_provider("grok-4.5") == Provider.XAI
+    assert ModelDatabase.get_default_provider("grok-4.6") == Provider.XAI
 
     assert ModelDatabase.get_context_window("grok") == 500_000
     assert ModelDatabase.get_context_window("grok-4.3") == 1_000_000
     assert ModelDatabase.get_context_window("grok-4.5") == 500_000
+    assert ModelDatabase.get_context_window("grok-4.6") == 500_000
     assert ModelDatabase.get_model_params("grok-4.3-latest") is None
     assert ModelDatabase.get_model_params("grok-4-fast-reasoning") is None
     assert ModelDatabase.get_model_params("grok-3") is None
     assert ModelDatabase.get_response_transports("grok-4.3") == ("sse", "websocket")
     assert ModelDatabase.supports_response_websocket_provider("grok-4.3", Provider.XAI)
+
+    openrouter = ModelDatabase.get_model_params(
+        "x-ai/grok-4.6",
+        provider=Provider.OPENROUTER,
+    )
+    assert openrouter is not None
+    assert openrouter.reasoning_effort_spec == ModelDatabase.XAI_GROK_46_REASONING_EFFORT_SPEC
 
 
 def test_model_database_xai_image_input_mime_types_match_docs():
@@ -484,16 +510,37 @@ def test_model_database_xai_image_input_mime_types_match_docs():
 
 
 def test_model_database_metaai_muse_spark_metadata():
-    assert ModelDatabase.get_default_provider("muse-spark-1.1") == Provider.META_AI
-    assert ModelDatabase.get_context_window("muse-spark-1.1") == 1_048_576
-    assert ModelDatabase.get_response_transports("muse-spark-1.1") == ("sse",)
-    assert not ModelDatabase.supports_response_websocket_provider(
+    models = (
+        "muse-spark-1.2",
+        "muse-spark-1.2-contributor",
         "muse-spark-1.1",
-        Provider.META_AI,
     )
-    assert ModelDatabase.supports_mime("muse-spark-1.1", "image/png")
-    assert ModelDatabase.supports_mime("muse-spark-1.1", "application/pdf")
-    assert ModelDatabase.supports_mime("muse-spark-1.1", "video/mp4")
+
+    for model in models:
+        assert ModelDatabase.get_default_provider(model) == Provider.META_AI
+        assert ModelDatabase.get_context_window(model) == 1_048_576
+        assert ModelDatabase.get_response_transports(model) == ("sse",)
+        assert not ModelDatabase.supports_response_websocket_provider(model, Provider.META_AI)
+        assert ModelDatabase.supports_mime(model, "image/png")
+        assert ModelDatabase.supports_mime(model, "application/pdf")
+        assert ModelDatabase.supports_mime(model, "video/mp4")
+
+
+def test_model_database_muse_glimmer_huggingface_metadata() -> None:
+    model = "meta-models/Muse-Glimmer-30B:together"
+    params = ModelDatabase.get_model_params(model, provider=Provider.HUGGINGFACE)
+
+    assert params is not None
+    assert params.default_provider == Provider.HUGGINGFACE
+    assert params.context_window == 131_072
+    assert params.max_output_tokens == 16_384
+    assert params.json_mode is None
+    assert params.reasoning == "stream"
+    assert params.stream_mode == "manual"
+    assert params.reasoning_effort_spec == ModelDatabase.MUSE_GLIMMER_REASONING_EFFORT_SPEC
+    assert ModelDatabase.supports_mime(model, "image/png")
+    assert not ModelDatabase.supports_mime(model, "application/pdf")
+    assert not ModelDatabase.supports_mime(model, "video/mp4")
 
 
 def test_model_database_google_video_audio_mime_types():
@@ -529,20 +576,20 @@ def test_llm_uses_model_database_for_max_tokens():
     factory = ModelFactory.create_factory("claude-sonnet-4-0")
     llm = factory(agent=agent)
     assert isinstance(llm, FastAgentLLM)
-    assert llm.default_request_params.maxTokens == 64000
+    assert llm.default_request_params.max_tokens == 64000
 
     # Test with a model that has high max_output_tokens (should get full amount)
     factory2 = ModelFactory.create_factory("o1")
     llm2 = factory2(agent=agent)
     assert isinstance(llm2, FastAgentLLM)
-    assert llm2.default_request_params.maxTokens == 100000
+    assert llm2.default_request_params.max_tokens == 100000
 
     # Test with passthrough model (should get its configured max tokens)
     factory3 = ModelFactory.create_factory("passthrough")
     llm3 = factory3(agent=agent)
     assert isinstance(llm3, FastAgentLLM)
     expected_max_tokens = ModelDatabase.get_default_max_tokens("passthrough")
-    assert llm3.default_request_params.maxTokens == expected_max_tokens
+    assert llm3.default_request_params.max_tokens == expected_max_tokens
     assert llm3.default_request_params.temperature is None
 
 
@@ -559,7 +606,7 @@ def test_llm_usage_tracking_uses_model_database():
     assert usage_accumulator is not None
     usage_accumulator.model = "claude-sonnet-4-0"
     assert usage_accumulator.context_window_size == 200000
-    assert llm.default_request_params.maxTokens == 64000  # Should match ModelDatabase default
+    assert llm.default_request_params.max_tokens == 64000  # Should match ModelDatabase default
 
     # Test with unknown model
     usage_accumulator.model = "unknown-model"
@@ -582,9 +629,9 @@ def test_openai_provider_preserves_all_settings():
         params.max_iterations == DEFAULT_MAX_ITERATIONS
     )  # Should come from default setting    assert params.use_history  # Should come from base
     assert (
-        params.systemPrompt == "You are a helpful assistant"
+        params.system_prompt == "You are a helpful assistant"
     )  # Should come from base (self.instruction)
-    assert params.maxTokens == 16384  # Model-aware from ModelDatabase (gpt-4o)
+    assert params.max_tokens == 16384  # Model-aware from ModelDatabase (gpt-4o)
 
 
 def test_model_database_stream_modes():
@@ -616,15 +663,21 @@ def test_model_database_response_websocket_provider_support() -> None:
     assert ModelDatabase.supports_response_websocket_provider("gpt-4o", Provider.RESPONSES) is None
 
 
-def test_model_database_grok_43_reasoning_spec() -> None:
-    spec = ModelDatabase.get_reasoning_effort_spec("grok-4.3")
+def test_model_database_grok_reasoning_spec() -> None:
+    specs = [ModelDatabase.get_reasoning_effort_spec(model) for model in ("grok-4.3", "grok-4.5")]
 
-    assert spec is not None
-    assert spec.kind == "effort"
-    assert spec.allowed_efforts == ["none", "low", "medium", "high"]
-    assert spec.default is not None
-    assert spec.default.kind == "effort"
-    assert spec.default.value == "low"
+    for spec in specs:
+        assert spec is not None
+        assert spec.kind == "effort"
+        assert spec.allowed_efforts == ["low", "medium", "high"]
+        assert spec.default is not None
+        assert spec.default.kind == "effort"
+        assert spec.default.value == "high"
+
+    grok_46_spec = ModelDatabase.get_reasoning_effort_spec("grok-4.6")
+    assert grok_46_spec is not None
+    assert grok_46_spec.allowed_efforts == ["low", "medium", "high", "xhigh"]
+    assert grok_46_spec.default == ReasoningEffortSetting(kind="effort", value="high")
 
 
 def test_glm_51_matches_glm_5_capabilities() -> None:
@@ -831,6 +884,25 @@ def test_huggingface_glm52_default_ignores_openai_reasoning_default():
     assert args["reasoning_effort"] == "max"
 
 
+def test_huggingface_deepseek_v4_flash_routes_use_reasoning_effort():
+    for provider in ("baseten", "deepinfra"):
+        llm = _make_hf_llm(f"deepseek-ai/DeepSeek-V4-Flash-0731:{provider}")
+
+        args = _hf_request_args(llm)
+        assert args["reasoning_effort"] == "max"
+
+
+def test_huggingface_deepseek_v4_flash_routes_disable_reasoning():
+    for provider in ("baseten", "deepinfra"):
+        llm = _make_hf_llm_with_reasoning(
+            f"deepseek-ai/DeepSeek-V4-Flash-0731:{provider}",
+            reasoning=False,
+        )
+
+        args = _hf_request_args(llm)
+        assert args["reasoning_effort"] == "none"
+
+
 def test_huggingface_glm52_routes_use_json_object_structured_mode():
     for provider in ("zai-org", "together", "deepinfra", "novita", "fireworks-ai"):
         llm = _make_hf_llm(f"zai-org/glm-5.2:{provider}")
@@ -989,11 +1061,26 @@ def test_huggingface_gemma4_cerebras_default_reasoning_is_disabled():
     assert args["reasoning_effort"] == "none"
 
 
-def test_huggingface_chat_template_kwargs_helper_preserves_existing_values() -> None:
-    extra_body: dict[str, object] = {"chat_template_kwargs": {"temperature": 0.2}}
+def test_huggingface_chat_template_reasoning_preserves_existing_values() -> None:
+    llm = _make_hf_llm_with_reasoning("Qwen/Qwen3.5-397B-A17B", reasoning=False)
+    request_params = llm.default_request_params.model_copy(
+        update={
+            "metadata": {
+                "extra_body": {
+                    "chat_template_kwargs": {"temperature": 0.2},
+                }
+            }
+        }
+    )
 
-    HuggingFaceLLM._set_chat_template_kwarg(extra_body, "enable_thinking", False)
+    args = llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        request_params,
+    )
+    extra_body = args.get("extra_body")
 
+    assert isinstance(extra_body, dict)
     assert extra_body["chat_template_kwargs"] == {
         "temperature": 0.2,
         "enable_thinking": False,
@@ -1013,7 +1100,7 @@ def test_huggingface_deepseek_v4_pro_uses_reasoning_content_streaming_metadata()
     llm = _make_hf_llm("deepseek-ai/DeepSeek-V4-Pro:fireworks-ai")
 
     assert llm.default_request_params.model == "deepseek-ai/DeepSeek-V4-Pro"
-    assert llm.default_request_params.maxTokens == 393_216
+    assert llm.default_request_params.max_tokens == 393_216
     assert getattr(llm, "_reasoning_mode", None) == "reasoning_content"
 
     args = _hf_request_args(llm)
@@ -1105,7 +1192,7 @@ def test_gpt_56_supports_api_reasoning_efforts_through_max():
 
         assert spec is not None
         assert spec.allowed_efforts == ["none", "low", "medium", "high", "xhigh", "max"]
-        assert spec.default == ReasoningEffortSetting(kind="effort", value="medium")
+        assert spec.default == ReasoningEffortSetting(kind="effort", value="high")
         assert ModelDatabase.supports_mime(model_name, "application/pdf")
         assert ModelDatabase.supports_mime(model_name, "image/png")
 

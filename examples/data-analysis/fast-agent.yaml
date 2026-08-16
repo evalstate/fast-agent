@@ -3,22 +3,22 @@ default_model: sonnet
 # on windows, adjust the mount point to be the full path e.g. x:/temp/data-analysis/mount-point:/mnt/data/
 
 mcp:
-  targets:
-    - name: interpreter
+  servers:
+    interpreter:
       target: "docker run -i --rm --pull=always -v ./mount-point:/mnt/data/ ghcr.io/evalstate/mcp-py-repl:latest"
       roots:
-        - uri: "file://./mount-point/"
-          name: "test_data"
-          server_uri_alias: "file:///mnt/data/"
-    - name: filesystem
+      - uri: "file://./mount-point/"
+        name: "test_data"
+        server_uri_alias: "file:///mnt/data/"
+    filesystem:
       # On windows update the target to use `node` and the absolute path to the server.
       # Use `npm i -g @modelcontextprotocol/server-filesystem` to install the server globally.
       # Use `npm -g root` to find the global node_modules path.`
       # target: "node c:/Program Files/nodejs/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js ./mount-point/"
       target: "npx -y @modelcontextprotocol/server-filesystem ./mount-point/"
-    - name: fetch
+    fetch:
       target: "uvx mcp-server-fetch"
-    - name: brave
+    brave:
       # On windows replace the target with `node` and the absolute path to the server.
       # Use `npm i -g @modelcontextprotocol/server-brave-search` to install the server globally.
       # Use `npm -g root` to find the global node_modules path.`

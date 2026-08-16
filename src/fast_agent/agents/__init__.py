@@ -16,7 +16,6 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "LlmDecorator": (".llm_decorator", "LlmDecorator"),
     "ToolAgent": (".tool_agent", "ToolAgent"),
     "McpAgent": (".mcp_agent", "McpAgent"),
-    "SmartAgent": (".smart_agent", "SmartAgent"),
     "ChainAgent": (".workflow.chain_agent", "ChainAgent"),
     "EvaluatorOptimizerAgent": (
         ".workflow.evaluator_optimizer",
@@ -43,7 +42,6 @@ if TYPE_CHECKING:  # pragma: no cover - type checking only
     from .llm_agent import LlmAgent as LlmAgent
     from .llm_decorator import LlmDecorator as LlmDecorator
     from .mcp_agent import McpAgent as McpAgent
-    from .smart_agent import SmartAgent as SmartAgent
     from .tool_agent import ToolAgent as ToolAgent
     from .workflow.chain_agent import ChainAgent as ChainAgent
     from .workflow.evaluator_optimizer import (
@@ -67,6 +65,5 @@ __all__ = [
     "McpAgent",
     "ParallelAgent",
     "RouterAgent",
-    "SmartAgent",
     "ToolAgent",
 ]

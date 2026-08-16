@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Final
 
-from mcp.types import Tool
+from mcp_types import Tool
 
 from fast_agent.utils.tool_names import matches_tool_name
 
@@ -41,7 +41,7 @@ def build_apply_patch_tool() -> Tool:
     return Tool(
         name=APPLY_PATCH_TOOL_NAME,
         description=APPLY_PATCH_TOOL_DESCRIPTION,
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 APPLY_PATCH_INPUT_FIELD: {

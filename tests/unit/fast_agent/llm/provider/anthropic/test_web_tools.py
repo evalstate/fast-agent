@@ -20,7 +20,7 @@ from anthropic.types.beta import (
     BetaToolUseBlock,
     BetaUsage,
 )
-from mcp.types import TextContent
+from mcp_types import TextContent
 from pydantic import ValidationError
 
 from fast_agent.config import (

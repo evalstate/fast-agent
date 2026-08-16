@@ -41,7 +41,7 @@ def main(verbose: bool = False) -> None:
     except AgentConfigError as exc:
         print(f"[red]Internal resource validation failed:[/red] {exc}")
         raise typer.Exit(code=1) from exc
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"[red]Unexpected validation error:[/red] {exc}")
         raise typer.Exit(code=1) from exc
 

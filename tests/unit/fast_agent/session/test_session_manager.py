@@ -7,12 +7,13 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Literal, cast
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.config import get_settings, update_global_settings
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import (
+    SessionChildLinkSnapshot,
     SessionManager,
     apply_session_window,
     get_session_history_window,
@@ -20,6 +21,7 @@ from fast_agent.session import (
     load_session_snapshot,
     reset_session_manager,
     set_session_manager,
+    subagent_run_from_session,
 )
 
 if TYPE_CHECKING:
@@ -107,6 +109,43 @@ def test_prune_sessions_skips_pinned(tmp_path) -> None:
     finally:
         update_global_settings(old_settings)
         reset_session_manager()
+
+
+@pytest.mark.asyncio
+async def test_metadata_updates_preserve_persisted_runtime_state(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session(metadata={"custom": "value"})
+    agent = _Agent(
+        name="main",
+        instruction="Stored prompt",
+        history=[_message("user", "hello"), _message("assistant", "done")],
+    )
+    await session.save_history(cast("AgentProtocol", agent))
+    session.set_execution_status("running")
+    before = session.load_snapshot()
+    updated_cwd = tmp_path / "updated-workspace"
+    session.info.metadata["cwd"] = str(updated_cwd)
+    session.info.metadata["acp_session_id"] = "acp-updated"
+
+    session.set_title("Renamed")
+    session.set_pinned(True)
+
+    after = session.load_snapshot()
+    assert after.metadata.title == "Renamed"
+    assert after.metadata.pinned is True
+    assert after.metadata.extras == {"custom": "value"}
+    assert after.continuation.active_agent == before.continuation.active_agent
+    assert after.continuation.cwd == str(updated_cwd)
+    assert after.continuation.lineage.acp_session_id == "acp-updated"
+    assert after.continuation.agents == before.continuation.agents
+    assert after.analysis == before.analysis
+    assert after.execution == before.execution
+    assert after.created_at == before.created_at
+    assert after.last_activity >= before.last_activity
 
 
 def test_session_history_window_rejects_boolean_config(tmp_path) -> None:
@@ -542,6 +581,105 @@ def test_empty_sessions_are_hidden_and_pruned_but_titled_sessions_remain(tmp_pat
     assert manager.prune_empty_sessions() == 1
     assert not abandoned.directory.exists()
     assert titled.directory.exists()
+
+
+def test_child_sessions_are_nested_discoverable_and_do_not_change_current_session(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    parent = manager.create_session()
+    child = manager.create_child_session(
+        parent,
+        SessionChildLinkSnapshot(
+            parent_session_id=parent.info.name,
+            parent_agent_name="parent",
+            parent_tool_call_id="tool-123",
+        ),
+    )
+
+    assert manager.current_session is parent
+    assert child.directory == parent.directory / "children" / child.info.name
+    assert [info.name for info in manager.list_sessions()] == [parent.info.name]
+    assert parent.has_persisted_content()
+
+    children = manager.list_child_sessions(parent)
+
+    assert [session.info.name for session in children] == [child.info.name]
+    snapshot = load_session_snapshot(json.loads((child.directory / "session.json").read_text()))
+    assert snapshot.execution.resumable is False
+    assert snapshot.execution.child_link is not None
+    assert snapshot.execution.child_link.parent_tool_call_id == "tool-123"
+    assert snapshot.execution.status == "running"
+    assert snapshot.execution.started_at is not None
+    assert snapshot.execution.completed_at is None
+
+
+def test_root_session_list_excludes_child_linked_snapshots(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    parent = manager.create_session()
+    parent.set_title("Parent")
+    child = manager.create_child_session(
+        parent,
+        SessionChildLinkSnapshot(
+            parent_session_id=parent.info.name,
+            parent_agent_name="parent",
+            parent_tool_call_id="tool-123",
+        ),
+    )
+    (child.directory / "history_subagent.json").write_text("[]")
+    non_resumable_root = manager.create_session()
+    non_resumable_root.set_title("Non-resumable root")
+    root_metadata = non_resumable_root.directory / "session.json"
+    root_snapshot = json.loads(root_metadata.read_text())
+    root_snapshot["execution"]["resumable"] = False
+    root_metadata.write_text(json.dumps(root_snapshot))
+
+    child.directory.rename(manager.base_dir / child.info.name)
+
+    expected = {parent.info.name, non_resumable_root.info.name}
+    assert {info.name for info in manager.list_sessions()} == expected
+    assert {info.name for info in manager.list_sessions(include_empty=False)} == expected
+
+
+def test_child_subagent_aliases_are_numbered_per_parent_session(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    parent = manager.create_session()
+    link = SessionChildLinkSnapshot(
+        parent_session_id=parent.info.name,
+        parent_agent_name="parent",
+    )
+
+    first = manager.create_child_session(
+        parent,
+        link,
+        alias_slug="investigate_item",
+        label="Investigate item",
+        task_preview="Investigate item",
+    )
+    second = manager.create_child_session(
+        parent,
+        link,
+        alias_slug="review_api",
+        label="Review API",
+        task_preview="Review API",
+    )
+
+    first_run = subagent_run_from_session(parent, first)
+    second_run = subagent_run_from_session(parent, second)
+    assert first_run is not None
+    assert second_run is not None
+    assert (first_run.alias, first_run.ordinal) == ("01_investigate_item", 1)
+    assert (second_run.alias, second_run.ordinal) == ("02_review_api", 2)
 
 
 def test_resume_session_includes_hydrator_warnings_in_notices(tmp_path) -> None:

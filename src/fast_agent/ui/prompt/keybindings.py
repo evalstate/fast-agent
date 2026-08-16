@@ -10,7 +10,6 @@ from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import Lexer
-from rich import print as rich_print
 from rich.text import Text
 
 from fast_agent.command_actions.accessors import (
@@ -19,6 +18,7 @@ from fast_agent.command_actions.accessors import (
     plugin_commands_for_provider,
 )
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.ui.console import rich_print
 from fast_agent.ui.prompt.attachment_tokens import (
     append_attachment_tokens,
     build_local_attachment_token,
@@ -91,7 +91,7 @@ async def paste_clipboard_image_attachment_into_buffer(
         return
 
     token = build_local_attachment_token(pasted.path)
-    buffer.text = append_attachment_tokens(buffer.text, [token])
+    buffer.text = f"{append_attachment_tokens(buffer.text, [token])} "
     buffer.cursor_position = len(buffer.text)
     if app_ref:
         app_ref.invalidate()
@@ -302,11 +302,17 @@ def _add_cycle_keybindings(
     kb: AgentKeyBindings,
     *,
     app: Any | None,
+    on_cycle_agent_mode: Callable[[], None] | None,
     on_cycle_reasoning: Callable[[], None] | None,
     on_cycle_verbosity: Callable[[], None] | None,
     on_cycle_web_search: Callable[[], None] | None,
     on_cycle_web_fetch: Callable[[], None] | None,
 ) -> None:
+    @kb.add("f5")
+    def _(event) -> None:
+        if _invoke_key_callback(on_cycle_agent_mode, event, app):
+            return
+
     @kb.add("f6")
     def _(event) -> None:
         if _invoke_key_callback(on_cycle_reasoning, event, app):
@@ -436,6 +442,7 @@ def create_keybindings(
     app: Any | None = None,
     agent_provider: "AgentApp | None" = None,
     agent_name: str | None = None,
+    on_cycle_agent_mode: Callable[[], None] | None = None,
 ) -> AgentKeyBindings:
     """Create custom key bindings."""
     kb = AgentKeyBindings()
@@ -447,6 +454,7 @@ def create_keybindings(
     _add_cycle_keybindings(
         kb,
         app=app,
+        on_cycle_agent_mode=on_cycle_agent_mode,
         on_cycle_reasoning=on_cycle_reasoning,
         on_cycle_verbosity=on_cycle_verbosity,
         on_cycle_web_search=on_cycle_web_search,

@@ -1,7 +1,7 @@
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 
-from mcp.types import (
+from mcp_types import (
     CallToolRequest,
     CallToolResult,
     ContentBlock,

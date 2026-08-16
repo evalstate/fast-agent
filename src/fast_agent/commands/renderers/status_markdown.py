@@ -54,6 +54,7 @@ def _active_model_lines(
     model: "AgentModelSummary | None",
     *,
     model_source: str | None,
+    subagent_activation_source: str | None,
 ) -> list[str]:
     provider_line = "unknown"
     model_name = "unknown"
@@ -79,6 +80,11 @@ def _active_model_lines(
         f"- Provider: {provider_line}",
         f"- Model: {model_name}",
         *([f"- Model Source: {_markdown_value(model_source)}"] if model_source else []),
+        *(
+            [f"- Subagents: enabled ({_markdown_value(subagent_activation_source)})"]
+            if subagent_activation_source
+            else []
+        ),
         *([f"- Wire Model: {_markdown_value(wire_model_name)}"] if wire_model_name else []),
         f"- Context Window: {context_window}",
         f"- {capabilities}",
@@ -211,6 +217,7 @@ def render_status_markdown(summary: "StatusSummary", *, heading: str) -> str:
             _active_model_lines(
                 summary.model_summary,
                 model_source=summary.model_source,
+                subagent_activation_source=summary.subagent_activation_source,
             )
         )
 

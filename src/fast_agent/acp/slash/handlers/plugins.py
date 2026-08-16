@@ -34,6 +34,7 @@ async def handle_plugins(handler: "SlashCommandHandler", arguments: str | None =
             agent_name=handler.current_agent_name,
             action=action,
             argument=remainder or None,
+            interactive=False,
         )
     except Exception as exc:
         return f"# plugins\n\nFailed to execute /plugins: {exc}"

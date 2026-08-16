@@ -41,6 +41,12 @@ jobs:
         with:
           python-version: "3.14"
 
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
       - name: Install the project
         run: |
           uv sync --locked --group dev
@@ -50,6 +56,9 @@ jobs:
 
       - name: Run ty
         run: uv run scripts/typecheck.py
+
+      - name: Run CPD
+        run: uv run scripts/cpd.py --check
 
       - name: Validate internal resources
         run: uv run scripts/check_internal_resources.py
@@ -89,15 +98,11 @@ jobs:
           - name: api
             path: tests/integration/api
             args: ""
-          - name: prompt-server
-            path: tests/integration/prompt-server
-            args: ""
           - name: other
             path: tests/integration
             args: >-
               --ignore=tests/integration/acp
               --ignore=tests/integration/api
-              --ignore=tests/integration/prompt-server
     steps:
       - uses: actions/checkout@v4
 

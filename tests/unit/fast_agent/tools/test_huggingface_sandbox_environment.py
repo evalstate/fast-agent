@@ -13,7 +13,10 @@ import pytest
 
 from fast_agent.core.exceptions import EnvironmentStartupError
 from fast_agent.tools import huggingface_sandbox_environment as hf_sandbox_environment
-from fast_agent.tools.execution_environment import ShellExecutionRequest
+from fast_agent.tools.execution_environment import (
+    EnvironmentTemporaryArtifacts,
+    ShellExecutionRequest,
+)
 from fast_agent.tools.huggingface_sandbox_environment import (
     FAST_AGENT_HF_SANDBOX_LABEL,
     HuggingFaceSandboxEnvironment,
@@ -63,6 +66,35 @@ class _Files(_SandboxFiles):
         pass
 
 
+class _ArtifactFiles(_Files):
+    def __init__(self) -> None:
+        super().__init__()
+        self.content: dict[str, str | bytes] = {}
+        self.deleted: list[tuple[str, bool]] = []
+
+    def read_text(self, path: str, encoding: str = "utf-8") -> str:
+        payload = self.content[path]
+        return payload.decode(encoding) if isinstance(payload, bytes) else payload
+
+    def write(self, path: str, data: str | bytes, mode: str | None = None) -> None:
+        del mode
+        self.content[path] = data
+
+    def exists(self, path: str) -> bool:
+        return path in self.content
+
+    def delete(self, path: str, recursive: bool = False) -> None:
+        self.deleted.append((path, recursive))
+        if recursive:
+            self.content = {
+                item_path: payload
+                for item_path, payload in self.content.items()
+                if not item_path.startswith(f"{path.rstrip('/')}/")
+            }
+        else:
+            self.content.pop(path, None)
+
+
 class _Sandbox(SandboxProtocol):
     def __init__(self) -> None:
         self.id = "sandbox-job-123"
@@ -106,6 +138,13 @@ class _Sandbox(SandboxProtocol):
 
     def close(self) -> None:
         pass
+
+
+class _ArtifactSandbox(_Sandbox):
+    def __init__(self) -> None:
+        super().__init__()
+        self.test_files = _ArtifactFiles()
+        self.files = self.test_files
 
 
 class _StreamingSandbox(_Sandbox):
@@ -637,8 +676,8 @@ async def test_shell_runtime_terminate_process_kills_huggingface_remote_process(
     )
     terminated = await runtime.terminate_process({"process_id": "process-1"})
 
-    assert started.isError is False
-    assert terminated.isError is False
+    assert started.is_error is False
+    assert terminated.is_error is False
     assert sandbox.process.kill_count == 1
     assert sandbox.process.running is False
     await runtime.close()
@@ -962,3 +1001,92 @@ def test_create_sandbox_passes_configured_hf_volume_mounts(
             "revision": "main",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_huggingface_temporary_artifact_uses_ephemeral_storage_and_cleans_up() -> None:
+    sandbox = _ArtifactSandbox()
+    environment = HuggingFaceSandboxEnvironment(sandbox=sandbox)
+    assert isinstance(environment, EnvironmentTemporaryArtifacts)
+
+    artifact = await environment.write_temporary_text(
+        prefix="fast-agent-subagent-",
+        suffix=".log",
+        content="sandbox transcript",
+        max_bytes=1024,
+    )
+
+    assert artifact.path.startswith("/tmp/fast-agent-output-")
+    assert "/fast-agent-subagent-" in artifact.path
+    assert await environment.read_text(artifact.path) == "sandbox transcript"
+    directory = environment._temporary_artifact_directory
+    assert directory is not None
+
+    await environment.remove_temporary_artifact(artifact)
+    assert not await environment.exists(artifact.path)
+    await environment.close()
+    assert isinstance(sandbox.test_files, _ArtifactFiles)
+    assert (directory, True) in sandbox.test_files.deleted
+
+
+@pytest.mark.asyncio
+async def test_huggingface_concurrent_temporary_artifacts_share_one_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_to_thread = asyncio.to_thread
+
+    async def yielding_to_thread(function, /, *args, **kwargs):
+        await asyncio.sleep(0)
+        return await original_to_thread(function, *args, **kwargs)
+
+    monkeypatch.setattr(hf_sandbox_environment.asyncio, "to_thread", yielding_to_thread)
+    sandbox = _ArtifactSandbox()
+    environment = HuggingFaceSandboxEnvironment(sandbox=sandbox)
+
+    artifacts = await asyncio.gather(
+        environment.write_temporary_text(
+            prefix="fast-agent-subagent-",
+            suffix=".log",
+            content="first",
+            max_bytes=1024,
+        ),
+        environment.write_temporary_text(
+            prefix="fast-agent-subagent-",
+            suffix=".log",
+            content="second",
+            max_bytes=1024,
+        ),
+    )
+
+    roots = [path for path in sandbox.test_files.created if path.startswith("/tmp/fast-agent-")]
+    assert len(roots) == 1
+    directory = environment._temporary_artifact_directory
+    assert directory == roots[0]
+    assert all(artifact.path.startswith(f"{directory}/") for artifact in artifacts)
+
+
+@pytest.mark.asyncio
+async def test_huggingface_temporary_artifact_rejects_persistent_tmp_mount() -> None:
+    sandbox = _ArtifactSandbox()
+    environment = HuggingFaceSandboxEnvironment(
+        sandbox=sandbox,
+        volume_mounts=(
+            HuggingFaceVolumeMount(
+                type="dataset",
+                source="org/data",
+                mount_path="/tmp",
+            ),
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="No ephemeral Hugging Face temporary artifact root"):
+        await environment.write_temporary_text(
+            prefix="fast-agent-subagent-",
+            suffix=".log",
+            content="must not persist",
+            max_bytes=1024,
+        )
+
+    assert environment._temporary_artifact_directory is None
+    assert isinstance(sandbox.test_files, _ArtifactFiles)
+    assert sandbox.test_files.content == {}

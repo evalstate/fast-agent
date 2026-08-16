@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import typer
 from ruamel.yaml import YAML
 
+from fast_agent.cli.command_support import get_settings_or_exit
+from fast_agent.cli.mcp_config_migration import (
+    MCPConfigMigrationError,
+    load_and_migrate_mcp,
+    unified_mcp_diff,
+    write_mcp_migration,
+)
 from fast_agent.config import (
     SHELL_WRITE_TEXT_FILE_MODE_HELP,
     SHELL_WRITE_TEXT_FILE_MODES,
@@ -15,6 +23,10 @@ from fast_agent.config import (
     ShellSettings,
     load_implicit_settings,
     normalize_shell_write_text_file_mode,
+)
+from fast_agent.constants import (
+    MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
+    MAX_PROCESS_POLL_WAIT_SECONDS,
 )
 from fast_agent.home import (
     PREFERRED_CONFIG_FILENAME,
@@ -24,7 +36,7 @@ from fast_agent.home import (
 from fast_agent.human_input.form_fields import FormSchema, boolean, integer, string
 from fast_agent.human_input.simple_form import form_sync
 from fast_agent.types.streaming import STREAMING_MODE_HELP, normalize_streaming_mode
-from fast_agent.utils.numeric import positive_int_or_none
+from fast_agent.utils.numeric import nonnegative_int_or_none, positive_int_or_none
 from fast_agent.utils.text import strip_to_none
 
 app = typer.Typer(help="Configure fast-agent settings interactively.", add_completion=False)
@@ -52,6 +64,8 @@ SHELL_FORM_POSITIVE_INTEGER_FIELDS = (
     "retained_output_max_bytes",
     "process_poll_max_wait_seconds",
 )
+
+SHELL_FORM_NONNEGATIVE_INTEGER_FIELDS = ("foreground_auto_await_max_seconds",)
 
 # Use round-trip mode to preserve comments and formatting
 _yaml = YAML()
@@ -120,6 +134,30 @@ def _load_effective_config(config_path: Path | None = None) -> dict[str, Any]:
 
     discovered_config, _ = load_implicit_settings(start_path=Path.cwd())
     return discovered_config
+
+
+@app.command("show-mcp")
+def show_mcp_config(
+    config: Path | None = typer.Argument(None, exists=True, dir_okay=False),
+    view: Literal["source", "effective"] = typer.Option(
+        "source",
+        "--view",
+        help="Show source declarations or effective runtime settings.",
+    ),
+) -> None:
+    """Show redacted MCP server configuration."""
+    settings = get_settings_or_exit(config)
+    mcp = settings.mcp
+    payload = (
+        {}
+        if mcp is None
+        else mcp.source_view()
+        if view == "source"
+        else {"servers": mcp.effective_server_view()}
+    )
+    output = YAML()
+    output.default_flow_style = False
+    output.dump({"mcp": payload}, sys.stdout)
 
 
 def _overlay_section_updates(
@@ -221,7 +259,9 @@ def _build_shell_form(current: ShellSettings) -> FormSchema:
             if name == "retained_output_max_bytes":
                 maximum = 1024 * 1024 * 1024
             elif name == "process_poll_max_wait_seconds":
-                maximum = 600
+                maximum = MAX_PROCESS_POLL_WAIT_SECONDS
+            elif name == "foreground_auto_await_max_seconds":
+                maximum = MAX_FOREGROUND_AUTO_AWAIT_SECONDS
             elif "timeout" in name or "interval" in name:
                 maximum = 3600
             else:
@@ -230,7 +270,7 @@ def _build_shell_form(current: ShellSettings) -> FormSchema:
                 title=_field_title(name),
                 description=desc,
                 default=current_value,
-                minimum=1,
+                minimum=(0 if name in SHELL_FORM_NONNEGATIVE_INTEGER_FIELDS else 1),
                 maximum=maximum,
             )
         elif annotation == int | None:
@@ -388,7 +428,12 @@ def _normalize_shell_updates(result: dict[str, Any]) -> dict[str, Any]:
         if value is not None:
             shell_updates[key] = value
 
-    # write_text_file mode: auto|on|off|apply_patch (defaults to auto).
+    for key in SHELL_FORM_NONNEGATIVE_INTEGER_FIELDS:
+        value = nonnegative_int_or_none(result.get(key))
+        if value is not None:
+            shell_updates[key] = value
+
+    # File-edit tool mode: auto|on|off|apply_patch|edit_file (defaults to auto).
     mode_raw = result.get("write_text_file_mode", "auto")
     shell_updates["write_text_file_mode"] = normalize_shell_write_text_file_mode(mode_raw) or "auto"
 
@@ -446,7 +491,7 @@ def _form_message(action: str, config_path: Path) -> str:
 @app.command("shell")
 def config_shell(config: ConfigOption = None) -> None:
     """Configure shell execution settings interactively."""
-    from rich import print as rprint
+    from fast_agent.ui.console import rich_print as rprint
 
     config_data, config_path = _load_config(config)
     effective_config = _load_effective_config(config)
@@ -496,7 +541,7 @@ def config_shell(config: ConfigOption = None) -> None:
 @app.command("display")
 def config_display(config: ConfigOption = None) -> None:
     """Configure display and markdown rendering settings interactively."""
-    from rich import print as rprint
+    from fast_agent.ui.console import rich_print as rprint
 
     config_data, config_path = _load_config(config)
     effective_config = _load_effective_config(config)
@@ -539,6 +584,40 @@ def config_display(config: ConfigOption = None) -> None:
     rprint(f"[green]Display settings saved to {config_path}[/green]")
 
 
+@app.command("migrate-mcp")
+def migrate_mcp(
+    path: Annotated[
+        Path,
+        typer.Argument(
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+            resolve_path=True,
+            help="Configuration YAML file to migrate.",
+        ),
+    ],
+    write: Annotated[
+        bool,
+        typer.Option("--write", help="Replace PATH and save the exact original as PATH.bak."),
+    ] = False,
+) -> None:
+    """Migrate legacy MCP configuration to the canonical nested schema."""
+    try:
+        original, migrated, changed = load_and_migrate_mcp(path)
+        if not changed:
+            typer.echo("No MCP migration needed.")
+            return
+        if write:
+            write_mcp_migration(path, original, migrated)
+            typer.echo(f"Migrated {path}; backup saved to {path}.bak")
+        else:
+            typer.echo(unified_mcp_diff(path, original, migrated), nl=False)
+    except (MCPConfigMigrationError, OSError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
 @app.callback(invoke_without_command=True)
 def config_main(ctx: typer.Context) -> None:
     """Configure fast-agent settings interactively.
@@ -546,11 +625,13 @@ def config_main(ctx: typer.Context) -> None:
     Use subcommands to configure specific areas:
       - shell: Shell execution settings (timeout, output limits, etc.)
       - display: Console display and markdown rendering
+      - migrate-mcp: Migrate legacy MCP configuration
     """
     if ctx.invoked_subcommand is None:
         # Show help if no subcommand
-        from rich import print as rprint
         from rich.table import Table
+
+        from fast_agent.ui.console import rich_print as rprint
 
         rprint("\n[bold]fast-agent config[/bold] - Interactive configuration\n")
 
@@ -560,6 +641,7 @@ def config_main(ctx: typer.Context) -> None:
 
         table.add_row("shell", "Configure shell execution settings")
         table.add_row("display", "Configure display and markdown rendering")
+        table.add_row("migrate-mcp", "Migrate legacy MCP configuration")
 
         rprint(table)
         rprint("\nExample: [cyan]fast-agent config shell[/cyan]")

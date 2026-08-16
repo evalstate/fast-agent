@@ -50,8 +50,8 @@ It's recommended to install **`fast-agent`** to set up the shell aliases and oth
 # Install fast-agent
 uv tool install -U fast-agent-mcp
 
-# Run fast-agent with opus, shell support and subagent/smart mode
-fast-agent --model opus -x --smart
+# Run fast-agent with opus, shell support and built-in subagents
+fast-agent --model opus -xx
 ```
 
 Use local models with the generic provider, or automatically create the correct configuration for `llama.cpp`:
@@ -80,8 +80,8 @@ Model support is comprehensive with native support for Anthropic, OpenAI and Goo
 Recent features include:
 
 - Agent Skills (SKILL.md)
-- MCP-UI Support |
-- OpenAI Apps SDK (Skybridge)
+- MCP Apps
+- OpenAI Apps SDK
 - Shell Mode
 - Advanced MCP Transport Diagnsotics
 - MCP Elicitations
@@ -116,11 +116,15 @@ fast-agent go --url https://hf.co/mcp  # with a remote MCP
 fast-agent go --model=generic.qwen2.5  # use ollama qwen 2.5
 fast-agent go --pack analyst --model haiku  # install/reuse a card pack and launch it
 fast-agent scaffold                    # create an example agent and config files
-uv run agent.py                        # run your first agent
+uv run agent.py                        # run with default_model or FAST_AGENT_MODEL configured
 uv run agent.py --model='gpt-5.4-mini?reasoning=low'    # specify a model
 uv run agent.py --transport http --port 8001  # expose as MCP server (server mode implied)
 fast-agent quickstart workflow  # create "building effective agents" examples
 ```
+
+With no configured model, an interactive run opens the model picker.
+Automation and server runs must pass `--model`, set `FAST_AGENT_MODEL`, configure
+`default_model`, or declare a model on the agent.
 
 For packaged starter agents, use `fast-agent go --pack <name> --model <model>`.
 This installs the pack into the selected fast-agent home if needed, then
@@ -146,15 +150,15 @@ We can then send messages to the Agent:
 
 ```python
 async with fast.run() as agent:
-  moon_size = await agent("the moon")
-  print(moon_size)
+    moon_size = await agent("the moon")
+    print(moon_size)
 ```
 
 Or start an interactive chat with the Agent:
 
 ```python
 async with fast.run() as agent:
-  await agent.interactive()
+    await agent.interactive()
 ```
 
 Here is the complete `sizer.py` Agent application, with boilerplate code:
@@ -166,12 +170,12 @@ from fast_agent import FastAgent
 # Create the application
 fast = FastAgent("Agent Example")
 
-@fast.agent(
-  instruction="Given an object, respond only with an estimate of its size."
-)
+
+@fast.agent(instruction="Given an object, respond only with an estimate of its size.")
 async def main():
-  async with fast.run() as agent:
-    await agent.interactive()
+    async with fast.run() as agent:
+        await agent.interactive()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -186,6 +190,7 @@ Model strings also accept query overrides. For example:
 - `uv run sizer.py --model "gpt-5?reasoning=low"`
 - `uv run sizer.py --model "claude-sonnet-4-6?web_search=on"`
 - `uv run sizer.py --model "claude-sonnet-4-5?context=1m"`
+- `uv run sizer.py --model "gpt-5?poll_period=240"`
 
 For Anthropic models, `?context=1m` is only needed for earlier Sonnet 4 / Sonnet 4.5
 models that still require the explicit 1M context opt-in. Claude Sonnet 4.6 and
@@ -202,7 +207,7 @@ Agents can be chained to build a workflow, using MCP Servers defined in the `fas
 @fast.agent(
     "url_fetcher",
     "Given a URL, provide a complete and comprehensive summary",
-    servers=["fetch"], # Name of an MCP Server defined in fast-agent.yaml
+    servers=["fetch"],  # Name of an MCP Server defined in fast-agent.yaml
 )
 @fast.agent(
     "social_media",
@@ -240,20 +245,20 @@ MAKER (“Massively decomposed Agentic processes with K-voting Error Reduction�
 
 ```python
 @fast.agent(
-  name="classifier",
-  instruction="Reply with only: A, B, or C.",
+    name="classifier",
+    instruction="Reply with only: A, B, or C.",
 )
 @fast.maker(
-  name="reliable_classifier",
-  worker="classifier",
-  k=3,
-  max_samples=25,
-  match_strategy="normalized",
-  red_flag_max_length=16,
+    name="reliable_classifier",
+    worker="classifier",
+    k=3,
+    max_samples=25,
+    match_strategy="normalized",
+    red_flag_max_length=16,
 )
 async def main():
-  async with fast.run() as agent:
-    await agent.reliable_classifier.send("Classify: ...")
+    async with fast.run() as agent:
+        await agent.reliable_classifier.send("Classify: ...")
 ```
 
 ### Agents As Tools
@@ -600,10 +605,12 @@ Register Python functions as tools directly in code — no MCP server or externa
 @fast.agent(name="writer", instruction="You write things.")
 async def writer(): ...
 
+
 @writer.tool
 def translate(text: str, language: str) -> str:
     """Translate text to the given language."""
     return f"[{language}] {text}"
+
 
 @writer.tool(name="summarize", description="Produce a one-line summary")
 def summarize(text: str) -> str:
@@ -626,14 +633,14 @@ Agents with `@agent.tool` or `function_tools=` only see their own tools — glob
 
 ### Multimodal Support
 
-Add Resources to prompts using either the inbuilt `prompt-server` or MCP Types directly. Convenience class are made available to do so simply, for example:
+Add resources to prompts with MCP types directly or through an external MCP resource server. Convenience APIs make this simple, for example:
 
 ```python
-  summary: str =  await agent.with_resource(
-      "Summarise this PDF please",
-      "mcp_server",
-      "resource://fast-agent/sample.pdf",
-  )
+summary: str = await agent.with_resource(
+    "Summarise this PDF please",
+    "mcp_server",
+    "resource://fast-agent/sample.pdf",
+)
 ```
 
 #### MCP Tool Result Conversion

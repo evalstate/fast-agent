@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import os
+from typing import TYPE_CHECKING
 
 import pytest
+from mcp_types import TextContent
 
+from fast_agent.config import Settings, ShellSettings
 from fast_agent.tools.docker_shell_environment import DockerShellEnvironment
 from fast_agent.tools.execution_environment import ShellExecutionRequest
+from fast_agent.tools.shell_process import process_result_metadata
+from fast_agent.tools.shell_runtime import ShellRuntime
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 pytestmark = pytest.mark.integration
 
@@ -73,3 +83,63 @@ async def test_detached_docker_process_streams_spooled_output() -> None:
         await asyncio.gather(task, return_exceptions=True)
 
     assert request.output_spool_path is None
+
+
+@pytest.mark.asyncio
+async def test_docker_runtime_reads_host_retained_output_through_process(
+    tmp_path: Path,
+) -> None:
+    container = os.getenv("FAST_AGENT_TEST_DOCKER_CONTAINER")
+    if not container:
+        pytest.skip("set FAST_AGENT_TEST_DOCKER_CONTAINER to a running container")
+
+    environment = DockerShellEnvironment(
+        container=container,
+        shell=os.getenv("FAST_AGENT_TEST_DOCKER_SHELL", "sh"),
+        cwd=os.getenv("FAST_AGENT_TEST_DOCKER_CWD", "/tmp"),
+    )
+    runtime = ShellRuntime(
+        activation_reason="docker-retained-output-test",
+        logger=logging.getLogger("docker-retained-output-test"),
+        shell_environment=environment,
+        output_byte_limit=256,
+        config=Settings(
+            shell_execution=ShellSettings(
+                tool_profile="luna_exec",
+                retain_truncated_output=True,
+                retained_output_max_bytes=4096,
+                retained_output_temp_directory=tmp_path,
+            )
+        ),
+    )
+
+    completed = await runtime.call_tool(
+        "exec",
+        {"command": ("python -c \"print('a'*300); print('retained-marker'); print('b'*300)\"")},
+    )
+    metadata = process_result_metadata(completed)
+    assert metadata is not None
+    completed_text = "\n".join(
+        block.text for block in completed.content if isinstance(block, TextContent)
+    )
+    assert str(tmp_path) not in completed_text
+    assert "action='read_output'" in completed_text
+
+    readback = await runtime.call_tool(
+        "process",
+        {
+            "process_id": metadata["process_id"],
+            "action": "read_output",
+            "query": "retained-marker",
+        },
+    )
+    readback_text = "\n".join(
+        block.text for block in readback.content if isinstance(block, TextContent)
+    )
+    payload = json.loads(readback_text)
+
+    assert readback.is_error is False
+    assert payload["match_count"] == 1
+    assert payload["content"] == "retained-marker\n"
+
+    await runtime.close()

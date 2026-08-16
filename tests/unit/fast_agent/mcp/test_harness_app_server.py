@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from fastmcp import FastMCP
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.fastagent import AgentInstance
-from fast_agent.core.harness_app import AppOpenRequest
+from fast_agent.core.harness_app import AgentRuntimeEnvironment, AppOpenRequest, HarnessAppSession
 from fast_agent.mcp.server.common import get_oauth_config, normalize_serve_oauth_provider
 from fast_agent.mcp.server.harness_app_server import (
     HarnessMCPAppRuntimeOptions,
@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from fastmcp import Context as MCPContext
 
     from fast_agent.core.agent_instance_factory import AgentInstanceFactory
+    from fast_agent.core.harness import HarnessSession
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.tools.execution_environment import ShellEnvironment
 
@@ -42,14 +43,18 @@ if TYPE_CHECKING:
 class RecordingAppSession:
     def __init__(self) -> None:
         self.requests: list[AgentRequest] = []
+        self._agent_app = AgentApp({"support": cast("AgentProtocol", RuntimeFakeAgent())})
+        self._env = AgentRuntimeEnvironment(
+            cast("HarnessSession", RecordingHarnessSession(self._agent_app))
+        )
 
     @property
-    def agent_app(self) -> object:
-        return object()
+    def agent_app(self) -> AgentApp:
+        return self._agent_app
 
     @property
-    def env(self) -> object:
-        return object()
+    def env(self) -> AgentRuntimeEnvironment:
+        return self._env
 
     async def invoke(self, request: AgentRequest) -> AgentResponse:
         self.requests.append(request)
@@ -57,6 +62,23 @@ class RecordingAppSession:
         return AgentResponse.text(
             f"{request.session_id}:{request.agent}:{request.message.all_text()}"
         )
+
+
+class RecordingHarnessSession:
+    def __init__(self, agent_app: AgentApp) -> None:
+        self._agent_app = agent_app
+
+    @property
+    def agent_app(self) -> AgentApp:
+        return self._agent_app
+
+    @property
+    def default_agent_name(self) -> None:
+        return None
+
+    @property
+    def session_manager(self) -> None:
+        return None
 
 
 class RecordingApp:
@@ -68,7 +90,7 @@ class RecordingApp:
     async def open(
         self,
         request: AppOpenRequest | None = None,
-    ) -> "AsyncIterator[RecordingAppSession]":
+    ) -> "AsyncIterator[HarnessAppSession]":
         resolved = request or AppOpenRequest()
         self.opened.append(resolved)
         yield self.session

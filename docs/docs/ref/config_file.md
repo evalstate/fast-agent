@@ -32,9 +32,6 @@ model_references:
     fast: "gpt-5-mini?reasoning=low"
     plan: "claude-sonnet-4-6"
 
-# Whether to automatically enable Sampling. Model selection precedence is Agent > Default.
-auto_sampling: true
-
 # Number of times to retry transient LLM API errors (falls back to FAST_AGENT_RETRIES env)
 llm_retries: 2
 
@@ -84,8 +81,10 @@ Notes:
 - Model reference tokens must match this form exactly: `$<namespace>.<key>` (for example `$system.fast`).
 - Model references can point to other model references (recursive expansion is supported with cycle detection).
 - If a model reference cannot be resolved, fast-agent logs a warning and falls back to the next
-  lower-precedence model source (explicit model → CLI → config → env → hardcoded default).
+  lower-precedence configured model source (explicit model → CLI → config → environment).
   This warning is emitted through the normal logger/event pipeline and may be surfaced in UIs.
+- If no model resolves, interactive startup opens the picker. Unattended runs must supply an
+  AgentCard/decorator model, `--model`, `FAST_AGENT_MODEL`, or `default_model`.
 - If a selected model is not a model reference token (doesn't start with `$`), normal validation behavior
   applies.
 
@@ -258,7 +257,7 @@ Responses-family providers can also be toggled per run in the model string:
 - `responses.gpt-5?web_search=on`
 - `openresponses.openai/gpt-oss-120b:groq?web_search=on`
 - `codexresponses.gpt-5.3-codex?web_search=off`
-- `metaai.muse-spark-1.1?web_search=on`
+- `metaai.muse-spark-1.2?web_search=on`
 
 Allowed values: `on`/`off` (also accepts `true`/`false`, `1`/`0`).
 
@@ -344,6 +343,10 @@ deepseek:
   base_url: "https://api.deepseek.com"  # Optional, only include to override
 ```
 
+See the [DeepSeek provider guide](../models/providers/deepseek/) for model
+selection, reasoning, web search, structured output, and stateless Responses
+behavior.
+
 ### Google
 
 ```yaml
@@ -358,6 +361,8 @@ google:
 xai:
   api_key: "your_xai_key"  # Can also use XAI_API_KEY env var
   base_url: "https://api.x.ai/v1"  # Optional, defaults to this value
+  # image_upload_mode: inline  # Default: public_url
+  # image_upload_ttl_seconds: 86400  # 1 hour to 30 days
 ```
 
 ### MetaAI
@@ -366,7 +371,7 @@ xai:
 metaai:
   api_key: "${META_AI_API_KEY}"
   base_url: "https://api.meta.ai/v1"  # Optional, defaults to this value
-  default_model: "muse-spark-1.1"
+  default_model: "muse-spark-1.2"
   web_search:
     enabled: false
     search_context_size: medium  # Optional: low | medium | high
@@ -376,7 +381,7 @@ metaai:
 ```
 
 MetaAI search grounding can also be toggled per run with
-`metaai.muse-spark-1.1?web_search=on`. See the
+`metaai.muse-spark-1.2?web_search=on`. See the
 [MetaAI provider guide](../models/providers/metaai/) for supported media,
 interactive toggles, and search-result behavior.
 
@@ -459,11 +464,22 @@ MCP Servers are defined under the `mcp.servers` section:
 runtime targets via `mcp_connect`; those are resolved at startup and do not need
 to be prelisted here.
 
-You can define servers in canonical form (`transport`/`url`/`command`) or with
-the shorthand `target` field:
+The MCP section contains server defaults, client behavior, diagnostics, and
+named servers:
 
 ```yaml
 mcp:
+  defaults:
+    protocol_mode: auto
+    reconnect_on_disconnect: true
+    include_instructions: true
+  client:
+    auto_sampling: true
+  diagnostics:
+    enabled: true
+    timeline:
+      steps: 20
+      step_seconds: 30
   servers:
     githubcopilot:
       target: "https://api.githubcopilot.com/mcp/"
@@ -476,30 +492,38 @@ mcp:
       load_on_start: false
 ```
 
-You can also provide target-first entries as a list under `mcp.targets`. This
-matches AgentCard-style runtime target declarations while still normalizing to
-canonical named servers:
+The `mcp.servers` map key is the canonical server name used by agents and
+workflows. Omit `name` from the server block; if present, it must match the map
+key.
+
+Each server may use either `target` shorthand or expanded source fields:
 
 ```yaml
 mcp:
-  targets:
-    - target: "https://demo.hf.space"
-    - target: "@modelcontextprotocol/server-filesystem /workspace"
-      name: "filesystem"
+  servers:
+    shorthand:
+      target: "@modelcontextprotocol/server-filesystem /workspace"
       load_on_start: false
+    expanded:
+      transport: http
+      url: "https://demo.hf.space"
 ```
 
-`mcp.targets` entries normalize into `mcp.servers` aliases. If both
-`mcp.targets` and `mcp.servers` define the same name, the explicit
-`mcp.servers.<name>` entry wins.
-
-When `target` is used, explicit fields override target-derived defaults.
-For example, `transport`, `url`, `headers`, and `auth` on the server entry take
-precedence over derived values.
+`target` cannot be combined with the expanded source fields `transport`, `url`,
+`command`, `args`, or `connector_id`. Non-source settings such as `headers`,
+`auth`, `protocol_mode`, and `load_on_start` may accompany it.
 
 `target` must be a pure target string. Do not embed fast-agent CLI flags
 (`--auth`, `--oauth`, `--timeout`, etc.) inside `target`; use structured fields
 like `headers` and `auth` instead.
+
+`mcp.defaults` applies `protocol_mode`, `reconnect_on_disconnect`, and
+`include_instructions` only when omitted from a server. `mcp.client` contains
+client behavior such as `auto_sampling`. `mcp.diagnostics` controls diagnostics
+collection and timeline display.
+
+See [Migrate MCP configuration](../mcp/migration.md) for the legacy path
+migration command.
 
 ### Provider-managed remote MCP
 
@@ -755,19 +779,15 @@ When `logger.path` is omitted, file logging writes to
 `<current-working-directory>/fast-agent-log.jsonl`. Explicit relative paths continue to resolve
 from the process current working directory.
 
-## MCP UI Settings
+## MCP Diagnostics Settings
 
 ```yaml
-mcp_ui_mode: "enabled"  # "disabled", "enabled", or "auto"
-mcp_ui_output_dir: ".fast-agent/ui"  # Output directory for generated HTML files
-```
-
-## MCP Timeline Settings
-
-```yaml
-mcp_timeline:
-  steps: 20
-  step_seconds: 30  # seconds per bucket (also supports strings like "30s", "2m")
+mcp:
+  diagnostics:
+    enabled: true
+    timeline:
+      steps: 20
+      step_seconds: 30  # seconds per bucket; strings like "30s" and "2m" also work
 ```
 
 ## Skills Settings
@@ -781,7 +801,7 @@ skills:
 
 ```yaml
 shell_execution:
-  tool_profile: minimal_process  # Bash + Process (default); native retains legacy tools
+  tool_profile: auto  # Grok uses shell + process; other models use bash + process
   timeout_seconds: 90
   warning_interval_seconds: 30
   interactive_use_pty: true  # Use PTY for interactive prompt shell commands
@@ -789,17 +809,23 @@ shell_execution:
   retain_truncated_output: true
   retained_output_max_bytes: 2097152  # Per shell process
   retained_output_temp_directory: null  # Optional parent directory
-  process_poll_max_wait_seconds: 250  # Accepted range: 1–600
+  process_poll_max_wait_seconds: 3600  # Accepted range: 1–3600
+  foreground_auto_await_max_seconds: 240  # Total runtime; range: 0–3600; 0 disables
   managed_process_poll_history_folding: auto  # auto | on | off
 ```
 
-`tool_profile` controls the model-facing contract only. The default
-`minimal_process` profile exposes `Bash(command, run_in_background?)` and
-`Process(action, process_id?)`. Use `Process(action="list")` to list retained
-managed processes in creation order; `process_id` is required for `status`,
-`wait`, and `stop`. The `native` profile remains available as a
-compatibility escape hatch for the legacy `execute`, `poll_process`, and
-`terminate_process` schemas; both profiles use the same managed-process runtime.
+`tool_profile` controls the model-facing contract only. The default `auto`
+profile selects the catalog contract for the active model. Grok models expose
+`shell(command, working_directory?, background?, timeout?)` plus unified
+`process(...)`; other models retain `bash(...)` plus unified `process(...)`.
+Use `process(action="list")` to list retained managed processes in creation
+order; `process_id` is required for `status`, `wait`, and `stop`.
+
+Set `tool_profile` explicitly to `minimal_process`, `grok_shell`, or `native`
+to override automatic selection, including after runtime model switches.
+`native` remains a compatibility escape hatch for the legacy `execute`,
+`poll_process`, and `terminate_process` schemas. All profiles use the same
+managed-process runtime.
 
 When `output_byte_limit` is omitted, a model-catalog override is used when
 available, followed by the global 16,000-byte default. An explicit positive
@@ -813,9 +839,27 @@ temporary path so the model can inspect selected ranges or search the complete
 output. Each process is limited by `retained_output_max_bytes`; retained files
 are removed when the shell runtime closes.
 
-`process_poll_max_wait_seconds` caps a single managed-process wait. The default
-stays below Anthropic's five-minute prompt-cache TTL and applies even when a
-model or model overlay declares a longer default poll wait.
+`foreground_auto_await_max_seconds` is the maximum total foreground runtime,
+measured from shell process start, during which a finite command remains in its
+original shell tool call. Commands retain the initial no-output and
+total-runtime yield checks (10 and 30 seconds by default); after either check,
+the runtime waits only for the remaining total budget. If the command finishes
+before the deadline, its final result is returned without a model turn spent
+scheduling a process wait. Reaching the deadline returns the live,
+session-scoped process to the model and does not stop it. Explicit background
+commands and explicit hard timeouts are unchanged. Set the value to `0` to
+return live foreground processes at the initial yield boundary.
+
+The 240-second default follows fast-agent's common managed-process wait cadence
+and avoids holding a shell call for a full five minutes. It reduces cache-expiry
+risk but cannot guarantee a cache hit: it bounds only the foreground shell
+invocation, while model generation, parallel sibling tools, hooks, result
+assembly, provider behavior, and network latency can add time.
+
+`process_poll_max_wait_seconds` caps a single model-initiated managed-process
+wait. Catalogue and overlay defaults are capped for compatibility. An explicit
+model-string `poll_period` above the configured maximum is rejected instead of
+being silently reduced.
 
 `managed_process_poll_history_folding` controls whether repetitive quiet
 managed-process polling exchanges are collapsed before the next model call:
@@ -851,11 +895,6 @@ mcp:
       transport: "stdio"
       command: "uvx"
       args: ["mcp-server-fetch"]
-      
-    prompts:
-      transport: "stdio"
-      command: "prompt-server"
-      args: ["prompts/myprompt.txt"]
       
     filesys:
       transport: "stdio"

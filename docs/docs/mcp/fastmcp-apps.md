@@ -9,13 +9,22 @@ social:
 
 # FastMCP Apps with fast-agent
 
+!!! note "FastMCP 4 beta"
+
+    fast-agent 0.10 pins `fastmcp-slim[server]==4.0.0b2`, the newest published
+    FastMCP release compatible with MCP SDK v2 when this release was prepared.
+    FastMCP Apps and custom FastMCP server integrations should be treated as
+    beta until FastMCP 4 reaches a stable release.
+
 FastMCP Apps let an MCP server deliver user interface elements to clients that
 support the MCP Apps extension. fast-agent fits behind those apps through the
 Harness API.
 
 This page describes **MCP Apps adapter mode**: you own a `FastMCPApp` provider
 and call fast-agent from UI entry-point tools or app backend tools. If you only
-need normal MCP tools, use [custom tool adapter mode](harness-adapter.md).
+need normal MCP tools, use [custom tool adapter mode](harness-adapter.md). For
+fast-agent's MCP client-side discovery and validation behavior, see
+[MCP Apps](mcp-apps.md).
 
 ```text
 FastMCPApp.ui() / FastMCPApp.tool()
@@ -88,7 +97,7 @@ fast-agent handles:
 - `AgentRequest` / `AgentResponse`;
 - auth/progress/session context from MCP.
 
-Do not make your harness app depend on FastMCP UI classes. Let the MCP App
+Do not make your harness app depend on FastMCP app classes. Let the MCP App
 handler project a protocol-neutral `AgentResponse` into UI.
 
 ## Returning UI from an agent response
@@ -182,8 +191,10 @@ await request.report("Running tests", progress=2, total=4)
 await request.report("Building report", progress=3, total=4)
 ```
 
-For jobs that should continue after the initial call returns, use FastMCP task
-support or explicit job/status tools.
+For jobs that should continue after the initial call returns, use explicit
+job/status tools. FastMCP task support is an optional package in FastMCP 4; add
+the exactly matching `fastmcp-tasks==4.0.0b2` package and register its Tasks
+extension before using task-backed tools.
 
 ## Sessions
 
@@ -197,7 +208,7 @@ Recommended defaults:
 - never rely on hidden global agent state for user-specific app data.
 
 If an app needs continuity across clicks, include the handle in the backend tool
-schema:
+schema and use it to load and save application state:
 
 ```python
 @ui.tool()
@@ -210,6 +221,11 @@ async def refine_plan(workspace_id: str, instruction: str, ctx: MCPContext) -> s
     )
     return response.text_content()
 ```
+
+In connection scope, `workspace_id` overrides an ambient `Mcp-Session-Id` as
+the harness session key. In request scope, the harness session is transient and
+`workspace_id` is retained as request metadata only; durable continuity must
+come from application-managed storage.
 
 ## Auth and CSP
 

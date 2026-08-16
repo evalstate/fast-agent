@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from mcp.types import ContentBlock, TextContent
+from mcp_types import ContentBlock, TextContent
 
 from fast_agent.constants import (
     FAST_AGENT_ALERT_CHANNEL,

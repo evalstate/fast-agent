@@ -1,4 +1,7 @@
+from types import SimpleNamespace
+
 import pytest
+from openai.types.completion_usage import CompletionUsage
 
 from fast_agent.config import Settings
 from fast_agent.context import Context
@@ -25,6 +28,13 @@ def _request(
         [{"role": "user", "content": "hello"}],
         None,
         llm.default_request_params,
+    )
+
+
+def _llm(provider: str) -> HuggingFaceLLM:
+    return HuggingFaceLLM(
+        context=Context(config=Settings()),
+        model=f"moonshotai/Kimi-K3:{provider}",
     )
 
 
@@ -63,3 +73,39 @@ def test_hf_kimi_k3_sends_top_level_reasoning_effort(
 @pytest.mark.parametrize("provider", ["fireworks-ai", "together"])
 def test_hf_kimi_k3_defaults_to_max_reasoning(provider: str) -> None:
     assert _request(provider)["reasoning_effort"] == "max"
+
+
+@pytest.mark.parametrize("provider", ["fireworks-ai", "together"])
+def test_hf_usage_attribution_preserves_upstream_provider(provider: str) -> None:
+    llm = _llm(provider)
+    arguments = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}],
+        None,
+        llm.default_request_params,
+    )
+
+    model, upstream_provider = llm._resolve_usage_attribution(
+        "moonshotai/Kimi-K3",
+        arguments,
+    )
+
+    assert model == "moonshotai/Kimi-K3"
+    assert upstream_provider == provider
+
+    response = SimpleNamespace(
+        usage=CompletionUsage(
+            completion_tokens=20,
+            prompt_tokens=100,
+            total_tokens=120,
+        )
+    )
+    llm._track_openai_response_usage(
+        response,
+        model,
+        upstream_provider=upstream_provider,
+    )
+    turn = llm.usage_accumulator.turns[-1]
+
+    assert turn.provider is Provider.HUGGINGFACE
+    assert turn.model == "moonshotai/Kimi-K3"
+    assert turn.upstream_provider == provider

@@ -1,6 +1,6 @@
 from typing import cast
 
-from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import AnthropicConverter
 from fast_agent.types import PromptMessageExtended
@@ -27,7 +27,7 @@ def test_sanitizes_tool_use_ids_for_assistant_calls():
 def test_sanitizes_tool_use_ids_for_tool_results():
     dirty_id = "functions.fetch_magic_string:0"
     expected = "functions_fetch_magic_string_0"
-    result = CallToolResult(content=[TextContent(type="text", text="done")], isError=False)
+    result = CallToolResult(content=[TextContent(type="text", text="done")], is_error=False)
 
     msg = PromptMessageExtended(role="user", content=[], tool_results={dirty_id: result})
 

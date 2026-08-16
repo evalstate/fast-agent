@@ -1,7 +1,7 @@
 from typing import cast
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
@@ -68,10 +68,11 @@ async def test_process_poll_folding_context_failure_does_not_abort_tool_loop() -
     assert runner._delta_messages == [message]
 
 
-def test_llm_resolves_managed_process_poll_folding_from_model_metadata() -> None:
+@pytest.mark.parametrize("model", ("grok-4.5", "deepseek-v4-flash"))
+def test_llm_resolves_managed_process_poll_folding_from_model_metadata(model: str) -> None:
     llm = FakeLLM()
 
-    assert llm.resolve_managed_process_poll_folding(RequestParams(model="grok-4.5"))
+    assert llm.resolve_managed_process_poll_folding(RequestParams(model=model))
     assert not llm.resolve_managed_process_poll_folding(RequestParams(model="unknown-model"))
 
 

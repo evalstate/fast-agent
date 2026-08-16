@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import json
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final, cast
+from uuid import uuid4
 
-from mcp.types import ContentBlock, TextContent
+from mcp_types import ContentBlock, TextContent
+from openai import APIError, AsyncOpenAI
+from pydantic import ValidationError
 
-from fast_agent.core.exceptions import ProviderKeyError
+from fast_agent.core.exceptions import ModelConfigError, ProviderKeyError
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_websocket import (
     ManagedWebSocketConnection,
     ResponsesWebSocketError,
+    ResponsesWebSocketKeepaliveOptions,
     ResponsesWsRequestPlanner,
     StatelessResponsesWsPlanner,
 )
@@ -23,6 +27,7 @@ from fast_agent.llm.provider.openai.web_tools import (
     ResolvedOpenAIWebSearch,
     build_xai_web_search_tool,
 )
+from fast_agent.llm.provider.openai.xai_image_uploads import XAIImageUploadManager
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage, usage_from_responses_compatible
 
@@ -30,12 +35,16 @@ if TYPE_CHECKING:
     from mcp import Tool
     from openai.types.responses import ResponseUsage
 
+    from fast_agent.config import XAISettings
     from fast_agent.llm.provider.openai.responses import ResponsesTransport
+    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.tool_activity_presentation import ToolActivityFamily
     from fast_agent.types import RequestParams
 
-DEFAULT_XAI_MODEL = "grok-4.3"
+DEFAULT_XAI_MODEL = "grok-4.6"
+GROK_EXTENDED_STREAMING_TIMEOUT: Final = 300.0
 XAI_BASE_URL = "https://api.x.ai/v1"
+XAI_EXPERIMENTAL_STREAMING_MODELS: Final = frozenset({"grok-4.5", "grok-4.6"})
 XAI_X_SEARCH_INTERNAL_TOOL_NAMES = frozenset(
     {
         "x_keyword_search",
@@ -69,9 +78,31 @@ class XAIResponsesLLM(ResponsesLLM):
         provider = kwargs.pop("provider", provider)
         self.config_section = "xai"
         super().__init__(provider=provider, **kwargs)
+        self._apply_reasoning_streaming_timeout_default()
         self._x_search_override: bool | None = (
             bool(x_search_override) if isinstance(x_search_override, bool) else None
         )
+        self._prompt_cache_key = uuid4().hex
+        settings = self._xai_settings()
+        self._image_upload_manager = (
+            XAIImageUploadManager(settings.image_upload_ttl_seconds)
+            if settings is not None and settings.image_upload_mode == "public_url"
+            else None
+        )
+        self._image_upload_warning_emitted = False
+
+    def _apply_reasoning_streaming_timeout_default(self) -> None:
+        params = self.default_request_params
+        if (
+            self._init_request_params is not None
+            and "streaming_timeout" in self._init_request_params.model_fields_set
+        ):
+            return
+        effort = self._resolve_reasoning_effort()
+        if (params.model == "grok-4.5" and effort == "high") or (
+            params.model == "grok-4.6" and effort in {"high", "xhigh"}
+        ):
+            params.streaming_timeout = GROK_EXTENDED_STREAMING_TIMEOUT
 
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
         params = self._initialize_default_params_with_model_fallback(
@@ -103,8 +134,8 @@ class XAIResponsesLLM(ResponsesLLM):
     def x_search_enabled(self) -> bool:
         if self._x_search_override is not None:
             return self._x_search_override
-        settings = self._get_provider_config()
-        return bool(getattr(settings, "x_search", False)) if settings else False
+        settings = self._xai_settings()
+        return settings.x_search if settings is not None else False
 
     def set_x_search_enabled(self, value: bool | None) -> None:
         self._x_search_override = value
@@ -169,19 +200,56 @@ class XAIResponsesLLM(ResponsesLLM):
     def _resolve_reasoning_effort(self) -> str | None:
         setting = self.reasoning_effort
         if setting is None:
-            return "low"
+            default = self._reasoning_effort_spec.default if self._reasoning_effort_spec else None
+            if default is not None and default.kind == "effort" and isinstance(default.value, str):
+                return default.value
+            return "high"
         return super()._resolve_reasoning_effort()
+
+    def _xai_settings(self) -> XAISettings | None:
+        return cast("XAISettings | None", self._get_provider_config())
 
     def _provider_base_url(self) -> str | None:
         base_url: str | None = os.getenv("XAI_BASE_URL", XAI_BASE_URL)
-        settings = self._get_provider_config()
-        if settings and getattr(settings, "base_url", None):
+        settings = self._xai_settings()
+        if settings is not None and settings.base_url:
             base_url = settings.base_url
         return base_url
 
     def _provider_default_headers(self) -> dict[str, str] | None:
-        settings = self._get_provider_config()
-        return getattr(settings, "default_headers", None) if settings else None
+        settings = self._xai_settings()
+        return settings.default_headers if settings is not None else None
+
+    async def _normalize_input_image_part(
+        self,
+        client: AsyncOpenAI,
+        part: dict[str, Any],
+    ) -> tuple[dict[str, Any], bool]:
+        manager = self._image_upload_manager
+        image_url = part.get("image_url")
+        if manager is None or not isinstance(image_url, str):
+            return await super()._normalize_input_image_part(client, part)
+
+        try:
+            public_url = await manager.public_url(client, image_url)
+        except (APIError, ValidationError):
+            if not self._image_upload_warning_emitted:
+                self.logger.warning(
+                    "xAI image upload failed; falling back to inline image data for this session."
+                )
+                self._image_upload_warning_emitted = True
+            return part, False
+
+        if public_url is None:
+            return await super()._normalize_input_image_part(client, part)
+
+        normalized: dict[str, Any] = {
+            "type": "input_image",
+            "image_url": public_url,
+        }
+        if detail := part.get("detail"):
+            normalized["detail"] = detail
+        return normalized, True
 
     def _build_websocket_headers(self) -> dict[str, str]:
         headers = dict(self._default_headers() or {})
@@ -205,6 +273,35 @@ class XAIResponsesLLM(ResponsesLLM):
         # continuation path behaves as documented.
         return StatelessResponsesWsPlanner()
 
+    def _extract_assistant_message_items(
+        self,
+        msg: PromptMessageExtended,
+    ) -> list[dict[str, Any]]:
+        items = super()._extract_assistant_message_items(msg)
+        # xAI can reuse one message ID for distinct responses on a persistent
+        # websocket. The ID is optional and cannot safely identify replay items.
+        for item in items:
+            item.pop("id", None)
+        return items
+
+    def _input_item_dedupe_key(self, item: dict[str, Any]) -> tuple[str, ...] | None:
+        key = super()._input_item_dedupe_key(item)
+        encrypted_content = item.get("encrypted_content")
+        if (
+            key is not None
+            and item.get("type") == "reasoning"
+            and isinstance(encrypted_content, str)
+            and encrypted_content
+        ):
+            return (*key, encrypted_content)
+        return key
+
+    def _websocket_keepalive_options(self) -> ResponsesWebSocketKeepaliveOptions:
+        # xAI currently doesn't reliably answer client-generated Ping frames.
+        # Keep automatic Pong replies enabled while restoring the previous
+        # aiohttp behavior of relying on application stream-idle detection.
+        return {"ping_interval": None}
+
     async def _create_websocket_connection(
         self,
         url: str,
@@ -223,7 +320,7 @@ class XAIResponsesLLM(ResponsesLLM):
         if get_xai_access_token(force_refresh=True) is None:
             raise ProviderKeyError(
                 "xAI OAuth token rejected",
-                "Run `fast-agent auth login xai` to reauthenticate.",
+                "Run `fast-agent auth provider login xai` to reauthenticate.",
             )
         return await super()._create_websocket_connection(
             url,
@@ -244,16 +341,49 @@ class XAIResponsesLLM(ResponsesLLM):
         tools: list[Tool] | None,
     ) -> dict[str, Any]:
         args = super()._build_response_args(input_items, request_params, tools)
-        # Keep the first pass xAI payload conservative; these are OpenAI-specific
-        # Responses extensions and xAI's websocket docs show the portable core.
-        args.pop("include", None)
+        settings = self._xai_settings()
+        reasoning_summary = settings.reasoning_summary if settings is not None else None
+        stream_tool_calls = settings.stream_tool_calls if settings is not None else False
+        model = args.get("model")
+        if (reasoning_summary is not None or stream_tool_calls) and (
+            not isinstance(model, str) or model not in XAI_EXPERIMENTAL_STREAMING_MODELS
+        ):
+            supported = ", ".join(sorted(XAI_EXPERIMENTAL_STREAMING_MODELS))
+            raise ModelConfigError(
+                "xAI reasoning summaries and streamed tool arguments are experimental "
+                f"and supported only for {supported}; got '{model}'."
+            )
+
+        # xAI accepts encrypted reasoning passback for stateless full-context
+        # replay. Keep only the include verified by Grok Build and live probes.
+        args["include"] = ["reasoning.encrypted_content"]
         args.pop("service_tier", None)
+        args["prompt_cache_key"] = self._prompt_cache_key
         reasoning = args.get("reasoning")
         if isinstance(reasoning, dict):
             effort = reasoning.get("effort")
             args["reasoning"] = {"effort": effort} if effort else reasoning
+            if reasoning_summary is not None:
+                args["reasoning"]["summary"] = reasoning_summary
+        if stream_tool_calls:
+            extra_body = args.setdefault("extra_body", {})
+            if isinstance(extra_body, dict):
+                extra_body["stream_tool_calls"] = True
         if self.x_search_enabled:
             tools_payload = args.setdefault("tools", [])
             if isinstance(tools_payload, list):
                 tools_payload.append({"type": "x_search"})
         return args
+
+    def _prepare_websocket_arguments(self, arguments: dict[str, Any]) -> None:
+        extra_body = arguments.get("extra_body")
+        if not isinstance(extra_body, dict):
+            return
+        if extra_body.pop("stream_tool_calls", None) is True:
+            arguments["stream_tool_calls"] = True
+        if not extra_body:
+            arguments.pop("extra_body")
+
+    def clear(self, *, clear_prompts: bool = False) -> None:
+        super().clear(clear_prompts=clear_prompts)
+        self._prompt_cache_key = uuid4().hex

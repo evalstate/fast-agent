@@ -101,6 +101,15 @@ def test_current_model_table_uses_current_catalog_entries() -> None:
     assert "| `gpt-4.1-mini` | `openai.gpt-4.1-mini` | Fast |" in table
 
 
+def test_models_reference_uses_reasoning_query_parameter() -> None:
+    generator = _load_generator()
+
+    reference = generator.generate_models_reference()
+
+    assert "Example: `grok?reasoning=high`" in reference
+    assert "Example: `grok.high`" not in reference
+
+
 def test_compaction_snippets_use_compaction_settings_defaults() -> None:
     from fast_agent.config import CompactionSettings
 

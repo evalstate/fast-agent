@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal
 
 import mslex
 
@@ -39,7 +39,7 @@ def resolve_commandline_syntax(
     if normalized_syntax == "auto":
         return _AUTO_SYNTAX_BY_OS_NAME.get(os.name, _DEFAULT_AUTO_SYNTAX)
     if normalized_syntax in _SUPPORTED_SYNTAXES:
-        return cast("ResolvedCommandLineSyntax", normalized_syntax)
+        return normalized_syntax
     raise ValueError(f"Unsupported command-line syntax: {syntax}")
 
 

@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import base64
 import logging
+import posixpath
 import struct
+import tempfile
 import zlib
 from io import BytesIO
 from pathlib import Path
 
 import pytest
-from mcp.types import ImageContent, TextContent
+from mcp_types import ImageContent, TextContent
 from PIL import Image
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -194,8 +196,8 @@ async def test_environment_filesystem_runtime_reads_and_writes_remote_files() ->
     )
     read = await runtime.call_tool("read_text_file", {"path": "notes.txt", "line": 2})
 
-    assert write.isError is False
-    assert read.isError is False
+    assert write.is_error is False
+    assert read.is_error is False
     assert env.files["/workspace/notes.txt"] == "hello\nworld\n"
     assert _text(read) == "world"
 
@@ -208,7 +210,7 @@ async def test_environment_filesystem_runtime_preserves_full_file_content() -> N
 
     read = await runtime.call_tool("read_text_file", {"path": "notes.txt"})
 
-    assert read.isError is False
+    assert read.is_error is False
     assert _text(read) == "hello\r\nworld\r\n"
 
 
@@ -226,7 +228,7 @@ async def test_environment_filesystem_runtime_attaches_environment_media() -> No
     pending = runtime.consume_pending_media_attachments()
 
     assert "attach_media" in tool_names
-    assert result.isError is False
+    assert result.is_error is False
     assert "Staged image.png as embedded image/png media input" in _text(result)
     assert len(pending) == 1
     assert isinstance(pending[0], ImageContent)
@@ -262,7 +264,7 @@ async def test_filesystem_runtimes_normalize_png_with_excess_raster_data(
             {"source": "crop.png", "mime_type": "image/png"},
         )
 
-    assert result.isError is False
+    assert result.is_error is False
     pending = runtime.consume_pending_media_attachments()
     assert len(pending) == 1
     assert isinstance(pending[0], ImageContent)
@@ -301,7 +303,7 @@ async def test_environment_filesystem_runtime_rejects_invalid_image_data(
         {"source": "image.png", "mime_type": "image/png"},
     )
 
-    assert result.isError is True
+    assert result.is_error is True
     assert error in _text(result)
     assert runtime.consume_pending_media_attachments() == []
 
@@ -318,11 +320,11 @@ async def test_environment_filesystem_runtime_converts_ppm_to_png() -> None:
     )
     pending = runtime.consume_pending_media_attachments()
 
-    assert result.isError is False
+    assert result.is_error is False
     assert "Converted screen.ppm from image/x-portable-anymap to image/png" in _text(result)
     assert len(pending) == 1
     assert isinstance(pending[0], ImageContent)
-    assert pending[0].mimeType == "image/png"
+    assert pending[0].mime_type == "image/png"
     assert base64.b64decode(pending[0].data).startswith(b"\x89PNG\r\n\x1a\n")
 
 
@@ -335,11 +337,11 @@ async def test_environment_filesystem_runtime_detects_pillow_image_without_known
     result = await runtime.call_tool("attach_media", {"source": "screen.tga"})
     pending = runtime.consume_pending_media_attachments()
 
-    assert result.isError is False
+    assert result.is_error is False
     assert "Converted screen.tga from image/x-tga to image/png" in _text(result)
     assert len(pending) == 1
     assert isinstance(pending[0], ImageContent)
-    assert pending[0].mimeType == "image/png"
+    assert pending[0].mime_type == "image/png"
     assert base64.b64decode(pending[0].data).startswith(b"\x89PNG\r\n\x1a\n")
 
 
@@ -378,7 +380,7 @@ async def test_environment_filesystem_runtime_hides_attach_media_without_byte_re
 
     assert "attach_media" not in {tool.name for tool in runtime.tools}
     result = await runtime.call_tool("attach_media", {"source": "image.png"})
-    assert result.isError is True
+    assert result.is_error is True
 
 
 @pytest.mark.asyncio
@@ -412,7 +414,7 @@ async def test_environment_filesystem_runtime_applies_patch_to_remote_files() ->
         },
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert env.files["/workspace/notes.txt"] == "ONE\ntwo\n"
     assert "M notes.txt" in _text(result)
 
@@ -438,9 +440,126 @@ async def test_environment_filesystem_runtime_move_removes_source_file() -> None
         },
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert env.files["/workspace/b.py"] == "print('hello')\n"
     assert "/workspace/a.py" not in env.files
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("destination", ["/workspace/same.txt", "nested/../same.txt"])
+async def test_environment_patch_rejects_move_path_aliases(destination: str) -> None:
+    class ResolvingEnvironment(FakeEnvironment):
+        def __init__(self) -> None:
+            super().__init__()
+            self.reads: list[str] = []
+
+        def resolve_path(self, path: str) -> str:
+            return posixpath.normpath(super().resolve_path(path))
+
+        async def read_text(self, path: str) -> str:
+            self.reads.append(path)
+            return await super().read_text(path)
+
+    env = ResolvingEnvironment()
+    env.files["/workspace/same.txt"] = "before\n"
+    runtime = EnvironmentFilesystemRuntime(env, enable_read=True, enable_apply_patch=True)
+
+    result = await runtime.call_tool(
+        "apply_patch",
+        {
+            "input": (
+                "*** Begin Patch\n"
+                "*** Update File: same.txt\n"
+                f"*** Move to: {destination}\n"
+                "@@\n"
+                "-before\n"
+                "+after\n"
+                "*** End Patch\n"
+            )
+        },
+    )
+
+    assert result.is_error is True
+    assert "resolve to the same environment path /workspace/same.txt" in _text(result)
+    assert env.reads == []
+    assert env.files == {"/workspace/same.txt": "before\n"}
+
+
+@pytest.mark.asyncio
+async def test_environment_patch_allows_repeated_path_spelling() -> None:
+    env = FakeEnvironment()
+    env.files["/workspace/same.txt"] = "before\n"
+    runtime = EnvironmentFilesystemRuntime(env, enable_read=True, enable_apply_patch=True)
+
+    result = await runtime.call_tool(
+        "apply_patch",
+        {
+            "input": (
+                "*** Begin Patch\n"
+                "*** Update File: same.txt\n"
+                "@@\n"
+                "-before\n"
+                "+middle\n"
+                "*** Update File: same.txt\n"
+                "@@\n"
+                "-middle\n"
+                "+after\n"
+                "*** End Patch\n"
+            )
+        },
+    )
+
+    assert result.is_error is False
+    assert env.files["/workspace/same.txt"] == "after\n"
+
+
+@pytest.mark.asyncio
+async def test_environment_patch_staging_confines_paths_and_preserves_path_identity() -> None:
+    with tempfile.NamedTemporaryFile() as canary_file:
+        canary = Path(canary_file.name)
+        canary.write_text("unchanged\n", encoding="utf-8")
+        traversal_path = f"../{canary.name}"
+        env = FakeEnvironment()
+        env.files[f"/workspace/{traversal_path}"] = "remote\n"
+        env.files["/workspace/../source.txt"] = "before\n"
+        env.files["/workspace/../deleted.txt"] = "delete\n"
+        runtime = EnvironmentFilesystemRuntime(env, enable_read=True, enable_apply_patch=True)
+
+        result = await runtime.call_tool(
+            "apply_patch",
+            {
+                "input": (
+                    "*** Begin Patch\n"
+                    f"*** Update File: {traversal_path}\n"
+                    "@@\n"
+                    "-remote\n"
+                    "+updated\n"
+                    "*** Add File: ../added.txt\n"
+                    "+added\n"
+                    "*** Update File: ../source.txt\n"
+                    "*** Move to: ../moved.txt\n"
+                    "@@\n"
+                    "-before\n"
+                    "+after\n"
+                    "*** Delete File: ../deleted.txt\n"
+                    "*** Add File: same.txt\n"
+                    "+relative\n"
+                    "*** Add File: /same.txt\n"
+                    "+absolute\n"
+                    "*** End Patch\n"
+                )
+            },
+        )
+
+        assert result.is_error is False
+        assert canary.read_text(encoding="utf-8") == "unchanged\n"
+        assert env.files[f"/workspace/{traversal_path}"] == "updated\n"
+        assert env.files["/workspace/../added.txt"] == "added\n"
+        assert env.files["/workspace/../moved.txt"] == "after\n"
+        assert "/workspace/../source.txt" not in env.files
+        assert "/workspace/../deleted.txt" not in env.files
+        assert env.files["/workspace/same.txt"] == "relative\n"
+        assert env.files["/same.txt"] == "absolute\n"
 
 
 @pytest.mark.asyncio
@@ -459,8 +578,23 @@ async def test_environment_filesystem_runtime_reports_edit_write_failure() -> No
         {"path": "notes.txt", "old_string": "world", "new_string": "there"},
     )
 
-    assert result.isError is True
+    assert result.is_error is True
     assert _text(result) == "Error writing file: disk full"
+
+
+@pytest.mark.asyncio
+async def test_environment_filesystem_runtime_creates_missing_file_with_edit_file() -> None:
+    env = FakeEnvironment()
+    runtime = EnvironmentFilesystemRuntime(env, enable_edit_file=True)
+
+    result = await runtime.call_tool(
+        "edit_file",
+        {"path": "nested/created.txt", "new_string": "created\n"},
+    )
+
+    assert result.is_error is False
+    assert env.files["/workspace/nested/created.txt"] == "created\n"
+    assert '"created": true' in _text(result)
 
 
 @pytest.mark.asyncio
@@ -485,9 +619,9 @@ async def test_mcp_agent_routes_file_tools_to_injected_execution_environment() -
     read = await agent.call_tool("read_text_file", {"path": "remote.txt"})
     shell = await agent.call_tool("bash", {"command": "pwd"})
 
-    assert read.isError is False
+    assert read.is_error is False
     assert _text(read) == "remote file\n"
-    assert shell.isError is False
+    assert shell.is_error is False
     assert env.requests[-1].command == "pwd"
 
     await agent._aggregator.close()
@@ -540,7 +674,7 @@ async def test_mcp_agent_stages_media_from_injected_execution_environment() -> N
     pending = agent._consume_pending_media_attachments()
 
     assert "attach_media" in tool_names
-    assert result.isError is False
+    assert result.is_error is False
     assert len(pending) == 1
     assert isinstance(pending[0], ImageContent)
 
@@ -568,7 +702,7 @@ async def test_mcp_agent_uses_local_environment_filesystem_cwd(
 
     assert "read_text_file" in tool_names
     assert "attach_media" in tool_names
-    assert result.isError is False
+    assert result.is_error is False
     assert _text(result) == "from local environment\n"
 
     await agent._aggregator.close()
@@ -602,7 +736,7 @@ async def test_mcp_agent_reads_environment_skills_with_environment_read_tool() -
     assert agent.skill_read_tool_name == "read_text_file"
 
     read = await agent.call_tool("read_text_file", {"path": str(manifest.path)})
-    assert read.isError is False
+    assert read.is_error is False
     assert "Use alpha." in _text(read)
 
     await agent._aggregator.close()

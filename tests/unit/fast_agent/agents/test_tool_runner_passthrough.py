@@ -1,6 +1,6 @@
 import pytest
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, CallToolResult, Tool
+from mcp_types import CallToolRequestParams, CallToolResult, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
@@ -188,9 +188,9 @@ async def test_passthrough_uses_structured_content_for_tool_result_text() -> Non
     llm = PassthroughLLM()
     tool_result = CallToolResult(
         content=[text_content("stale summary")],
-        isError=False,
+        structured_content={"b": 2, "a": 1},
+        is_error=False,
     )
-    setattr(tool_result, "structuredContent", {"b": 2, "a": 1})
     message = PromptMessageExtended(role="user", content=[], tool_results={"call_1": tool_result})
 
     result = await llm._apply_prompt_provider_specific([message])

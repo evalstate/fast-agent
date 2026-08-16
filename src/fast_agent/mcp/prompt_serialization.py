@@ -18,9 +18,9 @@ and PromptMessageExtended objects. It includes functionality for:
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import cast
+from typing import TypedDict, cast
 
-from mcp.types import (
+from mcp_types import (
     AudioContent,
     EmbeddedResource,
     ImageContent,
@@ -29,6 +29,7 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
+from pydantic import TypeAdapter
 
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.mcp.message_roles import MessageRole
@@ -37,7 +38,6 @@ from fast_agent.mcp.prompts.prompt_constants import (
     RESOURCE_DELIMITER,
     USER_DELIMITER,
 )
-from fast_agent.mcp.resource_utils import to_any_url
 from fast_agent.types import PromptMessageExtended
 from fast_agent.utils.text import strip_casefold
 
@@ -64,6 +64,23 @@ def serialize_to_dict(obj, exclude_none: bool = True):
 # -------------------------------------------------------------------------
 
 
+class _SerializedMessages(TypedDict):
+    messages: list[PromptMessageExtended]
+
+
+_SERIALIZED_MESSAGES_ADAPTER = TypeAdapter(_SerializedMessages)
+
+
+def to_json_bytes(messages: list[PromptMessageExtended], *, indent: int | None = 2) -> bytes:
+    """Serialize messages directly to UTF-8 JSON bytes."""
+    return _SERIALIZED_MESSAGES_ADAPTER.dump_json(
+        {"messages": messages},
+        by_alias=True,
+        exclude_none=True,
+        indent=indent,
+    )
+
+
 def to_json(messages: list[PromptMessageExtended], *, indent: int | None = 2) -> str:
     """
     Convert PromptMessageExtended objects directly to JSON, preserving all extended fields.
@@ -77,14 +94,7 @@ def to_json(messages: list[PromptMessageExtended], *, indent: int | None = 2) ->
     Returns:
         JSON string representation preserving all PromptMessageExtended data
     """
-    # Convert each message to dict using standardized serialization
-    messages_dicts = [serialize_to_dict(msg) for msg in messages]
-
-    # Wrap in a container similar to GetPromptResult for consistency
-    result_dict = {"messages": messages_dicts}
-
-    # Convert to JSON string
-    return json.dumps(result_dict, indent=indent)
+    return to_json_bytes(messages, indent=indent).decode()
 
 
 def from_json(json_str: str) -> list[PromptMessageExtended]:
@@ -101,8 +111,11 @@ def from_json(json_str: str) -> list[PromptMessageExtended]:
     Returns:
         List of PromptMessageExtended objects
     """
-    # Parse JSON to dictionary
-    result_dict = json.loads(json_str)
+    return messages_from_dict(json.loads(json_str))
+
+
+def messages_from_dict(result_dict: dict) -> list[PromptMessageExtended]:
+    """Parse an already-decoded enhanced or legacy message payload."""
 
     # Extract messages array
     messages_data = result_dict.get("messages", [])
@@ -158,10 +171,10 @@ def save_json(
         file_path: Path to save the JSON file
         compact: Write without indentation (for frequent checkpoint saves)
     """
-    json_str = to_json(messages, indent=None if compact else 2)
+    json_bytes = to_json_bytes(messages, indent=None if compact else 2)
 
-    with Path(file_path).open("w", encoding="utf-8") as f:
-        f.write(json_str)
+    with Path(file_path).open("wb") as f:
+        f.write(json_bytes)
 
 
 def load_json(file_path: str) -> list[PromptMessageExtended]:
@@ -455,8 +468,8 @@ def _legacy_resource_from_line(line_stripped: str) -> EmbeddedResource | None:
     return EmbeddedResource(
         type="resource",
         resource=TextResourceContents(
-            uri=to_any_url(resource_uri),
-            mimeType="text/plain",
+            uri=resource_uri,
+            mime_type="text/plain",
             text="",
         ),
     )

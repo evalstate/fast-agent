@@ -2,8 +2,12 @@ from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
 
 
+def _full_display() -> ConsoleDisplay:
+    return ConsoleDisplay(tool_display_layout="full")
+
+
 def test_tool_call_hides_redundant_single_tool_footer() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
 
     with console.console.capture() as capture:
         display.show_tool_call(
@@ -20,7 +24,7 @@ def test_tool_call_hides_redundant_single_tool_footer() -> None:
 
 
 def test_tool_call_keeps_footer_when_multiple_tools_are_available() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
 
     with console.console.capture() as capture:
         display.show_tool_call(

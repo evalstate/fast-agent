@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 
     from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
     from fast_agent.acp.server.models import ACPSessionState
+    from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.llm.stream_types import StreamChunk
 logger = get_logger(__name__)
@@ -347,6 +348,7 @@ class ACPPromptFlow:
                 acp_stop_reason, status_line_meta = await self._send_prompt_to_agent(
                     agent=agent,
                     agent_name=turn.current_agent_name,
+                    agent_app=turn.instance.app,
                     session_id=session_id,
                     session_state=turn.session_state,
                     prompt_message=turn.prompt_message,
@@ -389,6 +391,7 @@ class ACPPromptFlow:
         *,
         agent: Any,
         agent_name: str | None,
+        agent_app: AgentApp,
         session_id: str,
         session_state: ACPSessionState | None,
         prompt_message: PromptMessageExtended,
@@ -403,6 +406,7 @@ class ACPPromptFlow:
                 agent, session_state
             )
             turn_start_index = self._turn_start_index(agent)
+            user_turn_start = agent_app.capture_user_turn_start(agent_name)
             with_status_hooks = await self._run_with_status_hooks(
                 agent=agent,
                 agent_name=agent_name,
@@ -440,6 +444,7 @@ class ACPPromptFlow:
                 assistant_text_streamed=stream_context["stream_state"].assistant_text_seen,
                 status_line_meta=status_line_meta,
             )
+            agent_app.complete_user_turn(agent_name, user_turn_start)
             return acp_stop_reason, status_line_meta
         except Exception:
             await self._cleanup_stream_listener_after_error(

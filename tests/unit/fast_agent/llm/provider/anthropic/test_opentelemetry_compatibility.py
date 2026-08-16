@@ -87,7 +87,7 @@ class TestOpenTelemetryCompatibility:
             with patch.object(llm, "_process_stream", new_callable=AsyncMock) as mock_process:
                 mock_process.return_value = (final_message, [], [])
 
-                from mcp.types import TextContent
+                from mcp_types import TextContent
 
                 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
@@ -139,7 +139,7 @@ class TestOpenTelemetryCompatibility:
             # Simulate OpenTelemetry behavior: stream() returns a coroutine
             mock_anthropic.beta.messages.stream.return_value = coroutine_stream_call()
 
-            from mcp.types import TextContent
+            from mcp_types import TextContent
 
             from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 

@@ -12,5 +12,6 @@ mcp:
     sampling_tools_test:
       command: "uv"
       args: ["run", "sampling_tools_test_server.py"]
+      protocol_mode: modern
       sampling:
         model: "passthrough"

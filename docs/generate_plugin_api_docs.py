@@ -42,6 +42,10 @@ FIELD_DESCRIPTIONS = {
     "PluginCommandActionResult.buffer_prefill": "Draft text inserted into the user's input buffer.",
     "PluginCommandActionResult.switch_agent": "Switch the active TUI agent after the command.",
     "PluginCommandActionResult.refresh_agents": "Refresh agent/card state after the command.",
+    "PluginCommandActionResult.images": "Images rendered after command output where supported.",
+    "PluginCommandActionResult.markdown_styles": (
+        "Presentation-only Rich styles for literal visible Markdown text; ignored by portable clients."
+    ),
     "PluginCommandActionContext.command_name": "Slash command name being executed.",
     "PluginCommandActionContext.arguments": "Raw text after the slash command.",
     "PluginCommandActionContext.agent": "Active agent surface exposed to the command.",
@@ -50,6 +54,9 @@ FIELD_DESCRIPTIONS = {
     "PluginCommandActionContext.runtime": "Optional live-runtime capabilities.",
     "PluginCommandActionContext.is_tui": "True when the command is running in the TUI surface.",
     "PluginCommandActionContext.is_acp": "True when the command is running in the ACP surface.",
+    "PluginCommandActionContext.user_turn_usage": (
+        "Immutable live-session usage snapshots grouped by top-level user turn."
+    ),
 }
 
 CONTEXT_HELPERS = {
@@ -57,6 +64,7 @@ CONTEXT_HELPERS = {
     "context": "Current agent context, when available.",
     "message_history": "Current agent message history.",
     "agent_registry": "Registered agents, when available.",
+    "usage": "Canonical usage accumulator for the active agent, when available.",
     "load_message_history": "Replace the active agent's message history.",
     "get_agent": "Look up another registered agent.",
     "mark_user_adjusted": "Mark a message as user-adjusted in the audit channel.",
@@ -145,8 +153,7 @@ def build_content() -> str:
         "```python",
         "async def handler(",
         "    ctx: PluginCommandActionContext,",
-        ") -> PluginCommandActionResult | str | None:",
-        "    ...",
+        ") -> PluginCommandActionResult | str | None: ...",
         "```",
         "",
         "Returning a plain string is shorthand for `PluginCommandActionResult(message=...)`.",

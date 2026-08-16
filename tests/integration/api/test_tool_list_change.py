@@ -9,8 +9,6 @@ from fast_agent.mcp import SEP
 if TYPE_CHECKING:
     from mcp import ListToolsResult
 
-    from fast_agent.mcp.mcp_aggregator import NamespacedTool
-
 # Enable debug logging for the test
 logging.basicConfig(level=logging.DEBUG)
 
@@ -37,9 +35,11 @@ async def test_tool_list_changes(fast_agent):
             # Wait for the tool list to be refreshed (with retry)
             await asyncio.sleep(0.5)
 
-            # peek in to the namespace map as list_tools hides issues if the notification fails.
-            tool_map: dict[str, NamespacedTool] = app.test._aggregator._namespaced_tool_map
-            assert len(tool_map) == 2, f"Expected 2 tools in tool map but found {len(tool_map)}"
+            # Inspect the discovered catalog directly: list_tools can hide refresh issues.
+            catalog_names = app.test.aggregator.tool_catalog().server_tool_names("dynamic_tool")
+            assert len(catalog_names) == 2, (
+                f"Expected 2 tools in catalog but found {len(catalog_names)}"
+            )
 
             tools_dict = await app.test.list_mcp_tools()
             dynamic_tool_found = False

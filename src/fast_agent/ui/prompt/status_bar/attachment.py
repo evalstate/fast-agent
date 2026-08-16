@@ -47,7 +47,7 @@ def _attachment_resource(
     url_mention_server: str,
 ) -> _AttachmentResource:
     if server_name == url_mention_server:
-        mime_type = resource_link(resource_uri).mimeType or UNKNOWN_ATTACHMENT_MIME
+        mime_type = resource_link(resource_uri).mime_type or UNKNOWN_ATTACHMENT_MIME
         return _AttachmentResource(mime_type=mime_type, source="link")
     return _AttachmentResource(
         mime_type=_local_attachment_mime_type(Path(resource_uri)),

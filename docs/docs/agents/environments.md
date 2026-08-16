@@ -36,7 +36,7 @@ The easiest way to configure environments is to prompt **`fast-agent`**:
 
 ```bash
 # container
-fast-agent -x --smart \
+fast-agent -xx \
 -m "configure a docker execution environment (ubuntu) named docker-env " \
 " with a read only mount of the current working directory. make it the default" \
 --model codexplan
@@ -44,10 +44,10 @@ fast-agent -x --smart \
 
 ```bash
 # hf sandbox
-fast-agent -x --smart --url https://huggingface.co/mcp?bouquet=files \ 
+fast-agent -xx --url https://huggingface.co/mcp?bouquet=files \
 -m "i want to set up an execution environment (hf sandbox) with my most " \
-" recent dataset attached" 
-\ --model codexplan 
+" recent dataset attached" \
+--model codexplan
 ```
 
 ## Named environments
@@ -108,6 +108,10 @@ Omitting `environment=` uses `default_environment`; if no default is configured,
 File tools are workspace tools: `read_text_file`, `write_text_file`,
 `edit_file`, and `apply_patch` are exposed only when they operate on the same
 tree the shell sees.
+
+`edit_file` creates a missing text file when `old_string` is omitted or empty,
+including missing parent directories. Creation never overwrites an existing
+path; exact replacement still requires a non-empty `old_string`.
 
 | Runtime | File tools |
 | ------- | ---------- |
@@ -452,8 +456,7 @@ from fast_agent.tools.execution_environment import (
 
 
 class MyEnvironment:
-    async def open(self) -> None:
-        ...
+    async def open(self) -> None: ...
 
     @property
     def cwd(self) -> str:
@@ -478,8 +481,7 @@ class MyEnvironment:
             options=ShellExecutionOptions(timeout_seconds=request.timeout),
         )
 
-    async def close(self) -> None:
-        ...
+    async def close(self) -> None: ...
 ```
 
 Adapters that can stream output should call callback hooks as output arrives:
@@ -501,31 +503,60 @@ from fast_agent.tools.execution_environment import EnvironmentFilesystem
 class MyEnvironment:
     # ShellEnvironment methods above...
 
-    def resolve_path(self, path: str) -> str:
-        ...
+    def resolve_path(self, path: str) -> str: ...
 
-    async def read_text(self, path: str) -> str:
-        ...
+    async def read_text(self, path: str) -> str: ...
 
-    async def write_text(self, path: str, content: str) -> None:
-        ...
+    async def write_text(self, path: str, content: str) -> None: ...
 
-    async def exists(self, path: str) -> bool:
-        ...
+    async def exists(self, path: str) -> bool: ...
 
-    async def list_dir(self, path: str) -> list[EnvironmentFileEntry]:
-        ...
+    async def list_dir(self, path: str) -> list[EnvironmentFileEntry]: ...
 
-    async def mkdir(self, path: str) -> None:
-        ...
+    async def mkdir(self, path: str) -> None: ...
 
-    async def remove(self, path: str) -> None:
-        ...
+    async def remove(self, path: str) -> None: ...
 ```
 
 Keep provider-specific concepts inside the adapter. For example, Hugging Face
 bucket mounts belong on `HuggingFaceSandboxEnvironment`, while the generic
 runtime only depends on `ShellEnvironment` and `EnvironmentFilesystem`.
+
+Custom environments can also opt into temporary subagent transcripts by
+implementing `EnvironmentTemporaryArtifacts` on the same object. Its
+`write_temporary_text(...)` operation must allocate an unpredictable private
+file and perform the bounded write as one adapter-level operation. The returned
+path must be visible to that environment's shell and file tools.
+
+```python
+from fast_agent.tools.execution_environment import (
+    EnvironmentTemporaryArtifacts,
+    TemporaryArtifact,
+)
+
+
+class MyEnvironment:
+    # ShellEnvironment and optional EnvironmentFilesystem methods above...
+
+    async def write_temporary_text(
+        self,
+        *,
+        prefix: str,
+        suffix: str,
+        content: str,
+        max_bytes: int,
+    ) -> TemporaryArtifact: ...
+
+    async def remove_temporary_artifact(
+        self,
+        artifact: TemporaryArtifact,
+    ) -> None: ...
+```
+
+Do not implement this capability with a predictable path followed by a generic
+file write, or place artifacts on persistent mounts. fast-agent treats artifact
+creation and cleanup as best effort; environments without the capability keep
+the final-response-only subagent behavior.
 
 `ShellRuntimeInfo.kind` is coarse display metadata. Built-in values include
 `local`, `docker`, and `remote`, but custom providers can use another stable

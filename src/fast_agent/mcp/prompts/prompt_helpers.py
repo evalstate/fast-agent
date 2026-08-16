@@ -7,7 +7,7 @@ without repetitive type checking.
 
 from typing import TYPE_CHECKING
 
-from mcp.types import PromptMessage
+from mcp_types import PromptMessage
 
 from fast_agent.mcp.helpers.content_helpers import get_text
 

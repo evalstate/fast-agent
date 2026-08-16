@@ -256,14 +256,22 @@ def render_prompt(screenshots: list[Path], deterministic: dict[str, Any]) -> str
         "- The home page should feel like a polished developer product, not a raw generated index.",
         "- Confirm the custom brand header is visible and visually integrated with the first viewport.",
         "- Confirm there are no raw Markdown artifacts such as literal `## Getting Started` text.",
-        "- Check terminal examples and generated terminal captures for readable command text, "
-        "prompt styling, and sufficient contrast.",
-        "- Check text, buttons, cards, tables, tabs, and navigation for overlap, clipping, or "
-        "incoherent wrapping.",
-        "- On mobile, the `fast-agent` wordmark should not split awkwardly around the hyphen, "
-        "and CTAs should remain tappable.",
-        "- Feature copy should make the product clear quickly: uvx startup, MCP servers, "
-        "workflows, model testing, provider aliases, ACP, and packaged examples.",
+        (
+            "- Check terminal examples and generated terminal captures for readable command text, "
+            "prompt styling, and sufficient contrast."
+        ),
+        (
+            "- Check text, buttons, cards, tables, tabs, and navigation for overlap, clipping, or "
+            "incoherent wrapping."
+        ),
+        (
+            "- On mobile, the `fast-agent` wordmark should not split awkwardly around the hyphen, "
+            "and CTAs should remain tappable."
+        ),
+        (
+            "- Feature copy should make the product clear quickly: uvx startup, MCP servers, "
+            "workflows, model testing, provider aliases, ACP, and packaged examples."
+        ),
         "- Penalize pages that look monochrome, unstyled, mostly blank, or dominated by default theme chrome.",
         "- Prefer concrete visible evidence over inferred intent.",
         "",
@@ -280,7 +288,7 @@ def render_prompt(screenshots: list[Path], deterministic: dict[str, Any]) -> str
 def render_card(model: str) -> str:
     model_id = MODEL_IDS.get(model, model)
     return f"""---
-type: smart
+type: agent
 name: docs_visual_judge
 model: {model_id}
 shell: false

@@ -213,6 +213,4 @@ fast-agent quickstart researcher .
 # Create data analysis example
 fast-agent quickstart data-analysis .
 
-# Create state transfer example
-fast-agent quickstart state-transfer .
 ```

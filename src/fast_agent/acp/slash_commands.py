@@ -40,6 +40,7 @@ from fast_agent.acp.slash.handlers import plugins as plugins_slash_handlers
 from fast_agent.acp.slash.handlers import session as session_slash_handlers
 from fast_agent.acp.slash.handlers import skills as skills_slash_handlers
 from fast_agent.acp.slash.handlers import status as status_slash_handlers
+from fast_agent.acp.slash.handlers import subagents as subagents_slash_handlers
 from fast_agent.acp.slash.handlers import tools as tools_slash_handlers
 from fast_agent.command_actions import (
     PluginCommandActionContext,
@@ -67,7 +68,7 @@ from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol, FastAgentLLMP
 from fast_agent.session.context import SessionContextCapable
 from fast_agent.session.identity import SessionStoreScope, normalize_session_store_scope
 from fast_agent.utils.slash_commands import parse_slash_command_line
-from fast_agent.utils.text import strip_casefold
+from fast_agent.utils.text import strip_casefold, strip_to_none
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -140,6 +141,9 @@ class _ACPAgentCardManager:
 
     def registered_agent_names(self) -> Iterable[str]:
         return list(self._handler.instance.agents.keys())
+
+    def visible_agent_names(self, *, force_include: str | None = None) -> Iterable[str]:
+        return self._handler.instance.app.visible_agent_names(force_include=force_include)
 
 
 def _command_input(input_hint: str | None) -> AvailableCommandInput | None:
@@ -279,21 +283,21 @@ class SlashCommandHandler:
         self._no_home = no_home
         self._acp_context: ACPContext | None = None
 
-        cards_action_hint = (
+        packs_action_hint = (
             "|".join(
                 action
-                for action in command_action_names("cards")
+                for action in command_action_names("packs")
                 if action not in {"list", "readme", "help"}
             )
             or "add|remove|update|publish|registry"
         )
 
         # Session-level commands operate on the current agent.
-        self._session_commands = self._build_builtin_session_commands(cards_action_hint)
+        self._session_commands = self._build_builtin_session_commands(packs_action_hint)
 
     def _build_builtin_session_commands(
         self,
-        cards_action_hint: str,
+        packs_action_hint: str,
     ) -> dict[str, _BuiltinSlashCommandSpec]:
         specs = (
             _BuiltinSlashCommandSpec(
@@ -307,6 +311,12 @@ class SlashCommandHandler:
                 description="List available tools",
                 handler=self._handle_tools,
                 input_hint="[summary|<tool-name>]",
+            ),
+            _BuiltinSlashCommandSpec(
+                name="tool",
+                description="Show one tool's input and structured output JSON schemas",
+                handler=self._handle_tool,
+                input_hint="<tool-name>",
             ),
             _BuiltinSlashCommandSpec(
                 name="environment",
@@ -330,11 +340,11 @@ class SlashCommandHandler:
                 ),
             ),
             _BuiltinSlashCommandSpec(
-                name="cards",
+                name="packs",
                 description="List or manage card packs (add/remove/update/publish/registry)",
-                handler=self._handle_cards,
+                handler=self._handle_packs,
                 input_hint=(
-                    f"[{cards_action_hint}] "
+                    f"[{packs_action_hint}] "
                     "[name|number|all|url] "
                     "[--force|--yes|--no-push|--message|--temp-dir|--keep-temp]"
                 ),
@@ -359,7 +369,7 @@ class SlashCommandHandler:
                 name="history",
                 description="Show or manage conversation history",
                 handler=self._handle_history,
-                input_hint="[show|detail <turn>|save|load] [args]",
+                input_hint="[show|detail <turn>|review [turn]|save|load] [args]",
             ),
             _BuiltinSlashCommandSpec(
                 name="clear",
@@ -375,25 +385,41 @@ class SlashCommandHandler:
             ),
             _BuiltinSlashCommandSpec(
                 name="card",
-                description="Load an AgentCard from file or URL",
+                description="Load or show an AgentCard",
                 handler=self._handle_card,
-                input_hint="<filename|url> [--tool [remove]]",
+                input_hint="[show [agent]|load <filename|url> [--as-tool]]",
             ),
             _BuiltinSlashCommandSpec(
                 name="agent",
-                description="Attach an agent as a tool or dump its AgentCard",
+                description="Show, select, or connect runtime agents",
                 handler=self._handle_agent,
-                input_hint="<@name> [--tool [remove]|--dump]",
+                input_hint="[status|list|use <name>|tool add <name>|tool remove <name>]",
+            ),
+            _BuiltinSlashCommandSpec(
+                name="subagents",
+                description="List subagent runs or control the built-in tool",
+                handler=self._handle_subagents,
+                input_hint="[list|status|on|off|toggle|help]",
             ),
             _BuiltinSlashCommandSpec(
                 name="mcp",
                 description="Manage runtime MCP servers and MCP data-layer sessions",
                 handler=self._handle_mcp,
                 input_hint=(
-                    "list | connect <target> [--name <server>] [--auth <token>] "
+                    "list | status | attach <server> | "
+                    "connect <target> [--name <server>] [--auth <token>] "
                     "[--timeout <seconds>] [--oauth|--no-oauth] "
                     "[--reconnect|--no-reconnect] | session [list|jar|new|use|clear] | "
-                    "disconnect <server>"
+                    "disconnect <server> | reconnect <server>"
+                ),
+            ),
+            _BuiltinSlashCommandSpec(
+                name="connect",
+                description="Attach a configured MCP server or connect an ad-hoc target",
+                handler=self._handle_connect,
+                input_hint=(
+                    "<name|target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
+                    "[--oauth|--no-oauth] [--reconnect|--no-reconnect]"
                 ),
             ),
             _BuiltinSlashCommandSpec(
@@ -457,13 +483,14 @@ class SlashCommandHandler:
         llm = self._get_current_llm()
         if llm is None:
             return (
-                "reasoning <value> | task_budget <off|20k+ when supported> | "
+                "status | reasoning <value> | task_budget <off|20k+ when supported> | "
                 "verbosity <value> | fast <on|off|status|flex when supported> | "
                 "web_search <on|off|default> | x_search <on|off|default> | "
-                "web_fetch <on|off|default>"
+                "web_fetch <on|off|default> | switch [<model>] | doctor | "
+                "references [list|set|unset] | catalog <provider> [--all]"
             )
 
-        options = ["reasoning <value>"]
+        options = ["status", "reasoning <value>"]
         if model_handlers.model_supports_task_budget(llm):
             options.append("task_budget <off|20k+>")
         if model_handlers.model_supports_text_verbosity(llm):
@@ -540,11 +567,11 @@ class SlashCommandHandler:
         """Switch current mode for ACP session state if available."""
         if agent_name not in self.instance.agents:
             return False
-        self.set_current_agent(agent_name)
         if self._set_current_mode_callback:
             result = self._set_current_mode_callback(agent_name)
             if inspect.isawaitable(result):
                 await result
+        self.set_current_agent(agent_name)
         return True
 
     def update_session_instruction(self, agent_name: str, instruction: str | None) -> None:
@@ -664,6 +691,9 @@ class SlashCommandHandler:
         *,
         io: ACPCommandIO | None = None,
     ) -> str:
+        has_error = any(message.channel == "error" for message in outcome.messages)
+        if outcome.direct_response is not None and not has_error:
+            return outcome.direct_response
         extra_messages = io.messages if io else None
         markdown = render_command_outcome_markdown(
             outcome,
@@ -837,6 +867,7 @@ class SlashCommandHandler:
                         ),
                     ),
                     is_acp=True,
+                    user_turn_usage=self.instance.app.user_turn_usage,
                 ),
             )
         except AgentConfigError as exc:
@@ -854,7 +885,11 @@ class SlashCommandHandler:
             requires_refresh=result.refresh_agents,
         )
         if result.markdown:
-            outcome.add_message(result.markdown, render_markdown=True)
+            outcome.add_message(
+                result.markdown,
+                render_markdown=True,
+                markdown_styles=result.markdown_styles,
+            )
         elif result.message:
             outcome.add_message(result.message)
         if result.images:
@@ -895,6 +930,12 @@ class SlashCommandHandler:
     async def _handle_tools(self, arguments: str | None = None) -> str:
         return await tools_slash_handlers.handle_tools(self, arguments)
 
+    async def _handle_tool(self, arguments: str | None = None) -> str:
+        tool_name = strip_to_none(arguments)
+        if tool_name is None:
+            return "Tool name required: /tool <tool-name>"
+        return await tools_slash_handlers.handle_tools(self, tool_name)
+
     async def _handle_environment(self, arguments: str | None = None) -> str:
         del arguments
         outcome = await display_handlers.handle_environment(
@@ -909,8 +950,8 @@ class SlashCommandHandler:
     async def _handle_skills(self, arguments: str | None = None) -> str:
         return await skills_slash_handlers.handle_skills(self, arguments)
 
-    async def _handle_cards(self, arguments: str | None = None) -> str:
-        return await cards_manager_slash_handlers.handle_cards(self, arguments)
+    async def _handle_packs(self, arguments: str | None = None) -> str:
+        return await cards_manager_slash_handlers.handle_packs(self, arguments)
 
     async def _handle_plugins(self, arguments: str | None = None) -> str:
         return await plugins_slash_handlers.handle_plugins(self, arguments)
@@ -927,8 +968,14 @@ class SlashCommandHandler:
     async def _handle_agent(self, arguments: str | None = None) -> str:
         return await cards_slash_handlers.handle_agent(self, arguments)
 
+    async def _handle_subagents(self, arguments: str | None = None) -> str:
+        return await subagents_slash_handlers.handle_subagents(self, arguments)
+
     async def _handle_mcp(self, arguments: str | None = None) -> str:
         return await mcp_slash_handlers.handle_mcp(self, arguments)
+
+    async def _handle_connect(self, arguments: str | None = None) -> str:
+        return await mcp_slash_handlers.handle_connect(self, arguments)
 
     async def _handle_reload(self, arguments: str | None = None) -> str:
         del arguments

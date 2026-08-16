@@ -1,4 +1,4 @@
-from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.constants import ANTHROPIC_ASSISTANT_RAW_CONTENT, ANTHROPIC_SERVER_TOOLS_CHANNEL
 from fast_agent.history.tool_activities import (
@@ -87,7 +87,7 @@ def test_tool_activities_include_standard_tool_calls_and_results() -> None:
         tool_results={
             "call_1": CallToolResult(
                 content=[TextContent(type="text", text="world")],
-                isError=False,
+                is_error=False,
             )
         },
     )

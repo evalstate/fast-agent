@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
 from fast_agent.config import Settings, get_settings
 from fast_agent.marketplace import registry_urls as marketplace_registry_urls
 from fast_agent.skills.models import DEFAULT_MARKETPLACE_URL, DEFAULT_SKILL_REGISTRIES
@@ -28,4 +30,19 @@ def resolve_skill_registries(settings: Settings | None = None) -> list[str]:
 
 
 def format_marketplace_display_url(url: str) -> str:
-    return marketplace_registry_urls.format_marketplace_display_url(url)
+    return marketplace_registry_urls.format_marketplace_display_url(_redact_registry_url(url))
+
+
+def _redact_registry_url(url: str) -> str:
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return "[REDACTED INVALID URL]"
+    if parsed.scheme not in {"http", "https"}:
+        return url
+    netloc = parsed.netloc
+    if "@" in netloc:
+        netloc = f"REDACTED@{netloc.rsplit('@', 1)[1]}"
+    query = urlencode([(key, "[REDACTED]") for key, _value in parse_qsl(parsed.query)])
+    fragment = "[REDACTED]" if parsed.fragment else ""
+    return urlunsplit((parsed.scheme, netloc, parsed.path, query, fragment))

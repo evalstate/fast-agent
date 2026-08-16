@@ -19,7 +19,7 @@ Create an `A2ARemoteAgent` directly when you want a remote A2A server behind the
 fast-agent `AgentProtocol` interface:
 
 ```python
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.a2a.config import A2AAgentConfig
 from fast_agent.a2a.remote_agent import A2ARemoteAgent
@@ -272,11 +272,10 @@ types available in `PromptMessageExtended`.
 For structured JSON, A2A supports JSON-compatible `data` parts and also permits
 JSON returned as text artifacts. fast-agent keeps model text as text, but maps an
 `EmbeddedResource` containing `TextResourceContents` with
-`mimeType="application/json"` to an A2A `data` part:
+`mime_type="application/json"` to an A2A `data` part:
 
 ```python
-from mcp.types import EmbeddedResource, TextResourceContents
-from pydantic import AnyUrl
+from mcp_types import EmbeddedResource, TextResourceContents
 
 PromptMessageExtended(
     role="assistant",
@@ -284,8 +283,8 @@ PromptMessageExtended(
         EmbeddedResource(
             type="resource",
             resource=TextResourceContents(
-                uri=AnyUrl("resource:///tickets.json"),
-                mimeType="application/json",
+                uri="resource:///tickets.json",
+                mime_type="application/json",
                 text='{"tickets": [{"id": "REQ123", "status": "open"}]}',
             ),
         )

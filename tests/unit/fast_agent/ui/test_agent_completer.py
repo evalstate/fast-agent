@@ -8,8 +8,8 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 import pytest
-from mcp.types import Completion as MCPCompletion
-from mcp.types import ListToolsResult, ResourceTemplate, TextContent, Tool
+from mcp_types import Completion as MCPCompletion
+from mcp_types import ListToolsResult, ResourceTemplate, TextContent, Tool
 from prompt_toolkit.completion import CompleteEvent, Completion
 from prompt_toolkit.document import Document
 
@@ -83,9 +83,9 @@ class _ToolAgentStub:
                 Tool(
                     name="search",
                     description="Search indexed documents",
-                    inputSchema={"type": "object"},
+                    input_schema={"type": "object"},
                 ),
-                Tool(name="read_file", inputSchema={"type": "object"}),
+                Tool(name="read_file", input_schema={"type": "object"}),
             ]
         )
 
@@ -126,12 +126,12 @@ class _MentionAggregatorStub:
     def __init__(self) -> None:
         self._templates = {
             "demo": [
-                ResourceTemplate(name="repo", uriTemplate="repo://items/{id}"),
-                ResourceTemplate(name="repo_pair", uriTemplate="repo://items/{owner}/{repo}"),
-                ResourceTemplate(name="repo_resource", uriTemplate="repo://items/{resourceId}"),
+                ResourceTemplate(name="repo", uri_template="repo://items/{id}"),
+                ResourceTemplate(name="repo_pair", uri_template="repo://items/{owner}/{repo}"),
+                ResourceTemplate(name="repo_resource", uri_template="repo://items/{resourceId}"),
                 ResourceTemplate(
                     name="repo_contents",
-                    uriTemplate="repo://{owner}/{repo}/contents{/path*}",
+                    uri_template="repo://{owner}/{repo}/contents{/path*}",
                 ),
             ]
         }
@@ -218,17 +218,15 @@ class _McpSkillRegistryAggregatorStub:
                     McpRegistrySkill(
                         name="datasets",
                         description="Work with datasets",
-                        source_url="skill://datasets/SKILL.md",
+                        uri="skill://datasets/SKILL.md",
                         server_name="hf",
-                        digest="sha256:" + "0" * 64,
                         server_version="1.2.3",
                     ),
                     McpRegistrySkill(
                         name="spaces",
                         description="Work with Spaces",
-                        source_url="skill://spaces/SKILL.md",
+                        uri="skill://spaces/SKILL.md",
                         server_name="hf",
-                        digest="sha256:" + "1" * 64,
                         server_version="1.2.3",
                     ),
                 ],
@@ -338,6 +336,30 @@ def test_tools_completion_filters_tool_names() -> None:
 
     assert [completion.text for completion in completions] == ["read_file"]
     assert completions[0].start_position == -2
+
+
+def test_tool_completion_alias_lists_available_tools() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_ToolAgentStub())),
+    )
+
+    completions = list(
+        completer.get_completions(
+            Document("/tool "),
+            CompleteEvent(completion_requested=True),
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["search", "read_file"]
+
+
+def test_human_input_hides_tool_commands() -> None:
+    completer = AgentCompleter(agents=["agent1"], is_human_input=True)
+
+    assert "tool" not in completer.commands
+    assert "tools" not in completer.commands
 
 
 def test_complete_history_files_finds_json_and_md():
@@ -549,15 +571,14 @@ def test_get_completions_for_prompt_command_subcommands() -> None:
     assert [completion.text for completion in completions] == ["load"]
 
 
-def test_get_completions_for_agent_command_flags() -> None:
+def test_get_completions_for_agent_tool_actions() -> None:
     completer = AgentCompleter(agents=["agent1", "reviewer"])
 
-    doc = Document("/agent reviewer --", cursor_position=len("/agent reviewer --"))
+    doc = Document("/agent tool ", cursor_position=len("/agent tool "))
     completions = list(completer.get_completions(doc, None))
     names = [completion.text for completion in completions]
 
-    assert "--tool" in names
-    assert "--dump" in names
+    assert names == ["add", "remove"]
 
 
 def test_get_completions_for_shell_path_prefix():
@@ -1366,14 +1387,14 @@ def test_get_completions_for_skills_subcommands():
     assert "registry" in names
 
 
-def test_get_completions_for_cards_subcommands() -> None:
+def test_get_completions_for_packs_subcommands() -> None:
     completer = AgentCompleter(agents=["agent1"])
 
-    doc = Document("/cards ", cursor_position=len("/cards "))
+    doc = Document("/packs ", cursor_position=len("/packs "))
     completions = list(completer.get_completions(doc, None))
     names = [c.text for c in completions]
 
-    assert names == list(command_action_names("cards"))
+    assert names == list(command_action_names("packs"))
     assert "list" in names
     assert "add" in names
     assert "remove" in names
@@ -1401,14 +1422,14 @@ def test_marketplace_completion_action_sets_use_catalog_tokens() -> None:
     )
     _assert_completion_action_tokens("skills", "search", completion_sources._SKILLS_SEARCH_ACTIONS)
 
-    _assert_completion_action_tokens("cards", "add", completion_sources._CARDS_ADD_ACTIONS)
-    _assert_completion_action_tokens("cards", "remove", completion_sources._CARDS_REMOVE_ACTIONS)
-    _assert_completion_action_tokens("cards", "update", completion_sources._CARDS_UPDATE_ACTIONS)
+    _assert_completion_action_tokens("packs", "add", completion_sources._CARDS_ADD_ACTIONS)
+    _assert_completion_action_tokens("packs", "remove", completion_sources._CARDS_REMOVE_ACTIONS)
+    _assert_completion_action_tokens("packs", "update", completion_sources._CARDS_UPDATE_ACTIONS)
     _assert_completion_action_tokens(
-        "cards", "registry", completion_sources._CARDS_REGISTRY_ACTIONS
+        "packs", "registry", completion_sources._CARDS_REGISTRY_ACTIONS
     )
-    _assert_completion_action_tokens("cards", "readme", completion_sources._CARDS_README_ACTIONS)
-    _assert_completion_action_tokens("cards", "publish", completion_sources._CARDS_PUBLISH_ACTIONS)
+    _assert_completion_action_tokens("packs", "readme", completion_sources._CARDS_README_ACTIONS)
+    _assert_completion_action_tokens("packs", "publish", completion_sources._CARDS_PUBLISH_ACTIONS)
 
     _assert_completion_action_tokens("plugins", "add", completion_sources._PLUGINS_ADD_ACTIONS)
     _assert_completion_action_tokens(
@@ -1440,7 +1461,7 @@ def test_marketplace_completion_dispatch_tables_cover_argument_actions() -> None
     assert completion_sources._SKILLS_COMPLETION_DISPATCH
     assert _completion_dispatch_tokens(completion_sources._SKILLS_COMPLETION_DISPATCH) == frozenset(
         token
-        for action in ("add", "search", "remove", "update", "registry")
+        for action in ("add", "available", "search", "remove", "update", "registry")
         for token in command_action_tokens("skills", action)
     )
 
@@ -1448,7 +1469,7 @@ def test_marketplace_completion_dispatch_tables_cover_argument_actions() -> None
     assert _completion_dispatch_tokens(completion_sources._CARDS_COMPLETION_DISPATCH) == frozenset(
         token
         for action in ("add", "remove", "readme", "update", "registry", "publish")
-        for token in command_action_tokens("cards", action)
+        for token in command_action_tokens("packs", action)
     )
 
     assert completion_sources._PLUGINS_COMPLETION_DISPATCH
@@ -1481,7 +1502,7 @@ def test_get_completions_for_plugins_subcommands() -> None:
     ("command_text", "expected_alias"),
     [
         ("/skills m", "marketplace"),
-        ("/cards sho", "show"),
+        ("/packs sho", "show"),
         ("/plugins b", "browse"),
     ],
 )
@@ -1507,8 +1528,8 @@ def test_catalogued_command_aliases_complete_from_prefix(
     ("command_text", "expected_options"),
     [
         ("/skills add --", {"--registry", "--skills-dir"}),
-        ("/cards add --", {"--registry", "--force"}),
-        ("/plugins add --", {"--registry"}),
+        ("/packs add --", {"--registry", "--force"}),
+        ("/plugins add --", {"--global", "--project", "--registry"}),
     ],
 )
 def test_marketplace_add_completions_use_catalogued_options(
@@ -1532,9 +1553,9 @@ def test_marketplace_add_completions_use_catalogued_options(
     ("command_name", "action_name"),
     [
         ("skills", "update"),
-        ("cards", "update"),
+        ("packs", "update"),
         ("plugins", "update"),
-        ("cards", "publish"),
+        ("packs", "publish"),
     ],
 )
 def test_managed_command_completions_use_catalogued_options(
@@ -1584,13 +1605,25 @@ def test_managed_command_completions_use_catalogued_options(
 def test_command_completion_descriptions_avoid_parenthetical_plurals() -> None:
     completer = AgentCompleter(agents=["agent1"])
 
-    assert all("(s)" not in description for description in completer.commands.values())
+    assert all(
+        description is None or "(s)" not in description
+        for description in completer.commands.values()
+    )
 
 
 def test_catalogued_command_completion_descriptions_use_catalog_actions() -> None:
     completer = AgentCompleter(agents=["agent1"])
 
-    for command_name in ("model", "models", "check", "skills", "cards", "plugins"):
+    for command_name in (
+        "model",
+        "check",
+        "skills",
+        "packs",
+        "plugins",
+        "agent",
+        "subagents",
+        "card",
+    ):
         spec = get_command_spec(command_name)
         assert spec is not None
         expected_examples: list[str] = [f"/{command_name}"]
@@ -1604,7 +1637,16 @@ def test_catalogued_command_completion_descriptions_use_catalog_actions() -> Non
         )
 
 
-def test_top_level_completion_includes_catalogued_models_and_check() -> None:
+def test_get_completions_for_subagents_actions() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+    doc = Document("/subagents ", cursor_position=len("/subagents "))
+
+    names = [completion.text for completion in completer.get_completions(doc, None)]
+
+    assert names == ["list", "status", "on", "off", "toggle", "help"]
+
+
+def test_top_level_completion_includes_canonical_model_and_check() -> None:
     completer = AgentCompleter(agents=["agent1"])
 
     completions = list(
@@ -1615,7 +1657,7 @@ def test_top_level_completion_includes_catalogued_models_and_check() -> None:
     )
     names = [completion.text for completion in completions]
     assert "model" in names
-    assert "models" in names
+    assert "models" not in names
 
     completions = list(
         completer.get_completions(
@@ -1679,55 +1721,26 @@ def test_model_manager_completion_handlers_cover_argument_actions() -> None:
     assert expected_actions <= MODEL_MANAGER_COMMAND_ACTIONS
 
 
-def test_model_command_completion_modes_cover_model_commands() -> None:
-    assert completion_sources._MODEL_COMMAND_COMPLETION_MODES == {
-        "model": True,
-        "models": False,
-    }
-
-
-def test_get_completions_for_models_subcommands_are_manager_only() -> None:
+def test_removed_models_command_has_no_subcommand_completions() -> None:
     completer = AgentCompleter(agents=["agent1"])
 
     doc = Document("/models ", cursor_position=len("/models "))
     completions = list(completer.get_completions(doc, None))
     names = [c.text for c in completions]
 
-    assert "doctor" in names
-    assert "references" in names
-    assert "catalog" in names
-    assert "fast" not in names
-    assert "switch" not in names
+    assert names == []
 
 
-@pytest.mark.parametrize("command_name", ["model", "models"])
-def test_get_completions_for_model_commands_include_help_aliases(command_name: str) -> None:
+def test_get_completions_for_model_command_include_help_aliases() -> None:
     completer = AgentCompleter(agents=["agent1"])
 
-    text = f"/{command_name} -"
+    text = "/model -"
     doc = Document(text, cursor_position=len(text))
     completions = list(completer.get_completions(doc, None))
     names = [completion.text for completion in completions]
 
     assert "-h" in names
     assert "--help" in names
-
-
-def test_get_completions_for_models_catalog_provider_and_flag() -> None:
-    completer = AgentCompleter(agents=["agent1"])
-
-    doc = Document("/models catalog a", cursor_position=len("/models catalog a"))
-    completions = list(completer.get_completions(doc, None))
-    names = [c.text for c in completions]
-    assert "anthropic" in names
-
-    doc = Document(
-        "/models catalog anthropic --",
-        cursor_position=len("/models catalog anthropic --"),
-    )
-    completions = list(completer.get_completions(doc, None))
-    names = [c.text for c in completions]
-    assert "--all" in names
 
 
 def test_get_completions_for_model_catalog_provider_and_flag() -> None:
@@ -1901,14 +1914,13 @@ def test_mcp_connect_context_ignores_inline_value_flags_as_target(flag: str) -> 
     assert context.partial == "--"
 
 
-def test_get_completions_for_mcp_connect_configured_servers(monkeypatch) -> None:
-    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+def test_get_completions_for_mcp_attach_configured_servers(monkeypatch) -> None:
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
-                "docs": MCPServerSettings(name="docs", transport="stdio", command="echo"),
-                "local": MCPServerSettings(name="local", transport="stdio", command="echo"),
+                "docs": MCPServerSettings(transport="stdio", command="echo"),
+                "local": MCPServerSettings(transport="stdio", command="echo"),
             }
         )
     )
@@ -1916,7 +1928,7 @@ def test_get_completions_for_mcp_connect_configured_servers(monkeypatch) -> None
 
     completer = AgentCompleter(agents=["agent1"])
 
-    doc = Document("/mcp connect d", cursor_position=len("/mcp connect d"))
+    doc = Document("/mcp attach d", cursor_position=len("/mcp attach d"))
     completions = list(completer.get_completions(doc, None))
     names = [c.text for c in completions]
     docs_completion = next((c for c in completions if c.text == "docs"), None)
@@ -1934,7 +1946,7 @@ def test_runtime_mcp_servers_does_not_swallow_registry_target_failures(
         context = SimpleNamespace(
             server_registry=SimpleNamespace(
                 registry={
-                    "docs": MCPServerSettings(name="docs", transport="stdio", command="echo"),
+                    "docs": MCPServerSettings(transport="stdio", command="echo"),
                 }
             )
         )
@@ -1972,7 +1984,7 @@ def test_settings_mcp_servers_does_not_swallow_registry_target_failures(
     settings = Settings(
         mcp=MCPSettings(
             servers={
-                "docs": MCPServerSettings(name="docs", transport="stdio", command="echo"),
+                "docs": MCPServerSettings(transport="stdio", command="echo"),
             }
         )
     )
@@ -1991,14 +2003,12 @@ def test_settings_mcp_servers_does_not_swallow_registry_target_failures(
         AgentCompleter(agents=["agent1"])._settings_mcp_servers()
 
 
-def test_get_completions_for_mcp_connect_configured_url_server_shows_url(monkeypatch) -> None:
-    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+def test_get_completions_for_mcp_attach_configured_url_server_shows_url(monkeypatch) -> None:
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
                 "docs": MCPServerSettings(
-                    name="docs",
                     transport="http",
                     url="https://example.test/mcp/docs",
                 ),
@@ -2009,7 +2019,7 @@ def test_get_completions_for_mcp_connect_configured_url_server_shows_url(monkeyp
 
     completer = AgentCompleter(agents=["agent1"])
 
-    doc = Document("/mcp connect d", cursor_position=len("/mcp connect d"))
+    doc = Document("/mcp attach d", cursor_position=len("/mcp attach d"))
     completions = list(completer.get_completions(doc, None))
     docs_completion = next((c for c in completions if c.text == "docs"), None)
 
@@ -2019,11 +2029,10 @@ def test_get_completions_for_mcp_connect_configured_url_server_shows_url(monkeyp
 
 def test_get_completions_for_mcp_connect_shows_target_hint_first(monkeypatch) -> None:
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
-    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
-                "docs": MCPServerSettings(name="docs", transport="stdio", command="echo"),
+                "docs": MCPServerSettings(transport="stdio", command="echo"),
             }
         )
     )
@@ -2037,15 +2046,15 @@ def test_get_completions_for_mcp_connect_shows_target_hint_first(monkeypatch) ->
     assert completions
     assert completions[0].display_text == "[url|npx|uvx|stdio]"
     assert completions[0].display_meta_text == "enter url, npx/uvx, or stdio cmd"
+    assert all(completion.text != "docs" for completion in completions)
 
 
-def test_get_completions_for_connect_alias_shows_target_hint_and_servers(monkeypatch) -> None:
-    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+def test_get_completions_for_connect_alias_shows_configured_servers(monkeypatch) -> None:
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
-                "docs": MCPServerSettings(name="docs", transport="stdio", command="echo"),
+                "docs": MCPServerSettings(transport="stdio", command="echo"),
             }
         )
     )
@@ -2059,7 +2068,12 @@ def test_get_completions_for_connect_alias_shows_target_hint_and_servers(monkeyp
     assert completions
     assert completions[0].display_text == "[url|npx|uvx|stdio]"
     assert completions[0].display_meta_text == "enter url, npx/uvx, or stdio cmd"
-    assert any(completion.text == "docs" for completion in completions)
+    docs_completion = next(
+        (completion for completion in completions if completion.text == "docs"),
+        None,
+    )
+    assert docs_completion is not None
+    assert docs_completion.display_meta_text == "echo"
 
 
 def test_get_completions_for_connect_alias_connect_flags() -> None:
@@ -2295,7 +2309,7 @@ def test_get_completions_for_cards_remove() -> None:
         update_global_settings(override)
         try:
             completer = AgentCompleter(agents=["agent1"])
-            doc = Document("/cards remove ", cursor_position=len("/cards remove "))
+            doc = Document("/packs remove ", cursor_position=len("/packs remove "))
             completions = list(completer.get_completions(doc, None))
             names = [c.text for c in completions]
             metadata = {c.text: c.display_meta_text for c in completions}
@@ -2323,7 +2337,7 @@ def test_get_completions_for_cards_registry() -> None:
     update_global_settings(override)
     try:
         completer = AgentCompleter(agents=["agent1"])
-        doc = Document("/cards registry ", cursor_position=len("/cards registry "))
+        doc = Document("/packs registry ", cursor_position=len("/packs registry "))
         completions = list(completer.get_completions(doc, None))
         names = [c.text for c in completions]
 
@@ -2348,7 +2362,7 @@ def test_cards_marketplace_alias_offers_registry_choices() -> None:
     update_global_settings(override)
     try:
         completer = AgentCompleter(agents=["agent1"])
-        doc = Document("/cards marketplace ", cursor_position=len("/cards marketplace "))
+        doc = Document("/packs marketplace ", cursor_position=len("/packs marketplace "))
         completions = list(completer.get_completions(doc, None))
         names = [c.text for c in completions]
 
@@ -2371,7 +2385,7 @@ def test_get_completions_for_cards_registry_dedupes_equivalent_active_source() -
     update_global_settings(override)
     try:
         completer = AgentCompleter(agents=["agent1"])
-        doc = Document("/cards registry ", cursor_position=len("/cards registry "))
+        doc = Document("/packs registry ", cursor_position=len("/packs registry "))
         completions = list(completer.get_completions(doc, None))
 
         names = [completion.text for completion in completions]
@@ -2398,7 +2412,7 @@ def test_get_completions_for_cards_update_only_managed() -> None:
         update_global_settings(override)
         try:
             completer = AgentCompleter(agents=["agent1"])
-            doc = Document("/cards update ", cursor_position=len("/cards update "))
+            doc = Document("/packs update ", cursor_position=len("/packs update "))
             completions = list(completer.get_completions(doc, None))
             names = [c.text for c in completions]
             metadata = {c.text: c.display_meta_text for c in completions}
@@ -2476,10 +2490,106 @@ def test_get_completions_for_plugins_update_only_managed() -> None:
             assert metadata["beta"] == "managed plugin"
             assert metadata["gamma"] == "managed plugin"
             assert "1" not in names
-            assert "2" not in names
-            assert "3" not in names
+            assert "2" in names
+            assert "3" in names
         finally:
             update_global_settings(old_settings)
+
+
+def test_get_completions_for_plugins_update_includes_global_and_disambiguates_names(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    global_home = tmp_path / "global-home"
+    project_home = tmp_path / "project-env"
+    project_plugins = project_home / "plugins"
+    global_plugins = global_home / "plugins"
+    _write_plugin(project_plugins, "shared")
+    _mark_plugin_managed(project_plugins, "shared")
+    _write_plugin(global_plugins, "global-only")
+    _mark_plugin_managed(global_plugins, "global-only")
+    _write_plugin(global_plugins, "shared")
+    _mark_plugin_managed(global_plugins, "shared")
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text(
+        f"default_model: passthrough\nhome: '{project_home.as_posix()}'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FAST_AGENT_HOME", global_home.as_posix())
+
+    old_settings = get_settings()
+    get_settings(config_path=str(config_path))
+    try:
+        completer = AgentCompleter(agents=["agent1"])
+        doc = Document("/plugins update ", cursor_position=len("/plugins update "))
+        completions = list(completer.get_completions(doc, None))
+        names = [completion.text for completion in completions]
+
+        assert "global-only" in names
+        assert "shared" not in names
+        assert {"1", "2", "3"} <= set(names)
+
+        global_doc = Document(
+            "/plugins update --global ",
+            cursor_position=len("/plugins update --global "),
+        )
+        global_names = [
+            completion.text for completion in completer.get_completions(global_doc, None)
+        ]
+
+        assert "global-only" in global_names
+        assert "shared" in global_names
+        assert "1" not in global_names
+        assert {"2", "3"} <= set(global_names)
+    finally:
+        update_global_settings(old_settings)
+
+
+def test_get_completions_for_plugins_update_omits_directory_alias_collisions(
+    tmp_path: Path,
+) -> None:
+    home_root = tmp_path / ".fast-agent"
+    plugin_root = home_root / "plugins"
+    _write_plugin(plugin_root, "canonical")
+    _mark_plugin_managed(plugin_root, "canonical")
+    canonical_manifest = plugin_root / "canonical" / "plugin.yaml"
+    canonical_manifest.write_text(
+        canonical_manifest.read_text(encoding="utf-8").replace(
+            "name: canonical",
+            "name: search",
+        ),
+        encoding="utf-8",
+    )
+    _write_plugin(plugin_root, "search")
+    _mark_plugin_managed(plugin_root, "search")
+    search_manifest = plugin_root / "search" / "plugin.yaml"
+    search_manifest.write_text(
+        search_manifest.read_text(encoding="utf-8").replace(
+            "name: search",
+            "name: other",
+        ),
+        encoding="utf-8",
+    )
+
+    old_settings = get_settings()
+    override = old_settings.model_copy(
+        update={
+            "home": str(home_root),
+            "plugins": PluginsSettings(),
+        }
+    )
+    update_global_settings(override)
+    try:
+        completer = AgentCompleter(agents=["agent1"])
+        doc = Document("/plugins update ", cursor_position=len("/plugins update "))
+        completions = list(completer.get_completions(doc, None))
+        names = [completion.text for completion in completions]
+
+        assert "search" not in names
+        assert "other" in names
+        assert {"1", "2"} <= set(names)
+    finally:
+        update_global_settings(old_settings)
 
 
 def test_get_completions_for_plugins_registry() -> None:
@@ -2534,7 +2644,7 @@ def test_plugins_marketplace_alias_does_not_offer_registry_choices() -> None:
 
 def test_get_completions_for_cards_publish_flags() -> None:
     completer = AgentCompleter(agents=["agent1"])
-    doc = Document("/cards publish --", cursor_position=len("/cards publish --"))
+    doc = Document("/packs publish --", cursor_position=len("/packs publish --"))
     completions = list(completer.get_completions(doc, None))
     names = [c.text for c in completions]
 
@@ -2584,7 +2694,7 @@ def test_get_completions_for_card_command():
         try:
             os.chdir(tmpdir)
 
-            doc = Document("/card ", cursor_position=6)
+            doc = Document("/card load ", cursor_position=len("/card load "))
             completions = list(completer.get_completions(doc, None))
             names = [c.text for c in completions]
 
@@ -2596,12 +2706,14 @@ def test_get_completions_for_card_command():
 def test_get_completions_for_card_command_flags() -> None:
     completer = AgentCompleter(agents=["agent1"])
 
-    doc = Document("/card agent.md --", cursor_position=len("/card agent.md --"))
+    doc = Document(
+        "/card load agent.md --",
+        cursor_position=len("/card load agent.md --"),
+    )
     completions = list(completer.get_completions(doc, None))
     names = [completion.text for completion in completions]
 
-    assert "--tool" in names
-    assert "--remove" in names
+    assert names == ["--as-tool"]
     assert "--dump" not in names
 
 

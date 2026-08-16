@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.mcp.prompt_serialization import (
     load_delimited,

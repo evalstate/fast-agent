@@ -14,7 +14,10 @@ async def main():
     async with fast.run() as agent:
         # Execute shell command
         result = subprocess.run(
-            ["repomix", "../fast-agent/", "repo.xml"], capture_output=True, text=True
+            ["repomix", "../fast-agent/", "repo.xml"],
+            capture_output=True,
+            text=True,
+            check=False,
         )
         result = result.stdout  # Or use result.stdout + result.stderr if you want both
         # You can print or process the result if needed

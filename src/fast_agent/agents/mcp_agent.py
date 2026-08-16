@@ -23,9 +23,9 @@ from typing import (
     cast,
 )
 
-import mcp
+import mcp_types
 from a2a.types import AgentCard, AgentSkill
-from mcp.types import (
+from mcp_types import (
     CallToolResult,
     ContentBlock,
     EmbeddedResource,
@@ -40,28 +40,43 @@ from pydantic import BaseModel
 
 from fast_agent.agents.agent_card import build_fast_agent_card
 from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.agents.mcp_tool_planning import (
+    PlannedMcpToolCall,
+    build_mcp_tool_route,
+    listed_tool_names,
+)
+from fast_agent.agents.mcp_tool_presentation import (
+    attach_read_text_file_display_metadata,
+    build_mcp_tool_presentation,
+    tool_result_type_label,
+    unique_preserving_order,
+)
+from fast_agent.agents.subagent_directive import resolve_subagent_directive
 from fast_agent.agents.tool_agent import ToolAgent
+from fast_agent.agents.tool_call_planning import PlannedToolCall
 from fast_agent.commands.model_capabilities import (
     resolve_model_name,
     resolve_model_params,
     resolve_resolved_model,
 )
-from fast_agent.config import MCPServerSettings
+from fast_agent.config import MCPServerSettings, ShellSettings
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     HUMAN_INPUT_TOOL_NAME,
     should_parallelize_tool_calls,
 )
-from fast_agent.core.exceptions import AgentConfigError, PromptExitError
+from fast_agent.core.exceptions import AgentConfigError, ModelConfigError, PromptExitError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
-from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.model_database import ModelDatabase, ModelParameters
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.resolved_model import ResolvedModelSpec
 from fast_agent.llm.terminal_output_limits import (
     calculate_terminal_output_limit_for_max_tokens,
     calculate_terminal_output_limit_for_model,
     calculate_terminal_output_limit_for_resolved_model,
 )
+from fast_agent.mcp.app_integrations import AppServerConfig
 from fast_agent.mcp.common import (
     create_namespaced_name,
     get_resource_name,
@@ -73,15 +88,18 @@ from fast_agent.mcp.mcp_aggregator import (
     MCPAttachOptions,
     MCPAttachResult,
     MCPDetachResult,
-    NamespacedTool,
+    MCPToolCatalog,
     ServerStatus,
-    _ResourceNameResolution,
 )
 from fast_agent.mcp.prompt_metadata import prompt_display_name
 from fast_agent.mcp.provider_management import (
     ProviderManagedMCPState,
     build_provider_managed_mcp_state,
     split_managed_server_names,
+)
+from fast_agent.mcp.tool_result_metadata import (
+    ToolResultDisplayMetadata,
+    tool_result_display_metadata,
 )
 from fast_agent.mcp.tool_result_truncation import truncate_tool_result_for_llm
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
@@ -95,7 +113,10 @@ from fast_agent.tools.elicitation import (
     set_elicitation_input_callback,
 )
 from fast_agent.tools.environment_filesystem_runtime import EnvironmentFilesystemRuntime
-from fast_agent.tools.execution_environment import EnvironmentFilesystem
+from fast_agent.tools.execution_environment import (
+    EnvironmentFilesystem,
+    EnvironmentTemporaryArtifacts,
+)
 from fast_agent.tools.external_runtime_protocol import ExternalRuntime
 from fast_agent.tools.filesystem_runtime_protocol import FilesystemRuntime
 from fast_agent.tools.filesystem_tool_definitions import (
@@ -103,6 +124,7 @@ from fast_agent.tools.filesystem_tool_definitions import (
     WRITE_TEXT_FILE_TOOL_NAME,
 )
 from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
+from fast_agent.tools.shell_profiles import ResolvedShellToolProfile, ShellToolProfile
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME, SkillReader
 from fast_agent.types import (
@@ -111,12 +133,11 @@ from fast_agent.types import (
     ToolTimingInfo,
 )
 from fast_agent.ui import console
-from fast_agent.ui.message_display_helpers import resolve_highlight_indexes
 from fast_agent.ui.shell_notice import format_shell_notice
+from fast_agent.ui.tool_display import ToolCallDisplayRequest, ToolResultDisplayRequest
 from fast_agent.utils.async_utils import gather_with_cancel
-from fast_agent.utils.numeric import positive_int_or_none
 from fast_agent.utils.text import strip_casefold, strip_to_none
-from fast_agent.utils.tool_names import is_read_text_file_tool_name
+from fast_agent.utils.tool_names import BASH_TOOL_NAME, is_read_text_file_tool_name
 
 # Define a TypeVar for models
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -159,19 +180,8 @@ class _ShellRuntimeSettings:
     warning_interval_seconds: int
     output_byte_limit: int
     process_poll_default_wait_seconds: int
-
-
-@dataclass(frozen=True, slots=True)
-class _PlannedMcpToolCall:
-    correlation_id: str
-    tool_name: str
-    execution_tool_name: str
-    tool_args: dict[str, Any]
-    display_tool_name: str
-    namespaced_tool: NamespacedTool | None
-    candidate_namespaced_tool: NamespacedTool | None
-    is_local_shell: bool = False
-    metadata: dict[str, Any] | None = None
+    tool_profile: ShellToolProfile
+    model_tool_profile: ResolvedShellToolProfile | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,9 +194,20 @@ class _ManagedMcpSetup:
 if TYPE_CHECKING:
     from rich.text import Text
 
+    from fast_agent.agents.llm_decorator import LlmDecorator
     from fast_agent.context import Context
     from fast_agent.llm.usage_tracking import UsageAccumulator
     from fast_agent.tools.execution_environment import ShellEnvironment
+
+
+def _effective_configured_servers(
+    config: AgentConfig,
+    context: "Context | None",
+) -> tuple[str, ...]:
+    runtime_servers = (
+        context.runtime_mcp_server_names.get(config.name, ()) if context is not None else ()
+    )
+    return tuple(dict.fromkeys((*config.servers, *runtime_servers)))
 
 
 class McpAgent(ABC, ToolAgent):
@@ -212,11 +233,11 @@ class McpAgent(ABC, ToolAgent):
             **kwargs,
         )
 
-        configured_servers = tuple(self.config.servers)
+        configured_servers = _effective_configured_servers(self.config, context)
         managed_mcp = self._managed_mcp_setup(configured_servers, context)
         self._provider_managed_mcp_state = managed_mcp.provider_state
         self._configured_server_names = tuple(configured_servers)
-        self._provider_managed_server_names = tuple(managed_mcp.provider_managed_servers)
+        self._provider_managed_server_keys = tuple(managed_mcp.provider_managed_servers)
 
         # Create aggregator with composition
         self._aggregator = MCPAggregator(
@@ -227,11 +248,16 @@ class McpAgent(ABC, ToolAgent):
             config=self.config,  # Pass the full config for access to elicitation_handler
             **kwargs,
         )
+        self._provider_managed_server_names = tuple(
+            self._aggregator.server_display_name(name)
+            for name in self._provider_managed_server_keys
+        )
         self._aggregator.set_supplemental_attached_servers(self._provider_managed_server_names)
 
         # Store the original template - resolved instruction set after build()
         self._instruction_template = self.config.instruction
         self._instruction = self.config.instruction  # Will be replaced by builder output
+        self._subagent_directive_found = False
         self.executor = context.executor if context else None
         self.logger = get_logger(f"{__name__}.{self._name}")
         manifests = self._initial_skill_manifests(context)
@@ -260,7 +286,7 @@ class McpAgent(ABC, ToolAgent):
         # Instantiate human input tool once if enabled in config
         self._human_input_tool = self._initial_human_input_tool()
 
-        # Register the MCP UI handler as the elicitation callback so fast_agent.tools can call it
+        # Register the interactive elicitation handler so local tools can call it
         # without importing MCP types. This avoids circular imports and ensures the callback is ready.
         self._register_mcp_elicitation_adapter()
 
@@ -428,6 +454,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Clean up the agent and its MCP aggregator."""
+        await self._close_transient_artifact_store()
         if self._shell_runtime is not None:
             await self._shell_runtime.close()
         await self._aggregator.__aexit__(exc_type, exc_val, exc_tb)
@@ -452,6 +479,7 @@ class McpAgent(ABC, ToolAgent):
         if self._shutdown_complete:
             return
         await self._run_lifecycle_hook("on_shutdown")
+        await self._close_transient_artifact_store()
         if self._shell_runtime is not None:
             await self._shell_runtime.close()
         await self._aggregator.close()
@@ -499,10 +527,10 @@ class McpAgent(ABC, ToolAgent):
             return status_map
 
         auto_sampling = True
-        if self._context and self._context.config:
-            auto_sampling = self._context.config.auto_sampling
+        if self._context and self._context.config and self._context.config.mcp:
+            auto_sampling = self._context.config.mcp.client.auto_sampling
 
-        for server_name in self._provider_managed_server_names:
+        for server_name in self._provider_managed_server_keys:
             if server_name in status_map:
                 continue
             server_cfg = server_settings_by_name.get(server_name)
@@ -527,7 +555,11 @@ class McpAgent(ABC, ToolAgent):
                 ),
             )
 
-        return status_map
+        visible_status: dict[str, ServerStatus] = {}
+        for server_name, status in status_map.items():
+            visible_name = self._aggregator.server_display_name(server_name)
+            visible_status[visible_name] = status.model_copy(update={"server_name": visible_name})
+        return visible_status
 
     async def attach_mcp_server(
         self,
@@ -558,11 +590,17 @@ class McpAgent(ABC, ToolAgent):
         return await self._aggregator.detach_server(server_name)
 
     def list_attached_mcp_servers(self) -> list[str]:
-        return self._unique_preserving_order(self._aggregator.list_attached_servers())
+        return unique_preserving_order(self._aggregator.list_attached_servers())
 
     async def list_servers(self) -> list[str]:
-        return self._unique_preserving_order(
-            [*self._aggregator.server_names, *self._provider_managed_server_names]
+        return unique_preserving_order(
+            [
+                *(
+                    self._aggregator.server_display_name(name)
+                    for name in self._aggregator.server_names
+                ),
+                *self._provider_managed_server_names,
+            ]
         )
 
     @property
@@ -574,6 +612,54 @@ class McpAgent(ABC, ToolAgent):
     def instruction_template(self) -> str:
         """The original instruction template with placeholders."""
         return self._instruction_template or ""
+
+    def set_instruction_template(self, instruction: str) -> None:
+        """Replace this instance's source instruction template."""
+        self._instruction_template = instruction
+
+    @property
+    def subagent_directive_found(self) -> bool:
+        return self._subagent_directive_found
+
+    def process_rendered_instruction(self, instruction: str) -> str:
+        """Record and hide built-in subagent directives after rendering."""
+        directive = resolve_subagent_directive(instruction)
+        self._subagent_directive_found |= directive.found
+        if self.config.subagent_child:
+            return directive.subagent_instruction
+        return directive.instruction
+
+    def _clone_config(self) -> AgentConfig:
+        config = super()._clone_config()
+        config.instruction = self.instruction_template
+        return config
+
+    def _clone_constructor_kwargs(self) -> dict[str, Any]:
+        kwargs = super()._clone_constructor_kwargs()
+        kwargs["shell_environment"] = self._shell_environment
+        return kwargs
+
+    def _temporary_artifact_environment(self) -> EnvironmentTemporaryArtifacts | None:
+        environment = self._shell_environment
+        if not isinstance(environment, EnvironmentTemporaryArtifacts):
+            return None
+        if not self._shell_runtime_enabled or self._external_runtime is not None:
+            return None
+        filesystem_runtime = self._filesystem_runtime
+        if (
+            filesystem_runtime is not None
+            and filesystem_runtime is not self._environment_filesystem_runtime()
+        ):
+            return None
+        return environment
+
+    async def _configure_cloned_instance(self, clone: "LlmDecorator") -> None:
+        await super()._configure_cloned_instance(clone)
+        mcp_clone = cast("McpAgent", clone)
+        attached = set(mcp_clone.list_attached_mcp_servers())
+        for server_name in self.list_attached_mcp_servers():
+            if server_name not in attached:
+                await mcp_clone.attach_mcp_server(server_name=server_name)
 
     @property
     def instruction_context(self) -> dict[str, str]:
@@ -691,11 +777,12 @@ class McpAgent(ABC, ToolAgent):
             context=self._instruction_context,
             source=self._name,
         )
+        new_instruction = self.process_rendered_instruction(new_instruction)
         self.set_instruction(new_instruction)
 
         # Warn when skills are configured but not surfaced in the final instruction.
         # This check must use the rendered instruction to account for internal
-        # templates like {{internal:smart_prompt}} that include {{agentSkills}}.
+        # internal templates may include {{agentSkills}}.
         if self._skill_manifests and "{{agentSkills}}" not in self._instruction_template:
             formatted_skills = format_agent_skills(
                 self._skill_manifests,
@@ -784,9 +871,10 @@ class McpAgent(ABC, ToolAgent):
         output_limit_selection = (
             shell_config.output_byte_limit_selection if shell_config is not None else "auto"
         )
-        model_name = self.config.model
-        if not model_name and self._context and self._context.config:
-            model_name = self._context.config.default_model
+        configured_profile = shell_config.tool_profile if shell_config is not None else "auto"
+        model_params = self._resolve_shell_model_params()
+        model_tool_profile = model_params.shell_tool_profile if model_params is not None else None
+        model_name = self._resolve_shell_tool_model_name()
 
         if output_limit_selection == "explicit" and config_output_byte_limit is not None:
             output_byte_limit = config_output_byte_limit
@@ -809,6 +897,8 @@ class McpAgent(ABC, ToolAgent):
             warning_interval_seconds=warning_interval_seconds,
             output_byte_limit=output_byte_limit,
             process_poll_default_wait_seconds=(self._model_process_poll_default_wait_seconds()),
+            tool_profile=configured_profile,
+            model_tool_profile=model_tool_profile,
         )
 
     def _model_process_poll_default_wait_seconds(
@@ -816,6 +906,9 @@ class McpAgent(ABC, ToolAgent):
         llm: FastAgentLLMProtocol | None = None,
     ) -> int:
         active_llm = llm or self._llm
+        resolved_model = resolve_resolved_model(active_llm) if active_llm is not None else None
+        if isinstance(resolved_model, ResolvedModelSpec):
+            return resolved_model.process_poll_default_wait_seconds
         model_params = resolve_model_params(active_llm)
         if model_params is not None:
             return model_params.process_poll_default_wait_seconds
@@ -839,31 +932,44 @@ class McpAgent(ABC, ToolAgent):
             return "auto"
         return self._context.config.shell_execution.enable_attach_media
 
-    def _resolve_shell_edit_tool_mode(self) -> ShellEditToolMode:
+    def _resolve_shell_edit_tool_mode(
+        self,
+        llm: FastAgentLLMProtocol | None = None,
+    ) -> ShellEditToolMode:
         """Return which shell edit tool should be exposed for the current model/config."""
-        model_name = self._resolve_shell_tool_model_name()
-        if self._prefers_apply_patch_model(model_name):
-            default_mode = ShellEditToolMode.APPLY_PATCH
-        elif self._prefers_anthropic_edit_file_model(model_name):
-            default_mode = ShellEditToolMode.EDIT_FILE
-        else:
-            default_mode = ShellEditToolMode.WRITE_TEXT_FILE
-
-        if not self._context or not self._context.config:
-            return default_mode
-
-        mode_raw = self._context.config.shell_execution.write_text_file_mode
+        mode_raw = (
+            self._context.config.shell_execution.write_text_file_mode
+            if self._context and self._context.config
+            else None
+        )
         mode = strip_casefold(mode_raw) if isinstance(mode_raw, str) else None
         configured_modes = {
             "on": ShellEditToolMode.WRITE_TEXT_FILE,
             ShellEditToolMode.OFF.value: ShellEditToolMode.OFF,
             ShellEditToolMode.APPLY_PATCH.value: ShellEditToolMode.APPLY_PATCH,
-            "auto": default_mode,
+            ShellEditToolMode.EDIT_FILE.value: ShellEditToolMode.EDIT_FILE,
         }
-        return configured_modes.get(mode or "", default_mode)
+        if mode in configured_modes:
+            return configured_modes[mode]
 
-    def _shell_edit_tool_flags(self) -> ShellEditToolFlags:
-        return ShellEditToolFlags.from_mode(self._resolve_shell_edit_tool_mode())
+        model_params = self._resolve_shell_model_params(llm)
+        if model_params is not None and model_params.shell_edit_tool is not None:
+            return ShellEditToolMode(model_params.shell_edit_tool)
+
+        model_name = (
+            resolve_model_name(llm) if llm is not None else self._resolve_shell_tool_model_name()
+        )
+        if self._prefers_apply_patch_model(model_name):
+            return ShellEditToolMode.APPLY_PATCH
+        if self._prefers_anthropic_edit_file_model(model_name):
+            return ShellEditToolMode.EDIT_FILE
+        return ShellEditToolMode.WRITE_TEXT_FILE
+
+    def _shell_edit_tool_flags(
+        self,
+        llm: FastAgentLLMProtocol | None = None,
+    ) -> ShellEditToolFlags:
+        return ShellEditToolFlags.from_mode(self._resolve_shell_edit_tool_mode(llm))
 
     def _resolve_shell_tool_model_name(self) -> str | None:
         """Resolve the best-available model name for shell tool policy decisions."""
@@ -876,6 +982,30 @@ class McpAgent(ABC, ToolAgent):
         if not model_name and self._context and self._context.config:
             model_name = self._context.config.default_model
         return model_name
+
+    def _resolve_shell_model_params(
+        self,
+        llm: FastAgentLLMProtocol | None = None,
+    ) -> ModelParameters | None:
+        active_llm = llm or self._llm
+        if active_llm is not None:
+            model_params = resolve_model_params(active_llm)
+            if model_params is not None:
+                return model_params
+        model_name = self._resolve_shell_tool_model_name()
+        return ModelDatabase.get_model_params(model_name) if model_name else None
+
+    def _resolve_minimal_shell_tool_contract(
+        self,
+        llm: FastAgentLLMProtocol | None = None,
+    ) -> tuple[str, bool]:
+        model_params = self._resolve_shell_model_params(llm)
+        if model_params is None:
+            return BASH_TOOL_NAME, False
+        return (
+            model_params.shell_tool_name or BASH_TOOL_NAME,
+            model_params.shell_tool_requires_description,
+        )
 
     @staticmethod
     def _prefers_apply_patch_model(model_name: str | None) -> bool:
@@ -1028,6 +1158,26 @@ class McpAgent(ABC, ToolAgent):
         shell_config = self._context.config.shell_execution
         return shell_config.output_byte_limit_selection == "explicit"
 
+    def _validate_llm_attachment(self, llm: FastAgentLLMProtocol) -> None:
+        super()._validate_llm_attachment(llm)
+        resolved_model = resolve_resolved_model(llm)
+        if not isinstance(resolved_model, ResolvedModelSpec):
+            return
+        poll_period = resolved_model.model_config.process_poll_default_wait_seconds
+        if poll_period is None:
+            return
+        maximum = (
+            self._context.config.shell_execution.process_poll_max_wait_seconds
+            if self._context is not None and self._context.config is not None
+            else ShellSettings().process_poll_max_wait_seconds
+        )
+        if poll_period > maximum:
+            raise ModelConfigError(
+                f"Model query poll_period={poll_period} exceeds "
+                f"shell_execution.process_poll_max_wait_seconds={maximum}. "
+                "Lower poll_period or raise the configured maximum."
+            )
+
     def _on_llm_attached(self, llm: FastAgentLLMProtocol) -> None:
         super()._on_llm_attached(llm)
 
@@ -1048,7 +1198,7 @@ class McpAgent(ABC, ToolAgent):
 
         local_runtime = self._local_filesystem_runtime()
         if local_runtime is not None:
-            edit_flags = self._shell_edit_tool_flags()
+            edit_flags = self._shell_edit_tool_flags(llm)
             local_runtime.set_model_info(llm.model_info)
             local_runtime.set_enabled_tools(
                 enable_read=self._shell_read_text_file_enabled(),
@@ -1059,7 +1209,7 @@ class McpAgent(ABC, ToolAgent):
             )
         environment_runtime = self._environment_filesystem_runtime()
         if environment_runtime is not None:
-            edit_flags = self._shell_edit_tool_flags()
+            edit_flags = self._shell_edit_tool_flags(llm)
             environment_runtime.set_enabled_tools(
                 enable_read=self._shell_read_text_file_enabled(),
                 enable_write=edit_flags.write_text_file,
@@ -1071,8 +1221,23 @@ class McpAgent(ABC, ToolAgent):
 
         if self._shell_runtime is None:
             return
-        self._shell_runtime.set_extended_guidance(
-            self._prefers_extended_shell_guidance(resolve_model_name(llm))
+        model_name = resolve_model_name(llm)
+        shell_tool_name, require_description = self._resolve_minimal_shell_tool_contract(llm)
+        self._shell_runtime.set_minimal_shell_tool_contract(
+            tool_name=shell_tool_name,
+            require_description=require_description,
+            extended_guidance=self._prefers_extended_shell_guidance(model_name),
+        )
+        shell_config = (
+            self._context.config.shell_execution
+            if self._context is not None and self._context.config is not None
+            else None
+        )
+        configured_profile = shell_config.tool_profile if shell_config is not None else "auto"
+        model_params = self._resolve_shell_model_params(llm)
+        self._shell_runtime.set_tool_profile(
+            configured_profile,
+            model_profile=(model_params.shell_tool_profile if model_params is not None else None),
         )
         self._bash_tool = self._shell_runtime.tool
         self._shell_runtime.set_process_poll_default_wait_seconds(
@@ -1140,6 +1305,7 @@ class McpAgent(ABC, ToolAgent):
         self._warn_if_invalid_shell_working_directory(working_directory)
 
         shell_settings = self._resolve_shell_runtime_settings()
+        shell_tool_name, require_description = self._resolve_minimal_shell_tool_contract()
 
         self._shell_runtime_activation_reason = activation_reason
         self._shell_runtime = ShellRuntime(
@@ -1150,9 +1316,13 @@ class McpAgent(ABC, ToolAgent):
             working_directory=working_directory,
             output_byte_limit=shell_settings.output_byte_limit,
             process_poll_default_wait_seconds=(shell_settings.process_poll_default_wait_seconds),
+            tool_profile=shell_settings.tool_profile,
+            model_tool_profile=shell_settings.model_tool_profile,
             config=self._context.config if self._context else None,
             agent_name=self._name,
             shell_environment=self._shell_environment,
+            minimal_shell_tool_name=shell_tool_name,
+            minimal_shell_tool_requires_description=require_description,
             extended_guidance=self._prefers_extended_shell_guidance(
                 self._resolve_shell_tool_model_name()
             ),
@@ -1490,19 +1660,19 @@ class McpAgent(ABC, ToolAgent):
             resp_text = await run_elicitation_form(arguments or {}, agent_name=self._name)
             if resp_text == "__DECLINED__":
                 return CallToolResult(
-                    isError=False,
+                    is_error=False,
                     content=[TextContent(type="text", text="The Human declined the input request")],
                 )
             if resp_text in ("__CANCELLED__", "__DISABLE_SERVER__"):
                 return CallToolResult(
-                    isError=False,
+                    is_error=False,
                     content=[
                         TextContent(type="text", text="The Human cancelled the input request")
                     ],
                 )
             # Success path: return the (JSON) response as-is
             return CallToolResult(
-                isError=False,
+                is_error=False,
                 content=[TextContent(type="text", text=resp_text)],
             )
 
@@ -1510,7 +1680,7 @@ class McpAgent(ABC, ToolAgent):
             raise
         except asyncio.TimeoutError as e:
             return CallToolResult(
-                isError=True,
+                is_error=True,
                 content=[
                     TextContent(
                         type="text",
@@ -1523,7 +1693,7 @@ class McpAgent(ABC, ToolAgent):
 
             print(f"Error in _call_human_input_tool: {traceback.format_exc()}")
             return CallToolResult(
-                isError=True,
+                is_error=True,
                 content=[TextContent(type="text", text=f"Error requesting human input: {e!s}")],
             )
 
@@ -1727,31 +1897,48 @@ class McpAgent(ABC, ToolAgent):
         tool_results: dict[str, CallToolResult] = {}
         tool_timings: dict[str, ToolTimingInfo] = {}
         tool_metadata: dict[str, dict[str, Any]] = {}
-        tool_loop_error: str | None = None
 
         available_tools = await self._available_tool_names_for_run_tools()
-        # Cache namespaced tools for routing/metadata
-        namespaced_tools = self._aggregator._namespaced_tool_map
+        tool_catalog = self._aggregator.tool_catalog()
 
         tool_call_items = list(request.tool_calls.items())
         should_parallel = should_parallelize_tool_calls(len(tool_call_items))
         self._maybe_close_display_for_parallel_subagent_tools(tool_call_items, should_parallel)
-        smart_parallel_calls = self._smart_parallel_call_count(tool_call_items)
-
-        planned_calls, tool_loop_error = self._plan_mcp_tool_calls(
-            tool_call_items=tool_call_items,
-            namespaced_tools=namespaced_tools,
+        resolved_calls = self._plan_tool_calls(
+            tool_call_items,
+            known_tool_names={
+                HUMAN_INPUT_TOOL_NAME,
+                *available_tools,
+                *tool_catalog.routable_tool_names(),
+            },
+            case_insensitive_tool_names=available_tools,
             available_tools=available_tools,
             should_parallel=should_parallel,
             tool_results=tool_results,
-            tool_metadata=tool_metadata,
         )
+        planned_calls = [
+            self._plan_mcp_tool_call(
+                call,
+                tool_catalog=tool_catalog,
+                available_tools=available_tools,
+            )
+            for call in resolved_calls
+        ]
+        for call in planned_calls:
+            if call.metadata:
+                tool_metadata[call.correlation_id] = call.metadata
 
         if should_parallel and planned_calls:
+            self.display.show_parallel_tool_calls(
+                [
+                    request
+                    for call in planned_calls
+                    if (request := self._planned_mcp_tool_call_display_request(call)) is not None
+                ]
+            )
             await self._run_parallel_planned_tool_calls(
                 planned_calls,
                 request_params=request_params,
-                smart_parallel_calls=smart_parallel_calls,
                 tool_results=tool_results,
                 tool_timings=tool_timings,
             )
@@ -1760,9 +1947,24 @@ class McpAgent(ABC, ToolAgent):
                 tool_results,
                 tool_timings=tool_timings,
                 tool_metadata=tool_metadata,
-                tool_loop_error=tool_loop_error,
             )
 
+        for call in planned_calls:
+            display_request = self._planned_mcp_tool_call_display_request(call)
+            if display_request is not None:
+                self.display.show_tool_call(
+                    display_request.tool_name,
+                    display_request.tool_args,
+                    bottom_items=display_request.bottom_items,
+                    highlight_indexes=display_request.highlight_indexes,
+                    max_item_length=display_request.max_item_length,
+                    name=display_request.name,
+                    metadata=display_request.metadata,
+                    tool_call_id=display_request.tool_call_id,
+                    source_label=display_request.source_label,
+                    server_name=display_request.server_name,
+                    show_hook_indicator=display_request.show_hook_indicator,
+                )
         await self._run_sequential_planned_tool_calls(
             planned_calls,
             request_params=request_params,
@@ -1774,16 +1976,10 @@ class McpAgent(ABC, ToolAgent):
             tool_results,
             tool_timings=tool_timings,
             tool_metadata=tool_metadata,
-            tool_loop_error=tool_loop_error,
         )
 
     async def _available_tool_names_for_run_tools(self) -> list[str]:
-        try:
-            listed_tools = await self.list_tools()
-        except Exception as exc:  # pragma: no cover - defensive guard, should not happen
-            self.logger.warning(f"Failed to list tools before execution: {exc}")
-            listed_tools = ListToolsResult(tools=[])
-        return self._listed_tool_names(listed_tools)
+        return listed_tool_names(await self.list_tools())
 
     def _maybe_close_display_for_parallel_subagent_tools(
         self,
@@ -1806,102 +2002,96 @@ class McpAgent(ABC, ToolAgent):
                 subagent_call_count=subagent_calls,
             )
 
-    def _smart_parallel_call_count(self, tool_call_items: list[tuple[str, Any]]) -> int:
-        if self.agent_type != AgentType.SMART:
-            return 0
-        return sum(1 for _, tool_request in tool_call_items if tool_request.params.name == "smart")
-
-    def _plan_mcp_tool_calls(
-        self,
-        *,
-        tool_call_items: list[tuple[str, Any]],
-        namespaced_tools: Mapping[str, NamespacedTool],
-        available_tools: list[str],
-        should_parallel: bool,
-        tool_results: dict[str, CallToolResult],
-        tool_metadata: dict[str, dict[str, Any]],
-    ) -> tuple[list[_PlannedMcpToolCall], str | None]:
-        planned_calls: list[_PlannedMcpToolCall] = []
-        for correlation_id, tool_request in tool_call_items:
-            try:
-                planned_call = self._plan_mcp_tool_call(
-                    correlation_id=correlation_id,
-                    tool_request=tool_request,
-                    namespaced_tools=namespaced_tools,
-                    available_tools=available_tools,
-                    should_parallel=should_parallel,
-                )
-            except ValueError as exc:
-                error_message = str(exc)
-                self.logger.error(error_message)
-                return planned_calls, self._mark_tool_loop_error(
-                    correlation_id=correlation_id,
-                    error_message=error_message,
-                    tool_results=tool_results,
-                    tool_call_id=correlation_id if should_parallel else None,
-                )
-
-            if planned_call.metadata:
-                tool_metadata[correlation_id] = planned_call.metadata
-            planned_calls.append(planned_call)
-
-        return planned_calls, None
-
     async def _run_parallel_planned_tool_calls(
         self,
-        planned_calls: list[_PlannedMcpToolCall],
+        planned_calls: list[PlannedMcpToolCall],
         *,
         request_params: RequestParams | None,
-        smart_parallel_calls: int,
         tool_results: dict[str, CallToolResult],
         tool_timings: dict[str, ToolTimingInfo],
     ) -> None:
-        smart_parallel_active = smart_parallel_calls > 1
         previous_shell_tool_call_id_setting = self._show_shell_tool_call_id
         previous_shell_display_setting = self._defer_shell_display_to_tool_result
         self._show_shell_tool_call_id = True
         self._defer_shell_display_to_tool_result = True
-        if smart_parallel_active:
-            self.parallel_smart_tool_calls = True
-            self.logger.info(
-                "Parallel smart tool calls detected",
-                agent_name=self._name,
-                tool_call_count=len(planned_calls),
-                smart_call_count=smart_parallel_calls,
+
+        async def run_one(
+            call: PlannedMcpToolCall,
+        ) -> tuple[
+            str,
+            CallToolResult,
+            float,
+            ToolResultDisplayMetadata,
+            ToolResultDisplayRequest | None,
+            Exception | None,
+        ]:
+            correlation_id, result, duration_ms = await self._execute_mcp_planned_tool_call(
+                call,
+                request_params=request_params,
             )
+            result, display_metadata = self._prepare_planned_tool_result(call, result)
+            try:
+                display_request = await self._planned_tool_result_display_request(
+                    call,
+                    result,
+                    duration_ms=duration_ms,
+                    display_metadata=display_metadata,
+                )
+            except Exception as exc:
+                return correlation_id, result, duration_ms, display_metadata, None, exc
+            return correlation_id, result, duration_ms, display_metadata, display_request, None
+
         try:
-            results = await gather_with_cancel(
-                self._execute_mcp_planned_tool_call(call, request_params=request_params)
-                for call in planned_calls
-            )
+            results = await gather_with_cancel(run_one(call) for call in planned_calls)
         finally:
             self._show_shell_tool_call_id = previous_shell_tool_call_id_setting
             self._defer_shell_display_to_tool_result = previous_shell_display_setting
-            if smart_parallel_active:
-                self.parallel_smart_tool_calls = False
 
+        display_requests: list[ToolResultDisplayRequest] = []
+        presentation_errors: list[Exception] = []
         for call, item in zip(planned_calls, results, strict=True):
             if isinstance(item, BaseException):
                 self.logger.error(f"MCP tool {call.display_tool_name} failed: {item}")
                 result = CallToolResult(
                     content=[TextContent(type="text", text=f"Error: {item!s}")],
-                    isError=True,
+                    is_error=True,
                 )
                 duration_ms = 0.0
+                display_request = await self._record_planned_tool_result(
+                    call,
+                    result,
+                    duration_ms=duration_ms,
+                    tool_results=tool_results,
+                    tool_timings=tool_timings,
+                )
             else:
-                _, result, duration_ms = item
-            await self._record_planned_tool_result(
-                call,
-                result,
-                duration_ms=duration_ms,
-                tool_results=tool_results,
-                tool_timings=tool_timings,
-                parallel=True,
-            )
+                (
+                    _,
+                    result,
+                    duration_ms,
+                    display_metadata,
+                    display_request,
+                    presentation_error,
+                ) = item
+                self._store_planned_tool_result(
+                    call,
+                    result,
+                    duration_ms=duration_ms,
+                    display_metadata=display_metadata,
+                    tool_results=tool_results,
+                    tool_timings=tool_timings,
+                )
+                if presentation_error is not None:
+                    presentation_errors.append(presentation_error)
+            if display_request is not None:
+                display_requests.append(display_request)
+        if presentation_errors:
+            raise presentation_errors[0]
+        self.display.show_parallel_tool_results(display_requests)
 
     async def _run_sequential_planned_tool_calls(
         self,
-        planned_calls: list[_PlannedMcpToolCall],
+        planned_calls: list[PlannedMcpToolCall],
         *,
         request_params: RequestParams | None,
         tool_results: dict[str, CallToolResult],
@@ -1913,31 +2103,35 @@ class McpAgent(ABC, ToolAgent):
                     call,
                     request_params=request_params,
                 )
-                await self._record_planned_tool_result(
+                display_request = await self._record_planned_tool_result(
                     call,
                     result,
                     duration_ms=duration_ms,
                     tool_results=tool_results,
                     tool_timings=tool_timings,
-                    parallel=False,
                 )
+                if display_request is not None:
+                    self._show_tool_result_display_request(display_request)
                 self.logger.debug(f"MCP tool {call.display_tool_name} executed successfully")
             except Exception as e:
                 self.logger.error(f"MCP tool {call.display_tool_name} failed: {e}")
                 error_result = CallToolResult(
                     content=[TextContent(type="text", text=f"Error: {e!s}")],
-                    isError=True,
+                    is_error=True,
                 )
-                tool_results[call.correlation_id] = error_result
-                self.display.show_tool_result(
-                    name=self._name,
-                    result=error_result,
-                    show_hook_indicator=self.has_after_tool_call_hook,
+                display_request = await self._record_planned_tool_result(
+                    call,
+                    error_result,
+                    duration_ms=0.0,
+                    tool_results=tool_results,
+                    tool_timings=tool_timings,
                 )
+                if display_request is not None:
+                    self._show_tool_result_display_request(display_request)
 
     async def _execute_mcp_planned_tool_call(
         self,
-        call: _PlannedMcpToolCall,
+        call: PlannedMcpToolCall,
         *,
         request_params: RequestParams | None,
     ) -> tuple[str, CallToolResult, float]:
@@ -1953,119 +2147,133 @@ class McpAgent(ABC, ToolAgent):
 
     async def _record_planned_tool_result(
         self,
-        call: _PlannedMcpToolCall,
+        call: PlannedMcpToolCall,
         result: CallToolResult,
         *,
         duration_ms: float,
         tool_results: dict[str, CallToolResult],
         tool_timings: dict[str, ToolTimingInfo],
-        parallel: bool,
-    ) -> None:
+    ) -> ToolResultDisplayRequest | None:
+        result, display_metadata = self._prepare_planned_tool_result(call, result)
+        self._store_planned_tool_result(
+            call,
+            result,
+            duration_ms=duration_ms,
+            display_metadata=display_metadata,
+            tool_results=tool_results,
+            tool_timings=tool_timings,
+        )
+        return await self._planned_tool_result_display_request(
+            call,
+            result,
+            duration_ms=duration_ms,
+            display_metadata=display_metadata,
+        )
+
+    def _prepare_planned_tool_result(
+        self,
+        call: PlannedMcpToolCall,
+        result: CallToolResult,
+    ) -> tuple[CallToolResult, ToolResultDisplayMetadata]:
         if not call.is_local_shell:
             result = truncate_tool_result_for_llm(
                 result,
                 byte_limit=self._model_tool_output_byte_limit(),
             )
-        self._attach_read_text_file_display_metadata(
+        attach_read_text_file_display_metadata(
             result,
             display_tool_name=call.display_tool_name,
             tool_args=call.tool_args,
         )
-        result_meta = cast("Any", result)
-        result_meta.tool_name = call.display_tool_name
+        return result, tool_result_display_metadata(result)
 
+    @staticmethod
+    def _store_planned_tool_result(
+        call: PlannedMcpToolCall,
+        result: CallToolResult,
+        *,
+        duration_ms: float,
+        display_metadata: ToolResultDisplayMetadata,
+        tool_results: dict[str, CallToolResult],
+        tool_timings: dict[str, ToolTimingInfo],
+    ) -> None:
         tool_results[call.correlation_id] = result
         tool_timings[call.correlation_id] = ToolTimingInfo(
             timing_ms=duration_ms,
-            transport_channel=getattr(result, "transport_channel", None),
+            transport_channel=display_metadata.get("transport_channel"),
         )
 
-        if getattr(result, "_suppress_display", False):
-            return
+    async def _planned_tool_result_display_request(
+        self,
+        call: PlannedMcpToolCall,
+        result: CallToolResult,
+        *,
+        duration_ms: float,
+        display_metadata: ToolResultDisplayMetadata,
+    ) -> ToolResultDisplayRequest | None:
+        if display_metadata.get("suppress_display", False):
+            return None
+        if self._is_builtin_subagent_tool(call.metadata):
+            await self._show_subagent_result(result)
+            return None
 
-        result_tool_call_id = None
-        if parallel:
-            result_tool_call_id = self._tool_result_call_id(
-                display_tool_name=call.display_tool_name,
-                correlation_id=call.correlation_id,
-                parallel=True,
-            )
-
-        self.display.show_tool_result(
-            name=self._name,
+        return ToolResultDisplayRequest(
             result=result,
+            name=self._name,
             tool_name=call.display_tool_name,
-            skybridge_config=await self._skybridge_config_for_planned_tool(call),
+            app_integration_config=await self._app_integration_config_for_planned_tool(call),
             timing_ms=duration_ms,
-            tool_call_id=result_tool_call_id,
-            type_label=self._tool_result_type_label(call.display_tool_name),
+            tool_call_id=call.correlation_id,
+            type_label=tool_result_type_label(call.display_tool_name),
+            source_label=call.source_label,
+            server_name=call.server_name,
             show_hook_indicator=self.has_after_tool_call_hook,
         )
 
-    async def _skybridge_config_for_planned_tool(
+    def _show_tool_result_display_request(self, request: ToolResultDisplayRequest) -> None:
+        self.display.show_tool_result(
+            request.result,
+            name=request.name,
+            tool_name=request.tool_name,
+            app_integration_config=request.app_integration_config,
+            timing_ms=request.timing_ms,
+            tool_call_id=request.tool_call_id,
+            type_label=request.type_label,
+            source_label=request.source_label,
+            server_name=request.server_name,
+            show_hook_indicator=request.show_hook_indicator,
+        )
+
+    async def _app_integration_config_for_planned_tool(
         self,
-        call: _PlannedMcpToolCall,
-    ) -> Any | None:
-        skybridge_tool = call.namespaced_tool or call.candidate_namespaced_tool
-        if skybridge_tool is None:
+        call: PlannedMcpToolCall,
+    ) -> AppServerConfig | None:
+        namespaced_tool = call.namespaced_tool or call.candidate_namespaced_tool
+        if namespaced_tool is None:
             return None
         try:
-            return await self._aggregator.get_skybridge_config(skybridge_tool.server_name)
+            return await self._aggregator.get_app_integration_config(namespaced_tool.server_name)
         except Exception:
             return None
 
-    @staticmethod
-    def _listed_tool_names(listed_tools: ListToolsResult) -> list[str]:
-        available_tools: list[str] = []
-        seen_tool_names: set[str] = set()
-        for tool_schema in listed_tools.tools:
-            if tool_schema.name in seen_tool_names:
-                continue
-            available_tools.append(tool_schema.name)
-            seen_tool_names.add(tool_schema.name)
-        return available_tools
-
     def _plan_mcp_tool_call(
         self,
+        call: PlannedToolCall,
         *,
-        correlation_id: str,
-        tool_request: Any,
-        namespaced_tools: Mapping[str, NamespacedTool],
+        tool_catalog: MCPToolCatalog,
         available_tools: list[str],
-        should_parallel: bool,
-    ) -> _PlannedMcpToolCall:
-        tool_name = tool_request.params.name
-        tool_args = tool_request.params.arguments or {}
-        namespaced_tool = namespaced_tools.get(tool_name)
+    ) -> PlannedMcpToolCall:
+        tool_name = call.name
+        tool_args = call.arguments
         local_tool = self._execution_tools.get(tool_name)
-        candidate_namespaced_tool = self._candidate_namespaced_tool(
-            tool_name,
-            namespaced_tools,
-            local_tool=local_tool,
-            namespaced_tool=namespaced_tool,
-        )
-        display_tool_name = self._display_name_for_planned_tool(
-            tool_name,
-            namespaced_tool,
-            candidate_namespaced_tool,
-        )
-
         is_external_runtime_tool = self._is_external_runtime_tool(tool_name)
         is_filesystem_runtime_tool = self._is_filesystem_runtime_tool(tool_name)
-        route_to_namespaced_candidate = (
-            namespaced_tool is None
-            and candidate_namespaced_tool is not None
-            and is_filesystem_runtime_tool
-        )
-        if not self._is_planned_tool_available(
-            tool_name=tool_name,
-            namespaced_tool=namespaced_tool,
-            local_tool=local_tool,
-            candidate_namespaced_tool=candidate_namespaced_tool,
-            is_external_runtime_tool=is_external_runtime_tool,
+        route = build_mcp_tool_route(
+            requested_name=tool_name,
+            catalog=tool_catalog,
+            local_tool_exists=local_tool is not None,
             is_filesystem_runtime_tool=is_filesystem_runtime_tool,
-        ):
-            raise ValueError(f"Tool '{display_tool_name}' is not available")
+        )
 
         metadata = self._metadata_for_planned_tool(
             tool_name=tool_name,
@@ -2073,68 +2281,35 @@ class McpAgent(ABC, ToolAgent):
             local_tool=local_tool,
             is_external_runtime_tool=is_external_runtime_tool,
             is_filesystem_runtime_tool=is_filesystem_runtime_tool,
-            route_to_namespaced_candidate=route_to_namespaced_candidate,
+            route_to_namespaced_candidate=route.route_to_namespaced_candidate,
         )
-        display_tool_name = self._show_mcp_planned_tool_call(
-            tool_name=tool_name,
+        presentation = build_mcp_tool_presentation(
+            route,
+            tool_catalog,
+            local_tool_names=self._execution_tools if local_tool is not None else None,
+            fallback_order=available_tools,
+            display_name_overrides=TOOL_DISPLAY_NAMES,
+        )
+        active_namespaced = route.active_namespaced_tool
+        return PlannedMcpToolCall(
+            correlation_id=call.correlation_id,
+            route=route,
             tool_args=tool_args,
-            namespaced_tool=namespaced_tool,
-            candidate_namespaced_tool=candidate_namespaced_tool,
-            local_tool=local_tool,
-            available_tools=available_tools,
-            metadata=metadata,
-            tool_call_id=correlation_id if should_parallel else None,
-        )
-        execution_tool_name = (
-            candidate_namespaced_tool.namespaced_tool_name
-            if route_to_namespaced_candidate and candidate_namespaced_tool is not None
-            else tool_name
-        )
-        return _PlannedMcpToolCall(
-            correlation_id=correlation_id,
-            tool_name=tool_name,
-            execution_tool_name=execution_tool_name,
-            tool_args=tool_args,
-            display_tool_name=display_tool_name,
-            namespaced_tool=namespaced_tool,
-            candidate_namespaced_tool=candidate_namespaced_tool,
+            bottom_items=presentation.bottom_items,
+            highlight_indexes=presentation.highlight_indexes,
+            source_label=(
+                "MCP"
+                if active_namespaced is not None
+                else self._tool_display_source_label(presentation.display_name, metadata)
+            ),
+            server_name=active_namespaced.server_name if active_namespaced is not None else None,
             is_local_shell=(
                 self._bash_tool is not None
                 and tool_name == self._bash_tool.name
-                and namespaced_tool is None
+                and route.namespaced_tool is None
             ),
             metadata=metadata,
         )
-
-    @staticmethod
-    def _candidate_namespaced_tool(
-        tool_name: str,
-        namespaced_tools: Mapping[str, NamespacedTool],
-        *,
-        local_tool: Any | None,
-        namespaced_tool: NamespacedTool | None,
-    ) -> NamespacedTool | None:
-        if namespaced_tool is not None or local_tool is not None:
-            return None
-        return next(
-            (
-                candidate
-                for candidate in namespaced_tools.values()
-                if candidate.tool.name == tool_name
-            ),
-            None,
-        )
-
-    @staticmethod
-    def _display_name_for_planned_tool(
-        tool_name: str,
-        namespaced_tool: NamespacedTool | None,
-        candidate_namespaced_tool: NamespacedTool | None,
-    ) -> str:
-        active_namespaced = namespaced_tool or candidate_namespaced_tool
-        if active_namespaced is not None:
-            return active_namespaced.namespaced_tool_name
-        return tool_name
 
     def _is_external_runtime_tool(self, tool_name: str) -> bool:
         return self._external_runtime is not None and tool_name == self._external_runtime.tool.name
@@ -2143,31 +2318,6 @@ class McpAgent(ABC, ToolAgent):
         return bool(
             self._filesystem_runtime
             and any(tool.name == tool_name for tool in self._filesystem_runtime.tools)
-        )
-
-    def _is_planned_tool_available(
-        self,
-        *,
-        tool_name: str,
-        namespaced_tool: NamespacedTool | None,
-        local_tool: Any | None,
-        candidate_namespaced_tool: NamespacedTool | None,
-        is_external_runtime_tool: bool,
-        is_filesystem_runtime_tool: bool,
-    ) -> bool:
-        is_shell_tool = bool(self._shell_runtime and self._shell_runtime.owns_tool(tool_name))
-        is_skill_reader_tool = bool(
-            self._skill_reader and self._skill_reader.enabled and tool_name == READ_SKILL_TOOL_NAME
-        )
-        return (
-            tool_name == HUMAN_INPUT_TOOL_NAME
-            or is_shell_tool
-            or is_external_runtime_tool
-            or is_filesystem_runtime_tool
-            or is_skill_reader_tool
-            or namespaced_tool is not None
-            or local_tool is not None
-            or candidate_namespaced_tool is not None
         )
 
     def _metadata_for_planned_tool(
@@ -2197,89 +2347,28 @@ class McpAgent(ABC, ToolAgent):
             return self._jsonable_tool_metadata(self._tool_display_metadata(tool_name))
         return None
 
-    def _show_mcp_planned_tool_call(
+    def _planned_mcp_tool_call_display_request(
         self,
-        *,
-        tool_name: str,
-        tool_args: dict[str, Any],
-        namespaced_tool: NamespacedTool | None,
-        candidate_namespaced_tool: NamespacedTool | None,
-        local_tool: Any | None,
-        available_tools: list[str],
-        metadata: dict[str, Any] | None,
-        tool_call_id: str | None,
-    ) -> str:
-        display_tool_name, bottom_items, highlight_indexes = self._prepare_tool_display(
-            tool_name=tool_name,
-            namespaced_tool=namespaced_tool,
-            candidate_namespaced_tool=candidate_namespaced_tool,
-            local_tool=local_tool,
-            fallback_order=self._unique_preserving_order(available_tools),
-        )
-        if self._is_read_text_file_tool_name(display_tool_name):
-            return display_tool_name
-
-        self.display.show_tool_call(
-            name=self._name,
-            tool_args=tool_args,
-            bottom_items=bottom_items,
-            tool_name=display_tool_name,
-            highlight_indexes=highlight_indexes,
+        call: PlannedMcpToolCall,
+    ) -> ToolCallDisplayRequest | None:
+        if is_read_text_file_tool_name(call.display_tool_name):
+            return None
+        if self._is_builtin_subagent_tool(call.metadata):
+            self._show_subagent_message(call.tool_args)
+            return None
+        return ToolCallDisplayRequest(
+            tool_name=call.display_tool_name,
+            tool_args=call.tool_args,
+            bottom_items=call.bottom_items,
+            highlight_indexes=call.highlight_indexes,
             max_item_length=12,
-            metadata=metadata,
-            tool_call_id=tool_call_id,
+            name=self._name,
+            metadata=call.metadata,
+            tool_call_id=call.correlation_id,
+            source_label=call.source_label,
+            server_name=call.server_name,
             show_hook_indicator=self.has_before_tool_call_hook,
         )
-        return display_tool_name
-
-    def _prepare_tool_display(
-        self,
-        *,
-        tool_name: str,
-        namespaced_tool: "NamespacedTool | None",
-        candidate_namespaced_tool: "NamespacedTool | None",
-        local_tool: Any | None,
-        fallback_order: list[str],
-    ) -> tuple[str, list[str] | None, list[int]]:
-        """
-        Determine how we present tool metadata for the console display.
-
-        Returns a tuple of (display_tool_name, bottom_items, highlight_indexes).
-        """
-        active_namespaced = namespaced_tool or candidate_namespaced_tool
-        display_tool_name = (
-            active_namespaced.namespaced_tool_name if active_namespaced is not None else tool_name
-        )
-
-        bottom_items: list[str] | None = None
-        highlight_target: str | None = None
-
-        if active_namespaced is not None:
-            server_tools = self._aggregator._server_to_tool_map.get(
-                active_namespaced.server_name, []
-            )
-            if server_tools:
-                bottom_items = self._unique_preserving_order(
-                    tool_entry.tool.name for tool_entry in server_tools
-                )
-            highlight_target = active_namespaced.tool.name
-        elif local_tool is not None:
-            bottom_items = self._unique_preserving_order(self._execution_tools.keys())
-            highlight_target = tool_name
-        elif tool_name == HUMAN_INPUT_TOOL_NAME:
-            bottom_items = [HUMAN_INPUT_TOOL_NAME]
-            highlight_target = HUMAN_INPUT_TOOL_NAME
-
-        highlight_indexes = resolve_highlight_indexes(bottom_items, highlight_target)
-
-        if bottom_items is None and fallback_order:
-            bottom_items = fallback_order
-            fallback_target = display_tool_name if display_tool_name in bottom_items else tool_name
-            highlight_indexes = resolve_highlight_indexes(bottom_items, fallback_target)
-
-        if bottom_items is not None:
-            bottom_items = [TOOL_DISPLAY_NAMES.get(name, name) for name in bottom_items]
-        return display_tool_name, bottom_items, highlight_indexes
 
     def resolve_stream_tool_metadata(self, tool_name: str) -> Mapping[str, Any] | None:
         metadata = super().resolve_stream_tool_metadata(tool_name)
@@ -2289,79 +2378,26 @@ class McpAgent(ABC, ToolAgent):
         lookup_name = tool_name.strip()
         if not lookup_name:
             return None
+        if (
+            self._shell_runtime_enabled
+            and self._shell_runtime
+            and self._shell_runtime.owns_tool(lookup_name)
+        ):
+            if self._shell_runtime.tool and lookup_name == self._shell_runtime.tool.name:
+                return self._shell_runtime.metadata({})
+            return self._shell_runtime.process_tool_metadata(lookup_name, {})
 
         if not is_namespaced_name(lookup_name) and "/" in lookup_name:
             server_name, base_tool_name = lookup_name.split("/", 1)
             if server_name and base_tool_name:
                 lookup_name = create_namespaced_name(server_name, base_tool_name)
 
-        namespaced_tool = self._aggregator._namespaced_tool_map.get(lookup_name)
+        namespaced_tool = self._aggregator.tool_catalog().namespaced_tool(lookup_name)
         if namespaced_tool is None or not isinstance(namespaced_tool.tool.meta, Mapping):
             return None
 
         metadata = dict(namespaced_tool.tool.meta)
         return self._jsonable_tool_metadata(metadata)
-
-    @staticmethod
-    def _is_read_text_file_tool_name(tool_name: str) -> bool:
-        return is_read_text_file_tool_name(tool_name)
-
-    @staticmethod
-    def _attach_read_text_file_display_metadata(
-        result: CallToolResult,
-        *,
-        display_tool_name: str,
-        tool_args: dict[str, Any],
-    ) -> None:
-        if not McpAgent._is_read_text_file_tool_name(display_tool_name):
-            return
-
-        path_value = tool_args.get("path")
-        if not isinstance(path_value, str):
-            return
-        stripped = path_value.strip()
-        if not stripped:
-            return
-
-        line_value = positive_int_or_none(tool_args.get("line"))
-        limit_value = positive_int_or_none(tool_args.get("limit"))
-
-        result_meta = cast("Any", result)
-        result_meta.read_text_file_path = stripped
-        result_meta.read_text_file_line = line_value
-        result_meta.read_text_file_limit = limit_value
-
-    @classmethod
-    def _tool_result_type_label(cls, display_tool_name: str) -> str | None:
-        if cls._is_read_text_file_tool_name(display_tool_name):
-            return "file read"
-        return None
-
-    @classmethod
-    def _tool_result_call_id(
-        cls,
-        *,
-        display_tool_name: str,
-        correlation_id: str,
-        parallel: bool,
-    ) -> str | None:
-        if not parallel:
-            return None
-        if cls._is_read_text_file_tool_name(display_tool_name):
-            return None
-        return correlation_id
-
-    @staticmethod
-    def _unique_preserving_order(items: Iterable[str]) -> list[str]:
-        """Return a list of unique items while preserving original order."""
-        seen: set[str] = set()
-        result: list[str] = []
-        for item in items:
-            if item in seen:
-                continue
-            seen.add(item)
-            result.append(item)
-        return result
 
     async def apply_prompt_template(self, prompt_result: GetPromptResult, prompt_name: str) -> str:
         """
@@ -2397,7 +2433,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def list_prompts(
         self, namespace: str | None = None, server_name: str | None = None
-    ) -> Mapping[str, list[mcp.types.Prompt]]:
+    ) -> Mapping[str, list[mcp_types.Prompt]]:
         """
         List all prompts available to this agent, filtered by configuration.
 
@@ -2603,7 +2639,7 @@ class McpAgent(ABC, ToolAgent):
         server_names = (
             list(self.list_attached_mcp_servers()) if bottom_items is None else list(bottom_items)
         )
-        server_names = self._unique_preserving_order(server_names)
+        server_names = unique_preserving_order(server_names)
         server_names = self._with_shell_label_first(server_names)
         self._append_optional_server_label(server_names, self._skills_tool_label())
         self._append_card_tools_label(server_names)
@@ -2685,7 +2721,7 @@ class McpAgent(ABC, ToolAgent):
             return self._shell_server_label()
         if self._skill_reader_tool_called(tool_name):
             return self._skills_tool_label()
-        namespaced_tool = self._aggregator._namespaced_tool_map.get(tool_name)
+        namespaced_tool = self._aggregator.tool_catalog().namespaced_tool(tool_name)
         return namespaced_tool.server_name if namespaced_tool is not None else None
 
     def _skill_reader_tool_called(self, tool_name: str) -> bool:
@@ -2717,14 +2753,6 @@ class McpAgent(ABC, ToolAgent):
             return TOOL_DISPLAY_NAMES.get(name, name)
         return None
 
-    async def _parse_resource_name(
-        self,
-        name: str,
-        resource_type: str,
-    ) -> _ResourceNameResolution:
-        """Delegate resource name parsing to the aggregator."""
-        return await self._aggregator._parse_resource_name(name, resource_type)
-
     async def convert(self, tool: Tool) -> AgentSkill:
         """
         Convert a Tool to an AgentSkill.
@@ -2742,7 +2770,7 @@ class McpAgent(ABC, ToolAgent):
                 output_modes=None,
             )
 
-        tool_name_resolution = await self._parse_resource_name(tool.name, "tool")
+        tool_name_resolution = self._aggregator.resolve_tool_name(tool.name)
         return AgentSkill(
             id=tool.name,
             name=tool_name_resolution.local_name,

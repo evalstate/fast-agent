@@ -115,22 +115,12 @@ def _is_hidden_provider_web_tool_event(
 
 def _mcp_progress_details(
     *,
-    action: "ProgressAction",
     tool_context: str,
     server_name: object,
     raw_details: object,
 ) -> str:
-    from fast_agent.event_progress import ProgressAction
-
     details = tool_context or _optional_text(server_name)
-    if action in {
-        ProgressAction.READING_RESOURCE,
-        ProgressAction.RESOURCE_READ,
-    }:
-        return _append_details(details, str(raw_details or ""))
-    if action == ProgressAction.TOOL_PROGRESS:
-        return _append_details(details, str(raw_details or ""))
-    return details
+    return _append_details(details, str(raw_details or ""))
 
 
 def _llm_progress_details(event_data: dict[str, Any], tool_context: str) -> str:
@@ -174,9 +164,10 @@ def _target_and_details(
 
     if action == ProgressAction.FATAL_ERROR:
         fallback_target = _optional_text(server_name)
-        return str(target or fallback_target), str(
-            event_data.get("error_message", "An error occurred")
-        )
+        error_message = str(event_data.get("error_message", "An error occurred"))
+        if "mcp_aggregator" in event.namespace:
+            error_message = _append_details(fallback_target, error_message)
+        return str(target or fallback_target), error_message
     if action == ProgressAction.CALLING_TOOL and matches_tool_name(
         tool_name,
         POLL_PROCESS_TOOL_NAME,
@@ -185,7 +176,6 @@ def _target_and_details(
 
     if "mcp_aggregator" in event.namespace:
         return str(target or ""), _mcp_progress_details(
-            action=action,
             tool_context=tool_context,
             server_name=server_name,
             raw_details=raw_details,

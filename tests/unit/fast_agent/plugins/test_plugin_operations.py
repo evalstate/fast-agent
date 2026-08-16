@@ -8,9 +8,11 @@ from fast_agent.plugins.models import MarketplacePlugin
 from fast_agent.plugins.operations import (
     apply_plugin_updates,
     check_plugin_updates,
+    check_plugin_updates_in_roots,
     fetch_marketplace_plugins_with_source_sync,
     install_marketplace_plugin_sync,
     select_plugin_by_name_or_index,
+    select_plugin_updates,
 )
 from fast_agent.plugins.provenance import (
     compute_plugin_content_fingerprint,
@@ -66,6 +68,21 @@ def test_select_plugin_by_name_or_index_rejects_ambiguous_install_dir_name_alias
     ]
 
     assert select_plugin_by_name_or_index(plugins, "shared") is None
+
+
+def test_check_plugin_updates_in_roots_uses_global_indices(tmp_path: Path) -> None:
+    project_plugins = tmp_path / "project" / "plugins"
+    global_plugins = tmp_path / "global" / "plugins"
+    (project_plugins / "alpha").mkdir(parents=True)
+    (global_plugins / "beta").mkdir(parents=True)
+
+    updates = check_plugin_updates_in_roots(destination_roots=(project_plugins, global_plugins))
+
+    assert [(update.index, update.name) for update in updates] == [
+        (1, "alpha"),
+        (2, "beta"),
+    ]
+    assert select_plugin_updates(updates[1:], "2") == [updates[1]]
 
 
 def _write_plugin(repo: Path) -> None:

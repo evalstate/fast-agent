@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import pytest
 
@@ -31,7 +31,7 @@ class _DefaultSessionManager:
 
 
 class _Agent:
-    acp_commands: dict[str, object] = {}
+    acp_commands: ClassVar[dict[str, object]] = {}
 
     def __init__(self, session_manager: object | None = None) -> None:
         self.context = SimpleNamespace(session_manager=session_manager or _DefaultSessionManager())

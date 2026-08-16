@@ -6,6 +6,7 @@ from fast_agent.skills.models import (
     SKILL_SOURCE_SCHEMA_VERSION,
     InstalledSkillSource,
     MarketplaceSkill,
+    McpSkillResource,
 )
 from fast_agent.skills.provenance import (
     build_installed_skill_source,
@@ -36,8 +37,6 @@ def test_installed_skill_source_round_trip(tmp_path: Path) -> None:
         installed_revision="abcdef1234567890",
         installed_at="2026-03-10T12:00:00Z",
         content_fingerprint=_VALID_SHA256_FINGERPRINT,
-        artifact_digest="sha256:" + ("a" * 64),
-        artifact_type="archive",
     )
 
     write_installed_skill_source(skill_dir, source)
@@ -91,3 +90,36 @@ def test_build_installed_skill_source_uses_local_revision_without_commit() -> No
     assert source.schema_version == SKILL_SOURCE_SCHEMA_VERSION
     assert source.installed_revision == "local"
     assert source.installed_at.endswith("Z")
+
+
+def test_mcp_resources_round_trip_and_legacy_artifacts_are_ignored(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "alpha"
+    skill_dir.mkdir()
+    skill_dir.joinpath(".skill-source.json").write_text(
+        """{
+  "schema_version": 1,
+  "installed_via": "mcp",
+  "source_origin": "mcp",
+  "repo_url": "mcp://server",
+  "repo_ref": null,
+  "repo_path": "skill://server/alpha/SKILL.md",
+  "source_url": "skill://server/alpha/SKILL.md",
+  "installed_commit": null,
+  "installed_path_oid": null,
+  "installed_revision": "sha256:old",
+  "installed_at": "2026-03-10T12:00:00Z",
+  "content_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "artifact_digest": "sha256:obsolete",
+  "artifact_type": "archive",
+  "mcp_resources": [{"uri": "skill://server/alpha/SKILL.md", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}]
+}""",
+        encoding="utf-8",
+    )
+
+    read_result = read_installed_skill_source(skill_dir)
+
+    assert read_result.error is None
+    assert read_result.source is not None
+    assert read_result.source.mcp_resources == (
+        McpSkillResource(uri="skill://server/alpha/SKILL.md", digest=_VALID_SHA256_FINGERPRINT),
+    )

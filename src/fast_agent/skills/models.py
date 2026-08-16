@@ -6,6 +6,7 @@ serve as the stable boundary for future extraction work.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
@@ -27,6 +28,7 @@ SKILL_MANIFEST_FILENAME = "SKILL.md"
 SKILL_MANIFEST_FILENAME_LOWER = strip_casefold(SKILL_MANIFEST_FILENAME)
 SKILL_SOURCE_SCHEMA_VERSION = 1
 LOCAL_REVISION = "local"
+SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
 
 SkillSourceOrigin = Literal["remote", "local", "mcp"]
 SkillUpdateStatus = CommonMarketplaceUpdateStatus | Literal["invalid_local_skill"]
@@ -49,8 +51,13 @@ class InstalledSkillSource:
     content_fingerprint: str
     mcp_server_name: str | None = None
     mcp_server_version: str | None = None
-    artifact_digest: str | None = None
-    artifact_type: str | None = None
+    mcp_resources: tuple["McpSkillResource", ...] | None = None
+
+
+@dataclass(frozen=True)
+class McpSkillResource:
+    uri: str
+    digest: str
 
 
 @dataclass(frozen=True)

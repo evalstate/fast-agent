@@ -94,10 +94,10 @@ def _read_yaml(path: Path) -> dict:
     return {}
 
 
-def test_common_setup_items_treat_last_used_as_default_alias_present() -> None:
+def test_common_setup_items_keep_last_used_separate_from_default_alias() -> None:
     items = model_command._build_common_setup_items({"system": {"last_used": "claude-haiku-4-5"}})
 
-    assert "$system.default" not in {item.token for item in items}
+    assert "$system.default" in {item.token for item in items}
 
 
 def test_build_reference_setup_argument_defaults_to_env_target() -> None:

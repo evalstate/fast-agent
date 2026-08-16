@@ -408,7 +408,8 @@ def score_candidate(
     side_info = {
         "scores": {
             "gepa_score": score,
-            "valid_output_rate": sum(1 for row in result.rows if row.get("ok")) / max(len(result.rows), 1),
+            "valid_output_rate": sum(1 for row in result.rows if row.get("ok"))
+            / max(len(result.rows), 1),
         },
         "score_details": {
             "failure_count": len(failures),

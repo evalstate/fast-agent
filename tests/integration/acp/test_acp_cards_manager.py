@@ -1,4 +1,4 @@
-"""Integration tests for ACP /cards manager commands."""
+"""Integration tests for ACP /packs manager commands."""
 
 from __future__ import annotations
 
@@ -139,14 +139,14 @@ async def test_cards_add_and_remove(tmp_path: Path) -> None:
         instance = StubAgentInstance(agents={"test-agent": agent})
         handler = _handler(instance, "test-agent")
 
-        add_response = await handler.execute_command("cards", "add alpha")
+        add_response = await handler.execute_command("packs", "add alpha")
         assert "Installed card pack: alpha" in add_response
         assert (home_root / "agent-cards" / "alpha.md").exists()
 
-        list_response = await handler.execute_command("cards", "")
+        list_response = await handler.execute_command("packs", "")
         assert "alpha" in list_response
 
-        remove_response = await handler.execute_command("cards", "remove")
+        remove_response = await handler.execute_command("packs", "remove")
         assert "Removed card pack: alpha" in remove_response
         assert not (home_root / "agent-cards" / "alpha.md").exists()
     finally:
@@ -177,15 +177,15 @@ async def test_cards_registry_numbered_selection(tmp_path: Path) -> None:
         instance = StubAgentInstance(agents={"test-agent": agent})
         handler = _handler(instance, "test-agent")
 
-        registry_list = await handler.execute_command("cards", "registry")
+        registry_list = await handler.execute_command("packs", "registry")
         assert "\\[ 1\\]" in registry_list
         assert "\\[ 2\\]" in registry_list
 
-        set_response = await handler.execute_command("cards", "registry 2")
+        set_response = await handler.execute_command("packs", "registry 2")
         assert "No card packs found in the registry; registry unchanged." in set_response
         assert escape_markdown_text(marketplace2.as_posix()) in set_response
 
-        invalid = await handler.execute_command("cards", "registry 99")
+        invalid = await handler.execute_command("packs", "registry 99")
         assert "Invalid registry number" in invalid
     finally:
         get_settings(config_path=str(Path(__file__).parent / "fastagent.config.yaml"))

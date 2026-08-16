@@ -12,24 +12,27 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from urllib.parse import parse_qs, urlparse
 
-from mcp.types import CallToolResult, ImageContent, TextContent
+from mcp_types import CallToolResult, ImageContent, TextContent
 
 from fast_agent.constants import (
     FAST_AGENT_PROCESS_POLL_FOLD,
     FAST_AGENT_RETRY,
     FAST_AGENT_SHELL_PROCESS_METADATA,
+    FAST_AGENT_SUBAGENT_RESULT_METADATA,
     FAST_AGENT_TIMING,
     FAST_AGENT_TOOL_METADATA,
     FAST_AGENT_TOOL_TIMING,
     FAST_AGENT_USAGE,
     REASONING,
 )
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.history.process_poll_fold_audit import (
     ArchivedContextRewrite,
     ProcessPollFoldAudit,
 )
 from fast_agent.llm.usage_tracking import UsageReport, UsageSummary
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.mcp.prompt_serialization import load_messages
 from fast_agent.privacy.sanitizer import RedactionAccumulator
 from fast_agent.session.atif_models import (
     AtifAgent,
@@ -45,15 +48,17 @@ from fast_agent.session.atif_models import (
     AtifToolCall,
     AtifTrajectory,
 )
+from fast_agent.session.snapshot import load_session_snapshot
 from fast_agent.session.trace_export_models import ExportResult
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
     from datetime import datetime
     from typing import Literal, TypeGuard
 
     from fast_agent.privacy.sanitizer import RedactionSummary, TraceSanitizer
     from fast_agent.session.trace_export_models import ResolvedSessionExport
+    from fast_agent.session.trajectory import TrajectoryRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,12 +71,14 @@ class AtifRunSource:
     provider: str | None
     history: list[PromptMessageExtended]
     message_timestamps: tuple[datetime | None, ...]
+    parent_session_dir: Path | None = None
     child_trajectory_dir: Path | None = None
     tool_definitions: list[dict[str, object]] | None = None
     extra: dict[str, object] | None = None
     notes: str | None = None
     system_prompt: str | None = None
     reasoning_effort: str | None = None
+    transient_child_trajectories: tuple[TrajectoryRecord, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,7 +218,7 @@ def _atif_content(blocks: list[object]) -> AtifContent:
     images = [
         block
         for block in blocks
-        if isinstance(block, ImageContent) and _is_atif_image_mime(block.mimeType)
+        if isinstance(block, ImageContent) and _is_atif_image_mime(block.mime_type)
     ]
     texts = [block.text for block in blocks if isinstance(block, TextContent)]
     if not images:
@@ -221,8 +228,8 @@ def _atif_content(blocks: list[object]) -> AtifContent:
         AtifContentPart(
             type="image",
             source=AtifImageSource(
-                media_type=cast("AtifImageMime", image.mimeType),
-                path=f"data:{image.mimeType};base64,{image.data}",
+                media_type=cast("AtifImageMime", image.mime_type),
+                path=f"data:{image.mime_type};base64,{image.data}",
             ),
         )
         for image in images
@@ -261,7 +268,7 @@ def _tool_result_extra(
     call_id: str,
     result: CallToolResult,
 ) -> dict[str, object]:
-    extra: dict[str, object] = {"is_error": bool(result.isError)}
+    extra: dict[str, object] = {"is_error": bool(result.is_error)}
     timing = (_json_channel_mapping(message, FAST_AGENT_TOOL_TIMING) or {}).get(call_id)
     if isinstance(timing, dict):
         timing_mapping: dict[str, object] = {str(key): value for key, value in timing.items()}
@@ -274,6 +281,11 @@ def _tool_result_extra(
     metadata = (_json_channel_mapping(message, FAST_AGENT_TOOL_METADATA) or {}).get(call_id)
     if isinstance(metadata, dict):
         extra["tool_metadata"] = metadata
+    subagent_metadata = (result.meta or {}).get(FAST_AGENT_SUBAGENT_RESULT_METADATA)
+    if isinstance(subagent_metadata, dict):
+        label = subagent_metadata.get("label")
+        if isinstance(label, str):
+            extra["subagent_label"] = label
     process_metadata = (
         _json_channel_mapping(message, FAST_AGENT_SHELL_PROCESS_METADATA) or {}
     ).get(call_id)
@@ -665,6 +677,11 @@ def _sum_optional_int(values: Iterable[int | None]) -> int | None:
     return sum(value for value in observations if value is not None)
 
 
+def _sum_known_optional_int(values: Iterable[int | None]) -> int | None:
+    observations = [value for value in values if value is not None]
+    return sum(observations) if observations else None
+
+
 def _metric_extra_int(metrics: AtifMetrics, key: str) -> int | None:
     value = (metrics.extra or {}).get(key)
     return value if isinstance(value, int) and not isinstance(value, bool) else None
@@ -675,6 +692,11 @@ def _sum_optional_float(values: Iterable[float | None]) -> float | None:
     if not observations or any(value is None for value in observations):
         return None
     return sum(value for value in observations if value is not None)
+
+
+def _sum_known_optional_float(values: Iterable[float | None]) -> float | None:
+    observations = [value for value in values if value is not None]
+    return sum(observations) if observations else None
 
 
 def build_atif_fanout_trajectory(
@@ -758,10 +780,53 @@ def _embed_subagent_trajectories(
     root: AtifTrajectory,
     source: AtifRunSource,
 ) -> None:
-    directory = source.child_trajectory_dir
-    if directory is None or not directory.is_dir():
-        return
     embedded: list[AtifTrajectory] = []
+    embedded_session_ids: set[str] = set()
+    embedded_call_ids: set[str] = set()
+    exported_call_ids = {
+        call.tool_call_id for step in root.steps for call in (step.tool_calls or ())
+    }
+
+    parent_session_dir = source.parent_session_dir
+    if parent_session_dir is not None:
+        children_dir = parent_session_dir / "children"
+        if children_dir.is_dir():
+            for child_dir in sorted(children_dir.iterdir()):
+                child = _load_child_session_trajectory(source, child_dir)
+                if child is None or child.session_id is None:
+                    continue
+                if child.session_id in embedded_session_ids:
+                    continue
+                parent_call_id = _child_parent_call_id(child)
+                if parent_call_id is not None and parent_call_id not in exported_call_ids:
+                    continue
+                embedded.append(child)
+                embedded_session_ids.add(child.session_id)
+                if parent_call_id is not None:
+                    embedded_call_ids.add(parent_call_id)
+                    _attach_subagent_ref(root, parent_call_id, child)
+
+    for record in source.transient_child_trajectories:
+        parent_call_id = record.parent_tool_call_id
+        if parent_call_id is not None and parent_call_id not in exported_call_ids:
+            continue
+        if parent_call_id is not None and parent_call_id in embedded_call_ids:
+            continue
+        child = _trajectory_record_to_atif(source, record, persistence="transient")
+        embedded.append(child)
+        if parent_call_id is not None:
+            embedded_call_ids.add(parent_call_id)
+            _attach_subagent_ref(root, parent_call_id, child)
+
+    directory = source.child_trajectory_dir
+    if directory is None and parent_session_dir is not None:
+        directory = parent_session_dir / "trajectories"
+    if directory is None or not directory.is_dir():
+        if embedded:
+            root.subagent_trajectories = embedded
+            _include_subagent_metrics(root, embedded)
+        return
+
     for path in sorted(directory.glob("*.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict) or payload.get("session_id") != source.session_id:
@@ -769,53 +834,202 @@ def _embed_subagent_trajectories(
         parent_agent_name = payload.get("parent_agent_name")
         if isinstance(parent_agent_name, str) and parent_agent_name != source.agent_name:
             continue
-        raw_messages = payload.get("messages")
-        if not isinstance(raw_messages, list) or not raw_messages:
-            continue
-        messages = [PromptMessageExtended.model_validate(message) for message in raw_messages]
-        child = build_atif_trajectory(
-            AtifRunSource(
-                session_id=source.session_id,
-                agent_name=str(payload.get("agent_name") or "subagent"),
-                model_name=None,
-                provider=None,
-                history=messages,
-                message_timestamps=tuple(message.timestamp for message in messages),
-            )
-        )
-        trajectory_id = payload.get("trajectory_id")
-        if isinstance(trajectory_id, str) and trajectory_id:
-            child.trajectory_id = trajectory_id
-        child.agent.name = str(payload.get("agent_name") or "subagent")
-        child.extra = {
-            key: value
-            for key, value in {
-                "parent_agent_name": payload.get("parent_agent_name"),
-                "parent_tool_call_id": payload.get("parent_tool_call_id"),
-                "tool_name": payload.get("tool_name"),
-                "use_history": payload.get("use_history"),
-                "started_at": payload.get("started_at"),
-                "completed_at": payload.get("completed_at"),
-            }.items()
-            if value is not None
-        }
-        usage_summary = payload.get("usage_summary")
-        if isinstance(usage_summary, dict):
-            child.final_metrics = _final_metrics_from_usage_summary(
-                usage_summary,
-                total_steps=len(child.steps),
-            )
-        embedded.append(child)
         parent_call_id = payload.get("parent_tool_call_id")
+        child_session_id = payload.get("child_session_id")
+        if isinstance(parent_call_id, str) and parent_call_id not in exported_call_ids:
+            continue
+        if (
+            isinstance(child_session_id, str)
+            and child_session_id in embedded_session_ids
+            or isinstance(parent_call_id, str)
+            and parent_call_id in embedded_call_ids
+        ):
+            continue
+        record = _trajectory_record_from_payload(payload)
+        if record is None:
+            continue
+        child = _trajectory_record_to_atif(source, record, persistence=None)
+        embedded.append(child)
         if isinstance(parent_call_id, str) and child.trajectory_id is not None:
+            embedded_call_ids.add(parent_call_id)
             _attach_subagent_ref(root, parent_call_id, child)
     if embedded:
         root.subagent_trajectories = embedded
         _include_subagent_metrics(root, embedded)
 
 
+def _trajectory_record_to_atif(
+    source: AtifRunSource,
+    record: TrajectoryRecord,
+    *,
+    persistence: str | None,
+) -> AtifTrajectory:
+    child = build_atif_trajectory(
+        AtifRunSource(
+            session_id=source.session_id,
+            agent_name=record.agent_name,
+            model_name=record.model_name,
+            provider=record.provider,
+            history=[message.model_copy(deep=True) for message in record.messages],
+            message_timestamps=tuple(message.timestamp for message in record.messages),
+        )
+    )
+    child.trajectory_id = record.trajectory_id
+    child.agent.name = record.agent_name
+    child.extra = {
+        key: value
+        for key, value in {
+            "parent_agent_name": record.parent_agent_name,
+            "parent_tool_call_id": record.parent_tool_call_id,
+            "tool_name": record.tool_name,
+            "use_history": record.use_history,
+            "started_at": record.started_at,
+            "completed_at": record.completed_at,
+            "model": record.model_name,
+            "provider": record.provider,
+            "persistence": persistence,
+        }.items()
+        if value is not None
+    }
+    if record.usage_summary is not None:
+        child.final_metrics = _final_metrics_from_usage_summary(
+            record.usage_summary,
+            total_steps=len(child.steps),
+        )
+    return child
+
+
+def _trajectory_record_from_payload(
+    payload: dict[object, object],
+) -> TrajectoryRecord | None:
+    from fast_agent.session.trajectory import TrajectoryRecord, new_trajectory_id
+
+    raw_messages = payload.get("messages")
+    if not isinstance(raw_messages, list) or not raw_messages:
+        return None
+    messages = [PromptMessageExtended.model_validate(message) for message in raw_messages]
+
+    def optional_str(key: str) -> str | None:
+        value = payload.get(key)
+        return value if isinstance(value, str) else None
+
+    def optional_dict(key: str) -> dict[str, object] | None:
+        value = payload.get(key)
+        if not isinstance(value, dict):
+            return None
+        return {str(name): item for name, item in value.items()}
+
+    use_history = payload.get("use_history")
+    return TrajectoryRecord(
+        trajectory_id=optional_str("trajectory_id") or new_trajectory_id(),
+        session_id=optional_str("session_id") or "",
+        parent_agent_name=optional_str("parent_agent_name"),
+        agent_name=optional_str("agent_name") or "subagent",
+        template_agent_name=optional_str("template_agent_name"),
+        tool_name=optional_str("tool_name"),
+        parent_tool_call_id=optional_str("parent_tool_call_id"),
+        use_history=use_history if isinstance(use_history, bool) else False,
+        started_at=optional_str("started_at") or "",
+        completed_at=optional_str("completed_at") or "",
+        tool_input_schema=optional_dict("tool_input_schema"),
+        tool_arguments=optional_dict("tool_arguments"),
+        effective_tool_arguments=optional_dict("effective_tool_arguments"),
+        rendered_child_input=optional_str("rendered_child_input"),
+        messages=messages,
+        usage_summary=optional_dict("usage_summary"),
+        model_name=optional_str("model_name"),
+        provider=optional_str("provider"),
+    )
+
+
+def _load_child_session_trajectory(
+    source: AtifRunSource,
+    child_dir: Path,
+) -> AtifTrajectory | None:
+    """Load a direct built-in subagent child after validating its typed backlink."""
+    metadata_path = child_dir / "session.json"
+    if not child_dir.is_dir() or not metadata_path.is_file():
+        return None
+    try:
+        snapshot = load_session_snapshot(json.loads(metadata_path.read_text(encoding="utf-8")))
+    except (AgentConfigError, OSError, ValueError):
+        return None
+
+    child_link = snapshot.execution.child_link
+    if (
+        snapshot.execution.resumable
+        or child_link is None
+        or child_link.parent_session_id != source.session_id
+        or child_link.parent_agent_name != source.agent_name
+    ):
+        return None
+
+    active_agent_name = snapshot.continuation.active_agent
+    if active_agent_name is None:
+        return None
+    active_agent = snapshot.continuation.agents.get(active_agent_name)
+    if active_agent is None or active_agent.history_file is None:
+        return None
+
+    resolved_child_dir = child_dir.resolve()
+    history_path = (child_dir / active_agent.history_file).resolve()
+    if not history_path.is_relative_to(resolved_child_dir) or not history_path.is_file():
+        return None
+    try:
+        history = load_messages(str(history_path))
+    except (AgentConfigError, OSError, ValueError):
+        return None
+    if not history:
+        return None
+
+    usage_summary = snapshot.analysis.usage_summary
+    child = build_atif_trajectory(
+        AtifRunSource(
+            session_id=snapshot.session_id,
+            agent_name=active_agent_name,
+            model_name=active_agent.model_spec or active_agent.model,
+            provider=active_agent.provider,
+            history=history,
+            message_timestamps=tuple(message.timestamp for message in history),
+            extra={
+                key: value
+                for key, value in {
+                    "parent_session_id": child_link.parent_session_id,
+                    "parent_agent_name": child_link.parent_agent_name,
+                    "parent_tool_call_id": child_link.parent_tool_call_id,
+                    "tool_name": child_link.tool_name,
+                    "resumable": snapshot.execution.resumable,
+                    "status": snapshot.execution.status,
+                    "started_at": _atif_timestamp(snapshot.execution.started_at),
+                    "completed_at": _atif_timestamp(snapshot.execution.completed_at),
+                    "model": active_agent.model_spec or active_agent.model,
+                    "provider": active_agent.provider,
+                    "usage_summary": (
+                        usage_summary.model_dump(mode="json", exclude_none=True)
+                        if usage_summary is not None
+                        else None
+                    ),
+                }.items()
+                if value is not None
+            },
+            system_prompt=active_agent.resolved_prompt,
+        )
+    )
+    child.agent.name = active_agent_name
+    return child
+
+
+def _child_parent_call_id(child: AtifTrajectory) -> str | None:
+    value = (child.extra or {}).get("parent_tool_call_id")
+    return value if isinstance(value, str) else None
+
+
+def _atif_timestamp(value: datetime | None) -> str | None:
+    return value.isoformat().replace("+00:00", "Z") if value is not None else None
+
+
 def _final_metrics_from_usage_summary(
-    summary: dict[object, object],
+    summary: Mapping[str, object],
     *,
     total_steps: int,
 ) -> AtifFinalMetrics:
@@ -854,30 +1068,57 @@ def _include_subagent_metrics(
         root_metrics,
         "total_tool_use_tokens",
     )
-    subagent_prompt_tokens = _sum_optional_int(item.total_prompt_tokens for item in child_metrics)
-    subagent_completion_tokens = _sum_optional_int(
+    subagent_prompt_tokens = _sum_known_optional_int(
+        item.total_prompt_tokens for item in child_metrics
+    )
+    subagent_completion_tokens = _sum_known_optional_int(
         item.total_completion_tokens for item in child_metrics
     )
-    subagent_cached_tokens = _sum_optional_int(item.total_cached_tokens for item in child_metrics)
-    subagent_cost_usd = _sum_optional_float(item.total_cost_usd for item in child_metrics)
-    subagent_reasoning_tokens = _sum_optional_int(
+    subagent_cached_tokens = _sum_known_optional_int(
+        item.total_cached_tokens for item in child_metrics
+    )
+    subagent_cost_usd = _sum_known_optional_float(item.total_cost_usd for item in child_metrics)
+    subagent_reasoning_tokens = _sum_known_optional_int(
         _final_metric_extra_int(item, "total_reasoning_tokens") for item in child_metrics
     )
-    subagent_tool_use_tokens = _sum_optional_int(
+    subagent_tool_use_tokens = _sum_known_optional_int(
         _final_metric_extra_int(item, "total_tool_use_tokens") for item in child_metrics
     )
+    prompt_complete = all(item.total_prompt_tokens is not None for item in child_metrics)
+    completion_complete = all(item.total_completion_tokens is not None for item in child_metrics)
+    cache_complete = all(item.total_cached_tokens is not None for item in child_metrics)
+    cost_complete = all(item.total_cost_usd is not None for item in child_metrics)
+    reasoning_complete = all(
+        _final_metric_extra_int(item, "total_reasoning_tokens") is not None
+        for item in child_metrics
+    )
+    tool_use_complete = all(
+        _final_metric_extra_int(item, "total_tool_use_tokens") is not None for item in child_metrics
+    )
     root_metrics.total_prompt_tokens = _sum_optional_int(
-        (root_prompt_tokens, subagent_prompt_tokens)
+        (root_prompt_tokens, subagent_prompt_tokens if prompt_complete else None)
     )
     root_metrics.total_completion_tokens = _sum_optional_int(
-        (root_completion_tokens, subagent_completion_tokens)
+        (root_completion_tokens, subagent_completion_tokens if completion_complete else None)
     )
     root_metrics.total_cached_tokens = _sum_optional_int(
-        (root_cached_tokens, subagent_cached_tokens)
+        (root_cached_tokens, subagent_cached_tokens if cache_complete else None)
     )
-    root_metrics.total_cost_usd = _sum_optional_float((root_cost_usd, subagent_cost_usd))
-    total_reasoning_tokens = _sum_optional_int((root_reasoning_tokens, subagent_reasoning_tokens))
-    total_tool_use_tokens = _sum_optional_int((root_tool_use_tokens, subagent_tool_use_tokens))
+    root_metrics.total_cost_usd = _sum_optional_float(
+        (root_cost_usd, subagent_cost_usd if cost_complete else None)
+    )
+    total_reasoning_tokens = _sum_optional_int(
+        (
+            root_reasoning_tokens,
+            subagent_reasoning_tokens if reasoning_complete else None,
+        )
+    )
+    total_tool_use_tokens = _sum_optional_int(
+        (
+            root_tool_use_tokens,
+            subagent_tool_use_tokens if tool_use_complete else None,
+        )
+    )
     root_metrics.extra = {
         key: value
         for key, value in {
@@ -886,8 +1127,10 @@ def _include_subagent_metrics(
             "total_tool_use_tokens": total_tool_use_tokens,
             "root_prompt_tokens": root_prompt_tokens,
             "root_completion_tokens": root_completion_tokens,
+            "root_cached_tokens": root_cached_tokens,
             "subagent_prompt_tokens": subagent_prompt_tokens,
             "subagent_completion_tokens": subagent_completion_tokens,
+            "subagent_cached_tokens": subagent_cached_tokens,
         }.items()
         if value is not None
     }
@@ -904,10 +1147,11 @@ def _attach_subagent_ref(
     parent_call_id: str,
     child: AtifTrajectory,
 ) -> None:
+    reference_extra: dict[str, object] = {"agent_name": child.agent.name}
     reference = AtifSubagentTrajectoryRef(
         trajectory_id=child.trajectory_id,
-        session_id=root.session_id,
-        extra={"agent_name": child.agent.name},
+        session_id=child.session_id,
+        extra=reference_extra,
     )
     for step in root.steps:
         if parent_call_id not in {call.tool_call_id for call in step.tool_calls or []}:
@@ -916,6 +1160,13 @@ def _attach_subagent_ref(
             step.observation = AtifObservation(results=[])
         for result in step.observation.results:
             if result.source_call_id == parent_call_id:
+                label = (result.extra or {}).get("subagent_label")
+                if isinstance(label, str):
+                    reference.extra = {
+                        **(reference.extra or {}),
+                        "subagent_label": label,
+                    }
+                    child.extra = {**(child.extra or {}), "subagent_label": label}
                 refs = result.subagent_trajectory_ref or []
                 refs.append(reference)
                 result.subagent_trajectory_ref = refs
@@ -943,7 +1194,7 @@ class AtifTraceWriter:
                 provider=snapshot_agent.provider,
                 history=resolved.history,
                 message_timestamps=resolved.message_timestamps,
-                child_trajectory_dir=resolved.session_dir / "trajectories",
+                parent_session_dir=resolved.session_dir,
                 notes=(
                     "Converted from persisted Fast-Agent history; execution-only "
                     "metadata unavailable in older sessions may be omitted."

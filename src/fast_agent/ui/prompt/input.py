@@ -18,7 +18,6 @@ from prompt_toolkit.completion import Completer, WordCompleter
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
-from rich import print as rich_print
 from rich.markup import escape as escape_markup
 from rich.text import Text
 
@@ -34,9 +33,12 @@ from fast_agent.commands.model_capabilities import (
     set_service_tier,
     set_text_verbosity,
 )
+from fast_agent.core.agent_capabilities import cycle_agent_capability_mode
+from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.agent_identity import is_default_agent_name
+from fast_agent.ui.console import rich_print
 from fast_agent.ui.mcp_display import render_mcp_status
 from fast_agent.ui.model_binary_toggles import (
     WEB_FETCH_TOGGLE,
@@ -194,7 +196,10 @@ def queue_startup_markdown_notice(
     )
 
 
-async def show_mcp_status(agent_name: str, agent_provider: "AgentApp | None") -> None:
+async def show_mcp_status(
+    agent_name: str,
+    agent_provider: "AgentApp | None",
+) -> None:
     if agent_provider is None:
         rich_print("[red]No agent provider available[/red]")
         return
@@ -262,6 +267,7 @@ class ResolvedShellInput:
 @dataclass(slots=True)
 class InputCycleCallbacks:
     on_cycle_service_tier: "Callable[[], None]"
+    on_cycle_agent_mode: "Callable[[], None]"
     on_cycle_reasoning: "Callable[[], None]"
     on_cycle_verbosity: "Callable[[], None]"
     on_cycle_web_search: "Callable[[], None]"
@@ -365,6 +371,26 @@ def _cycle_active_llm(
     return resolve_active_llm(agent_provider, agent_name)
 
 
+def _cycle_active_agent(
+    *,
+    agent_name: str,
+    agent_provider: "AgentApp | None",
+) -> object | None:
+    if agent_provider is None:
+        return None
+    try:
+        return agent_provider._agent(agent_name)
+    except Exception:
+        return None
+
+
+def _cycle_agent_mode(agent: object | None) -> None:
+    try:
+        cycle_agent_capability_mode(agent)
+    except AgentConfigError as exc:
+        rich_print(Text(format_fast_agent_error(exc), style="red"))
+
+
 def _cycle_service_tier(llm: "FastAgentLLMProtocol | None") -> None:
     if llm is None or not resolve_service_tier_supported(llm):
         return
@@ -427,6 +453,9 @@ def _build_cycle_callbacks(
     def on_cycle_service_tier() -> None:
         _cycle_service_tier(_cycle_active_llm(agent_name=agent_name, agent_provider=agent_provider))
 
+    def on_cycle_agent_mode() -> None:
+        _cycle_agent_mode(_cycle_active_agent(agent_name=agent_name, agent_provider=agent_provider))
+
     def on_cycle_reasoning() -> None:
         _cycle_reasoning(_cycle_active_llm(agent_name=agent_name, agent_provider=agent_provider))
 
@@ -447,6 +476,7 @@ def _build_cycle_callbacks(
 
     return InputCycleCallbacks(
         on_cycle_service_tier=on_cycle_service_tier,
+        on_cycle_agent_mode=on_cycle_agent_mode,
         on_cycle_reasoning=on_cycle_reasoning,
         on_cycle_verbosity=on_cycle_verbosity,
         on_cycle_web_search=on_cycle_web_search,
@@ -806,6 +836,7 @@ async def get_enhanced_input(
     bindings = create_keybindings(
         on_toggle_multiline=_build_multiline_toggle(session_factory),
         on_cycle_service_tier=cycle_callbacks.on_cycle_service_tier,
+        on_cycle_agent_mode=cycle_callbacks.on_cycle_agent_mode,
         on_cycle_reasoning=cycle_callbacks.on_cycle_reasoning,
         on_cycle_verbosity=cycle_callbacks.on_cycle_verbosity,
         on_cycle_web_search=cycle_callbacks.on_cycle_web_search,

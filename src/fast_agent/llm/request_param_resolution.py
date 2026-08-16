@@ -121,8 +121,8 @@ def initialize_base_default_params(
 
     return RequestParams(
         model=model,
-        maxTokens=max_tokens,
-        systemPrompt=instruction,
+        max_tokens=max_tokens,
+        system_prompt=instruction,
         parallel_tool_calls=True,
         max_iterations=DEFAULT_MAX_ITERATIONS,
         use_history=True,

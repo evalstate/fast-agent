@@ -4,7 +4,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
-from mcp.types import CallToolRequest, CallToolRequestParams, ContentBlock, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, ContentBlock, TextContent
 from openai.types.responses import ResponseReasoningItem, ResponseUsage
 from pydantic_core import from_json
 
@@ -249,6 +249,7 @@ class ResponsesOutputMixin:
         model_name: str,
         *,
         requested_service_tier: Literal["fast", "flex"] | None = None,
+        service_tier: str | None = None,
     ) -> None:
         try:
             provider_value = getattr(self, "provider", Provider.RESPONSES)
@@ -260,6 +261,7 @@ class ResponsesOutputMixin:
                 provider=provider,
                 model=model_name,
             )
+            turn_usage.service_tier = service_tier
             self._finalize_turn_usage(
                 turn_usage,
                 requested_service_tier=requested_service_tier,
@@ -348,13 +350,23 @@ class ResponsesOutputMixin:
             return {}
 
         arguments_raw = getattr(item, "arguments", None)
-        if not arguments_raw:
-            return {}
+        tool_name = first_nonempty_string(getattr(item, "name", None)) or "tool"
+        tool_id = responses_item_tool_use_id(item) or "unknown"
+        if not isinstance(arguments_raw, str) or not arguments_raw:
+            raise RuntimeError(
+                f"Responses tool call '{tool_name}' ({tool_id}) did not return JSON arguments."
+            )
         try:
-            arguments = from_json(arguments_raw, allow_partial=True)
-        except Exception:
-            return {}
-        return arguments if isinstance(arguments, dict) else {}
+            arguments = from_json(arguments_raw)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"Responses tool call '{tool_name}' ({tool_id}) returned incomplete or invalid JSON."
+            ) from exc
+        if not isinstance(arguments, dict):
+            raise RuntimeError(
+                f"Responses tool call '{tool_name}' ({tool_id}) arguments must be a JSON object."
+            )
+        return arguments
 
     def _record_extracted_tool_call(
         self,
@@ -467,16 +479,10 @@ class ResponsesOutputMixin:
         for output_item in getattr(response, "output", []) or []:
             if getattr(output_item, "type", None) != "reasoning":
                 continue
-            encrypted_content = getattr(output_item, "encrypted_content", None)
-            if not encrypted_content:
+            payload = snapshot_json_value(output_item)
+            if not isinstance(payload, dict) or not payload.get("encrypted_content"):
                 continue
-            payload: dict[str, Any] = {
-                "type": "reasoning",
-                "encrypted_content": encrypted_content,
-            }
-            item_id = getattr(output_item, "id", None)
-            if item_id:
-                payload["id"] = item_id
+            payload.pop("status", None)
             encrypted_blocks.append(TextContent(type="text", text=json.dumps(payload)))
         return encrypted_blocks
 

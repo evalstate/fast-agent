@@ -107,7 +107,7 @@ def test_execution_environment_internal_resource_matches_generator() -> None:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    generator = getattr(module, "generate_execution_environments_internal_resource")
+    generator = module.generate_execution_environments_internal_resource
     generated = generator()
     checked_in = (repo_root / "resources" / "shared" / "execution_environments.md").read_text(
         encoding="utf-8"

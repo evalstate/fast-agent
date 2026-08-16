@@ -1,4 +1,4 @@
-from mcp.types import Tool
+from mcp_types import Tool
 
 from fast_agent.tools.apply_patch_tool import (
     OPENAI_RESPONSES_CUSTOM_TOOL_META_KEY,

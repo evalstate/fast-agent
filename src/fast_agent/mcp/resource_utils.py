@@ -1,9 +1,9 @@
 import base64
-from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     EmbeddedResource,
     ImageContent,
@@ -77,9 +77,9 @@ def to_any_url(value: str | AnyUrl) -> AnyUrl:
     return _ANY_URL_ADAPTER.validate_python(value)
 
 
-def create_resource_uri(path: str) -> AnyUrl:
+def create_resource_uri(path: str) -> str:
     """Create a resource URI from a path"""
-    return to_any_url(f"resource://fast-agent/{Path(path).name}")
+    return f"resource://fast-agent/{Path(path).name}"
 
 
 def create_embedded_resource(
@@ -94,7 +94,7 @@ def create_embedded_resource(
             type="resource",
             resource=BlobResourceContents(
                 uri=resource_uri_str,
-                mimeType=mime_type,
+                mime_type=mime_type,
                 blob=content,
             ),
         )
@@ -102,7 +102,7 @@ def create_embedded_resource(
         type="resource",
         resource=TextResourceContents(
             uri=resource_uri_str,
-            mimeType=mime_type,
+            mime_type=mime_type,
             text=content,
         ),
     )
@@ -113,26 +113,12 @@ def create_image_content(data: str, mime_type: str) -> ImageContent:
     return ImageContent(
         type="image",
         data=data,
-        mimeType=mime_type,
+        mime_type=mime_type,
     )
 
 
-def extract_title_from_uri(uri: AnyUrl) -> str:
+def extract_title_from_uri(uri: AnyUrl | str) -> str:
     """Extract a readable title from a URI."""
-    # Simple attempt to get filename from path
     uri_str = str(uri)
-    with suppress(Exception):
-        # For HTTP(S) URLs
-        if uri.scheme in ("http", "https"):
-            # Get the last part of the path
-            path = uri.path or ""
-            path_parts = path.split("/") if path else []
-            filename = next((p for p in reversed(path_parts) if p), "")
-            return filename if filename else uri_str
-
-        # For file URLs or other schemes
-        if uri.path:
-            return Path(uri.path).name
-
-    # Fallback to the full URI if parsing fails
-    return uri_str
+    path = urlsplit(uri_str).path
+    return Path(path).name if path else uri_str

@@ -6,6 +6,7 @@ import sys
 from typing import TextIO
 
 from fast_agent.config import Settings, get_settings
+from fast_agent.integrations.herdr_lifecycle import report_prompt_mark
 from fast_agent.ui.terminal_streams import is_tty_stream
 
 _OSC = "\x1b]"
@@ -19,6 +20,7 @@ def emit_prompt_mark(
     stream: TextIO | None = None,
 ) -> None:
     """Emit an OSC 133 prompt mark if enabled and stdout is a TTY."""
+    report_prompt_mark(code)
     sequence = prompt_mark_sequence(code, settings=settings, stream=stream)
     if not sequence:
         return

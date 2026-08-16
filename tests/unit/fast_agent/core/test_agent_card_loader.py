@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+import yaml
 
 from fast_agent.agents.workflow.agents_as_tools_agent import HistoryMergeTarget, HistorySource
 from fast_agent.core.agent_card_loader import (
@@ -15,6 +16,7 @@ from fast_agent.core.agent_card_loader import (
     load_agent_cards,
 )
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.tools.function_tool_config import FunctionToolSpec
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -72,6 +74,80 @@ class TestResolveName:
             _resolve_name("   ", dummy_path)
 
 
+def test_load_agent_card_normalizes_deprecated_smart_type(tmp_path: Path) -> None:
+    card_path = tmp_path / "removed.md"
+    card_path.write_text("---\ntype: smart\nname: removed\n---\n", encoding="utf-8")
+
+    with pytest.warns(UserWarning, match="type 'smart' is deprecated"):
+        loaded = load_agent_cards(card_path)[0]
+
+    assert loaded.agent_data["type"] == "basic"
+    assert loaded.agent_data["config"].subagents is True
+    assert loaded.agent_data["config"].harness_tools is True
+    dumped = dump_agent_to_string("removed", loaded.agent_data, as_yaml=True)
+    assert "type: agent" in dumped
+    assert "type: smart" not in dumped
+
+
+def test_load_deprecated_smart_type_preserves_explicit_overrides(tmp_path: Path) -> None:
+    card_path = tmp_path / "overrides.yaml"
+    card_path.write_text(
+        "type: smart\nname: overrides\nsubagents: false\nharness_tools: false\n",
+        encoding="utf-8",
+    )
+
+    with pytest.warns(UserWarning, match="type 'smart' is deprecated"):
+        config = load_agent_cards(card_path)[0].agent_data["config"]
+
+    assert config.subagents is False
+    assert config.harness_tools is False
+
+
+def test_local_cards_resolve_nested_environment_and_preserve_file_directives(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    card_path = tmp_path / "local.md"
+    card_path.write_text(
+        "\n".join(
+            [
+                "---",
+                'name: "${LOCAL_AGENT_NAME}"',
+                "mcp_connect:",
+                '  - target: "@example/server"',
+                "    headers:",
+                '      Authorization: "Bearer ${LOCAL_CARD_TOKEN}"',
+                "---",
+                "{{file:instructions.md}}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LOCAL_AGENT_NAME", "local_agent")
+    monkeypatch.setenv("LOCAL_CARD_TOKEN", "token")
+
+    config = load_agent_cards(card_path)[0].agent_data["config"]
+
+    assert config.name == "local_agent"
+    assert config.mcp_connect[0].headers == {"Authorization": "Bearer token"}
+    assert config.instruction == "{{file:instructions.md}}"
+
+
+def test_local_cards_preserve_messages_paths(tmp_path: Path) -> None:
+    history_path = tmp_path / "history.json"
+    history_path.write_text("[]", encoding="utf-8")
+    card_path = tmp_path / "local.yaml"
+    card_path.write_text(
+        "name: local_agent\nmessages: history.json\n",
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)[0]
+
+    assert loaded.message_files == [history_path.resolve()]
+
+
 def test_load_agent_card_parses_mcp_connect_entries(tmp_path: Path) -> None:
     card_path = tmp_path / "mcp_agent.yaml"
     card_path.write_text(
@@ -106,6 +182,82 @@ def test_load_agent_card_parses_mcp_connect_entries(tmp_path: Path) -> None:
     assert config.mcp_connect[1].auth == {"oauth": False}
 
 
+def test_mcp_connect_mapping_roundtrip_preserves_canonical_form(tmp_path: Path) -> None:
+    card_path = tmp_path / "mcp_agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: mcp_agent",
+                "mcp_connect:",
+                "  docs:",
+                '    target: "https://demo.hf.space"',
+                "    protocol_mode: modern",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)[0]
+    config = loaded.agent_data["config"]
+    assert config.mcp_connect_source_form == "mapping"
+    assert len(config.mcp_connect) == 1
+    assert config.mcp_connect[0].name == "docs"
+    assert config.mcp_connect[0].protocol_mode == "modern"
+
+    dumped = dump_agent_to_string("mcp_agent", loaded.agent_data, as_yaml=True)
+    payload = yaml.safe_load(dumped)
+    assert payload["mcp_connect"] == {
+        "docs": {
+            "target": "https://demo.hf.space",
+            "protocol_mode": "modern",
+        }
+    }
+
+    roundtripped_path = tmp_path / "roundtripped.yaml"
+    roundtripped_path.write_text(dumped, encoding="utf-8")
+    roundtripped = load_agent_cards(roundtripped_path)[0].agent_data["config"]
+    assert roundtripped.mcp_connect_source_form == "mapping"
+    assert roundtripped.mcp_connect == config.mcp_connect
+
+
+def test_mcp_connect_list_roundtrip_preserves_compatibility_form(tmp_path: Path) -> None:
+    card_path = tmp_path / "mcp_agent.yaml"
+    card_path.write_text(
+        "name: mcp_agent\nmcp_connect:\n  - target: '@foo/bar'\n    protocol_mode: legacy\n",
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)[0]
+    dumped = dump_agent_to_string("mcp_agent", loaded.agent_data, as_yaml=True)
+    payload = yaml.safe_load(dumped)
+
+    assert isinstance(payload["mcp_connect"], list)
+    assert payload["mcp_connect"][0]["protocol_mode"] == "legacy"
+
+
+@pytest.mark.parametrize("process_field", ["command", "args", "env", "cwd"])
+def test_mcp_connect_rejects_untrusted_process_fields(
+    tmp_path: Path,
+    process_field: str,
+) -> None:
+    card_path = tmp_path / "untrusted.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: untrusted",
+                "mcp_connect:",
+                "  docs:",
+                "    target: '@foo/bar'",
+                f"    {process_field}: untrusted",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentConfigError, match=rf"unsupported keys: {process_field}"):
+        load_agent_cards(card_path)
+
+
 def test_load_agent_card_normalizes_padded_instruction(tmp_path: Path) -> None:
     card_path = tmp_path / "agent.yaml"
     card_path.write_text(
@@ -121,6 +273,87 @@ def test_load_agent_card_normalizes_padded_instruction(tmp_path: Path) -> None:
     loaded = load_agent_cards(card_path)
 
     assert loaded[0].agent_data["config"].instruction == "Be helpful."
+
+
+@pytest.mark.parametrize(
+    ("suffix", "content"),
+    [
+        (
+            ".md",
+            "\n".join(
+                [
+                    "---",
+                    "name: markdown_agent",
+                    "subagents: true",
+                    "subagent_model: '  passthrough  '",
+                    "harness_tools: true",
+                    "---",
+                    "Be helpful.",
+                ]
+            ),
+        ),
+        (
+            ".yaml",
+            "\n".join(
+                [
+                    "name: yaml_agent",
+                    "subagents: false",
+                    "subagent_model: passthrough",
+                    "harness_tools: true",
+                ]
+            ),
+        ),
+    ],
+)
+def test_load_agent_card_parses_subagent_controls(
+    tmp_path: Path,
+    suffix: str,
+    content: str,
+) -> None:
+    card_path = tmp_path / f"agent{suffix}"
+    card_path.write_text(content, encoding="utf-8")
+
+    config = load_agent_cards(card_path)[0].agent_data["config"]
+
+    assert config.subagents is (suffix == ".md")
+    assert config.subagent_model == "passthrough"
+    assert config.harness_tools is True
+
+
+def test_load_agent_card_rejects_harness_tools_on_tool_only_agent(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "name: tool\ntool_only: true\nharness_tools: true\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentConfigError, match="cannot be enabled on a tool-only agent"):
+        load_agent_cards(card_path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("subagents", "not-a-bool", "subagents.*boolean"),
+        ("subagents", "1", "subagents.*boolean"),
+        ("subagents", "null", "subagents.*boolean"),
+        ("subagent_model", "''", "subagent_model.*non-empty string"),
+        ("subagent_model", "'   '", "subagent_model.*non-empty string"),
+        ("harness_tools", "not-a-bool", "harness_tools.*boolean"),
+        ("subagent_model", "null", "subagent_model.*non-empty string"),
+    ],
+)
+def test_load_agent_card_rejects_invalid_subagent_controls(
+    tmp_path: Path,
+    field: str,
+    value: str,
+    message: str,
+) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(f"name: agent\n{field}: {value}\n", encoding="utf-8")
+
+    with pytest.raises(AgentConfigError, match=message):
+        load_agent_cards(card_path)
 
 
 def test_load_agent_card_accepts_declared_variables_metadata(tmp_path: Path) -> None:
@@ -498,10 +731,11 @@ def test_load_agent_card_parses_structured_function_tool_metadata(tmp_path: Path
 
     assert config.function_tools is not None
     spec = config.function_tools[0]
-    assert getattr(spec, "entrypoint") == "tools.py:run_query"
-    assert getattr(spec, "variant") == "code"
-    assert getattr(spec, "code_arg") == "code"
-    assert getattr(spec, "language") == "python"
+    assert isinstance(spec, FunctionToolSpec)
+    assert spec.entrypoint == "tools.py:run_query"
+    assert spec.variant == "code"
+    assert spec.code_arg == "code"
+    assert spec.language == "python"
 
 
 def test_dump_agent_card_preserves_structured_function_tool_metadata(tmp_path: Path) -> None:

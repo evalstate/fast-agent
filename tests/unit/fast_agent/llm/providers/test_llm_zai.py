@@ -158,7 +158,7 @@ def test_zai_reasoning_request_uses_max_tokens() -> None:
     request = llm._prepare_api_request(
         [{"role": "user", "content": "hello"}],
         None,
-        RequestParams(model="glm-5.2", maxTokens=48_000),
+        RequestParams(model="glm-5.2", max_tokens=48_000),
     )
 
     assert request["max_tokens"] == 48_000

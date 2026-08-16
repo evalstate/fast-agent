@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import load_model_overlay_registry
@@ -75,39 +76,62 @@ def test_list_current_aliases_for_provider() -> None:
     assert aliases.index("opus") < aliases.index("opus48") < aliases.index("opus46")
 
 
-def test_anthropic_catalog_lists_user_facing_factory_aliases() -> None:
-    aliases = ModelSelectionCatalog.list_current_aliases(Provider.ANTHROPIC)
-
-    assert aliases
-    for alias in aliases:
-        assert alias in ModelFactory.MODEL_PRESETS
-    assert ModelFactory.MODEL_PRESETS["sonnet"] == "claude-sonnet-5"
-    assert ModelFactory.MODEL_PRESETS["sonnet5"] == "claude-sonnet-5"
-    assert ModelFactory.MODEL_PRESETS["fable"] == "claude-fable-5"
-    assert ModelFactory.MODEL_PRESETS["fable5"] == "claude-fable-5"
-    assert ModelFactory.MODEL_PRESETS["opus"] == "claude-opus-5"
-    assert ModelFactory.MODEL_PRESETS["opus5"] == "claude-opus-5"
-    assert ModelFactory.MODEL_PRESETS["opus48"] == "claude-opus-4-8"
+def test_metaai_picker_lists_muse_tiers_in_release_order() -> None:
+    assert ModelSelectionCatalog.list_current_aliases(Provider.META_AI) == [
+        "Muse Spark 1.2",
+        "Muse Spark 1.2 (Contributor)",
+        "Muse Spark 1.1",
+    ]
 
 
-def test_current_catalog_entries_match_model_presets_for_shared_aliases() -> None:
-    for entry in ModelSelectionCatalog.list_current_entries():
-        preset = ModelFactory.MODEL_PRESETS.get(entry.alias)
-        if preset is not None:
-            parsed_entry = ModelFactory.parse_model_string(entry.model)
-            parsed_preset = ModelFactory.parse_model_string(preset)
-            if parsed_entry.provider != parsed_preset.provider:
-                continue
-            assert parsed_entry.provider == parsed_preset.provider
-            assert parsed_entry.model_name == parsed_preset.model_name
-            assert parsed_entry.model_dump(
-                exclude={"provider", "model_name"}
-            ) == parsed_preset.model_dump(exclude={"provider", "model_name"})
+def test_xai_picker_omits_unsupported_instant_grok() -> None:
+    aliases = ModelSelectionCatalog.list_current_aliases(Provider.XAI)
+
+    assert "Grok 4.3 (instant)" not in aliases
 
 
-def test_deepseek_catalog_exposes_only_responses_model() -> None:
+def test_xai_picker_promotes_grok_46() -> None:
+    aliases = ModelSelectionCatalog.list_current_aliases(Provider.XAI)
+
+    assert aliases[:2] == ["Grok 4.6", "Grok 4.6 (X Search)"]
+    assert BUILTIN_MODEL_ALIASES["grok"] == "xai.grok-4.6"
+    assert BUILTIN_MODEL_ALIASES["grok46"] == "xai.grok-4.6"
+
+
+def test_metaai_muse_aliases_select_the_current_and_contributor_tiers() -> None:
+    assert {
+        alias: BUILTIN_MODEL_ALIASES[alias] for alias in ("muse", "muse-spark", "musecontrib")
+    } == {
+        "muse": "metaai.muse-spark-1.2",
+        "muse-spark": "metaai.muse-spark-1.2",
+        "musecontrib": "metaai.muse-spark-1.2-contributor",
+    }
+
+
+def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() -> None:
+    expected = {
+        "sol": "codexresponses.gpt-5.6-sol?reasoning=high",
+        "terra": "codexresponses.gpt-5.6-terra?reasoning=high",
+        "codexplan": "codexresponses.gpt-5.6-sol?reasoning=high",
+    }
+    entries = {
+        entry.alias: entry.model
+        for entry in ModelSelectionCatalog.list_current_entries(Provider.CODEX_RESPONSES)
+        if entry.alias in expected
+    }
+
+    assert entries == expected
+    for alias, model_spec in expected.items():
+        assert ModelFactory.MODEL_PRESETS[alias] == model_spec
+        assert ModelFactory.parse_model_string(
+            alias,
+            presets=ModelFactory.MODEL_PRESETS,
+        ) == ModelFactory.parse_model_string(model_spec)
+
+
+def test_deepseek_catalog_exposes_both_responses_models() -> None:
     aliases = ModelSelectionCatalog.list_current_aliases(Provider.DEEPSEEK)
-    assert aliases == ["deepseek"]
+    assert aliases == ["deepseek", "DeepSeek V4 Pro"]
 
 
 def test_non_current_aliases_are_listed_but_not_current() -> None:
@@ -327,6 +351,38 @@ def test_huggingface_curated_catalog_includes_both_kimi_k3_routes() -> None:
         ("Kimi K3 (together)", "hf.moonshotai/Kimi-K3:together"),
     ]
     assert all(entry.current for entry in kimi_k3_entries)
+
+
+def test_huggingface_curated_catalog_includes_muse_glimmer_together() -> None:
+    entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.HUGGINGFACE]
+    glimmer = next(entry for entry in entries if entry.alias == "glimmer")
+
+    assert glimmer.display_label == "Muse Glimmer 30B (together)"
+    assert glimmer.model == (
+        "hf.meta-models/Muse-Glimmer-30B:together?temperature=1.0&top_p=0.95&top_k=64"
+    )
+    assert glimmer.current is True
+
+
+def test_huggingface_curated_catalog_includes_deepseek_v4_flash_0731_routes() -> None:
+    entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.HUGGINGFACE]
+    aliases = {
+        "DeepSeek V4 Flash 0731 (baseten)",
+        "DeepSeek V4 Flash 0731 (deepinfra)",
+    }
+    deepseek_entries = [entry for entry in entries if entry.alias in aliases]
+
+    assert [(entry.display_label, entry.model) for entry in deepseek_entries] == [
+        (
+            "DeepSeek V4 Flash 0731 (baseten)",
+            "hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten?max_tokens=384000",
+        ),
+        (
+            "DeepSeek V4 Flash 0731 (deepinfra)",
+            "hf.deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra",
+        ),
+    ]
+    assert all(entry.current for entry in deepseek_entries)
 
 
 def test_list_all_models_for_provider() -> None:

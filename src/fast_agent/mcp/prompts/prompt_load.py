@@ -3,7 +3,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from mcp.types import (
+from mcp_types import (
     ContentBlock,
     EmbeddedResource,
     PromptMessage,

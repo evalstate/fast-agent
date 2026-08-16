@@ -2,52 +2,73 @@
 title: OpenAI Apps SDK
 social:
   title: OpenAI Apps SDK
-  tagline: Bridge fast-agent MCP servers into OpenAI Apps SDK integrations.
-  description: Bridge fast-agent MCP servers into OpenAI Apps SDK integrations.
+  tagline: Discover and validate OpenAI Apps SDK tools and resources.
+  description: Discover and validate OpenAI Apps SDK tools and resources exposed by MCP servers.
   alt: fast-agent social card — OpenAI Apps SDK
 ---
 
-
 ## Overview
 
-**`fast-agent`** automatically detects [OpenAI Apps SDK (Skybridge)](https://developers.openai.com/apps-sdk) integrations exposed by MCP servers. Detection runs during tool/resource discovery: the aggregator looks for tools that publish an `openai/outputTemplate` `_meta` entry and the corresponding `ui://…` resources with the `text/html+skybridge` MIME type.
+**`fast-agent`** automatically detects
+[OpenAI Apps SDK](https://developers.openai.com/apps-sdk) integrations exposed
+by MCP servers. Detection runs during tool and resource discovery.
+
+OpenAI Apps SDK tools publish:
+
+```text
+_meta["openai/outputTemplate"]
+```
+
+The value identifies a corresponding `ui://…` resource. The Apps SDK retains
+the historical wire MIME type `text/html+skybridge`; fast-agent preserves that
+literal for compatibility but uses **OpenAI Apps SDK** in its Python APIs,
+diagnostics, and documentation.
 
 ## What `fast-agent` checks
 
 - **Template metadata** – verifies that tool `_meta["openai/outputTemplate"]` values are valid URIs. Invalid entries raise warnings so they are easy to spot.
 - **Resource availability** – ensures the referenced `ui://` resource exists. Missing resources generate warnings and keep the tool flagged as invalid.
-- **MIME-type validation** – confirms the resource exposes `text/html+skybridge`. Non-matching MIME types surface warnings and prevent the tool from being marked as Skybridge-enabled.
-- **Unpaired resources** – highlights confirmed Skybridge resources that no tool references, so server authors can wire them up.
+- **MIME-type validation** – confirms the resource exposes `text/html+skybridge`. Non-matching MIME types surface warnings and prevent the tool from being enabled.
+- **Unpaired resources** – highlights confirmed Apps SDK resources that no tool references, so server authors can wire them up.
 
-All warnings are captured in the `SkybridgeServerConfig.warnings` list, making it straightforward to assert against them in tests or custom diagnostics.
+Warnings are captured in `AppServerConfig.warnings`.
 
 ## Console Summary
 
-Right after discovery, the console displays a concise Skybridge summary:
+After discovery, the console displays a concise app-integration summary:
 
-- Lists servers with Skybridge signals, annotating how many enabled tools and valid resources were found.
+- Lists servers with OpenAI Apps SDK signals, including enabled tools and valid resources.
 - Surfaces aggregated warnings (such as invalid MIME types or missing references).
 - Provides quick feedback about potential configuration issues before any tool runs.
 
-![](./pics/skybridge_summary.png)
+![](./pics/openai_apps_sdk_summary.png)
 
 ## Tool Call Display
 
-When a Skybridge-enabled tool returns structured content, the tool result view adds a magenta separator that references the linked `ui://` resource. This makes it clear to developers which HTML payload is expected to render in the OpenAI Apps SDK client.
+When an Apps SDK tool returns structured content, the tool result view adds a
+separator that references the linked `ui://` resource. This identifies the
+HTML payload expected to render in the OpenAI client.
 
-![](./pics/skybridge_tool.png)
+![](./pics/openai_apps_sdk_tool.png)
 
-## Accessing Skybridge Configurations Programmatically
+## Programmatic access
 
 Developers can inspect discovered configurations at runtime:
 
 ```python
-configs = await agent._aggregator.get_skybridge_configs()
-hf_config = await agent._aggregator.get_skybridge_config("huggingface")
+configs = await agent.aggregator.get_app_integration_configs()
+hf_config = await agent.aggregator.get_app_integration_config("huggingface")
 ```
 
-Each `SkybridgeServerConfig` entry includes resources, tools, and warnings so you can write assertions against servers you are developing.
+Each `AppServerConfig` contains resources, tools, and warnings. OpenAI Apps SDK
+entries have `kind == AppIntegrationKind.OPENAI_APPS_SDK`.
 
 ## Feature Gating / Client Spoofing
 
-Some MCP servers gate Skybridge resources based on the connecting client’s implementation string. If you need to imitate the official Apps SDK, configure Fast Agent’s spoofing settings as described in the [Client Spoofing](./mcp-ui/#client-spoofing) section. This lets you present a custom `implementation.name`/`version` pair while still benefiting from Skybridge validation and display.
+Some MCP servers gate Apps SDK resources based on the connecting client’s
+implementation string. Configure a custom `implementation.name` and
+`implementation.version` as described in
+[Implementation Spoofing](client-servers.md#implementation-spoofing).
+
+Fast-agent validates and describes Apps SDK resources; it does not host the
+OpenAI iframe runtime in the terminal.

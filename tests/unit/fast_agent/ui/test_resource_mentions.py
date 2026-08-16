@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import base64
 from io import BytesIO
+from typing import ClassVar
 
 import pytest
-from mcp.types import (
+from mcp_types import (
     EmbeddedResource,
     ImageContent,
     ReadResourceResult,
@@ -12,7 +13,6 @@ from mcp.types import (
     TextResourceContents,
 )
 from PIL import Image
-from pydantic import AnyUrl
 
 from fast_agent.ui.prompt.resource_mentions import (
     ResourceMentionError,
@@ -28,8 +28,8 @@ class _ResourceAgentStub:
         return ReadResourceResult(
             contents=[
                 TextResourceContents(
-                    uri=AnyUrl(resource_uri),
-                    mimeType="text/plain",
+                    uri=resource_uri,
+                    mime_type="text/plain",
                     text=f"{namespace}:{resource_uri}",
                 )
             ]
@@ -204,7 +204,7 @@ async def test_resolve_mentions_converts_local_ppm_to_png(tmp_path) -> None:
     assert len(prompt.content) == 2
     image = prompt.content[1]
     assert isinstance(image, ImageContent)
-    assert image.mimeType == "image/png"
+    assert image.mime_type == "image/png"
     assert base64.b64decode(image.data).startswith(b"\x89PNG\r\n\x1a\n")
 
 
@@ -222,7 +222,7 @@ async def test_resolve_mentions_detects_pillow_image_without_known_mime(tmp_path
     assert len(prompt.content) == 2
     image = prompt.content[1]
     assert isinstance(image, ImageContent)
-    assert image.mimeType == "image/png"
+    assert image.mime_type == "image/png"
     assert base64.b64decode(image.data).startswith(b"\x89PNG\r\n\x1a\n")
 
 
@@ -235,7 +235,7 @@ async def test_resolve_mentions_builds_remote_url_resource_link_without_agent_su
 
     assert isinstance(prompt.content[1], ResourceLink)
     assert str(prompt.content[1].uri) == "https://example.com/image.png"
-    assert prompt.content[1].mimeType == "image/png"
+    assert prompt.content[1].mime_type == "image/png"
 
 
 @pytest.mark.asyncio
@@ -248,7 +248,7 @@ async def test_resolve_mentions_infers_image_type_from_query_and_defaults_to_ima
     prompt = build_prompt_with_resources(parsed.text, resolved)
 
     assert isinstance(prompt.content[1], ResourceLink)
-    assert prompt.content[1].mimeType == "image/jpeg"
+    assert prompt.content[1].mime_type == "image/jpeg"
 
 
 @pytest.mark.asyncio
@@ -259,7 +259,7 @@ async def test_resolve_mentions_keeps_unknown_remote_type_questionable() -> None
     prompt = build_prompt_with_resources(parsed.text, resolved)
 
     assert isinstance(prompt.content[1], ResourceLink)
-    assert prompt.content[1].mimeType == "application/octet-stream"
+    assert prompt.content[1].mime_type == "application/octet-stream"
 
 
 @pytest.mark.asyncio
@@ -277,7 +277,7 @@ async def test_resolve_mentions_raises_on_resource_errors() -> None:
 @pytest.mark.asyncio
 async def test_resolve_mentions_rejects_non_callable_resource_attribute() -> None:
     class _NotResourceAgent:
-        get_resource = {"not": "callable"}
+        get_resource: ClassVar[object] = {"not": "callable"}
 
     parsed = parse_mentions("Read ^demo:file:///tmp/notes.txt")
 

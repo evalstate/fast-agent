@@ -9,7 +9,7 @@ from types import UnionType
 from typing import TYPE_CHECKING, Any, ClassVar, cast, get_args, get_origin
 
 from mcp import Tool
-from mcp.types import (
+from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     ContentBlock,
@@ -32,6 +32,7 @@ from fast_agent.llm.reasoning_effort import (
     parse_reasoning_setting,
     validate_reasoning_setting,
 )
+from fast_agent.llm.request_params import SamplingToolChoicePolicy
 from fast_agent.llm.usage_tracking import usage_from_bedrock
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -439,6 +440,7 @@ class BedrockAttemptConfig:
     has_tool_results: bool
     has_tool_use: bool
     reasoning_budget: int
+    sampling_tool_choice: SamplingToolChoicePolicy | None
 
 
 @dataclass
@@ -674,7 +676,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             self.logger.debug(f"Converting MCP tool: {tool.name}")
 
             # Extract and validate the input schema
-            input_schema = tool.inputSchema or {}
+            input_schema = tool.input_schema or {}
 
             # Create Nova-compliant schema with ONLY the three allowed fields
             # Always include type and properties (even if empty)
@@ -765,7 +767,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 "function": {
                     "name": tool_name,
                     "description": tool.description or f"Tool: {tool.name}",
-                    "parameters": tool.inputSchema or {"type": "object", "properties": {}},
+                    "parameters": tool.input_schema or {"type": "object", "properties": {}},
                 },
             }
 
@@ -804,7 +806,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             self.logger.debug(f"Converting MCP tool: {tool.name}")
 
             # Use raw MCP schema (like native Anthropic provider) - no cleaning
-            input_schema = tool.inputSchema or {"type": "object", "properties": {}}
+            input_schema = tool.input_schema or {"type": "object", "properties": {}}
 
             # Wrap in Bedrock toolSpec format but preserve raw Anthropic schema
             bedrock_tool = {
@@ -1365,7 +1367,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         if not tools:
             return None
 
-        from mcp.types import ListToolsResult
+        from mcp_types import ListToolsResult
 
         return ListToolsResult(tools=tools)
 
@@ -1684,11 +1686,30 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         *,
         has_tool_results: bool,
         has_tool_use: bool,
+        sampling_tool_choice: SamplingToolChoicePolicy | None,
     ) -> None:
+        if sampling_tool_choice == "none":
+            if has_tool_results or has_tool_use:
+                raise ValueError(
+                    "Bedrock cannot continue MCP sampling toolChoice 'none' "
+                    "with existing tool use or tool results"
+                )
+            return
+        if sampling_tool_choice is not None and schema_choice not in (
+            ToolSchemaType.ANTHROPIC,
+            ToolSchemaType.DEFAULT,
+        ):
+            raise ValueError("Bedrock sampling tool choice requires native tool support")
+
         needs_noop = has_tool_results or has_tool_use
         if schema_choice in (ToolSchemaType.ANTHROPIC, ToolSchemaType.DEFAULT):
             if isinstance(tools_payload, list) and tools_payload:
-                converse_args["toolConfig"] = {"tools": tools_payload}
+                tool_config: dict[str, Any] = {"tools": tools_payload}
+                if sampling_tool_choice == "auto":
+                    tool_config["toolChoice"] = {"auto": {}}
+                elif sampling_tool_choice == "required":
+                    tool_config["toolChoice"] = {"any": {}}
+                converse_args["toolConfig"] = tool_config
             elif needs_noop:
                 converse_args["toolConfig"] = {"tools": [self._noop_tool_spec()]}
         elif needs_noop:
@@ -1842,10 +1863,10 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         caps: ModelCapabilities,
     ) -> int:
         inference_config: dict[str, Any] = {}
-        if params.maxTokens is not None:
-            inference_config["maxTokens"] = params.maxTokens
-        if params.stopSequences:
-            inference_config["stopSequences"] = params.stopSequences
+        if params.max_tokens is not None:
+            inference_config["maxTokens"] = params.max_tokens
+        if params.stop_sequences:
+            inference_config["stopSequences"] = params.stop_sequences
 
         reasoning_budget = self._resolve_reasoning_budget()
         reasoning_enabled = False
@@ -2005,14 +2026,20 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             schema_choice,
             tool_list,
         )
+        if params.sampling_tool_choice == "none":
+            tools_payload = None
         system_mode = (
             self.capabilities.get(model) or ModelCapabilities()
         ).system_mode or SystemMode.SYSTEM
-        system_text = self._bedrock_system_text_for_attempt(
-            base_system_text,
-            model,
-            schema_choice,
-            tools_payload,
+        system_text = (
+            base_system_text
+            if params.sampling_tool_choice == "none"
+            else self._bedrock_system_text_for_attempt(
+                base_system_text,
+                model,
+                schema_choice,
+                tools_payload,
+            )
         )
         self._apply_bedrock_system_text(
             converse_args,
@@ -2042,6 +2069,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             tools_payload,
             has_tool_results=has_tool_results,
             has_tool_use=has_tool_use,
+            sampling_tool_choice=params.sampling_tool_choice,
         )
         reasoning_budget = self._apply_bedrock_inference_config(
             converse_args,
@@ -2059,6 +2087,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             has_tool_results=has_tool_results,
             has_tool_use=has_tool_use,
             reasoning_budget=reasoning_budget,
+            sampling_tool_choice=params.sampling_tool_choice,
         )
 
     def _try_non_streaming_fallback(
@@ -2130,6 +2159,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 attempt.tools_payload,
                 has_tool_results=attempt.has_tool_results,
                 has_tool_use=attempt.has_tool_use,
+                sampling_tool_choice=attempt.sampling_tool_choice,
             )
             if attempt.has_tool_use:
                 self._inject_orphaned_tool_results(converse_args["messages"])
@@ -2230,7 +2260,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         bedrock_messages = self._convert_messages_to_bedrock(messages)
 
         # Base system text
-        base_system_text = self.instruction or params.systemPrompt
+        base_system_text = self.instruction or params.system_prompt
 
         # Determine tool schema fallback order and caches
         caps = self.capabilities.get(model) or ModelCapabilities()
@@ -2659,7 +2689,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
         # If we cleaned the text, create a new multipart with the cleaned text
         if cleaned_text != text:
-            from mcp.types import TextContent
+            from mcp_types import TextContent
 
             cleaned_multipart = PromptMessageExtended(
                 role=message.role, content=[TextContent(type="text", text=cleaned_text)]
@@ -2675,7 +2705,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             return model_instance, parsed_multipart
         unwrapped_text = self._unwrap_structured_response_wrapper(cleaned_text, model)
         if unwrapped_text is not None:
-            from mcp.types import TextContent
+            from mcp_types import TextContent
 
             unwrapped_multipart = PromptMessageExtended(
                 role=message.role,

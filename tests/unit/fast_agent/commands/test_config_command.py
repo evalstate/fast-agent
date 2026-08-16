@@ -19,6 +19,7 @@ def test_config_root_lists_display_subcommand() -> None:
     assert result.exit_code == 0, result.output
     assert "display" in result.output
     assert "markdown rendering" in result.output
+    assert "migrate-mcp" in result.output
     assert "model" not in result.output
 
 
@@ -73,7 +74,7 @@ def test_config_display_updates_logger_settings(tmp_path: Path, monkeypatch) -> 
     config_path.write_text("logger: {}\n", encoding="utf-8")
     captured_message: str | None = None
 
-    def _fake_form_sync(*args, **kwargs):  # noqa: ARG001
+    def _fake_form_sync(*args, **kwargs):
         nonlocal captured_message
         captured_message = kwargs.get("message")
         return {
@@ -124,7 +125,7 @@ def test_config_display_normalizes_invalid_streaming_mode(tmp_path: Path, monkey
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text("logger: {}\n", encoding="utf-8")
 
-    def _fake_form_sync(*args, **kwargs):  # noqa: ARG001
+    def _fake_form_sync(*args, **kwargs):
         return {
             "theme_file": "",
             "code_theme": "native",
@@ -158,7 +159,7 @@ def test_config_display_removes_default_theme_and_code_theme(tmp_path: Path, mon
         encoding="utf-8",
     )
 
-    def _fake_form_sync(*args, **kwargs):  # noqa: ARG001
+    def _fake_form_sync(*args, **kwargs):
         return {
             "theme_file": "",
             "code_theme": "native",
@@ -256,7 +257,7 @@ def test_config_display_writes_selected_home_config_when_parent_config_exists(
         encoding="utf-8",
     )
 
-    def _fake_form_sync(*args, **kwargs):  # noqa: ARG001
+    def _fake_form_sync(*args, **kwargs):
         return {
             "theme_file": "",
             "code_theme": "native",
@@ -294,7 +295,7 @@ def test_config_display_zero_patch_preview_lines_means_unlimited(
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text("logger: {}\n", encoding="utf-8")
 
-    def _fake_form_sync(*args, **kwargs):  # noqa: ARG001
+    def _fake_form_sync(*args, **kwargs):
         return {
             "theme_file": "",
             "code_theme": "native",

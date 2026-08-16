@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-InteractiveDisplayMode: TypeAlias = Literal["normal", "progress_only"]
+InteractiveDisplayMode: TypeAlias = Literal["normal", "progress_only", "monitor_only"]
 
 _interactive_display_mode: ContextVar[InteractiveDisplayMode] = ContextVar(
     "interactive_display_mode",

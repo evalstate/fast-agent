@@ -14,7 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 _PLUGIN_SOURCE = Path(__file__).resolve().parents[4] / "plugins" / "images" / "images.py"
 

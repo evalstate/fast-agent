@@ -1,11 +1,10 @@
-from mcp.types import (
+from mcp_types import (
     CallToolResult,
     EmbeddedResource,
     ImageContent,
     TextContent,
     TextResourceContents,
 )
-from pydantic import AnyUrl
 
 from fast_agent.mcp.helpers.content_helpers import canonicalize_tool_result_content_for_llm
 from fast_agent.mcp.tool_result_truncation import truncate_tool_result_for_llm
@@ -18,17 +17,17 @@ def test_tool_result_within_budget_is_unchanged() -> None:
 
 
 def test_tool_result_truncates_canonical_structured_content() -> None:
-    image = ImageContent(type="image", data="aGVsbG8=", mimeType="image/png")
+    image = ImageContent(type="image", data="aGVsbG8=", mime_type="image/png")
     result = CallToolResult(
         content=[TextContent(type="text", text="ignored"), image],
-        structuredContent={"value": "x" * 100},
+        structured_content={"value": "x" * 100},
     )
 
     truncated = truncate_tool_result_for_llm(result, byte_limit=40)
     canonical = canonicalize_tool_result_content_for_llm(truncated)
 
     assert truncated is not result
-    assert truncated.structuredContent is None
+    assert truncated.structured_content is None
     assert len(canonical) == 2
     assert isinstance(canonical[0], TextContent)
     assert canonical[0].text.startswith('{"value":"xxxxxxxxxx')
@@ -59,9 +58,9 @@ def test_tool_result_truncates_embedded_text_resources() -> None:
     resource = EmbeddedResource(
         type="resource",
         resource=TextResourceContents(
-            uri=AnyUrl("file:///large.txt"),
+            uri="file:///large.txt",
             text="x" * 100,
-            mimeType="text/plain",
+            mime_type="text/plain",
         ),
     )
     result = CallToolResult(content=[resource])

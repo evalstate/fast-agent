@@ -23,7 +23,7 @@ from fast_agent.cli.display import (
     print_update_table,
     print_warning,
 )
-from fast_agent.config import resolve_global_plugin_home_path
+from fast_agent.config import find_config_in_directory, resolve_global_plugin_home_path
 from fast_agent.home import PREFERRED_CONFIG_FILENAME
 from fast_agent.marketplace.formatting import (
     format_installed_revision_display,
@@ -133,11 +133,14 @@ def _print_plugin_roots(
     table = indexed_table(
         ("Scope", "white"),
         ("Name", "cyan"),
+        ("Version", "white"),
         ("Commands", "white"),
         ("Keys", "white"),
         ("Provenance", "dim"),
         ("Installed", "green"),
     )
+    for column in table.columns[1:4]:
+        column.no_wrap = True
     for index, (scope, entry) in enumerate(scoped_plugins, start=1):
         status = _plugin_status(
             entry.name,
@@ -148,12 +151,15 @@ def _print_plugin_roots(
         )
         scope_display = scope if status == "-" else f"{scope} ({status})"
         commands = ", ".join(entry.manifest.commands) if entry.manifest else "invalid manifest"
+        version = entry.manifest.version if entry.manifest and entry.manifest.version else "-"
         keys = _format_plugin_keys(entry)
         if entry.source is None:
             provenance = (
                 f"invalid metadata: {entry.metadata_error}" if entry.metadata_error else "unmanaged"
             )
-            table.add_row(str(index), scope_display, entry.name, commands, keys, provenance, "-")
+            table.add_row(
+                str(index), scope_display, entry.name, version, commands, keys, provenance, "-"
+            )
             continue
         source = entry.source
         provenance = format_source_provenance(source.repo_url, source.repo_ref, source.repo_path)
@@ -162,7 +168,9 @@ def _print_plugin_roots(
             source.installed_revision,
             revision_label="",
         )
-        table.add_row(str(index), scope_display, entry.name, commands, keys, provenance, installed)
+        table.add_row(
+            str(index), scope_display, entry.name, version, commands, keys, provenance, installed
+        )
     console.print(table)
 
 
@@ -270,9 +278,16 @@ def plugins_add(
             "--global", help="Install and enable globally (FAST_AGENT_HOME, or ~/.fast-agent)."
         ),
     ] = False,
+    project_install: Annotated[
+        bool,
+        typer.Option("--project", help="Install and enable only in the active project."),
+    ] = False,
     force: Annotated[bool, typer.Option("--force", help="Replace an existing plugin.")] = False,
 ) -> None:
     """Install and enable a command plugin."""
+    if global_install and project_install:
+        typer.echo("Choose one install scope: --global or --project.", err=True)
+        raise typer.Exit(1)
     destination_root, config_path = _target_install_context(ctx, global_install=global_install)
     marketplace_input = _resolve_registry_input(ctx, registry)
     plugins, source = plugin_ops.fetch_marketplace_plugins_with_source_sync(marketplace_input)
@@ -351,30 +366,61 @@ def plugins_update(
         str | None,
         typer.Argument(help="Plugin name, index, or 'all'. Omit to check.", show_default=False),
     ] = None,
+    global_update: Annotated[
+        bool,
+        typer.Option("--global", help="Check or update only globally installed plugins."),
+    ] = False,
+    project_update: Annotated[
+        bool,
+        typer.Option("--project", help="Check or update only project plugins."),
+    ] = False,
     force: Annotated[bool, typer.Option("--force", help="Overwrite local modifications.")] = False,
     yes: Annotated[bool, typer.Option("--yes", help="Confirm multi-plugin apply.")] = False,
 ) -> None:
     """Check and apply plugin updates."""
-    home_paths = _home_paths(ctx)
-    updates = plugin_ops.check_plugin_updates(destination_root=home_paths.plugins)
+    if global_update and project_update:
+        typer.echo("Choose one update scope: --global or --project.", err=True)
+        raise typer.Exit(1)
+    scope = "global" if global_update else "project" if project_update else None
+    settings = _settings(ctx)
+    home_paths = resolve_home_paths(settings)
+    plugin_roots = _installed_plugin_roots(settings, home_paths.plugins)
+    selected_roots = [
+        (root_scope, root)
+        for root_scope, root in plugin_roots
+        if scope is None or root_scope == scope
+    ]
+    if not selected_roots:
+        typer.echo(f"Plugin {scope} scope is unavailable.", err=True)
+        raise typer.Exit(1)
+    all_updates = plugin_ops.check_plugin_updates_in_roots(
+        destination_roots=[root for _, root in plugin_roots]
+    )
+    selected_root_paths = {root.resolve() for _, root in selected_roots}
+    updates = [update for update in all_updates if update.plugin_dir.parent in selected_root_paths]
     if not selector:
         print_detail_section(
             console,
             "Plugin Update Check",
             [
                 DetailDisplayRow(
-                    label="plugins directory", value=format_display_path(home_paths.plugins)
+                    label=f"{root_scope} plugins directory",
+                    value=format_display_path(root),
                 )
+                for root_scope, root in selected_roots
             ],
         )
         _print_updates(updates)
         print_hint(
-            console, "Apply with: fast-agent plugins update <number|name|all> [--force] [--yes]"
+            console,
+            "Apply with: fast-agent plugins update <number|name|all> "
+            "[--global|--project] [--force] [--yes]",
         )
         raise typer.Exit(0)
     selected = plugin_ops.select_plugin_updates(updates, selector)
     if not selected:
-        typer.echo(f"Plugin not found: {selector}", err=True)
+        scope_suffix = f" in {scope} scope" if scope is not None else ""
+        typer.echo(f"Plugin not found{scope_suffix}: {selector}", err=True)
         raise typer.Exit(1)
     if len(selected) > 1 and not yes:
         _print_updates(selected)
@@ -387,7 +433,10 @@ def plugins_update(
 def _target_install_context(ctx: typer.Context, *, global_install: bool) -> tuple[Path, Path]:
     if global_install:
         root = _global_plugin_root()
-        return root / "plugins", root / PREFERRED_CONFIG_FILENAME
+        return (
+            root / "plugins",
+            find_config_in_directory(root) or root / PREFERRED_CONFIG_FILENAME,
+        )
 
     settings = _settings(ctx)
     home_paths = resolve_home_paths(settings)

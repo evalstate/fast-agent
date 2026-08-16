@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from mcp.types import ImageContent, TextContent
+from mcp_types import ImageContent, TextContent
 
 from fast_agent.mcp import mime_utils, resource_utils
 from fast_agent.mcp.prompts.prompt_load import create_messages_with_resources
@@ -432,7 +432,7 @@ This appears to be a 1x1 pixel test image.
         assert isinstance(image_content, ImageContent)
         assert image_content.type == "image"
         assert image_content.data == TINY_IMAGE_PNG
-        assert image_content.mimeType == "image/png"
+        assert image_content.mime_type == "image/png"
 
     def test_binary_resource_handling(self, temp_image_file):
         """Test binary resource handling with images"""
@@ -497,7 +497,7 @@ This appears to be a 1x1 pixel test image.
         assert messages[1].role == "user"
         assert isinstance(messages[1].content, ImageContent)
         assert messages[1].content.type == "image"
-        assert messages[1].content.mimeType == "image/png"
+        assert messages[1].content.mime_type == "image/png"
         # The data should be our base64 PNG (or equivalent)
         assert isinstance(messages[1].content.data, str)
         assert len(messages[1].content.data) > 0
@@ -519,14 +519,12 @@ This appears to be a 1x1 pixel test image.
 
             if is_binary:
                 # For binary files, read as binary and base64 encode
-                with open(resource_path, "rb") as f:
-                    binary_data = f.read()
-                    # We need to explicitly base64 encode binary data
-                    return base64.b64encode(binary_data).decode("utf-8")
+                binary_data = Path(resource_path).read_bytes()
+                # We need to explicitly base64 encode binary data
+                return base64.b64encode(binary_data).decode("utf-8")
             else:
                 # For text files, read as text with UTF-8 encoding
-                with open(resource_path, "r", encoding="utf-8") as f:
-                    return f.read()
+                return Path(resource_path).read_text(encoding="utf-8")
 
         # Run our simulated resource handler
         path = str(temp_image_file)

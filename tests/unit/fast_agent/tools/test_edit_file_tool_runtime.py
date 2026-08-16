@@ -17,6 +17,20 @@ def test_extract_edit_file_input_accepts_valid_arguments() -> None:
     )
 
 
+def test_extract_edit_file_input_defaults_old_string_for_creation() -> None:
+    assert extract_edit_file_input(
+        {
+            "path": "new.txt",
+            "new_string": "created\n",
+        }
+    ) == EditFileInput(
+        path="new.txt",
+        old_string="",
+        new_string="created\n",
+        replace_all=False,
+    )
+
+
 def test_extract_edit_file_input_rejects_invalid_arguments() -> None:
     invalid_arguments = [
         None,

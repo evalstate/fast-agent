@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from a2a.types import AgentCapabilities
 from mcp import Tool
-from mcp.types import ContentBlock
+from mcp_types import ContentBlock
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig

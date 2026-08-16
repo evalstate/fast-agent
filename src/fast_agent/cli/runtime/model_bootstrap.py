@@ -18,7 +18,6 @@ from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
     from fast_agent.config import Settings
-    from fast_agent.core.model_resolution import ResolvedModelSpec
     from fast_agent.ui.model_picker_common import ProviderActivation
 
     from .run_request import AgentRunRequest
@@ -61,10 +60,10 @@ def explicit_agent_cards_define_startup_model(
     loaded_cards = []
     temp_paths: list[Path] = []
     try:
-        for path, is_temporary in materialized_agent_card_paths(request.agent_cards):
-            if is_temporary:
+        for path, remote_source in materialized_agent_card_paths(request.agent_cards):
+            if remote_source is not None:
                 temp_paths.append(path)
-            loaded_cards.extend(load_agent_cards(path))
+            loaded_cards.extend(load_agent_cards(path, remote_source=remote_source))
     except Exception:
         return False
     finally:
@@ -82,10 +81,10 @@ def explicit_agent_cards_define_startup_model(
     )
 
 
-def materialized_agent_card_paths(sources: list[str]) -> list[tuple[Path, bool]]:
+def materialized_agent_card_paths(sources: list[str]) -> list[tuple[Path, str | None]]:
     from fast_agent.io.source_resolver import REMOTE_TEXT_SCHEMES, materialize_text_source
 
-    paths: list[tuple[Path, bool]] = []
+    paths: list[tuple[Path, str | None]] = []
     for source in sources:
         parsed = urlparse(source)
         if parsed.scheme in REMOTE_TEXT_SCHEMES:
@@ -93,11 +92,11 @@ def materialized_agent_card_paths(sources: list[str]) -> list[tuple[Path, bool]]
             paths.append(
                 (
                     materialize_text_source(source, label="AgentCard URL", suffix=suffix),
-                    True,
+                    source,
                 )
             )
         else:
-            paths.append((materialize_text_source(source, label="AgentCard source"), False))
+            paths.append((materialize_text_source(source, label="AgentCard source"), None))
     return paths
 
 
@@ -142,25 +141,6 @@ def agent_config_defines_startup_model(
         return False
 
     return strip_to_none(resolved_model) is not None
-
-
-def resolve_model_without_hardcoded_default(
-    *,
-    model: str | None,
-    config_default_model: str | None,
-    model_references: Mapping[str, Mapping[str, str]] | None,
-) -> ResolvedModelSpec:
-    """Resolve model precedence without falling back to the hardcoded system default."""
-    from fast_agent.core.model_resolution import resolve_model_spec
-
-    return resolve_model_spec(
-        context=None,
-        model=model,
-        default_model=config_default_model,
-        cli_model=model,
-        fallback_to_hardcoded=False,
-        model_references=model_references,
-    )
 
 
 def load_request_settings(request: AgentRunRequest) -> Settings:
@@ -549,7 +529,6 @@ __all__ = [
     "load_request_settings",
     "persist_model_picker_last_used_selection",
     "resolve_model_picker_initial_selection",
-    "resolve_model_without_hardcoded_default",
     "select_model_from_picker",
     "settings_model_references",
     "should_prompt_for_model_picker",

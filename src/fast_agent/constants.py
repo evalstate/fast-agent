@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 # Canonical tool name for the human input/elicitation tool
 HUMAN_INPUT_TOOL_NAME = "__human_input"
-MCP_UI = "mcp-ui"
 REASONING = "reasoning"
 REASONING_LABEL = "Reasoning"
 """UI label for reasoning effort configuration."""
@@ -35,6 +34,10 @@ FAST_AGENT_URL_ELICITATION_CHANNEL = "fast-agent-url-elicitation"
 FAST_AGENT_TIMING = "fast-agent-timing"
 FAST_AGENT_TOOL_METADATA = "fast-agent-tool-metadata"
 FAST_AGENT_TOOL_TIMING = "fast-agent-tool-timing"
+BUILTIN_SUBAGENT_TOOL_NAME = "subagent"
+"""Reserved name of the built-in one-shot subagent tool."""
+FAST_AGENT_SUBAGENT_RESULT_METADATA = "fast-agent-subagent"
+"""Tool-result ``_meta`` key for built-in subagent execution details."""
 FAST_AGENT_SHELL_PROCESS_METADATA = "fast-agent-shell-process-metadata"
 FAST_AGENT_PROCESS_POLL_FOLD = "fast-agent-process-poll-fold"
 FAST_AGENT_USAGE = "fast-agent-usage"
@@ -60,6 +63,15 @@ DEFAULT_MAX_ITERATIONS = 9999
 
 DEFAULT_STREAMING_TIMEOUT = 120.0
 """Default idle timeout in seconds between provider streaming events."""
+
+MIN_PROCESS_POLL_WAIT_SECONDS = 10
+"""Minimum positive managed-process wait exposed to models."""
+
+MAX_PROCESS_POLL_WAIT_SECONDS = 3600
+"""Maximum configurable managed-process wait in seconds."""
+
+MAX_FOREGROUND_AUTO_AWAIT_SECONDS = 3600
+"""Maximum configurable total runtime for foreground auto-await."""
 
 DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT = 16_000
 """Baseline byte limit for ACP terminal output when no model info exists."""
@@ -95,15 +107,6 @@ Mermaid diagrams between code fences are supported.
 {{model_specific}}
 
 The current date is {{currentDate}}."""
-
-
-SMART_AGENT_INSTRUCTION = "{{internal:smart_prompt}}"
-
-DEFAULT_GO_AGENT_TYPE = "agent"
-"""Default agent type for CLI single-model runs ("smart" or "agent")."""
-
-DEFAULT_SERVE_AGENT_TYPE = "agent"
-"""Default agent type for CLI serve/acp single-model runs ("smart" or "agent")."""
 
 
 DEFAULT_HOME_DIR = ".fast-agent"

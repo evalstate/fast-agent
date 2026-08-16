@@ -11,8 +11,7 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from mcp.types import ResourceLink
-from pydantic import AnyUrl
+from mcp_types import ResourceLink
 
 from fast_agent.acp.tool_call_context import acp_tool_call_context
 from fast_agent.acp.tool_progress import ACPToolProgressManager
@@ -315,8 +314,8 @@ class TestACPToolProgressManager:
                 ResourceLink(
                     type="resource_link",
                     name="Spec",
-                    uri=AnyUrl("file:///tmp/spec.md"),
-                    mimeType="text/markdown",
+                    uri="file:///tmp/spec.md",
+                    mime_type="text/markdown",
                     size=123,
                     description="Design spec",
                     title="Spec title",

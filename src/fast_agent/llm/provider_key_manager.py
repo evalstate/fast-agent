@@ -227,13 +227,13 @@ class ProviderKeyManager:
         if provider_name == "codexresponses":
             raise ProviderKeyError(
                 "Codex OAuth token not configured",
-                "Run `fast-agent auth login codex` to authenticate, or set the CODEX_API_KEY environment variable.",
+                "Run `fast-agent auth provider login codex` to authenticate, or set the CODEX_API_KEY environment variable.",
             )
 
         if provider_name == "xai":
             raise ProviderKeyError(
                 "xAI credential not configured",
-                "Run `fast-agent auth login xai`, set XAI_API_KEY, or configure xai.api_key.",
+                "Run `fast-agent auth provider login xai`, set XAI_API_KEY, or configure xai.api_key.",
             )
 
         try:

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.constants import FAST_AGENT_RETRY
 from fast_agent.context import Context

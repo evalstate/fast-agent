@@ -5,6 +5,7 @@ from fast_agent.utils.tool_names import (
     EXECUTE_TOOL_KEYWORDS,
     EXECUTE_TOOL_NAME,
     is_read_text_file_tool_name,
+    is_shell_command_tool_name,
     is_shell_execution_tool_name,
     matches_tool_name,
     normalize_tool_name,
@@ -40,6 +41,15 @@ def test_is_shell_execution_tool_name_matches_exact_execution_aliases() -> None:
     assert is_shell_execution_tool_name("server__execute")
     assert is_shell_execution_tool_name("agent:shell")
     assert not is_shell_execution_tool_name("read_text_file")
+
+
+def test_is_shell_command_tool_name_accepts_model_facing_shell_alias() -> None:
+    assert is_shell_command_tool_name(EXECUTE_TOOL_NAME)
+    assert is_shell_command_tool_name("bash")
+    assert is_shell_command_tool_name("Shell")
+    assert is_shell_command_tool_name("runtime__Shell")
+    assert not is_shell_command_tool_name("process")
+    assert not is_shell_command_tool_name("poll_process")
 
 
 def test_is_read_text_file_tool_name_matches_namespaced_and_legacy_aliases() -> None:

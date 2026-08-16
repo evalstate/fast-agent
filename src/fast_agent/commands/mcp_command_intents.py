@@ -7,22 +7,27 @@ from typing import Literal
 
 from fast_agent.utils.text import strip_to_none
 
-McpTopLevelAction = Literal["list", "connect", "disconnect", "reconnect"]
-McpServerNameAction = Literal["disconnect", "reconnect"]
+McpTopLevelAction = Literal["list", "status", "attach", "connect", "disconnect", "reconnect"]
+McpServerNameAction = Literal["attach", "disconnect", "reconnect"]
 
 MCP_TOP_LEVEL_ACTIONS: tuple[McpTopLevelAction, ...] = (
     "list",
+    "status",
+    "attach",
     "connect",
     "disconnect",
     "reconnect",
 )
 MCP_SERVER_NAME_ACTIONS: tuple[McpServerNameAction, ...] = (
+    "attach",
     "disconnect",
     "reconnect",
 )
 MCP_TOP_LEVEL_ACTION_DESCRIPTIONS: dict[str, str] = {
-    "list": "List currently attached MCP servers",
-    "connect": "Connect a new MCP server",
+    "list": "List configured and attached MCP servers",
+    "status": "Show detailed MCP server status",
+    "attach": "Attach a configured MCP server",
+    "connect": "Connect an ad-hoc MCP target",
     "disconnect": "Disconnect an attached MCP server",
     "reconnect": "Reconnect an attached MCP server",
 }

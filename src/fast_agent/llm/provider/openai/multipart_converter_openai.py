@@ -2,7 +2,7 @@ import json
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from mcp.types import (
+from mcp_types import (
     AudioContent,
     BlobResourceContents,
     CallToolRequest,
@@ -13,7 +13,7 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
-from mcp.types import (
+from mcp_types import (
     ContentBlock as MCPContentBlock,
 )
 from openai.types.chat import (
@@ -274,13 +274,13 @@ class OpenAIConverter:
 
     @staticmethod
     def _convert_audio_content(item: AudioContent) -> ContentBlock:
-        mime_type = item.mimeType or "audio"
+        mime_type = item.mime_type or "audio"
         return {"type": "text", "text": f"[Unsupported audio content: {mime_type}]"}
 
     @staticmethod
     def _convert_resource_link_content(item: ResourceLink) -> ContentBlock | None:
         uri = item.uri
-        mime_type = item.mimeType
+        mime_type = item.mime_type
         if uri and mime_type and OpenAIConverter._is_supported_image_type(mime_type):
             return {"type": "image_url", "image_url": {"url": str(uri)}}
         if uri and mime_type and OpenAIConverter._is_supported_video_type(mime_type):
@@ -338,7 +338,7 @@ class OpenAIConverter:
         image_data = get_image_data(content)
 
         # OpenAI requires image URLs or data URIs for images
-        image_url = {"url": f"data:{content.mimeType};base64,{image_data}"}
+        image_url = {"url": f"data:{content.mime_type};base64,{image_data}"}
 
         return {"type": "image_url", "image_url": image_url}
 
@@ -353,8 +353,8 @@ class OpenAIConverter:
         Returns:
             The determined MIME type as a string
         """
-        if resource_content.mimeType:
-            return resource_content.mimeType
+        if resource_content.mime_type:
+            return resource_content.mime_type
 
         return guess_mime_type(str(resource_content.uri))
 

@@ -10,7 +10,7 @@ from typing import (
     cast,
 )
 
-from mcp.types import CallToolResult, ContentBlock, ListToolsResult, TextContent
+from mcp_types import CallToolResult, ContentBlock, ListToolsResult, TextContent
 
 from fast_agent.constants import (
     DEFAULT_MAX_ITERATIONS,
@@ -563,7 +563,7 @@ class ToolRunner:
         for tool_id in pending_request.tool_calls or {}:
             tool_results[tool_id] = CallToolResult(
                 content=[text_content(interrupted_text)],
-                isError=True,
+                is_error=True,
             )
 
         return PromptMessageExtended(
@@ -579,7 +579,7 @@ class ToolRunner:
         for tool_id in request.tool_calls or {}:
             tool_results[tool_id] = CallToolResult(
                 content=[text_content(error_message)],
-                isError=True,
+                is_error=True,
             )
 
         channels = {FAST_AGENT_ERROR_CHANNEL: [text_content(error_message)]}

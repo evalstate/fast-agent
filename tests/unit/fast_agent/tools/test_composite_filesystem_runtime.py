@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from mcp.types import CallToolResult, TextContent, Tool
+from mcp_types import CallToolResult, TextContent, Tool
 
 from fast_agent.mcp.tool_result_metadata import fatal_tool_error
 from fast_agent.tools.composite_filesystem_runtime import CompositeFilesystemRuntime
@@ -12,7 +12,7 @@ from fast_agent.types import RequestParams
 
 class _Runtime:
     def __init__(self, *tool_names: str, runtime_type: str = "test") -> None:
-        self.tools = [Tool(name=name, inputSchema={}) for name in tool_names]
+        self.tools = [Tool(name=name, input_schema={}) for name in tool_names]
         self.calls: list[tuple[str, dict[str, Any] | None, str | None, RequestParams | None]] = []
         self.runtime_type = runtime_type
 
@@ -25,7 +25,7 @@ class _Runtime:
         request_params: RequestParams | None = None,
     ) -> CallToolResult:
         self.calls.append((name, arguments, tool_use_id, request_params))
-        return CallToolResult(content=[TextContent(type="text", text=name)], isError=False)
+        return CallToolResult(content=[TextContent(type="text", text=name)], is_error=False)
 
     def metadata(self) -> dict[str, Any]:
         return {"type": self.runtime_type, "tools": [tool.name for tool in self.tools]}
@@ -45,7 +45,7 @@ async def test_composite_runtime_routes_to_first_runtime_with_tool() -> None:
         request_params=request_params,
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert primary.calls == [
         ("read_text_file", {"path": "sample.txt"}, "tool-use-1", request_params)
     ]
@@ -60,7 +60,7 @@ async def test_composite_runtime_routes_to_fallback_for_unique_tool() -> None:
 
     result = await runtime.call_tool("apply_patch", {"input": "*** Begin Patch"})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert primary.calls == []
     assert fallback.calls == [("apply_patch", {"input": "*** Begin Patch"}, None, None)]
 
@@ -74,7 +74,7 @@ async def test_composite_runtime_reports_unsupported_tool() -> None:
 
     result = await runtime.call_tool("missing")
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "Error: unsupported filesystem tool 'missing'"
@@ -91,7 +91,7 @@ async def test_composite_runtime_does_not_fallback_for_acp_owned_read_write() ->
 
     result = await runtime.call_tool("write_text_file", {"path": "x", "content": "y"})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert fatal_tool_error(result) == ("Error: unsupported filesystem tool 'write_text_file'")
     assert primary.calls == []
     assert fallback.calls == []

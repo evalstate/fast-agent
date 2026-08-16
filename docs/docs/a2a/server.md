@@ -99,6 +99,37 @@ The custom executor shape should still use AgentCards for normal agent
 definitions where possible. The Python A2A entrypoint should own protocol
 routing, not duplicate agent definitions that belong in cards.
 
+## Design Notes from A2A Examples
+
+The A2A tutorials and samples use `AgentExecutor` as the protocol boundary. An
+executor reads the A2A `RequestContext`, decides whether to return a direct
+`Message` or create a `Task`, and publishes protocol events to the A2A
+`EventQueue`.
+
+The useful patterns for fast-agent are:
+
+| Pattern | A2A shape | fast-agent server shape |
+|---|---|---|
+| Simple one-turn answer | Return one direct `Message`. | `card+serve` should keep this lightweight when no task is started. |
+| Work with progress | Return a `Task`, then status/artifact updates. | Map Harness tool/LLM/hook progress to `TaskStatusUpdateEvent`. |
+| Final task output | Send a `TaskArtifactUpdateEvent`, then complete. | Once a task exists, return generated output as artifacts. |
+| Ambiguous request | Return a pre-task `Message` or an `INPUT_REQUIRED` task status. | Use pre-task messages for intake/refinement; use `INPUT_REQUIRED` after task creation. |
+| Multi-turn work | Continue with the same `task_id` and `context_id`. | Use A2A `context_id` as Harness session affinity and preserve resumable task state. |
+| Long-running/disconnected client | Register push notifications and retrieve the task later. | Wire A2A push config stores/senders only when callback policy is explicit. |
+
+The LangGraph tutorial is the closest reference model for a richer default
+executor. It maps A2A `context_id` to the LangGraph thread id, emits semantic
+status messages such as "Looking up the exchange rates..." while tools run,
+returns the final answer as an artifact, and returns `INPUT_REQUIRED` when the
+model decides it needs more information. A fast-agent Harness-backed A2A server
+should provide the same shape without requiring every user to write a custom
+executor.
+
+The important design consequence is that A2A status message text is a product
+surface. Harness developers, hook providers, MCP/function tool providers, and
+AgentCard policy should be able to influence which tool-loop and model-loop
+events become `TaskStatusUpdateEvent.status.message` values.
+
 ## Agent Skills in the A2A Card
 
 A2A models the served endpoint as one remote agent or agentic system. A2A
@@ -186,13 +217,16 @@ model chat history.
 
 ## Streaming
 
-The server registers a fast-agent stream listener for agents that support it.
-Non-reasoning text chunks are sent as A2A `TaskArtifactUpdateEvent` updates with
-a stable artifact id. The first chunk replaces/creates the artifact; later chunks
-use A2A append semantics.
+A2A streaming is task lifecycle streaming, not token-by-token assistant-message
+streaming. A streaming A2A response may contain a `Task`,
+`TaskStatusUpdateEvent`, and `TaskArtifactUpdateEvent` values. A direct A2A
+`Message` is returned as one message event.
 
-If the final fast-agent response differs from the streamed text, the server sends
-a final replacement artifact for the same artifact id before completing the task.
+In the standard fast-agent A2A server, ordinary fast-agent responses from
+tool-capable agents can remain direct A2A messages when the agent does not call
+`start_task()` or `return_artifact()`. Once a task is started, response content
+is returned through A2A artifacts and the task is completed through the standard
+A2A task status flow.
 
 ## Refinement Messages
 
@@ -250,12 +284,173 @@ are normal AgentCards in
 protocol-level decision: return a standalone `Message` for refinement guidance,
 or create a `Task` and stream progress artifacts.
 
+### Research Intake Harness Entry Point
+
+A research-intake A2A server should keep the product policy in a small
+Harness-backed adapter while leaving the refiner and researcher as ordinary
+AgentCards.
+
+The desired flow is:
+
+1. Receive an A2A message.
+2. Open the Harness app with `session_id=context.context_id`.
+3. Invoke a `research-goal-refinement` agent.
+4. Let the refiner answer capability questions or call one of a small set of
+   decision tools.
+5. If the request needs more detail, return a standalone A2A `Message`.
+6. If the request is well formed, create an A2A `Task`, invoke the research
+   agent in the same Harness session, publish inner-loop progress as task status
+   updates, and return final outputs as artifacts.
+
+The refiner should not communicate its decision through fragile free-form JSON.
+Prefer local function tools with typed arguments, for example:
+
+```python
+async def request_refinement(message: str) -> dict[str, str]:
+    """Ask the client for more detail before starting a research task."""
+    return {"kind": "needs_refinement", "message": message}
+
+
+async def accept_research_goal(goal: str, title: str | None = None) -> dict[str, str | None]:
+    """Accept a well-formed research goal and start task execution."""
+    return {"kind": "accepted", "goal": goal, "title": title}
+```
+
+The Harness adapter can attach those tools to the refiner, capture the selected
+decision, and translate it to A2A:
+
+```python
+class ResearchIntakeAdapter:
+    def __init__(self, app: HarnessApp) -> None:
+        self.app = app
+
+    async def handle(self, context: RequestContext, event_queue: EventQueue) -> None:
+        session_id = context.context_id
+        async with self.app.open(AppOpenRequest(session_id=session_id)) as session:
+            decision = await self.refine(session, context)
+            if decision.needs_refinement:
+                await send_refinement_message(event_queue, context, decision.message)
+                return
+
+            updater = await start_research_task(event_queue, context, "Research task accepted")
+            await self.prepare_research_environment(session, context, decision.goal)
+            response = await session.invoke(
+                AgentRequest.text(
+                    decision.goal,
+                    agent="researcher",
+                    session_id=session_id,
+                    metadata={
+                        "transport": "a2a",
+                        "phase": "research_task",
+                        "a2a_task_id": context.task_id or "",
+                    },
+                )
+            )
+            await updater.add_artifact(
+                parts=[Part(text=response.text_content())],
+                name="research-result",
+                last_chunk=True,
+            )
+            await updater.complete()
+
+    async def prepare_research_environment(
+        self,
+        session: HarnessAppSession,
+        context: RequestContext,
+        goal: str,
+    ) -> None:
+        """Attach task-scoped resources before the researcher runs."""
+```
+
+`prepare_research_environment()` is where server-specific setup belongs. For a
+Hugging Face hosted researcher, that may mean creating or resolving a
+task-scoped bucket, making it available to the researcher's sandbox execution
+environment, and recording the bucket/task relationship so final artifacts can
+be attached to the A2A task.
+
+The runnable research example implements this with
+`FAST_AGENT_RESEARCH_HF_BUCKET=<namespace>/<bucket>`. When set, each accepted
+A2A task gets a fresh `HuggingFaceSandboxEnvironment` mounted at `/workspace`
+against a task-scoped bucket prefix. Without that setting, the example keeps the
+research worker in the shared harness environment so the protocol flow can be
+tested locally without Hugging Face credentials.
+
+The helper functions above are ordinary A2A SDK event publishing code. For
+example, `send_refinement_message()` enqueues one agent `Message`, while
+`start_research_task()` enqueues the initial `Task`, creates a `TaskUpdater`,
+and sends a working status update. The standard fast-agent A2A server wraps this
+kind of event publishing behind `fast_agent.a2a.task_api`; custom executors can
+use either that helper layer or the SDK primitives, but should avoid mixing both
+unless they deliberately install the task context.
+
+The serving entry point should be thin:
+
+```python
+fast = FastAgent(
+    "research A2A server",
+    home=Path(".fast-agent"),
+    parse_cli_args=False,
+    quiet=True,
+)
+
+
+async def main() -> None:
+    async with fast.harness() as harness:
+        app = harness.app()
+        request_handler = DefaultRequestHandler(
+            agent_executor=ResearchIntakeExecutor(ResearchIntakeAdapter(app)),
+            task_store=InMemoryTaskStore(),
+            agent_card=agent_card(),
+        )
+        # Add AgentCard, JSON-RPC, and HTTP+JSON routes as in the standard server.
+```
+
+If the resource setup should apply to every session rather than only this A2A
+adapter, implement it as a custom `harness_app.entrypoint` wrapper. The A2A
+executor can then use `harness.app()` normally and let the Harness app own
+session preparation.
+
+## Push Notifications and Callbacks
+
+A2A callback-style delivery is modeled as push notifications. The server should
+advertise `capabilities.pushNotifications: true` only when the A2A SDK
+`DefaultRequestHandler` has both a `PushNotificationConfigStore` and a
+`PushNotificationSender`.
+
+`AgentA2AServer` exposes that SDK wiring for Python callers:
+
+```python
+from a2a.server.tasks import (
+    BasePushNotificationSender,
+    InMemoryPushNotificationConfigStore,
+)
+import httpx
+
+push_config_store = InMemoryPushNotificationConfigStore()
+server = AgentA2AServer(
+    primary_instance=primary_instance,
+    create_instance=create_instance,
+    dispose_instance=dispose_instance,
+    push_config_store=push_config_store,
+    push_sender=BasePushNotificationSender(
+        httpx_client=httpx.AsyncClient(),
+        config_store=push_config_store,
+    ),
+)
+```
+
+Production servers should apply normal outbound-webhook controls before enabling
+push notifications: validate or allowlist callback URLs, authenticate outbound
+requests according to the client's push config, and use a durable store when
+tasks need to survive process restarts. The built-in CLI server keeps push
+notifications disabled by default.
+
 ## `INPUT_REQUIRED`
 
 When a fast-agent response has:
 
 ```python
-stop_reason=LlmStopReason.PAUSE
+stop_reason = LlmStopReason.PAUSE
 ```
 
 the A2A server reports `TASK_STATE_INPUT_REQUIRED` with the response text as the
@@ -324,7 +519,7 @@ A2A clients as a raw file part.
 A2A supports structured JSON exchange through JSON-compatible data content and
 also allows JSON to be returned as text artifacts. fast-agent does not parse
 ordinary model text and guess that it should become protocol data. Instead, it
-maps `TextResourceContents` with `mimeType="application/json"` to A2A data
+maps `TextResourceContents` with `mime_type="application/json"` to A2A data
 parts. This gives API users and structured-output wrappers an explicit path to
 return protocol-level JSON while preserving normal markdown/text responses.
 

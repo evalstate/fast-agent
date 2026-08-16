@@ -3,11 +3,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
-from fast_agent.constants import SMART_AGENT_INSTRUCTION
 from fast_agent.context import Context
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.skills.registry import SkillRegistry, format_skills_for_prompt
@@ -192,7 +191,7 @@ async def test_skill_reader_rejects_relative_path(tmp_path: Path) -> None:
 
     result = await reader.execute({"path": "skills/alpha/SKILL.md"})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
@@ -209,7 +208,7 @@ async def test_skill_reader_rejects_non_dict_arguments(tmp_path: Path) -> None:
 
     result = await reader.execute("not a mapping")  # ty: ignore[invalid-argument-type]
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
@@ -230,7 +229,7 @@ async def test_skill_reader_blocks_outside_skill_directory(tmp_path: Path) -> No
 
     result = await reader.execute({"path": str(outside_file)})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
@@ -249,7 +248,7 @@ async def test_skill_reader_reads_valid_skill_file(tmp_path: Path) -> None:
     skill_file = skills_root / "alpha" / "SKILL.md"
     result = await reader.execute({"path": str(skill_file)})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert any(
         isinstance(block, TextContent) and "Alpha body" in block.text for block in result.content
@@ -340,7 +339,7 @@ async def test_agent_skills_missing_placeholder_warns(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_skills_internal_smart_prompt_does_not_warn(tmp_path: Path) -> None:
+async def test_agent_skills_placeholder_does_not_warn(tmp_path: Path) -> None:
     skills_root = tmp_path / "skills"
     create_skill(skills_root, "delta", description="Delta desc")
 
@@ -349,7 +348,7 @@ async def test_agent_skills_internal_smart_prompt_does_not_warn(tmp_path: Path) 
 
     config = AgentConfig(
         name="test",
-        instruction=SMART_AGENT_INSTRUCTION,
+        instruction="Skills:\n{{agentSkills}}",
         servers=[],
         skills=skills_root,
     )

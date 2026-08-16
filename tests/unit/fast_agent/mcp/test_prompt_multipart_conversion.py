@@ -6,7 +6,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from mcp.types import PromptMessage, TextContent
+from mcp_types import PromptMessage, TextContent
 
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompts.prompt_load import create_messages_with_resources, load_prompt

@@ -11,7 +11,7 @@ from typing import cast
 from urllib.parse import urlparse
 
 import acp.schema as acp_schema
-import mcp.types as mcp_types
+import mcp_types as mcp_types
 from acp.helpers import (
     ContentBlock as ACPContentBlock,
 )
@@ -24,8 +24,7 @@ from acp.helpers import (
     resource_link_block,
     text_block,
 )
-from mcp.types import ContentBlock as MCPContentBlock
-from pydantic import AnyUrl
+from mcp_types import ContentBlock as MCPContentBlock
 
 from fast_agent.io.path_uri import file_uri_to_path
 from fast_agent.utils.commandline import quote_commandline_token
@@ -81,7 +80,7 @@ def _convert_image_content(
     return mcp_types.ImageContent(
         type="image",
         data=acp_image.data,
-        mimeType=acp_image.mime_type,
+        mime_type=acp_image.mime_type,
         annotations=_convert_annotations(acp_image.annotations),
     )
 
@@ -93,7 +92,7 @@ def _convert_audio_content(
     return mcp_types.AudioContent(
         type="audio",
         data=acp_audio.data,
-        mimeType=acp_audio.mime_type,
+        mime_type=acp_audio.mime_type,
         annotations=_convert_annotations(acp_audio.annotations),
     )
 
@@ -105,8 +104,8 @@ def _convert_resource_link(
     return mcp_types.ResourceLink(
         type="resource_link",
         name=acp_link.name,
-        uri=AnyUrl(acp_link.uri),
-        mimeType=acp_link.mime_type,
+        uri=acp_link.uri,
+        mime_type=acp_link.mime_type,
         size=acp_link.size,
         description=acp_link.description,
         title=acp_link.title,
@@ -132,14 +131,14 @@ def _convert_resource_contents(
     match acp_resource:
         case acp_schema.TextResourceContents():
             return mcp_types.TextResourceContents(
-                uri=AnyUrl(acp_resource.uri),
-                mimeType=acp_resource.mime_type or None,
+                uri=acp_resource.uri,
+                mime_type=acp_resource.mime_type or None,
                 text=acp_resource.text,
             )
         case acp_schema.BlobResourceContents():
             return mcp_types.BlobResourceContents(
-                uri=AnyUrl(acp_resource.uri),
-                mimeType=acp_resource.mime_type or None,
+                uri=acp_resource.uri,
+                mime_type=acp_resource.mime_type or None,
                 blob=acp_resource.blob,
             )
         case _:
@@ -283,12 +282,12 @@ def inline_resources_for_slash_command(
 
     Handles two client behaviors:
     1. Text has "@filename" references that match resource URIs by filename:
-       Input:  [TextBlock("/card @foo.txt"), ResourceBlock(uri="file:///path/foo.txt")]
-       Output: [TextBlock("/card /path/foo.txt")]
+       Input:  [TextBlock("/card load @foo.txt"), ResourceBlock(uri="file:///path/foo.txt")]
+       Output: [TextBlock("/card load /path/foo.txt")]
 
     2. Text ends with trailing space and resources follow without "@" references:
-       Input:  [TextBlock("/card "), ResourceBlock(uri="file:///foo.txt")]
-       Output: [TextBlock("/card /foo.txt")]
+       Input:  [TextBlock("/card load "), ResourceBlock(uri="file:///foo.txt")]
+       Output: [TextBlock("/card load /foo.txt")]
 
     Args:
         acp_prompt: List of ACP content blocks
@@ -385,14 +384,14 @@ def convert_mcp_content_to_acp(mcp_content: MCPContentBlock) -> ACPContentBlock 
         case mcp_types.TextContent():
             return text_block(mcp_content.text)
         case mcp_types.ImageContent():
-            return image_block(mcp_content.data, mcp_content.mimeType)
+            return image_block(mcp_content.data, mcp_content.mime_type)
         case mcp_types.AudioContent():
-            return audio_block(mcp_content.data, mcp_content.mimeType)
+            return audio_block(mcp_content.data, mcp_content.mime_type)
         case mcp_types.ResourceLink():
             return resource_link_block(
                 name=mcp_content.name,
                 uri=str(mcp_content.uri),
-                mime_type=mcp_content.mimeType,
+                mime_type=mcp_content.mime_type,
                 size=mcp_content.size,
                 description=mcp_content.description,
                 title=mcp_content.title,
@@ -411,13 +410,13 @@ def _convert_mcp_embedded_resource_to_acp(
             embedded = embedded_text_resource(
                 uri=str(mcp_content.resource.uri),
                 text=mcp_content.resource.text,
-                mime_type=mcp_content.resource.mimeType,
+                mime_type=mcp_content.resource.mime_type,
             )
         case mcp_types.BlobResourceContents():
             embedded = embedded_blob_resource(
                 uri=str(mcp_content.resource.uri),
                 blob=mcp_content.resource.blob,
-                mime_type=mcp_content.resource.mimeType,
+                mime_type=mcp_content.resource.mime_type,
             )
         case _:
             return None

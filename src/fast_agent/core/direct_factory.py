@@ -35,11 +35,7 @@ from fast_agent.core.agent_card_types import AgentCardData
 from fast_agent.core.exceptions import AgentConfigError, ModelConfigError
 from fast_agent.core.function_tool_support import custom_class_supports_function_tools
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.model_resolution import (
-    HARDCODED_DEFAULT_MODEL,
-    get_context_cli_model_override,
-    resolve_model_spec,
-)
+from fast_agent.core.model_resolution import get_context_cli_model_override, resolve_model_spec
 from fast_agent.core.validation import (
     get_dependencies_groups,
     is_basic_like_agent_type,
@@ -53,15 +49,12 @@ from fast_agent.interfaces import (
     ModelFactoryFunctionProtocol,
 )
 from fast_agent.llm.model_factory import ModelFactory
-from fast_agent.mcp.ui_agent import McpAgentWithUI
-from fast_agent.mcp.ui_modes import McpUIMode, normalize_mcp_ui_mode
 from fast_agent.tools.function_tool_loader import load_function_tools
 from fast_agent.tools.hook_loader import load_tool_runner_hooks
 from fast_agent.types import RequestParams
 
 if TYPE_CHECKING:
     from fast_agent.agents.workflow.agents_as_tools_agent import AgentsAsToolsOptions
-    from fast_agent.config import Settings
     from fast_agent.hooks.hook_context import HookAgentProtocol
     from fast_agent.tools.execution_environment import ShellEnvironment
 
@@ -119,12 +112,6 @@ class _ContextCoreShim:
         self.context = context
 
 
-def _resolve_mcp_ui_mode(settings: "Settings | None") -> McpUIMode:
-    if settings is None:
-        return "auto"
-    return normalize_mcp_ui_mode(settings.mcp_ui_mode)
-
-
 def _class_display_name(cls: object) -> str:
     if isinstance(cls, type):
         return cls.__name__
@@ -136,7 +123,7 @@ def _ensure_basic_only_agents(agents_dict: AgentConfigDict) -> None:
         agent_type = agent_data.get("type") if isinstance(agent_data, Mapping) else None
         if not is_basic_like_agent_type(agent_type):
             raise AgentConfigError(
-                "Smart tool only supports 'agent' cards",
+                "Basic agent creation only supports 'agent' cards",
                 f"Card '{name}' has unsupported type '{agent_type}'",
             )
 
@@ -394,34 +381,6 @@ T = TypeVar("T")  # For generic types
 logger = get_logger(__name__)
 
 
-def _create_agent_with_ui_if_needed(
-    agent_class: type,
-    config: Any,
-    context: Context,
-    **kwargs: Any,
-) -> Any:
-    """
-    Create an agent with UI support if MCP UI mode is enabled.
-
-    Args:
-        agent_class: The agent class to potentially enhance with UI
-        config: Agent configuration
-        context: Application context
-        **kwargs: Additional arguments passed to agent constructor (e.g., tools)
-
-    Returns:
-        Either a UI-enhanced agent instance or the original agent instance
-    """
-    ui_mode = _resolve_mcp_ui_mode(context.config)
-
-    if ui_mode != "disabled" and agent_class == McpAgent:
-        # Use the UI-enhanced agent class instead of the base class
-        return McpAgentWithUI(config=config, context=context, ui_mode=ui_mode, **kwargs)
-
-    # Create the original agent instance
-    return agent_class(config=config, context=context, **kwargs)
-
-
 def _replace_after_turn_complete(existing: Any, hook: Any) -> Any:
     from fast_agent.agents.tool_runner import ToolRunnerHooks
 
@@ -609,11 +568,10 @@ def get_model_factory(
     Model string is parsed by ModelFactory to determine provider and reasoning effort.
 
     Precedence (lowest to highest):
-        1. Hardcoded default (gpt-5.4-mini?reasoning=low)
-        2. FAST_AGENT_MODEL environment variable
-        3. Config file default_model
-        4. CLI --model argument
-        5. Decorator model parameter
+        1. FAST_AGENT_MODEL environment variable
+        2. Config file default_model
+        3. CLI --model argument
+        4. Decorator model parameter
 
     Args:
         context: Application context
@@ -631,12 +589,11 @@ def get_model_factory(
         model=model,
         default_model=default_model,
         cli_model=cli_model,
-        hardcoded_default=HARDCODED_DEFAULT_MODEL,
     )
     if resolved_model.model is None:
         raise ModelConfigError(
             "No model configured",
-            "Set --model, FAST_AGENT_MODEL, or default_model in config.",
+            "Set an agent model, --model, FAST_AGENT_MODEL, or default_model in fast-agent.yaml.",
         )
     logger.info(
         f"Resolved model '{resolved_model.model}' via {resolved_model.source}",
@@ -661,11 +618,11 @@ def get_default_model_source(
 ) -> str | None:
     """
     Determine the source of the default model selection.
-    Returns "environment variable", "config file", or None (if CLI or hardcoded default).
+    Returns "environment variable", "config file", or None for explicit CLI selection.
 
     This is used to display informational messages about where the model
     configuration is coming from. Only shows a message for env var or config file,
-    not for explicit CLI usage or the hardcoded system default.
+    not for explicit CLI usage.
     """
     # CLI model is explicit - no message needed
     if cli_model:
@@ -675,7 +632,6 @@ def get_default_model_source(
         context=None,
         default_model=config_default_model,
         cli_model=None,
-        fallback_to_hardcoded=False,
         model_references=model_references,
     )
     if resolved_model.source == "config file":
@@ -710,69 +666,12 @@ async def _create_basic_agent(
         )
     else:
         function_tools = _resolve_function_tools_with_globals(config, agent_data, build_ctx)
-        agent = _create_agent_with_ui_if_needed(
-            McpAgent,
-            config,
-            build_ctx.app_instance.context,
+        agent = McpAgent(
+            config=config,
+            context=build_ctx.app_instance.context,
             tools=function_tools,
             shell_environment=build_ctx.shell_environment,
         )
-
-    await _finalize_agent(
-        agent,
-        name,
-        config,
-        agent_data,
-        build_ctx.model_factory_func,
-        result_agents,
-        build_ctx.session_history_enabled,
-    )
-
-
-async def _create_smart_agent(
-    name: str,
-    agent_data: Mapping[str, Any],
-    build_ctx: AgentBuildContext,
-    result_agents: AgentDict,
-) -> None:
-    config = cast("AgentConfig", agent_data["config"])
-    child_names = cast("Sequence[str]", agent_data.get("child_agents", []) or [])
-    if child_names:
-        inputs = _build_agents_as_tools_inputs(name, agent_data, build_ctx)
-
-        from fast_agent.agents.smart_agent import SmartAgentsAsToolsAgent
-
-        agent = SmartAgentsAsToolsAgent(
-            config=inputs.config,
-            context=build_ctx.app_instance.context,
-            agents=cast("list[LlmAgent]", inputs.child_agents),
-            options=inputs.options,
-            tools=inputs.function_tools,
-            child_message_files=inputs.child_message_files,
-            shell_environment=build_ctx.shell_environment,
-        )
-    else:
-        function_tools = _resolve_function_tools_with_globals(config, agent_data, build_ctx)
-
-        from fast_agent.agents.smart_agent import SmartAgent, SmartAgentWithUI
-
-        settings = build_ctx.app_instance.context.config if build_ctx.app_instance.context else None
-        ui_mode = _resolve_mcp_ui_mode(settings)
-        if ui_mode != "disabled":
-            agent = SmartAgentWithUI(
-                config=config,
-                context=build_ctx.app_instance.context,
-                ui_mode=ui_mode,
-                tools=function_tools,
-                shell_environment=build_ctx.shell_environment,
-            )
-        else:
-            agent = SmartAgent(
-                config=config,
-                context=build_ctx.app_instance.context,
-                tools=function_tools,
-                shell_environment=build_ctx.shell_environment,
-            )
 
     await _finalize_agent(
         agent,
@@ -816,10 +715,9 @@ async def _create_custom_agent(
         # convention: resolved function tools are passed as ``tools=``.
         create_kwargs["tools"] = function_tools
 
-    agent = _create_agent_with_ui_if_needed(
-        cls,
-        config,
-        build_ctx.app_instance.context,
+    agent = cls(
+        config=config,
+        context=build_ctx.app_instance.context,
         **create_kwargs,
     )
     await _initialize_agent_with_llm(agent, config, build_ctx.model_factory_func)
@@ -1079,7 +977,6 @@ async def _create_a2a_agent(
 _AGENT_TYPE_BUILDERS: dict[AgentType, AgentTypeBuilder] = {
     AgentType.LLM: _create_basic_agent,
     AgentType.BASIC: _create_basic_agent,
-    AgentType.SMART: _create_smart_agent,
     AgentType.CUSTOM: _create_custom_agent,
     AgentType.ORCHESTRATOR: _create_planner_agent,
     AgentType.ITERATIVE_PLANNER: _create_planner_agent,

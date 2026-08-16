@@ -2,7 +2,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.tool_progress import ACPToolProgressManager
@@ -174,7 +174,7 @@ async def test_write_text_file_allows_empty_content() -> None:
         tool_use_id="tool-1",
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert connection.writes == [{"path": "empty.txt", "content": ""}]
 
 
@@ -193,8 +193,8 @@ async def test_filesystem_tools_reject_whitespace_only_path() -> None:
         tool_use_id="write-1",
     )
 
-    assert read_result.isError is True
-    assert write_result.isError is True
+    assert read_result.is_error is True
+    assert write_result.is_error is True
     assert connection.events == []
 
 
@@ -215,7 +215,7 @@ async def test_call_tool_rejects_disabled_write_tool_without_side_effects() -> N
         tool_use_id="tool-1",
     )
 
-    assert result.isError is True
+    assert result.is_error is True
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "Error: unsupported ACP filesystem tool 'write_text_file'."
     assert connection.events == []
@@ -240,7 +240,7 @@ async def test_read_text_file_forwards_line_and_limit() -> None:
         tool_use_id="tool-1",
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "old"
     assert connection.events == ["permission", "read"]
@@ -279,7 +279,7 @@ async def test_write_text_file_sends_diff_before_write_after_permission() -> Non
         tool_use_id="tool-1",
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert connection.events[:5] == ["diff", "permission", "read", "diff", "write"]
     assert permission_handler.calls == [
         (
@@ -323,7 +323,7 @@ async def test_write_text_file_in_write_only_mode_skips_old_content_read() -> No
         tool_use_id="tool-1",
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert connection.events == ["diff", "permission", "diff", "write"]
     assert connection.reads == []
     assert connection.session_updates[0].content[0].old_text is None
@@ -357,7 +357,7 @@ async def test_write_text_file_keeps_diff_after_progress_start_update() -> None:
         tool_use_id="tool-1",
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     content_updates = [
         (index, update)
         for index, update in enumerate(connection.session_updates)
@@ -396,7 +396,7 @@ async def test_write_text_file_denial_sends_preview_without_read_or_write() -> N
         tool_use_id="tool-1",
     )
 
-    assert result.isError is True
+    assert result.is_error is True
     assert connection.events == ["diff", "permission"]
     assert len(connection.session_updates) == 1
     assert connection.session_updates[0].content[0].old_text is None
@@ -428,7 +428,7 @@ async def test_write_text_file_denial_without_tool_use_id_does_not_start_progres
         tool_use_id=None,
     )
 
-    assert result.isError is True
+    assert result.is_error is True
     assert connection.events == ["permission"]
     assert connection.session_updates == []
     assert connection.reads == []
@@ -454,7 +454,7 @@ async def test_read_text_file_denial_skips_read_and_notifies_tool_handler() -> N
         tool_use_id="tool-1",
     )
 
-    assert result.isError is True
+    assert result.is_error is True
     assert connection.events == ["permission"]
     assert connection.reads == []
     assert tool_handler.ensures == [
@@ -483,7 +483,7 @@ async def test_read_text_file_denial_without_tool_use_id_does_not_start_progress
         tool_use_id=None,
     )
 
-    assert result.isError is True
+    assert result.is_error is True
     assert connection.events == ["permission"]
     assert connection.reads == []
     assert tool_handler.starts == []

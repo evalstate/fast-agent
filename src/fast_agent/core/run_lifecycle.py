@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from fast_agent.core.fastagent import FastAgent, ManagedRunState, RunRuntime, RunSettings
+    from fast_agent.core.shutdown import ShutdownBudget
     from fast_agent.interfaces import AgentProtocol
 
 
@@ -75,20 +76,37 @@ class FastAgentRunLifecycle:
         *,
         had_error: bool,
         shutdown_timeout: float | None = None,
+        shutdown_budget: ShutdownBudget | None = None,
         exc_type: type[BaseException] | None = None,
         exc: BaseException | None = None,
         traceback: TracebackType | None = None,
     ) -> None:
-        try:
+        async def finalize_run() -> None:
             await self._fast_agent._finalize_run(
                 run_state,
                 active_agents,
                 had_error=had_error,
                 settings=state.settings,
-                shutdown_timeout=shutdown_timeout,
+                shutdown_timeout=(
+                    shutdown_budget.remaining_seconds()
+                    if shutdown_budget is not None
+                    else shutdown_timeout
+                ),
             )
-        finally:
+
+        async def close_core() -> None:
             await state.exit_stack.__aexit__(exc_type, exc, traceback)
+
+        try:
+            if shutdown_budget is None:
+                await finalize_run()
+            else:
+                await shutdown_budget.run("agents", finalize_run)
+        finally:
+            if shutdown_budget is None:
+                await close_core()
+            else:
+                await shutdown_budget.run("core", close_core)
 
 
 __all__ = [

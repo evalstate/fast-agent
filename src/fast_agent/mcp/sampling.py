@@ -4,22 +4,22 @@ Supports "sampling with tools" as per MCP specification.
 """
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING
 
-from mcp import ClientSession
-from mcp.shared.context import RequestContext
-from mcp.types import (
+from mcp_types import (
+    INTERNAL_ERROR,
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateMessageResultWithTools,
+    ErrorData,
     TextContent,
 )
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.model_resolution import (
-    HARDCODED_DEFAULT_MODEL,
     get_context_cli_model_override,
     get_context_model_references,
     resolve_model_reference,
@@ -27,19 +27,14 @@ from fast_agent.core.model_resolution import (
 )
 from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.llm.sampling_converter import SamplingConverter
-from fast_agent.mcp.helpers.server_config_helpers import get_server_config
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 if TYPE_CHECKING:
+    from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
     from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
-
-
-@runtime_checkable
-class _NamedSamplingSession(Protocol):
-    session_server_name: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,28 +45,22 @@ class _SamplingModelSelection:
 
 
 def create_sampling_llm(
-    params: CreateMessageRequestParams, model_string: str, api_key: str | None
+    params: CreateMessageRequestParams,
+    model_string: str,
+    api_key: str | None,
+    app_context: "Context | None",
 ) -> FastAgentLLMProtocol:
     """
     Create an LLM instance for sampling without tools support.
     This utility function creates a minimal LLM instance based on the model string.
 
     Args:
-        mcp_ctx: The MCP ClientSession
         model_string: The model to use (e.g. "passthrough", "claude-3-5-sonnet-latest")
 
     Returns:
         An initialized LLM instance ready to use
     """
     from fast_agent.llm.model_factory import ModelFactory
-
-    app_context = None
-    try:
-        from fast_agent.context import get_current_context
-
-        app_context = get_current_context()
-    except Exception:
-        logger.warning("App context not available for sampling call")
 
     agent = LlmAgent(
         config=sampling_agent_config(params),
@@ -97,13 +86,6 @@ def _current_app_context() -> "Context | None":
         return None
 
 
-def _sampling_server_name(context: RequestContext[ClientSession, Any]) -> str:
-    session = context.session
-    if isinstance(session, _NamedSamplingSession) and session.session_server_name:
-        return session.session_server_name
-    return "unknown"
-
-
 def _start_sampling_notification(server_name: str) -> None:
     try:
         from fast_agent.ui import notification_tracker
@@ -125,28 +107,22 @@ def _end_sampling_notification(server_name: str) -> None:
 
 
 def resolve_auto_sampling_enabled(app_context: "Context | None") -> bool:
-    if app_context is None or app_context.config is None:
+    if app_context is None or app_context.config is None or app_context.config.mcp is None:
         return True
-    return app_context.config.auto_sampling
+    return app_context.config.mcp.client.auto_sampling
 
 
-def _configured_sampling_model(context: RequestContext[ClientSession, Any]) -> str | None:
-    server_config = get_server_config(context)
+def _configured_sampling_model(server_config: "MCPServerSettings | None") -> str | None:
     if server_config and server_config.sampling:
         return server_config.sampling.model
     return None
 
 
 def _agent_sampling_overrides(
-    context: RequestContext[ClientSession, Any],
+    agent_model: str | None,
+    api_key: str | None,
 ) -> tuple[str | None, str | None]:
-    from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
-
-    if not isinstance(context.session, MCPAgentClientSession):
-        return None, None
-
-    model = context.session.agent_model
-    api_key = context.session.api_key
+    model = agent_model
     if model:
         logger.debug(f"Using agent's model for sampling: {model}")
     if api_key:
@@ -154,38 +130,35 @@ def _agent_sampling_overrides(
     return model, api_key
 
 
-def _default_sampling_model(app_context: Any | None) -> str | None:
-    try:
-        resolved_model = resolve_model_spec(
-            app_context,
-            cli_model=get_context_cli_model_override(app_context),
-            hardcoded_default=HARDCODED_DEFAULT_MODEL,
-        )
-        if resolved_model.model:
-            logger.debug(
-                f"Using {resolved_model.source} model for sampling: {resolved_model.model}"
-            )
-        return resolved_model.model
-    except Exception as e:
-        logger.debug(f"Could not resolve default model for sampling: {e}")
-        return None
+def _default_sampling_model(app_context: "Context | None") -> str | None:
+    resolved_model = resolve_model_spec(
+        app_context,
+        cli_model=get_context_cli_model_override(app_context),
+    )
+    if resolved_model.model:
+        logger.debug(f"Using {resolved_model.source} model for sampling: {resolved_model.model}")
+    return resolved_model.model
 
 
 def _select_sampling_model(
-    context: RequestContext[ClientSession, Any],
+    *,
+    server_config: "MCPServerSettings | None",
+    agent_model: str | None,
+    api_key: str | None,
+    app_context: "Context | None",
 ) -> _SamplingModelSelection:
-    app_context = _current_app_context()
-    model = _configured_sampling_model(context)
-    api_key: str | None = None
+    model = _configured_sampling_model(server_config)
 
     if model is None and resolve_auto_sampling_enabled(app_context):
-        model, api_key = _agent_sampling_overrides(context)
+        model, api_key = _agent_sampling_overrides(agent_model, api_key)
         if model is None:
             model = _default_sampling_model(app_context)
 
     if model is None:
-        raise ValueError(
-            "No model configured for sampling (server config, agent model, or system default)"
+        raise ModelConfigError(
+            "No model configured for MCP sampling",
+            "Set the server sampling model, an agent model, --model, FAST_AGENT_MODEL, "
+            "or default_model in fast-agent.yaml.",
         )
 
     resolved = resolve_model_reference(model, get_context_model_references(app_context))
@@ -204,20 +177,26 @@ def _sampling_response(
             role=llm_response.role,
             content=content_blocks,
             model=model,
-            stopReason="toolUse",
+            stop_reason="toolUse",
         )
 
     return CreateMessageResult(
         role=llm_response.role,
         content=TextContent(type="text", text=llm_response.first_text()),
         model=model,
-        stopReason=LlmStopReason.END_TURN.value,
+        stop_reason=LlmStopReason.END_TURN.value,
     )
 
 
 async def sample(
-    context: RequestContext[ClientSession, Any], params: CreateMessageRequestParams
-) -> CreateMessageResult | CreateMessageResultWithTools:
+    params: CreateMessageRequestParams,
+    *,
+    server_name: str,
+    server_config: "MCPServerSettings | None",
+    agent_model: str | None,
+    api_key: str | None,
+    app_context: "Context | None",
+) -> CreateMessageResult | CreateMessageResultWithTools | ErrorData:
     """
     Handle sampling requests from the MCP protocol using SamplingConverter.
 
@@ -233,7 +212,6 @@ async def sample(
     and sending follow-up requests with tool results.
 
     Args:
-        context: The MCP RequestContext containing the ClientSession
         params: The sampling request parameters (may include tools and toolChoice)
 
     Returns:
@@ -241,16 +219,25 @@ async def sample(
         CreateMessageResultWithTools when the LLM wants to use tools
     """
     # Get server name for notification tracking
-    server_name = _sampling_server_name(context)
     _start_sampling_notification(server_name)
 
     model: str | None = None
     try:
-        selection = _select_sampling_model(context)
+        selection = _select_sampling_model(
+            server_config=server_config,
+            agent_model=agent_model,
+            api_key=api_key,
+            app_context=app_context,
+        )
         model = selection.model
 
         # Create an LLM instance
-        llm = create_sampling_llm(params, model, selection.api_key)
+        llm = create_sampling_llm(
+            params,
+            model,
+            selection.api_key,
+            selection.app_context,
+        )
 
         # Extract all messages from the request params
         if not params.messages:
@@ -263,8 +250,8 @@ async def sample(
         request_params = SamplingConverter.extract_request_params(params)
 
         # Check if tools are provided in the request
-        tools = params.tools if params.tools else None
-        has_tools = bool(tools)
+        tools = params.tools
+        has_tools = params.tools is not None or params.tool_choice is not None
 
         # Call LLM with tools if provided
         llm_response: PromptMessageExtended = await llm.generate(
@@ -279,8 +266,9 @@ async def sample(
         return _sampling_response(llm_response, model=model, has_tools=has_tools)
     except Exception as e:
         logger.error(f"Error in sampling: {e!s}")
-        return SamplingConverter.error_result(
-            error_message=f"Error in sampling: {e!s}", model=model
+        return ErrorData(
+            code=INTERNAL_ERROR,
+            message=f"Error in sampling: {e!s}",
         )
     finally:
         _end_sampling_notification(server_name)
@@ -300,7 +288,7 @@ def sampling_agent_config(
     """
     # Use systemPrompt from params if available, otherwise use default
     instruction = "You are a helpful AI Agent."
-    if params and params.systemPrompt is not None:
-        instruction = params.systemPrompt
+    if params and params.system_prompt is not None:
+        instruction = params.system_prompt
 
     return AgentConfig(name="sampling_agent", instruction=instruction)

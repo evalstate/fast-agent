@@ -8,26 +8,30 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from rich.console import Console
-from rich.markup import escape as escape_markup
+from rich.table import Table
+from rich.text import Text
 
 from fast_agent.llm.model_display_name import resolve_llm_display_name
+from fast_agent.ui.console import SurrogateSafeConsole
 from fast_agent.ui.context_usage_display import normalize_context_usage_percent
+from fast_agent.utils.count_display import format_compact_count
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
+
+    from rich.console import Console
 
     from fast_agent.interfaces import FastAgentLLMProtocol
-    from fast_agent.llm.usage_tracking import UsageSummary
+    from fast_agent.llm.usage_tracking import TurnUsage, UsageSummary
 
 
 @dataclass(frozen=True, slots=True)
 class _UsageDisplayRow:
     name: str
     model: str
-    prompt_tokens: int
-    completion_tokens: int
-    total_tokens: int
+    input_tokens: int
+    cache_read_tokens: int | None
+    output_tokens: int
     provider_attempts: int
     tool_calls: int
     context_percentage: float | None
@@ -36,9 +40,9 @@ class _UsageDisplayRow:
 @dataclass(frozen=True, slots=True)
 class _UsageDisplayData:
     rows: list[_UsageDisplayRow]
-    total_prompt: int
-    total_completion: int
-    total_tokens: int
+    total_input: int
+    total_cache_read: int | None
+    total_output: int
     total_tool_calls: int
 
 
@@ -65,6 +69,9 @@ class _UsageAccumulatorSource(Protocol):
     @property
     def summary(self) -> UsageSummary: ...
 
+    @property
+    def turns(self) -> Sequence[TurnUsage]: ...
+
 
 @runtime_checkable
 class _UsageReportAgent(Protocol):
@@ -75,16 +82,25 @@ class _UsageReportAgent(Protocol):
     def llm(self) -> "FastAgentLLMProtocol | None": ...
 
 
-def _truncate_agent_name(agent_name: str, width: int) -> str:
-    if len(agent_name) <= width:
-        return agent_name
-    return f"{agent_name[: width - 3]}..."
+@runtime_checkable
+class _SubagentUsageReportAgent(Protocol):
+    @property
+    def subagent_usage_accumulator(self) -> _UsageAccumulatorSource: ...
 
 
 def _format_context_percentage(context_percentage: float | None) -> str:
     if context_percentage is None:
         return "-"
     return f"{context_percentage:.1f}%"
+
+
+def _format_cache_percentage(cache_read_tokens: int | None, input_tokens: int) -> str:
+    if cache_read_tokens is None or input_tokens <= 0:
+        return "-"
+    percentage = cache_read_tokens / input_tokens * 100
+    if percentage < 100 and round(percentage) == 100:
+        return ">99%"
+    return f"{percentage:.0f}%"
 
 
 def _progress_display_enabled() -> bool:
@@ -98,7 +114,12 @@ def _progress_display_enabled() -> bool:
         return True
 
 
-def _usage_row(agent_name: str, agent: object) -> _UsageDisplayRow | None:
+def _usage_row(
+    agent_name: str,
+    agent: object,
+    *,
+    subtract: _UsageAccumulatorSource | None = None,
+) -> _UsageDisplayRow | None:
     if not isinstance(agent, _UsageReportAgent):
         return None
     usage_accumulator = agent.usage_accumulator
@@ -106,17 +127,28 @@ def _usage_row(agent_name: str, agent: object) -> _UsageDisplayRow | None:
         return None
 
     summary = usage_accumulator.summary
+    input_tokens = summary.prompt.total
+    output_tokens = summary.completion.total
+    cache_read_tokens = summary.prompt.cache_read
     provider_attempts = summary.provider_attempts
-    prompt_tokens = summary.prompt.total
-    completion_tokens = summary.completion.total
-    total_tokens = summary.total
     tool_calls = summary.tool_calls
-    if (
-        provider_attempts <= 0
-        or prompt_tokens is None
-        or completion_tokens is None
-        or total_tokens is None
-    ):
+    if provider_attempts <= 0 or input_tokens is None or output_tokens is None:
+        return None
+
+    if subtract is not None and subtract.summary.provider_attempts > 0:
+        child = subtract.summary
+        if child.prompt.total is not None:
+            input_tokens -= child.prompt.total
+        if child.completion.total is not None:
+            output_tokens -= child.completion.total
+        if cache_read_tokens is not None and child.prompt.cache_read is not None:
+            cache_read_tokens -= child.prompt.cache_read
+        else:
+            cache_read_tokens = None
+        provider_attempts -= child.provider_attempts
+        tool_calls -= child.tool_calls
+
+    if provider_attempts <= 0:
         return None
 
     model = "unknown"
@@ -126,9 +158,9 @@ def _usage_row(agent_name: str, agent: object) -> _UsageDisplayRow | None:
     return _UsageDisplayRow(
         name=agent_name,
         model=model,
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
-        total_tokens=total_tokens,
+        input_tokens=input_tokens,
+        cache_read_tokens=cache_read_tokens,
+        output_tokens=output_tokens,
         provider_attempts=provider_attempts,
         tool_calls=tool_calls,
         context_percentage=normalize_context_usage_percent(
@@ -137,109 +169,171 @@ def _usage_row(agent_name: str, agent: object) -> _UsageDisplayRow | None:
     )
 
 
+def _subagent_usage_row(
+    agent_name: str,
+    usage_accumulator: _UsageAccumulatorSource,
+) -> _UsageDisplayRow | None:
+    summary = usage_accumulator.summary
+    input_tokens = summary.prompt.total
+    output_tokens = summary.completion.total
+    if summary.provider_attempts <= 0 or input_tokens is None or output_tokens is None:
+        return None
+
+    turns = usage_accumulator.turns
+    models = {turn.model for turn in turns}
+    model = next(iter(models)) if len(models) == 1 else "multiple"
+    return _UsageDisplayRow(
+        name=f"{agent_name} › subagents",
+        model=model,
+        input_tokens=input_tokens,
+        cache_read_tokens=summary.prompt.cache_read,
+        output_tokens=output_tokens,
+        provider_attempts=summary.provider_attempts,
+        tool_calls=summary.tool_calls,
+        context_percentage=None,
+    )
+
+
 def _collect_usage_display_data(
     agents: Mapping[str, object],
 ) -> _UsageDisplayData | None:
     rows: list[_UsageDisplayRow] = []
-    total_prompt = 0
-    total_completion = 0
-    total_tokens = 0
+    total_input = 0
+    total_cache_read = 0
+    cache_read_complete = True
+    total_output = 0
     total_tool_calls = 0
 
     for agent_name, agent in agents.items():
-        row = _usage_row(agent_name, agent)
-        if row is None:
-            continue
+        subagent_usage = (
+            agent.subagent_usage_accumulator
+            if isinstance(agent, _SubagentUsageReportAgent)
+            else None
+        )
+        agent_rows = [
+            _usage_row(agent_name, agent, subtract=subagent_usage),
+            (
+                _subagent_usage_row(agent_name, subagent_usage)
+                if subagent_usage is not None
+                else None
+            ),
+        ]
+        for row in agent_rows:
+            if row is None:
+                continue
 
-        rows.append(row)
-        total_prompt += row.prompt_tokens
-        total_completion += row.completion_tokens
-        total_tokens += row.total_tokens
-        total_tool_calls += row.tool_calls
+            rows.append(row)
+            total_input += row.input_tokens
+            total_output += row.output_tokens
+            total_tool_calls += row.tool_calls
+            if row.cache_read_tokens is None:
+                cache_read_complete = False
+            else:
+                total_cache_read += row.cache_read_tokens
 
     if not rows:
         return None
 
     return _UsageDisplayData(
         rows=rows,
-        total_prompt=total_prompt,
-        total_completion=total_completion,
-        total_tokens=total_tokens,
+        total_input=total_input,
+        total_cache_read=total_cache_read if cache_read_complete else None,
+        total_output=total_output,
         total_tool_calls=total_tool_calls,
     )
 
 
-def _agent_column_width(rows: list[_UsageDisplayRow]) -> int:
-    max_agent_width = min(15, max(len(row.name) for row in rows))
-    return max(max_agent_width, 5)
-
-
-def _print_usage_header(console: Console, agent_width: int) -> None:
+def _print_usage_header(console: Console) -> None:
     console.print()
     console.print("─" * console.size.width, style="dim")
     console.print()
     console.print("[dim]▎[/dim] [bold dim]Usage Summary[/bold dim]")
     console.print()
-    console.print(
-        f"[dim]{'Agent':<{agent_width}} {'Prompt':>9} {'Completion':>10} {'Total':>9} {'Attempts':>8} {'Tools':>6} {'Context%':>9}  {'Model':<25}[/dim]"
-    )
 
 
-def _format_usage_row(row: _UsageDisplayRow, agent_width: int, subdued_colors: bool) -> str:
-    agent_name = escape_markup(_truncate_agent_name(row.name, agent_width))
-    model = escape_markup(row.model)
-    line = (
-        f"{agent_name:<{agent_width}} "
-        f"{row.prompt_tokens:>9,} "
-        f"{row.completion_tokens:>10,} "
-        f"[bold]{row.total_tokens:>9,}[/bold] "
-        f"{row.provider_attempts!s:>8} "
-        f"{row.tool_calls!s:>6} "
-        f"{_format_context_percentage(row.context_percentage):>9}  "
-    )
-    if subdued_colors:
-        return f"[dim]{line}{model:<25}[/dim]"
-    return f"{line}[dim]{model:<25}[/dim]"
-
-
-def _format_total_row(usage_data: _UsageDisplayData, agent_width: int, subdued_colors: bool) -> str:
-    if subdued_colors:
-        return (
-            f"[bold dim]{'TOTAL':<{agent_width}} "
-            f"{usage_data.total_prompt:>9,} "
-            f"{usage_data.total_completion:>10,} "
-            f"[bold]{usage_data.total_tokens:>9,}[/bold] "
-            f"{'':<6} "
-            f"{usage_data.total_tool_calls!s:>6} "
-            f"{'':<9}  "
-            f"{'':<25}[/bold dim]"
-        )
+def _usage_cells(row: _UsageDisplayRow) -> tuple[Text, ...]:
     return (
-        f"[bold]{'TOTAL':<{agent_width}}[/bold] "
-        f"[bold]{usage_data.total_prompt:>9,}[/bold] "
-        f"[bold]{usage_data.total_completion:>10,}[/bold] "
-        f"[bold]{usage_data.total_tokens:>9,}[/bold] "
-        f"{'':<6} "
-        f"[bold]{usage_data.total_tool_calls!s:>6}[/bold] "
-        f"{'':<9}  "
-        f"{'':<25}"
+        Text(row.name),
+        Text(format_compact_count(row.input_tokens, significant_digits=4), style="blue"),
+        Text(_format_cache_percentage(row.cache_read_tokens, row.input_tokens), style="blue"),
+        Text(format_compact_count(row.output_tokens, significant_digits=4), style="green"),
+        Text(str(row.tool_calls), style="blue"),
+        Text(_format_context_percentage(row.context_percentage), style="blue"),
+        Text(row.model, style="dim"),
     )
 
 
-def _print_usage_rows(
-    console: Console,
+def _total_cells(usage_data: _UsageDisplayData) -> tuple[Text, ...]:
+    return (
+        Text("TOTAL", style="bold"),
+        Text(
+            format_compact_count(usage_data.total_input, significant_digits=4),
+            style="bold blue",
+        ),
+        Text(
+            _format_cache_percentage(usage_data.total_cache_read, usage_data.total_input),
+            style="bold blue",
+        ),
+        Text(
+            format_compact_count(usage_data.total_output, significant_digits=4),
+            style="bold green",
+        ),
+        Text(str(usage_data.total_tool_calls), style="bold blue"),
+        Text(),
+        Text(),
+    )
+
+
+def _usage_table(
     usage_data: _UsageDisplayData,
-    agent_width: int,
+    *,
     subdued_colors: bool,
-) -> None:
+) -> Table:
+    table = Table(
+        box=None,
+        collapse_padding=True,
+        expand=True,
+        pad_edge=False,
+        header_style="dim",
+    )
+    table.add_column("Agent", min_width=5, max_width=24, overflow="ellipsis", no_wrap=True)
+    table.add_column("▶ Input", justify="right", overflow="ellipsis", no_wrap=True)
+    table.add_column("Cache hit", justify="right", overflow="ellipsis", no_wrap=True)
+    table.add_column("◀ Output", justify="right", overflow="ellipsis", no_wrap=True)
+    table.add_column("Tool calls", justify="right", overflow="ellipsis", no_wrap=True)
+    table.add_column("Last context", justify="right", overflow="ellipsis", no_wrap=True)
+    table.add_column("Model", ratio=2, min_width=4, max_width=25, overflow="ellipsis", no_wrap=True)
+
+    row_style = "dim" if subdued_colors else None
     for row in usage_data.rows:
-        console.print(_format_usage_row(row, agent_width, subdued_colors))
+        table.add_row(*_usage_cells(row), style=row_style)
 
     if len(usage_data.rows) > 1:
-        console.print()
-        console.print(_format_total_row(usage_data, agent_width, subdued_colors))
+        table.add_section()
+        table.add_row(*_total_cells(usage_data), style="bold dim" if subdued_colors else "bold")
+    return table
 
-    console.print()
+
+def _markdown_table_row(cells: tuple[Text, ...]) -> str:
+    values = (cell.plain.replace("|", "\\|").replace("\n", " ") for cell in cells)
+    return "| " + " | ".join(values) + " |"
+
+
+def format_usage_markdown(agents: Mapping[str, object]) -> str:
+    """Render model-visible usage data without terminal styling."""
+    usage_data = _collect_usage_display_data(agents)
+    if usage_data is None:
+        return "No usage data available."
+
+    lines = [
+        "| Agent | Input | Cache hit | Output | Tool calls | Last context | Model |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
+    ]
+    for row in usage_data.rows:
+        lines.append(_markdown_table_row(_usage_cells(row)))
+    if len(usage_data.rows) > 1:
+        lines.append(_markdown_table_row(_total_cells(usage_data)))
+    return "\n".join(lines)
 
 
 def display_usage_report(
@@ -262,10 +356,27 @@ def display_usage_report(
     if usage_data is None:
         return
 
-    console = Console()
-    agent_width = _agent_column_width(usage_data.rows)
-    _print_usage_header(console, agent_width)
-    _print_usage_rows(console, usage_data, agent_width, subdued_colors)
+    usage_console = SurrogateSafeConsole()
+    _print_usage_header(usage_console)
+    usage_console.print(_usage_table(usage_data, subdued_colors=subdued_colors))
+    usage_console.print()
+
+
+def finalize_usage_report(
+    agents: Mapping[str, object],
+    *,
+    show: bool,
+) -> None:
+    """Stop transient progress and optionally render the final usage report."""
+    from fast_agent.ui.progress_display import progress_display
+
+    progress_display.stop()
+    if show:
+        display_usage_report(
+            agents,
+            show_if_progress_disabled=True,
+            subdued_colors=True,
+        )
 
 
 def collect_agents_from_provider(prompt_provider: object) -> dict[str, object]:

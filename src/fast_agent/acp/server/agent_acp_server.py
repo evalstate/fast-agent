@@ -370,7 +370,7 @@ class AgentACPServer(ACPAgent):
             logger.info(
                 "ACP initialize response sent",
                 name="acp_initialize_response",
-                protocol_version=response.protocolVersion,
+                protocol_version=response.protocol_version,
             )
 
             return response

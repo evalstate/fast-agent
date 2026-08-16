@@ -117,7 +117,10 @@ def _format_registry_set_success(
     content.append_text(Text(f"Registry set to: {display_name}", style="green"))
     content.append("\n")
     content.append_text(
-        Text(f"Skills discovered: {skill_count}. Use /skills add to list.", style="dim")
+        Text(
+            f"Skills discovered: {skill_count}. Browse with /skills available.",
+            style="dim",
+        )
     )
     return content
 
@@ -216,8 +219,11 @@ async def handle_set_skills_registry(
         _add_empty_skills_registry_warning(outcome, url)
         return outcome
 
-    ctx.clear_active_skill_source(active_agent_name)
-    settings.skills.marketplace_url = resolved_url
+    if ctx.persist_skill_source_overrides:
+        ctx.clear_active_skill_source(active_agent_name)
+        settings.skills.marketplace_url = resolved_url
+    else:
+        ctx.set_active_skill_source(active_agent_name, resolved_url)
 
     outcome.add_message(
         _format_registry_set_success(

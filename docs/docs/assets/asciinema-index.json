@@ -59,6 +59,58 @@
           "cols": 96,
           "fit": "width",
           "idle_time_limit": 1.3,
+          "page": "docs/docs/mcp/elicitations.md",
+          "poster": "npt:0:03",
+          "reference": "../../assets/mcp/elicitation-sandbox.cast",
+          "rows": 24
+        }
+      ],
+      "height": 24,
+      "idle_time_limit": 1.3,
+      "line_count": 42,
+      "notes": "Runs the simulated t4-small quickstart with modern MCP request retries.",
+      "path": "docs/docs/assets/mcp/elicitation-sandbox.cast",
+      "present": true,
+      "problems": [],
+      "record_command": "uv run scripts/docs.py cast-build elicitation-sandbox",
+      "recorder": "elicitation-sandbox",
+      "timestamp": 1785691534,
+      "title": "Modern request-scoped MCP elicitation",
+      "width": 96
+    },
+    {
+      "embedded": [
+        {
+          "autoplay": false,
+          "cols": 112,
+          "fit": "width",
+          "idle_time_limit": 1.3,
+          "page": "docs/docs/mcp/mcp-inspect-transport.md",
+          "poster": "npt:0:15",
+          "reference": "../../assets/mcp/mcp-inspect-legacy.cast",
+          "rows": 30
+        }
+      ],
+      "height": 30,
+      "idle_time_limit": 1.3,
+      "line_count": 122,
+      "notes": "Deterministic local legacy Streamable HTTP server; demonstrates MCP-Session-Id capture, health pings, and a high-resolution timeline.",
+      "path": "docs/docs/assets/mcp/mcp-inspect-legacy.cast",
+      "present": true,
+      "problems": [],
+      "record_command": "uv run scripts/docs.py cast-build mcp-inspect-legacy",
+      "recorder": "mcp-inspect-legacy",
+      "timestamp": 1785830023,
+      "title": "fast-agent legacy remote MCP status",
+      "width": 112
+    },
+    {
+      "embedded": [
+        {
+          "autoplay": true,
+          "cols": 96,
+          "fit": "width",
+          "idle_time_limit": 1.3,
           "page": "docs/docs/models/index.md",
           "poster": "npt:0:03",
           "reference": "../../assets/models/model-picker.cast",
@@ -86,23 +138,59 @@
           "fit": "width",
           "idle_time_limit": 1.3,
           "page": "docs/docs/guides/tui.md",
-          "poster": "npt:0:36",
+          "poster": "npt:0:42.3",
+          "reference": "../../assets/tui/hf-image-generation.cast",
+          "rows": 34
+        },
+        {
+          "autoplay": false,
+          "cols": 120,
+          "fit": "width",
+          "idle_time_limit": 1.3,
+          "page": "docs/docs/mcp/mcp-inspect-transport.md",
+          "poster": "npt:0:61.39",
           "reference": "../../assets/tui/hf-image-generation.cast",
           "rows": 34
         }
       ],
       "height": 34,
       "idle_time_limit": 1.3,
-      "line_count": 699,
+      "line_count": 905,
       "notes": "",
       "path": "docs/docs/assets/tui/hf-image-generation.cast",
       "present": true,
       "problems": [],
       "record_command": "uv run scripts/docs.py cast-build hf-image-generation",
       "recorder": "hf-image-generation",
-      "timestamp": 1779781999,
+      "timestamp": 1785837831,
       "title": "fast-agent Hugging Face image generation",
       "width": 120
+    },
+    {
+      "embedded": [
+        {
+          "autoplay": false,
+          "cols": 110,
+          "fit": "width",
+          "idle_time_limit": 3.0,
+          "page": "docs/docs/guides/tui.md",
+          "poster": "npt:0:08",
+          "reference": "../../assets/tui/mcp-tool-schema.cast",
+          "rows": 32
+        }
+      ],
+      "height": 32,
+      "idle_time_limit": 3.0,
+      "line_count": 207,
+      "notes": "Live MCP connection; defaults to the Hugging Face MCP server at http://localhost:3000/mcp and inspects hf_whoami.",
+      "path": "docs/docs/assets/tui/mcp-tool-schema.cast",
+      "present": true,
+      "problems": [],
+      "record_command": "uv run scripts/docs.py cast-build mcp-tool-schema",
+      "recorder": "mcp-tool-schema",
+      "timestamp": 1785964543,
+      "title": "fast-agent MCP structured output schema",
+      "width": 110
     },
     {
       "embedded": [
@@ -145,14 +233,14 @@
       ],
       "height": 22,
       "idle_time_limit": 1.3,
-      "line_count": 347,
-      "notes": "",
+      "line_count": 341,
+      "notes": "Live Hugging Face stable-v2 connection; demonstrates the SEP-2640 Skills Extension Draft (d7490ecd) resource-manifest workflow, not legacy index/archive servers.",
       "path": "docs/docs/assets/tui/skills-over-mcp.cast",
       "present": true,
       "problems": [],
       "record_command": "uv run scripts/docs.py cast-build skills-over-mcp",
       "recorder": "skills-over-mcp",
-      "timestamp": 1782369652,
+      "timestamp": 1785792371,
       "title": "fast-agent Skills over MCP",
       "width": 96
     },
@@ -171,14 +259,14 @@
       ],
       "height": 24,
       "idle_time_limit": 1.3,
-      "line_count": 301,
+      "line_count": 298,
       "notes": "",
       "path": "docs/docs/assets/tui/skills-slash-commands.cast",
       "present": true,
       "problems": [],
       "record_command": "uv run scripts/docs.py cast-build skills-slash-commands",
       "recorder": "skills-slash-commands",
-      "timestamp": 1780593801,
+      "timestamp": 1785670453,
       "title": "fast-agent skills slash commands",
       "width": 96
     },

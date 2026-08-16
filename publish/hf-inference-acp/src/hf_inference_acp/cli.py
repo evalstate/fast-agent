@@ -10,7 +10,7 @@ import asyncio
 import os
 import shlex
 import sys
-from pathlib import Path  # noqa: TC003 - typer needs runtime access
+from pathlib import Path
 from typing import Any, cast
 
 import typer
@@ -237,7 +237,7 @@ def _load_agent_cards(
         if source.startswith(("http://", "https://")):
             try:
                 loaded_names.extend(fast.load_agents_from_url(source))
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 formatted = _format_agent_card_error(source, exc)
                 errors.append(formatted)
                 typer.echo(f"Warning: {formatted}", err=True)
@@ -251,7 +251,7 @@ def _load_agent_cards(
             seen_files.add(resolved_path)
             try:
                 loaded_names.extend(fast.load_agents(resolved_path))
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 formatted = _format_agent_card_error(str(resolved_path), exc)
                 errors.append(formatted)
                 typer.echo(f"Warning: {formatted}", err=True)
@@ -311,7 +311,7 @@ async def run_agents(
 
     await fast.app.initialize()
     if shell_runtime:
-        setattr(fast.app.context, "shell_runtime", True)
+        fast.app.context.shell_runtime = True
 
     await add_servers_to_config(fast, url_servers or {})
     await add_servers_to_config(fast, stdio_servers or {})
@@ -362,7 +362,7 @@ async def run_agents(
             card_errors.append(formatted)
             typer.echo(f"Warning: {formatted}", err=True)
         if card_errors:
-            setattr(fast.app.context, "agent_card_errors", card_errors)
+            fast.app.context.agent_card_errors = card_errors
 
     # Register the Setup agent (wizard LLM for guided setup)
     # This is always available for configuration
@@ -413,7 +413,7 @@ async def run_agents(
                     tool_loaded_names.extend(fast.load_agents_from_url(card_source))
                 else:
                     tool_loaded_names.extend(fast.load_agents(card_source))
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 formatted = _format_agent_card_error(card_source, exc)
                 typer.echo(f"Warning: {formatted}", err=True)
 
@@ -423,7 +423,7 @@ async def run_agents(
             if target_name:
                 try:
                     fast.attach_agent_tools(target_name, tool_loaded_names)
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     typer.echo(f"Warning: Failed to attach tool cards: {exc}", err=True)
 
     # Start the ACP server
@@ -537,7 +537,7 @@ def run_acp(
                 server_list.extend(list(url_servers.keys()))
         except ValueError as exc:
             print(f"Error parsing URLs: {exc}", file=sys.stderr)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
 
     stdio_servers, server_list = _parse_stdio_servers(stdio_commands, server_list)
 
@@ -562,7 +562,7 @@ def run_acp(
             )
         )
     except KeyboardInterrupt:
-        raise typer.Exit(0)
+        raise typer.Exit(0) from None
 
 
 def main() -> None:

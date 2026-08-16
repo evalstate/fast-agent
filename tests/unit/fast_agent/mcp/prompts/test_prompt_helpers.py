@@ -3,7 +3,7 @@ Tests for prompt helper functions.
 """
 
 import pytest
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     EmbeddedResource,
     ImageContent,
@@ -11,7 +11,6 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
-from pydantic.networks import AnyUrl
 
 from fast_agent.mcp.helpers.content_helpers import (
     get_image_data,
@@ -34,7 +33,7 @@ def text_content():
 
 @pytest.fixture
 def image_content():
-    return ImageContent(type="image", data="base64data", mimeType="image/png")
+    return ImageContent(type="image", data="base64data", mime_type="image/png")
 
 
 @pytest.fixture
@@ -42,7 +41,7 @@ def text_embedded_resource():
     return EmbeddedResource(
         type="resource",
         resource=TextResourceContents(
-            uri=AnyUrl("file:///example.txt"), text="Resource content", mimeType="text/plain"
+            uri="file:///example.txt", text="Resource content", mime_type="text/plain"
         ),
     )
 
@@ -52,14 +51,14 @@ def blob_resource():
     return EmbeddedResource(
         type="resource",
         resource=BlobResourceContents(
-            uri=AnyUrl("file:///example.png"), blob="base64blobdata", mimeType="image/png"
+            uri="file:///example.png", blob="base64blobdata", mime_type="image/png"
         ),
     )
 
 
 @pytest.fixture
 def text_resource():
-    return TextResourceContents(text="text_resource", uri=AnyUrl("file://example.txt"))
+    return TextResourceContents(text="text_resource", uri="file://example.txt")
 
 
 # Test content type extraction

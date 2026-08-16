@@ -25,6 +25,11 @@ from fast_agent.commands.model_capabilities import (
     resolve_web_search_enabled,
     resolve_web_search_supported,
 )
+from fast_agent.core.agent_capabilities import (
+    AgentCapabilityMode,
+    agent_capability_mode_supported,
+    resolve_agent_capability_mode,
+)
 from fast_agent.llm.model_display_name import resolve_model_display_name
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
@@ -32,6 +37,9 @@ from fast_agent.ui import notification_tracker
 from fast_agent.ui.context_usage_display import (
     ContextUsageAccumulator,
     resolve_context_usage_percent,
+)
+from fast_agent.ui.prompt.status_bar.agent_capabilities import (
+    render_agent_capability_indicator,
 )
 from fast_agent.ui.prompt.status_bar.alert_flags import _resolve_alert_flags_from_history
 from fast_agent.ui.prompt.status_bar.attachment import (
@@ -113,6 +121,7 @@ class ToolbarAgentState:
     service_tier_indicator: str | None = None
     web_search_indicator: str | None = None
     web_fetch_indicator: str | None = None
+    capability_mode: AgentCapabilityMode | None = None
     active_process_count: int = 0
 
 
@@ -398,6 +407,9 @@ def _build_toolbar_agent_state(
         service_tier_indicator=model_visuals.service_tier_indicator,
         web_search_indicator=model_visuals.web_search_indicator,
         web_fetch_indicator=model_visuals.web_fetch_indicator,
+        capability_mode=(
+            resolve_agent_capability_mode(agent) if agent_capability_mode_supported(agent) else None
+        ),
         active_process_count=_active_process_count_for_agent(agent),
     )
 
@@ -434,6 +446,7 @@ def _build_toolbar_agent_state_cache_key(
         _safe_cache_value(resolve_service_tier(llm)),
         _safe_cache_value(resolve_web_search_enabled(llm)),
         _safe_cache_value(resolve_web_fetch_enabled(llm)),
+        (resolve_agent_capability_mode(agent) if agent_capability_mode_supported(agent) else None),
         _active_process_count_for_agent(agent),
         _parallel_fan_out_model_cache_key(agent),
     )
@@ -697,6 +710,11 @@ def _build_middle_segment(
         model_label = f"{model_prefix}{agent_state.model_display}"
         attachment_indicator = render_attachment_indicator(attachment_summary)
         process_indicator = render_managed_process_indicator(agent_state.active_process_count)
+        capability_indicator = (
+            render_agent_capability_indicator(agent_state.capability_mode)
+            if agent_state.capability_mode is not None
+            else ""
+        )
         model_chip = render_model_chip(
             model_label=model_label,
             web_search_indicator=agent_state.web_search_indicator,
@@ -711,7 +729,9 @@ def _build_middle_segment(
         if agent_state.model_gauges:
             prefix += agent_state.model_gauges
         model_segment = f"{prefix} {model_chip}" if prefix else model_chip
-        middle_segments.append(f"{process_indicator}| {model_segment} {context_or_turns}")
+        middle_segments.append(
+            f"{process_indicator}{capability_indicator}| {model_segment} {context_or_turns}"
+        )
     else:
         middle_segments.append(context_or_turns)
     if shortcut_text:

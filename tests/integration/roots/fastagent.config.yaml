@@ -21,6 +21,7 @@ mcp:
     roots_test:
       command: "uv"
       args: ["run", "root_test_server.py"]
+      protocol_mode: modern
       roots:
         # a root with an alias
         - uri: "file://foo/bar"

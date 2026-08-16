@@ -1,18 +1,20 @@
-from typing import TYPE_CHECKING
+from typing import Annotated
 
-from fastmcp import Context, FastMCP
-
-if TYPE_CHECKING:
-    from mcp.types import ListRootsResult
-
-mcp = FastMCP("MCP Root Tester")
+from mcp.server.mcpserver import ListRoots, MCPServer, Resolve
+from mcp_types import ListRootsResult
 
 
-@mcp.tool()
-async def show_roots(ctx: Context) -> str:
-    result: ListRootsResult = await ctx.session.list_roots()
-    return result.model_dump_json()
+def request_roots() -> ListRoots:
+    return ListRoots()
+
+
+server = MCPServer("MCP Root Tester")
+
+
+@server.tool()
+def show_roots(roots: Annotated[ListRootsResult, Resolve(request_roots)]) -> str:
+    return roots.model_dump_json()
 
 
 if __name__ == "__main__":
-    mcp.run()
+    server.run(transport="stdio")

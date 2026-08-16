@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from mcp import Tool
-    from mcp.types import PromptMessage
+    from mcp_types import PromptMessage
 
 
 class StructuredResult(BaseModel):
@@ -103,8 +103,8 @@ class RecordingAgent(LlmAgent):
 def _parent_params() -> RequestParams:
     return RequestParams(
         model="parent-model",
-        systemPrompt="parent instructions",
-        maxTokens=17,
+        system_prompt="parent instructions",
+        max_tokens=17,
         use_history=False,
     )
 
@@ -112,8 +112,8 @@ def _parent_params() -> RequestParams:
 def _assert_child_params(params: RequestParams | None) -> None:
     assert params is not None
     assert params.model is None
-    assert params.systemPrompt is None
-    assert params.maxTokens is None
+    assert params.system_prompt is None
+    assert params.max_tokens is None
     assert params.use_history is False
 
 

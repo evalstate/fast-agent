@@ -73,3 +73,30 @@ def test_plugin_manifest_rejects_absolute_handler_path(tmp_path: Path) -> None:
 
     with pytest.raises(AgentConfigError, match="must be relative"):
         load_plugin_manifest(plugin_dir)
+
+
+def test_schema_v2_manifest_loads_post_user_turn_hook(tmp_path: Path) -> None:
+    plugin_dir = tmp_path / "cost"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.yaml").write_text(
+        "schema_version: 2\nname: cost\nhooks:\n  post_user_turn: ./cost.py:display\n",
+        encoding="utf-8",
+    )
+
+    manifest = load_plugin_manifest(plugin_dir)
+
+    assert manifest.post_user_turn is not None
+    assert manifest.post_user_turn.plugin_name == "cost"
+    assert manifest.post_user_turn.handler == f"{plugin_dir}/cost.py:display"
+
+
+def test_schema_v1_manifest_rejects_hooks(tmp_path: Path) -> None:
+    plugin_dir = tmp_path / "cost"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.yaml").write_text(
+        "schema_version: 1\nname: cost\nhooks:\n  post_user_turn: ./cost.py:display\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentConfigError, match="require schema_version: 2"):
+        load_plugin_manifest(plugin_dir)

@@ -43,8 +43,7 @@ Multi-line suppression can go on the first or last line of the violation:
 
 ```py
 sum_three_numbers(  # ty: ignore[missing-argument]
-    3,
-    2
+    3, 2
 )
 ```
 
@@ -53,6 +52,7 @@ Use `@no_type_check` only when a function is intentionally dynamic:
 
 ```py
 from typing import no_type_check
+
 
 @no_type_check
 def main():

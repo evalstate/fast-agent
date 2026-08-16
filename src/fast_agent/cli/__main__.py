@@ -5,6 +5,7 @@ from fast_agent.cli.asyncio_utils import set_asyncio_exception_handler
 from fast_agent.cli.constants import (
     GO_SPECIFIC_OPTIONS,
     KNOWN_SUBCOMMANDS,
+    normalize_convenience_flag_args,
     normalize_resume_flag_args,
 )
 from fast_agent.cli.main import LAZY_SUBCOMMANDS, app
@@ -17,9 +18,10 @@ _OPTIONS_WITHOUT_VALUES = {
     "--no-home",
     "--shell",
     "--no-shell",
+    "--subagents",
+    "--no-subagents",
     "--watch",
     "--reload",
-    "--smart",
     "--a2a-oauth",
     "--no-a2a-oauth",
     "-x",
@@ -138,6 +140,7 @@ def main():
     except RuntimeError:
         # No running loop yet (rare for sync entry), safe to ignore
         pass
+    normalize_convenience_flag_args(sys.argv, start_index=1)
     _normalize_root_serve_args(sys.argv)
     # Check if we should auto-route to 'go'
     if len(sys.argv) > 1:

@@ -4,8 +4,7 @@ import base64
 from types import SimpleNamespace
 
 import pytest
-from mcp.types import BlobResourceContents, EmbeddedResource
-from pydantic import AnyUrl
+from mcp_types import BlobResourceContents, EmbeddedResource
 
 from fast_agent.config import AnthropicSettings, Settings
 from fast_agent.context import Context
@@ -55,8 +54,8 @@ async def test_prepare_anthropic_file_resources_uploads_office_documents() -> No
     anthropic = _FakeAnthropic()
     docx_bytes = b"PK\x03\x04docx"
     resource = BlobResourceContents(
-        uri=AnyUrl("file:///tmp/report.docx"),
-        mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        uri="file:///tmp/report.docx",
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         blob=base64.b64encode(docx_bytes).decode("ascii"),
     )
     message = PromptMessageExtended(
@@ -68,7 +67,7 @@ async def test_prepare_anthropic_file_resources_uploads_office_documents() -> No
 
     meta = dict(resource.meta or {})
     assert meta[ANTHROPIC_FILE_ID_META_KEY] == "file_1"
-    assert anthropic.beta.files.calls == [("report.docx", docx_bytes, resource.mimeType)]
+    assert anthropic.beta.files.calls == [("report.docx", docx_bytes, resource.mime_type)]
 
 
 @pytest.mark.asyncio
@@ -79,13 +78,13 @@ async def test_prepare_anthropic_file_resources_caches_repeated_uploads() -> Non
     blob = base64.b64encode(docx_bytes).decode("ascii")
 
     first = BlobResourceContents(
-        uri=AnyUrl("file:///tmp/report.docx"),
-        mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        uri="file:///tmp/report.docx",
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         blob=blob,
     )
     second = BlobResourceContents(
-        uri=AnyUrl("file:///tmp/report.docx"),
-        mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        uri="file:///tmp/report.docx",
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         blob=blob,
     )
     messages = [
@@ -110,7 +109,7 @@ async def test_prepare_anthropic_file_resources_infers_document_mime_from_uri() 
     anthropic = _FakeAnthropic()
     docx_bytes = b"PK\x03\x04docx"
     resource = BlobResourceContents(
-        uri=AnyUrl("file:///tmp/report.docx"),
+        uri="file:///tmp/report.docx",
         blob=base64.b64encode(docx_bytes).decode("ascii"),
     )
     message = PromptMessageExtended(

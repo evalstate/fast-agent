@@ -60,6 +60,38 @@ def test_plugins_settings_accepts_namespaced_config(tmp_path: Path, monkeypatch)
     }
 
 
+def test_settings_loads_enabled_post_user_turn_plugin(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", (tmp_path / "user-home").as_posix())
+    environment = tmp_path / "environment"
+    plugin = environment / "plugins" / "cost"
+    plugin.mkdir(parents=True)
+    (plugin / "plugin.yaml").write_text(
+        "schema_version: 2\nname: cost\nhooks:\n  post_user_turn: ./cost.py:display\n",
+        encoding="utf-8",
+    )
+    (plugin / "cost.py").write_text(
+        "def display(ctx):\n    return 'cost'\n",
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text(
+        f"home: '{environment.as_posix()}'\n"
+        "plugins:\n"
+        "  enabled: ['cost']\n"
+        "  config:\n"
+        "    cost:\n"
+        "      precision: 4\n",
+        encoding="utf-8",
+    )
+
+    settings = get_settings(config_path)
+
+    assert len(settings._plugin_post_user_turn) == 1
+    assert settings._plugin_post_user_turn[0].plugin_name == "cost"
+    assert settings._plugin_post_user_turn[0].handler == f"{plugin}/cost.py:display"
+    assert settings.plugins.config["cost"] == {"precision": 4}
+
+
 def test_settings_merges_fast_agent_home_plugins(tmp_path: Path, monkeypatch) -> None:
     home = tmp_path / "home"
     project = tmp_path / "project"

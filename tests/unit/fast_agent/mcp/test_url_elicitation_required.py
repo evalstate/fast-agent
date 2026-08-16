@@ -1,9 +1,5 @@
 """Tests for URL elicitation required error handling helpers."""
 
-from mcp.shared.exceptions import McpError
-from mcp.types import URL_ELICITATION_REQUIRED, ErrorData
-
-from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.url_elicitation_required import parse_url_elicitation_required_data
 
 
@@ -26,7 +22,7 @@ class TestParseUrlElicitationRequiredData:
         assert len(parsed.elicitations) == 1
         assert parsed.elicitations[0].message == "Authorization is required."
         assert parsed.elicitations[0].url == "https://example.com/connect"
-        assert parsed.elicitations[0].elicitationId == "auth-001"
+        assert parsed.elicitations[0].elicitation_id == "auth-001"
 
     def test_reports_missing_data(self) -> None:
         parsed = parse_url_elicitation_required_data(None)
@@ -66,7 +62,7 @@ class TestParseUrlElicitationRequiredData:
         )
 
         assert len(parsed.elicitations) == 1
-        assert parsed.elicitations[0].elicitationId == "ok-1"
+        assert parsed.elicitations[0].elicitation_id == "ok-1"
         assert len(parsed.issues) == 2
         assert "error.data.elicitations[1] is invalid" in parsed.issues[0]
         assert parsed.issues[1] == "error.data.elicitations[2] must be an object, got str"
@@ -86,7 +82,7 @@ class TestParseUrlElicitationRequiredData:
         )
 
         assert len(parsed.elicitations) == 1
-        assert parsed.elicitations[0].elicitationId == "snake-1"
+        assert parsed.elicitations[0].elicitation_id == "snake-1"
         assert len(parsed.issues) == 1
         assert "non-compliant" in parsed.issues[0]
         assert "elicitation_id" in parsed.issues[0]
@@ -106,7 +102,7 @@ class TestParseUrlElicitationRequiredData:
         )
 
         assert len(parsed.elicitations) == 1
-        assert parsed.elicitations[0].elicitationId == "snake-1"
+        assert parsed.elicitations[0].elicitation_id == "snake-1"
         assert len(parsed.issues) == 1
         assert "non-compliant" in parsed.issues[0]
 
@@ -127,38 +123,3 @@ class TestParseUrlElicitationRequiredData:
         assert parsed.elicitations == []
         assert len(parsed.issues) == 1
         assert "error.data.elicitations[0] is invalid" in parsed.issues[0]
-
-
-class TestUrlElicitationRequiredErrorDetection:
-    def _make_session(self) -> MCPAgentClientSession:
-        session = object.__new__(MCPAgentClientSession)
-        session.session_server_name = "test"
-        return session
-
-    def test_detects_mcp_error_code_32042(self) -> None:
-        error = McpError(
-            ErrorData(
-                code=URL_ELICITATION_REQUIRED,
-                message="URL elicitation required",
-                data={
-                    "elicitations": [
-                        {
-                            "mode": "url",
-                            "message": "Authorize",
-                            "url": "https://example.com/auth",
-                            "elicitationId": "auth-1",
-                        }
-                    ]
-                },
-            )
-        )
-
-        assert self._make_session()._is_url_elicitation_required_error(error) is True
-
-    def test_ignores_other_mcp_error_codes(self) -> None:
-        error = McpError(ErrorData(code=-32601, message="Method not found"))
-
-        assert self._make_session()._is_url_elicitation_required_error(error) is False
-
-    def test_ignores_non_mcp_exceptions(self) -> None:
-        assert self._make_session()._is_url_elicitation_required_error(ValueError("x")) is False

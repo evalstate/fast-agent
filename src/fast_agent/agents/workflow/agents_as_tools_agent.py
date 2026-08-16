@@ -198,7 +198,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, assert_never
 
 from mcp import ListToolsResult, Tool
-from mcp.types import CallToolResult
+from mcp_types import CallToolResult
 
 from fast_agent.acp.tool_call_context import acp_tool_call_context
 from fast_agent.agents.mcp_agent import McpAgent
@@ -417,6 +417,7 @@ class AgentsAsToolsAgent(McpAgent):
         options: AgentsAsToolsOptions | None = None,
         context: Any | None = None,
         child_message_files: dict[str, list[Path]] | None = None,
+        owns_child_agents: bool = True,
         **kwargs: Any,
     ) -> None:
         """Initialize AgentsAsToolsAgent.
@@ -425,10 +426,12 @@ class AgentsAsToolsAgent(McpAgent):
             config: Agent configuration for this parent agent (including MCP servers/tools)
             agents: List of child agents to expose as tools
             context: Optional context for agent execution
+            owns_child_agents: Whether shutdown should release the configured child agents
             **kwargs: Additional arguments passed through to :class:`McpAgent` and its bases
         """
         super().__init__(config=config, context=context, **kwargs)
         self._options = options or AgentsAsToolsOptions()
+        self._owns_child_agents = owns_child_agents
         self._child_agents: dict[str, LlmAgent] = {}
         self._child_message_files = child_message_files or {}
         self._history_merge_lock = asyncio.Lock()
@@ -478,6 +481,8 @@ class AgentsAsToolsAgent(McpAgent):
     async def shutdown(self) -> None:
         """Shutdown this agent and all child agents."""
         await super().shutdown()
+        if not self._owns_child_agents:
+            return
         for agent in self._child_agents.values():
             try:
                 await agent.shutdown()
@@ -489,6 +494,7 @@ class AgentsAsToolsAgent(McpAgent):
         kwargs = super()._clone_constructor_kwargs()
         kwargs["agents"] = list(self._child_agents.values())
         kwargs["options"] = self._options
+        kwargs["owns_child_agents"] = False
         if self._child_message_files:
             kwargs["child_message_files"] = self._child_message_files
         return kwargs
@@ -560,7 +566,7 @@ class AgentsAsToolsAgent(McpAgent):
                 Tool(
                     name=tool_name,
                     description=description,
-                    inputSchema=input_schema,
+                    input_schema=input_schema,
                 )
             )
             existing_names.add(tool_name)
@@ -684,7 +690,7 @@ class AgentsAsToolsAgent(McpAgent):
         return (
             CallToolResult(
                 content=content_blocks,
-                isError=bool(error_blocks),
+                is_error=bool(error_blocks),
             ),
             error_blocks,
         )
@@ -700,7 +706,7 @@ class AgentsAsToolsAgent(McpAgent):
         if not tool_handler or not tool_call_id:
             return
         try:
-            if tool_result.isError:
+            if tool_result.is_error:
                 error_text = get_text(error_blocks[0]) if error_blocks else None
                 with acp_tool_call_context():
                     await tool_handler.on_tool_complete(
@@ -893,7 +899,7 @@ class AgentsAsToolsAgent(McpAgent):
         if response_mode_control.error is not None:
             return CallToolResult(
                 content=[text_content(response_mode_control.error)],
-                isError=True,
+                is_error=True,
             )
         child_request_params = self._build_child_request_params(
             request_params,
@@ -991,7 +997,7 @@ class AgentsAsToolsAgent(McpAgent):
                 tool_call_id=tool_call_id,
                 error=str(exc),
             )
-            return CallToolResult(content=[text_content(f"Error: {exc}")], isError=True)
+            return CallToolResult(content=[text_content(f"Error: {exc}")], is_error=True)
         finally:
             if hooks_set and isinstance(child, ToolRunnerHookCapable):
                 child.tool_runner_hooks = hook_install.previous_hooks
@@ -1053,7 +1059,7 @@ class AgentsAsToolsAgent(McpAgent):
 
             error_message = f"Tool '{tool_name}' is not available"
             tool_results[correlation_id] = CallToolResult(
-                content=[text_content(error_message)], isError=True
+                content=[text_content(error_message)], is_error=True
             )
             tool_loop_error = tool_loop_error or error_message
             descriptor.status = "error"
@@ -1079,7 +1085,7 @@ class AgentsAsToolsAgent(McpAgent):
         child = self._resolve_child_agent(tool_name)
         if not child:
             error_msg = f"Unknown agent-tool: {tool_name}"
-            return CallToolResult(content=[text_content(error_msg)], isError=True)
+            return CallToolResult(content=[text_content(error_msg)], is_error=True)
 
         instance_name = f"{child.name}[{instance}]"
         try:
@@ -1093,7 +1099,7 @@ class AgentsAsToolsAgent(McpAgent):
                     "error": str(exc),
                 },
             )
-            return CallToolResult(content=[text_content(f"Spawn failed: {exc}")], isError=True)
+            return CallToolResult(content=[text_content(f"Spawn failed: {exc}")], is_error=True)
 
         fork_index = self._load_history_into_clone(child, clone, instance_name)
         progress_started = self._start_child_clone_progress(
@@ -1449,7 +1455,7 @@ class AgentsAsToolsAgent(McpAgent):
             if isinstance(result, BaseException):
                 msg = f"Tool execution failed: {result}"
                 plan.tool_results[correlation_id] = CallToolResult(
-                    content=[text_content(msg)], isError=True
+                    content=[text_content(msg)], is_error=True
                 )
                 plan.tool_loop_error = plan.tool_loop_error or msg
                 descriptor.status = "error"
@@ -1457,7 +1463,7 @@ class AgentsAsToolsAgent(McpAgent):
                 continue
 
             plan.tool_results[correlation_id] = result
-            descriptor.status = "error" if result.isError else "done"
+            descriptor.status = "error" if result.is_error else "done"
 
     @staticmethod
     def _ordered_child_tool_records(
@@ -1612,7 +1618,7 @@ class AgentsAsToolsAgent(McpAgent):
                 show_hook_indicator=self.has_external_hooks,
                 result=CallToolResult(
                     content=[text_content(f"{collapsed} more results (collapsed)")],
-                    isError=False,
+                    is_error=False,
                 ),
             )
 

@@ -5,11 +5,13 @@ from rich.markdown import Markdown
 from rich.syntax import Syntax
 from rich.text import Text
 
+from fast_agent.command_actions import MarkdownTextStyle
 from fast_agent.ui.markdown.content import prepare_markdown_content
 from fast_agent.ui.markdown.renderables import (
     _rewrite_fence_languages,
     build_markdown_renderable,
     extract_single_fenced_code_block,
+    style_markdown_renderable,
 )
 
 
@@ -242,6 +244,73 @@ def test_build_markdown_renderable_adds_newline_after_final_table_row() -> None:
 
     assert isinstance(renderable, Markdown)
     assert renderable.markup.endswith("| one | two |\n")
+
+
+def test_style_markdown_renderable_colors_only_selected_table_text() -> None:
+    source = "| Cached |\n| ---: |\n| 400,000 (40%) |\n| 500,000 (50%) |\n"
+    markdown = build_markdown_renderable(
+        source,
+        code_theme="monokai",
+        escape_xml=True,
+    )
+    renderable = style_markdown_renderable(
+        markdown,
+        (MarkdownTextStyle(text="40%", style="red"),),
+    )
+    console = Console(force_terminal=True, color_system="standard", width=40)
+    segments = tuple(console.render(renderable, console.options))
+
+    low_cache = next(segment for segment in segments if segment.text == "40%")
+    threshold = next(segment for segment in segments if "50%" in segment.text)
+    assert low_cache.style is not None
+    assert low_cache.style.color is not None
+    assert low_cache.style.color.name == "red"
+    assert threshold.style is None or threshold.style.color is None
+    assert isinstance(markdown, Markdown)
+    assert "[red]" not in markdown.markup
+    assert "\x1b" not in markdown.markup
+
+
+def test_style_markdown_renderable_matches_across_segments_and_preserves_styles() -> None:
+    text = Text()
+    text.append("4", style="bold")
+    text.append("0%", style="italic")
+    renderable = style_markdown_renderable(
+        text,
+        (MarkdownTextStyle(text="40%", style="red"),),
+    )
+    console = Console(force_terminal=True, color_system="standard", width=40)
+    segments = tuple(console.render(renderable, console.options))
+    styled = [segment for segment in segments if segment.text in {"4", "0%"}]
+    styles = [segment.style for segment in styled if segment.style is not None]
+
+    assert len(styles) == 2
+    assert all(style.color is not None and style.color.name == "red" for style in styles)
+    assert styles[0].bold is True
+    assert styles[1].italic is True
+
+
+def test_style_markdown_renderable_does_not_match_numeric_suffixes() -> None:
+    markdown = build_markdown_renderable(
+        "| Cache read |\n| ---: |\n| 4,290,048 (89%) |\n| 0 (0%) |\n| 11,096,064 (90%) |\n",
+        code_theme="monokai",
+        escape_xml=True,
+    )
+    renderable = style_markdown_renderable(
+        markdown,
+        (MarkdownTextStyle(text="0%", style="red"),),
+    )
+    console = Console(force_terminal=True, color_system="standard", width=40)
+    segments = tuple(console.render(renderable, console.options))
+    red_text = "".join(
+        segment.text
+        for segment in segments
+        if segment.style is not None
+        and segment.style.color is not None
+        and segment.style.color.name == "red"
+    )
+
+    assert red_text == "0%"
 
 
 def test_build_markdown_renderable_adds_newline_after_optional_pipe_table_row() -> None:

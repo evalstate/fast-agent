@@ -13,7 +13,7 @@ from fast_agent.skills import SkillManifest
 from fast_agent.tools.execution_environment import ShellExecutionResult
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from pathlib import Path
 
     from fast_agent.core.harness import AgentHarness, HarnessSession
@@ -152,14 +152,17 @@ async def test_runtime_skills_adds_manifests_to_session_agent(tmp_path: Path) ->
 
 def test_load_harness_app_uses_entrypoint_factory() -> None:
     harness = RecordingHarness()
-    module = ModuleType("test_harness_app_entrypoint")
     contexts: list[HarnessAppContext] = []
 
     def create_app(context: HarnessAppContext) -> object:
         contexts.append(context)
         return context.default_app
 
-    setattr(module, "create_app", create_app)
+    class EntrypointModule(ModuleType):
+        create_app: Callable[[HarnessAppContext], object]
+
+    module = EntrypointModule("test_harness_app_entrypoint")
+    module.create_app = create_app
     sys.modules[module.__name__] = module
     try:
         app = load_harness_app(

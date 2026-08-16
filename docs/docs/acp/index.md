@@ -31,6 +31,15 @@ Why use **`fast-agent`**?:
 | MCP Servers | ✅ | MCP Servers supplied by the Client are attached to the Agent |
 | Sessions | ✅ | Session listing supported  |
 
+ACP MCP commands distinguish inventory, status, configured attachment, and
+ad-hoc connection:
+
+- `/mcp list` lists attached and configured-but-detached servers.
+- `/mcp status` shows detailed MCP connection status.
+- `/mcp attach <name>` attaches a configured registry entry.
+- `/mcp connect <target>` connects an ad-hoc target.
+- `/connect <name|target>` attaches a configured name or connects an ad-hoc target.
+
 ## Getting Started
 
 ### Customizing Agents

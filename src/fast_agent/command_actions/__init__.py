@@ -3,6 +3,7 @@
 from fast_agent.command_actions.config import parse_plugin_command_action_specs
 from fast_agent.command_actions.models import (
     FAST_AGENT_AUDIT_CHANNEL,
+    MarkdownTextStyle,
     PluginCommandAction,
     PluginCommandActionContext,
     PluginCommandActionFunction,
@@ -21,6 +22,7 @@ from fast_agent.command_actions.runtime import PluginRuntime, PluginRuntimeFacad
 
 __all__ = [
     "FAST_AGENT_AUDIT_CHANNEL",
+    "MarkdownTextStyle",
     "PluginCommandAction",
     "PluginCommandActionContext",
     "PluginCommandActionFunction",

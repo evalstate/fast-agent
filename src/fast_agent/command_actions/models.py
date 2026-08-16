@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Mapping
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from fast_agent.config import Settings
     from fast_agent.context import Context
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.llm.usage_tracking import UsageAccumulator, UserTurnUsage
     from fast_agent.types import PromptMessageExtended
 
 
@@ -43,6 +44,9 @@ class PluginCommandAgentProtocol(Protocol):
 
     @property
     def agent_registry(self) -> "Mapping[str, AgentProtocol] | None": ...
+
+    @property
+    def usage_accumulator(self) -> "UsageAccumulator | None": ...
 
     def get_agent(self, name: str) -> "AgentProtocol | None": ...
 
@@ -70,6 +74,14 @@ class PluginCommandActionImage:
     mime_type: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class MarkdownTextStyle:
+    """Presentation-only Rich style for visible Markdown text."""
+
+    text: str
+    style: str
+
+
 @dataclass(slots=True)
 class PluginCommandActionResult:
     """Result returned by a plugin command action."""
@@ -80,6 +92,7 @@ class PluginCommandActionResult:
     switch_agent: str | None = None
     refresh_agents: bool = False
     images: list[PluginCommandActionImage] = field(default_factory=list)
+    markdown_styles: tuple[MarkdownTextStyle, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +159,7 @@ class PluginCommandActionContext:
     runtime: "PluginRuntime | None" = None
     is_tui: bool = False
     is_acp: bool = False
+    user_turn_usage: tuple["UserTurnUsage", ...] = ()
 
     @property
     def agent_name(self) -> str:
@@ -162,6 +176,10 @@ class PluginCommandActionContext:
     @property
     def agent_registry(self) -> "Mapping[str, AgentProtocol] | None":
         return self.agent.agent_registry
+
+    @property
+    def usage(self) -> "UsageAccumulator | None":
+        return self.agent.usage_accumulator
 
     def load_message_history(self, messages: list["PromptMessageExtended"] | None) -> None:
         self.agent.load_message_history(messages)

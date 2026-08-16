@@ -13,13 +13,12 @@ import typer.main
 from typer.core import TyperGroup
 
 from fast_agent.cli.command_support import ensure_context_object
-from fast_agent.cli.constants import normalize_resume_flag_args
+from fast_agent.cli.constants import normalize_convenience_flag_args, normalize_resume_flag_args
 from fast_agent.cli.display import print_section_header
-from fast_agent.cli.home_helpers import resolve_home_option
+from fast_agent.cli.home_helpers import resolve_workspace_and_home_options
 from fast_agent.cli.terminal import Application
 from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
-from fast_agent.cli.workspace_helpers import resolve_workspace_option
-from fast_agent.constants import DEFAULT_HOME_DIR, FAST_AGENT_SHELL_CHILD_ENV
+from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.ui.console import console as shared_console
 
 LAZY_SUBCOMMANDS: dict[str, str] = {
@@ -42,6 +41,31 @@ LAZY_SUBCOMMANDS: dict[str, str] = {
     "export": "fast_agent.cli.commands.export:app",
 }
 
+LAZY_SUBCOMMAND_HELP: dict[str, str] = {
+    "acp": "Start fast-agent as an ACP stdio server (convenience wrapper for 'serve --transport acp').",
+    "auth": "Inspect and manage provider and MCP credentials.",
+    "batch": "Run batch processing jobs.",
+    "bootstrap": "Create fast-agent quickstarts",
+    "cards": "Manage card packs (list/add/remove/update/publish).",
+    "check": "Check and diagnose FastAgent configuration",
+    "config": "Configure fast-agent settings interactively.",
+    "demo": "Demo commands for UI features.",
+    "export": "Export persisted session traces.",
+    "go": "Run an interactive agent directly from the command line without creating an agent.py file",
+    "model": "Interactive model reference setup.",
+    "plugins": "Manage command plugins (list/add/remove/update).",
+    "quickstart": "Create fast-agent quickstarts",
+    "scaffold": "Initialize a new FastAgent project with configuration files and example agent.",
+    "serve": "Expose fast-agent to clients over MCP (http or stdio), ACP, or A2A, without writing an agent.py file",
+    "session": "Maintain persisted sessions.",
+    "skills": (
+        "Manage skills (list/available/search/add/remove/update). Add supports marketplace "
+        "selectors, GitHub URLs, GitHub paths, and local paths."
+    ),
+}
+
+_ROOT_HELP_CONTEXT_KEY = "fast_agent_lazy_root_help"
+
 
 def _resolve_root_verbosity(*, verbose: bool, quiet: bool) -> int:
     if verbose:
@@ -60,8 +84,10 @@ def _installed_package_version(package_name: str) -> str:
 
 class LazyGroup(TyperGroup):
     lazy_subcommands: ClassVar[dict[str, str]] = {}
+    lazy_subcommand_help: ClassVar[dict[str, str]] = {}
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        normalize_convenience_flag_args(args)
         if _first_root_command(args) == "go":
             normalize_resume_flag_args(args)
         return super().parse_args(ctx, args)
@@ -71,7 +97,9 @@ class LazyGroup(TyperGroup):
         return sorted(self.lazy_subcommands)
 
     def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
-        del ctx
+        if ctx.meta.get(_ROOT_HELP_CONTEXT_KEY) is True:
+            short_help = self.lazy_subcommand_help.get(cmd_name)
+            return click.Command(name=cmd_name, help=short_help) if short_help is not None else None
         target = self.lazy_subcommands.get(cmd_name)
         if not target:
             return None
@@ -82,6 +110,22 @@ class LazyGroup(TyperGroup):
         command.name = cmd_name
         return command
 
+    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        rows = [
+            (command_name, self.lazy_subcommand_help[command_name])
+            for command_name in self.list_commands(ctx)
+        ]
+        if rows:
+            with formatter.section("Commands"):
+                formatter.write_dl(rows)
+
+    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        ctx.meta[_ROOT_HELP_CONTEXT_KEY] = True
+        try:
+            super().format_help(ctx, formatter)
+        finally:
+            ctx.meta.pop(_ROOT_HELP_CONTEXT_KEY, None)
+
 
 app = typer.Typer(
     cls=LazyGroup,
@@ -89,6 +133,7 @@ app = typer.Typer(
     add_completion=False,  # We'll add this later when we have more commands
 )
 LazyGroup.lazy_subcommands = LAZY_SUBCOMMANDS
+LazyGroup.lazy_subcommand_help = LAZY_SUBCOMMAND_HELP
 
 
 def _first_root_command(args: list[str]) -> str | None:
@@ -196,13 +241,12 @@ def main(
     context_payload = ensure_context_object(ctx)
     context_payload["no_update_check"] = no_update_check
 
-    resolved_workspace = resolve_workspace_option(ctx, workspace)
+    resolved_workspace, resolved_home = resolve_workspace_and_home_options(
+        ctx,
+        workspace=workspace,
+        home=home,
+    )
     context_payload["workspace"] = resolved_workspace
-
-    home_option = home
-    if home_option is None and resolved_workspace is not None:
-        home_option = resolved_workspace / DEFAULT_HOME_DIR
-    resolved_home = resolve_home_option(ctx, home_option)
     context_payload["home"] = resolved_home
 
     application.verbosity = _resolve_root_verbosity(verbose=verbose, quiet=quiet)

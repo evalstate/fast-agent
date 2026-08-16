@@ -450,7 +450,18 @@ def build_snapshot(
             )
         )
 
+    # Active providers first (stable within PICKER_PROVIDER_ORDER); fast-agent
+    # is always pinned to the bottom. Overlay groups stay at the top.
+    overlay_groups = [option for option in providers if option.overlay_group]
+    provider_rows = [option for option in providers if not option.overlay_group]
+    provider_rows.sort(key=_provider_picker_sort_key)
+    providers = [*overlay_groups, *provider_rows]
+
     return ModelPickerSnapshot(providers=tuple(providers), config_payload=config_payload)
+
+
+def _provider_picker_sort_key(option: ProviderOption) -> tuple[bool, bool]:
+    return (option.provider == Provider.FAST_AGENT, not option.active)
 
 
 def _load_overlay_registry_for_snapshot(

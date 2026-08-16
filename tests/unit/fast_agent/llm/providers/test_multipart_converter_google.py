@@ -2,7 +2,7 @@ import base64
 import unittest
 from typing import TYPE_CHECKING
 
-from mcp.types import (
+from mcp_types import (
     CallToolResult,
     ImageContent,
     TextContent,
@@ -26,7 +26,7 @@ class TestOpenAIToolConverter(unittest.TestCase):
         """Test conversion of CallToolResult to OpenAI tool message."""
         # Create a tool result with text content
         text_content = TextContent(type="text", text=self.sample_text)
-        tool_result = CallToolResult(content=[text_content], isError=False)
+        tool_result = CallToolResult(content=[text_content], is_error=False)
 
         # Create a tool call ID
         #        tool_call_id = "call_abc123"
@@ -49,15 +49,15 @@ class TestOpenAIToolConverter(unittest.TestCase):
         """Test conversion of multiple tool results with different content types."""
         # Create first tool result with text only
         text_result = CallToolResult(
-            content=[TextContent(type="text", text="Text-only result")], isError=False
+            content=[TextContent(type="text", text="Text-only result")], is_error=False
         )
 
         # Create second tool result with image
         image_base64 = base64.b64encode(b"fake_image_data").decode("utf-8")
-        image_content = ImageContent(type="image", data=image_base64, mimeType="image/jpeg")
+        image_content = ImageContent(type="image", data=image_base64, mime_type="image/jpeg")
         image_result = CallToolResult(
             content=[TextContent(type="text", text="Here's the image:"), image_content],
-            isError=False,
+            is_error=False,
         )
 
         # Create tool names/ids

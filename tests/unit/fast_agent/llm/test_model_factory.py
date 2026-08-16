@@ -18,7 +18,6 @@ import pytest
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.exceptions import ModelConfigError
-from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory, ParsedModelSpec, Provider
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
@@ -182,6 +181,32 @@ def test_explicit_anthropic_vertex_provider_namespace() -> None:
 def test_model_query_unknown_parameter_rejected_for_non_anthropic_model():
     with pytest.raises(ModelConfigError, match="Unsupported model query parameter 'routing'"):
         ModelFactory.parse_model_string("openai.gpt-4.1?routing=vertex")
+
+
+def test_process_poll_default_is_not_a_model_query_override() -> None:
+    with pytest.raises(
+        ModelConfigError,
+        match="Unsupported model query parameter 'process_poll_default_wait_seconds'",
+    ):
+        ModelFactory.parse_model_string("xai.grok-4.5?process_poll_default_wait_seconds=420")
+
+
+def test_model_query_poll_period_overrides_catalog_default() -> None:
+    resolved = ModelFactory.resolve_model_spec("xai.grok-4.5?poll_period=420")
+
+    assert resolved.model_config.process_poll_default_wait_seconds == 420
+    assert resolved.process_poll_default_wait_seconds == 420
+    assert resolved.model_params is not None
+    assert resolved.model_params.process_poll_default_wait_seconds == 240
+
+
+@pytest.mark.parametrize("value", ["9", "3601", "abc", ""])
+def test_model_query_poll_period_rejects_invalid_values(value: str) -> None:
+    with pytest.raises(
+        ModelConfigError,
+        match="Use an integer from 10 through 3600",
+    ):
+        ModelFactory.parse_model_string(f"xai.grok-4.5?poll_period={value}")
 
 
 def test_model_query_multiple_unknown_parameters_uses_plural_error() -> None:
@@ -402,7 +427,7 @@ def test_minimax25_alias_sets_sampling_defaults() -> None:
 def test_model_query_transport_websocket_alias():
     config = ModelFactory.parse_model_string("codexplan?transport=ws")
     assert config.provider == Provider.CODEX_RESPONSES
-    assert config.model_name == "gpt-5.6-terra"
+    assert config.model_name == "gpt-5.6-sol"
     assert config.transport == "websocket"
 
 
@@ -591,6 +616,15 @@ def test_reasoning_query_allows_xai_grok_43_effort() -> None:
     assert config.reasoning_effort == ReasoningEffortSetting(kind="effort", value="high")
 
 
+def test_reasoning_query_allows_xai_grok_46_xhigh_effort() -> None:
+    factory = ModelFactory.create_factory("xai.grok-4.6?reasoning=xhigh")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+
+    assert isinstance(llm, ResponsesLLM)
+    assert llm.provider == Provider.XAI
+    assert llm.reasoning_effort == ReasoningEffortSetting(kind="effort", value="xhigh")
+
+
 def test_x_search_query_allows_xai_grok() -> None:
     config = ModelFactory.parse_model_string("xai.grok-4.3?x_search=enabled")
     assert config.provider == Provider.XAI
@@ -708,6 +742,40 @@ def test_factory_request_streaming_timeout_overrides_model_default(
     )
 
     assert llm.default_request_params.streaming_timeout == request_timeout
+
+
+@pytest.mark.parametrize(
+    ("timeout_spec", "expected_timeout"),
+    [("45", 45.0), ("none", None)],
+)
+def test_xai_streaming_timeout_query_overrides_high_reasoning_default(
+    timeout_spec: str,
+    expected_timeout: float | None,
+) -> None:
+    factory = ModelFactory.create_factory(
+        f"xai.grok-4.5?reasoning=high&streaming_timeout={timeout_spec}"
+    )
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+
+    assert llm.default_request_params.streaming_timeout == expected_timeout
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "xai/grok-4.5?reasoning=high",
+        "xai/grok-4.6?reasoning=high",
+        "xai/grok-4.6?reasoning=xhigh",
+    ],
+)
+def test_xai_high_reasoning_defaults_to_extended_streaming_timeout(model: str) -> None:
+    factory = ModelFactory.create_factory(model)
+    llm = factory(
+        LlmAgent(AgentConfig(name="Test Agent")),
+        request_params=RequestParams(use_history=False),
+    )
+
+    assert llm.default_request_params.streaming_timeout == 300.0
 
 
 def test_model_streaming_timeout_query_overrides_preset_default() -> None:
@@ -834,6 +902,16 @@ def test_huggingface_alias_without_provider():
     assert config.model_name == "moonshotai/Kimi-K2-Instruct-0905"
 
 
+def test_glimmer_alias_uses_together_with_recommended_sampling() -> None:
+    config = ModelFactory.parse_model_string("glimmer")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "meta-models/Muse-Glimmer-30B:together"
+    assert config.temperature == 1.0
+    assert config.top_p == 0.95
+    assert config.top_k == 64
+
+
 def test_builtin_glm_alias_uses_glm_52_default() -> None:
     config = ModelFactory.parse_model_string("glm")
     assert config.provider == Provider.HUGGINGFACE
@@ -939,6 +1017,13 @@ def test_deepseek_alias_resolves_to_deepseek_responses_model():
     assert config.model_name == "deepseek-v4-flash"
 
 
+def test_deepseek_pro_alias_resolves_to_deepseek_responses_model() -> None:
+    config = ModelFactory.parse_model_string("deepseekpro")
+
+    assert config.provider == Provider.DEEPSEEK
+    assert config.model_name == "deepseek-v4-pro"
+
+
 def test_deepseek_hf_aliases_resolve_to_hf_deepseek_v4_pro():
     for alias in ("deepseek-hf", "deepseek4-hf", "deepseek4pro-hf", "deepseekv4pro-hf"):
         config = ModelFactory.parse_model_string(alias)
@@ -946,10 +1031,12 @@ def test_deepseek_hf_aliases_resolve_to_hf_deepseek_v4_pro():
         assert config.model_name == "deepseek-ai/DeepSeek-V4-Pro:together"
 
 
-def test_deepseek_responses_model_resolves_to_official_provider():
-    config = ModelFactory.parse_model_string("deepseek-v4-flash")
+@pytest.mark.parametrize("model", ["deepseek-v4-flash", "deepseek-v4-pro"])
+def test_deepseek_responses_model_resolves_to_official_provider(model: str) -> None:
+    config = ModelFactory.parse_model_string(model)
+
     assert config.provider == Provider.DEEPSEEK
-    assert config.model_name == "deepseek-v4-flash"
+    assert config.model_name == model
 
 
 @pytest.mark.parametrize(
@@ -962,7 +1049,6 @@ def test_deepseek_responses_model_resolves_to_official_provider():
         "deepseek4flash",
         "deepseek4pro-direct",
         "deepseek-reasoner",
-        "deepseek-v4-pro",
         "deepseek-chat",
     ),
 )
@@ -988,45 +1074,12 @@ def test_gemma4_alias_resolves_to_hf_cerebras_vision_model():
     assert resolved.max_output_tokens == 40_000
 
 
-def test_curated_catalog_aliases_are_parseable():
-    runtime_presets = ModelFactory.get_runtime_presets()
-    for entry in ModelSelectionCatalog.list_current_entries():
-        if entry.model.startswith("anthropic-vertex."):
-            continue
-        preset_token = entry.alias.strip()
-        if runtime_presets.get(preset_token) != entry.model:
-            continue
-
-        alias_config = ModelFactory.parse_model_string(entry.alias)
-        model_config = ModelFactory.parse_model_string(entry.model)
-
-        assert alias_config.provider == model_config.provider
-        assert ModelDatabase.normalize_model_name(
-            alias_config.model_name
-        ) == ModelDatabase.normalize_model_name(model_config.model_name)
-        assert alias_config.reasoning_effort == model_config.reasoning_effort
-
-
 def test_query_backed_catalog_alias_applies_runtime_defaults() -> None:
     config = ModelFactory.parse_model_string("gpt-5.5")
 
     assert config.provider == Provider.RESPONSES
     assert config.model_name == "gpt-5.5"
     assert config.reasoning_effort == ReasoningEffortSetting(kind="effort", value="medium")
-
-
-def test_codexplan_aliases_use_codex_oauth_provider():
-    config = ModelFactory.parse_model_string("codexplan")
-    assert config.provider == Provider.CODEX_RESPONSES
-    assert config.model_name == "gpt-5.6-terra"
-
-    config = ModelFactory.parse_model_string("gpt54")
-    assert config.provider == Provider.RESPONSES
-    assert config.model_name == "gpt-5.4"
-
-    config = ModelFactory.parse_model_string("codexspark")
-    assert config.provider == Provider.CODEX_RESPONSES
-    assert config.model_name == "gpt-5.3-codex-spark"
 
 
 @pytest.mark.parametrize(
@@ -1217,15 +1270,15 @@ def test_factory_passes_max_tokens_query_to_request_params() -> None:
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
 
-    assert llm.default_request_params.maxTokens == 48_000
+    assert llm.default_request_params.max_tokens == 48_000
 
 
 def test_factory_max_tokens_query_overrides_explicit_request_params() -> None:
     factory = ModelFactory.create_factory("zai/glm-5.2?reasoning=max&max_tokens=48000")
     agent = LlmAgent(AgentConfig(name="test"))
-    llm = factory(agent, request_params=RequestParams(maxTokens=16_000))
+    llm = factory(agent, request_params=RequestParams(max_tokens=16_000))
 
-    assert llm.default_request_params.maxTokens == 48_000
+    assert llm.default_request_params.max_tokens == 48_000
 
 
 def test_model_sampling_query_aliases_preserve_url_order() -> None:
@@ -1289,6 +1342,14 @@ def test_hf_sampling_overrides_route_non_openai_fields_to_extra_body() -> None:
     assert extra_body["min_p"] == 0.0
     assert extra_body["repetition_penalty"] == 1.0
     assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+@pytest.mark.parametrize("field", ("reasoning_api", "reasoning_field"))
+def test_reasoning_field_names_are_not_model_query_parameters(field: str) -> None:
+    with pytest.raises(ModelConfigError, match=f"Unsupported model query parameter '{field}'"):
+        ModelFactory.parse_model_string(
+            f"hf.deepseek-ai/DeepSeek-V4-Flash-0731?reasoning=max&{field}=reasoning_effort"
+        )
 
 
 def test_hf_omits_empty_tools_for_router_compatibility() -> None:

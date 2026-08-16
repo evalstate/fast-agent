@@ -84,23 +84,65 @@ def _model_catalog_action(command: str, *, example_provider: str) -> CommandActi
 COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
     CommandSpec(
         command="skills",
-        summary="Manage local skills",
+        summary="Manage installed skills and skill registries",
         usage="/skills [list|available|search|add|remove|update|registry|help] [args]",
         actions=(
             CommandActionSpec(action="list", help="List local skills", usage="/skills list"),
             CommandActionSpec(
                 action="available",
                 aliases=("marketplace", "browse"),
-                help="Browse marketplace skills",
-                usage="/skills available",
-                examples=("/skills available",),
+                help="Browse skills from the active or selected registry",
+                usage=(
+                    "/skills available [--registry source] [--page N] [--limit N] "
+                    "[--compact|--full|--json]"
+                ),
+                examples=(
+                    "/skills available",
+                    "/skills available --registry hf --compact",
+                ),
+                options=(
+                    CommandOptionSpec(
+                        name="--registry",
+                        aliases=("-r",),
+                        value_name="url|path|mcp-server",
+                        summary="Browse this registry without changing the active registry.",
+                    ),
+                    CommandOptionSpec(
+                        name="--page",
+                        value_name="N",
+                        summary="Show a 1-based result page.",
+                    ),
+                    CommandOptionSpec(
+                        name="--limit",
+                        value_name="N",
+                        summary="Set page size, up to 100.",
+                    ),
+                    CommandOptionSpec(
+                        name="--compact",
+                        summary="Use bounded one-line descriptions.",
+                    ),
+                    CommandOptionSpec(
+                        name="--full",
+                        summary="Use the detailed interactive listing.",
+                    ),
+                    CommandOptionSpec(
+                        name="--json",
+                        summary="Return a machine-readable catalog page.",
+                    ),
+                ),
             ),
             CommandActionSpec(
                 action="search",
                 aliases=("find",),
-                help="Search marketplace skills",
-                usage="/skills search <query>",
-                examples=("/skills search docker",),
+                help="Search skills in the active or selected registry",
+                usage=(
+                    "/skills search <query> [--registry source] [--page N] [--limit N] "
+                    "[--compact|--full|--json]"
+                ),
+                examples=(
+                    "/skills search docker",
+                    "/skills search datasets --registry hf",
+                ),
                 arguments=(
                     CommandArgumentSpec(
                         name="query",
@@ -109,12 +151,45 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                         required=True,
                     ),
                 ),
+                options=(
+                    CommandOptionSpec(
+                        name="--registry",
+                        aliases=("-r",),
+                        value_name="url|path|mcp-server",
+                        summary="Search this registry without changing the active registry.",
+                    ),
+                    CommandOptionSpec(
+                        name="--page",
+                        value_name="N",
+                        summary="Show a 1-based result page.",
+                    ),
+                    CommandOptionSpec(
+                        name="--limit",
+                        value_name="N",
+                        summary="Set page size, up to 100.",
+                    ),
+                    CommandOptionSpec(
+                        name="--compact",
+                        summary="Use bounded one-line descriptions.",
+                    ),
+                    CommandOptionSpec(
+                        name="--full",
+                        summary="Use the detailed interactive listing.",
+                    ),
+                    CommandOptionSpec(
+                        name="--json",
+                        summary="Return a machine-readable catalog page.",
+                    ),
+                ),
             ),
             CommandActionSpec(
                 action="add",
                 aliases=("install",),
                 help="Install a skill",
-                usage=f"/skills add [<{SKILLS_ADD_SELECTOR}>] [--registry url] [--skills-dir path]",
+                usage=(
+                    f"/skills add <{SKILLS_ADD_SELECTOR}> "
+                    "[--registry url|path|mcp-server] [--skills-dir path]"
+                ),
                 examples=(
                     f"/skills add <{SKILLS_ADD_SELECTOR}>",
                     "/skills add https://github.com/org/repo/blob/main/skills/example/SKILL.md",
@@ -125,14 +200,15 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                         name="selector",
                         value_name=SKILLS_ADD_SELECTOR,
                         summary="Skill name, marketplace index, GitHub SKILL.md URL, or local path.",
+                        required=True,
                     ),
                 ),
                 options=(
                     CommandOptionSpec(
                         name="--registry",
                         aliases=("-r",),
-                        value_name="url|path",
-                        summary="Override the skills registry for this invocation.",
+                        value_name="url|path|mcp-server",
+                        summary="Install from this registry without changing the active registry.",
                     ),
                     CommandOptionSpec(
                         name="--skills-dir",
@@ -200,8 +276,8 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 arguments=(
                     CommandArgumentSpec(
                         name="target",
-                        value_name="number|url|path",
-                        summary="Registry selection, URL, or filesystem path.",
+                        value_name="number|url|path|mcp-server",
+                        summary="Registry selection, URL, filesystem path, or attached MCP server.",
                     ),
                 ),
             ),
@@ -222,21 +298,21 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
         ),
     ),
     CommandSpec(
-        command="cards",
+        command="packs",
         summary="Manage card packs",
-        usage="/cards [list|add|remove|readme|update|publish|registry|help] [args]",
+        usage="/packs [list|add|remove|readme|update|publish|registry|help] [args]",
         actions=(
             CommandActionSpec(
                 action="list",
                 help="List installed card packs",
-                usage="/cards list",
+                usage="/packs list",
             ),
             CommandActionSpec(
                 action="add",
                 aliases=("install",),
                 help="Install a card pack",
-                usage="/cards add [<number|name>] [--registry url] [--force]",
-                examples=("/cards add <number|name>",),
+                usage="/packs add [<number|name>] [--registry url] [--force]",
+                examples=("/packs add <number|name>",),
                 arguments=(
                     CommandArgumentSpec(
                         name="selector",
@@ -261,8 +337,8 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 action="remove",
                 aliases=("rm", "delete", "uninstall"),
                 help="Remove an installed card pack",
-                usage="/cards remove [<number|name>]",
-                examples=("/cards remove <number|name>",),
+                usage="/packs remove [<number|name>]",
+                examples=("/packs remove <number|name>",),
                 arguments=(
                     CommandArgumentSpec(
                         name="selector",
@@ -275,8 +351,8 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 action="readme",
                 aliases=("show", "cat"),
                 help="Show an installed card pack README",
-                usage="/cards readme [<number|name>]",
-                examples=("/cards readme <number|name>",),
+                usage="/packs readme [<number|name>]",
+                examples=("/packs readme <number|name>",),
                 arguments=(
                     CommandArgumentSpec(
                         name="selector",
@@ -289,8 +365,8 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 action="update",
                 aliases=("refresh", "upgrade"),
                 help="Check or apply card pack updates",
-                usage="/cards update [<number|name|all>] [--force] [--yes]",
-                examples=("/cards update all --yes",),
+                usage="/packs update [<number|name|all>] [--force] [--yes]",
+                examples=("/packs update all --yes",),
                 arguments=(
                     CommandArgumentSpec(
                         name="selector",
@@ -307,10 +383,10 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 action="publish",
                 help="Publish local card pack changes",
                 usage=(
-                    "/cards publish [<number|name>] [--no-push] [--message text] "
+                    "/packs publish [<number|name>] [--no-push] [--message text] "
                     "[--temp-dir path] [--keep-temp]"
                 ),
-                examples=("/cards publish <number|name> --no-push",),
+                examples=("/packs publish <number|name> --no-push",),
                 arguments=(
                     CommandArgumentSpec(
                         name="selector",
@@ -343,8 +419,8 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 action="registry",
                 aliases=("marketplace", "source"),
                 help="Set the card-pack registry",
-                usage="/cards registry [<number|url|path>]",
-                examples=("/cards registry",),
+                usage="/packs registry [<number|url|path>]",
+                examples=("/packs registry",),
                 arguments=(
                     CommandArgumentSpec(
                         name="target",
@@ -356,15 +432,112 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
             CommandActionSpec(
                 action="help",
                 aliases=("--help", "-h"),
-                help="Show cards command usage",
+                help="Show packs command usage",
             ),
         ),
         default_action="list",
         examples=(
-            "/cards add <number|name>",
-            "/cards readme <number|name>",
-            "/cards update all --yes",
-            "/cards registry",
+            "/packs add <number|name>",
+            "/packs readme <number|name>",
+            "/packs update all --yes",
+            "/packs registry",
+        ),
+    ),
+    CommandSpec(
+        command="agent",
+        summary="Show, select, or connect runtime agents",
+        usage="/agent [status|list|use <name>|tool add <name>|tool remove <name>]",
+        actions=(
+            CommandActionSpec(
+                action="status",
+                help="Show the current agent",
+                usage="/agent status",
+            ),
+            CommandActionSpec(
+                action="list",
+                help="List selectable agents",
+                usage="/agent list",
+            ),
+            CommandActionSpec(
+                action="use",
+                help="Switch to an agent",
+                usage="/agent use <name>",
+                arguments=(
+                    CommandArgumentSpec(
+                        name="name",
+                        value_name="name",
+                        summary="Registered agent name.",
+                    ),
+                ),
+            ),
+            CommandActionSpec(
+                action="tool",
+                help="Attach or detach an agent tool",
+                usage="/agent tool <add|remove> <name>",
+                arguments=(
+                    CommandArgumentSpec(
+                        name="operation",
+                        value_name="add|remove",
+                        summary="Agent-tool operation.",
+                    ),
+                    CommandArgumentSpec(
+                        name="name",
+                        value_name="name",
+                        summary="Registered agent name.",
+                    ),
+                ),
+            ),
+        ),
+        default_action="status",
+        examples=(
+            "/agent",
+            "/agent list",
+            "/agent use reviewer",
+            "/agent tool add reviewer",
+        ),
+    ),
+    CommandSpec(
+        command="card",
+        summary="Load or show AgentCard definitions",
+        usage="/card [show [agent]|load <path-or-url> [--as-tool]]",
+        actions=(
+            CommandActionSpec(
+                action="show",
+                help="Show an agent's AgentCard",
+                usage="/card show [agent]",
+                arguments=(
+                    CommandArgumentSpec(
+                        name="agent",
+                        value_name="agent",
+                        summary="Registered agent name; defaults to the current agent.",
+                    ),
+                ),
+            ),
+            CommandActionSpec(
+                action="load",
+                help="Load an AgentCard into the runtime",
+                usage="/card load <path-or-url> [--as-tool]",
+                arguments=(
+                    CommandArgumentSpec(
+                        name="source",
+                        value_name="path-or-url",
+                        summary="AgentCard file, directory, or URL.",
+                    ),
+                ),
+                options=(
+                    CommandOptionSpec(
+                        name="--as-tool",
+                        summary="Attach loaded agents as tools of the current agent.",
+                    ),
+                ),
+            ),
+        ),
+        default_action="show",
+        examples=(
+            "/card",
+            "/card show reviewer",
+            "/card load reviewer.md",
+            "/card load reviewer.md --as-tool",
         ),
     ),
     CommandSpec(
@@ -388,8 +561,11 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 action="add",
                 aliases=("install",),
                 help="Install a plugin",
-                usage="/plugins add [<number|name>] [--registry url]",
-                examples=("/plugins add <number|name>",),
+                usage=("/plugins add [<number|name>] [--global|--project] [--registry url]"),
+                examples=(
+                    "/plugins add <number|name> --global",
+                    "/plugins add <number|name> --project",
+                ),
                 arguments=(
                     CommandArgumentSpec(
                         name="selector",
@@ -398,6 +574,14 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                     ),
                 ),
                 options=(
+                    CommandOptionSpec(
+                        name="--global",
+                        summary="Install and enable across projects.",
+                    ),
+                    CommandOptionSpec(
+                        name="--project",
+                        summary="Install and enable only in the active project.",
+                    ),
                     CommandOptionSpec(
                         name="--registry",
                         aliases=("-r",),
@@ -424,8 +608,13 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 action="update",
                 aliases=("refresh", "upgrade"),
                 help="Check or apply plugin updates",
-                usage="/plugins update [<number|name|all>] [--force] [--yes]",
-                examples=("/plugins update all --yes",),
+                usage=(
+                    "/plugins update [<number|name|all>] [--global|--project] [--force] [--yes]"
+                ),
+                examples=(
+                    "/plugins update all --yes",
+                    "/plugins update all --global --yes",
+                ),
                 arguments=(
                     CommandArgumentSpec(
                         name="selector",
@@ -434,6 +623,14 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                     ),
                 ),
                 options=(
+                    CommandOptionSpec(
+                        name="--global",
+                        summary="Check or update only globally installed plugins.",
+                    ),
+                    CommandOptionSpec(
+                        name="--project",
+                        summary="Check or update only project plugins.",
+                    ),
                     CommandOptionSpec(name="--force", summary="Overwrite local modifications."),
                     CommandOptionSpec(name="--yes", summary="Confirm multi-plugin apply."),
                 ),
@@ -461,17 +658,62 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
         default_action="list",
         examples=(
             "/plugins available",
-            "/plugins add <number|name>",
+            "/plugins add <number|name> --global",
+            "/plugins add <number|name> --project",
             "/plugins remove <number|name>",
             "/plugins update all --yes",
             "/plugins registry",
         ),
     ),
     CommandSpec(
+        command="subagents",
+        summary="List subagent runs and control the built-in tool",
+        usage="/subagents [list|status|on|off|toggle|help]",
+        actions=(
+            CommandActionSpec(
+                action="list",
+                help="List subagent runs in the current session",
+                usage="/subagents list",
+            ),
+            CommandActionSpec(
+                action="status",
+                help="Show subagent tool state for the current agent",
+                usage="/subagents status",
+            ),
+            CommandActionSpec(
+                action="on",
+                help="Enable the subagent tool for the current runtime",
+                usage="/subagents on",
+            ),
+            CommandActionSpec(
+                action="off",
+                help="Disable new subagent runs for the current runtime",
+                usage="/subagents off",
+            ),
+            CommandActionSpec(
+                action="toggle",
+                help="Toggle the subagent tool for the current runtime",
+                usage="/subagents toggle",
+            ),
+            CommandActionSpec(
+                action="help",
+                aliases=("--help", "-h"),
+                help="Show subagents command usage",
+            ),
+        ),
+        default_action="list",
+        examples=("/subagents status", "/subagents off", "/subagents on"),
+    ),
+    CommandSpec(
         command="model",
         summary="Model inspection, switching, and runtime settings",
-        usage="/model [reasoning|task_budget|verbosity|fast|web_search|x_search|web_fetch|switch|doctor|references|catalog|help] [args]",
+        usage="/model [status|reasoning|task_budget|verbosity|fast|web_search|x_search|web_fetch|switch|doctor|references|catalog|help] [args]",
         actions=(
+            CommandActionSpec(
+                action="status",
+                help="Show current model and runtime settings",
+                usage="/model status",
+            ),
             CommandActionSpec(
                 action="reasoning",
                 help="Inspect or set reasoning effort",
@@ -552,44 +794,13 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 help="Show model command usage",
             ),
         ),
-        default_action="reasoning",
+        default_action="status",
         examples=(
             "/model task_budget 64k",
             "/model switch",
             "/model doctor",
             "/model references",
             "/model catalog openai --all",
-        ),
-    ),
-    CommandSpec(
-        command="models",
-        summary="Model onboarding and reference diagnostics",
-        usage="/models [doctor|references|catalog|help] [args]",
-        actions=(
-            CommandActionSpec(
-                action="doctor",
-                help="Inspect model onboarding readiness",
-                usage="/models doctor",
-                examples=("/models doctor",),
-            ),
-            CommandActionSpec(
-                action="references",
-                help="List or manage model references",
-                usage="/models references",
-                examples=("/models references",),
-            ),
-            _model_catalog_action("models", example_provider="anthropic"),
-            CommandActionSpec(
-                action="help",
-                aliases=("--help", "-h"),
-                help="Show models command usage",
-            ),
-        ),
-        default_action="doctor",
-        examples=(
-            "/models doctor",
-            "/models references",
-            "/models catalog anthropic --all",
         ),
     ),
     CommandSpec(

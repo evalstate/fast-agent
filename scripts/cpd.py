@@ -12,10 +12,12 @@ Options:
     --min-tokens N   Minimum token count for duplication (default: 100)
     --format FORMAT  Output format: text, csv, xml (default: text)
     --report FILE    Write report to file (default: stdout)
-    --check          Exit with error code if duplications found (for CI)
+    --check          Fail on new, changed, or stale duplication findings (for CI)
 """
 
 import argparse
+import hashlib
+import json
 import os
 import platform
 import shutil
@@ -24,16 +26,20 @@ import sys
 import tarfile
 import urllib.request
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
+from xml.etree import ElementTree
 
 # Tool versions and URLs
 JRE_VERSION = "17.0.9+9"
-PMD_VERSION = "7.9.0"
+PMD_VERSION = "7.26.0"
 
 TOOLS_DIR = Path.home() / "tools"
 JRE_DIR = TOOLS_DIR / f"jdk-{JRE_VERSION}-jre"
 PMD_DIR = TOOLS_DIR / f"pmd-bin-{PMD_VERSION}"
+CPD_BASELINE_PATH = Path(__file__).with_name("cpd_baseline.json")
+CPD_XML_NAMESPACE = {"cpd": "https://pmd-code.org/schema/cpd-report"}
 
 # Platform-specific JRE download
 SYSTEM = platform.system().lower()
@@ -71,6 +77,68 @@ CPD_EXCLUSIONS: Final[dict[str, str]] = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class CPDFinding:
+    tokens: int
+    paths: tuple[str, ...]
+    code_hash: str
+
+
+def parse_cpd_findings(xml_output: str, src_dir: Path) -> frozenset[CPDFinding]:
+    root = ElementTree.fromstring(xml_output)
+    findings: set[CPDFinding] = set()
+    for duplication in root.findall("cpd:duplication", CPD_XML_NAMESPACE):
+        paths = tuple(
+            sorted(
+                Path(file_element.attrib["path"])
+                .resolve()
+                .relative_to(src_dir.resolve())
+                .as_posix()
+                for file_element in duplication.findall("cpd:file", CPD_XML_NAMESPACE)
+            )
+        )
+        code_fragment = duplication.findtext(
+            "cpd:codefragment",
+            default="",
+            namespaces=CPD_XML_NAMESPACE,
+        )
+        normalized_fragment = code_fragment.replace("\r\n", "\n").replace("\r", "\n")
+        findings.add(
+            CPDFinding(
+                tokens=int(duplication.attrib["tokens"]),
+                paths=paths,
+                code_hash=hashlib.sha256(normalized_fragment.encode()).hexdigest(),
+            )
+        )
+    return frozenset(findings)
+
+
+def load_cpd_baseline(path: Path = CPD_BASELINE_PATH) -> frozenset[CPDFinding]:
+    baseline = json.loads(path.read_text())
+    if baseline["pmd_version"] != PMD_VERSION:
+        raise ValueError(
+            f"CPD baseline targets PMD {baseline['pmd_version']}, expected {PMD_VERSION}"
+        )
+    return frozenset(
+        CPDFinding(
+            tokens=entry["tokens"],
+            paths=tuple(entry["paths"]),
+            code_hash=entry["code_hash"],
+        )
+        for entry in baseline["findings"]
+    )
+
+
+def cpd_baseline_delta(
+    findings: frozenset[CPDFinding],
+    baseline: frozenset[CPDFinding],
+    *,
+    min_tokens: int,
+) -> tuple[frozenset[CPDFinding], frozenset[CPDFinding]]:
+    expected = frozenset(finding for finding in baseline if finding.tokens >= min_tokens)
+    return findings - expected, expected - findings
+
+
 def download_file(url: str, dest: Path, desc: str) -> None:
     """Download a file with progress indication."""
     print(f"Downloading {desc}...")
@@ -99,6 +167,7 @@ def ensure_jre() -> Path:
                 [system_java, "-version"],
                 capture_output=True,
                 text=True,
+                check=False,
             )
             version_output = result.stderr + result.stdout
             if "17" in version_output or "21" in version_output:
@@ -188,9 +257,67 @@ def run_cpd(
     for excluded_path in excluded_paths:
         cmd.extend(["--exclude", str(excluded_path)])
 
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
     output = result.stdout + result.stderr
     return result.returncode, output
+
+
+def check_cpd_baseline(
+    *,
+    java_home: Path,
+    pmd_dir: Path,
+    src_dir: Path,
+    excluded_paths: list[Path],
+    min_tokens: int,
+    xml_output: str | None,
+) -> int:
+    if xml_output is None:
+        xml_exit_code, xml_output = run_cpd(
+            java_home=java_home,
+            pmd_dir=pmd_dir,
+            src_dir=src_dir,
+            excluded_paths=excluded_paths,
+            min_tokens=min_tokens,
+            output_format="xml",
+        )
+        if xml_exit_code not in (0, 4):
+            print(f"\n❌ CPD XML check failed with exit code {xml_exit_code}", file=sys.stderr)
+            return xml_exit_code
+
+    try:
+        findings = parse_cpd_findings(xml_output, src_dir)
+        baseline = load_cpd_baseline()
+    except (KeyError, TypeError, ValueError, ElementTree.ParseError) as exc:
+        print(f"\n❌ Invalid CPD baseline or XML report: {exc}", file=sys.stderr)
+        return 1
+
+    unapproved, stale = cpd_baseline_delta(
+        findings,
+        baseline,
+        min_tokens=min_tokens,
+    )
+    if unapproved:
+        print(f"\n❌ {len(unapproved)} unapproved CPD finding(s):", file=sys.stderr)
+        for finding in sorted(unapproved, key=lambda item: (-item.tokens, item.paths)):
+            print(
+                f"  - {finding.tokens} tokens: {', '.join(finding.paths)}",
+                file=sys.stderr,
+            )
+    if stale:
+        print(f"\n❌ {len(stale)} stale CPD baseline finding(s):", file=sys.stderr)
+        for finding in sorted(stale, key=lambda item: (-item.tokens, item.paths)):
+            print(
+                f"  - {finding.tokens} tokens: {', '.join(finding.paths)}",
+                file=sys.stderr,
+            )
+    if unapproved or stale:
+        return 1
+
+    print(
+        f"\n✅ CPD check passed: {len(findings)} approved structural finding(s), "
+        "no new duplication."
+    )
+    return 0
 
 
 def main() -> int:
@@ -215,7 +342,7 @@ def main() -> int:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Exit with error code if duplications found (for CI)",
+        help="Fail on new, changed, or stale duplication findings (for CI)",
     )
     args = parser.parse_args()
 
@@ -259,11 +386,19 @@ def main() -> int:
     else:
         print(output)
 
+    if args.check and exit_code in (0, 4):
+        return check_cpd_baseline(
+            java_home=java_home,
+            pmd_dir=pmd_dir,
+            src_dir=src_dir,
+            excluded_paths=excluded_paths,
+            min_tokens=args.min_tokens,
+            xml_output=output if args.format == "xml" else None,
+        )
+
     # CPD exit codes: 0 = no duplication, 4 = duplications found
     if exit_code == 4:
         print("\n⚠️  Duplicated code detected!")
-        if args.check:
-            return 1
         return 0
     elif exit_code == 0:
         print("\n✅ No duplicated code found.")

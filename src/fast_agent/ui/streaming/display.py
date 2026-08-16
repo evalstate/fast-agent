@@ -6,7 +6,7 @@ import sys
 import time
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import IO, TYPE_CHECKING, Any, Protocol, TextIO, cast
+from typing import IO, TYPE_CHECKING, Any, Protocol, TextIO, cast, runtime_checkable
 
 from rich.console import Console, Group, RenderHook
 from rich.control import Control
@@ -14,6 +14,7 @@ from rich.file_proxy import FileProxy
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.segment import ControlType, Segment
+from rich.style import Style
 from rich.syntax import Syntax
 from rich.text import Text
 
@@ -31,12 +32,13 @@ from fast_agent.ui.markdown.truncation import MarkdownTruncator
 from fast_agent.ui.streaming.plain_text import PlainTextTruncator
 from fast_agent.ui.streaming.segments import StreamSegmentAssembler
 from fast_agent.ui.streaming.viewport import StreamViewport
+from fast_agent.ui.syntax_highlighting import shell_syntax_blocks
 from fast_agent.utils.env import env_flag
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from rich.console import ConsoleRenderable, RenderableType
+    from rich.console import ConsoleOptions, ConsoleRenderable, RenderableType, RenderResult
 
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.ui.console_display import ConsoleDisplay
@@ -57,6 +59,10 @@ PLAIN_STREAM_HEIGHT_FUDGE = 1
 STREAM_BATCH_PERIOD = 1 / 100
 STREAM_BATCH_MAX_DURATION = 1 / 60
 STREAM_CURSOR_BLOCK = "●"
+STREAM_CURSOR_IDLE_DELAY_SECONDS = 0.5
+STREAM_CURSOR_BLINK_HZ = 1.0
+STREAM_CURSOR_HALF_CYCLE_SECONDS = 1 / (STREAM_CURSOR_BLINK_HZ * 2)
+STREAM_CURSOR_STYLE = Style(color="bright_green", bold=True, dim=False)
 SCROLL_INDICATOR_DEBOUNCE_SECONDS = 0.2
 # Lines reserved for the stream header (header text + spacing newline) plus a
 # safety margin that absorbs rendering differences (e.g. inter-paragraph spacing
@@ -66,10 +72,18 @@ _STREAM_HEADER_AND_MARGIN_LINES = 3
 _MISSING_CONSOLE_WIDTH = object()
 
 
+@runtime_checkable
+class _ConsoleWithAttributes(Protocol):
+    __dict__: dict[str, object]
+
+
 def _apply_console_width_override(target_console: object, width_override: int | None) -> object:
-    original_width = getattr(target_console, "_width", _MISSING_CONSOLE_WIDTH)
+    if not isinstance(target_console, _ConsoleWithAttributes):
+        raise TypeError("Console width overrides require an attribute dictionary")
+    attributes = target_console.__dict__
+    original_width = attributes.get("_width", _MISSING_CONSOLE_WIDTH)
     if width_override is not None:
-        setattr(target_console, "_width", width_override)
+        attributes["_width"] = width_override
     return original_width
 
 
@@ -81,11 +95,13 @@ def _restore_console_width_override(
 ) -> None:
     if width_override is None:
         return
+    if not isinstance(target_console, _ConsoleWithAttributes):
+        raise TypeError("Console width overrides require an attribute dictionary")
+    attributes = target_console.__dict__
     if original_width is not _MISSING_CONSOLE_WIDTH:
-        setattr(target_console, "_width", original_width)
+        attributes["_width"] = original_width
         return
-    with suppress(AttributeError):
-        delattr(target_console, "_width")
+    attributes.pop("_width", None)
 
 
 def _resolve_progress_resume_debounce_seconds() -> float:
@@ -131,6 +147,166 @@ class _AppliedStreamBatch:
     should_render: bool
     queued_items: list[_QueuedItem]
     batch_chars: int
+
+
+@dataclass(slots=True)
+class _StreamCursorBlink:
+    last_activity_at: float | None = None
+    idle_delay: float = STREAM_CURSOR_IDLE_DELAY_SECONDS
+    half_cycle: float = STREAM_CURSOR_HALF_CYCLE_SECONDS
+
+    def visible_at(self, now: float) -> bool:
+        if self.last_activity_at is None:
+            return True
+        idle_elapsed = now - self.last_activity_at - self.idle_delay
+        if idle_elapsed < 0:
+            return True
+        phase = int(idle_elapsed / self.half_cycle)
+        return phase % 2 == 1
+
+    def next_transition_at(self, now: float) -> float | None:
+        if self.last_activity_at is None:
+            return None
+        idle_at = self.last_activity_at + self.idle_delay
+        if now < idle_at:
+            return idle_at
+        elapsed = now - idle_at
+        return idle_at + (int(elapsed / self.half_cycle) + 1) * self.half_cycle
+
+    def reset(self, now: float) -> None:
+        self.last_activity_at = now
+
+
+@dataclass(frozen=True)
+class _CursorStyledRenderable:
+    renderable: "RenderableType"
+
+    def __rich_console__(
+        self,
+        console: Console,
+        options: "ConsoleOptions",
+    ) -> "RenderResult":
+        segments = tuple(console.render(self.renderable, options))
+        yield from _style_terminal_stream_cursor(segments)
+
+
+class _CursorSyntax(Syntax):
+    """Append the stream cursor after lexing so it cannot become an error token."""
+
+    def __init__(
+        self,
+        code: str,
+        lexer: str,
+        *,
+        theme: str,
+        word_wrap: bool,
+        cursor_suffix: str,
+    ) -> None:
+        self._cursor_suffix = cursor_suffix
+        super().__init__(
+            code,
+            lexer,
+            theme=theme,
+            line_numbers=False,
+            word_wrap=word_wrap,
+        )
+
+    def highlight(
+        self,
+        code: str,
+        line_range: tuple[int | None, int | None] | None = None,
+    ) -> Text:
+        highlighted = super().highlight(code, line_range)
+        if self._cursor_suffix and code.endswith("\n") and not self.code.endswith("\n"):
+            highlighted.remove_suffix("\n")
+            highlighted.append(self._cursor_suffix)
+            highlighted.append("\n")
+        else:
+            highlighted.append(self._cursor_suffix)
+        return highlighted
+
+
+def _style_terminal_stream_cursor(segments: tuple[Segment, ...]) -> tuple[Segment, ...]:
+    visible = "".join(segment.text for segment in segments if not segment.control)
+    terminal = visible.rstrip()
+    has_cursor = terminal.endswith(STREAM_CURSOR_BLOCK)
+    cursor_offset = len(terminal) - len(STREAM_CURSOR_BLOCK) if has_cursor else len(terminal)
+    output: list[Segment] = []
+    offset = 0
+    inserted = False
+    for segment in segments:
+        if segment.control or not segment.text:
+            output.append(segment)
+            continue
+
+        start = offset
+        end = start + len(segment.text)
+        offset = end
+        if inserted or not start <= cursor_offset < end:
+            output.append(segment)
+            continue
+
+        split_at = cursor_offset - start
+        before = segment.text[:split_at]
+        cursor_end = split_at + len(STREAM_CURSOR_BLOCK) if has_cursor else split_at
+        after = segment.text[cursor_end:]
+        if before:
+            output.append(Segment(before, segment.style))
+        cursor_style = (segment.style or Style()) + STREAM_CURSOR_STYLE
+        output.append(Segment(STREAM_CURSOR_BLOCK, cursor_style))
+        inserted = True
+        if after:
+            output.append(Segment(after, segment.style))
+
+    if not inserted:
+        output.append(Segment(STREAM_CURSOR_BLOCK, STREAM_CURSOR_STYLE))
+    return tuple(output)
+
+
+def _coalesce_tool_delta_payloads(payloads: list[object]) -> list[object]:
+    coalesced: list[object] = []
+    index = 0
+    while index < len(payloads):
+        payload = payloads[index]
+        identity = _tool_delta_identity(payload)
+        if identity is None:
+            coalesced.append(payload)
+            index += 1
+            continue
+
+        assert isinstance(payload, _ToolStreamEvent)
+        info = payload.info
+        assert info is not None
+        chunks = [str(info["chunk"])]
+        next_index = index + 1
+        while next_index < len(payloads):
+            candidate = payloads[next_index]
+            if _tool_delta_identity(candidate) != identity:
+                break
+            assert isinstance(candidate, _ToolStreamEvent)
+            assert candidate.info is not None
+            chunks.append(str(candidate.info["chunk"]))
+            next_index += 1
+
+        if len(chunks) == 1:
+            coalesced.append(payload)
+        else:
+            merged_info = dict(info)
+            merged_info["chunk"] = "".join(chunks)
+            coalesced.append(_ToolStreamEvent(event_type="delta", info=merged_info))
+        index = next_index
+    return coalesced
+
+
+def _tool_delta_identity(payload: object) -> dict[str, Any] | None:
+    if not isinstance(payload, _ToolStreamEvent):
+        return None
+    if payload.event_type != "delta":
+        return None
+    info = payload.info
+    if not info or not info.get("tool_use_id") or not isinstance(info.get("chunk"), str):
+        return None
+    return {key: value for key, value in info.items() if key != "chunk"}
 
 
 def _first_different_line(
@@ -220,7 +396,7 @@ class _DiffLive(RenderHook):
         renderable = self.get_renderable()
         if renderable is None:
             return
-        if not self._is_interactive:
+        if not self._is_interactive or self._nested:
             return
         lines = self._render_lines(renderable)
 
@@ -267,13 +443,19 @@ class _DiffLive(RenderHook):
             self.console.print(renderable)
 
     def _stop_interactive(self) -> None:
-        self.console.clear_live()
         if self._nested:
+            self.console.clear_live()
             if not self.transient:
                 self._print_current_renderable()
             return
-        if self._lines:
-            self._stop_drawn_frame()
+        try:
+            try:
+                if self._lines:
+                    self._stop_drawn_frame()
+            finally:
+                self._restore_console_state()
+        finally:
+            self.console.clear_live()
 
     def _stop_drawn_frame(self) -> None:
         if self.transient:
@@ -545,6 +727,7 @@ class StreamingMessageHandle:
         header_right: str = "",
         tool_header_name: str | None = None,
         tool_metadata_resolver: Callable[[str], Mapping[str, Any] | None] | None = None,
+        stream_edit_previews: bool = True,
         progress_display: Any = None,
         performance_hook: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
@@ -562,6 +745,7 @@ class StreamingMessageHandle:
         self._setup_segment_rendering(
             tool_metadata_resolver=tool_metadata_resolver,
             use_plain_text=use_plain_text,
+            stream_edit_previews=stream_edit_previews,
         )
         refresh_rate = self._stream_refresh_rate()
         self._setup_render_timing(
@@ -582,12 +766,14 @@ class StreamingMessageHandle:
         *,
         tool_metadata_resolver: Callable[[str], Mapping[str, Any] | None] | None,
         use_plain_text: bool,
+        stream_edit_previews: bool,
     ) -> None:
         self._segment_assembler = StreamSegmentAssembler(
             base_kind="plain" if use_plain_text else "markdown",
             tool_prefix=self._tool_header_prefix_plain,
             tool_metadata_resolver=tool_metadata_resolver,
             apply_patch_preview_max_lines=self._display.apply_patch_preview_max_lines,
+            stream_edit_previews=stream_edit_previews,
         )
         self._markdown_truncator = MarkdownTruncator(
             target_height_ratio=1.0,
@@ -671,6 +857,8 @@ class StreamingMessageHandle:
         self._active = True
         self._finalized = False
         self._show_stream_cursor = True
+        self._stream_cursor_visible = True
+        self._stream_cursor_blink = _StreamCursorBlink()
         self._max_render_height = 0
         self._preserve_final_frame = False
         self._suppress_tail_padding_for_final_frame = False
@@ -1005,7 +1193,20 @@ class StreamingMessageHandle:
             return ""
         if segment_index != total_segments - 1:
             return ""
-        return STREAM_CURSOR_BLOCK
+        return STREAM_CURSOR_BLOCK if self._stream_cursor_visible else " "
+
+    def _record_stream_cursor_activity(self, *, now: float) -> None:
+        self._stream_cursor_blink.reset(now)
+        self._stream_cursor_visible = True
+
+    def _refresh_stream_cursor_if_due(self, *, now: float) -> None:
+        if not self._show_stream_cursor:
+            return
+        visible = self._stream_cursor_blink.visible_at(now)
+        if visible == self._stream_cursor_visible:
+            return
+        self._stream_cursor_visible = visible
+        self._render_current_buffer()
 
     def has_scrolled(self) -> bool:
         """Return whether viewport truncation/scrolling has started."""
@@ -1164,7 +1365,7 @@ class StreamingMessageHandle:
         cursor_suffix: str,
     ) -> "RenderableType":
         if segment.kind == "markdown":
-            return build_markdown_renderable(
+            renderable = build_markdown_renderable(
                 segment.text,
                 code_theme=self._display.code_style,
                 escape_xml=self._display._escape_xml,
@@ -1173,11 +1374,16 @@ class StreamingMessageHandle:
                 render_fences_with_syntax=self._display.render_fences_with_syntax,
                 code_word_wrap=self._display.code_word_wrap,
             )
-        if segment.kind == "reasoning":
-            return self._render_reasoning_segment(segment, cursor_suffix=cursor_suffix)
-        if segment.kind == "tool":
-            return self._render_tool_segment(segment, cursor_suffix=cursor_suffix)
-        return Text(f"{segment.text}{cursor_suffix}")
+        elif segment.kind == "reasoning":
+            renderable = self._render_reasoning_segment(segment, cursor_suffix=cursor_suffix)
+        elif segment.kind == "tool":
+            renderable = self._render_tool_segment(segment, cursor_suffix=cursor_suffix)
+        else:
+            renderable = Text(f"{segment.text}{cursor_suffix}")
+
+        if cursor_suffix == STREAM_CURSOR_BLOCK:
+            return _CursorStyledRenderable(renderable)
+        return renderable
 
     def _render_reasoning_segment(
         self,
@@ -1313,15 +1519,33 @@ class StreamingMessageHandle:
     ) -> "RenderableType":
         preview = segment.code_preview
         if preview is not None and preview.code.strip():
-            code_text = preview.code + cursor_suffix if cursor_suffix else preview.code
+            if preview.variant == "shell":
+                blocks = shell_syntax_blocks(
+                    preview.code,
+                    shell_language=preview.language,
+                    include_incomplete=not preview.complete,
+                )
+                renderables: list[RenderableType] = [self._tool_header_text(segment)]
+                for index, block in enumerate(blocks):
+                    renderables.append(
+                        _CursorSyntax(
+                            block.code,
+                            block.language,
+                            theme=self._display.code_style,
+                            word_wrap=self._display.code_word_wrap,
+                            cursor_suffix=cursor_suffix if index == len(blocks) - 1 else "",
+                        )
+                    )
+                return Group(*renderables)
+
             return Group(
                 self._tool_header_text(segment),
-                Syntax(
-                    code_text,
+                _CursorSyntax(
+                    preview.code,
                     preview.language,
                     theme=self._display.code_style,
-                    line_numbers=False,
                     word_wrap=self._display.code_word_wrap,
+                    cursor_suffix=cursor_suffix,
                 ),
             )
 
@@ -1389,7 +1613,7 @@ class StreamingMessageHandle:
 
     async def _next_stream_batch(self) -> _StreamBatch | None:
         assert self._queue is not None
-        item = await self._queue.get()
+        item = await self._wait_for_stream_item_or_blink()
         if item is self._stop_sentinel:
             self._queue.task_done()
             return None
@@ -1397,11 +1621,31 @@ class StreamingMessageHandle:
         batch_start = time.monotonic()
         chunks = [item]
         stop_requested = await self._collect_stream_batch(chunks, batch_start=batch_start)
+        self._record_stream_cursor_activity(now=time.monotonic())
         return _StreamBatch(
             chunks=chunks,
             batch_start=batch_start,
             stop_requested=stop_requested,
         )
+
+    async def _wait_for_stream_item_or_blink(self) -> object:
+        assert self._queue is not None
+        while True:
+            now = time.monotonic()
+            deadline = self._stream_cursor_blink.next_transition_at(now)
+            if deadline is None:
+                return await self._queue.get()
+
+            try:
+                return await asyncio.wait_for(
+                    self._queue.get(),
+                    timeout=max(0.0, deadline - now),
+                )
+            except asyncio.TimeoutError:
+                try:
+                    return self._queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    self._refresh_stream_cursor_if_due(now=time.monotonic())
 
     async def _collect_stream_batch(
         self,
@@ -1448,6 +1692,7 @@ class StreamingMessageHandle:
         should_render = False
         queued_items: list[_QueuedItem] = []
         batch_chars = 0
+        payloads: list[object] = []
         for chunk in chunks:
             if chunk is self._stop_sentinel:
                 continue
@@ -1455,6 +1700,8 @@ class StreamingMessageHandle:
             if isinstance(chunk, _QueuedItem):
                 queued_items.append(chunk)
                 payload = chunk.payload
+            payloads.append(payload)
+        for payload in _coalesce_tool_delta_payloads(payloads):
             rendered, char_count = self._apply_stream_payload(payload)
             should_render = rendered or should_render
             batch_chars += char_count

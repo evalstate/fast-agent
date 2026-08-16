@@ -1,6 +1,6 @@
 import json
 
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.constants import ANTHROPIC_CITATIONS_CHANNEL, ANTHROPIC_SERVER_TOOLS_CHANNEL
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended

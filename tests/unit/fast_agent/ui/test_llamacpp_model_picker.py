@@ -105,22 +105,6 @@ def test_llamacpp_picker_details_include_start_now_and_generate_overlay_hints() 
     assert "Enter on models = choose action" in rendered
 
 
-def test_llamacpp_picker_includes_start_now_smart_action() -> None:
-    picker = _LlamaCppModelPicker(
-        (
-            LlamaCppModelListing(
-                model_id="unsloth/Qwen3.5-9B-GGUF",
-                owned_by="llamacpp",
-                training_context_window=262144,
-            ),
-        )
-    )
-
-    rendered_actions = "".join(fragment for _, fragment in picker._render_actions())
-
-    assert "Start now (Smart)" in rendered_actions
-
-
 def test_llamacpp_picker_hides_model_cursor_when_actions_are_focused() -> None:
     picker = _LlamaCppModelPicker(
         (

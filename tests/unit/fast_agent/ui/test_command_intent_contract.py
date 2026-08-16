@@ -8,7 +8,7 @@ from fast_agent.commands.shared_command_intents import (
 from fast_agent.ui.command_payloads import (
     AgentCommand,
     AttachCommand,
-    CardsCommand,
+    CardCommand,
     CheckCommand,
     ClearSessionsCommand,
     CommandError,
@@ -20,11 +20,11 @@ from fast_agent.ui.command_payloads import (
     HistoryViewCommand,
     ListPromptsCommand,
     ListToolsCommand,
-    LoadAgentCardCommand,
     LoadHistoryCommand,
     LoadPromptCommand,
     McpConnectCommand,
     McpListCommand,
+    PacksCommand,
     ResumeSessionCommand,
     SaveHistoryCommand,
     ShellCommand,
@@ -69,40 +69,40 @@ def test_session_completion_descriptions_cover_parser_actions() -> None:
 
 def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
     assert frozenset(prompt_parser._SIMPLE_SLASH_FACTORIES) == {
-        "help",
         "system",
         "usage",
         "markdown",
         "reload",
-        "mcpstatus",
         "environment",
         "prompts",
         "exit",
         "stop",
     }
     assert frozenset(prompt_parser._COMMAND_PARSERS) == {
+        "help",
         "compact",
         "history",
         "session",
         "card",
         "agent",
+        "subagents",
         "a2a",
         "tasks",
         "mcp",
         "connect",
         "prompt",
         "model",
-        "models",
         "attach",
         "check",
         "commands",
+        "tool",
         "tools",
         "process",
         "processes",
     }
     assert frozenset(prompt_parser._SLASH_ACTION_FACTORIES) == {
         "skills",
-        "cards",
+        "packs",
         "plugins",
     }
     assert frozenset(prompt_parser._SLASH_ALIAS_PARSERS) == {
@@ -185,25 +185,24 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
             id="mcp-list",
         ),
         pytest.param(
-            "/card card.yml extra",
-            LoadAgentCardCommand(
-                filename="card.yml",
-                add_tool=False,
-                remove_tool=False,
-                error="Unexpected arguments: extra",
-            ),
-            id="card-rejects-extra-args",
-        ),
-        pytest.param(
-            "/agent @alpha --tool --rm",
-            AgentCommand(
-                agent_name="alpha",
-                add_tool=True,
-                remove_tool=True,
-                dump=False,
+            '/card load "card.yml" --as-tool',
+            CardCommand(
+                action="load",
+                source="card.yml",
+                agent_name=None,
+                as_tool=True,
                 error=None,
             ),
-            id="agent-tool-remove-alias",
+            id="card-load-as-tool",
+        ),
+        pytest.param(
+            "/agent tool remove alpha",
+            AgentCommand(
+                action="tool_remove",
+                agent_name="alpha",
+                error=None,
+            ),
+            id="agent-tool-remove",
         ),
         pytest.param(
             "/session new review",
@@ -261,9 +260,9 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
             id="load-alias-missing-filename",
         ),
         pytest.param(
-            "/cards registry",
-            CardsCommand(action="registry", argument=None),
-            id="cards-action-alias",
+            "/packs registry",
+            PacksCommand(action="registry", argument=None),
+            id="packs-action",
         ),
         pytest.param(
             "/prompts",
@@ -274,6 +273,16 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
             "/tools extra",
             ListToolsCommand(argument="extra"),
             id="tools-selects-named-schema",
+        ),
+        pytest.param(
+            "/tool extra",
+            ListToolsCommand(argument="extra"),
+            id="tool-selects-named-schema",
+        ),
+        pytest.param(
+            "/tool",
+            CommandError(message="Tool name required: /tool <tool-name>"),
+            id="tool-requires-name",
         ),
         pytest.param(
             "/tools summary",
@@ -363,6 +372,13 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
             "! pwd",
             ShellCommand(command="pwd", local=False, interactive=False),
             id="environment-shell-command",
+        ),
+        pytest.param(
+            "!",
+            ShellCommand(
+                command=prompt_parser.default_shell_command(), local=False, interactive=True
+            ),
+            id="environment-interactive-shell",
         ),
         pytest.param(
             "!!",

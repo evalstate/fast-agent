@@ -2,7 +2,7 @@ import asyncio
 from typing import Any
 
 from mcp import Tool
-from mcp.types import TextContent
+from mcp_types import TextContent
 from opentelemetry import trace
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType

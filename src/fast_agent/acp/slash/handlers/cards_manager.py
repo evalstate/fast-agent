@@ -14,17 +14,17 @@ if TYPE_CHECKING:
     from fast_agent.acp.slash_commands import SlashCommandHandler
 
 
-def _parse_cards_arguments(arguments: str | None) -> tuple[str, str]:
+def _parse_packs_arguments(arguments: str | None) -> tuple[str, str]:
     requested_action, remainder = split_action_arguments(arguments)
-    return normalize_command_action("cards", requested_action), remainder
+    return normalize_command_action("packs", requested_action), remainder
 
 
-async def handle_cards(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
-    direct_help = render_direct_command_help("cards", arguments)
+async def handle_packs(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
+    direct_help = render_direct_command_help("packs", arguments)
     if direct_help is not None:
         return direct_help
 
-    action, remainder = _parse_cards_arguments(arguments)
+    action, remainder = _parse_packs_arguments(arguments)
 
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
@@ -36,7 +36,7 @@ async def handle_cards(handler: "SlashCommandHandler", arguments: str | None = N
             argument=remainder or None,
         )
     except Exception as exc:
-        return f"# cards\n\nFailed to execute /cards: {exc}"
+        return f"# packs\n\nFailed to execute /packs: {exc}"
 
-    heading = "cards" if action == "list" else f"cards {action}"
+    heading = "packs" if action == "list" else f"packs {action}"
     return handler._format_outcome_as_markdown(outcome, heading, io=io)

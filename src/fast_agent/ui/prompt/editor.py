@@ -7,9 +7,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from rich import print as rich_print
 from rich.text import Text
 
+from fast_agent.ui.console import rich_print
 from fast_agent.utils.commandline import split_commandline
 
 

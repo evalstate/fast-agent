@@ -7,25 +7,26 @@
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `task` | `mcp.types.TaskMetadata | None` | `None` |  |
-| `meta` | `mcp.types.RequestParams.Meta | None` | `None` |  |
-| `messages` | `list[mcp.types.SamplingMessage]` | `[]` |  |
-| `modelPreferences` | `mcp.types.ModelPreferences | None` | `None` |  |
-| `systemPrompt` | `str | None` | `None` |  |
-| `includeContext` | `Literal['none', 'thisServer', 'allServers'] | None` | `None` |  |
+| `meta` | `mcp_types._types.RequestParamsMeta | None` | `None` |  |
+| `messages` | `list[mcp_types._types.SamplingMessage]` | `[]` |  |
+| `model_preferences` | `mcp_types._types.ModelPreferences | None` | `None` |  |
+| `system_prompt` | `str | None` | `None` |  |
+| `include_context` | `Literal['none', 'thisServer', 'allServers'] | None` | `None` |  |
 | `temperature` | `float | None` | `None` |  |
-| `maxTokens` | `int | None` | `None` |  |
-| `stopSequences` | `list[str] | None` | `None` |  |
+| `max_tokens` | `int | None` | `None` |  |
+| `stop_sequences` | `list[str] | None` | `None` |  |
 | `metadata` | `dict[str, Any] | None` | `None` |  |
-| `tools` | `list[mcp.types.Tool] | None` | `None` |  |
-| `toolChoice` | `mcp.types.ToolChoice | None` | `None` |  |
+| `tools` | `list[mcp_types._types.Tool] | None` | `None` |  |
+| `tool_choice` | `mcp_types._types.ToolChoice | None` | `None` |  |
+| `task` | `mcp_types._types.TaskMetadata | None` | `None` |  |
 | `model` | `str | None` | `None` |  |
 | `use_history` | `bool` | `True` |  |
-| `max_iterations` | `int` | `199` |  |
+| `max_iterations` | `int` | `9999` |  |
 | `parallel_tool_calls` | `bool` | `True` |  |
 | `response_format` | `Any | None` | `None` |  |
 | `structured_schema` | `dict[str, Any] | None` | `None` |  |
 | `structured_tool_policy` | `Literal['auto', 'always', 'defer', 'no_tools']` | `'auto'` |  |
+| `sampling_tool_choice` | `Literal['auto', 'required', 'none'] | None` | `None` |  |
 | `template_vars` | `dict[str, Any]` | `{}` |  |
 | `mcp_metadata` | `dict[str, Any] | None` | `None` |  |
 | `tool_execution_handler` | `Any | None` | `None` |  |

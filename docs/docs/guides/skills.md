@@ -28,7 +28,13 @@ When valid `SKILL.md` files are found:
 
 !!! note "Skills over MCP"
 
-    Thanks to Ola Hungerford, fast-agent has early access support for MCP SEP-2640: [Skills over MCP](../mcp/skills-over-mcp.md)
+    Thanks to Ola Hungerford, fast-agent supports the SEP-2640 Skills Extension
+    Draft at `d7490ecd` through `skills/list` and `skills/get` resource
+    manifests. Legacy `skill://index.json` and archive-artifact servers are
+    unsupported. SHA-256 checks validate bytes against the selected server's
+    manifest; they do not establish publisher or content trust. Use only
+    trusted servers and review installed skills. See
+    [Skills over MCP](../mcp/skills-over-mcp.md).
 
 
 ## Installing Skills
@@ -164,24 +170,46 @@ Available registries:
 - [1] https://github.com/huggingface/skills
 - [2] https://github.com/anthropics/skills
 
-Usage: `/skills registry [number|URL]`
+Usage: `/skills registry [number|URL|path|mcp-server]`
 ```
 
-In the TUI, switch registries by number or provide a custom URL:
+In the TUI, switch registries by number, provide a custom URL/path, or select an
+attached MCP server:
 
 === "TUI"
 
     ```text
     /skills registry 2
     /skills registry https://github.com/my-org/my-skills
+    /skills registry hf
     ```
 
-For CLI commands, pass `--registry` to browse or install from a specific registry for that invocation:
+Pass `--registry` to browse, search, or install from a specific registry for
+that invocation without changing the active registry. Slash commands also
+accept attached MCP server names:
 
 ```bash
 fast-agent skills available --registry https://github.com/my-org/my-skills
 fast-agent skills add skill-name --registry https://github.com/my-org/my-skills
 ```
+
+```text
+/skills available --registry hf
+/skills search datasets --registry hf
+/skills add huggingface-datasets --registry hf
+```
+
+Catalog listings support bounded and machine-readable output:
+
+```text
+/skills available --registry hf --compact
+/skills available --registry hf --limit 20 --page 2
+/skills available --registry hf --limit 20 --json
+```
+
+Model-facing listings default to compact output so a complete registry does not
+overflow the tool result. Interactive listings remain detailed unless you pass
+`--compact`, paging options, or `--json`.
 
 ## Configuration
 
@@ -253,6 +281,7 @@ Skills directories can be defined on a per-agent basis:
 
 ```python
 from fast_agent.constants import DEFAULT_SKILLS_PATHS
+
 
 # Define the agent
 @fast.agent(instruction=default_instruction, skills=DEFAULT_SKILLS_PATHS + ["~/source/skills"])

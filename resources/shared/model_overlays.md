@@ -1,5 +1,4 @@
-<ModelOverlays>
----
+## <ModelOverlays>
 
 # Model Overlays
 
@@ -86,6 +85,11 @@ picker:
 - `api_key_env`
 - `secret_ref`
 - `default_headers`
+- `reasoning_field`: for `provider: generic` overlays, the top-level OpenAI
+  Chat Completions request field that receives the final `reasoning` value.
+  The OpenAI SDK carries the field through `extra_body`, so it is serialized at
+  the request-body top level. It must be an identifier and cannot be supplied
+  as a model-string query parameter.
 
 ### Auth modes
 
@@ -161,7 +165,13 @@ Common fields:
   has been validated for this model
 - `process_poll_default_wait_seconds`: default `poll_process` wait when omitted;
   `0` keeps polls non-blocking, and `shell_execution.process_poll_max_wait_seconds`
-  caps the effective value
+  caps the effective value. An explicit model-string `poll_period` takes
+  precedence and is rejected if it exceeds the configured maximum
+- `shell_tool_name`: optional model-facing name for the minimal-process shell tool
+- `shell_tool_requires_description`: require a short operator-facing `description`
+  argument on the minimal-process shell tool
+- `shell_edit_tool`: model default for local file editing: `write_text_file`,
+  `edit_file`, `apply_patch`, or `off`
 - `model_specific`: text made available to system prompts as `{{model_specific}}`
 - `fast`
 
@@ -242,7 +252,6 @@ Subcommands:
 - `--include-sampling-defaults` persists the server's current sampling defaults into the overlay or preview output
 - `fast-agent model llamacpp import <model-id> --start-now` writes the overlay and immediately launches `fast-agent go --model <overlay>`
 - `fast-agent model llamacpp import <model-id> --start-now --with-shell` launches `fast-agent go -x --model <overlay>`
-- `fast-agent model llamacpp import <model-id> --start-now --smart` launches `fast-agent go --smart -x --model <overlay>`
 
 The generated overlay:
 

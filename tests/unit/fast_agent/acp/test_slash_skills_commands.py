@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
@@ -73,6 +74,18 @@ class _App:
     pass
 
 
+def _slash_handler() -> SlashCommandHandler:
+    return SlashCommandHandler(
+        session_id="s1",
+        instance=AgentInstance(
+            app=cast("AgentApp", _App()),
+            agents={},
+            registry_version=0,
+        ),
+        primary_agent_name="main",
+    )
+
+
 class _SkillsOverrideHandler:
     def __init__(self, agent: object) -> None:
         self.agent = agent
@@ -121,20 +134,18 @@ async def test_handle_skills_accepts_help_alias() -> None:
 
 @pytest.mark.asyncio
 async def test_handle_skills_accepts_available_alias(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    called_urls: list[str] = []
+    marketplace_path = tmp_path / "marketplace.json"
+    marketplace_path.write_text('{"plugins": []}', encoding="utf-8")
 
-    async def fetch_marketplace(url: str) -> list[MarketplaceSkill]:
-        called_urls.append(url)
-        return []
+    message = await handle_skills(
+        _slash_handler(),
+        f"marketplace --registry {marketplace_path}",
+    )
 
-    monkeypatch.setattr(skills_handler_module, "fetch_marketplace_skills", fetch_marketplace)
-
-    message = await handle_skills(cast("SlashCommandHandler", None), "marketplace")
-
-    assert called_urls
-    assert message == "# skills available\n\nNo skills found in the marketplace."
+    assert message.startswith("# skills available")
+    assert "No skills found in the registry." in message
 
 
 @pytest.mark.asyncio
@@ -173,32 +184,52 @@ async def test_handle_skills_search_escapes_backticks_in_no_match_query(
 
 @pytest.mark.asyncio
 async def test_handle_skills_search_consumes_registry_option(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    captured_url: str | None = None
-
-    async def fetch_marketplace(url: str) -> list[MarketplaceSkill]:
-        nonlocal captured_url
-        captured_url = url
-        return [
-            MarketplaceSkill(
-                name="alpha",
-                description=None,
-                repo_url="https://github.com/example/skills",
-                repo_ref="main",
-                repo_path="skills/alpha",
-            )
-        ]
-
-    monkeypatch.setattr(skills_handler_module, "fetch_marketplace_skills", fetch_marketplace)
-
-    message = await handle_skills(
-        cast("SlashCommandHandler", None),
-        "search alpha --registry ./marketplace.json",
+    marketplace_path = tmp_path / "marketplace.json"
+    marketplace_path.write_text(
+        json.dumps(
+            {
+                "plugins": [
+                    {
+                        "name": "alpha",
+                        "repo_url": "https://github.com/example/skills",
+                        "repo_ref": "main",
+                        "repo_path": "skills/alpha",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
     )
 
-    assert captured_url == "./marketplace.json"
+    message = await handle_skills(
+        _slash_handler(),
+        f"search alpha --registry {marketplace_path}",
+    )
+
     assert "alpha" in message
+
+
+@pytest.mark.parametrize(
+    ("arguments", "error"),
+    [
+        ("available --page 0 --json", "Invalid value for --page"),
+        ("available stray --json", "Usage: /skills available"),
+        ('available --json "', "Invalid /skills arguments"),
+        ("search --json", "Usage: /skills search"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_handle_skills_catalog_validation_errors_honor_json(
+    arguments: str,
+    error: str,
+) -> None:
+    response = await handle_skills(_slash_handler(), arguments)
+
+    payload = json.loads(response)
+    assert payload["kind"] == "error"
+    assert error in payload["error"]
 
 
 @pytest.mark.asyncio
@@ -242,15 +273,7 @@ async def test_handle_skills_registry_uses_shared_registry_resolution(
         "fetch_marketplace_skills_with_source",
         fetch_marketplace,
     )
-    handler = SlashCommandHandler(
-        session_id="s1",
-        instance=AgentInstance(
-            app=cast("AgentApp", _App()),
-            agents={},
-            registry_version=0,
-        ),
-        primary_agent_name="main",
-    )
+    handler = _slash_handler()
 
     try:
         message = await handle_skills_registry(handler, "2")
@@ -265,25 +288,14 @@ async def test_handle_skills_registry_uses_shared_registry_resolution(
 
 
 @pytest.mark.asyncio
-async def test_bare_skills_add_browses_marketplace_without_install_tool_call(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_bare_skills_add_requires_selector_without_install_tool_call() -> None:
     acp = _RecordingACPContext()
     handler = _SkillsAddHandler(_ACPAwareAgent(acp))
 
-    async def render_marketplace(*, registry: str | None = None) -> str:
-        del registry
-        return "# skills add\n\nMarketplace"
-
-    monkeypatch.setattr(
-        skills_handler_module,
-        "_render_skills_add_marketplace",
-        render_marketplace,
-    )
-
     message = await handle_skills_add(cast("SlashCommandHandler", handler), "")
 
-    assert message == "# skills add\n\nMarketplace"
+    assert "A skill selector is required." in message
+    assert "/skills available" in message
     assert acp.updates == []
 
 

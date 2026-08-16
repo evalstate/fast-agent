@@ -23,7 +23,7 @@ class FormattedResponse(BaseModel):
     name="chat",
     instruction="You are a helpful AI Agent",
     servers=["fetch"],
-    request_params=RequestParams(maxTokens=8192),
+    request_params=RequestParams(max_tokens=8192),
 )
 async def main():
     # use the --model command line switch or agent arguments to change model

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import warnings
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -21,8 +22,13 @@ from fast_agent.agents.agent_types import (
     MCPConnectTarget,
 )
 from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
-from fast_agent.config import MCPServerAuthSettings, MCPServerSettings, resolve_env_vars
-from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, SMART_AGENT_INSTRUCTION
+from fast_agent.config import MCPServerAuthSettings, resolve_env_vars
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
+from fast_agent.core.agent_card_mcp_connect_validation import (
+    ParsedMCPConnect,
+    parse_mcp_connect_entries,
+    validate_parsed_mcp_connect_entry,
+)
 from fast_agent.core.agent_card_paths import (
     is_agent_card_path,
     is_markdown_agent_card_path,
@@ -33,9 +39,10 @@ from fast_agent.core.agent_card_rules import (
     ALLOWED_FIELDS_BY_TYPE,
     CARD_TYPE_TO_AGENT_TYPE,
     DEFAULT_USE_HISTORY_BY_TYPE,
-    MCP_CONNECT_ALLOWED_KEYS,
+    LEGACY_SMART_TYPE_WARNING,
     REQUIRED_FIELDS_BY_TYPE,
     CardType,
+    apply_legacy_smart_defaults,
     normalize_card_type,
 )
 from fast_agent.core.agent_card_types import AgentCardData
@@ -54,6 +61,9 @@ from fast_agent.utils.type_narrowing import is_str_object_dict
 CardTypeSerializer = Callable[[dict[str, Any], AgentCardData, AgentConfig], None]
 
 _HISTORY_DELIMITERS = {"---USER", "---ASSISTANT", "---RESOURCE"}
+_REMOTE_FILE_DIRECTIVE_PATTERN = re.compile(r"(?<!\\)\{\{file(?:_silent)?:[^}]*\}\}")
+_REMOTE_URL_DIRECTIVE_PATTERN = re.compile(r"(?<!\\)\{\{url:(?:https?|hf)://[^}]+\}\}")
+_MAX_REMOTE_URL_INCLUDE_DEPTH = 10
 
 
 @dataclass(frozen=True)
@@ -70,53 +80,54 @@ class _MarkdownCard:
     body: str
 
 
-@dataclass(frozen=True, slots=True)
-class _ParsedMCPConnectEntry:
-    target: str | None
-    name: str | None
-    description: str | None
-    management: str | None
-    connector_id: str | None
-    headers: dict[str, str] | None
-    access_token: str | None
-    defer_loading: bool | None
-    auth: dict[str, Any] | None
-
-
-def load_agent_cards(path: Path) -> list[LoadedAgentCard]:
+def load_agent_cards(path: Path, *, remote_source: str | None = None) -> list[LoadedAgentCard]:
+    """Load local AgentCards, or a materialized remote card with its source URI."""
     path = path.expanduser().resolve()
     if not path.exists():
         raise AgentConfigError(f"AgentCard path not found: {path}")
 
-    if path.is_dir():
-        cards: list[LoadedAgentCard] = []
-        for entry in sorted(path.iterdir()):
-            if entry.is_dir():
-                continue
-            if not is_agent_card_path(entry):
-                continue
-            if is_markdown_agent_card_path(entry) and not _markdown_has_frontmatter(entry):
-                continue
-            cards.extend(_load_agent_card_file(entry))
+    try:
+        if path.is_dir():
+            cards: list[LoadedAgentCard] = []
+            for entry in sorted(path.iterdir()):
+                if entry.is_dir():
+                    continue
+                if not is_agent_card_path(entry):
+                    continue
+                if is_markdown_agent_card_path(entry) and not _markdown_has_frontmatter(entry):
+                    continue
+                cards.extend(_load_agent_card_file(entry, remote_source=remote_source))
+            _ensure_unique_names(cards, path)
+            return cards
+
+        if not is_agent_card_path(path):
+            raise AgentConfigError(f"Unsupported AgentCard file extension: {path}")
+        if path.name == "SKILL.md":
+            raise AgentConfigError(
+                "SKILL.md is an Agent Skill manifest, not an AgentCard",
+                "Use read_text_file/read_skill to inspect skill instructions, or use /skills to manage skills.",
+            )
+        if is_markdown_agent_card_path(path) and not _markdown_has_frontmatter(path):
+            raise AgentConfigError(
+                "AgentCard markdown files must include frontmatter",
+                f"Missing frontmatter in {path}",
+            )
+
+        cards = _load_agent_card_file(path, remote_source=remote_source)
         _ensure_unique_names(cards, path)
         return cards
+    except AgentConfigError as exc:
+        if remote_source is None:
+            raise
+        raise _with_original_source(exc, path, remote_source) from None
 
-    if not is_agent_card_path(path):
-        raise AgentConfigError(f"Unsupported AgentCard file extension: {path}")
-    if path.name == "SKILL.md":
-        raise AgentConfigError(
-            "SKILL.md is an Agent Skill manifest, not an AgentCard",
-            "Use read_text_file/read_skill to inspect skill instructions, or use /skills to manage skills.",
-        )
-    if is_markdown_agent_card_path(path) and not _markdown_has_frontmatter(path):
-        raise AgentConfigError(
-            "AgentCard markdown files must include frontmatter",
-            f"Missing frontmatter in {path}",
-        )
 
-    cards = _load_agent_card_file(path)
-    _ensure_unique_names(cards, path)
-    return cards
+def _with_original_source(error: AgentConfigError, path: Path, source: str) -> AgentConfigError:
+    message = error.message.replace(str(path), source)
+    details = error.details.replace(str(path), source)
+    if source not in message and source not in details:
+        details = f"{details}\nSource: {source}".strip()
+    return AgentConfigError(message, details)
 
 
 def _ensure_unique_names(cards: Iterable[LoadedAgentCard], path: Path) -> None:
@@ -130,7 +141,11 @@ def _ensure_unique_names(cards: Iterable[LoadedAgentCard], path: Path) -> None:
         seen[card.name] = card.path
 
 
-def _load_agent_card_file(path: Path) -> list[LoadedAgentCard]:
+def _load_agent_card_file(
+    path: Path,
+    *,
+    remote_source: str | None = None,
+) -> list[LoadedAgentCard]:
     if path.name == "SKILL.md":
         raise AgentConfigError(
             "SKILL.md is an Agent Skill manifest, not an AgentCard",
@@ -138,15 +153,22 @@ def _load_agent_card_file(path: Path) -> list[LoadedAgentCard]:
         )
 
     if is_yaml_agent_card_path(path):
-        raw = _load_yaml_card(path)
-        return [_build_card_from_data(path, raw, body=None)]
+        raw = _load_yaml_card(path, resolve_environment=remote_source is None)
+        return [_build_card_from_data(path, raw, body=None, remote_source=remote_source)]
     if is_markdown_agent_card_path(path):
-        card = _load_markdown_card(path)
-        return [_build_card_from_data(path, card.metadata, body=card.body)]
+        card = _load_markdown_card(path, resolve_environment=remote_source is None)
+        return [
+            _build_card_from_data(
+                path,
+                card.metadata,
+                body=card.body,
+                remote_source=remote_source,
+            )
+        ]
     raise AgentConfigError(f"Unsupported AgentCard file: {path}")
 
 
-def _load_yaml_card(path: Path) -> dict[str, Any]:
+def _load_yaml_card(path: Path, *, resolve_environment: bool = True) -> dict[str, Any]:
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
@@ -154,13 +176,13 @@ def _load_yaml_card(path: Path) -> dict[str, Any]:
 
     if not isinstance(data, dict):
         raise AgentConfigError(f"AgentCard YAML must be a mapping in {path}")
-    resolved = resolve_env_vars(data)
+    resolved = resolve_env_vars(data) if resolve_environment else data
     if not isinstance(resolved, dict):
         raise AgentConfigError(f"AgentCard YAML must be a mapping in {path}")
     return resolved
 
 
-def _load_markdown_card(path: Path) -> _MarkdownCard:
+def _load_markdown_card(path: Path, *, resolve_environment: bool = True) -> _MarkdownCard:
     try:
         raw_text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
@@ -178,7 +200,7 @@ def _load_markdown_card(path: Path) -> _MarkdownCard:
         raise AgentConfigError(f"Frontmatter must be a mapping in {path}")
 
     body = post.content or ""
-    resolved = resolve_env_vars(dict(metadata))
+    resolved = resolve_env_vars(dict(metadata)) if resolve_environment else dict(metadata)
     if not isinstance(resolved, dict):
         raise AgentConfigError(f"Frontmatter must be a mapping in {path}")
     return _MarkdownCard(metadata=resolved, body=body)
@@ -204,8 +226,16 @@ def _build_card_from_data(
     raw: dict[str, Any],
     *,
     body: str | None,
+    remote_source: str | None = None,
 ) -> LoadedAgentCard:
     raw = dict(raw)
+    _reject_remote_messages(raw, remote_source)
+    if apply_legacy_smart_defaults(raw):
+        warnings.warn(
+            f"{path}: {LEGACY_SMART_TYPE_WARNING}",
+            UserWarning,
+            stacklevel=3,
+        )
     card_type_raw = raw.get("type")
     if card_type_raw is not None and not isinstance(card_type_raw, str):
         raise AgentConfigError(f"'type' must be a string in {path}")
@@ -228,14 +258,12 @@ def _build_card_from_data(
         raise AgentConfigError(f"'schema_version' must be an integer in {path}")
 
     name = _resolve_name(raw.get("name"), path)
-    default_instruction = (
-        SMART_AGENT_INSTRUCTION if type_key == "smart" else DEFAULT_AGENT_INSTRUCTION
-    )
     instruction = _resolve_instruction_field(
         raw.get("instruction"),
         body,
         path,
-        default_instruction=default_instruction,
+        default_instruction=DEFAULT_AGENT_INSTRUCTION,
+        remote_source=remote_source,
     )
     description = _ensure_optional_str(raw.get("description"), "description", path)
 
@@ -287,6 +315,7 @@ def _resolve_instruction_field(
     path: Path,
     *,
     default_instruction: str = DEFAULT_AGENT_INSTRUCTION,
+    remote_source: str | None = None,
 ) -> str:
     body_instruction = ""
     if body is not None:
@@ -301,18 +330,52 @@ def _resolve_instruction_field(
     if raw_instruction is not None:
         if not isinstance(raw_instruction, str):
             raise AgentConfigError(f"'instruction' must be a string in {path}")
-        resolved = _resolve_instruction(strip_to_none(raw_instruction) or "")
+        resolved = _resolve_card_instruction(strip_to_none(raw_instruction) or "", remote_source)
         if strip_to_none(resolved) is None:
             raise AgentConfigError(f"'instruction' must not be empty in {path}")
+        _reject_remote_file_directives(resolved, remote_source)
         return resolved
 
     if body_instruction:
-        resolved = _resolve_instruction(body_instruction)
+        resolved = _resolve_card_instruction(body_instruction, remote_source)
         if strip_to_none(resolved) is None:
             raise AgentConfigError(f"Instruction body must not be empty in {path}")
+        _reject_remote_file_directives(resolved, remote_source)
         return resolved
 
     return default_instruction
+
+
+def _resolve_card_instruction(instruction: str, remote_source: str | None) -> str:
+    if remote_source is None:
+        return _resolve_instruction(instruction)
+
+    result = instruction
+    for _ in range(_MAX_REMOTE_URL_INCLUDE_DEPTH):
+        result = _resolve_instruction(result)
+        if not _REMOTE_URL_DIRECTIVE_PATTERN.search(result):
+            return result
+
+    raise AgentConfigError(
+        "Remote AgentCard URL include depth exceeded",
+        f"Source: {remote_source}",
+    )
+
+
+def _reject_remote_file_directives(instruction: str, remote_source: str | None) -> None:
+    if remote_source is not None and _REMOTE_FILE_DIRECTIVE_PATTERN.search(instruction):
+        raise AgentConfigError(
+            "Remote AgentCards cannot use file instruction directives",
+            f"Source: {remote_source}",
+        )
+
+
+def _reject_remote_messages(raw: dict[str, Any], remote_source: str | None) -> None:
+    if remote_source is not None and "messages" in raw:
+        raise AgentConfigError(
+            "Remote AgentCards cannot use the 'messages' field",
+            f"Source: {remote_source}",
+        )
 
 
 def _extract_body_instruction(body: str, path: Path) -> str:
@@ -431,7 +494,7 @@ def _apply_request_params_defaults(
     if request_params is None:
         return
     config.default_request_params = request_params
-    config.default_request_params.systemPrompt = config.instruction
+    config.default_request_params.system_prompt = config.instruction
     config.default_request_params.use_history = config.use_history
 
 
@@ -457,12 +520,25 @@ def _build_agent_data(
     request_params = _ensure_request_params(raw.get("request_params"), path)
     human_input = _ensure_bool(raw.get("human_input"), "human_input", path, default=False)
     default, tool_only = _ensure_default_flags(raw, name, path)
+    subagents_value = raw.get("subagents")
+    if "subagents" in raw and not isinstance(subagents_value, bool):
+        raise AgentConfigError(f"'subagents' must be a boolean in {path}")
+    subagents = subagents_value if isinstance(subagents_value, bool) else None
+    subagent_model = (
+        _ensure_optional_str(raw["subagent_model"], "subagent_model", path)
+        if "subagent_model" in raw
+        else None
+    )
+    if "subagent_model" in raw and subagent_model is None:
+        raise AgentConfigError(f"'subagent_model' must be a non-empty string in {path}")
+    harness_tools = _ensure_bool(raw.get("harness_tools"), "harness_tools", path, default=False)
+    if harness_tools and tool_only:
+        raise AgentConfigError(f"'harness_tools' cannot be enabled on a tool-only agent in {path}")
 
     api_key = raw.get("api_key")
     tool_input_schema = _ensure_tool_input_schema(raw.get("tool_input_schema"), path)
     function_tools = _ensure_function_tools(raw.get("function_tools"), path)
-    shell_default = type_key == "smart"
-    shell = _ensure_bool(raw.get("shell"), "shell", path, default=shell_default)
+    shell = _ensure_bool(raw.get("shell"), "shell", path, default=False)
     cwd = _ensure_cwd(raw.get("cwd"), path)
     tool_hooks = _ensure_hook_map(raw.get("tool_hooks"), "tool_hooks", path)
     lifecycle_hooks = _ensure_lifecycle_hooks(raw.get("lifecycle_hooks"), path)
@@ -486,6 +562,9 @@ def _build_agent_data(
         human_input=human_input,
         default=default,
         tool_only=tool_only,
+        subagents=subagents,
+        subagent_model=subagent_model,
+        harness_tools=harness_tools,
         api_key=api_key,
         function_tools=function_tools,
         shell=shell,
@@ -494,7 +573,8 @@ def _build_agent_data(
         lifecycle_hooks=lifecycle_hooks,
         commands=commands,
         trim_tool_history=trim_tool_history,
-        mcp_connect=mcp_connect,
+        mcp_connect=mcp_connect.entries,
+        mcp_connect_source_form=mcp_connect.source_form,
         source_path=path,
         agent_type=agent_type,
     )
@@ -709,7 +789,6 @@ def _apply_a2a_data(
 
 _CARD_TYPE_DATA_HANDLERS: dict[CardType, CardTypeDataHandler] = {
     "agent": _apply_basic_agent_data,
-    "smart": _apply_basic_agent_data,
     "chain": _apply_chain_data,
     "parallel": _apply_parallel_data,
     "evaluator_optimizer": _apply_evaluator_optimizer_data,
@@ -810,170 +889,19 @@ def _ensure_headers_map(value: Any, field: str, path: Path) -> dict[str, str] | 
     return headers
 
 
-def _ensure_auth_map(value: Any, field: str, path: Path) -> dict[str, Any] | None:
-    if value is None:
-        return None
-    if not isinstance(value, dict):
-        raise AgentConfigError(f"'{field}' must be a mapping in {path}")
-    return dict(value)
+def _ensure_mcp_connect_entries(value: Any, path: Path) -> ParsedMCPConnect:
+    parsed = parse_mcp_connect_entries(value)
+    if parsed.errors:
+        raise AgentConfigError(f"Invalid 'mcp_connect' in {path}", parsed.errors[0])
 
-
-def _ensure_optional_bool(value: Any, field: str, path: Path) -> bool | None:
-    if value is None:
-        return None
-    return _ensure_bool(value, field, path)
-
-
-def _validate_mcp_connect_keys(raw_entry: dict[str, Any], idx: int, path: Path) -> None:
-    unknown_keys = set(raw_entry.keys()) - MCP_CONNECT_ALLOWED_KEYS
-    if not unknown_keys:
-        return
-    unknown_text = ", ".join(sorted(str(key) for key in unknown_keys))
-    raise AgentConfigError(
-        f"'mcp_connect[{idx}]' has unsupported keys in {path}",
-        f"Unknown keys: {unknown_text}",
-    )
-
-
-def _mcp_connect_target(raw_entry: dict[str, Any], idx: int, path: Path) -> str | None:
-    target_raw = raw_entry.get("target")
-    if target_raw is None:
-        return None
-    target = strip_str_to_none(target_raw)
-    if target is None:
-        raise AgentConfigError(f"'mcp_connect[{idx}].target' must be a non-empty string in {path}")
-    return target
-
-
-def _mcp_connect_name(raw_entry: dict[str, Any], idx: int, path: Path) -> str | None:
-    name = _ensure_optional_str(raw_entry.get("name"), f"mcp_connect[{idx}].name", path)
-    if raw_entry.get("connector_id") is not None and name is None:
-        raise AgentConfigError(
-            f"'mcp_connect[{idx}].name' must be a non-empty string in {path} "
-            "when connector_id is set"
-        )
-    return name
-
-
-def _ensure_mcp_target_xor_connector(
-    target: str | None,
-    connector_id: str | None,
-    idx: int,
-    path: Path,
-) -> None:
-    if target is None and connector_id is None:
-        raise AgentConfigError(
-            f"'mcp_connect[{idx}].target' must be a non-empty string in {path} "
-            "unless connector_id is set"
-        )
-    if target is not None and connector_id is not None:
-        raise AgentConfigError(
-            f"'mcp_connect[{idx}]' must set exactly one of 'target' or 'connector_id' in {path}"
-        )
-
-
-def _parse_mcp_connect_entry(
-    raw_entry: dict[str, Any],
-    idx: int,
-    path: Path,
-) -> _ParsedMCPConnectEntry:
-    _validate_mcp_connect_keys(raw_entry, idx, path)
-    target = _mcp_connect_target(raw_entry, idx, path)
-    connector_id = _ensure_optional_str(
-        raw_entry.get("connector_id"),
-        f"mcp_connect[{idx}].connector_id",
-        path,
-    )
-    _ensure_mcp_target_xor_connector(target, connector_id, idx, path)
-
-    return _ParsedMCPConnectEntry(
-        target=target,
-        name=_mcp_connect_name(raw_entry, idx, path),
-        description=_ensure_optional_str(
-            raw_entry.get("description"),
-            f"mcp_connect[{idx}].description",
-            path,
-        ),
-        management=_ensure_optional_str(
-            raw_entry.get("management"),
-            f"mcp_connect[{idx}].management",
-            path,
-        ),
-        connector_id=connector_id,
-        headers=_ensure_headers_map(raw_entry.get("headers"), f"mcp_connect[{idx}].headers", path),
-        access_token=_ensure_optional_str(
-            raw_entry.get("access_token"),
-            f"mcp_connect[{idx}].access_token",
-            path,
-        ),
-        defer_loading=_ensure_optional_bool(
-            raw_entry.get("defer_loading"),
-            f"mcp_connect[{idx}].defer_loading",
-            path,
-        ),
-        auth=_ensure_auth_map(raw_entry.get("auth"), f"mcp_connect[{idx}].auth", path),
-    )
-
-
-def _validate_provider_mcp_connect_entry(
-    entry: _ParsedMCPConnectEntry,
-    idx: int,
-    path: Path,
-) -> None:
-    if entry.connector_id is None:
-        return
-
-    payload: dict[str, Any] = {
-        "name": entry.name,
-        "description": entry.description,
-        "management": entry.management,
-        "connector_id": entry.connector_id,
-        "headers": entry.headers,
-        "access_token": entry.access_token,
-        "auth": entry.auth,
-    }
-    if entry.defer_loading is not None:
-        payload["defer_loading"] = entry.defer_loading
-    try:
-        MCPServerSettings.model_validate(payload)
-    except Exception as exc:
-        raise AgentConfigError(f"Invalid 'mcp_connect[{idx}]' in {path}", str(exc)) from exc
-
-
-def _mcp_connect_target_from_entry(
-    entry: _ParsedMCPConnectEntry,
-) -> MCPConnectTarget:
-    return MCPConnectTarget(
-        target=entry.target,
-        name=entry.name,
-        description=entry.description,
-        management=entry.management,
-        connector_id=entry.connector_id,
-        headers=entry.headers,
-        access_token=entry.access_token,
-        defer_loading=entry.defer_loading,
-        auth=entry.auth,
-    )
-
-
-def _ensure_mcp_connect_entries(value: Any, path: Path) -> list[MCPConnectTarget]:
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        raise AgentConfigError(f"'mcp_connect' must be a list in {path}")
-
-    entries: list[MCPConnectTarget] = []
-    for idx, raw_entry in enumerate(value):
-        if not is_str_object_dict(raw_entry):
-            raise AgentConfigError(
-                f"'mcp_connect[{idx}]' must be a mapping in {path}",
-            )
-
-        entry = _parse_mcp_connect_entry(raw_entry, idx, path)
-        _validate_provider_mcp_connect_entry(entry, idx, path)
-        entries.append(_mcp_connect_target_from_entry(entry))
-
-    return entries
+    for field_path, entry in zip(parsed.field_paths, parsed.entries, strict=True):
+        if entry.connector_id is None:
+            continue
+        try:
+            validate_parsed_mcp_connect_entry(entry, field_path)
+        except Exception as exc:
+            raise AgentConfigError(f"Invalid '{field_path}' in {path}", str(exc)) from exc
+    return parsed
 
 
 def _ensure_request_params(value: Any, path: Path) -> RequestParams | None:
@@ -1170,6 +1098,27 @@ def _serialize_optional_common_fields(
     _set_allowed(
         card,
         allowed_fields,
+        "subagents",
+        config.subagents,
+        when=config.subagents is not None,
+    )
+    _set_allowed(
+        card,
+        allowed_fields,
+        "subagent_model",
+        config.subagent_model,
+        when=config.subagent_model is not None,
+    )
+    _set_allowed(
+        card,
+        allowed_fields,
+        "harness_tools",
+        True,
+        when=config.harness_tools,
+    )
+    _set_allowed(
+        card,
+        allowed_fields,
         "description",
         config.description,
         when=bool(config.description),
@@ -1202,7 +1151,10 @@ def _serialize_optional_common_fields(
         card,
         allowed_fields,
         "mcp_connect",
-        _serialize_mcp_connect_targets(config.mcp_connect),
+        _serialize_mcp_connect_targets(
+            config.mcp_connect,
+            config.mcp_connect_source_form,
+        ),
         when=bool(config.mcp_connect),
     )
     _set_allowed(card, allowed_fields, "tools", config.tools, when=bool(config.tools))
@@ -1264,10 +1216,25 @@ def _optional_mcp_connect_fields(entry: MCPConnectTarget) -> dict[str, Any]:
         fields["defer_loading"] = entry.defer_loading
     if entry.auth is not None:
         fields["auth"] = dict(entry.auth)
+    if entry.protocol_mode is not None:
+        fields["protocol_mode"] = entry.protocol_mode
     return fields
 
 
-def _serialize_mcp_connect_targets(targets: list[MCPConnectTarget]) -> list[dict[str, Any]]:
+def _serialize_mcp_connect_targets(
+    targets: list[MCPConnectTarget],
+    source_form: str,
+) -> list[dict[str, Any]] | dict[str, dict[str, Any]]:
+    if source_form == "mapping":
+        return {
+            entry.name: {
+                key: value
+                for key, value in _optional_mcp_connect_fields(entry).items()
+                if key != "name"
+            }
+            for entry in targets
+            if entry.name is not None
+        }
     return [_optional_mcp_connect_fields(entry) for entry in targets]
 
 
@@ -1460,7 +1427,6 @@ def _serialize_a2a_fields(
 
 _CARD_SERIALIZERS: dict[CardType, CardTypeSerializer] = {
     "agent": _serialize_agent_like_fields,
-    "smart": _serialize_agent_like_fields,
     "chain": _serialize_chain_fields,
     "parallel": _serialize_parallel_fields,
     "evaluator_optimizer": _serialize_evaluator_optimizer_fields,

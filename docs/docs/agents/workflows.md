@@ -157,20 +157,20 @@ MAKER (â€œMassively decomposed Agentic processes with K-voting Error Reductionâ€
 
 ```python
 @fast.agent(
-  name="classifier",
-  instruction="Reply with only: A, B, or C.",
+    name="classifier",
+    instruction="Reply with only: A, B, or C.",
 )
 @fast.maker(
-  name="reliable_classifier",
-  worker="classifier",
-  k=3,
-  max_samples=25,
-  match_strategy="normalized",
-  red_flag_max_length=16,
+    name="reliable_classifier",
+    worker="classifier",
+    k=3,
+    max_samples=25,
+    match_strategy="normalized",
+    red_flag_max_length=16,
 )
 async def main():
-  async with fast.run() as agent:
-    await agent.reliable_classifier.send("Classify: ...")
+    async with fast.run() as agent:
+        await agent.reliable_classifier.send("Classify: ...")
 ```
 
 ### Agents As Tools

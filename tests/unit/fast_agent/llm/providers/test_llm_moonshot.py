@@ -41,7 +41,7 @@ _TOOL: ChatCompletionToolParam = {
 _STRUCTURED_TOOL = Tool(
     name="echo_value",
     description="Echo a value.",
-    inputSchema={
+    input_schema={
         "type": "object",
         "properties": {"value": {"type": "string"}},
         "required": ["value"],
@@ -163,7 +163,7 @@ def test_moonshot_request_uses_completion_tokens_and_streamed_parallel_tools() -
     request = llm._prepare_api_request(
         [{"role": "user", "content": "hello"}],
         [_TOOL],
-        RequestParams(model="kimi-k3", maxTokens=2048),
+        RequestParams(model="kimi-k3", max_tokens=2048),
     )
 
     assert request["max_completion_tokens"] == 2048
@@ -179,7 +179,7 @@ def test_moonshot_factory_default_uses_api_output_default() -> None:
     llm = factory(LlmAgent(AgentConfig(name="test")))
 
     assert isinstance(llm, MoonshotLLM)
-    assert llm.default_request_params.maxTokens == 131_072
+    assert llm.default_request_params.max_tokens == 131_072
     request = llm._prepare_api_request(
         [{"role": "user", "content": "hello"}],
         None,

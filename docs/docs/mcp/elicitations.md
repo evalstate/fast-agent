@@ -1,157 +1,254 @@
 ---
 title: Quick Start - MCP Elicitations
-description: Guided demonstration of using MCP Elicitations
+description: Collect request-scoped user input from modern MCP servers
 social:
   title: MCP Elicitations
-  tagline: Collect structured user input from MCP servers inside agent workflows.
-  description: Collect structured user input from MCP servers inside agent workflows.
+  tagline: Collect structured user input while an MCP request is active.
+  description: Collect structured user input while an MCP request is active.
   alt: fast-agent social card — MCP Elicitations
 ---
 
 
 # Quick Start: MCP Elicitations
 
-In this quick start, we'll demonstrate **fast-agent**'s [MCP Elicitation](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation) features.
+An MCP server can use
+[elicitation](https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation)
+to request additional user input **while it is processing another client
+request**. Elicitation is not an unsolicited or background prompt.
 
-![Elicitation Form](./pics/elicitation_form.gif){: align=right style="width:250px;"  }
+The quickstart demonstrates the complete modern flow:
 
-Elicitations allow MCP Servers to request additional input directly from Users.
+1. The client calls `start_t4_small_sandbox`.
+2. The server needs a region, duration, and maximum budget.
+3. The active tool request pauses and presents an elicitation form.
+4. The user accepts, declines, or cancels the question.
+5. The client retries that same request with the user's response.
+6. The server returns a simulated start result.
 
-This demo comprises three MCP Servers and three **fast-agent** programs:
+No infrastructure is created and no charges are incurred.
 
- - An interactive demonstration showing all types of Forms, Fields and Validation in the specification.
- - A demonstration of an Elicitation made during a Tool Call.
- - An example of using a custom Elicitation handler.
+<div
+  class="fa-terminal-demo"
+  data-fa-asciinema-cast="../../assets/mcp/elicitation-sandbox.cast"
+  data-fa-asciinema-cols="96"
+  data-fa-asciinema-rows="24"
+  data-fa-asciinema-poster="npt:0:03"
+  data-fa-asciinema-speed="1"
+  data-fa-asciinema-idle-time-limit="1.3"
+  data-fa-asciinema-fit="width"
+  data-fa-asciinema-autoplay="true"
+>
+  <div class="fa-terminal-theme-switch" aria-label="Terminal theme">
+    <button type="button" data-fa-terminal-theme="auto">Auto</button>
+    <button type="button" data-fa-terminal-theme="light">Light</button>
+    <button type="button" data-fa-terminal-theme="dark">Dark</button>
+  </div>
+  <div data-fa-asciinema-target></div>
+</div>
 
-This quick start provides you with a complete MCP Client and Server solution for developing and deploying Elicitations.
+<!--
+Cast asset:
+- Source: docs/docs/assets/mcp/elicitation-sandbox.cast
+- Regenerate: uv run scripts/docs.py cast-build elicitation-sandbox
+-->
 
-## Setup **fast-agent**
+## Setup
 
-Make sure you have the `uv` [package manager](https://docs.astral.sh/uv/) installed, and open a terminal window. Then:
+Make sure you have the `uv` [package manager](https://docs.astral.sh/uv/)
+installed, then:
 
-=== "Linux/MacOS"
+=== "Linux/macOS"
 
     ```bash
-    # create, and change to a new directory
     mkdir fast-agent && cd fast-agent
-
-    # create and activate a python environment
     uv venv
     source .venv/bin/activate
-
-    # setup fast-agent
     uv pip install fast-agent-mcp
-
-    # setup the elicitations demo
     fast-agent quickstart elicitations
-
-    # go to the demo folder
     cd elicitations
     ```
+
 === "Windows"
 
     ```pwsh
-    # create, and change to a new directory
-    md fast-agent |cd
-
-    # create and activate a python environment
+    mkdir fast-agent; cd fast-agent
     uv venv
     .venv\Scripts\activate
-
-    # setup fast-agent
     uv pip install fast-agent-mcp
-
-    # setup the elicitations demo
     fast-agent quickstart elicitations
-
-    # go to the demo folder
     cd elicitations
     ```
 
-You are now ready to start the demos.
-
-## Elicitation Requests and Forms
-
-The Interactive Forms demo showcases all of the Elicitation data types and validations. Start the interactive form demo with:
+Run the demo:
 
 ```bash
-uv run forms_demo.py
+uv run sandbox_demo.py
 ```
 
-This demonstration displays 4 different elicitation forms in sequence.
+Choose a region, duration, and maximum simulated budget, then select **Accept**
+to approve starting the sandbox at `$0.40 per hour`. Use **Decline** or
+**Cancel** to finish without creating anything. The budget is an in-band
+numeric limit, not payment information, and the example never creates a
+charge.
 
-Note that the forms:
+## Approval actions
 
- - Can be navigated with the `Tab` or Arrow Keys (`→\←`)
- - Have real time Validation
- - Can be Cancelled with the Escape key
- - Uses multiline text input for long fields
- - Identify the Agent and MCP Server that produced the request.
- 
+Approval is part of the elicitation result, not a field in the form schema.
+Every elicitation resolves with one of these protocol actions:
 
-![Elicitation Form](./pics/elicitation_form_sm.png){: align=right style="width:350px;"  }
+- `accept`: approve the question and, for form mode, return the form content.
+- `decline`: explicitly refuse the request.
+- `cancel`: dismiss the interaction without making a decision.
 
-The `Cancel All` option cancels the Elicitation Request, and automatically cancels future requests to avoid unwanted interruptions from badly behaving Servers.
+The example therefore does not add an `approve`/`disapprove` property to
+`SandboxRequest`. The question itself carries the price, and the tool handles
+`AcceptedElicitation`, `DeclinedElicitation`, and `CancelledElicitation`
+separately.
 
-For MCP Server developers, the form is fast and easy to navigate, which facilitates iterative development.
+## Server
 
-The `elicitation_forms_server.py` file includes examples of all field types and validations: `Numbers`, `Booleans`, `Enums` and `Strings`.
+The resolver describes input needed to continue the active tool request:
 
-It also supports the formats specified in the [schema](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/630db617baa801ef8ec99e64aa4b00e99c7165ec/schema/2025-11-25/schema.ts#L2238-L2249): `Email`, `Uri`, `Date` and `Date/Time`.
+```python title="sandbox_server.py"
+def request_sandbox_details() -> Elicit[SandboxRequest]:
+    return Elicit(
+        "Start t4-small sandbox at $0.40 per hour?",
+        SandboxRequest,
+    )
+```
 
+The resolved response is injected into the tool only when the same request
+continues:
 
-## Tool Call
+```python title="sandbox_server.py"
+@server.tool()
+def start_t4_small_sandbox(
+    request: Annotated[
+        ElicitationResult[SandboxRequest],
+        Resolve(request_sandbox_details),
+    ],
+) -> str: ...
+```
 
-The Tool Call demo demonstrates an Elicitation being conducted during an MCP Tool Call. This also showcases a couple of **fast-agent** features:
+The resolver must be deterministic and side-effect free because it may run
+again as the request continues. Perform the operation only in the tool body
+after validating the accepted response.
 
-- The `passthrough` model supports testing without an LLM. You can read more about Internal Models [here](../models/internal_models/).
-- Calling a tool by sending a `***CALL_TOOL` message, that enables an Agent to directly call an MCP Server Tool with specific arguments.
+Form elicitation is in-band. Never use it for passwords, API keys, payment
+details, or other sensitive data.
 
-Run `uv run tool_call.py` to run the Agent and see the elicitation. You can use a real LLM with the `--model` switch.
+## Client
 
-## Custom Handler
+The demo calls the tool directly, so it does not need an LLM:
 
-This example shows how to write and integrate a custom Elicitation handler. For this example, the agent uses a custom handler to generate a character for a game. To run:
+```python title="sandbox_demo.py"
+sandbox = cast("McpAgent", agent.sandbox)
+result = await sandbox.call_tool("start_t4_small_sandbox", {})
+```
+
+An LLM-backed agent can select the same tool from a natural-language request.
+The elicitation remains associated with that active tool call either way.
+
+## Custom handler
+
+Pass `elicitation_handler` to an agent to replace the built-in form UI. The
+custom-handler demo supplies deterministic content for the simulated sandbox:
 
 ```bash
-uv run game_character.py
+uv run custom_handler_demo.py
 ```
 
-![Custom Elicitation](./pics/elicitation_char3.gif)
+```python title="custom_handler_demo.py"
+async def development_sandbox_handler(
+    context: ClientRequestContext,
+    params: ElicitRequestParams,
+) -> ElicitResult:
+    assert isinstance(params, ElicitRequestFormParams)
+    return ElicitResult(
+        action="accept",
+        content={
+            "region": "eu-west-1",
+            "duration_hours": 2,
+            "max_budget_usd": 1.00,
+        },
+    )
 
-This agent uses a custom elicitation handler to generate a character for a game. The custom handler is in `game_character_handler.py` and is set up with the following code:
 
-```python title="game_character.py" linenums="23" hl_lines="4-5"
 @fast.agent(
-    "character-creator",
-    servers=["elicitation_forms_server"],
-    # Register our handler from game_character_handler.py
-    elicitation_handler=game_character_elicitation_handler,
+    "sandbox_custom",
+    servers=["sandbox_server"],
+    elicitation_handler=development_sandbox_handler,
 )
 ```
 
-For MCP Server Developers, Custom Handlers can be used to help complete automated test flows. For Production use, Custom Handlers can be used to send notifications or request input via remote  platforms such as web forms.
+This pattern is useful for deterministic development and test flows. Do not
+automatically approve consequential production operations without an
+equivalent user-control boundary.
+
+## Modern URL elicitation
+
+Run the URL example with:
+
+```bash
+uv run url_demo.py
+```
+
+The URL server returns an `InputRequiredResult` while processing
+`request_console_access`. The embedded URL request is associated with that
+tool call:
+
+```python title="url_server.py"
+return InputRequiredResult(
+    input_requests={
+        "authorize_console": ElicitRequest(
+            params=ElicitRequestURLParams(
+                message=f"Authorize browser access to sandbox {sandbox_id}.",
+                url=authorization_url,
+            )
+        )
+    },
+    request_state=request_state,
+)
+```
+
+`url_demo.py` registers a per-agent handler that displays the URL and waits
+for an explicit `accept`, `decline`, or `cancel` choice. The MCP client then
+retries the original tool with its original arguments, the response keyed by
+`authorize_console`, and the opaque `requestState`.
+
+The custom handler is intentional: the current built-in URL handler displays
+or queues the URL and immediately returns `accept`. Override it when the
+application requires an explicit consent choice.
+
+In URL mode, `accept` means consent to navigate—it does **not** mean OAuth,
+payment, credential entry, or another external operation completed. The
+example therefore returns:
+
+```text
+external completion was not verified and no console access was granted
+```
+
+A production server must independently verify its browser callback before
+granting access or performing a protected operation. The example uses
+`example.com`, omits the legacy `elicitationId`, and does not exchange
+credentials.
 
 ## Configuration
 
-Note that Elicitations are now _enabled by default_ in **fast-agent**, and can be [configured with](../#elicitations) the `fast-agent.yaml` file.
+The example forces modern protocol negotiation and uses the built-in forms
+handler:
 
-You can configure the Elicitation mode to `forms` (the default), `auto-cancel`, or `none`.
-
-```yaml title="fast-agent.yaml" linenums="19" hl_lines="10"
+```yaml title="fast-agent.yaml"
 mcp:
   servers:
-    # Elicitation test servers for different modes
-    elicitation_forms_mode:
-      command: "uv"
-      args: ["run", "elicitation_test_server_advanced.py"]
-      transport: "stdio"
-      cwd: "."
+    sandbox_server:
+      target: "uv run sandbox_server.py"
+      protocol_mode: modern
       elicitation:
-        mode: "forms"
-
+        mode: forms
 ```
 
-In `auto-cancel` mode, **fast-agent** advertises the Elicitation capability, and automatically cancels Elicitation requests from the MCP Server.
-
-When set to `none`, the Elicitation capability is not advertised to the MCP Server.
+Elicitation handling can be configured as `forms` (the default),
+`auto-cancel`, or `none`. In `auto-cancel` mode, **fast-agent** advertises the
+capability but cancels requests automatically. With `none`, it does not
+advertise the capability.

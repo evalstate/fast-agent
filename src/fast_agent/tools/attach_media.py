@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import unquote, urlparse
 
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     ContentBlock,
     EmbeddedResource,
@@ -17,7 +17,7 @@ from mcp.types import (
     ResourceLink,
 )
 from PIL import Image
-from pydantic import AnyUrl, ByteSize
+from pydantic import ByteSize
 
 from fast_agent.io.path_uri import file_uri_to_path
 from fast_agent.llm.provider_types import Provider
@@ -181,9 +181,9 @@ def build_attach_media(
     if source_info.kind == "link":
         block = ResourceLink(
             type="resource_link",
-            uri=AnyUrl(source_info.resolved_source),
+            uri=source_info.resolved_source,
             name=source_info.display_name,
-            mimeType=source_info.mime_type,
+            mime_type=source_info.mime_type,
             description=description,
         )
         return AttachMediaResult(
@@ -264,9 +264,9 @@ def build_attach_media_link(
 
     block = ResourceLink(
         type="resource_link",
-        uri=AnyUrl(source_info.resolved_source),
+        uri=source_info.resolved_source,
         name=source_info.display_name,
-        mimeType=source_info.mime_type,
+        mime_type=source_info.mime_type,
         description=description,
     )
     return AttachMediaResult(
@@ -316,14 +316,14 @@ def build_attach_media_from_bytes(
 
     encoded = base64.b64encode(data).decode("ascii")
     if is_image_mime_type(resolved_mime):
-        block = ImageContent(type="image", data=encoded, mimeType=resolved_mime)
+        block = ImageContent(type="image", data=encoded, mime_type=resolved_mime)
     else:
         block = EmbeddedResource(
             type="resource",
             resource=BlobResourceContents(
-                uri=AnyUrl(attachment_uri(raw_source)),
+                uri=attachment_uri(raw_source),
                 blob=encoded,
-                mimeType=resolved_mime,
+                mime_type=resolved_mime,
             ),
         )
 

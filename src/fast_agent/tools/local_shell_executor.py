@@ -8,6 +8,7 @@ import os
 import platform
 import signal
 import subprocess
+import tempfile
 import time
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -26,6 +27,7 @@ from fast_agent.tools.execution_environment import (
     ShellExecutionResult,
     ShellOutputActivityCallbacks,
     ShellRuntimeInfo,
+    TemporaryArtifact,
 )
 from fast_agent.tools.shell_output_spool import (
     ShellOutputSpoolPaths,
@@ -34,6 +36,10 @@ from fast_agent.tools.shell_output_spool import (
     delete_local_output_spool,
     open_local_output_spool,
     read_local_output_chunk,
+)
+from fast_agent.tools.transient_artifacts import (
+    bounded_temporary_text,
+    validate_artifact_name_parts,
 )
 from fast_agent.utils.shell_detection import shell_runtime_info
 from fast_agent.utils.text import strip_casefold
@@ -100,9 +106,12 @@ class LocalShellExecutor:
         self._logger = logger
         self._timeout_seconds = timeout_seconds
         self._warning_interval_seconds = warning_interval_seconds
-        self._working_directory = working_directory
+        self._working_directory = self.resolve_working_directory(
+            working_directory if working_directory is not None else Path.cwd()
+        )
         self._config = config
         self._default_env = dict(default_env or {})
+        self._temporary_artifact_directory: Path | None = None
 
     @property
     def timeout_seconds(self) -> float:
@@ -125,7 +134,33 @@ class LocalShellExecutor:
         return Path.cwd()
 
     def set_working_directory(self, working_directory: Path | None) -> None:
-        self._working_directory = working_directory
+        self._working_directory = self.resolve_working_directory(
+            working_directory if working_directory is not None else Path.cwd()
+        )
+
+    def _recover_deleted_process_cwd(self, working_directory: Path) -> None:
+        try:
+            Path.cwd()
+        except FileNotFoundError:
+            try:
+                os.chdir(working_directory)
+            except OSError:
+                fallback = working_directory.parent
+                try:
+                    os.chdir(fallback)
+                except OSError:
+                    self._logger.warning(
+                        "Process working directory was deleted and could not be recovered"
+                    )
+                    return
+                self._logger.warning(
+                    "Process working directory was deleted; "
+                    f"recovered to parent directory: {fallback}"
+                )
+                return
+            self._logger.warning(
+                f"Recovered deleted process working directory: {working_directory}"
+            )
 
     @staticmethod
     def resolve_working_directory(path: Path) -> Path:
@@ -363,6 +398,7 @@ class LocalShellExecutor:
             raise
         finally:
             await self._cancel_task_if_running(watchdog_task)
+            self._recover_deleted_process_cwd(plan.working_dir)
         try:
             drain_timed_out = await self._drain_output_tasks(
                 output_tasks,
@@ -414,6 +450,8 @@ class LocalShellExecutor:
             "cwd": working_dir,
             "env": child_env,
         }
+        if detach:
+            process_kwargs["stdin"] = asyncio.subprocess.DEVNULL
         if is_windows:
             creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
             if creation_flags:
@@ -673,7 +711,9 @@ class LocalShellExecutor:
         return process.returncode
 
     async def close(self) -> None:
-        return None
+        if self._temporary_artifact_directory is not None:
+            rmtree(self._temporary_artifact_directory, ignore_errors=True)
+            self._temporary_artifact_directory = None
 
 
 class LocalEnvironment(LocalShellExecutor):
@@ -731,6 +771,52 @@ class LocalEnvironment(LocalShellExecutor):
             rmtree(resolved)
             return
         resolved.unlink()
+
+    async def write_temporary_text(
+        self,
+        *,
+        prefix: str,
+        suffix: str,
+        content: str,
+        max_bytes: int,
+    ) -> TemporaryArtifact:
+        validate_artifact_name_parts(prefix=prefix, suffix=suffix)
+        directory = self._temporary_artifact_directory
+        if directory is None:
+            directory = Path(tempfile.mkdtemp(prefix="fast-agent-output-")).resolve()
+            if os.name != "nt":
+                directory.chmod(0o700)
+            self._temporary_artifact_directory = directory
+        descriptor, raw_path = tempfile.mkstemp(prefix=prefix, suffix=suffix, dir=directory)
+        path = Path(raw_path)
+        payload, complete = bounded_temporary_text(content, max_bytes=max_bytes)
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(payload)
+            if os.name != "nt":
+                path.chmod(0o600)
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise
+        return TemporaryArtifact(
+            path=str(path.resolve()),
+            retained_bytes=len(payload),
+            complete=complete,
+        )
+
+    async def remove_temporary_artifact(self, artifact: TemporaryArtifact) -> None:
+        directory = self._temporary_artifact_directory
+        if directory is None:
+            return
+        path = Path(artifact.path)
+        if path.parent == directory:
+            path.unlink(missing_ok=True)
+            try:
+                directory.rmdir()
+            except OSError:
+                return
+            if self._temporary_artifact_directory == directory:
+                self._temporary_artifact_directory = None
 
     def _resolve_filesystem_path(self, path: str) -> Path:
         candidate = Path(path).expanduser()

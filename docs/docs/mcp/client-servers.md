@@ -10,7 +10,10 @@ social:
 
 # Connect to MCP Servers
 
-For convenience, **`fast-agent`** lets you connect to MCP Servers with command line switches or the `/connect` TUI command. Smart agents have the ability to connect to MCP Servers themselves. 
+For convenience, **`fast-agent`** lets you connect to MCP Servers with command
+line switches or runtime commands. Use `/connect <name>` or `/mcp attach <name>`
+for a server in the configured registry. Use `/connect <target>` or
+`/mcp connect <target>` for an ad-hoc URL, package, or stdio command.
 
 From the command line:
 
@@ -21,13 +24,46 @@ fast-agent --uvx server-fetch # UVX Package
 fast-agent --stdio /path/to/stdio-server # STDIO Server
 ```
 
+Repeat `--url` to preserve input order. Comma-separated values remain accepted
+temporarily:
+
+```bash
+fast-agent \
+  --url https://one.example/mcp \
+  --url https://two.example/mcp \
+  --mcp-protocol modern
+```
+
+`--mcp-protocol` applies to every startup `--url`, `--npx`, `--uvx`, and
+`--stdio` target. One `--auth` value applies to every startup URL. Startup
+targets are all validated before connection; malformed or failed targets stop
+startup. During the compatibility window, a URL missing `/mcp` or `/sse` is
+shown with its resolved `/mcp` URL and a deprecation notice.
+
+Connection failures use the same structured report at startup, in the terminal,
+and over ACP. The report names the server, failure stage, redacted target,
+details, and next action. URL user information, query values, fragments, and
+common credential fields are redacted. If explicit bearer credentials are
+rejected, fast-agent tells you to replace them; it does not silently switch to
+OAuth.
 
 MCP Servers are configured in the `fast-agent.yaml` file. Secrets can be kept in `fast-agent.secrets.yaml`, which follows the same format (**fast-agent** merges the contents of the two files).
 
-`mcp.servers.<name>` supports canonical server blocks and shorthand `target` entries:
+The canonical MCP configuration is nested under `mcp`:
 
 ```yaml
 mcp:
+  defaults:
+    protocol_mode: auto
+    reconnect_on_disconnect: true
+    include_instructions: true
+  client:
+    auto_sampling: true
+  diagnostics:
+    enabled: true
+    timeline:
+      steps: 20
+      step_seconds: 30
   servers:
     remote_api:
       target: "https://api.example.com/mcp"
@@ -35,25 +71,113 @@ mcp:
         Authorization: "Bearer ${EXAMPLE_TOKEN}"
       auth:
         oauth: true
+      protocol_mode: auto
 ```
 
-You can also supply a list of target-first entries via `mcp.targets`:
+The key under `mcp.servers` is the server's canonical name. Use that key in
+agent `servers` lists; do not add a separate `name` field.
+
+Inspect redacted declarations without expanding shorthand:
+
+```bash
+fast-agent config show-mcp fast-agent.yaml
+```
+
+Use `--view effective` to show resolved transports, inherited defaults, and
+per-field provenance.
+
+Each server uses either a shorthand `target` or expanded source fields:
 
 ```yaml
 mcp:
-  targets:
-    - target: "https://demo.hf.space"
-    - target: "@modelcontextprotocol/server-filesystem /workspace"
-      name: "filesystem"
+  servers:
+    filesystem:
+      target: "@modelcontextprotocol/server-filesystem /workspace"
       load_on_start: false
+    remote_api:
+      transport: http
+      url: "https://api.example.com/mcp"
+      headers:
+        Authorization: "Bearer ${EXAMPLE_TOKEN}"
 ```
 
-`mcp.targets` entries are normalized into named `mcp.servers` aliases. If both
-forms define the same alias, the explicit `mcp.servers.<name>` entry wins.
+`target` is mutually exclusive with the expanded source fields `transport`,
+`url`, `command`, `args`, and `connector_id`. Other settings such as `headers`,
+`auth`, `protocol_mode`, and `load_on_start` can accompany a `target`.
 
 `target` must be a pure target string (URL/package/command only). Do not embed
 fast-agent CLI flags like `--auth`/`--oauth` inside `target`; use `headers` and
 `auth` fields instead.
+
+`mcp.defaults` supplies `protocol_mode`, `reconnect_on_disconnect`, and
+`include_instructions` when a server omits them. `mcp.client` controls client
+behavior such as automatic sampling, while `mcp.diagnostics` controls
+diagnostics collection and timeline display.
+
+For legacy configuration, see [Migrate MCP configuration](migration.md).
+
+## Protocol selection
+
+By default, fast-agent asks the MCP SDK to negotiate the best supported
+protocol:
+
+```yaml
+protocol_mode: auto
+```
+
+You can force a protocol era per client-managed server:
+
+```yaml
+mcp:
+  servers:
+    modern_only:
+      target: "https://api.example.com/mcp"
+      protocol_mode: modern
+    legacy_only:
+      target: "uvx legacy-mcp-server"
+      protocol_mode: legacy
+```
+
+- `auto` attempts modern discovery and falls back when the peer is identified
+  as a handshake-era server.
+- `modern` pins negotiation to the modern protocol era. It sends
+  `server/discover` to load capabilities and metadata, but does not fall back to
+  initialization and cannot be combined with the legacy SSE transport.
+- `legacy` uses the initialization handshake and does not attempt modern
+  discovery.
+
+Forced modern mode is useful for interoperability testing and known
+modern-only peers. Unlike `auto`, a failed `server/discover` request is treated
+as an error rather than evidence that the client should try legacy
+initialization. Prefer `auto` for normal connections.
+
+For an ad-hoc connection:
+
+```text
+/mcp connect --protocol modern https://api.example.com/mcp
+```
+
+Configured servers attached with `/mcp attach <name>` take their mode from
+`protocol_mode`. A bare `/connect docs` attaches the configured server named
+`docs` when it exists; `/mcp attach docs` is the explicit equivalent.
+Otherwise `/connect` materializes an ad-hoc target. `/mcp connect` is always
+ad-hoc. Use `--name` to give an ad-hoc target a non-conflicting runtime name.
+Provider-managed MCP does not use fast-agent's MCP client and therefore does
+not accept this setting.
+
+## Runtime MCP commands
+
+- `/mcp list` lists attached servers and configured servers that remain detached.
+- `/mcp status` shows detailed protocol, transport, health, activity, and capability status.
+- `/mcp attach <name>` attaches the named configured registry entry.
+- `/mcp connect <target>` connects an ad-hoc target.
+- `/connect <name|target>` attaches a configured name or connects an ad-hoc target.
+- `/mcp disconnect <name>` detaches a server.
+- `/mcp reconnect <name>` reconnects the attached server using its existing target.
+
+In the terminal and ACP, bare `/mcp` is a shortcut for detailed status. Both
+surfaces expose `/mcp list` for inventory and top-level `/connect` for
+configured names and ad-hoc targets.
 
 ## AgentCard runtime MCP connections (`mcp_connect`)
 
@@ -63,17 +187,23 @@ This is useful when a card depends on MCP servers that are not predeclared in
 
 ```yaml
 mcp_connect:
-  - target: "https://demo.hf.space"
+  demo:
+    target: "https://demo.hf.space"
+    protocol_mode: modern
     headers:
       Authorization: "Bearer ${DEMO_TOKEN}"
     auth:
       oauth: true
-  - target: "@modelcontextprotocol/server-everything"
-    name: "everything"
+  everything:
+    target: "@modelcontextprotocol/server-everything"
 ```
 
-`mcp.servers` remains the place for reusable, preconfigured aliases.
+`mcp.servers` remains the place for reusable, preconfigured definitions.
 `mcp_connect` is card-scoped runtime declaration.
+The named mapping is canonical; list entries remain compatible and retain
+their list form when dumped. `protocol_mode` accepts `auto`, `modern`, or
+`legacy`. Cards cannot set process fields (`command`, `args`, `env`, or `cwd`);
+those are materialized only from the allow-listed `target`.
 
 ## Provider-managed MCP
 
@@ -95,8 +225,8 @@ AgentCards can use the same mode in `mcp_connect`:
 
 ```yaml
 mcp_connect:
-  - target: "https://huggingface.co/mcp"
-    name: "huggingface"
+  huggingface:
+    target: "https://huggingface.co/mcp"
     management: provider
     access_token: "${HF_TOKEN}"
 ```

@@ -5,7 +5,20 @@ from __future__ import annotations
 from fast_agent.commands.command_catalog import CommandSpec, get_command_spec
 from fast_agent.commands.session_export_help import SESSION_EXPORT_USAGE
 
-CATALOG_HELP_COMMANDS = ("skills", "cards", "plugins", "model", "models", "check")
+CATALOG_HELP_COMMANDS = (
+    "skills",
+    "packs",
+    "plugins",
+    "model",
+    "agent",
+    "subagents",
+    "card",
+    "check",
+)
+
+HELP_TOPIC_DESCRIPTIONS = {
+    "status": "Explain the interactive status bar",
+}
 
 
 def _catalog_help_lines(command_names: tuple[str, ...]) -> list[str]:
@@ -30,6 +43,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
     lines = [
         "[bold]Available Commands:[/bold]",
         "  /help          - Show this help",
+        "  /help status   - Explain the interactive status bar",
         "  /system        - Show the current system prompt",
         "  /prompt <name> - Load a Prompt File or use MCP Prompt",
         "  /attach [path|url ...|clear] - Stage or clear file/^file: or URL/^url: attachments",
@@ -48,14 +62,16 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  /markdown      - Show last assistant message without markdown formatting",
             "  /environment   - List configured execution environments",
             "  /process [--history] - Show active or retained finished shell processes",
-            "  /mcpstatus     - Show MCP server status summary for the active agent",
-            "  /mcp list      - List attached runtime MCP servers",
-            "  /mcp connect <target> - Connect MCP server at runtime",
+            "  /mcp           - Show detailed MCP server status for the active agent",
+            "  /mcp status    - Show detailed MCP server status for the active agent",
+            "  /mcp list      - List configured and attached MCP servers",
+            "  /mcp attach <name> - Attach a configured MCP server",
+            "  /mcp connect <target> - Connect an ad-hoc MCP target",
             "      [dim]flags: --name --auth <token-value> --timeout --oauth/--no-oauth --reconnect[/dim]",
             '      [dim]example: /mcp connect "C:\\Program Files\\Tool\\tool.exe" --flag[/dim]',
             "  /mcp disconnect <name> - Disconnect attached MCP server",
             "  /mcp reconnect <name> - Reconnect attached MCP server",
-            "  /connect <target> - Alias for /mcp connect",
+            "  /connect <name|target> - Attach configured name or connect an ad-hoc target",
             "  /history save [filename] - Save current chat history to a file",
             "      [dim]Tip: Use a .json extension for MCP-compatible JSON; any other extension saves Markdown.[/dim]",
             "      [dim]Default: Timestamped filename (e.g., 25_01_15_14_30-conversation.json)[/dim]",
@@ -63,6 +79,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  /history <turn> - Show a prior user turn in full",
             "  /history rewind <turn> - Rewind to a prior user turn",
             "  /history detail <turn> - Show a prior user turn in full",
+            "  /history review [turn] - Review the latest or a specified turn in full",
             "  /history fix [agent_name] - Remove the last pending tool call",
         ]
     )
@@ -82,9 +99,6 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  /session pin <title> - Set title and pin the current session",
             "  /session unpin - Unpin the current session",
             f"  {SESSION_EXPORT_USAGE} - Export a session trace",
-            "  /card <filename> [--tool [remove]] - Load an AgentCard (attach/remove as tool)",
-            "  /agent <name> --tool [remove] - Attach/remove an agent as a tool",
-            "  /agent [name] --dump - Print an AgentCard to screen",
             "  /reload        - Reload AgentCards",
             "  @agent_name    - Switch to agent",
             "  #agent_name <msg> - Send message to agent (no space after #); '# Heading' stays plain text",
@@ -97,6 +111,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  Ctrl+Space     - Open completion menu",
             "  Tab / Shift+Tab - Next/previous completion item (when menu is open)",
             "  Shift+Tab      - Cycle service tier (when completion menu is closed)",
+            "  F5             - Cycle mode (Standard / Delegate / Orchestrate / Harness-only)",
             "  F6             - Cycle reasoning (when supported)",
             "  F7             - Cycle verbosity (when supported)",
             "  F8             - Toggle web search (when supported)",
@@ -113,3 +128,38 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
         ]
     )
     return lines
+
+
+def render_status_bar_help_lines() -> list[str]:
+    return [
+        "[bold]Interactive Status Bar (left → right):[/bold]",
+        "  status bar",
+        "  ├─ Agent",
+        "  │  └─ <name>  active agent",
+        "  ├─ Activity",
+        "  │  ├─ ↻  managed shell processes: dim idle, yellow active, red near the limit",
+        "  │  ├─ ↳  subagent delegation: green enabled, dim disabled",
+        "  │  └─ ⌘  harness tools: green enabled, dim disabled",
+        "  ├─ Model",
+        "  │  ├─ T V D  text, vision, and document support",
+        "  │  │  └─ green supported; reversed white unsupported; red related content error",
+        "  │  ├─ ▲ / ▲1…▲9 / ▲+  no draft attachments / count / ten or more",
+        "  │  │  └─ green usable; red missing, unknown, or unsupported",
+        "  │  ├─ ⣀…⣿ (paired: ⢀…⢸ ⡀…⡇)  reasoning, then verbosity gauges",
+        "  │  │  └─ fuller and green → yellow → red mean higher; dim inactive; blue auto",
+        "  │  ├─ ∞<model>  plan (OAuth login/monthly token plan)",
+        "  │  ├─ ▼<model>  overlay",
+        "  │  ├─ »  service tier: dim standard, blue flex, red fast",
+        "  │  ├─ ⊕  web search: green enabled, dim disabled",
+        "  │  └─ ⇣  web fetch: green enabled, dim disabled",
+        "  ├─ Context",
+        "  │  └─ <percent> used, or a zero-padded turn count when usage is unavailable",
+        "  ├─ Mode",
+        "  │  └─ NRM normal input; MLT multiline input",
+        "  └─ Right side",
+        "     ├─ <working directory> / fast-agent <version>",
+        "     ├─ ◀  notifications, sampling, elicitation, warnings, or tool updates",
+        "     └─ transient copy notice",
+        "",
+        "[dim]Unsupported controls are omitted. This topic explains TUI toolbar icons.[/dim]",
+    ]

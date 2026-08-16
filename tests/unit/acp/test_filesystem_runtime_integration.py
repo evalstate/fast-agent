@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, CallToolResult, Tool
+from mcp_types import CallToolRequestParams, CallToolResult, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
@@ -38,7 +38,7 @@ class SimpleFilesystemRuntime:
         self.read_tool = Tool(
             name="read_text_file",
             description="Read a text file",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "path": {"type": "string"},
@@ -49,7 +49,7 @@ class SimpleFilesystemRuntime:
         self.write_tool = Tool(
             name="write_text_file",
             description="Write a text file",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "path": {"type": "string"},
@@ -75,7 +75,7 @@ class SimpleFilesystemRuntime:
             return await self.write_text_file(arguments, tool_use_id)
         return CallToolResult(
             content=[text_content(f"unsupported tool: {name}")],
-            isError=True,
+            is_error=True,
         )
 
     async def read_text_file(self, arguments, tool_use_id=None):
@@ -85,12 +85,12 @@ class SimpleFilesystemRuntime:
             content = file_path.read_text()
             return CallToolResult(
                 content=[text_content(content)],
-                isError=False,
+                is_error=False,
             )
         except Exception as e:
             return CallToolResult(
                 content=[text_content(f"Error reading file: {e}")],
-                isError=True,
+                is_error=True,
             )
 
     async def write_text_file(self, arguments, tool_use_id=None):
@@ -102,26 +102,26 @@ class SimpleFilesystemRuntime:
             file_path.write_text(content)
             return CallToolResult(
                 content=[text_content(f"Successfully wrote {len(content)} characters to {path}")],
-                isError=False,
+                is_error=False,
             )
         except Exception as e:
             return CallToolResult(
                 content=[text_content(f"Error writing file: {e}")],
-                isError=True,
+                is_error=True,
             )
 
     async def apply_patch(self, arguments, tool_use_id=None):
         del arguments, tool_use_id
         return CallToolResult(
             content=[text_content("apply_patch unsupported")],
-            isError=True,
+            is_error=True,
         )
 
     async def edit_file(self, arguments, tool_use_id=None):
         del arguments, tool_use_id
         return CallToolResult(
             content=[text_content("edit_file unsupported")],
-            isError=True,
+            is_error=True,
         )
 
     def metadata(self):
@@ -172,7 +172,7 @@ async def test_filesystem_runtime_tool_call():
             # Call read_text_file
             result = await agent.call_tool("read_text_file", {"path": str(test_file)})
 
-            assert result.isError is False
+            assert result.is_error is False
             assert len(result.content) > 0
             assert test_content in result.content[0].text
 
@@ -183,7 +183,7 @@ async def test_filesystem_runtime_tool_call():
                 "write_text_file", {"path": str(output_file), "content": write_content}
             )
 
-            assert result.isError is False
+            assert result.is_error is False
             assert "Successfully wrote" in result.content[0].text
 
             # Verify the file was actually written

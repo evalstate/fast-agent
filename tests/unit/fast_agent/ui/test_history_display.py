@@ -2,7 +2,7 @@ import json
 from types import SimpleNamespace
 from typing import Any, cast
 
-from mcp.types import CallToolResult, ImageContent, TextContent
+from mcp_types import CallToolResult, ImageContent, TextContent
 from rich.console import Console
 
 from fast_agent.constants import ANTHROPIC_SERVER_TOOLS_CHANNEL, FAST_AGENT_TIMING, FAST_AGENT_USAGE
@@ -27,7 +27,7 @@ def test_extract_tool_result_summary_returns_named_fields_for_mixed_content() ->
     result = CallToolResult(
         content=[
             TextContent(type="text", text="hello\nworld"),
-            ImageContent(type="image", data="abc", mimeType="image/png"),
+            ImageContent(type="image", data="abc", mime_type="image/png"),
         ]
     )
 

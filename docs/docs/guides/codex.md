@@ -27,7 +27,7 @@ This starts **fast-agent** pre-configured for a Codex-style coding workflow.
 - A bounded rg-first search helper backed by `codexspark`
 - WebSocket-capable transport for modern Codex/OpenAI models
 - An `apply_patch` tool with a familiar Codex CLI-style patch signature
-- Preconfigured MCP targets available from `/connect`
+- Preconfigured MCP targets available from `/mcp attach`
 
 The coding agent has a minimal system prompt plus tools for the shell,
 filesystem and **fast-agent** services. `AGENTS.md` is included automatically if
@@ -46,7 +46,7 @@ connect to MCP Servers.
 If you want to use the Codex OAuth models directly, authenticate once first:
 
 ```bash
-fast-agent auth login codex
+fast-agent auth provider login codex
 ```
 
 This stores the token in your OS keyring. After that you can use Codex OAuth
@@ -81,7 +81,8 @@ This installs the `fast-agent` executable.
 From the `fast-agent` prompt:
 
 - Use `/skills` to view and manage skills
-- Use `/connect` to connect to the preconfigured MCP servers
+- Use `/mcp attach <name>` to attach preconfigured MCP servers; use `/connect`
+  for ad-hoc targets
 - Ask the agent to create additional cards in `.fast-agent/agent-cards/`
 - Switch agents with `@`
 - Configure compaction, hooks or automation with the available skills

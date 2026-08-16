@@ -3,7 +3,7 @@ import os
 
 import pytest
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, CallToolResult, TextContent, Tool
+from mcp_types import CallToolRequestParams, CallToolResult, TextContent, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
@@ -306,7 +306,7 @@ async def test_external_cancel_after_completed_tool_preserves_real_result() -> N
     [content] = result.content
     assert isinstance(content, TextContent)
     assert content.text == "ok"
-    assert result.isError in (False, None)
+    assert result.is_error in (False, None)
 
     rollback_state = agent.last_turn_history_state
     assert rollback_state is not None
@@ -454,7 +454,7 @@ async def test_generate_continues_from_staged_tool_result_history() -> None:
     resumed_results = history[2].tool_results
     assert resumed_results is not None
     assert "call-1" in resumed_results
-    assert resumed_results["call-1"].isError in (False, None)
+    assert resumed_results["call-1"].is_error in (False, None)
     assert history[2].last_text() == "ok"
 
 

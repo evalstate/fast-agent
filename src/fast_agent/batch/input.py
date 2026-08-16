@@ -553,7 +553,7 @@ def _read_parquet_records_with_python_duckdb(
             relation = connection.sql(_parquet_query(sources, offset=offset, limit=limit))
         columns = tuple(column[0] for column in relation.description)
         rows = tuple(tuple(row) for row in relation.fetchall())
-        return [dict(zip(columns, row)) for row in rows]
+        return [dict(zip(columns, row, strict=True)) for row in rows]
     finally:
         connection.close()
 
@@ -849,8 +849,10 @@ def _duckdb_secret_statements() -> list[str]:
         return []
     escaped = token.replace("'", "''")
     return [
-        "CREATE OR REPLACE SECRET hf_hub_token "
-        f"(TYPE HTTP, BEARER_TOKEN '{escaped}', SCOPE 'https://huggingface.co')",
+        (
+            "CREATE OR REPLACE SECRET hf_hub_token "
+            f"(TYPE HTTP, BEARER_TOKEN '{escaped}', SCOPE 'https://huggingface.co')"
+        ),
         f"CREATE OR REPLACE SECRET hf_token (TYPE HUGGINGFACE, TOKEN '{escaped}')",
     ]
 

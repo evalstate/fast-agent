@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from fast_agent.command_actions import MarkdownTextStyle
 from fast_agent.commands.results import CommandChannel, CommandMessage
 from fast_agent.config import Settings
 from fast_agent.core.exceptions import ProviderKeyError
@@ -67,7 +68,7 @@ class _FakeProvider:
     def __init__(self, display: _FakeDisplay) -> None:
         self._display = display
 
-    def _agent(self, agent_name: str) -> object:  # noqa: ARG002
+    def _agent(self, agent_name: str) -> object:
         return _FakeAgent(self._display)
 
     def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
@@ -83,7 +84,7 @@ class _FakeProvider:
     def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
         return agent_name or "alpha"
 
-    async def list_prompts(self, namespace: str | None, agent_name: str | None = None) -> object:  # noqa: ARG002
+    async def list_prompts(self, namespace: str | None, agent_name: str | None = None) -> object:
         return {}
 
 
@@ -119,6 +120,7 @@ async def test_emit_render_markdown_uses_assistant_renderer() -> None:
         right_info="session",
         agent_name="alpha",
         render_markdown=True,
+        markdown_styles=(MarkdownTextStyle(text="one", style="red"),),
     )
     await io.emit(message)
 
@@ -133,6 +135,33 @@ async def test_emit_render_markdown_uses_assistant_renderer() -> None:
     assert display_call["right_info"] == "session"
     assert display_call["truncate_content"] is False
     assert display_call["render_markdown"] is True
+    assert display_call["markdown_styles"] == (MarkdownTextStyle(text="one", style="red"),)
+
+
+@pytest.mark.asyncio
+async def test_emit_literal_text_preserves_markdown_and_rich_markup_source() -> None:
+    display = _FakeDisplay()
+    provider = cast("AgentProvider", _FakeProvider(display))
+    io = TuiCommandIO(prompt_provider=provider, agent_name="alpha")
+    source = (
+        "## Heading\n\n"
+        "- **bold**\n"
+        "- [label](https://example.test)\n"
+        "- [bold]literal Rich markup[/bold]"
+    )
+
+    await io.emit(
+        CommandMessage(
+            text=source,
+            title="Last Assistant Response",
+            agent_name="alpha",
+            verbatim=True,
+        )
+    )
+
+    assert display.display_calls == []
+    assert len(display.status_messages) == 1
+    assert display.status_messages[0].plain == f"Last Assistant Response\n{source}"
 
 
 @pytest.mark.asyncio

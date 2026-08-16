@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from mcp.types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent
 
 from fast_agent.mcp.tool_result_metadata import set_fatal_tool_error
 from fast_agent.tools.filesystem_tool_definitions import (
@@ -13,7 +13,7 @@ from fast_agent.tools.tool_sources import ACP_FILESYSTEM_TOOL_SOURCE
 from fast_agent.utils.collections import unique_preserve_order
 
 if TYPE_CHECKING:
-    from mcp.types import Tool
+    from mcp_types import Tool
 
     from fast_agent.tools.filesystem_runtime_protocol import FilesystemRuntime
     from fast_agent.types import RequestParams
@@ -37,7 +37,7 @@ def _unsupported_tool_result(name: str) -> CallToolResult:
                     text=message,
                 )
             ],
-            isError=True,
+            is_error=True,
         ),
         message,
     )

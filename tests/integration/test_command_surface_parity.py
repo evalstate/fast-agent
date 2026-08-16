@@ -4,8 +4,10 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
+from mcp_types import TextContent
 
 from fast_agent.config import get_settings, update_global_settings
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import SessionManager, reset_session_manager, set_session_manager
 from tests.support.command_surface import (
     CommandSurfaceAgent,
@@ -81,3 +83,40 @@ async def test_tui_and_acp_share_history_detail_error_intent() -> None:
     response = await handler.execute_command("history", "detail")
 
     assert "Turn number required for /history detail" in response
+
+
+def _four_turn_history() -> list[PromptMessageExtended]:
+    return [
+        PromptMessageExtended(
+            role=role,
+            content=[TextContent(type="text", text=f"{role} {turn}")],
+        )
+        for turn in range(1, 5)
+        for role in ("user", "assistant")
+    ]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_tui_and_acp_review_latest_turn_after_rewind() -> None:
+    tui_provider = CommandSurfaceProvider(
+        {"main": CommandSurfaceAgent(name="main", message_history=_four_turn_history())}
+    )
+    owner = CommandSurfaceOwner(agent_types=tui_provider.agent_types())
+
+    await dispatch_tui_command("/history rewind 4", owner=owner, prompt_provider=tui_provider)
+    await dispatch_tui_command("/history review", owner=owner, prompt_provider=tui_provider)
+
+    emitted = "\n".join(tui_provider._agent("main").display.messages)
+    assert "History review: turn 3" in emitted
+
+    acp_provider = CommandSurfaceProvider(
+        {"main": CommandSurfaceAgent(name="main", message_history=_four_turn_history())}
+    )
+    handler = build_acp_handler(acp_provider)
+
+    await handler.execute_command("history", "rewind 4")
+    response = await handler.execute_command("history", "review")
+
+    assert "History review: turn 3" in response
+    assert "user 3" in response

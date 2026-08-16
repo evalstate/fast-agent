@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fast_agent.patch.engine import AffectedPaths, apply_hunks_to_files, print_summary
+from fast_agent.patch.errors import ApplyPatchError
 
 if TYPE_CHECKING:
     from fast_agent.patch.parser import Hunk
@@ -25,6 +26,7 @@ async def apply_patch_to_environment_filesystem(
     hunks: list["Hunk"],
 ) -> str:
     """Apply parsed patch hunks to an environment filesystem and return patch output."""
+    _reject_path_aliases(filesystem, hunks)
     with tempfile.TemporaryDirectory(prefix="fast-agent-environment-patch-") as temp_dir:
         base = Path(temp_dir)
         path_map = _PatchPathMap()
@@ -48,13 +50,18 @@ async def apply_patch_to_environment_filesystem(
 
 
 class _PatchPathMap:
-    """Map possibly-absolute environment paths onto a temporary relative tree."""
+    """Map environment paths onto opaque temporary path components."""
 
     def __init__(self) -> None:
+        self._local_by_remote: dict[Path, Path] = {}
         self._remote_by_local: dict[Path, Path] = {}
 
     def to_local(self, remote: Path) -> Path:
-        local = _local_patch_path(remote)
+        local = self._local_by_remote.get(remote)
+        if local is not None:
+            return local
+        local = Path(str(len(self._local_by_remote)))
+        self._local_by_remote[remote] = local
         self._remote_by_local[local] = remote
         return local
 
@@ -99,12 +106,6 @@ async def _sync_patch_outputs(
         await filesystem.remove(str(remote_path))
 
 
-def _local_patch_path(path: Path) -> Path:
-    if not path.is_absolute():
-        return path
-    return Path(*path.parts[1:])
-
-
 def _transform_hunk(hunk: "Hunk", path_map: _PatchPathMap) -> "Hunk":
     if hunk.kind == "add":
         return replace(hunk, path=path_map.to_local(hunk.path))
@@ -119,4 +120,26 @@ def _input_paths(hunks: list["Hunk"]) -> list[Path]:
     for hunk in hunks:
         if hunk.kind in {"delete", "update"}:
             paths.append(hunk.path)
+    return paths
+
+
+def _reject_path_aliases(filesystem: "EnvironmentFilesystem", hunks: list["Hunk"]) -> None:
+    """Reject distinct patch paths that address one environment file."""
+    raw_by_resolved: dict[str, Path] = {}
+    for path in _hunk_paths(hunks):
+        resolved = filesystem.resolve_path(str(path))
+        previous = raw_by_resolved.get(resolved)
+        if previous is not None and previous != path:
+            raise ApplyPatchError(
+                f"Patch paths {previous} and {path} resolve to the same environment path {resolved}."
+            )
+        raw_by_resolved[resolved] = path
+
+
+def _hunk_paths(hunks: list["Hunk"]) -> list[Path]:
+    paths: list[Path] = []
+    for hunk in hunks:
+        paths.append(hunk.path)
+        if hunk.kind == "update" and hunk.move_path is not None:
+            paths.append(hunk.move_path)
     return paths

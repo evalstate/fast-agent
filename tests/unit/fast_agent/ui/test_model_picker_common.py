@@ -816,3 +816,66 @@ def test_build_snapshot_loads_overlays_when_settings_config_lives_in_home(
             os.environ.pop("FAST_AGENT_HOME", None)
         else:
             os.environ["FAST_AGENT_HOME"] = previous_home
+
+
+def _isolate_activation_sources(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make config_payload the only source of provider activation."""
+    monkeypatch.setattr(
+        "fast_agent.llm.provider_key_manager.ProviderKeyManager.get_env_var",
+        staticmethod(lambda _provider_name: None),
+    )
+    monkeypatch.setattr(
+        "fast_agent.ui.model_picker_common.is_huggingface_hub_logged_in",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.openai.codex_oauth.get_codex_token_status",
+        lambda: {"present": False},
+    )
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.openai.xai_oauth.get_xai_token_status",
+        lambda: {"present": False},
+    )
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+
+
+def test_snapshot_orders_active_providers_first_and_fast_agent_last(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _isolate_activation_sources(monkeypatch)
+
+    snapshot = build_snapshot(
+        config_payload={
+            "anthropic": {"api_key": "test"},
+            "openrouter": {"api_key": "test"},
+        }
+    )
+
+    options = list(snapshot.providers)
+    assert options[0].overlay_group is True
+
+    rows = [option for option in options if not option.overlay_group]
+    # fast-agent is always active ("local") but must stay pinned to the bottom.
+    assert rows[-1].provider is Provider.FAST_AGENT
+
+    ranked = [option for option in rows if option.provider is not Provider.FAST_AGENT]
+    active_flags = [option.active for option in ranked]
+    assert active_flags == sorted(active_flags, reverse=True)
+
+    # Stable PICKER_PROVIDER_ORDER within each partition.
+    from fast_agent.ui.model_picker_common import PICKER_PROVIDER_ORDER
+
+    for partition in (True, False):
+        actual = [
+            option.provider for option in ranked if option.active is partition and option.provider
+        ]
+        expected = [
+            provider
+            for provider in PICKER_PROVIDER_ORDER
+            if provider in actual and provider is not Provider.FAST_AGENT
+        ]
+        assert actual == expected[: len(actual)]
+
+    # Directed check: openrouter (late in fixed order) floats above responses.
+    keys = [option.provider for option in ranked]
+    assert keys.index(Provider.OPENROUTER) < keys.index(Provider.RESPONSES)

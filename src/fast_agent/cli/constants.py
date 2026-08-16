@@ -3,6 +3,19 @@
 RESUME_LATEST_SENTINEL = "__latest__"
 
 
+def normalize_convenience_flag_args(args: list[str], *, start_index: int = 0) -> None:
+    """Expand exact convenience flags before command routing and option parsing."""
+    index = start_index
+    while index < len(args):
+        if args[index] == "--":
+            return
+        if args[index] == "-xx":
+            args[index : index + 1] = ["--shell", "--subagents"]
+            index += 2
+            continue
+        index += 1
+
+
 def normalize_resume_flag_args(args: list[str], *, start_index: int = 0) -> None:
     index = start_index
     while index < len(args):
@@ -28,6 +41,7 @@ GO_SPECIFIC_OPTIONS = {
     "--card-pack",
     "--pack-registry",
     "--url",
+    "--mcp-protocol",
     "--model",
     "--models",
     "--agent",
@@ -56,6 +70,9 @@ GO_SPECIFIC_OPTIONS = {
     "--shell",
     "--no-shell",
     "-x",
+    "--subagents",
+    "--no-subagents",
+    "--subagent-model",
     "--skills",
     "--skills-dir",
     "--agent-cards",
@@ -71,7 +88,6 @@ GO_SPECIFIC_OPTIONS = {
     "--watch",
     "--reload",
     "--resume",
-    "--smart",
 }
 
 # Known subcommands that should not trigger auto-routing

@@ -34,7 +34,7 @@ The `default_headers` option is available for OpenAI-compatible providers (inclu
 | --- | --- | --- | --- |
 | OpenAI Responses | `responses` | `OPENAI_API_KEY` | Native Responses API, reasoning, web search, connectors, remote MCP |
 | OpenAI Chat Completions | `openai` | `OPENAI_API_KEY` | OpenAI-compatible Chat Completions models |
-| Codex Responses | `codexresponses` | `fast-agent auth login codex` or `CODEX_API_KEY` | Codex subscription-backed Responses models; no provider-managed MCP/connectors |
+| Codex Responses | `codexresponses` | `fast-agent auth provider login codex` or `CODEX_API_KEY` | Codex subscription-backed Responses models; no provider-managed MCP/connectors |
 | Anthropic | `anthropic` | `ANTHROPIC_API_KEY` or Anthropic SDK credentials | Claude Messages API, prompt caching, web tools |
 | Google | `google` | `GOOGLE_API_KEY` | Native Gemini API |
 | Azure OpenAI | `azure` | `AZURE_OPENAI_API_KEY` | Azure deployments and optional DefaultAzureCredential |
@@ -42,7 +42,7 @@ The `default_headers` option is available for OpenAI-compatible providers (inclu
 | Groq | `groq` | `GROQ_API_KEY` | Additional provider; OpenAI-compatible hosted inference |
 | xAI / Grok | `xai` | `XAI_API_KEY` | Grok models, reasoning, web search, and X Search |
 | MetaAI | `metaai` | `META_AI_API_KEY` | Muse Spark Responses API models |
-| DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | Additional provider; OpenAI-format API |
+| [DeepSeek](providers/deepseek/) | `deepseek` | `DEEPSEEK_API_KEY` | Native stateless Responses API; `deepseek-v4-flash`, `deepseek-v4-pro` |
 | Z.ai | `zai` | `ZAI_API_KEY` | Native GLM Chat Completions API |
 | Moonshot | `moonshot` | `MOONSHOT_API_KEY` | Native Kimi Chat Completions API |
 | Aliyun | `aliyun` | `ALIYUN_API_KEY` | Additional provider; DashScope compatible-mode endpoint |
@@ -63,7 +63,8 @@ See [Additional Providers](providers/additional/) for the long-tail reference wi
 - [AWS Bedrock](providers/bedrock/) for Bedrock model IDs, AWS authentication, and capability caveats.
 - [xAI / Grok](providers/xai/) for Grok models, reasoning, web search, and X Search.
 - [MetaAI](providers/metaai/) for Muse Spark Responses API models.
+- [DeepSeek](providers/deepseek/) for the native stateless Responses route, reasoning, tools, structured output, and web search.
 - [Z.ai](providers/zai/) for native GLM models, reasoning streams, tools, and structured output.
 - [Moonshot](providers/moonshot/) for native Kimi K3 reasoning, streaming, tools, structured output, and vision.
 - [Hugging Face](providers/huggingface/) for Inference Providers routing, curated aliases, and HF MCP authentication.
-- [Additional Providers](providers/additional/) for Groq, DeepSeek, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints.
+- [Additional Providers](providers/additional/) for Groq, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints.

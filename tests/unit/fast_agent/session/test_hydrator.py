@@ -2,19 +2,22 @@ from __future__ import annotations
 
 import json
 import subprocess
+import threading
 from datetime import datetime
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Literal, cast
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import (
+    NonResumableSessionError,
     SessionAgentSnapshot,
     SessionAttachmentRef,
+    SessionChildLinkSnapshot,
     SessionContinuationSnapshot,
     SessionGitSnapshot,
     SessionGitStateSnapshot,
@@ -82,7 +85,7 @@ class _Agent:
         self.config = AgentConfig(name, instruction=instruction, model="passthrough")
         self.config.default_request_params = RequestParams(
             use_history=self.config.use_history,
-            systemPrompt=instruction,
+            system_prompt=instruction,
         )
         self.llm = SimpleNamespace(
             default_request_params=self.config.default_request_params.model_copy(deep=True),
@@ -105,8 +108,8 @@ class _Agent:
         self.config.instruction = instruction
         params = self.config.default_request_params
         assert params is not None
-        params.systemPrompt = instruction
-        self.llm.default_request_params.systemPrompt = instruction
+        params.system_prompt = instruction
+        self.llm.default_request_params.system_prompt = instruction
 
     async def set_model(self, model: str | None) -> None:
         self.model_updates.append(model)
@@ -169,6 +172,31 @@ def _write_snapshot(session: Session, snapshot: SessionSnapshot) -> None:
         json.dumps(snapshot.model_dump(mode="json"), indent=2),
         encoding="utf-8",
     )
+
+
+@pytest.mark.asyncio
+async def test_hydrator_rejects_non_resumable_execution_session(tmp_path: Path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    parent = manager.create_session()
+    child = manager.create_child_session(
+        parent,
+        SessionChildLinkSnapshot(
+            parent_session_id=parent.info.name,
+            parent_agent_name="parent",
+        ),
+    )
+    agent = _Agent(name="child", instruction="runtime")
+
+    with pytest.raises(NonResumableSessionError, match="not resumable"):
+        await SessionHydrator().hydrate_session(
+            session=child,
+            agents={"child": cast("AgentProtocol", agent)},
+            fallback_agent_name="child",
+        )
 
 
 def _git(workspace: Path, *args: str) -> str:
@@ -523,12 +551,27 @@ async def test_hydrate_session_restores_runtime_state_and_replaces_usage(
     )
     runtime_foo.usage_accumulator.turns.extend([_TurnRecord("stale-usage")])
 
-    def _fake_rehydrate_usage(agent: _Agent, path):
-        assert path == history_path
+    from fast_agent.mcp.prompts.prompt_load import load_prompt
+
+    loaded_paths: list[Path] = []
+    loader_threads: list[int] = []
+    caller_thread = threading.get_ident()
+
+    def _tracked_load_prompt(path: Path) -> list[PromptMessageExtended]:
+        loaded_paths.append(path)
+        loader_threads.append(threading.get_ident())
+        return load_prompt(path)
+
+    def _fake_rehydrate_usage(agent: _Agent, messages: list[PromptMessageExtended]):
+        assert [message.all_text() for message in messages] == ["resume hello", "resume done"]
         assert agent.usage_accumulator.turns == []
         agent.usage_accumulator.turns.append(_TurnRecord("restored-usage"))
         return "usage restored"
 
+    monkeypatch.setattr(
+        "fast_agent.session.hydrator.load_prompt",
+        _tracked_load_prompt,
+    )
     monkeypatch.setattr(
         "fast_agent.session.hydrator.rehydrate_usage_from_history",
         _fake_rehydrate_usage,
@@ -547,14 +590,16 @@ async def test_hydrate_session_restores_runtime_state_and_replaces_usage(
     assert runtime_foo.instruction == "Stored foo prompt"
     assert runtime_foo.config.model == "anthropic.sonnet-4?reasoning=high"
     assert runtime_foo.model_updates == ["anthropic.sonnet-4?reasoning=high"]
-    assert params.maxTokens == 2048
+    assert params.max_tokens == 2048
     assert params.temperature == 0.3
     assert params.use_history is True
     assert params.max_iterations == 7
-    assert params.systemPrompt == "Stored foo prompt"
-    assert runtime_foo.llm.default_request_params.systemPrompt == "Stored foo prompt"
+    assert params.system_prompt == "Stored foo prompt"
+    assert runtime_foo.llm.default_request_params.system_prompt == "Stored foo prompt"
     assert runtime_foo.attached_servers == ["already-attached", "filesystem"]
     assert runtime_foo.usage_accumulator.turns == [_TurnRecord("restored-usage")]
+    assert loaded_paths == [history_path]
+    assert loader_threads[0] != caller_thread
 
 
 @pytest.mark.asyncio
@@ -611,7 +656,7 @@ async def test_hydrate_session_refresh_policy_skips_prompt_and_runtime_state(
     runtime_foo.config.model = "openai.gpt-5-mini"
     refresh_params = runtime_foo.config.default_request_params
     assert refresh_params is not None
-    refresh_params.maxTokens = 512
+    refresh_params.max_tokens = 512
 
     result = await SessionHydrator().hydrate_session(
         session=persisted_session,
@@ -626,7 +671,7 @@ async def test_hydrate_session_refresh_policy_skips_prompt_and_runtime_state(
     assert runtime_foo.config.model == "openai.gpt-5-mini"
     refreshed_params = runtime_foo.config.default_request_params
     assert refreshed_params is not None
-    assert refreshed_params.maxTokens == 512
+    assert refreshed_params.max_tokens == 512
     assert runtime_foo.attached_servers == ["existing-server"]
     assert _message_texts(runtime_foo) == ["refresh hello", "refresh done"]
 

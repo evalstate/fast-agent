@@ -29,6 +29,36 @@ fast-agent --model "hf.moonshotai/Kimi-K2.6:novita?reasoning=on"
 
 Curated aliases such as `kimi`, `deepseek-hf`, `glm`, and `minimax` include provider choices and request defaults tested with fast-agent features such as structured outputs and tool use. Capability can still vary by backing provider.
 
+## Muse Glimmer via Together
+
+`glimmer` routes [Muse Glimmer 30B](https://huggingface.co/meta-models/Muse-Glimmer-30B)
+through the Hugging Face Inference Providers router using Together:
+
+```bash
+fast-agent --model glimmer
+fast-agent --model "glimmer?reasoning=xhigh"
+```
+
+The preset resolves to `hf.meta-models/Muse-Glimmer-30B:together` and applies
+Meta's recommended sampling defaults: `temperature=1.0`, `top_p=0.95`, and
+`top_k=64`.
+
+Muse Glimmer supports text and image input with text output and a 131,072-token
+context window. Its reasoning control is a chat-template setting rather than an
+OpenAI `reasoning_effort` field. Fast-agent maps `low`, `medium`, `high`, and
+`xhigh` to `chat_template_kwargs.reasoning_strength`; the default is `high`.
+
+Meta's released chat template and [Together's model page](https://www.together.ai/models/muse-glimmer)
+describe tool calling, while Together's serverless model catalog currently marks
+function calling and structured outputs as unavailable for this endpoint. Live
+fast-agent testing confirms regular streamed tool calls and tool-result
+continuation work; the Hugging Face adapter uses manual stream accumulation for
+Together's null-valued tool-call continuation fragments.
+
+Fast-agent does not advertise structured JSON support for `glimmer`. Prompted
+JSON and tool-assisted JSON can succeed, but native Pydantic structured output
+was not reliable in live testing.
+
 ## Kimi instant mode
 
 Kimi models that support instant mode can disable reasoning with the `instant` query parameter:

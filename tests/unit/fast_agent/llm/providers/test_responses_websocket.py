@@ -8,13 +8,21 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from aiohttp import WSMsgType
-from mcp.types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent
+from websockets.exceptions import ConnectionClosedError
+from websockets.frames import Close
 
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_RETRY
+from fast_agent.constants import (
+    FAST_AGENT_ERROR_CHANNEL,
+    FAST_AGENT_RETRY,
+    FAST_AGENT_SAFETY_DETAILS,
+)
+from fast_agent.core.exceptions import ProviderSafetyBufferingError
 from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_websocket import (
     RESPONSES_CREATE_EVENT_TYPE,
+    RESPONSES_WEBSOCKET_CLOSE_TIMEOUT_SECONDS,
     ManagedWebSocketConnection,
     PlannedWsRequest,
     ResponsesWebSocketError,
@@ -23,6 +31,8 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     WebSocketConnectionManager,
     WebSocketResponsesStream,
     _AttrObjectView,
+    _SdkWebSocket,
+    _websocket_handshake_error_detail,
     build_ws_headers,
     connect_websocket,
     resolve_responses_ws_url,
@@ -41,6 +51,7 @@ from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.types import LlmStopReason
 
 if TYPE_CHECKING:
     from mcp import Tool
@@ -54,23 +65,6 @@ class _FakeSession:
 
     async def close(self) -> None:
         self.closed = True
-
-
-class _SlowConnectSession(_FakeSession):
-    def __init__(self, delay_seconds: float) -> None:
-        super().__init__()
-        self.delay_seconds = delay_seconds
-
-    async def ws_connect(
-        self,
-        url: str,
-        *,
-        headers: dict[str, str],
-        autoping: bool,
-    ) -> _FakeWebSocket:
-        del url, headers, autoping
-        await asyncio.sleep(self.delay_seconds)
-        return _FakeWebSocket()
 
 
 class _FakeWebSocket:
@@ -112,6 +106,95 @@ class _HangingWebSocket(_FakeWebSocket):
         del timeout
         await asyncio.Event().wait()
         raise AssertionError("unreachable")
+
+
+def test_websocket_handshake_error_detail_is_bounded() -> None:
+    detail = _websocket_handshake_error_detail(
+        json.dumps({"message": "Access denied\n" + "x" * 1200}).encode()
+    )
+
+    assert detail.startswith("Access denied ")
+    assert detail.endswith("…")
+    assert len(detail) == 1000
+
+
+def test_websocket_handshake_error_detail_does_not_render_unrecognized_json() -> None:
+    detail = _websocket_handshake_error_detail(
+        b'{"access_token":"secret-access","refresh_token":"secret-refresh"}'
+    )
+
+    assert detail == ""
+
+
+def test_websocket_handshake_error_detail_does_not_render_malformed_json() -> None:
+    detail = _websocket_handshake_error_detail(b'{"access_token":"secret-access",')
+
+    assert detail == ""
+
+
+def test_websocket_handshake_error_detail_handles_pathologically_nested_json() -> None:
+    detail = _websocket_handshake_error_detail(b"[" * 2000 + b"0" + b"]" * 2000)
+
+    assert detail == ""
+
+
+def test_websocket_handshake_error_detail_ignores_whitespace_only_fields() -> None:
+    detail = _websocket_handshake_error_detail(
+        json.dumps({"error": " \n\t", "message": "Denied"}).encode()
+    )
+
+    assert detail == "Denied"
+
+
+@pytest.mark.asyncio
+async def test_connect_websocket_bounds_close_handshake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_options: dict[str, object] = {}
+
+    class _Connection:
+        async def recv_bytes(self) -> bytes:
+            return b""
+
+        async def send_raw(self, data: bytes | str) -> None:
+            del data
+
+        async def close(self, *, code: int = 1000, reason: str = "") -> None:
+            del code, reason
+
+    class _Manager:
+        async def enter(self) -> _Connection:
+            return _Connection()
+
+        async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+            del exc_type, exc, tb
+
+    class _Responses:
+        def connect(self, **kwargs: Any) -> _Manager:
+            captured_options.update(kwargs["websocket_connection_options"])
+            return _Manager()
+
+    class _Client:
+        def __init__(self, **kwargs: Any) -> None:
+            del kwargs
+            self.responses = _Responses()
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.openai.responses_websocket.AsyncOpenAI",
+        _Client,
+    )
+
+    connection = await connect_websocket(
+        url="wss://example.test/v1/responses",
+        headers={"Authorization": "Bearer test"},
+    )
+    await connection.session.close()
+
+    assert captured_options["close_timeout"] == RESPONSES_WEBSOCKET_CLOSE_TIMEOUT_SECONDS
 
 
 class _FakeResponsesClient:
@@ -258,34 +341,6 @@ async def test_send_response_request_create_envelope_from_planned_request() -> N
     assert payload["type"] == "response.create"
     assert "stream" not in payload
     assert payload["model"] == "gpt-5.3-codex"
-
-
-@pytest.mark.asyncio
-async def test_connect_websocket_applies_timeout_during_handshake(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    created_sessions: list[_SlowConnectSession] = []
-
-    def _client_session_factory(*, timeout: Any) -> _SlowConnectSession:
-        del timeout
-        session = _SlowConnectSession(delay_seconds=0.05)
-        created_sessions.append(session)
-        return session
-
-    monkeypatch.setattr(
-        "fast_agent.llm.provider.openai.responses_websocket.aiohttp.ClientSession",
-        _client_session_factory,
-    )
-
-    with pytest.raises(TimeoutError):
-        await connect_websocket(
-            url="wss://api.openai.com/v1/responses",
-            headers={"Authorization": "Bearer test"},
-            timeout_seconds=0.01,
-        )
-
-    assert len(created_sessions) == 1
-    assert created_sessions[0].closed is True
 
 
 @pytest.mark.asyncio
@@ -911,6 +966,35 @@ async def test_websocket_stream_close_prefers_message_close_code() -> None:
 
 
 @pytest.mark.asyncio
+async def test_websocket_stream_close_reports_received_and_sent_frames() -> None:
+    class _ClosingConnection:
+        async def recv_bytes(self) -> bytes:
+            raise ConnectionClosedError(
+                rcvd=Close(1008, "provider policy"),
+                sent=Close(1008, "provider policy"),
+                rcvd_then_sent=True,
+            )
+
+        async def send_raw(self, data: bytes | str) -> None:
+            del data
+
+        async def close(self, *, code: int = 1000, reason: str = "") -> None:
+            del code, reason
+
+    stream = WebSocketResponsesStream(_SdkWebSocket(_ClosingConnection()))
+
+    with pytest.raises(ResponsesWebSocketError) as excinfo:
+        await stream.__anext__()
+
+    message = str(excinfo.value)
+    assert "received_close_code=1008" in message
+    assert "received_close_reason=provider policy" in message
+    assert "sent_close_code=1008" in message
+    assert "close_order=received_then_sent" in message
+    assert "hint=policy_violation" in message
+
+
+@pytest.mark.asyncio
 async def test_websocket_stream_error_payload_exposes_error_details() -> None:
     websocket = _FakeWebSocket(
         [
@@ -1054,6 +1138,37 @@ async def test_websocket_connection_manager_invalidation_on_error() -> None:
     second, second_reusable = await manager.acquire(factory)
     assert second_reusable
     assert second is not first
+
+
+@pytest.mark.asyncio
+async def test_websocket_connection_manager_rotates_at_absolute_max_age() -> None:
+    now = 1.0
+
+    def _clock() -> float:
+        return now
+
+    manager = WebSocketConnectionManager(
+        idle_timeout_seconds=0.0,
+        max_age_seconds=100.0,
+        clock=_clock,
+    )
+    factory = _ConnectionFactory(created=[])
+
+    first, first_reusable = await manager.acquire(factory)
+    await manager.release(first, reusable=first_reusable, keep=True)
+
+    now = 50.0
+    reused, reused_flag = await manager.acquire(factory)
+    assert reused is first
+    await manager.release(reused, reusable=reused_flag, keep=True)
+
+    now = 101.0
+    replacement, replacement_flag = await manager.acquire(factory)
+
+    assert replacement_flag
+    assert replacement is not first
+    assert first.websocket.closed
+    assert first.session.closed
 
 
 @pytest.mark.asyncio
@@ -1217,6 +1332,41 @@ class _TimeoutLifecycleHarness(_ConnectionLifecycleHarness):
         del model, capture_filename
         await stream.__anext__()
         raise AssertionError("unreachable")
+
+
+class _SafetyBufferingLifecycleHarness(_ConnectionLifecycleHarness):
+    def __init__(self) -> None:
+        super().__init__()
+        websocket = _FakeWebSocket(
+            messages=[
+                SimpleNamespace(
+                    type=WSMsgType.TEXT,
+                    data=json.dumps(
+                        {
+                            "type": "response.created",
+                            "response": {"id": "resp_1", "status": "in_progress"},
+                            "safety_buffering": {
+                                "use_cases": ["cyber"],
+                                "reasons": ["policy-check"],
+                                "retry_model": "gpt-5.3-codex-spark",
+                            },
+                        }
+                    ),
+                )
+            ]
+        )
+        connection = ManagedWebSocketConnection(session=_FakeSession(), websocket=websocket)
+        self._sequence_manager = _SequenceConnectionManager([connection])
+        self._ws_connections = self._sequence_manager
+        self.websocket = websocket
+
+    async def _process_stream(
+        self,
+        stream: Any,
+        model: str,
+        capture_filename: Any,
+    ) -> tuple[Any, list[str]]:
+        return await ResponsesLLM._process_stream(self, stream, model, capture_filename)
 
 
 class _ContinuationConnectionLifecycleHarness(CodexResponsesLLM):
@@ -2014,6 +2164,53 @@ async def test_websocket_streaming_timeout_releases_reusable_connection() -> Non
     assert timeout_data["stream_timing"]["events_received"] == 0
     assert timeout_data["stream_timing"]["timed_out"] is True
     assert timeout_data["stream_timing"]["timed_out_wait_ms"] >= 10.0
+
+
+@pytest.mark.asyncio
+async def test_websocket_safety_buffering_stops_without_reconnect_or_wrapping() -> None:
+    harness = _SafetyBufferingLifecycleHarness()
+    params = RequestParams(model="gpt-5.3-codex")
+
+    with pytest.raises(ProviderSafetyBufferingError) as exc_info:
+        await harness._responses_completion_ws(
+            input_items=_ws_input_items("hello"),
+            request_params=params,
+            tools=None,
+            model_name="gpt-5.3-codex",
+        )
+
+    assert exc_info.value.retry_model == "gpt-5.3-codex-spark"
+    assert harness._sequence_manager.acquire_calls == 1
+    assert len(harness.websocket.sent_payloads) == 1
+    assert harness._sequence_manager.release_keep_values == [False]
+
+
+@pytest.mark.asyncio
+async def test_safety_buffering_during_empty_response_retry_is_terminal() -> None:
+    harness = _TransportHarness(name="transport-harness", transport="sse")
+    harness.sse_errors = [None, ProviderSafetyBufferingError("gpt-test", "gpt-test-fast")]
+    harness.sse_texts = [None]
+
+    response = await harness._responses_completion(
+        input_items=_ws_input_items("hello"),
+        request_params=RequestParams(model="gpt-test"),
+    )
+
+    assert response.stop_reason == LlmStopReason.SAFETY
+    assert "gpt-test-fast" in (response.last_text() or "")
+    assert response.channels is not None
+    [details_block] = response.channels[FAST_AGENT_SAFETY_DETAILS]
+    assert isinstance(details_block, TextContent)
+    assert json.loads(details_block.text) == {
+        "provider": "codexresponses",
+        "category": "safety_buffering",
+        "model": "gpt-test",
+        "reasons": None,
+        "use_cases": None,
+        "retry_model": "gpt-test-fast",
+    }
+    assert harness.sse_calls == 2
+    assert harness.ws_calls == 0
 
 
 @pytest.mark.asyncio

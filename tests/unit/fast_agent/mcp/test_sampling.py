@@ -1,4 +1,4 @@
-from mcp.types import CreateMessageRequestParams, SamplingMessage, TextContent
+from mcp_types import CreateMessageRequestParams, SamplingMessage, TextContent
 
 from fast_agent.mcp.sampling import sampling_agent_config
 
@@ -7,9 +7,9 @@ def test_build_sampling_agent_config_with_system_prompt():
     """Test building AgentConfig with system prompt from params"""
     # Create params with system prompt
     params = CreateMessageRequestParams(
-        maxTokens=1024,
+        max_tokens=1024,
         messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Hello"))],
-        systemPrompt="Custom system instruction",
+        system_prompt="Custom system instruction",
     )
 
     # Build config
@@ -36,9 +36,9 @@ def test_build_sampling_agent_config_empty_system_prompt():
     """Test building AgentConfig with empty system prompt"""
     # Create params with empty system prompt
     params = CreateMessageRequestParams(
-        maxTokens=512,
+        max_tokens=512,
         messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Hello"))],
-        systemPrompt="",
+        system_prompt="",
     )
 
     # Build config

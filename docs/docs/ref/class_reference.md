@@ -270,20 +270,23 @@ args, remaining = parser.parse_known_args()
 # Create FastAgent with parse_cli_args=False since we're handling our own args
 fast = FastAgent("Embedded Agent", parse_cli_args=False)
 
+
 @fast.agent(instruction="You are a data analysis assistant")
 async def analyze():
     async with fast.run() as agent:
         if not args.input:
             print("Error: --input is required")
             sys.exit(1)
-            
+
         result = await agent.send(f"Analyze this data: {args.input}")
-        
+
         if args.format == "json":
             import json
+
             print(json.dumps({"result": result}))
         else:
             print(result)
+
 
 if __name__ == "__main__":
     asyncio.run(analyze())

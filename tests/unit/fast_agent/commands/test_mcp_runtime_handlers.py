@@ -2,12 +2,14 @@ import os
 from typing import cast
 
 import pytest
+from mcp.client.auth import OAuthFlowError, OAuthRegistrationError
 
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import mcp_runtime
 from fast_agent.commands.results import CommandMessage
 from fast_agent.config import MCPServerSettings, MCPSettings, Settings
 from fast_agent.mcp.connect_targets import parse_connect_command_text
+from fast_agent.mcp.failures import MCPFailure
 from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
 from fast_agent.mcp.oauth_client import OAuthEvent
 
@@ -90,32 +92,6 @@ def test_mcp_attach_counts_rejects_bool_totals() -> None:
     )
 
     assert counts.refreshed == mcp_runtime._McpResourceCounts(tools=2, prompts=1)
-
-
-def test_connect_failure_classifier_requires_explicit_oauth_timeout() -> None:
-    timeout = mcp_runtime._classify_connect_failure(
-        "OAuth callback wait timed out after 120 seconds"
-    )
-    assert timeout.oauth_related is True
-    assert timeout.oauth_timeout is True
-
-    non_oauth_timeout = mcp_runtime._classify_connect_failure(
-        "Startup timed out after 10.0s (non-OAuth startup budget)"
-    )
-    assert non_oauth_timeout.oauth_related is False
-    assert non_oauth_timeout.oauth_timeout is False
-
-    lifetime_policy = mcp_runtime._classify_connect_failure(
-        "OAuth token lifetime policy rejected by remote server"
-    )
-    assert lifetime_policy.oauth_related is True
-    assert lifetime_policy.oauth_timeout is False
-
-    mixed_case_timeout = mcp_runtime._classify_connect_failure(
-        "OAUTH CALLBACK WAIT TIMED OUT AFTER 120 SECONDS"
-    )
-    assert mixed_case_timeout.oauth_related is True
-    assert mixed_case_timeout.oauth_timeout is True
 
 
 class _Provider:
@@ -206,6 +182,26 @@ class _AlreadyAttachedManager(_Manager):
         )
 
 
+class _SkillsManager(_Manager):
+    async def attach_mcp_server(self, agent_name, server_name, server_config=None, options=None):
+        result = await super().attach_mcp_server(
+            agent_name,
+            server_name,
+            server_config=server_config,
+            options=options,
+        )
+        return MCPAttachResult(
+            server_name=result.server_name,
+            transport=result.transport,
+            attached=result.attached,
+            already_attached=result.already_attached,
+            tools_added=result.tools_added,
+            prompts_added=result.prompts_added,
+            warnings=result.warnings,
+            skills_total=25,
+        )
+
+
 class _OAuthEventManager(_Manager):
     async def attach_mcp_server(self, agent_name, server_name, server_config=None, options=None):
         if options and options.oauth_event_handler is not None:
@@ -239,7 +235,7 @@ class _OAuthEventManager(_Manager):
 class _OAuthFailureManager(_Manager):
     async def attach_mcp_server(self, agent_name, server_name, server_config=None, options=None):
         del agent_name, server_name, server_config, options
-        raise RuntimeError(
+        raise OAuthFlowError(
             "OAuth local callback server unavailable and paste fallback is disabled "
             "for this connection mode."
         )
@@ -248,9 +244,8 @@ class _OAuthFailureManager(_Manager):
 class _OAuthRegistration404Manager(_Manager):
     async def attach_mcp_server(self, agent_name, server_name, server_config=None, options=None):
         del agent_name, server_name, server_config, options
-        raise RuntimeError(
-            "OAuthRegistrationError: Registration failed: 404 404 page not found "
-            "for URL: https://api.githubcopilot.com/mcp/"
+        raise OAuthRegistrationError(
+            "Registration failed: HTTP 404 for https://api.githubcopilot.com/mcp/"
         )
 
 
@@ -341,11 +336,15 @@ def test_runtime_normalizes_bearer_prefix() -> None:
     )
 
     assert parsed.options.auth_token == "token-from-cli"
-    assert mcp_runtime._resolve_auth_token_value(" bEaReR token-from-cli ") == "token-from-cli"
+    from fast_agent.mcp.connect_targets import resolve_connect_auth_token
+
+    assert resolve_connect_auth_token(" bEaReR token-from-cli ") == "token-from-cli"
 
 
 def test_runtime_normalizes_spaced_bearer_prefix() -> None:
-    assert mcp_runtime._resolve_auth_token_value(" Bearer   token-from-cli ") == "token-from-cli"
+    from fast_agent.mcp.connect_targets import resolve_connect_auth_token
+
+    assert resolve_connect_auth_token(" Bearer   token-from-cli ") == "token-from-cli"
 
 
 def test_runtime_normalizes_bearer_prefix_before_env_resolution() -> None:
@@ -371,6 +370,39 @@ def test_runtime_rejects_missing_auth_env_reference(monkeypatch) -> None:
         mcp_runtime._resolve_request_auth(
             parse_connect_command_text("https://example.com/api --auth ${MISSING_TOKEN}")
         )
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_attach_reports_transport_and_reconnect_recovery() -> None:
+    manager = _AlreadyAttachedManager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_attach(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        server_name="docs server",
+    )
+
+    message_text = "\n".join(str(message.text) for message in outcome.messages)
+    assert "already attached via stdio" in message_text
+    assert "/mcp reconnect 'docs server'" in message_text
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_attach_points_to_one_shot_skills_registry_browse() -> None:
+    manager = _SkillsManager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_attach(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        server_name="docs server",
+    )
+
+    message_text = "\n".join(str(message.text) for message in outcome.messages)
+    assert "/skills available --registry 'mcp://docs server'" in message_text
 
 
 @pytest.mark.asyncio
@@ -422,11 +454,12 @@ async def test_handle_mcp_reconnect_attached_server() -> None:
     )
 
     message_text = "\n".join(str(message.text) for message in outcome.messages)
-    assert "Reconnected MCP server 'demo'." in message_text
+    assert "Reconnected MCP server 'demo' via stdio." in message_text
     assert outcome.messages[0].metadata["mcp_connect_status"] == "reconnected"
     assert "Refreshed 2 tools and 4 prompts (0 new)." in message_text
     assert manager.last_options is not None
     assert manager.last_options.force_reconnect is True
+    assert manager.last_config is None
 
 
 @pytest.mark.asyncio
@@ -443,6 +476,25 @@ async def test_handle_mcp_reconnect_requires_attached_server() -> None:
 
     message_text = "\n".join(str(message.text) for message in outcome.messages)
     assert "is not currently attached" in message_text
+    assert "/mcp connect --name <name> <target>" in message_text
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_reconnect_guides_configured_detached_server_to_attach() -> None:
+    manager = _Manager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_reconnect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        server_name="docs",
+    )
+
+    message_text = "\n".join(str(message.text) for message in outcome.messages)
+    assert message_text == (
+        "MCP server 'docs' is configured but not attached. Use `/mcp attach docs`."
+    )
 
 
 @pytest.mark.asyncio
@@ -478,9 +530,8 @@ async def test_handle_mcp_connect_scoped_package_uses_npx_command() -> None:
 
 
 @pytest.mark.asyncio
-async def test_handle_mcp_connect_configured_name_uses_existing_registry_entry() -> None:
+async def test_connect_alias_attaches_matching_central_config() -> None:
     manager = _Manager()
-    progress_updates: list[str] = []
     ctx = CommandContext(
         agent_provider=_Provider(),
         current_agent_name="main",
@@ -489,7 +540,6 @@ async def test_handle_mcp_connect_configured_name_uses_existing_registry_entry()
             mcp=MCPSettings(
                 servers={
                     "docs": MCPServerSettings(
-                        name="docs",
                         transport="http",
                         url="https://docs.example.com/mcp",
                     )
@@ -498,23 +548,165 @@ async def test_handle_mcp_connect_configured_name_uses_existing_registry_entry()
         ),
     )
 
-    async def _capture_progress(message: str) -> None:
-        progress_updates.append(message)
+    attach_outcome = await mcp_runtime.handle_mcp_attach(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        server_name="docs",
+    )
+
+    assert any(
+        "Attached configured MCP server 'docs' via stdio: https://docs.example.com/mcp."
+        in str(msg.text)
+        for msg in attach_outcome.messages
+    )
+    assert manager.last_config is None
+
+    connect_outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        request=_request("docs"),
+        resolve_configured_name=True,
+    )
+
+    assert any(
+        "Connected configured MCP server 'docs' via stdio." in str(msg.text)
+        for msg in connect_outcome.messages
+    )
+    assert manager.last_config is None
+    assert manager.last_options is not None
+    assert manager.last_options.startup_timeout_seconds == 30.0
+
+
+@pytest.mark.asyncio
+async def test_connect_alias_configured_oauth_failure_uses_server_login_guidance() -> None:
+    manager = _OAuthFailureManager()
+    ctx = CommandContext(
+        agent_provider=_Provider(),
+        current_agent_name="main",
+        io=_IO(),
+        settings=Settings(
+            mcp=MCPSettings(
+                servers={
+                    "docs": MCPServerSettings(
+                        transport="http",
+                        url="https://docs.example.com/mcp",
+                    )
+                }
+            )
+        ),
+    )
 
     outcome = await mcp_runtime.handle_mcp_connect(
         ctx,
         manager=cast("mcp_runtime.McpRuntimeManager", manager),
         agent_name="main",
         request=_request("docs"),
-        on_progress=_capture_progress,
+        resolve_configured_name=True,
+    )
+
+    message_text = "\n".join(str(message.text) for message in outcome.messages)
+    assert "fast-agent auth mcp login docs" in message_text
+    assert "auth mcp login --endpoint" not in message_text
+
+
+@pytest.mark.asyncio
+async def test_mcp_connect_keeps_matching_central_name_ad_hoc() -> None:
+    manager = _Manager()
+    ctx = CommandContext(
+        agent_provider=_Provider(),
+        current_agent_name="main",
+        io=_IO(),
+        settings=Settings(
+            mcp=MCPSettings(
+                servers={
+                    "docs": MCPServerSettings(
+                        transport="http",
+                        url="https://docs.example.com/mcp",
+                    )
+                }
+            )
+        ),
+    )
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        request=_request("docs"),
+    )
+
+    assert any("Connected MCP server 'docs' (stdio)." in str(msg.text) for msg in outcome.messages)
+    assert manager.last_config is not None
+    assert manager.last_config.command == "docs"
+    assert manager.last_config.args == []
+
+
+@pytest.mark.asyncio
+async def test_connect_alias_explicit_name_keeps_target_ad_hoc() -> None:
+    manager = _Manager()
+    ctx = CommandContext(
+        agent_provider=_Provider(),
+        current_agent_name="main",
+        io=_IO(),
+        settings=Settings(
+            mcp=MCPSettings(
+                servers={
+                    "docs": MCPServerSettings(
+                        transport="http",
+                        url="https://docs.example.com/mcp",
+                    )
+                }
+            )
+        ),
+    )
+
+    await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        request=_request("--name docs-local docs"),
+        resolve_configured_name=True,
+    )
+
+    assert manager.last_config is not None
+    assert manager.last_config.command == "docs"
+    assert manager.last_config.args == []
+
+
+@pytest.mark.asyncio
+async def test_connect_alias_attaches_configured_name_that_looks_like_target_syntax() -> None:
+    manager = _Manager()
+    ctx = CommandContext(
+        agent_provider=_Provider(),
+        current_agent_name="main",
+        io=_IO(),
+        settings=Settings(
+            mcp=MCPSettings(
+                servers={
+                    "npx": MCPServerSettings(
+                        transport="http",
+                        url="https://packages.example.com/mcp",
+                    )
+                }
+            )
+        ),
+    )
+    request = parse_connect_command_text("npx", resolve_configured_name=True)
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        request=request,
+        resolve_configured_name=True,
     )
 
     assert any(
-        "Connected MCP server 'docs' from configuration: https://docs.example.com/mcp."
-        in str(msg.text)
+        "Connected configured MCP server 'npx' via stdio." in str(msg.text)
         for msg in outcome.messages
     )
-    assert any("Connecting MCP server 'docs' from config file" in item for item in progress_updates)
     assert manager.last_config is None
 
 
@@ -623,6 +815,9 @@ async def test_handle_mcp_connect_url_auto_appends_mcp_suffix() -> None:
     )
 
     assert any("Connected MCP server" in str(msg.text) for msg in outcome.messages)
+    assert any(
+        "Automatic '/mcp' suffixing is deprecated" in str(msg.text) for msg in outcome.messages
+    )
     assert manager.last_config is not None
     assert manager.last_config.url == "https://example.com/api/mcp"
 
@@ -722,9 +917,20 @@ async def test_handle_mcp_connect_oauth_failure_adds_noninteractive_recovery_gui
     )
 
     message_text = "\n".join(str(msg.text) for msg in outcome.messages)
+    failure = next(
+        (
+            value
+            for message in outcome.messages
+            if isinstance((value := message.metadata.get("mcp_failure")), MCPFailure)
+        ),
+        None,
+    )
     assert "Failed to connect MCP server" in message_text
+    assert failure is not None
+    assert failure.kind == "oauth_failed"
+    assert failure.surface == "terminal_connect"
     assert "fast-agent auth mcp login" in message_text
-    assert "Stop/Cancel" in message_text
+    assert "Stop/Cancel" not in message_text
     assert any("Failed to connect MCP server" in item for item in progress_updates)
 
 
@@ -750,7 +956,7 @@ async def test_handle_mcp_connect_oauth_registration_404_adds_guidance() -> None
 
     message_text = "\n".join(str(msg.text) for msg in outcome.messages)
     assert "Failed to connect MCP server" in message_text
-    assert "registration returned HTTP 404" in message_text
+    assert "MCP OAuth authorization failed" in message_text
     assert "--client-metadata-url" in message_text
     assert "--auth <token>" in message_text
     assert "GitHub Copilot MCP" in message_text

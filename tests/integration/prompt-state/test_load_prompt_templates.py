@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from mcp.types import ImageContent
+from mcp_types import ImageContent
 
 from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
 from fast_agent.mcp.prompt import Prompt
@@ -54,7 +54,7 @@ async def test_load_conversation_with_attachments(fast_agent):
 
             assert 5 == len(prompts)
             assert "user" == prompts[0].role
-            assert "text/css" == prompts[0].content[1].resource.mimeType  # type: ignore
+            assert "text/css" == prompts[0].content[1].resource.mime_type  # type: ignore
             assert "f5f5f5" in prompts[0].content[1].resource.text  # type: ignore
 
             assert "assistant" == prompts[1].role
@@ -101,7 +101,7 @@ async def test_save_state_to_mcp_json_format(fast_agent):
     """Test saving conversation history to a JSON file in MCP wire format.
     This should create a file that's compatible with the MCP SDK and can be
     loaded directly using Pydantic types."""
-    from mcp.types import GetPromptResult
+    from mcp_types import GetPromptResult
 
     from fast_agent.mcp.prompt_serialization import from_json
 
@@ -127,8 +127,7 @@ async def test_save_state_to_mcp_json_format(fast_agent):
             assert os.path.exists("./history.json")
 
             # Load the file and check content
-            with open("./history.json", "r", encoding="utf-8") as f:
-                json_content = f.read()
+            json_content = Path("./history.json").read_text(encoding="utf-8")
 
             # Parse using JSON
             import json
@@ -272,7 +271,7 @@ async def test_apply_prompt_as_template_persistence(fast_agent):
 @pytest.mark.asyncio
 async def test_apply_prompt_with_prompt_result_object(fast_agent):
     """Test that we can apply a GetPromptResult object directly with as_template."""
-    from mcp.types import GetPromptResult, PromptMessage, TextContent
+    from mcp_types import GetPromptResult, PromptMessage, TextContent
 
     fast = fast_agent
 

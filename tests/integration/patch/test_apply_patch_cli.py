@@ -337,5 +337,6 @@ def _run_cli(
         input=stdin_patch,
         text=True,
         capture_output=True,
+        check=False,
         cwd=cwd,
     )

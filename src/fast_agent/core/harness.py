@@ -9,13 +9,14 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
-from mcp.types import PromptMessage
+from mcp_types import PromptMessage
 from pydantic import BaseModel
 
 from fast_agent.core.agent_instance_factory import (
     AgentInstanceFactory,
     CallableAgentInstanceFactory,
 )
+from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.harness_persistence import (
     CallbackHarnessSessionPersistence,
     FileHarnessSessionPersistence,
@@ -23,6 +24,7 @@ from fast_agent.core.harness_persistence import (
 )
 from fast_agent.core.live_session_registry import InMemoryLiveSessionRegistry
 from fast_agent.core.run_lifecycle import FastAgentRunLifecycle, FastAgentRunLifecycleState
+from fast_agent.core.shutdown import TUI_SHUTDOWN_TIMEOUT_SECONDS, ShutdownBudget
 from fast_agent.tools.environment_registry import environment_name
 from fast_agent.types import (
     AgentAuth,
@@ -341,6 +343,7 @@ class HarnessSessions:
         | None = None,
         delete_persisted_session: Callable[[str], Awaitable[None]] | None = None,
         shell_environment: ShellEnvironment | None = None,
+        validate_instance: Callable[[AgentInstance], None] | None = None,
     ) -> None:
         instance_factory = _resolve_instance_factory(
             instance_factory=instance_factory,
@@ -353,6 +356,7 @@ class HarnessSessions:
             delete_persisted_session=delete_persisted_session,
         )
         self._shell_environment = shell_environment
+        self._validate_instance = validate_instance
         self._registry: InMemoryLiveSessionRegistry[_HarnessSessionRecord, str | None] = (
             InMemoryLiveSessionRegistry(
                 instance_factory=instance_factory,
@@ -459,9 +463,11 @@ class HarnessSessions:
                     instance,
                     default_agent_name,
                 )
+            if self._validate_instance is not None:
+                self._validate_instance(instance)
             return record
         except Exception:
-            record.closed = True
+            self._close_record(record)
             raise
 
     @staticmethod
@@ -566,6 +572,11 @@ class AgentHarness:
                 ),
                 persistence=self._harness_persistence(),
                 shell_environment=self._shell_environment,
+                validate_instance=(
+                    None
+                    if self._runtime.is_acp_server_mode
+                    else self._validate_instance_provider_state
+                ),
             )
             return self
         except Exception:
@@ -578,23 +589,45 @@ class AgentHarness:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
+        shutdown_budget = (
+            ShutdownBudget(TUI_SHUTDOWN_TIMEOUT_SECONDS, reason="interactive_exit")
+            if isinstance(exc, PromptExitError)
+            else None
+        )
+
         if self._sessions is not None:
-            await self._sessions._close_all()
+
+            async def close_sessions() -> None:
+                assert self._sessions is not None
+                await self._sessions._close_all()
+
+            if shutdown_budget is None:
+                await close_sessions()
+            else:
+                await shutdown_budget.run("harness.sessions", close_sessions)
             self._sessions = None
 
         if self._runtime is not None:
-            for instance in list(self._runtime.managed_instances):
-                with suppress(Exception):
-                    await self._dispose_instance(instance)
-            if (
-                self._shell_environment is not None
-                and environment_name(self._shell_environment) is not None
-            ):
-                with suppress(Exception):
-                    await self._shell_environment.close()
-            if self._local_environment is not None:
-                with suppress(Exception):
-                    await self._local_environment.close()
+
+            async def close_runtime() -> None:
+                assert self._runtime is not None
+                for instance in list(self._runtime.managed_instances):
+                    with suppress(Exception):
+                        await self._dispose_instance(instance)
+                if (
+                    self._shell_environment is not None
+                    and environment_name(self._shell_environment) is not None
+                ):
+                    with suppress(Exception):
+                        await self._shell_environment.close()
+                if self._local_environment is not None:
+                    with suppress(Exception):
+                        await self._local_environment.close()
+
+            if shutdown_budget is None:
+                await close_runtime()
+            else:
+                await shutdown_budget.run("harness.runtime", close_runtime)
             self._runtime = None
             self._shell_environment = None
             self._local_environment = None
@@ -605,6 +638,7 @@ class AgentHarness:
                 None,
                 {},
                 had_error=exc_type is not None,
+                shutdown_budget=shutdown_budget,
                 exc_type=exc_type,
                 exc=exc,
                 traceback=traceback,
@@ -612,6 +646,9 @@ class AgentHarness:
             self._lifecycle_state = None
             self._lifecycle = None
             self._settings = None
+
+        if shutdown_budget is not None:
+            shutdown_budget.complete()
 
     async def session(
         self,
@@ -765,6 +802,7 @@ class AgentHarness:
         refresh_result = await self._fast_agent._finalize_initial_agent_instance(
             self._runtime,
             instance,
+            validate_provider_state=False,
         )
         instance.app.set_refresh_result(refresh_result)
         state = ManagedRunState(
@@ -781,6 +819,12 @@ class AgentHarness:
         )
         self._fast_agent._configure_streaming_for_run(instance.agents)
         return instance
+
+    @staticmethod
+    def _validate_instance_provider_state(instance: AgentInstance) -> None:
+        from fast_agent.core.runtime_finalization import validate_final_provider_state
+
+        validate_final_provider_state(instance.agents)
 
     async def _dispose_instance(self, instance: AgentInstance) -> None:
         if self._runtime is None:

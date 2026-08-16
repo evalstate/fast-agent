@@ -11,8 +11,8 @@ async def test_function_tools_from_card(fast_agent):
         tools = await agent.calc.list_tools()
         assert any(t.name == "add" for t in tools.tools)
         result = await agent.calc.call_tool("add", {"a": 2, "b": 3})
-        assert result.isError is False
-        assert result.structuredContent is None
+        assert result.is_error is False
+        assert result.structured_content is None
         assert result.content is not None
         assert result.content[0].text == "5"
 
@@ -42,14 +42,14 @@ async def test_function_tools_from_decorator(fast_agent):
         assert any(t.name == "summarize" for t in tools.tools)
 
         add_result = await agent.calc_decorator.call_tool("add", {"a": 4, "b": 5})
-        assert add_result.isError is False
-        assert add_result.structuredContent is None
+        assert add_result.is_error is False
+        assert add_result.structured_content is None
         assert add_result.content is not None
         assert add_result.content[0].text == "9"
 
         summarize_result = await agent.calc_decorator.call_tool("summarize", {})
-        assert summarize_result.isError is False
-        assert summarize_result.structuredContent is None
+        assert summarize_result.is_error is False
+        assert summarize_result.structured_content is None
         assert summarize_result.content is not None
         assert summarize_result.content[0].text == '{"status":"ok"}'
 
@@ -75,8 +75,8 @@ async def test_function_tools_from_custom_decorator(fast_agent):
         assert any(t.name == "add" for t in tools.tools)
 
         add_result = await agent.custom_calc_decorator.call_tool("add", {"a": 6, "b": 7})
-        assert add_result.isError is False
-        assert add_result.structuredContent is None
+        assert add_result.is_error is False
+        assert add_result.structured_content is None
         assert add_result.content is not None
         assert add_result.content[0].text == "13"
 
@@ -102,7 +102,7 @@ async def test_global_function_tools_are_available_to_supported_custom_agents(fa
         assert any(t.name == "ping" for t in tools.tools)
 
         ping_result = await agent.custom_global_tools.call_tool("ping", {})
-        assert ping_result.isError is False
-        assert ping_result.structuredContent is None
+        assert ping_result.is_error is False
+        assert ping_result.structured_content is None
         assert ping_result.content is not None
         assert ping_result.content[0].text == "pong"

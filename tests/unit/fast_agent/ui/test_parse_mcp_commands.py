@@ -3,6 +3,7 @@ import shlex
 from fast_agent.commands.mcp_command_intents import MCP_SERVER_NAME_ACTIONS, MCP_TOP_LEVEL_ACTIONS
 from fast_agent.ui.command_payloads import (
     CommandError,
+    McpAttachCommand,
     McpConnectCommand,
     McpDisconnectCommand,
     McpListCommand,
@@ -24,14 +25,29 @@ def test_mcp_token_parser_table_covers_non_connect_top_level_actions() -> None:
     assert set(prompt_parser._MCP_TOKEN_PARSERS) | {"connect"} == set(MCP_TOP_LEVEL_ACTIONS)
 
 
-def test_parse_mcp_status_backwards_compatible() -> None:
+def test_parse_mcp_defaults_to_status() -> None:
     result = parse_special_input("/mcp")
-    assert isinstance(result, ShowMcpStatusCommand)
+    assert result == ShowMcpStatusCommand()
+
+
+def test_parse_mcpstatus_is_unknown() -> None:
+    result = parse_special_input("/mcpstatus")
+    assert isinstance(result, UnknownCommand)
 
 
 def test_parse_mcp_list() -> None:
     result = parse_special_input("/mcp list")
     assert isinstance(result, McpListCommand)
+
+
+def test_parse_mcp_status() -> None:
+    result = parse_special_input("/mcp status")
+    assert isinstance(result, ShowMcpStatusCommand)
+
+
+def test_parse_mcp_attach() -> None:
+    result = parse_special_input("/mcp attach docs")
+    assert result == McpAttachCommand(server_name="docs", error=None)
 
 
 def test_parse_mcp_list_matches_case_insensitively() -> None:
@@ -101,7 +117,32 @@ def test_connect_alias_matches_mcp_connect() -> None:
     explicit = parse_special_input('/mcp connect --name docs demo-server --root "My Folder"')
     assert isinstance(alias, McpConnectCommand)
     assert isinstance(explicit, McpConnectCommand)
-    assert alias.request == explicit.request
+    assert alias.request is not None
+    assert explicit.request is not None
+    assert alias.request.target == explicit.request.target
+    assert alias.request.options == explicit.request.options
+    assert alias.resolve_configured_name is True
+    assert explicit.resolve_configured_name is False
+
+
+def test_connect_name_remains_unresolved_at_parse_time() -> None:
+    result = parse_special_input("/connect docs")
+
+    assert isinstance(result, McpConnectCommand)
+    assert result.request is not None
+    assert result.request.target.command == "docs"
+    assert result.request.target.args == ()
+    assert result.request.configured_name_candidate == "docs"
+
+
+def test_connect_reserved_target_name_is_deferred_for_configured_resolution() -> None:
+    result = parse_special_input("/connect npx")
+
+    assert isinstance(result, McpConnectCommand)
+    assert result.error is None
+    assert result.request is not None
+    assert result.request.configured_name_candidate == "npx"
+    assert result.request.configured_name_parse_error == "Connection target is required"
 
 
 def test_parse_mcp_disconnect() -> None:

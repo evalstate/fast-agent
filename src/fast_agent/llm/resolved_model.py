@@ -126,6 +126,14 @@ class ResolvedModelSpec:
         return model_params.cache_ttl if model_params is not None else None
 
     @property
+    def process_poll_default_wait_seconds(self) -> int:
+        configured = self.model_config.process_poll_default_wait_seconds
+        if configured is not None:
+            return configured
+        model_params = self.model_params
+        return model_params.process_poll_default_wait_seconds if model_params is not None else 0
+
+    @property
     def anthropic_web_search_version(self) -> str | None:
         model_params = self.model_params
         return model_params.anthropic_web_search_version if model_params is not None else None
@@ -150,7 +158,7 @@ class ResolvedModelSpec:
 
         if config.max_tokens is not None:
             target = effective_request_params or RequestParams()
-            effective_request_params = target.model_copy(update={"maxTokens": config.max_tokens})
+            effective_request_params = target.model_copy(update={"max_tokens": config.max_tokens})
 
         sampling_updates = {
             field_name: value
@@ -180,7 +188,7 @@ class ResolvedModelSpec:
             {
                 "service_tier": config.service_tier,
                 "structured_tool_policy": config.structured_tool_policy,
-                "maxTokens": self.default_max_tokens,
+                "max_tokens": self.default_max_tokens,
             },
         )
 

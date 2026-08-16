@@ -1,6 +1,6 @@
 from typing import Any
 
-from mcp.types import GetPromptResult
+from mcp_types import GetPromptResult
 
 _NAMESPACED_NAME_KEY = "fast_agent.namespaced_name"
 _ARGUMENTS_KEY = "fast_agent.arguments"

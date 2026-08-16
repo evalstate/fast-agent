@@ -697,8 +697,10 @@ You can also compact a session on demand with `session.compact()`:
 
 ```python
 result = await session.compact()
-print(f"{result.messages_before} → {result.messages_after} messages "
-      f"(~{result.tokens_after_estimate} tokens)")
+print(
+    f"{result.messages_before} → {result.messages_after} messages "
+    f"(~{result.tokens_after_estimate} tokens)"
+)
 ```
 
 Steer the summary with one-off instructions, or target a specific agent:
@@ -901,9 +903,7 @@ tool through the normal model/tool loop:
 ```python
 async with fast.harness() as harness:
     session = await harness.session("repo-review", agent_name="reviewer")
-    response = await session.generate(
-        "Inspect the current git diff and summarize risky changes."
-    )
+    response = await session.generate("Inspect the current git diff and summarize risky changes.")
 ```
 
 The shell/tool activity belongs to the selected agent in that session's

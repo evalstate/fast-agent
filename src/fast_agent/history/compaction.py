@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
 
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL
 from fast_agent.core.logging.logger import get_logger
@@ -47,13 +47,22 @@ Include:
 - Important context, constraints, or user preferences
 - What remains to be done (clear next steps)
 - Any critical data, file paths, identifiers, or references needed to continue
+- Distinguish durable state from ephemeral runtime state. Do not claim that a tool or \
+capability is currently available or unavailable; tell the resumed model to check its \
+current declarations.
 
 Be concise, structured, and focused on helping the next LLM seamlessly continue the work. \
 Respond with the summary only."""
 
-SUMMARY_NOTICE = (
+LEGACY_SUMMARY_NOTICE = (
     "Earlier conversation history was compacted into the checkpoint summary below. "
     "Treat it as authoritative context for the work completed so far."
+)
+SUMMARY_NOTICE = (
+    "Earlier conversation history was compacted into the checkpoint summary below. "
+    "Treat completed work and durable state as authoritative. Current system and developer "
+    "instructions, configuration, and declared tools override conflicting runtime-state "
+    "claims in the summary."
 )
 
 _CHARS_PER_TOKEN = 4
@@ -121,6 +130,16 @@ class CompactionResult:
 def is_compaction_message(message: PromptMessageExtended) -> bool:
     """True when the message is a compaction checkpoint summary."""
     return bool(message.channels and FAST_AGENT_COMPACTION_CHANNEL in message.channels)
+
+
+def normalize_compaction_notice(message: PromptMessageExtended) -> None:
+    """Update legacy checkpoint guidance without altering its summary or metadata."""
+    if not is_compaction_message(message):
+        return
+    for content in message.content:
+        if isinstance(content, TextContent) and LEGACY_SUMMARY_NOTICE in content.text:
+            content.text = content.text.replace(LEGACY_SUMMARY_NOTICE, SUMMARY_NOTICE, 1)
+            return
 
 
 def resolve_compaction_prompt(settings: "CompactionSettings | None") -> str:

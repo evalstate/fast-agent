@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, TextContent
 
 from fast_agent.constants import ANTHROPIC_SERVER_TOOLS_CHANNEL, FAST_AGENT_TOOL_METADATA
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -11,9 +11,9 @@ from fast_agent.ui import history_actions
 
 
 class _CaptureDisplay:
-    events: list[str] = []
-    tool_call_metadata: list[dict[str, object] | None] = []
-    tool_calls: list[dict[str, object]] = []
+    events: ClassVar[list[str]] = []
+    tool_call_metadata: ClassVar[list[dict[str, object] | None]] = []
+    tool_calls: ClassVar[list[dict[str, object]]] = []
 
     def __init__(self, config=None) -> None:
         del config
@@ -40,6 +40,9 @@ class _CaptureDisplay:
     def show_tool_result(self, *args: Any, **kwargs: Any) -> None:
         del args, kwargs
         self.events.append("tool_result")
+
+    def show_history_tool_result(self, *args: Any, **kwargs: Any) -> None:
+        self.show_tool_result(*args, **kwargs)
 
 
 def _capture_history_display(monkeypatch) -> type[_CaptureDisplay]:

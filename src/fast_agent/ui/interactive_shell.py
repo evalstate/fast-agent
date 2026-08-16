@@ -10,11 +10,10 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 
-from rich import print as rich_print
-
 from fast_agent.config import get_settings
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.tools.execution_environment import ShellExecutionResult
+from fast_agent.ui.console import rich_print
 
 
 @dataclass(slots=True)
@@ -512,6 +511,7 @@ def run_interactive_shell_command(
     max_output_chars: int = 50000,
     show_output: bool = True,
     echo_command: bool = True,
+    restore_scroll_region: bool = False,
 ) -> ShellExecutionResult:
     output_capture = _CapturedShellOutput(max_output_chars=max_output_chars)
     return_code = 0
@@ -534,6 +534,7 @@ def run_interactive_shell_command(
             )
             proc = launched_process.proc
             cleanup_state = launched_process.cleanup_state
+            cleanup_state.needs_scroll_reset = restore_scroll_region
             return_code = _run_pty_shell_loop(
                 proc,
                 cleanup_state=cleanup_state,

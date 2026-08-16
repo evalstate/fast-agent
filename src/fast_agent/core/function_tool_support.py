@@ -43,7 +43,7 @@ def decorator_supports_scoped_function_tools(
     custom_cls: Any = None,
 ) -> bool:
     """Return whether a decorated agent function should expose ``.tool``."""
-    if agent_type in {AgentType.BASIC, AgentType.SMART}:
+    if agent_type == AgentType.BASIC:
         return True
     if agent_type == AgentType.CUSTOM:
         return custom_class_supports_function_tools(custom_cls)

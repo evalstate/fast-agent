@@ -24,7 +24,7 @@ from anthropic.types.beta import (
     BetaURLImageSourceParam,
     BetaURLPDFSourceParam,
 )
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     CallToolResult,
     ContentBlock,
@@ -428,7 +428,7 @@ class AnthropicConverter:
             elif is_image_content(content_item):
                 # Handle image content
                 image_content = content_item
-                mime_type = image_content.mimeType or ""
+                mime_type = image_content.mime_type or ""
                 # Check if image MIME type is supported
                 if not AnthropicConverter._is_supported_image_type(mime_type):
                     data_size = len(image_content.data) if image_content.data else 0
@@ -666,7 +666,7 @@ class AnthropicConverter:
         mime_type: str,
     ) -> BetaContentBlockParam:
         blob_length = len(resource_content.blob)
-        uri_display = uri._url if uri else (uri_str or "<unknown>")
+        uri_display = str(uri) if uri else (uri_str or "<unknown>")
         return BetaTextBlockParam(
             type="text",
             text=(
@@ -685,7 +685,7 @@ class AnthropicConverter:
         uri_str = str(resource.uri) if resource.uri else None
         parsed_uri = urlparse(uri_str) if uri_str else None
         is_url: bool = bool(parsed_uri and parsed_uri.scheme in ("http", "https"))
-        mime_type = resource.mimeType or (guess_mime_type(uri_str) if uri_str else None) or ""
+        mime_type = resource.mime_type or (guess_mime_type(uri_str) if uri_str else None) or ""
 
         from fast_agent.mcp.resource_utils import extract_title_from_uri
 
@@ -732,8 +732,8 @@ class AnthropicConverter:
         Returns:
             The MIME type as a string
         """
-        if resource.mimeType:
-            return resource.mimeType
+        if resource.mime_type:
+            return resource.mime_type
 
         if resource.uri:
             return guess_mime_type(str(resource.uri))
@@ -775,7 +775,7 @@ class AnthropicConverter:
         if isinstance(resource, EmbeddedResource):
             uri = resource.resource.uri
             if uri:
-                return BetaTextBlockParam(type="text", text=f"[{message}: {uri._url}]")
+                return BetaTextBlockParam(type="text", text=f"[{message}: {uri}]")
             if uri_str := get_resource_uri(resource):
                 return BetaTextBlockParam(type="text", text=f"[{message}: {uri_str}]")
 
@@ -830,7 +830,7 @@ class AnthropicConverter:
                         type="tool_result",
                         tool_use_id=sanitized_id,
                         content=tool_result_blocks,
-                        is_error=result.isError,
+                        is_error=result.is_error,
                     )
                 )
             else:
@@ -842,7 +842,7 @@ class AnthropicConverter:
                         content=[
                             BetaTextBlockParam(type="text", text="[No content in tool result]")
                         ],
-                        is_error=result.isError,
+                        is_error=result.is_error,
                     )
                 )
 

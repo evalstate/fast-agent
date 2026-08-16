@@ -5,9 +5,9 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
-from fast_agent.agents.agent_types import AgentType
+from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.commands.renderers import status_markdown as status_renderers
 from fast_agent.commands.renderers.status_markdown import render_status_markdown
 from fast_agent.commands.status_summaries import (
@@ -58,7 +58,11 @@ class _MalformedHfDisplayInfoLLM(_MissingModelMetadataLLM):
         return {"provider": 123}
 
 
-def _summary(*, model_source: str | None) -> StatusSummary:
+def _summary(
+    *,
+    model_source: str | None,
+    subagent_activation_source: str | None = None,
+) -> StatusSummary:
     return StatusSummary(
         fast_agent_version="1.2.3",
         client_info=None,
@@ -82,6 +86,7 @@ def _summary(*, model_source: str | None) -> StatusSummary:
             recent_entries=[],
         ),
         warnings=[],
+        subagent_activation_source=subagent_activation_source,
     )
 
 
@@ -89,6 +94,18 @@ def test_render_status_markdown_includes_model_source_when_present() -> None:
     rendered = render_status_markdown(_summary(model_source="last used model"), heading="status")
 
     assert "- Model Source: last used model" in rendered
+
+
+def test_render_status_markdown_includes_subagent_activation_source() -> None:
+    rendered = render_status_markdown(
+        _summary(
+            model_source=None,
+            subagent_activation_source="instruction directive",
+        ),
+        heading="status",
+    )
+
+    assert "- Subagents: enabled (instruction directive)" in rendered
 
 
 def test_status_markdown_renderers_normalize_markdown_headings() -> None:
@@ -185,6 +202,7 @@ def test_build_status_summary_prefers_agent_context_model_source() -> None:
     agent = SimpleNamespace(
         agent_type=AgentType.BASIC,
         name="agent",
+        config=AgentConfig("agent"),
         context=SimpleNamespace(config=SimpleNamespace(model_source="last used model")),
         llm=None,
         usage_accumulator=None,
@@ -208,6 +226,7 @@ def test_build_status_summary_omits_blank_model_source() -> None:
     agent = SimpleNamespace(
         agent_type=AgentType.BASIC,
         name="agent",
+        config=AgentConfig("agent"),
         context=SimpleNamespace(config=SimpleNamespace(model_source="   ")),
         llm=None,
         usage_accumulator=None,
@@ -225,6 +244,32 @@ def test_build_status_summary_omits_blank_model_source() -> None:
     )
 
     assert summary.model_source is None
+
+
+def test_build_status_summary_reports_instruction_subagent_activation() -> None:
+    config = AgentConfig("agent", subagents=True)
+    config.subagent_activation_source = "instruction"
+    agent = SimpleNamespace(
+        agent_type=AgentType.BASIC,
+        name="agent",
+        config=config,
+        context=None,
+        llm=None,
+        usage_accumulator=None,
+        message_history=[],
+    )
+
+    summary = build_status_summary(
+        fast_agent_version="1.2.3",
+        agent=cast("AgentProtocol", agent),
+        client_info=None,
+        client_capabilities=None,
+        protocol_version=None,
+        uptime_seconds=0.0,
+        instance=None,
+    )
+
+    assert summary.subagent_activation_source == "instruction directive"
 
 
 def test_build_status_summary_normalizes_client_info_fields() -> None:
@@ -553,6 +598,7 @@ def test_build_status_summary_tolerates_missing_llm_model_metadata() -> None:
     agent = SimpleNamespace(
         agent_type=AgentType.BASIC,
         name="agent",
+        config=AgentConfig("agent"),
         context=SimpleNamespace(config=SimpleNamespace(model_source=None)),
         llm=_MissingModelMetadataLLM(),
         usage_accumulator=None,
@@ -579,6 +625,7 @@ def test_build_status_summary_does_not_hide_broken_llm_model_metadata() -> None:
     agent = SimpleNamespace(
         agent_type=AgentType.BASIC,
         name="agent",
+        config=AgentConfig("agent"),
         context=SimpleNamespace(config=SimpleNamespace(model_source=None)),
         llm=_BrokenModelMetadataLLM(),
         usage_accumulator=None,
@@ -601,6 +648,7 @@ def test_build_status_summary_defaults_malformed_hf_provider_display() -> None:
     agent = SimpleNamespace(
         agent_type=AgentType.BASIC,
         name="agent",
+        config=AgentConfig("agent"),
         context=SimpleNamespace(config=SimpleNamespace(model_source=None)),
         llm=_MalformedHfDisplayInfoLLM(),
         usage_accumulator=None,

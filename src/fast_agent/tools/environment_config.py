@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -277,7 +277,7 @@ def parse_huggingface_volume_mount(uri: str) -> ParsedHuggingFaceVolumeMount:
     if mount_type not in {"bucket", "model", "dataset", "space"}:
         raise ValueError(f"Unsupported Hugging Face volume type '{mount_type}'.")
     return ParsedHuggingFaceVolumeMount(
-        type=cast("Literal['bucket', 'model', 'dataset', 'space']", mount_type),
+        type=mount_type,
         source=mount.source.id,
         mount_path=mount.mount_path,
         read_only=mount.read_only,

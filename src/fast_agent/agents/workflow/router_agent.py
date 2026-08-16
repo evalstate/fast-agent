@@ -113,7 +113,7 @@ class RouterAgent(LlmAgent):
             )
         else:
             merged_params = RequestParams(
-                systemPrompt=ROUTING_SYSTEM_INSTRUCTION,
+                system_prompt=ROUTING_SYSTEM_INSTRUCTION,
                 use_history=False,
             )
 

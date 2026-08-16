@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.constants import FAST_AGENT_TIMING
 from fast_agent.types import ConversationSummary, PromptMessageExtended
@@ -88,11 +88,11 @@ def test_tool_calls():
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="Sunny")],
-                    isError=False,
+                    is_error=False,
                 ),
                 "call_2": CallToolResult(
                     content=[TextContent(type="text", text="72°F")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -141,15 +141,15 @@ def test_tool_errors():
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="Success")],
-                    isError=False,
+                    is_error=False,
                 ),
                 "call_2": CallToolResult(
                     content=[TextContent(type="text", text="Error: failed")],
-                    isError=True,
+                    is_error=True,
                 ),
                 "call_3": CallToolResult(
                     content=[TextContent(type="text", text="Error: timeout")],
-                    isError=True,
+                    is_error=True,
                 ),
             },
         ),
@@ -184,7 +184,7 @@ def test_multiple_tool_call_rounds():
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="Data received")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -207,11 +207,11 @@ def test_multiple_tool_call_rounds():
             tool_results={
                 "call_2": CallToolResult(
                     content=[TextContent(type="text", text="Processed")],
-                    isError=False,
+                    is_error=False,
                 ),
                 "call_3": CallToolResult(
                     content=[TextContent(type="text", text="Error")],
-                    isError=True,
+                    is_error=True,
                 ),
             },
         ),
@@ -249,7 +249,7 @@ def test_model_dump():
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="Done")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -290,7 +290,7 @@ def test_unknown_tool_id_in_results():
             tool_results={
                 "unknown_call": CallToolResult(
                     content=[TextContent(type="text", text="Error")],
-                    isError=True,
+                    is_error=True,
                 ),
             },
         ),

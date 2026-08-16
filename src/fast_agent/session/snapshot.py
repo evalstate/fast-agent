@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from fast_agent.session.identity import SessionSaveIdentity
     from fast_agent.session.session_manager import Session, SessionInfo
 
-SESSION_SNAPSHOT_SCHEMA_VERSION = 3
+SESSION_SNAPSHOT_SCHEMA_VERSION = 4
 
 type JsonScalar = None | bool | int | float | str
 type JsonValue = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
@@ -204,6 +204,32 @@ class SessionAnalysisSnapshot(BaseModel):
     transport_diagnostics: list[SessionDiagnosticSnapshot] = Field(default_factory=list)
 
 
+class SessionChildLinkSnapshot(BaseModel):
+    """Backlink from an isolated child execution to its invoking session."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    parent_session_id: str
+    parent_agent_name: str
+    parent_tool_call_id: str | None = None
+    tool_name: Literal["subagent"] = "subagent"
+
+
+type SessionExecutionStatus = Literal["running", "completed", "failed", "cancelled"]
+
+
+class SessionExecutionSnapshot(BaseModel):
+    """Execution lifecycle metadata for a persisted session."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    resumable: bool = True
+    child_link: SessionChildLinkSnapshot | None = None
+    status: SessionExecutionStatus = "completed"
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
 class SessionSnapshot(BaseModel):
     """Versioned persisted session snapshot.
 
@@ -213,13 +239,14 @@ class SessionSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[3] = SESSION_SNAPSHOT_SCHEMA_VERSION
+    schema_version: Literal[4] = SESSION_SNAPSHOT_SCHEMA_VERSION
     session_id: str
     created_at: datetime
     last_activity: datetime
     metadata: SessionMetadataSnapshot = Field(default_factory=SessionMetadataSnapshot)
     continuation: SessionContinuationSnapshot = Field(default_factory=SessionContinuationSnapshot)
     analysis: SessionAnalysisSnapshot = Field(default_factory=SessionAnalysisSnapshot)
+    execution: SessionExecutionSnapshot = Field(default_factory=SessionExecutionSnapshot)
 
 
 @runtime_checkable
@@ -256,6 +283,9 @@ def load_session_snapshot(payload: object) -> SessionSnapshot:
         return synthesize_legacy_session_snapshot(payload_mapping)
     if raw_schema_version == 2:
         payload_mapping = _migrate_v2_session_snapshot(payload_mapping)
+        raw_schema_version = 3
+    if raw_schema_version == 3:
+        payload_mapping = _migrate_v3_session_snapshot(payload_mapping)
         raw_schema_version = SESSION_SNAPSHOT_SCHEMA_VERSION
     if raw_schema_version != SESSION_SNAPSHOT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported session snapshot schema version: {raw_schema_version!r}")
@@ -281,6 +311,21 @@ def _migrate_v2_session_snapshot(payload: Mapping[str, object]) -> dict[str, obj
                 migrated_summary["completion_tokens"] = migrated_summary.pop("output_tokens")
             migrated_analysis["usage_summary"] = migrated_summary
         migrated["analysis"] = migrated_analysis
+    migrated["schema_version"] = 3
+    return migrated
+
+
+def _migrate_v3_session_snapshot(payload: Mapping[str, object]) -> dict[str, object]:
+    """Add execution metadata introduced with the v4 session snapshot."""
+
+    migrated = dict(payload)
+    migrated["execution"] = {
+        "resumable": True,
+        "child_link": None,
+        "status": "completed",
+        "started_at": None,
+        "completed_at": None,
+    }
     migrated["schema_version"] = SESSION_SNAPSHOT_SCHEMA_VERSION
     return migrated
 
@@ -378,6 +423,8 @@ def capture_session_snapshot(
     """
     snapshot = snapshot_from_session_info(session.info)
     existing_snapshot = _load_existing_session_snapshot(session)
+    if existing_snapshot is not None:
+        snapshot.execution = existing_snapshot.execution.model_copy(deep=True)
 
     snapshot.continuation.active_agent = active_agent.name
     snapshot.continuation.cwd = _capture_continuation_cwd(
@@ -961,7 +1008,7 @@ def _request_settings_snapshot_from_params(
         return None
 
     snapshot = SessionRequestSettingsSnapshot(
-        max_tokens=params.maxTokens,
+        max_tokens=params.max_tokens,
         temperature=params.temperature,
         top_p=params.top_p,
         top_k=params.top_k,

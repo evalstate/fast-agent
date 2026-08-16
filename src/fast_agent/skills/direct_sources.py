@@ -6,7 +6,6 @@ installed without a marketplace file.
 
 from __future__ import annotations
 
-import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -23,13 +22,13 @@ from fast_agent.marketplace.source_urls import (
 from fast_agent.skills.models import (
     SKILL_MANIFEST_FILENAME,
     SKILL_MANIFEST_FILENAME_LOWER,
+    SKILL_NAME_PATTERN,
     MarketplaceSkill,
 )
 from fast_agent.skills.registry import SkillManifest, SkillRegistry
 from fast_agent.utils.text import strip_casefold, strip_to_none
 
 DIRECT_SOURCE_TIMEOUT_SECONDS = 7.0
-SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
 
 
 @dataclass(frozen=True)

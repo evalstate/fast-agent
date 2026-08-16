@@ -12,6 +12,7 @@ from fast_agent.commands.results import CommandOutcome
 from fast_agent.ui.command_payloads import (
     CommandPayload,
     CommandsCommand,
+    McpAttachCommand,
     McpListCommand,
     ModelVerbosityCommand,
     SkillsCommand,
@@ -33,6 +34,7 @@ class _Agent:
 
 class _Provider:
     plugin_command_base_path = None
+    user_turn_usage = ()
 
     def __init__(
         self,
@@ -128,6 +130,21 @@ async def test_parse_and_dispatch_use_route_registry_for_plain_outcome_commands(
         calls.append(("mcp-list", {"manager": manager, "agent": agent_name}))
         return CommandOutcome()
 
+    async def fake_mcp_attach(
+        _context: object,
+        *,
+        manager: object,
+        agent_name: str,
+        server_name: str,
+    ) -> CommandOutcome:
+        calls.append(
+            (
+                "mcp-attach",
+                {"manager": manager, "agent": agent_name, "server": server_name},
+            )
+        )
+        return CommandOutcome()
+
     async def fake_model_verbosity(
         _context: object,
         *,
@@ -137,6 +154,11 @@ async def test_parse_and_dispatch_use_route_registry_for_plain_outcome_commands(
         calls.append(("model-verbosity", {"agent": agent_name, "value": value}))
         return CommandOutcome()
 
+    monkeypatch.setitem(
+        command_dispatch._COMMAND_OUTCOME_ROUTE_BY_PAYLOAD_TYPE,
+        McpAttachCommand,
+        _route_with_handler(McpAttachCommand, fake_mcp_attach),
+    )
     monkeypatch.setitem(
         command_dispatch._COMMAND_OUTCOME_ROUTE_BY_PAYLOAD_TYPE,
         CommandsCommand,
@@ -163,15 +185,17 @@ async def test_parse_and_dispatch_use_route_registry_for_plain_outcome_commands(
     assert (await _dispatch_raw("/commands tools", provider)).handled is True
     assert (await _dispatch_raw("/skills search docker", provider)).handled is True
     assert (await _dispatch_raw("/mcp list", provider)).handled is True
+    assert (await _dispatch_raw("/mcp attach docs", provider)).handled is True
     assert (await _dispatch_raw("/model verbosity high", provider)).handled is True
 
     assert calls == [
         ("commands", {"agent": "default", "argument": "tools"}),
         ("skills", {"agent": "default", "action": "search", "argument": "docker"}),
         ("mcp-list", {"manager": provider, "agent": "default"}),
+        ("mcp-attach", {"manager": provider, "agent": "default", "server": "docs"}),
         ("model-verbosity", {"agent": "default", "value": "high"}),
     ]
-    assert len(patched_context) == 4
+    assert len(patched_context) == 5
 
 
 @pytest.mark.asyncio

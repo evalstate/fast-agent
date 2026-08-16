@@ -17,10 +17,10 @@ def example_tool(input_text: str) -> str:
     return reversed_text
 
 
+mcp_app = mcp_instance.http_app(path=MCP_PATH, transport="http")
 app = Starlette(
-    routes=[
-        Mount("/", app=mcp_instance.http_app(path=MCP_PATH, transport="http")),
-    ]
+    routes=[Mount("/", app=mcp_app)],
+    lifespan=mcp_app.lifespan,
 )
 
 if __name__ == "__main__":

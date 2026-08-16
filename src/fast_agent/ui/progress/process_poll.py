@@ -207,17 +207,56 @@ def render_process_monitor_stats(stats: ProcessMonitorStats) -> Text:
     )
     append_field("time", elapsed, width=_ELAPSED_WIDTH, align="<")
 
+    size = _process_output_size(stats)
+    append_field("size", size or "0B", width=_SIZE_WIDTH)
+    return line
+
+
+def render_compact_process_monitor_stats(
+    stats: ProcessMonitorStats,
+    *,
+    include_elapsed: bool,
+    include_size: bool,
+) -> Text:
+    """Render complete process fields at narrow responsive breakpoints."""
+    line = Text()
+
+    def append(value: str, *, style: str = "dim") -> None:
+        if line:
+            line.append(" · ", style="dim")
+        line.append(value, style=style)
+
+    line.append("out ", style="dim")
+    line.append(
+        _activity_label(stats.stdout_age_seconds),
+        style=_activity_style(stats.stdout_age_seconds, stream="stdout"),
+    )
+    line.append(" · err ", style="dim")
+    line.append(
+        _activity_label(stats.stderr_age_seconds),
+        style=_activity_style(stats.stderr_age_seconds, stream="stderr"),
+    )
+    if include_elapsed:
+        append(
+            format_process_elapsed(stats.elapsed_seconds)
+            if stats.elapsed_seconds is not None
+            else "—"
+        )
+    if include_size:
+        append(_process_output_size(stats) or "0B")
+    return line
+
+
+def _process_output_size(stats: ProcessMonitorStats) -> str | None:
     stream_bytes = (
         stats.stdout_bytes + stats.stderr_bytes
         if stats.stdout_bytes is not None and stats.stderr_bytes is not None
         else None
     )
     # Per-stream counts are raw bytes; the combined fallback may include display prefixes.
-    size = format_process_output_size(
+    return format_process_output_size(
         stream_bytes if stream_bytes is not None else stats.total_output_bytes
     )
-    append_field("size", size or "0B", width=_SIZE_WIDTH)
-    return line
 
 
 def format_process_output_activity(

@@ -257,7 +257,7 @@ async def test_agent_includes_tool_results_in_multipart_result_openai(fast_agent
                     )
                 ]
             )
-            from mcp.types import TextContent
+            from mcp_types import TextContent
 
             def is_thought_part(part_content):
                 # Check if it's a TextContent and if its text starts with "thought" (case-insensitive)

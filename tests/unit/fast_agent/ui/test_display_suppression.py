@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mcp.types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent
 from rich.text import Text
 
 from fast_agent.ui.console_display import ConsoleDisplay, ParallelAgentDisplayResult
@@ -36,7 +36,7 @@ def test_progress_only_display_suppresses_status_and_chat(capsys) -> None:
         display.show_tool_result(
             CallToolResult(
                 content=[TextContent(type="text", text="hidden result")],
-                isError=False,
+                is_error=False,
             ),
             tool_name="echo",
         )

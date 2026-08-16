@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent import (
     AgentAuth,
@@ -21,6 +21,7 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.config import get_settings, update_global_settings
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.agent_instance_factory import CallableAgentInstanceFactory
+from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.fastagent import AgentInstance, RunRuntime, RunSettings
 from fast_agent.tools.execution_environment import (
     ShellExecution,
@@ -50,6 +51,28 @@ def test_public_harness_exports_and_factory() -> None:
     assert AgentResponse.__name__ == "AgentResponse"
     assert HarnessSession.__name__ == "HarnessSession"
     assert HarnessSessions.__name__ == "HarnessSessions"
+
+
+@pytest.mark.asyncio
+async def test_harness_prompt_exit_has_one_total_shutdown_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _BlockingSessions:
+        async def _close_all(self) -> None:
+            await asyncio.Event().wait()
+
+    fast = FastAgent("test", parse_cli_args=False)
+    harness = fast.harness()
+    harness._sessions = cast("Any", _BlockingSessions())
+    monkeypatch.setattr("fast_agent.core.harness.TUI_SHUTDOWN_TIMEOUT_SECONDS", 0.02)
+    error = PromptExitError("exit")
+
+    await asyncio.wait_for(
+        harness.__aexit__(PromptExitError, error, None),
+        timeout=0.2,
+    )
+
+    assert harness._sessions is None
 
 
 def test_environments_resolve_relative_paths_from_explicit_config(
@@ -489,10 +512,13 @@ async def test_harness_create_instance_runs_run_path_setup() -> None:
             self,
             runtime: RunRuntime,
             created: AgentInstance,
+            *,
+            validate_provider_state: bool = True,
         ) -> object:
             assert runtime is harness._runtime
             assert created is instance
             assert config.session_history is True
+            assert validate_provider_state is False
             events.append("finalize")
             return object()
 
@@ -621,6 +647,126 @@ async def test_harness_sessions_uses_persistence_protocol() -> None:
     assert persistence.created == [("demo", "support")]
     assert persistence.saved == [({"session_id": "demo"}, "support-0")]
     assert persistence.deleted == ["demo"]
+
+
+@pytest.mark.asyncio
+async def test_harness_session_validates_after_file_persistence_hydration(
+    tmp_path: "Path",
+) -> None:
+    from fast_agent.context import Context
+    from fast_agent.core.harness_persistence import FileHarnessSessionPersistence
+    from fast_agent.session.session_manager import SessionManager
+    from fast_agent.session.snapshot import SessionAgentSnapshot, snapshot_from_session_info
+
+    class ModelAgent(FakeAgent):
+        def __init__(self) -> None:
+            super().__init__("main", default=True)
+            self.model_spec = "responses.gpt-5.4-mini?reasoning=low"
+            self.context = Context()
+
+        async def set_model(self, model: str) -> None:
+            self.model_spec = model
+
+    created: list[ModelAgent] = []
+    disposed: list[AgentInstance] = []
+    validated: list[str] = []
+
+    async def create_instance() -> AgentInstance:
+        agent = ModelAgent()
+        created.append(agent)
+        agents = {"main": cast("AgentProtocol", agent)}
+        return AgentInstance(AgentApp(agents), agents)
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        disposed.append(instance)
+        await instance.shutdown()
+
+    manager = SessionManager(home_override=tmp_path)
+    persisted = manager.create_session_with_id(
+        "resumed",
+        metadata={"harness_session_id": "resumed"},
+        metadata_id_key="harness_session_id",
+    )
+    snapshot = snapshot_from_session_info(persisted.info)
+    snapshot.continuation.active_agent = "main"
+    snapshot.continuation.agents["main"] = SessionAgentSnapshot(
+        model_spec="codexresponses.gpt-5.6-sol?reasoning=medium",
+        provider="codexresponses",
+    )
+    persisted._save_snapshot(snapshot)
+
+    def validate_instance(instance: AgentInstance) -> None:
+        agent = cast("ModelAgent", instance.agents["main"])
+        validated.append(agent.model_spec)
+
+    sessions = HarnessSessions(
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        persistence=FileHarnessSessionPersistence(tmp_path),
+        validate_instance=validate_instance,
+    )
+
+    session = await sessions.create("resumed")
+
+    assert validated == ["codexresponses.gpt-5.6-sol?reasoning=medium"]
+    assert created[0].model_spec == validated[0]
+    assert disposed == []
+    await session.delete()
+
+
+@pytest.mark.asyncio
+async def test_harness_session_validation_failure_is_not_published() -> None:
+    factory = InstanceFactory()
+
+    def reject_instance(instance: AgentInstance) -> None:
+        del instance
+        raise RuntimeError("invalid provider state")
+
+    sessions = HarnessSessions(
+        create_instance=factory.create,
+        dispose_instance=factory.dispose,
+        validate_instance=reject_instance,
+    )
+
+    with pytest.raises(RuntimeError, match="invalid provider state"):
+        await sessions.create("demo")
+
+    assert factory.disposed == factory.instances
+    with pytest.raises(KeyError):
+        await sessions.get("demo")
+
+
+@pytest.mark.asyncio
+async def test_harness_session_validation_failure_removes_new_empty_session(
+    tmp_path: "Path",
+) -> None:
+    from fast_agent.context import Context
+    from fast_agent.core.harness_persistence import FileHarnessSessionPersistence
+
+    async def create_instance() -> AgentInstance:
+        agent = FakeAgent("main", default=True)
+        agent.context = Context()
+        agents = {"main": cast("AgentProtocol", agent)}
+        return AgentInstance(AgentApp(agents), agents)
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        await instance.shutdown()
+
+    def reject_instance(instance: AgentInstance) -> None:
+        del instance
+        raise RuntimeError("invalid provider state")
+
+    sessions = HarnessSessions(
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        persistence=FileHarnessSessionPersistence(tmp_path),
+        validate_instance=reject_instance,
+    )
+
+    with pytest.raises(RuntimeError, match="invalid provider state"):
+        await sessions.create("new-session")
+
+    assert not (tmp_path / "sessions" / "new-session").exists()
 
 
 @pytest.mark.asyncio

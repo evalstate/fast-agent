@@ -1,7 +1,6 @@
 import base64
 
-from mcp.types import AudioContent, EmbeddedResource, TextResourceContents
-from pydantic import AnyUrl
+from mcp_types import AudioContent, EmbeddedResource, TextResourceContents
 
 from fast_agent.a2a.content import part_from_content
 
@@ -11,7 +10,7 @@ def test_part_from_content_converts_audio() -> None:
         AudioContent(
             type="audio",
             data=base64.b64encode(b"audio bytes").decode(),
-            mimeType="audio/wav",
+            mime_type="audio/wav",
         )
     )
 
@@ -25,8 +24,8 @@ def test_part_from_content_preserves_text_resource_metadata() -> None:
         EmbeddedResource(
             type="resource",
             resource=TextResourceContents(
-                uri=AnyUrl("resource:///reports/final%20summary.txt"),
-                mimeType="text/markdown",
+                uri="resource:///reports/final%20summary.txt",
+                mime_type="text/markdown",
                 text="# Summary",
             ),
         )

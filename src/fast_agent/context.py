@@ -16,7 +16,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from fast_agent.config import Settings, get_settings
 from fast_agent.core.executor.executor import AsyncioExecutor, Executor
@@ -62,6 +62,7 @@ class Context(BaseModel):
     # Registries
     server_registry: ServerRegistry | None = None
     skill_registry: SkillRegistry | None = None
+    runtime_mcp_server_names: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     no_shell: bool = False
 
     tracer: trace.Tracer | None = None
@@ -150,13 +151,11 @@ async def configure_otel(config: "Settings") -> None:
         )
         from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
         from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
-        from opentelemetry.instrumentation.mcp import McpInstrumentor
         from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 
         OpenAIInstrumentor().instrument(tracer_provider=tracer_provider)
         GoogleGenAiSdkInstrumentor().instrument(tracer_provider=tracer_provider)
         AnthropicInstrumentor().instrument(tracer_provider=tracer_provider)
-        McpInstrumentor().instrument(tracer_provider=tracer_provider)
 
 
 async def configure_logger(config: "Settings") -> None:

@@ -11,7 +11,7 @@ import asyncio
 import sys
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import pytest
 from acp.helpers import text_block
@@ -25,7 +25,7 @@ if str(TEST_DIR) not in sys.path:
 
 if TYPE_CHECKING:
     from acp.client.connection import ClientSideConnection
-    from acp.schema import InitializeResponse, StopReason
+    from acp.schema import InitializeResponse, PromptResponse, StopReason
     from test_client import TestClient
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
@@ -33,14 +33,16 @@ pytestmark = pytest.mark.asyncio(loop_scope="module")
 END_TURN: StopReason = "end_turn"
 
 
-def _get_session_id(response: object) -> str:
-    """Helper to support both camelCase and snake_case session id fields."""
-    return getattr(response, "session_id", None) or getattr(response, "sessionId")
+class _SessionResponse(Protocol):
+    session_id: str
 
 
-def _get_stop_reason(response: object) -> str | None:
-    """Helper to support both camelCase and snake_case stop reason fields."""
-    return getattr(response, "stop_reason", None) or getattr(response, "stopReason", None)
+def _get_session_id(response: _SessionResponse) -> str:
+    return response.session_id
+
+
+def _get_stop_reason(response: PromptResponse) -> StopReason:
+    return response.stop_reason
 
 
 async def _wait_for_notifications(client: TestClient, count: int = 1, timeout: float = 2.0) -> None:

@@ -7,11 +7,10 @@ import base64
 import logging
 import sys
 from pathlib import Path
-from typing import cast
 
 from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
-from mcp.types import AnyUrl, BlobResourceContents, EmbeddedResource, ImageContent, TextContent
+from mcp_types import BlobResourceContents, EmbeddedResource, ImageContent, TextContent
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -54,8 +53,7 @@ async def get_pdf() -> list[TextContent | EmbeddedResource]:
             return [TextContent(type="text", text=f"Error: PDF file '{pdf_path}' not found")]
 
         # Read the PDF file as binary data
-        with open(pdf_path, "rb") as f:
-            pdf_data = f.read()
+        pdf_data = Path(pdf_path).read_bytes()
 
         # Encode to base64
         b64_data = base64.b64encode(pdf_data).decode("ascii")
@@ -66,9 +64,9 @@ async def get_pdf() -> list[TextContent | EmbeddedResource]:
             EmbeddedResource(
                 type="resource",
                 resource=BlobResourceContents(
-                    uri=cast("AnyUrl", f"file://{Path(pdf_path).absolute()}"),
+                    uri=f"file://{Path(pdf_path).absolute()}",
                     blob=b64_data,
-                    mimeType="application/pdf",
+                    mime_type="application/pdf",
                 ),
             ),
         ]

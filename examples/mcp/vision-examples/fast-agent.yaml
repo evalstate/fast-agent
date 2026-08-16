@@ -14,29 +14,28 @@ default_model: haiku
 
 # Logging and Console Configuration:
 logger:
-    # level: "debug" | "info" | "warning" | "error"
-    # type: "none" | "console" | "file" | "http"
-    # path: "/path/to/logfile.jsonl"
+  # level: "debug" | "info" | "warning" | "error"
+  # type: "none" | "console" | "file" | "http"
+  # path: "/path/to/logfile.jsonl"
 
-    
-    # Switch the progress display on or off
-    progress_display: true
+  # Switch the progress display on or off
+  progress_display: true
 
-    # Show chat User/Assistant messages on the console
-    show_chat: true
-    # Show tool calls on the console
-    show_tools: true
-    # Truncate long tool responses on the console 
-    truncate_tools: true
+  # Show chat User/Assistant messages on the console
+  show_chat: true
+  # Show tool calls on the console
+  show_tools: true
+  # Truncate long tool responses on the console
+  truncate_tools: true
 
 # MCP Servers
 mcp:
-    targets:
-        - name: fetch
-          target: "uvx mcp-server-fetch"
-        - name: filesystem
-          target: "npx -y @modelcontextprotocol/server-filesystem ."
-        - name: webcam
-          target: "npx -y @llmindset/mcp-webcam"
-        - name: hfspace
-          target: "npx -y @llmindset/mcp-hfspace"
+  servers:
+    fetch:
+      target: "uvx mcp-server-fetch"
+    filesystem:
+      target: "npx -y @modelcontextprotocol/server-filesystem ."
+    webcam:
+      target: "npx -y @llmindset/mcp-webcam"
+    hfspace:
+      target: "npx -y @llmindset/mcp-hfspace"

@@ -83,8 +83,10 @@ SESSION_EXPORT_EXAMPLES: tuple[str, ...] = (
 SESSION_EXPORT_NOTES: tuple[str, ...] = (
     "Default format: codex.",
     "ATIF exports use the ATIF-v1.7 JSON schema.",
-    "If --output is omitted, the exporter writes "
-    "`{session_id}__{agent_name}__codex.jsonl` in the current working directory.",
+    (
+        "If --output is omitted, the exporter writes "
+        "`{session_id}__{agent_name}__codex.jsonl` in the current working directory."
+    ),
     "--output is a file path, not a directory path.",
     "If --agent is omitted, the current agent is used only for the current or latest session target.",
     "Privacy filtering is best-effort and requires the optional `privacy` extra.",

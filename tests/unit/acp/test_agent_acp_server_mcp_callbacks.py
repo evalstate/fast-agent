@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, ClassVar, cast
 
 import pytest
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 class _Agent:
-    acp_commands: dict[str, object] = {}
+    acp_commands: ClassVar[dict[str, object]] = {}
     instruction = ""
 
     def __init__(self) -> None:

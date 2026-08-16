@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -25,8 +26,10 @@ from fast_agent.core.agent_card_paths import (
 )
 from fast_agent.core.agent_card_rules import (
     ALLOWED_FIELDS_BY_TYPE,
+    LEGACY_SMART_TYPE_WARNING,
     REQUIRED_FIELDS_BY_TYPE,
     CardType,
+    apply_legacy_smart_defaults,
     normalize_card_type,
 )
 from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
@@ -249,6 +252,13 @@ def _scan_single_agent_card_file(card_path: Path) -> _ScannedCardDetails:
             type_key="unknown",
             path=card_path,
             errors=[str(exc)],
+        )
+
+    if apply_legacy_smart_defaults(raw):
+        warnings.warn(
+            f"{card_path}: {LEGACY_SMART_TYPE_WARNING}",
+            UserWarning,
+            stacklevel=3,
         )
 
     name = _normalize_card_name(raw.get("name"), card_path, errors)

@@ -50,8 +50,8 @@ def test_build_docker_environment_resolves_mount_sources_against_workspace(
     )
 
     assert isinstance(environment, DockerManagedShellEnvironment)
-    assert environment._mounts[0].source == workspace  # noqa: SLF001
-    assert environment._docker_args == ("--network=none",)  # noqa: SLF001
+    assert environment._mounts[0].source == workspace
+    assert environment._docker_args == ("--network=none",)
 
 
 def test_build_docker_mounted_environment_keeps_file_tools_with_docker_args(
@@ -71,8 +71,8 @@ def test_build_docker_mounted_environment_keeps_file_tools_with_docker_args(
     )
 
     assert isinstance(environment, DockerMountedEnvironment)
-    assert environment._mounts[0].source == workspace  # noqa: SLF001
-    assert environment._docker_args == ("--network=none",)  # noqa: SLF001
+    assert environment._mounts[0].source == workspace
+    assert environment._docker_args == ("--network=none",)
 
 
 def test_build_docker_environment_applies_container_cli(tmp_path: Path) -> None:
@@ -106,11 +106,11 @@ def test_build_huggingface_environment_applies_hf_volume_mounts(tmp_path: Path) 
     )
 
     assert isinstance(environment, HuggingFaceSandboxEnvironment)
-    assert [mount.type for mount in environment._volume_mounts] == ["dataset", "bucket"]  # noqa: SLF001
-    assert [mount.source for mount in environment._volume_mounts] == ["org/data", "org/bucket"]  # noqa: SLF001
-    assert [mount.path for mount in environment._volume_mounts] == ["train", "output"]  # noqa: SLF001
-    assert [mount.revision for mount in environment._volume_mounts] == ["main", None]  # noqa: SLF001
-    assert [mount.read_only for mount in environment._volume_mounts] == [True, False]  # noqa: SLF001
+    assert [mount.type for mount in environment._volume_mounts] == ["dataset", "bucket"]
+    assert [mount.source for mount in environment._volume_mounts] == ["org/data", "org/bucket"]
+    assert [mount.path for mount in environment._volume_mounts] == ["train", "output"]
+    assert [mount.revision for mount in environment._volume_mounts] == ["main", None]
+    assert [mount.read_only for mount in environment._volume_mounts] == [True, False]
 
 
 def test_build_custom_environment_imports_module_path(tmp_path: Path) -> None:

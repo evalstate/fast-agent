@@ -21,7 +21,6 @@ class HomePaths:
     tool_cards: Path
     skills: Path
     sessions: Path
-    ui: Path
     permissions_file: Path
 
 
@@ -110,7 +109,6 @@ def resolve_home_paths(
         tool_cards=root / "tool-cards",
         skills=root / "skills",
         sessions=root / "sessions",
-        ui=root / "ui",
         permissions_file=root / "auths.md",
     )
 
@@ -152,23 +150,3 @@ def default_skill_paths(
         if path not in resolved:
             resolved.append(path)
     return resolved
-
-
-def resolve_mcp_ui_output_dir(
-    settings: "Settings | None" = None,
-    *,
-    cwd: Path | None = None,
-    override: str | Path | None = None,
-) -> Path:
-    base = cwd or Path.cwd()
-    if settings is None:
-        from fast_agent.config import get_settings
-
-        settings = get_settings()
-
-    dir_setting = settings.mcp_ui_output_dir
-    home_paths = resolve_home_paths(settings=settings, cwd=base, override=override)
-    if dir_setting in (None, str(Path(DEFAULT_HOME_DIR) / "ui")):
-        return home_paths.ui
-
-    return _resolve_relative_path(Path(dir_setting).expanduser(), base)

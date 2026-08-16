@@ -5,14 +5,14 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import pytest
 from acp.helpers import text_block
 
 if TYPE_CHECKING:
     from acp.client.connection import ClientSideConnection
-    from acp.schema import InitializeResponse, StopReason
+    from acp.schema import InitializeResponse, PromptResponse, StopReason
     from test_client import TestClient
 
 TEST_DIR = Path(__file__).parent
@@ -25,12 +25,16 @@ pytestmark = pytest.mark.asyncio(loop_scope="module")
 END_TURN: StopReason = "end_turn"
 
 
-def _get_session_id(response: object) -> str:
-    return getattr(response, "session_id", None) or getattr(response, "sessionId")
+class _SessionResponse(Protocol):
+    session_id: str
 
 
-def _get_stop_reason(response: object) -> str | None:
-    return getattr(response, "stop_reason", None) or getattr(response, "stopReason", None)
+def _get_session_id(response: _SessionResponse) -> str:
+    return response.session_id
+
+
+def _get_stop_reason(response: PromptResponse) -> StopReason:
+    return response.stop_reason
 
 
 @pytest.mark.integration
@@ -40,14 +44,8 @@ async def test_acp_terminal_support_enabled(
     """Test that terminal support is properly enabled when client advertises capability."""
     connection, client, init_response = acp_terminal_shell
 
-    assert (
-        getattr(init_response, "protocol_version", None) == 1
-        or getattr(init_response, "protocolVersion", None) == 1
-    )
-    assert (
-        getattr(init_response, "agent_capabilities", None)
-        or getattr(init_response, "agentCapabilities", None) is not None
-    )
+    assert init_response.protocol_version == 1
+    assert init_response.agent_capabilities is not None
 
     # Create session
     session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))

@@ -4,11 +4,12 @@ import asyncio
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, TypedDict, cast
 
-from mcp.types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent
 
 from fast_agent.constants import FAST_AGENT_SHELL_PROCESS_METADATA
+from fast_agent.mcp.tool_result_metadata import update_tool_result_display_metadata
 from fast_agent.tools.process_resources import (
     ProcessResourceObservationState,
     ProcessResourceSnapshotMetadata,
@@ -24,6 +25,23 @@ if TYPE_CHECKING:
     from fast_agent.tools.shell_output import ShellOutputBuffer
     from fast_agent.tools.shell_progress import ShellProgressReporter
     from fast_agent.tools.shell_runtime import ShellRuntime
+
+
+class ForegroundAutoAwaitMetadata(TypedDict):
+    """Provenance for a runtime-owned wait after the initial foreground yield."""
+
+    initial_yield_reason: Literal["idle", "foreground"]
+    max_total_seconds: float
+    initial_yield_elapsed_seconds: float
+    awaited_seconds: float
+    total_elapsed_seconds: float
+    outcome: Literal[
+        "process_finished",
+        "cap_reached",
+        "terminated",
+        "cancelled",
+        "disabled",
+    ]
 
 
 class ProcessResultMetadata(TypedDict, total=False):
@@ -46,12 +64,20 @@ class ProcessResultMetadata(TypedDict, total=False):
     stdout_bytes: int
     stderr_bytes: int
     output_spool_path: str
+    retained_output_bytes: int
+    retained_output_complete: bool
+    output_read_offset: int
+    output_read_bytes: int
+    output_read_has_more: bool
+    output_query: str
+    output_match_count: int
     poll_wait_sec: int
     poll_wake_on_output: bool
     poll_elapsed_seconds: float
     poll_deadline_overshoot_seconds: float
     resource_snapshot: ProcessResourceSnapshotMetadata
     resource_observation: str
+    foreground_auto_await: ForegroundAutoAwaitMetadata
 
 
 def process_result_metadata(result: CallToolResult) -> ProcessResultMetadata | None:
@@ -69,14 +95,15 @@ def process_result(
     metadata: ProcessResultMetadata,
 ) -> CallToolResult:
     result = CallToolResult(
-        isError=is_error,
+        is_error=is_error,
         content=[TextContent(type="text", text=message)],
     )
     result.meta = {FAST_AGENT_SHELL_PROCESS_METADATA: metadata}
-    # Shell result rendering consumes this transient projection. Process lifecycle
-    # consumers read the canonical durable metadata above.
     if "output_line_count" in metadata:
-        cast("Any", result).output_line_count = metadata["output_line_count"]
+        update_tool_result_display_metadata(
+            result,
+            {"output_line_count": metadata["output_line_count"]},
+        )
     return result
 
 
@@ -213,6 +240,7 @@ class ManagedShellProcess:
     terminated: bool = False
     buffered_result_recorded: bool = False
     active_poll: ActiveProcessPoll | None = None
+    foreground_auto_await: ForegroundAutoAwaitMetadata | None = None
     resource_observations: ProcessResourceObservationState = field(
         default_factory=ProcessResourceObservationState
     )
@@ -259,6 +287,7 @@ def build_managed_process_result(
     *,
     yielded_reason: str | None,
     minimal_process_profile: bool,
+    aligned_shell_tool_name: str | None,
     io_drain_timeout_seconds: float,
 ) -> CallToolResult:
     unread_output_line_count = process.output_state.unread_output_line_count
@@ -287,16 +316,28 @@ def build_managed_process_result(
                 "Command is still running; no completion result is available yet "
                 "because it reached the foreground yield threshold."
             )
+        elif yielded_reason == "auto_await_cap":
+            status_message = (
+                "Command is still running after the bounded foreground auto-await "
+                "total-runtime cap was reached. The command was not stopped."
+            )
         else:
             status_message = "Command is still running; no completion result is available yet."
-        if minimal_process_profile and persistent_background:
+        if aligned_shell_tool_name is not None and persistent_background:
+            next_action = (
+                "This command was intentionally started with background=true. "
+                "Do not wait for it to exit; use `process` with action='status' "
+                "to inspect it or action='stop' to terminate it, and run readiness "
+                f"checks in a separate `{aligned_shell_tool_name}` call."
+            )
+        elif minimal_process_profile and persistent_background:
             next_action = (
                 "This command was intentionally started with "
                 "run_in_background=true. Do not wait for it to exit; use `process` "
                 "with action='status' to inspect it or action='stop' to terminate it, "
                 "and run readiness checks in a separate `bash` call."
             )
-        elif minimal_process_profile:
+        elif minimal_process_profile or aligned_shell_tool_name is not None:
             next_action = (
                 "Next: call `process` with action='wait' or 'status'. Do not rely "
                 "on partial output or end the task until the command completes."
@@ -316,16 +357,21 @@ def build_managed_process_result(
             ]
         )
         if (
-            minimal_process_profile
+            (minimal_process_profile or aligned_shell_tool_name is not None)
             and process.lifecycle == "session"
-            and yielded_reason in {"idle", "foreground"}
+            and yielded_reason in {"idle", "foreground", "auto_await_cap"}
         ):
             sections.append(
                 "This process is session-scoped and will be stopped when the agent finishes. "
                 "If it must remain running, stop it and relaunch with "
-                "run_in_background=true."
+                f"{'background' if aligned_shell_tool_name is not None else 'run_in_background'}"
+                "=true."
             )
-        if process.callbacks.os_process_id is not None and not minimal_process_profile:
+        if (
+            process.callbacks.os_process_id is not None
+            and not minimal_process_profile
+            and aligned_shell_tool_name is None
+        ):
             sections.insert(-3, f"os_pid: {process.callbacks.os_process_id}")
         result = process_result(
             "\n".join(sections),
@@ -347,7 +393,10 @@ def build_managed_process_result(
                 ),
             },
         )
-        cast("Any", result)._suppress_display = yielded_reason is not None or not output
+        update_tool_result_display_metadata(
+            result,
+            {"suppress_display": yielded_reason is not None or not output},
+        )
         return result
 
     if process.task.cancelled():

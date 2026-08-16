@@ -146,7 +146,7 @@ def _start_child_server() -> _RouterServer:
     state = _RouterState(child_port=0)
 
     class _Handler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:  # noqa: N802
+        def do_GET(self) -> None:
             if self.path in {"/v1/models", "/models"}:
                 payload = {
                     "data": [
@@ -201,7 +201,7 @@ def _start_router_server(
     state = _RouterState(child_port=child_port, loaded=initially_loaded)
 
     class _Handler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:  # noqa: N802
+        def do_GET(self) -> None:
             parsed = urlsplit(self.path)
             state.request_paths.append(self.path)
 

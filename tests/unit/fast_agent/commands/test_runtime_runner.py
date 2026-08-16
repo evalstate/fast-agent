@@ -24,14 +24,13 @@ def _request(
         prompt_file=prompt_file,
         result_file=None,
         resume=None,
-        url_servers=None,
-        stdio_servers=None,
+        startup_mcp_servers=None,
+        mcp_startup_notices=(),
         agent_name="agent",
         target_agent_name=None,
         skills_directory=None,
         home=None,
         no_home=False,
-        force_smart=False,
         shell_runtime=False,
         no_shell=False,
         mode="interactive",
@@ -77,3 +76,24 @@ def test_run_request_exits_124_when_timeout_fires(
     captured = capsys.readouterr()
     assert exc_info.value.code == 124
     assert "fast-agent timed out after 1 second." in captured.err
+
+
+def test_run_request_releases_herdr_reporter(monkeypatch: pytest.MonkeyPatch) -> None:
+    released = False
+
+    async def run_agent_request(_request: AgentRunRequest) -> None:
+        return None
+
+    def release_agent() -> None:
+        nonlocal released
+        released = True
+
+    monkeypatch.setattr(
+        "fast_agent.cli.runtime.agent_setup.run_agent_request",
+        run_agent_request,
+    )
+    monkeypatch.setattr("fast_agent.cli.runtime.runner.release_agent", release_agent)
+
+    run_request(_request())
+
+    assert released is True

@@ -31,7 +31,7 @@ async def main() -> None:
                 agent_name="hook-kimi",
             )
             print(response)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"Hook failure propagated to caller: {exc}")
 
 

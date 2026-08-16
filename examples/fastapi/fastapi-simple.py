@@ -40,4 +40,4 @@ async def ask(req: AskRequest) -> AskResponse:
         result = await app.state.agents.send(req.message)
         return AskResponse(response=result)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

@@ -762,7 +762,7 @@ def _environment_model_fields_table(title: str, model: Any) -> str:
 
 
 def generate_execution_environments_internal_resource() -> str:
-    """Generate smart-agent guidance for execution environment config from schema annotations."""
+    """Generate internal-resource guidance for execution environment config from schema annotations."""
     from fast_agent.tools.environment_config import (
         CustomEnvironmentSpec,
         DockerEnvironmentSpec,
@@ -855,6 +855,7 @@ def generate_tui_runtime_reference() -> str:
         LoggerSettings,
         ShellSettings,
         TerminalImageSettings,
+        ToolDisplaySettings,
         TUISettings,
     )
     from fast_agent.constants import DOCUMENTED_ENV_VARS
@@ -862,6 +863,7 @@ def generate_tui_runtime_reference() -> str:
     setting_sources = {
         "logger": LoggerSettings,
         "logger.terminal_images": TerminalImageSettings,
+        "logger.tool_display": ToolDisplaySettings,
         "shell_execution": ShellSettings,
         "tui": TUISettings,
     }
@@ -877,6 +879,12 @@ def generate_tui_runtime_reference() -> str:
         "logger.render_fences_with_syntax",
         "logger.code_word_wrap",
         "logger.apply_patch_preview_max_lines",
+        "logger.tool_display.layout",
+        "logger.tool_display.arguments",
+        "logger.tool_display.results",
+        "logger.tool_display.show_successful_file_reads",
+        "logger.tool_display.stream_edit_previews",
+        "logger.tool_display.aggregate_parallel",
         "logger.terminal_images.enabled",
         "logger.terminal_images.backend",
         "logger.terminal_images.width",
@@ -888,6 +896,7 @@ def generate_tui_runtime_reference() -> str:
         "shell_execution.timeout_seconds",
         "shell_execution.warning_interval_seconds",
         "shell_execution.process_poll_max_wait_seconds",
+        "shell_execution.foreground_auto_await_max_seconds",
         "shell_execution.managed_process_poll_history_folding",
         "tui.completion_menu_reserved_lines",
     ]
@@ -902,18 +911,40 @@ def generate_tui_runtime_reference() -> str:
         "logger.code_theme": "Pygments/Rich syntax theme for Markdown code rendering.",
         "logger.render_fences_with_syntax": "Render Markdown code fences with Rich Syntax.",
         "logger.code_word_wrap": "Wrap Syntax-rendered code blocks instead of cropping.",
-        "logger.apply_patch_preview_max_lines": "Maximum lines to show in apply_patch previews.",
+        "logger.apply_patch_preview_max_lines": (
+            "Maximum lines to show in apply_patch and compact write_text_file previews."
+        ),
+        "logger.tool_display.layout": "Compact summary-first or full legacy tool rendering.",
+        "logger.tool_display.arguments": (
+            "Tool argument visibility; auto shows redacted six-row JSON previews and specialized "
+            "bodies."
+        ),
+        "logger.tool_display.results": "Tool result body visibility.",
+        "logger.tool_display.show_successful_file_reads": (
+            "Show successful complete file-read activity in compact layout."
+        ),
+        "logger.tool_display.stream_edit_previews": (
+            "Stream apply_patch/edit_file previews for the primary agent or all agents."
+        ),
+        "logger.tool_display.aggregate_parallel": (
+            "Aggregate safe parallel generic calls when argument bodies are disabled."
+        ),
         "logger.terminal_images.enabled": "Render image content in capable terminals.",
-        "logger.terminal_images.backend": "Terminal image backend to use.",
+        "logger.terminal_images.backend": (
+            "Terminal image backend; automatic Sixel rendering is fitted to the viewport."
+        ),
         "logger.terminal_images.width": "Image render width.",
         "logger.terminal_images.height": "Image render height.",
-        "shell_execution.tool_profile": "Model-facing Bash/Process contract.",
+        "shell_execution.tool_profile": "Model-specific shell/process contract.",
         "shell_execution.output_display_lines": "Maximum shell/read_text_file lines to display.",
         "shell_execution.show_bash": "Show shell command output on the console.",
         "shell_execution.interactive_use_pty": "Use a PTY for interactive prompt shell commands.",
         "shell_execution.timeout_seconds": "Maximum seconds without command output before termination.",
         "shell_execution.warning_interval_seconds": "Show timeout warnings every N seconds.",
         "shell_execution.process_poll_max_wait_seconds": "Maximum managed-process wait.",
+        "shell_execution.foreground_auto_await_max_seconds": (
+            "Maximum total foreground runtime before returning a live process."
+        ),
         "shell_execution.managed_process_poll_history_folding": "Fold repetitive quiet managed-process polling.",
         "tui.completion_menu_reserved_lines": "Prompt-toolkit lines reserved below the input for completion menus.",
     }
@@ -1065,10 +1096,7 @@ def generate_models_reference() -> str:
         else:
             example_value = values[0] if values else "medium"
 
-        if spec.kind == "effort":
-            example = f"{model_base}.{example_value}"
-        else:
-            example = f"{model_base}?reasoning={example_value}"
+        example = f"{model_base}?reasoning={example_value}"
 
         return f"{spec.kind}: {values_text}<br>Example: `{example}`"
 
@@ -1259,36 +1287,23 @@ def _load_model_factory_constants(
         if str(repo_root) not in sys.path:
             sys.path.insert(0, str(repo_root))
 
+        from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
         from fast_agent.llm.model_database import ModelDatabase
-        from fast_agent.llm.model_factory import ModelFactory
-        from fast_agent.llm.model_selection import ModelSelectionCatalog
         from fast_agent.llm.provider_types import Provider
 
         provider_names = {provider.value for provider in Provider}
-        model_aliases = {
-            key: value
-            for key, value in ModelFactory.MODEL_PRESETS.items()
-            if isinstance(value, str)
-        }
+        model_aliases = dict(BUILTIN_MODEL_ALIASES)
         default_providers = {
             model_name: provider.value
             for model_name in ModelDatabase.MODELS
             if (provider := ModelDatabase.get_default_provider(model_name)) is not None
         }
-        for entry in ModelSelectionCatalog.list_current_entries():
-            alias = entry.alias.strip()
-            if (
-                alias
-                and alias not in default_providers
-                and not any(character.isspace() for character in alias)
-            ):
-                model_aliases.setdefault(alias, entry.model)
         return model_aliases, default_providers, set(), provider_names
     except Exception:
         pass
 
-    model_factory = repo_root / "src" / "fast_agent" / "llm" / "model_factory.py"
-    tree = ast.parse(model_factory.read_text(encoding="utf-8"))
+    model_aliases_module = repo_root / "src" / "fast_agent" / "llm" / "model_aliases.py"
+    tree = ast.parse(model_aliases_module.read_text(encoding="utf-8"))
 
     provider_map = _provider_name_map(repo_root)
     provider_names: set[str] = set(provider_map.values())
@@ -1298,28 +1313,12 @@ def _load_model_factory_constants(
     effort_suffixes: set[str] = set()
 
     for node in tree.body:
-        if isinstance(node, ast.ClassDef) and node.name == "ModelFactory":
-            for stmt in node.body:
-                if not isinstance(stmt, ast.Assign) or len(stmt.targets) != 1:
-                    continue
-                if not isinstance(stmt.targets[0], ast.Name):
-                    continue
-                target_name = stmt.targets[0].id
-
-                if target_name == "MODEL_PRESETS" and isinstance(stmt.value, ast.Dict):
-                    for k, v in zip(stmt.value.keys, stmt.value.values):
-                        if (
-                            isinstance(k, ast.Constant)
-                            and isinstance(k.value, str)
-                            and isinstance(v, ast.Constant)
-                            and isinstance(v.value, str)
-                        ):
-                            model_aliases[k.value] = v.value
-
-                if target_name == "EFFORT_MAP" and isinstance(stmt.value, ast.Dict):
-                    for k in stmt.value.keys:
-                        if isinstance(k, ast.Constant) and isinstance(k.value, str):
-                            effort_suffixes.add(k.value.lower())
+        if (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "BUILTIN_MODEL_ALIASES"
+        ):
+            model_aliases = ast.literal_eval(node.value)
 
     return model_aliases, default_providers, effort_suffixes, provider_names
 

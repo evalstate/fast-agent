@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from mcp.types import CallToolResult, Tool
+    from mcp_types import CallToolResult, Tool
 
 FilesystemToolHandler = Callable[[dict[str, Any] | None, str | None], Awaitable["CallToolResult"]]
 

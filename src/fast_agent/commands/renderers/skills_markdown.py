@@ -81,7 +81,7 @@ def render_skill_list(manifests: Sequence[SkillManifest], *, cwd: Path | None = 
 
 def _skills_browse_guidance() -> list[str]:
     return [
-        "Use `/skills available` to browse marketplace skills.",
+        "Use `/skills available` to browse available skills.",
         "",
         "Search with `/skills search <query>`.",
     ]
@@ -90,7 +90,7 @@ def _skills_browse_guidance() -> list[str]:
 def _skills_marketplace_guidance() -> list[str]:
     return [
         SKILLS_ADD_HINT_SLASH,
-        "Search with `/skills search <query>`.",
+        "Search available skills with `/skills search <query>`.",
         "Change registry with `/skills registry`.",
     ]
 

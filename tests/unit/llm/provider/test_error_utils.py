@@ -1,6 +1,6 @@
 """Tests for LLM provider error utilities."""
 
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.llm.provider.error_utils import build_stream_failure_response

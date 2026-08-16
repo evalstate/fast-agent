@@ -8,7 +8,7 @@ from typing import Any, ClassVar, Protocol, cast, runtime_checkable
 
 import httpx
 from mcp import Tool
-from mcp.types import (
+from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     ContentBlock,
@@ -49,6 +49,7 @@ from fast_agent.llm.provider.openai._stream_capture import (
 from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
 from fast_agent.llm.provider.openai.schema_sanitizer import (
+    sanitize_response_format_schema,
     sanitize_tool_input_schema,
     should_strip_tool_schema_defaults,
 )
@@ -194,7 +195,6 @@ class _OpenAIStopResult:
 class OpenAILLM(
     OpenAIToolNotificationMixin,
     ResponsesFileMixin,
-    OpenAIStructuredOutputMixin,
     FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage],
 ):
     # Config section name override (falls back to provider value)
@@ -213,7 +213,26 @@ class OpenAILLM(
         FastAgentLLM.PARAM_STOP_SEQUENCES,
     }
 
+    _prepare_structured_request = OpenAIStructuredOutputMixin._prepare_structured_request
+    _apply_prompt_provider_specific_structured_schema = (
+        OpenAIStructuredOutputMixin._apply_prompt_provider_specific_structured_schema
+    )
+
+    @staticmethod
+    def schema_to_response_format(
+        schema: dict[str, Any],
+        *,
+        name: str = "structured_output",
+        strict: bool = True,
+    ) -> dict[str, Any]:
+        return FastAgentLLM.schema_to_response_format(
+            sanitize_response_format_schema(schema) if strict else schema,
+            name=name,
+            strict=strict,
+        )
+
     def __init__(self, provider: Provider = Provider.OPENAI, **kwargs) -> None:
+        self._reasoning_field: str | None = kwargs.pop("reasoning_field", None)
         kwargs.pop("provider", None)
         super().__init__(provider=provider, **kwargs)
 
@@ -1166,8 +1185,8 @@ class OpenAILLM(
         messages = self._openai_completion_messages(message, params)
         available_tools = self._openai_completion_tools(tools, model_name)
         arguments = self._prepare_api_request(messages, available_tools, params)
-        if not self._reasoning and params.stopSequences:
-            arguments["stop"] = params.stopSequences
+        if not self._reasoning and params.stop_sequences:
+            arguments["stop"] = params.stop_sequences
         return _OpenAICompletionRequest(
             params=params,
             model_name=model_name,
@@ -1181,7 +1200,7 @@ class OpenAILLM(
         request_params: RequestParams,
     ) -> list[ChatCompletionMessageParam]:
         messages: list[ChatCompletionMessageParam] = []
-        system_prompt = self.instruction or request_params.systemPrompt
+        system_prompt = self.instruction or request_params.system_prompt
         if system_prompt:
             messages.append(ChatCompletionSystemMessageParam(role="system", content=system_prompt))
         if message:
@@ -1201,7 +1220,7 @@ class OpenAILLM(
                     "function": {
                         "name": tool.name,
                         "description": tool.description if tool.description else "",
-                        "parameters": self.adjust_schema(tool.inputSchema, model_name=model_name),
+                        "parameters": self.adjust_schema(tool.input_schema, model_name=model_name),
                     },
                 }
                 for tool in tools or []
@@ -1320,7 +1339,21 @@ class OpenAILLM(
                 client, normalized_request, capture_filename
             )
 
-    def _track_openai_response_usage(self, response: Any, model_name: str) -> None:
+    def _resolve_usage_attribution(
+        self,
+        model_name: str,
+        arguments: dict[str, Any],
+    ) -> tuple[str, str | None]:
+        del arguments
+        return model_name, None
+
+    def _track_openai_response_usage(
+        self,
+        response: Any,
+        model_name: str,
+        *,
+        upstream_provider: str | None = None,
+    ) -> None:
         if isinstance(response, BaseException):
             return
         usage = _openai_usage(response)
@@ -1331,6 +1364,7 @@ class OpenAILLM(
                 usage,
                 provider=self.provider,
                 model=model_name,
+                upstream_provider=upstream_provider,
             )
             self._finalize_turn_usage(turn_usage)
         except Exception as e:
@@ -1438,7 +1472,15 @@ class OpenAILLM(
         completion: _OpenAICompletionResponse,
     ) -> PromptMessageExtended:
         response = completion.response
-        self._track_openai_response_usage(response, request.model_name)
+        usage_model, upstream_provider = self._resolve_usage_attribution(
+            request.model_name,
+            request.arguments,
+        )
+        self._track_openai_response_usage(
+            response,
+            usage_model,
+            upstream_provider=upstream_provider,
+        )
         self.logger.debug("OpenAI completion response:", data=response)
         self._raise_openai_response_error(response)
 
@@ -1550,20 +1592,50 @@ class OpenAILLM(
 
         if self._reasoning:
             effort = self._resolve_reasoning_effort()
-            if request_params.maxTokens is not None:
-                base_args["max_completion_tokens"] = request_params.maxTokens
+            if request_params.max_tokens is not None:
+                base_args["max_completion_tokens"] = request_params.max_tokens
             if effort:
                 base_args["reasoning_effort"] = effort
         else:
-            if request_params.maxTokens is not None:
-                base_args["max_tokens"] = request_params.maxTokens
+            if request_params.max_tokens is not None:
+                base_args["max_tokens"] = request_params.max_tokens
             if tools:
                 base_args["parallel_tool_calls"] = request_params.parallel_tool_calls
 
         arguments: dict[str, str] = self.prepare_provider_arguments(
             base_args, request_params, self.OPENAI_EXCLUDE_FIELDS.union(self.BASE_EXCLUDE_FIELDS)
         )
+        if request_params.sampling_tool_choice is not None and tools:
+            arguments["tool_choice"] = request_params.sampling_tool_choice
+        self._apply_configured_reasoning_field(arguments)
         return arguments
+
+    def _apply_configured_reasoning_field(self, arguments: dict[str, Any]) -> None:
+        reasoning_field = self._reasoning_field
+        setting = self.reasoning_effort
+        if reasoning_field is None or setting is None:
+            return
+
+        reasoning_fields = {"reasoning_effort", reasoning_field}
+        extra_body_raw = arguments.get("extra_body")
+        extra_body = dict(extra_body_raw) if isinstance(extra_body_raw, dict) else {}
+        conflicts = sorted(
+            request_field
+            for request_field in reasoning_fields
+            if request_field in arguments or request_field in extra_body
+        )
+        if conflicts:
+            self.logger.warning(
+                "Configured reasoning field overrides existing request fields",
+                reasoning_field=reasoning_field,
+                conflicting_fields=conflicts,
+            )
+
+        for request_field in reasoning_fields:
+            arguments.pop(request_field, None)
+            extra_body.pop(request_field, None)
+        extra_body[reasoning_field] = setting.value
+        arguments["extra_body"] = extra_body
 
     @staticmethod
     def _prepare_non_streaming_request(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -1657,12 +1729,12 @@ class OpenAILLM(
 
         return converted
 
-    def adjust_schema(self, inputSchema: dict, model_name: str | None = None) -> dict:
+    def adjust_schema(self, input_schema: dict, model_name: str | None = None) -> dict:
         effective_model = model_name or self.default_request_params.model
         result = (
-            sanitize_tool_input_schema(inputSchema)
+            sanitize_tool_input_schema(input_schema)
             if should_strip_tool_schema_defaults(effective_model)
-            else inputSchema
+            else input_schema
         )
 
         if self.provider not in [Provider.OPENAI, Provider.AZURE]:

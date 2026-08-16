@@ -20,6 +20,12 @@ def test_format_compact_count_uses_three_significant_digits() -> None:
     assert format_compact_count(1_250_000_000) == "1.25B"
 
 
+def test_format_compact_count_supports_four_significant_digits() -> None:
+    assert format_compact_count(21_524_724, significant_digits=4) == "21.52M"
+    assert format_compact_count(1_234_567, significant_digits=4) == "1.235M"
+    assert format_compact_count(51_651, significant_digits=4) == "51,651"
+
+
 def test_plural_label_uses_singular_for_one() -> None:
     assert plural_label(1, "agent") == "agent"
 

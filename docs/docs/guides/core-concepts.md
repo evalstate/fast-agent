@@ -50,7 +50,6 @@ resolve under the selected workspace; use an absolute path for a separate home.
 ├── skills/                  # Agent Skills available through {{agentSkills}}
 ├── sessions/                # persisted chat/session history
 ├── model-overlays/          # optional local model definitions
-├── ui/                      # generated MCP UI assets
 └── auths.md                 # home-scoped permission/auth history
 ```
 
@@ -96,14 +95,15 @@ agent from the command-line options you provide.
 
 The built-in default prompt is already practical: it includes `AGENTS.md` from
 the current project when that file exists, so project conventions are picked up
-without making an AgentCard first. If you want a more capable generated default,
-run:
+without making an AgentCard first. To let the generated default delegate
+focused work to built-in subagents, run:
 
 ```bash
-fast-agent go --smart
+fast-agent go -xx
 ```
 
-`--smart` asks **fast-agent** to use a _smart_ default agent. A smart agent has extra guidance for working with fast-agent concepts, including creating and delegating to sub-agents.
+`-xx` combines shell access (`-x`) with `--subagents`. For a persistent agent,
+set `subagents: true` on its AgentCard instead.
 
 Home directories can be distributed as "packs" - simplifying sharing, installation and version management.
 
@@ -120,10 +120,10 @@ mkdir -p .fast-agent/agent-cards
 ```md title=".fast-agent/agent-cards/dev.md"
 ---
 name: dev
-type: smart
 default: true
 model: $system.default
 shell: true
+subagents: true
 ---
 
 You help with software development. Be direct, make small changes, and explain
@@ -161,7 +161,9 @@ fast-agent go --model sonnet
 ```
 
 Because each card uses `model: $system.default`, the selected model comes from
-`--model`, then the home config, then normal provider defaults. If no default is found an interactive model picker is displayed.
+`--model`, then the home `default_model`, then `FAST_AGENT_MODEL`. If none
+resolves, an interactive run opens the model picker. Scripts, services, and
+other unattended runs must configure one of those sources explicitly.
 
 ## Work with multiple agents in the TUI
 
@@ -190,8 +192,12 @@ Inside the interactive prompt, agents are lightweight to move between:
   Markdown text.
 - `##agent_name message` is the quiet form. It suppresses interactive display and
   still loads the response into your buffer.
-- `/agent`, `/card`, `/reload`, `/history`, `/session`, `/connect`, and
-  `/skills` are available while you work.
+- `/agent` shows, lists, selects, and connects runtime agents.
+- `/card` loads or shows portable AgentCard definitions.
+- `/packs` manages installed card packs and their marketplace.
+- `/model` shows or changes the active agent's model and model settings.
+- `/reload`, `/history`, `/session`, `/connect`, and `/skills` are also
+  available while you work.
 
 <div class="fa-term" aria-label="fast-agent TUI example">
   <div class="fa-term__bar">
@@ -211,7 +217,11 @@ Inside the interactive prompt, agents are lightweight to move between:
 
 ## Add MCP servers to an agent
 
-MCP Servers can be connected at any time with the `/connect` command. This supports both remote servers with a URL as well as npx, uvx or other STDIO servers.
+MCP servers can be connected at any time with `/connect`. Configured server
+names are offered as completions and attach the matching registry entry;
+`/mcp attach <name>` is the explicit equivalent. Remote URLs, npx, uvx, and
+other stdio commands are connected as ad-hoc targets. `/mcp connect` remains
+the explicit ad-hoc form.
 
 MCP servers can also be configured once in `fast-agent.yaml`, then referenced by
 agents.
@@ -278,6 +288,34 @@ model: $system.default
 You are a concise software reviewer. Focus on correctness, maintainability and
 test coverage.
 ```
+
+Use ToolCards for configured specialists with stable prompts, tools, or models.
+For temporary task delegation, enable the built-in `subagent` tool on the
+parent card:
+
+```yaml
+subagents: true
+subagent_model: $system.fast
+```
+
+`subagent_model` makes every built-in child use that model. From the CLI, use
+`--subagents` or `-xx`; `-xx` also enables shell access.
+
+Each invocation is a one-shot child with a clean conversation context. It
+inherits the parent's instruction and tools except for the built-in `subagent`
+tool, so delegation cannot recurse. Multiple calls can run concurrently while
+the parent waits, and each complete child transcript is saved as a nested,
+non-resumable session.
+
+Repositories can opt in without changing an AgentCard by adding the exact
+standalone directive `<!-- fast-agent-subagents -->` to `AGENTS.md`. fast-agent
+strips the directive before calling the model. Explicit `--no-subagents` or
+`subagents: false` settings still disable the tool.
+
+The directive may contain parent-only instructions. For example,
+`<!-- fast-agent-subagents` followed by `use terra for analysis` and `-->`
+enables delegation and includes that text in the parent system prompt, but
+excludes the entire comment from built-in subagent prompts.
 
 For a plain Python function, add it to an agent with `function_tools`:
 
@@ -396,18 +434,19 @@ Hugging Face and Anthropic skills, and teams can add their own.
 Common workflow:
 
 ```text
-/skills            # list available skills
-/skills add        # browse and install from the active registry
+/skills            # list locally installed skills
+/skills available  # browse the active registry
+/skills search web # search the active registry
+/skills add 1      # install by number or name
 /skills remove 1   # remove by number or name
 /skills registry   # view or switch registries
 ```
 
-`/skills add` presents the available skills as a numbered list, so installing
-one is usually just:
+Browse another registry for one invocation without changing the active source:
 
 ```text
-/skills add
-/skills add 1
+/skills available --registry hf
+/skills add huggingface-datasets --registry hf
 ```
 
 If an agent or sub-agent should **not** see the default skills, make that
@@ -553,7 +592,7 @@ fast-agent go --pack coding-local --pack-registry ./marketplace.json
 <article class="fa-card" markdown="1">
 <h3>Coding</h3>
 
-- `dev` is the default smart agent.
+- `dev` is the default coding agent.
 - `planner` turns issues into implementation plans.
 - `reviewer` checks patches and test strategy.
 - MCP servers provide filesystem, shell, docs search, or project-specific tools.

@@ -29,12 +29,7 @@ You can attach files by using `Prompt.user()` method to construct your message:
 from fast_agent import Prompt
 from pathlib import Path
 
-plans: str = await agent.send(
-    Prompt.user(
-        "Summarise this PDF",
-        Path("secret-plans.pdf")
-    )
-)
+plans: str = await agent.send(Prompt.user("Summarise this PDF", Path("secret-plans.pdf")))
 ```
 
 `Prompt.user()` automatically converts content to the appropriate MCP Type. For example, `image/png` becomes `ImageContent` and `application/pdf` becomes an EmbeddedResource.
@@ -42,19 +37,12 @@ plans: str = await agent.send(
 You can also use MCP Types directly - for example:
 
 ```python
-from mcp.types import ImageContent, TextContent
+from mcp_types import ImageContent, TextContent
 
 mcp_text: TextContent = TextContent(type="text", text="Analyse this image.")
-mcp_image: ImageContent = ImageContent(type="image", 
-                          mimeType="image/png",
-                          data=base_64_encoded)
+mcp_image: ImageContent = ImageContent(type="image", mime_type="image/png", data=base_64_encoded)
 
-response: str  = await agent.send(
-    Prompt.user(
-        mcp_text,
-        mcp_image
-    )
-)
+response: str = await agent.send(Prompt.user(mcp_text, mcp_image))
 ```
 
 > Note: use `Prompt.assistant()` to produce messages for the `assistant` role.
@@ -84,15 +72,13 @@ This is particularly useful when working with multimodal responses or tool outpu
 
 ```python
 # Generate a response that might include multiple content types
-response = await agent.generate([
-    Prompt.user("Analyze this image", Path("chart.png"))
-])
+response = await agent.generate([Prompt.user("Analyze this image", Path("chart.png"))])
 
 for content in response.content:
     if content.type == "text":
         print("Text response:", content.text[:100], "...")
     elif content.type == "image":
-        print("Image content:", content.mimeType)
+        print("Image content:", content.mime_type)
     elif content.type == "resource":
         print("Resource:", content.resource.uri)
 ```
@@ -103,7 +89,7 @@ You can also use `generate()` for multi-turn conversations by passing multiple m
 messages = [
     Prompt.user("What is the capital of France?"),
     Prompt.assistant("The capital of France is Paris."),
-    Prompt.user("And what is its population?")
+    Prompt.user("And what is its population?"),
 ]
 
 response = await agent.generate(messages)
@@ -119,6 +105,7 @@ When you need the agent to return data in a specific format, use the `structured
 from pydantic import BaseModel
 from typing import List
 
+
 # Define your expected response structure
 class CityInfo(BaseModel):
     name: str
@@ -126,11 +113,9 @@ class CityInfo(BaseModel):
     population: int
     landmarks: List[str]
 
+
 # Request structured information
-result, message = await agent.structured(
-    [Prompt.user("Tell me about Paris")], 
-    CityInfo
-)
+result, message = await agent.structured([Prompt.user("Tell me about Paris")], CityInfo)
 
 # Now you have strongly typed data
 if result:
@@ -172,16 +157,13 @@ The `structured()` method provides the same request parameter options as `genera
 Apply a Prompt from an MCP Server to the agent with:
 
 ```python
-response: str = await agent.apply_prompt(
-    "setup_sizing",
-    arguments={"units": "metric"}
-)
+response: str = await agent.apply_prompt("setup_sizing", arguments={"units": "metric"})
 ```
 
 You can list and get Prompts from attached MCP Servers:
 
 ```python
-from mcp.types import GetPromptResult, PromptMessage
+from mcp_types import GetPromptResult, PromptMessage
 
 prompt: GetPromptResult = await agent.get_prompt("setup_sizing")
 first_message: PromptMessage = prompt.messages[0]
@@ -200,14 +182,12 @@ response: str = await agent.send(first_message)
 `Prompt.user` also works with MCP Resources:
 
 ```python
-from mcp.types import ReadResourceResult
+from mcp_types import ReadResourceResult
 
 resource: ReadResourceResult = await agent.get_resource(
-    "resource://images/cat.png", "mcp_server_name" 
+    "resource://images/cat.png", "mcp_server_name"
 )
-response: str = await agent.send(
-    Prompt.user("What is in this image?", resource)
-)
+response: str = await agent.send(Prompt.user("What is in this image?", resource))
 ```
 
 Alternatively, use the _with_resource_ convenience method:
@@ -218,7 +198,6 @@ response: str = await agent.with_resource(
     "resource://images/cat.png",
     "mcp_server_name",
 )
-
 ```
 
 ## Prompt Files
@@ -298,29 +277,20 @@ result: PromptMessageExtended = await agent.generate(prompt)
 
 !!! Note "File Format / MCP Serialization"
 
-    If the filetype is `json`, fast-agent saves a `{"messages": [...]}` JSON container. It can contain either MCP `PromptMessage` objects (legacy) or `PromptMessageExtended` objects (preserves tool calls, channels, etc). `fast_agent.load_prompt` and `prompt-server` will load either the text or JSON format directly.
+    If the filetype is `json`, fast-agent saves a `{"messages": [...]}` JSON container. It can contain either MCP `PromptMessage` objects (legacy) or `PromptMessageExtended` objects (preserves tool calls, channels, etc). `fast_agent.load_prompt` loads either the text or JSON format directly.
     See [History Saving](../models/#history-saving) to learn how to save a conversation to a file for editing or playback.
 
 
-### Using the `prompt-server`
+### Using an external MCP prompt server
 
-Prompt files can also be served using the inbuilt `prompt-server`. The `prompt-server` command is installed with `fast-agent` making it convenient to set up and use:
+Use `fast_agent.load_prompt` when your application owns prompt files. To expose prompts or resources through MCP, configure an external MCP server according to that server's installation instructions:
 
 ```yaml title="fast-agent.yaml"
 mcp:
   servers:
     prompts:
-      command: "prompt-server"
-      args: ["prompt_secret_plans.txt"]
+      command: "uvx"
+      args: ["your-mcp-server-package"]
 ```
 
-This configures an MCP Server that will serve a `prompt_secret_plans` MCP Prompt, and `secret_plan.pdf` and `repomix.xml` as MCP Resources.
-
-If arguments are supplied in the template file, these are also handled by the `prompt-server`
-
-```markdown title="prompt_with_args.txt"
----USER
-Hello {{assistant_name}}, how are you?
----ASSISTANT
-Great to meet you {{user_name}} how can I be of assistance?
-```
+The external server defines its available MCP prompts and resources. Prompt arguments are server-specific.

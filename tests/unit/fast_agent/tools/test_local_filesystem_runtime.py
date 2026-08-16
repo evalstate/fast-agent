@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 
 import pytest
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     EmbeddedResource,
     ImageContent,
@@ -49,7 +49,7 @@ def test_read_text_file_tool_schema_matches_acp_signature() -> None:
     tool = _tool_by_name(runtime, "read_text_file")
     assert tool is not None
     assert tool.name == "read_text_file"
-    assert tool.inputSchema == {
+    assert tool.input_schema == {
         "type": "object",
         "properties": {
             "path": {
@@ -78,7 +78,7 @@ def test_write_text_file_tool_schema_matches_acp_signature() -> None:
     tool = _tool_by_name(runtime, "write_text_file")
     assert tool is not None
     assert tool.name == "write_text_file"
-    assert tool.inputSchema == {
+    assert tool.input_schema == {
         "type": "object",
         "properties": {
             "path": {
@@ -93,6 +93,7 @@ def test_write_text_file_tool_schema_matches_acp_signature() -> None:
         "required": ["path", "content"],
         "additionalProperties": False,
     }
+    assert list(tool.input_schema["properties"]) == ["path", "content"]
 
 
 def test_tools_property_respects_enable_flags() -> None:
@@ -204,7 +205,7 @@ async def test_attach_media_local_png_stages_image_content(tmp_path: Path) -> No
 
     result = await runtime.attach_media({"source": "pixel.png"})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert len(result.content) == 1
@@ -215,7 +216,7 @@ async def test_attach_media_local_png_stages_image_content(tmp_path: Path) -> No
     pending = runtime.consume_pending_media_attachments()
     assert len(pending) == 1
     assert isinstance(pending[0], ImageContent)
-    assert pending[0].mimeType == "image/png"
+    assert pending[0].mime_type == "image/png"
     assert runtime.consume_pending_media_attachments() == []
 
 
@@ -231,7 +232,7 @@ async def test_attach_media_local_pdf_stages_embedded_blob(tmp_path: Path) -> No
 
     result = await runtime.attach_media({"source": pdf_path.as_uri()})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert len(result.content) == 1
     assert get_tool_result_media_preview(result) is None
@@ -239,7 +240,7 @@ async def test_attach_media_local_pdf_stages_embedded_blob(tmp_path: Path) -> No
     assert len(pending) == 1
     assert isinstance(pending[0], EmbeddedResource)
     assert isinstance(pending[0].resource, BlobResourceContents)
-    assert pending[0].resource.mimeType == "application/pdf"
+    assert pending[0].resource.mime_type == "application/pdf"
 
 
 @pytest.mark.asyncio
@@ -252,14 +253,14 @@ async def test_attach_media_https_image_stages_resource_link() -> None:
 
     result = await runtime.attach_media({"source": "https://example.com/photo.jpg"})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert len(result.content) == 1
     pending = runtime.consume_pending_media_attachments()
     assert len(pending) == 1
     assert isinstance(pending[0], ResourceLink)
     assert str(pending[0].uri) == "https://example.com/photo.jpg"
-    assert pending[0].mimeType == "image/jpeg"
+    assert pending[0].mime_type == "image/jpeg"
 
 
 @pytest.mark.asyncio
@@ -277,11 +278,11 @@ async def test_attach_media_trims_optional_mime_type() -> None:
         }
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     pending = runtime.consume_pending_media_attachments()
     assert len(pending) == 1
     assert isinstance(pending[0], ResourceLink)
-    assert pending[0].mimeType == "image/png"
+    assert pending[0].mime_type == "image/png"
 
 
 @pytest.mark.asyncio
@@ -301,7 +302,7 @@ async def test_attach_media_ignores_blank_optional_name(tmp_path: Path) -> None:
         }
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "Staged pixel.png as embedded image/png media input" in result.content[0].text
@@ -317,13 +318,13 @@ async def test_attach_media_youtube_url_stages_video_resource_link() -> None:
 
     result = await runtime.attach_media({"source": "https://WWW.YouTube.com/watch?v=dQw4w9WgXcQ"})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert len(result.content) == 1
     pending = runtime.consume_pending_media_attachments()
     assert len(pending) == 1
     assert isinstance(pending[0], ResourceLink)
-    assert pending[0].mimeType == "video/mp4"
+    assert pending[0].mime_type == "video/mp4"
 
 
 @pytest.mark.asyncio
@@ -344,7 +345,7 @@ async def test_attach_media_rejects_google_remote_pdf_link() -> None:
 
     result = await runtime.attach_media({"source": "https://example.com/report.pdf"})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "remote PDF links" in result.content[0].text
@@ -362,7 +363,7 @@ async def test_attach_media_rejects_unsupported_mime_for_model(tmp_path: Path) -
 
     result = await runtime.attach_media({"source": str(image_path)})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert (
@@ -397,7 +398,7 @@ async def test_attach_media_converts_unsupported_local_image(
         }
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert (
@@ -407,7 +408,7 @@ async def test_attach_media_converts_unsupported_local_image(
     pending = runtime.consume_pending_media_attachments()
     assert len(pending) == 1
     assert isinstance(pending[0], ImageContent)
-    assert pending[0].mimeType == target_mime
+    assert pending[0].mime_type == target_mime
     assert base64.b64decode(pending[0].data).startswith(magic)
 
 
@@ -424,7 +425,7 @@ async def test_attach_media_rejects_oversized_local_file(tmp_path: Path) -> None
 
     result = await runtime.attach_media({"source": str(pdf_path)})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == (
@@ -463,7 +464,7 @@ async def test_attach_media_rejects_internal_resource_uri() -> None:
 
     result = await runtime.attach_media({"source": "internal://fast-agent/example.pdf"})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "use get_resource" in result.content[0].text
@@ -493,7 +494,7 @@ async def test_attach_media_rejects_invalid_arguments(
 
     result = await runtime.attach_media(arguments)
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == expected_error
@@ -513,6 +514,22 @@ def test_set_enabled_tools_preserves_edit_file_flag_when_omitted() -> None:
 
 
 @pytest.mark.asyncio
+async def test_edit_file_creates_missing_local_file(tmp_path: Path) -> None:
+    runtime = LocalFilesystemRuntime(
+        logging.getLogger("local-filesystem-runtime-test"),
+        working_directory=tmp_path,
+        enable_edit_file=True,
+    )
+
+    result = await runtime.edit_file({"path": "nested/created.txt", "new_string": "created\n"})
+
+    assert result.is_error is False
+    assert result.structured_content is not None
+    assert result.structured_content["created"] is True
+    assert (tmp_path / "nested/created.txt").read_text() == "created\n"
+
+
+@pytest.mark.asyncio
 async def test_read_text_file_reads_full_file(tmp_path: Path) -> None:
     runtime = LocalFilesystemRuntime(logging.getLogger("local-filesystem-runtime-test"))
     test_file = tmp_path / "sample.txt"
@@ -520,7 +537,7 @@ async def test_read_text_file_reads_full_file(tmp_path: Path) -> None:
 
     result = await runtime.read_text_file({"path": str(test_file)})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "first\nsecond\nthird\n"
@@ -536,7 +553,7 @@ async def test_read_text_file_supports_line_and_limit(tmp_path: Path) -> None:
         {"path": str(test_file), "line": 2, "limit": 2},
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "second\nthird"
@@ -554,7 +571,7 @@ async def test_read_text_file_rejects_boolean_line_or_limit(
 
     result = await runtime.read_text_file({"path": str(test_file), field: True})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert (
@@ -569,7 +586,7 @@ async def test_read_text_file_rejects_whitespace_only_path() -> None:
 
     result = await runtime.read_text_file({"path": "   "})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "Error: 'path' argument is required and must be a string"
@@ -593,7 +610,7 @@ async def test_read_text_file_resolves_relative_paths_from_working_directory(
 
     result = await runtime.read_text_file({"path": "nested/sample.txt"})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "relative content"
@@ -613,7 +630,7 @@ async def test_read_text_file_reports_stable_permission_error(
 
     result = await runtime.read_text_file({"path": "secret.txt"})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "Permission denied for file: secret.txt."
@@ -628,7 +645,7 @@ async def test_write_text_file_writes_file_successfully(tmp_path: Path) -> None:
         {"path": str(output_file), "content": "hello world"},
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert output_file.read_text(encoding="utf-8") == "hello world"
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
@@ -644,7 +661,7 @@ async def test_write_text_file_creates_parent_directories(tmp_path: Path) -> Non
         {"path": str(output_file), "content": "nested"},
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert output_file.exists()
     assert output_file.read_text(encoding="utf-8") == "nested"
 
@@ -659,7 +676,7 @@ async def test_write_text_file_overwrites_existing_content(tmp_path: Path) -> No
         {"path": str(output_file), "content": "new"},
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert output_file.read_text(encoding="utf-8") == "new"
 
 
@@ -676,7 +693,7 @@ async def test_write_text_file_invalid_args_returns_error() -> None:
     ]
 
     for result in invalid_results:
-        assert result.isError is True
+        assert result.is_error is True
         assert result.content is not None
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text.startswith("Error:")
@@ -699,7 +716,7 @@ async def test_write_text_file_resolves_relative_paths_from_working_directory(
     )
 
     output_file = project_dir / "nested" / "output.txt"
-    assert result.isError is False
+    assert result.is_error is False
     assert output_file.exists()
     assert output_file.read_text(encoding="utf-8") == "relative write"
 
@@ -718,7 +735,7 @@ async def test_write_text_file_reports_stable_permission_error(
 
     result = await runtime.write_text_file({"path": "secret.txt", "content": "x"})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "Permission denied for file: secret.txt."
@@ -733,7 +750,7 @@ def test_apply_patch_tool_schema_uses_input_field() -> None:
     tool = _tool_by_name(runtime, APPLY_PATCH_TOOL_NAME)
     assert tool is not None
     assert tool.name == APPLY_PATCH_TOOL_NAME
-    assert tool.inputSchema == {
+    assert tool.input_schema == {
         "type": "object",
         "properties": {
             "input": {
@@ -773,7 +790,7 @@ async def test_apply_patch_updates_file_relative_to_working_directory(tmp_path: 
     )
     result = await runtime.apply_patch({"input": patch_text})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert file_path.read_text(encoding="utf-8") == "ONE\ntwo\n"
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
@@ -791,7 +808,7 @@ async def test_apply_patch_invalid_args_returns_error() -> None:
     ]
 
     for result in invalid_results:
-        assert result.isError is True
+        assert result.is_error is True
         assert result.content is not None
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text.startswith("Error:")

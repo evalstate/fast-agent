@@ -1,7 +1,9 @@
 from fast_agent.ui.command_payloads import (
+    CommandError,
     ModelFastCommand,
+    ModelManagerCommand,
     ModelReasoningCommand,
-    ModelsCommand,
+    ModelStatusCommand,
     ModelSwitchCommand,
     ModelTaskBudgetCommand,
     ModelVerbosityCommand,
@@ -10,6 +12,16 @@ from fast_agent.ui.command_payloads import (
     ModelXSearchCommand,
 )
 from fast_agent.ui.enhanced_prompt import parse_special_input
+
+
+def test_parse_model_defaults_to_status() -> None:
+    result = parse_special_input("/model")
+    assert isinstance(result, ModelStatusCommand)
+
+
+def test_parse_model_status_rejects_arguments() -> None:
+    result = parse_special_input("/model status typo")
+    assert result == CommandError(message="Invalid /model arguments: Usage: /model status")
 
 
 def test_parse_model_reasoning_command() -> None:
@@ -74,6 +86,6 @@ def test_parse_model_switch_command() -> None:
 
 def test_parse_model_doctor_command() -> None:
     result = parse_special_input("/model doctor")
-    assert isinstance(result, ModelsCommand)
+    assert isinstance(result, ModelManagerCommand)
     assert result.action == "doctor"
     assert result.argument is None

@@ -54,12 +54,13 @@ class ShellExecutionRequest:
 
     ``terminate_on_cancel`` controls whether cancellation terminates the process
     tree. ``detach`` requires the child to survive runtime exit, so adapters must
-    capture output without parent-owned pipes. A request that starts with
-    ``terminate_on_cancel=False`` must therefore also set ``detach=True``; a
-    surviving child attached to parent-owned pipes would block or die on SIGPIPE
-    once the runtime exits. ``retain_output`` controls whether joined output
-    strings are retained in the returned result; callbacks remain independent of
-    result retention.
+    isolate it from parent-owned standard streams: stdin must not inherit an
+    interactive parent terminal, and output must be captured without parent-owned
+    pipes. A request that starts with ``terminate_on_cancel=False`` must therefore
+    also set ``detach=True``; a surviving child attached to parent-owned pipes
+    would block or die on SIGPIPE once the runtime exits. ``retain_output``
+    controls whether joined output strings are retained in the returned result;
+    callbacks remain independent of result retention.
 
     Owners may set ``terminate_on_cancel`` to ``True`` before cancelling an
     active request to distinguish explicit termination from persistent runtime
@@ -110,6 +111,15 @@ class ShellExecution:
     options: ShellExecutionOptions
     timed_out: bool = False
     io_drain_timed_out: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class TemporaryArtifact:
+    """A bounded temporary file addressed in an execution environment."""
+
+    path: str
+    retained_bytes: int
+    complete: bool
 
 
 class ShellExecutionCallbacks(Protocol):
@@ -263,6 +273,22 @@ class EnvironmentFilesystem(Protocol):
 
 
 @runtime_checkable
+class EnvironmentTemporaryArtifacts(Protocol):
+    """Optional capability for private, environment-visible temporary files."""
+
+    async def write_temporary_text(
+        self,
+        *,
+        prefix: str,
+        suffix: str,
+        content: str,
+        max_bytes: int,
+    ) -> TemporaryArtifact: ...
+
+    async def remove_temporary_artifact(self, artifact: TemporaryArtifact) -> None: ...
+
+
+@runtime_checkable
 class EnvironmentBinaryFilesystem(Protocol):
     """Binary filesystem operations for environment-to-environment transfer."""
 
@@ -319,6 +345,7 @@ __all__ = [
     "EnvironmentBinaryFilesystem",
     "EnvironmentFilesystem",
     "EnvironmentFilesystemWithBytes",
+    "EnvironmentTemporaryArtifacts",
     "RuntimeEnvironmentKind",
     "ShellEnvironment",
     "ShellEnvironmentWithFilesystem",
@@ -329,5 +356,6 @@ __all__ = [
     "ShellExecutionRequest",
     "ShellExecutionResult",
     "ShellRuntimeInfo",
+    "TemporaryArtifact",
     "execute_shell",
 ]

@@ -10,8 +10,8 @@ logger:
   truncate_tools: true
 
 mcp:
-  targets:
-    - name: brave
+  servers:
+    brave:
       # On windows replace the target with `node` and the absolute path to the server.
       # Use `npm i -g @modelcontextprotocol/server-brave-search` to install the server globally.
       # Use `npm -g root` to find the global node_modules path.`
@@ -20,22 +20,22 @@ mcp:
       env:
         # You can also place your BRAVE_API_KEY in the fast-agent.secrets.yaml file.
         BRAVE_API_KEY: <your_brave_api_key>
-    - name: filesystem
+    filesystem:
       # On windows update the target to use `node` and the absolute path to the server.
       # Use `npm i -g @modelcontextprotocol/server-filesystem` to install the server globally.
       # Use `npm -g root` to find the global node_modules path.`
       # target: "node c:/Program Files/nodejs/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js ./agent_folder/"
       target: "npx -y @modelcontextprotocol/server-filesystem ./agent_folder/"
-    - name: interpreter
+    interpreter:
       # Docker needs the absolute path on Windows (e.g. "x:/fastagent/agent_folder:/mnt/data/")
       target: "docker run -i --rm --pull=always -v ./agent_folder:/mnt/data/ ghcr.io/evalstate/mcp-py-repl:latest"
       roots:
-        - uri: "file://./agent_folder/"
-          name: "agent_folder"
-          server_uri_alias: "file:///mnt/data/"
-    - name: fetch
+      - uri: "file://./agent_folder/"
+        name: "agent_folder"
+        server_uri_alias: "file:///mnt/data/"
+    fetch:
       target: "uvx mcp-server-fetch"
-    - name: sequential
+    sequential:
       target: "npx -y @modelcontextprotocol/server-sequential-thinking"
 #    webmcp:
 #      target: "node /home/ssmith/.webmcp/server.cjs"

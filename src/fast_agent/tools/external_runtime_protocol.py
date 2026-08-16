@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
-    from mcp.types import CallToolResult, Tool
+    from mcp_types import CallToolResult, Tool
 
 
 class ExternalRuntime(Protocol):

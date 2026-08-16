@@ -37,18 +37,6 @@ else
     exit 1
 fi
 
-
-# Run the quickstart command
-"$FAST_AGENT_BIN" quickstart state-transfer
-if [ -d "state-transfer" ] && [ -f "state-transfer/agent_one.py" ] && [ -f "state-transfer/fast-agent.yaml" ]; then
-    echo "✅ Test successful: state-transfer examples created!"
-else
-    echo "❌ Test failed: state-transfer examples not created."
-    echo "Contents of state-transfer directory:"
-    ls -la state-transfer/ 2>/dev/null || echo "Directory doesn't exist"
-    exit 1
-fi
-
 # Test the setup command (non-interactive; accept defaults)
 printf '\n' | "$FAST_AGENT_BIN" scaffold --force
 

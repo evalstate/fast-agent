@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from mcp.types import Tool
+from mcp_types import Tool
 
 ATTACH_MEDIA_TOOL_NAME: Final = "attach_media"
 READ_TEXT_FILE_TOOL_NAME: Final = "read_text_file"
@@ -40,7 +40,7 @@ def build_attach_media_tool(
             "internal:// or MCP resource URIs; use get_resource for those. Use read_text_file "
             "for plain text/code files."
         ),
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "source": {
@@ -76,7 +76,7 @@ def build_read_text_file_tool() -> Tool:
     return Tool(
         name=READ_TEXT_FILE_TOOL_NAME,
         description="Read content from a text file. Returns the file contents as a string. ",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "path": {
@@ -105,7 +105,7 @@ def build_write_text_file_tool() -> Tool:
     return Tool(
         name=WRITE_TEXT_FILE_TOOL_NAME,
         description="Write content to a text file. Creates or overwrites the file. ",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "path": {

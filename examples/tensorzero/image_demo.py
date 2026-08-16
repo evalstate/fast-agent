@@ -3,11 +3,12 @@ import base64
 import mimetypes
 from pathlib import Path
 
-from mcp.types import ImageContent, TextContent
+from mcp_types import ImageContent, TextContent
 
 from fast_agent import FastAgent
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt import Prompt
+from fast_agent.utils.async_utils import run_in_thread
 
 AGENT_NAME = "tensorzero_image_tester"
 TENSORZERO_MODEL = "tensorzero.test_chat"
@@ -50,11 +51,10 @@ async def main():
         if mime_type is None:
             mime_type = "image/png"  # Default fallback if still None
 
-        with open(file_path, "rb") as image_file:
-            image_bytes = image_file.read()
+        image_bytes = await run_in_thread(file_path.read_bytes)
 
         encoded_data = base64.b64encode(image_bytes).decode("utf-8")
-        content_parts.append(ImageContent(type="image", mimeType=mime_type, data=encoded_data))
+        content_parts.append(ImageContent(type="image", mime_type=mime_type, data=encoded_data))
 
     message = Prompt.user(*content_parts)
     async with fast.run() as agent_app:

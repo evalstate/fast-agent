@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from typing import Any, Literal
 
 import pytest
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     CallToolRequest,
     CallToolRequestParams,
@@ -19,7 +19,7 @@ from mcp.types import (
 )
 from openai import AsyncOpenAI
 from openai.types.responses import Response, ResponseFunctionToolCall, ResponseUsage
-from pydantic import AnyUrl, ValidationError
+from pydantic import ValidationError
 
 from fast_agent.config import (
     CodexResponsesSettings,
@@ -177,12 +177,12 @@ class _OpenResponsesStreamingHarness(OpenResponsesStreamingMixin):
 
     def _update_streaming_progress(
         self,
-        chunk: str,
+        content: str,
         model: str,
-        current_total: int,
+        estimated_tokens: int,
     ) -> int:
-        del chunk, model
-        return current_total
+        del content, model
+        return estimated_tokens
 
     def chat_turn(self) -> int:
         return 1
@@ -445,7 +445,7 @@ def test_convert_tool_results_serializes_apply_patch_as_custom_tool_call_output(
     harness = _ContentHarness()
     harness._tool_kind_map["call_patch"] = "custom"
 
-    result = SimpleNamespace(content=[TextContent(type="text", text="Success")], isError=False)
+    result = SimpleNamespace(content=[TextContent(type="text", text="Success")], is_error=False)
     items = harness._convert_tool_results({"call_patch": result})
 
     assert items == [
@@ -463,11 +463,11 @@ def test_convert_tool_results_prefers_structured_content_and_keeps_attachments()
     result = SimpleNamespace(
         content=[
             TextContent(type="text", text="stale summary"),
-            ImageContent(type="image", data=image_data, mimeType="image/jpeg"),
+            ImageContent(type="image", data=image_data, mime_type="image/jpeg"),
         ],
-        isError=False,
+        is_error=False,
     )
-    setattr(result, "structuredContent", {"fresh": True})
+    result.structured_content = {"fresh": True}
 
     items = harness._convert_tool_results({"call_1": result})
 
@@ -487,13 +487,13 @@ def test_convert_tool_results_resource_link_pdf_becomes_user_input_file() -> Non
     harness = _ContentHarness()
     resource = ResourceLink(
         type="resource_link",
-        uri=AnyUrl("https://example.com/report.pdf"),
-        mimeType="application/pdf",
+        uri="https://example.com/report.pdf",
+        mime_type="application/pdf",
         name="report.pdf",
     )
     result = SimpleNamespace(
         content=[TextContent(type="text", text="attached"), resource],
-        isError=False,
+        is_error=False,
     )
 
     items = harness._convert_tool_results({"call_1": result})
@@ -584,7 +584,7 @@ def test_build_response_args_marks_function_tools_non_strict() -> None:
     tool = Tool(
         name="search",
         description="Search the connected MCP server.",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {"query": {"type": "string"}},
             "required": ["query"],
@@ -704,7 +704,7 @@ def test_build_response_args_ignores_non_wire_custom_tool_meta_extra() -> None:
             "name": "edit_script",
             "description": "Edit a script with a freeform patch.",
             "inputSchema": {"type": "object"},
-            "meta": {
+            "customMeta": {
                 OPENAI_RESPONSES_CUSTOM_TOOL_META_KEY: {
                     "type": "custom",
                     "format": {
@@ -884,11 +884,11 @@ def test_codexresponses_lite_uses_internal_request_contract() -> None:
             "content": [{"type": "input_text", "text": "hello"}],
         }
     ]
-    tool = Tool(name="lookup", description="Lookup", inputSchema={"type": "object"})
+    tool = Tool(name="lookup", description="Lookup", input_schema={"type": "object"})
 
     args = llm._build_response_args(
         input_items,
-        RequestParams(model="gpt-5.6-luna", systemPrompt="instructions"),
+        RequestParams(model="gpt-5.6-luna", system_prompt="instructions"),
         [tool],
     )
 
@@ -943,7 +943,7 @@ def test_codexresponses_standard_model_omits_lite_contract(model_name: str) -> N
     llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name=model_name)
     args = llm._build_response_args(
         [{"type": "message", "role": "user", "content": []}],
-        RequestParams(model=model_name, systemPrompt="instructions"),
+        RequestParams(model=model_name, system_prompt="instructions"),
         None,
     )
 
@@ -1081,7 +1081,7 @@ def test_convert_content_parts_text_and_image():
     parts = harness._convert_content_parts(
         [
             TextContent(type="text", text="Hello"),
-            ImageContent(type="image", data=image_data, mimeType="image/png"),
+            ImageContent(type="image", data=image_data, mime_type="image/png"),
         ],
         role="user",
     )
@@ -1096,8 +1096,8 @@ def test_convert_content_parts_embedded_text_resource_inlines_as_input_text():
     resource = EmbeddedResource(
         type="resource",
         resource=TextResourceContents(
-            uri=AnyUrl("file:///tmp/example.py"),
-            mimeType="text/x-python",
+            uri="file:///tmp/example.py",
+            mime_type="text/x-python",
             text="print('hello')",
         ),
     )
@@ -1122,8 +1122,8 @@ def test_convert_content_parts_office_resource_stays_as_input_file():
     resource = EmbeddedResource(
         type="resource",
         resource=BlobResourceContents(
-            uri=AnyUrl("file:///tmp/example.docx"),
-            mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            uri="file:///tmp/example.docx",
+            mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             blob=docx_data,
         ),
     )
@@ -1143,8 +1143,8 @@ def test_convert_content_parts_image_resource_link_uses_remote_input_image():
     harness = _ContentHarness()
     resource = ResourceLink(
         type="resource_link",
-        uri=AnyUrl("https://example.com/image.png"),
-        mimeType="image/png",
+        uri="https://example.com/image.png",
+        mime_type="image/png",
         name="image.png",
     )
 
@@ -1277,6 +1277,45 @@ def test_dedupes_duplicate_reasoning_ids():
     items = harness._convert_extended_messages_to_provider(messages)
     reasoning_items = [item for item in items if item.get("type") == "reasoning"]
     assert len(reasoning_items) == 1
+
+
+def test_encrypted_reasoning_replay_preserves_raw_summary_and_omits_status() -> None:
+    output_harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="reasoning",
+                id="rs_123",
+                status="completed",
+                summary=[SimpleNamespace(type="summary_text", text="Checked the arithmetic.")],
+                content=None,
+                encrypted_content="encrypted-reasoning",
+            )
+        ]
+    )
+
+    blocks = output_harness._extract_encrypted_reasoning(response)
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[],
+        channels={OPENAI_REASONING_ENCRYPTED: blocks},
+    )
+    items = _ContentHarness()._convert_extended_messages_to_provider([message])
+
+    assert items == [
+        {
+            "type": "reasoning",
+            "id": "rs_123",
+            "summary": [
+                {
+                    "type": "summary_text",
+                    "text": "Checked the arithmetic.",
+                }
+            ],
+            "content": None,
+            "encrypted_content": "encrypted-reasoning",
+        }
+    ]
 
 
 def test_extract_raw_assistant_message_items_preserves_phase_metadata() -> None:
@@ -1575,6 +1614,38 @@ def test_responses_tool_use_id_prefers_call_id_when_available():
     assert tool_calls is not None
     assert list(tool_calls.keys()) == ["call_123"]
     assert harness._tool_call_id_map["call_123"] == "call_123"
+
+
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        ('{"city":"London"', "incomplete or invalid JSON"),
+        ('{"city":"London"} trailing', "incomplete or invalid JSON"),
+        ('["London"]', "arguments must be a JSON object"),
+        ('"London"', "arguments must be a JSON object"),
+        ("", "did not return JSON arguments"),
+        (None, "did not return JSON arguments"),
+    ],
+)
+def test_responses_rejects_invalid_final_tool_arguments(
+    arguments: str | None,
+    message: str,
+) -> None:
+    harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                id="fc_123",
+                call_id="call_123",
+                name="weather",
+                arguments=arguments,
+            )
+        ]
+    )
+
+    with pytest.raises(RuntimeError, match=message):
+        harness._extract_tool_calls(response)
 
 
 def test_responses_tool_use_id_falls_back_to_item_id_when_call_id_missing():
@@ -2112,7 +2183,7 @@ def test_request_service_tier_overrides_configured_default() -> None:
     assert args["service_tier"] == "flex"
 
 
-def test_request_service_tier_override_is_recorded_in_turn_usage() -> None:
+def test_requested_and_effective_service_tiers_are_recorded_in_turn_usage() -> None:
     llm = _build_responses_family_llm(
         Provider.RESPONSES,
         model_name="gpt-5.4",
@@ -2133,9 +2204,12 @@ def test_request_service_tier_override_is_recorded_in_turn_usage() -> None:
         usage,
         context.model_name,
         requested_service_tier=context.requested_service_tier,
+        service_tier="default",
     )
 
-    assert llm.usage_accumulator.turns[-1].requested_service_tier == "flex"
+    turn = llm.usage_accumulator.turns[-1]
+    assert turn.requested_service_tier == "flex"
+    assert turn.service_tier == "default"
 
 
 def test_codexresponses_request_service_tier_rejects_flex() -> None:

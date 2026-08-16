@@ -10,7 +10,7 @@ from typing import Any, cast
 import pytest
 import typer
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, ListToolsResult, TextContent
+from mcp_types import CallToolRequestParams, ListToolsResult, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
@@ -39,7 +39,7 @@ from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.cli.runtime.runner import _should_convert_keyboard_interrupt_to_task_cancel
 from fast_agent.cli.runtime.session_resume import resume_session_id
 from fast_agent.config import Settings, ShellSettings
-from fast_agent.core.exceptions import AgentConfigError, EnvironmentStartupError
+from fast_agent.core.exceptions import AgentConfigError, EnvironmentStartupError, PromptExitError
 from fast_agent.core.harness_app import DefaultHarnessApp
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import load_messages
@@ -273,14 +273,13 @@ def _make_request(
         json_schema=json_schema,
         result_file=result_file,
         resume=None,
-        url_servers=None,
-        stdio_servers=None,
+        startup_mcp_servers=None,
+        mcp_startup_notices=(),
         agent_name="agent",
         target_agent_name=target_agent_name,
         skills_directory=None,
         home=None,
         no_home=False,
-        force_smart=False,
         shell_runtime=False,
         no_shell=False,
         mode="interactive",
@@ -315,6 +314,7 @@ def test_trajectory_output_enables_stateless_child_capture(tmp_path: Path) -> No
     _enable_atif_child_capture(app, request)
 
     assert child.config.save_trajectory is True
+    assert child.subagent_trajectory_capture_enabled
 
 
 def test_select_loaded_card_agent_targets_single_runnable_card() -> None:
@@ -754,6 +754,28 @@ async def test_run_cli_flow_handles_harness_startup_errors_like_cli_run() -> Non
 
     assert exc_info.value.code == 1
     assert fast.handled_errors == [error]
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_treats_prompt_exit_as_clean_success() -> None:
+    request = _make_request(result_file=None, message=None)
+    error = PromptExitError("exit")
+    fast = _FailingHarnessRuntime(error)
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del agent_app, request, session_manager, harness_session
+
+    with pytest.raises(SystemExit) as exc_info:
+        await run_cli_flow(cast("Any", fast), request, flow=flow)
+
+    assert exc_info.value.code == 0
+    assert fast.handled_errors == []
 
 
 @pytest.mark.asyncio
@@ -1847,7 +1869,8 @@ async def test_run_cli_flow_retries_interactive_after_keyboard_interrupt(
     app = _InterruptingAgentApp()
     request = _make_request(result_file=None, message=None)
 
-    await _run_cli_flow(app, request)
+    with pytest.raises(PromptExitError):
+        await _run_cli_flow(app, request)
 
     captured = capsys.readouterr()
     assert app.interactive_calls == 2
@@ -1876,7 +1899,7 @@ async def test_run_cli_flow_exits_after_double_keyboard_interrupt(
     app = _InterruptingAgentApp()
     request = _make_request(result_file=None, message=None)
 
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(PromptExitError):
         await _run_cli_flow(app, request)
 
     captured = capsys.readouterr()
@@ -1907,7 +1930,8 @@ async def test_run_cli_flow_retries_interactive_after_cancelled_error(
     app = _CancelledAgentApp()
     request = _make_request(result_file=None, message=None)
 
-    await _run_cli_flow(app, request)
+    with pytest.raises(PromptExitError):
+        await _run_cli_flow(app, request)
 
     captured = capsys.readouterr()
     assert app.interactive_calls == 2

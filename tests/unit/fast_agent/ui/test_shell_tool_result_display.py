@@ -1,20 +1,25 @@
-from mcp.types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent
 
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.constants import FAST_AGENT_SHELL_PROCESS_METADATA
+from fast_agent.mcp.tool_result_metadata import update_tool_result_display_metadata
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.shell_output_truncation import SHELL_OUTPUT_TRUNCATION_MARKER
 
 
+def _full_display(config: Settings | None = None) -> ConsoleDisplay:
+    return ConsoleDisplay(config=config, tool_display_layout="full")
+
+
 def test_shell_tool_result_uses_styled_exit_line() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[TextContent(type="text", text="hello\nprocess exit code was 0")],
-        isError=False,
+        is_error=False,
     )
-    setattr(result, "output_line_count", 1)
+    update_tool_result_display_metadata(result, {"output_line_count": 1})
 
     with console.console.capture() as capture:
         display.show_tool_result(
@@ -33,10 +38,10 @@ def test_shell_tool_result_uses_styled_exit_line() -> None:
 
 
 def test_shell_tool_result_no_output_adds_no_output_detail() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[TextContent(type="text", text="process exit code was 0")],
-        isError=False,
+        is_error=False,
     )
 
     with console.console.capture() as capture:
@@ -56,7 +61,7 @@ def test_shell_tool_result_no_output_adds_no_output_detail() -> None:
 
 
 def test_poll_process_result_hides_process_metadata_and_keeps_exit_banner() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[
             TextContent(
@@ -64,9 +69,9 @@ def test_poll_process_result_hides_process_metadata_and_keeps_exit_banner() -> N
                 text="finished\nprocess_id: process-1\nprocess exit code was 0",
             )
         ],
-        isError=False,
+        is_error=False,
     )
-    setattr(result, "output_line_count", 1)
+    update_tool_result_display_metadata(result, {"output_line_count": 1})
 
     with console.console.capture() as capture:
         display.show_tool_result(result, name="dev", tool_name="poll_process")
@@ -79,7 +84,7 @@ def test_poll_process_result_hides_process_metadata_and_keeps_exit_banner() -> N
 
 
 def test_running_process_result_uses_compact_lifecycle_line() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[
             TextContent(
@@ -97,7 +102,7 @@ def test_running_process_result_uses_compact_lifecycle_line() -> None:
                 ),
             )
         ],
-        isError=False,
+        is_error=False,
     )
 
     with console.console.capture() as capture:
@@ -110,8 +115,41 @@ def test_running_process_result_uses_compact_lifecycle_line() -> None:
     assert "Use poll_process" not in rendered
 
 
+def test_auto_await_cap_result_uses_distinct_compact_lifecycle_line() -> None:
+    display = _full_display()
+    result = CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text="\n".join(
+                    [
+                        "building",
+                        (
+                            "Command is still running after the bounded foreground "
+                            "auto-await total-runtime cap was reached. "
+                            "The command was not stopped."
+                        ),
+                        "process_id: process-2",
+                        "elapsed_seconds: 240.0",
+                        "total_output_bytes: 9",
+                        "Use poll_process to monitor it or terminate_process to stop it.",
+                    ]
+                ),
+            )
+        ],
+        is_error=False,
+    )
+
+    with console.console.capture() as capture:
+        display.show_tool_result(result, name="dev", tool_name="execute")
+
+    rendered = capture.get()
+    assert "▶ process-2 running • auto-await cap • 240.0s" in rendered
+    assert "foreground yield" not in rendered
+
+
 def test_quiet_running_poll_result_is_not_rendered() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[
             TextContent(
@@ -126,7 +164,7 @@ def test_quiet_running_poll_result_is_not_rendered() -> None:
                 ),
             )
         ],
-        isError=False,
+        is_error=False,
     )
     result.meta = {
         FAST_AGENT_SHELL_PROCESS_METADATA: {
@@ -144,10 +182,10 @@ def test_quiet_running_poll_result_is_not_rendered() -> None:
 
 
 def test_process_non_poll_result_is_rendered() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[TextContent(type="text", text="Process is still running.")],
-        isError=False,
+        is_error=False,
     )
 
     with console.console.capture() as capture:
@@ -157,7 +195,7 @@ def test_process_non_poll_result_is_rendered() -> None:
 
 
 def test_managed_process_poll_uses_shared_elapsed_format() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     progress_display.set_default_agent_name("dev")
 
     try:
@@ -184,7 +222,7 @@ def test_managed_process_poll_uses_shared_elapsed_format() -> None:
 
 
 def test_terminate_process_result_uses_compact_lifecycle_line() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[
             TextContent(
@@ -192,7 +230,7 @@ def test_terminate_process_result_uses_compact_lifecycle_line() -> None:
                 text="process_id: process-3\noutcome: terminated",
             )
         ],
-        isError=False,
+        is_error=False,
     )
 
     with console.console.capture() as capture:
@@ -204,11 +242,11 @@ def test_terminate_process_result_uses_compact_lifecycle_line() -> None:
 
 
 def test_shell_tool_result_truncates_with_head_and_tail_windows() -> None:
-    display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=6)))
+    display = _full_display(Settings(shell_execution=ShellSettings(output_display_lines=6)))
     output_lines = [f"out-{i:02d}" for i in range(1, 11)]
     result_text = "\n".join([*output_lines, "process exit code was 0"])
-    result = CallToolResult(content=[TextContent(type="text", text=result_text)], isError=False)
-    setattr(result, "output_line_count", len(output_lines))
+    result = CallToolResult(content=[TextContent(type="text", text=result_text)], is_error=False)
+    update_tool_result_display_metadata(result, {"output_line_count": len(output_lines)})
 
     with console.console.capture() as capture:
         display.show_tool_result(
@@ -234,10 +272,10 @@ def test_shell_tool_result_truncates_with_head_and_tail_windows() -> None:
 
 
 def test_shell_tool_result_parallel_deferred_uses_source_line_count() -> None:
-    display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=4)))
+    display = _full_display(Settings(shell_execution=ShellSettings(output_display_lines=4)))
     output_lines = [f"line-{i}" for i in range(1, 13)]
     result_text = "\n".join([*output_lines, "process exit code was 0"])
-    result = CallToolResult(content=[TextContent(type="text", text=result_text)], isError=False)
+    result = CallToolResult(content=[TextContent(type="text", text=result_text)], is_error=False)
 
     with console.console.capture() as capture:
         display.show_tool_result(
@@ -259,18 +297,14 @@ def test_shell_tool_result_parallel_deferred_uses_source_line_count() -> None:
 
 
 def test_tool_result_prefers_structured_content_over_many_text_blocks() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[
             TextContent(type="text", text='{"id":"a"}'),
             TextContent(type="text", text='{"id":"b"}'),
         ],
-        isError=False,
-    )
-    setattr(
-        result,
-        "structuredContent",
-        {"result": [{"id": "a"}, {"id": "b"}]},
+        structured_content={"result": [{"id": "a"}, {"id": "b"}]},
+        is_error=False,
     )
 
     with console.console.capture() as capture:
@@ -286,23 +320,19 @@ def test_tool_result_prefers_structured_content_over_many_text_blocks() -> None:
 
 
 def test_tool_result_prefers_structured_content_when_text_blocks_disagree() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[
             TextContent(type="text", text='{"id":"a","status":"closed"}'),
             TextContent(type="text", text='{"id":"b","status":"pending"}'),
         ],
-        isError=False,
-    )
-    setattr(
-        result,
-        "structuredContent",
-        {
+        structured_content={
             "result": [
                 {"id": "a", "status": "open"},
                 {"id": "b", "status": "escalated"},
             ]
         },
+        is_error=False,
     )
 
     with console.console.capture() as capture:
@@ -317,13 +347,13 @@ def test_tool_result_prefers_structured_content_when_text_blocks_disagree() -> N
 
 
 def test_structured_tool_result_shows_transport_timing_and_structured_footer() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
-        content=[TextContent(type="text", text='{"ok": true}')],
-        structuredContent={"ok": True},
-        isError=False,
+        content=[TextContent(type="text", text='{"transport": true}')],
+        structured_content={"structured_only": True},
+        is_error=False,
     )
-    setattr(result, "transport_channel", "post-json")
+    update_tool_result_display_metadata(result, {"transport_channel": "post-json"})
 
     with console.console.capture() as capture:
         display.show_tool_result(
@@ -334,7 +364,8 @@ def test_structured_tool_result_shows_transport_timing_and_structured_footer() -
         )
 
     rendered = capture.get()
-    assert '{"ok": true}' in rendered
+    assert '{"transport": true}' in rendered
+    assert "structured_only" not in rendered
     assert "HTTP (JSON-RPC)" in rendered
     assert "1.50s" in rendered
     assert "Structured ■" in rendered

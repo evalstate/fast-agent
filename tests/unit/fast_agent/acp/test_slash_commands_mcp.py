@@ -1,14 +1,17 @@
 import os
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, ClassVar, cast
 
 import pytest
 from acp.schema import ToolCallProgress, ToolCallStart
+from mcp.client.auth import OAuthFlowError
 
+from fast_agent import config as config_module
 from fast_agent.acp.slash.handlers import mcp as mcp_handler_module
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.commands.mcp_command_intents import MCP_TOP_LEVEL_ACTIONS
 from fast_agent.commands.results import CommandOutcome
+from fast_agent.config import MCPServerSettings, MCPSettings, Settings
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.mcp.connect_targets import parse_connect_command_text
 from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
@@ -21,11 +24,14 @@ if TYPE_CHECKING:
 
 
 class _Agent:
-    acp_commands = {}
+    acp_commands: ClassVar[dict[str, object]] = {}
     instruction = ""
 
     def __init__(self) -> None:
         self.config = SimpleNamespace(default=False, model=None)
+
+    async def get_server_status(self):
+        return {}
 
 
 def test_acp_mcp_handlers_cover_shared_top_level_actions() -> None:
@@ -172,6 +178,12 @@ class _FailingMcpApp(_App):
         raise AssertionError("app MCP detach bypassed callback")
 
 
+class _OAuthFailingMcpApp(_App):
+    async def attach_mcp_server(self, _agent_name, server_name, server_config=None, options=None):
+        del server_name, server_config, options
+        raise OAuthFlowError("OAuth callback could not be completed")
+
+
 class _FakeACPContext:
     def __init__(self) -> None:
         self.updates: list[object] = []
@@ -192,7 +204,23 @@ class _FakeACPContext:
 
 
 @pytest.mark.asyncio
-async def test_slash_command_mcp_list_connect_reconnect_disconnect() -> None:
+async def test_slash_command_mcp_inventory_status_attach_connect_reconnect_disconnect(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        config_module,
+        "_settings",
+        Settings(
+            mcp=MCPSettings(
+                servers={
+                    "docs": MCPServerSettings(
+                        transport="http",
+                        url="https://docs.example.com/mcp",
+                    )
+                }
+            )
+        ),
+    )
     app = _App()
     instance = AgentInstance(
         app=cast("AgentApp", app),
@@ -208,6 +236,7 @@ async def test_slash_command_mcp_list_connect_reconnect_disconnect() -> None:
         list_attached_mcp_servers_callback=app.list_attached_mcp_servers,
         list_configured_detached_mcp_servers_callback=app.list_configured_detached_mcp_servers,
     )
+    assert "connect" in {command.name for command in handler.get_available_commands()}
 
     listed = await handler.execute_command("mcp", " LIST ")
     assert "Attached MCP servers" in listed
@@ -215,8 +244,26 @@ async def test_slash_command_mcp_list_connect_reconnect_disconnect() -> None:
     invalid_list = await handler.execute_command("mcp", "list demo")
     assert "Usage: /mcp list" in invalid_list
 
+    status = await handler.execute_command("mcp", "status")
+    assert "No MCP status available" in status
+    assert "Attached MCP servers" not in status
+    assert await handler.execute_command("mcp", "") == status
+
+    attached = await handler.execute_command("mcp", "attach docs")
+    assert "Attached configured MCP server 'docs'" in attached
+    assert app.attached_configs[-1] is None
+
     connected = await handler.execute_command("mcp", "CONNECT --name demo npx demo-server")
     assert "Connected MCP server 'demo'" in connected
+
+    alias_connected = await handler.execute_command("connect", "docs")
+    assert "Connected configured MCP server 'docs' via stdio." in alias_connected
+    assert app.attached_configs[-1] is None
+
+    explicit_connected = await handler.execute_command("mcp", "connect docs")
+    assert "Connected MCP server 'docs' (stdio)." in explicit_connected
+    explicit_config = app.attached_configs[-1]
+    assert getattr(explicit_config, "command", None) == "docs"
 
     reconnected = await handler.execute_command("mcp", "ReConnect demo")
     assert "Reconnected MCP server 'demo'" in reconnected
@@ -254,6 +301,30 @@ async def test_slash_command_mcp_uses_callbacks_not_instance_app() -> None:
     assert "Connected MCP server 'demo'" in connected
     assert "Reconnected MCP server 'demo'" in reconnected
     assert "Disconnected MCP server 'demo'" in disconnected
+
+
+@pytest.mark.asyncio
+async def test_slash_connect_renders_typed_acp_oauth_failure() -> None:
+    app = _OAuthFailingMcpApp()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", _Agent())},
+        registry_version=0,
+    )
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+        attach_mcp_server_callback=app.attach_mcp_server,
+        detach_mcp_server_callback=app.detach_mcp_server,
+        list_attached_mcp_servers_callback=app.list_attached_mcp_servers,
+    )
+
+    result = await handler.execute_command("connect", "https://example.com/mcp")
+
+    assert "MCP OAuth authorization failed" in result
+    assert "fast-agent auth mcp login" in result
+    assert "Stop/Cancel" in result
 
 
 @pytest.mark.asyncio

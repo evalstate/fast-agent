@@ -130,6 +130,7 @@ def test_function_key_callbacks_fire_when_configured() -> None:
             events.append("invalidate")
 
     kb = create_keybindings(
+        on_cycle_agent_mode=lambda: events.append("agent_mode"),
         on_cycle_reasoning=lambda: events.append("reasoning"),
         on_cycle_verbosity=lambda: events.append("verbosity"),
         on_cycle_web_search=lambda: events.append("web_search"),
@@ -137,6 +138,7 @@ def test_function_key_callbacks_fire_when_configured() -> None:
     )
 
     for key, label in (
+        (Keys.F5, "agent_mode"),
         (Keys.F6, "reasoning"),
         (Keys.F7, "verbosity"),
         (Keys.F8, "web_search"),
@@ -184,6 +186,7 @@ async def test_alt_v_pastes_clipboard_image_as_attachment(monkeypatch, tmp_path)
 
     assert buffer.text.startswith("describe this ^file:")
     assert str(image_path) in buffer.text
+    assert buffer.text.endswith(" ")
     assert buffer.cursor_position == len(buffer.text)
 
 

@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.acp import ACPCommand
 from fast_agent.acp.slash_commands import SlashCommandHandler
@@ -147,6 +147,7 @@ class _StubAppProvider(StaticAgentProvider):
     def __init__(self, agents: dict[str, object]) -> None:
         super().__init__(agents)
         self.card_collision_warnings: list[str] = []
+        self.user_turn_usage: tuple[object, ...] = ()
 
 
 @dataclass
@@ -241,10 +242,22 @@ async def test_slash_command_available_commands() -> None:
     assert "clear" in command_names
     assert "history" in command_names
     assert "session" in command_names
+    assert "subagents" in command_names
+    assert "tool" in command_names
 
     # Check status command structure
     status_cmd = next(cmd for cmd in commands if cmd.name == "status")
     assert status_cmd.description  # Should have a non-empty description
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_tool_command_requires_a_tool_name() -> None:
+    handler = _handler(StubAgentInstance())
+
+    response = await handler.execute_command("tool", "")
+
+    assert response == "Tool name required: /tool <tool-name>"
 
 
 @pytest.mark.integration
@@ -939,7 +952,7 @@ async def test_slash_command_history_available_in_commands() -> None:
     history_cmd = next(cmd for cmd in commands if cmd.name == "history")
     assert history_cmd.description
     assert history_cmd.input is not None  # Should have input hint
-    assert history_cmd.input.root.hint == "[show|detail <turn>|save|load] [args]"
+    assert history_cmd.input.root.hint == ("[show|detail <turn>|review [turn]|save|load] [args]")
 
 
 @pytest.mark.integration
@@ -979,7 +992,7 @@ async def test_slash_command_history_show_turn_summary() -> None:
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="result")],
-                    isError=False,
+                    is_error=False,
                 )
             },
             channels={
@@ -1297,7 +1310,7 @@ async def test_slash_command_card_loads_and_attaches() -> None:
         card_loader=_card_loader,
         attach_agent_callback=_attach_agent,
     )
-    response = await handler.execute_command("card", "card.yml --tool")
+    response = await handler.execute_command("card", "load card.yml --as-tool")
 
     assert "Loaded AgentCard: alpha" in response
     assert "Attached agent tool: alpha" in response
@@ -1308,40 +1321,35 @@ async def test_slash_command_card_loads_and_attaches() -> None:
 async def test_slash_command_card_rejects_unexpected_arguments() -> None:
     handler = _handler(StubAgentInstance(agents={"test-agent": StubAgent()}))
 
-    response = await handler.execute_command("card", "card.yml extra")
+    response = await handler.execute_command("card", "load card.yml extra")
 
-    assert response == "Unexpected arguments: extra"
+    assert response == "Usage: /card [show [agent]|load <path-or-url> [--as-tool]]"
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_slash_command_card_rm_alias_detaches_tools() -> None:
+async def test_slash_command_card_show_named_agent() -> None:
     stub_agent = StubAgent(message_history=[])
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
 
-    async def _card_loader(filename: str, parent_agent: str | None = None):
-        del filename, parent_agent
-        return instance, AgentCardLoadResult(loaded_names=["alpha"])
-
-    async def _detach_agent(parent_agent: str, child_agents: list[str]):
-        assert parent_agent == "test-agent"
-        return instance, child_agents
+    async def _dump_agent(agent_name: str) -> str:
+        assert agent_name == "alpha"
+        return "agent-card: alpha"
 
     handler = _handler(
         instance,
-        card_loader=_card_loader,
-        detach_agent_callback=_detach_agent,
+        dump_agent_callback=_dump_agent,
     )
 
-    response = await handler.execute_command("card", "card.yml --tool --rm")
+    response = await handler.execute_command("card", "show alpha")
 
-    assert "Detached agent tool: alpha" in response
+    assert "agent-card: alpha" in response
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_slash_command_agent_attach_and_detach() -> None:
-    """Test /agent --tool attach and remove flows."""
+    """Test structured agent tool attach and remove flows."""
     stub_agent = StubAgent(message_history=[])
     alpha_agent = StubAgent(message_history=[], name="alpha")
     instance = StubAgentInstance(agents={"test-agent": stub_agent, "alpha": alpha_agent})
@@ -1358,20 +1366,45 @@ async def test_slash_command_agent_attach_and_detach() -> None:
         detach_agent_callback=_detach_agent,
     )
 
-    response = await handler.execute_command("agent", "alpha --tool")
+    response = await handler.execute_command("agent", "tool add alpha")
     assert "Attached agent tool: alpha" in response
 
-    response = await handler.execute_command("agent", "alpha --tool remove")
-    assert "Detached agent tool: alpha" in response
-
-    response = await handler.execute_command("agent", "alpha --tool --rm")
+    response = await handler.execute_command("agent", "tool remove alpha")
     assert "Detached agent tool: alpha" in response
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_slash_command_agent_dump() -> None:
-    """Test /agent --dump returns agent card output."""
+async def test_slash_command_agent_status_list_and_use() -> None:
+    switched: list[str] = []
+
+    async def _set_current_mode(agent_name: str) -> None:
+        switched.append(agent_name)
+
+    instance = StubAgentInstance(
+        agents={
+            "test-agent": StubAgent(name="test-agent"),
+            "alpha": StubAgent(name="alpha"),
+        }
+    )
+    handler = _handler(instance, set_current_mode_callback=_set_current_mode)
+
+    status = await handler.execute_command("agent", "")
+    listing = await handler.execute_command("agent", "list")
+    selected = await handler.execute_command("agent", "use alpha")
+
+    assert "Current agent: test-agent" in status
+    assert "test-agent (current)" in listing
+    assert "alpha" in listing
+    assert "Switched to agent: alpha" in selected
+    assert handler.current_agent_name == "alpha"
+    assert switched == ["alpha"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_card_show_defaults_to_current_agent() -> None:
+    """Test /card show returns current agent card output."""
     stub_agent = StubAgent(message_history=[])
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
 
@@ -1379,7 +1412,7 @@ async def test_slash_command_agent_dump() -> None:
         return "agent-card: test-agent"
 
     handler = _handler(instance, dump_agent_callback=_dump_agent)
-    response = await handler.execute_command("agent", "--dump")
+    response = await handler.execute_command("card", "show")
 
     assert "agent-card: test-agent" in response
 

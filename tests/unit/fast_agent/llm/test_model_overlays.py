@@ -24,16 +24,22 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
+    from openai.types.chat import ChatCompletionToolParam
+
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import (
+    ModelOverlayConnection,
     ModelOverlayDefaults,
+    ModelOverlayManifest,
     build_model_overlay_manifest_from_database,
     load_model_overlay_registry,
+    serialize_model_overlay_manifest,
 )
 from fast_agent.llm.model_selection import ModelSelectionCatalog
+from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
@@ -94,6 +100,15 @@ def test_export_preserves_managed_process_poll_folding_policy() -> None:
     manifest = build_model_overlay_manifest_from_database("xai.grok-4.5")
 
     assert manifest.metadata.managed_process_poll_folding is True
+
+
+def test_export_preserves_deepseek_shell_contract() -> None:
+    manifest = build_model_overlay_manifest_from_database("deepseek.deepseek-v4-flash")
+
+    assert manifest.metadata.shell_tool_name == "Shell"
+    assert manifest.metadata.shell_tool_requires_description is False
+    assert manifest.metadata.shell_edit_tool == "write_text_file"
+    assert manifest.metadata.model_specific == ModelDatabase.MODEL_PREFERS_WRITER_EDITOR
 
 
 def test_export_preserves_explicit_provider_over_catalog_default() -> None:
@@ -163,9 +178,14 @@ metadata:
 
     with _isolated_overlay_environment(home, cleanup_base=tmp_path):
         resolved = ModelFactory.resolve_model_spec("poll-wait")
+        overridden = ModelFactory.resolve_model_spec("poll-wait?poll_period=45")
 
     assert resolved.model_params is not None
     assert resolved.model_params.process_poll_default_wait_seconds == 30
+    assert resolved.process_poll_default_wait_seconds == 30
+    assert overridden.process_poll_default_wait_seconds == 45
+    assert overridden.model_params is not None
+    assert overridden.model_params.process_poll_default_wait_seconds == 30
 
 
 def test_overlay_configures_shell_output_byte_limit(tmp_path: Path) -> None:
@@ -192,6 +212,36 @@ metadata:
 
     assert resolved.model_params is not None
     assert resolved.model_params.shell_output_byte_limit == 12_000
+
+
+def test_overlay_configures_model_facing_shell_contract(tmp_path: Path) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "shell-contract.yaml",
+        """
+name: shell-contract
+provider: openresponses
+model: overlay-tests/Shell-Contract
+connection:
+  base_url: http://localhost:8080/v1
+  auth: none
+metadata:
+  context_window: 65536
+  max_output_tokens: 4096
+  shell_tool_name: Shell
+  shell_tool_requires_description: true
+  shell_edit_tool: edit_file
+""".strip(),
+    )
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        resolved = ModelFactory.resolve_model_spec("shell-contract")
+
+    assert resolved.model_params is not None
+    assert resolved.model_params.shell_tool_name == "Shell"
+    assert resolved.model_params.shell_tool_requires_description is True
+    assert resolved.model_params.shell_edit_tool == "edit_file"
 
 
 def test_same_provider_overlays_create_distinct_openresponses_clients(tmp_path: Path) -> None:
@@ -248,12 +298,335 @@ defaults:
             assert remote_llm._base_url() == "https://remote.example/v1"
             assert local_llm._api_key() == ""
             assert remote_llm._api_key() == "remote-key"
-            assert local_llm.default_request_params.maxTokens == 4096
+            assert local_llm.default_request_params.max_tokens == 4096
     finally:
         if previous_remote_key is None:
             os.environ.pop("REMOTE_QWEN_KEY", None)
         else:
             os.environ["REMOTE_QWEN_KEY"] = previous_remote_key
+
+
+@pytest.mark.parametrize(
+    ("reasoning_yaml", "expected", "model", "base_url", "api_key_env"),
+    (
+        (
+            "max",
+            "max",
+            "deepseek-ai/DeepSeek-V4-Flash-0731",
+            "https://endpoint.example/v1",
+            "EXAMPLE_REASONING_TOKEN",
+        ),
+        (
+            "false",
+            False,
+            "deepseek-ai/DeepSeek-V4-Flash-0731",
+            "https://tenant.endpoints.huggingface.cloud/v1",
+            "HF_TOKEN",
+        ),
+        (
+            "2048",
+            2048,
+            "overlay-tests/Reasoning",
+            "https://endpoint.example/v1",
+            "EXAMPLE_REASONING_TOKEN",
+        ),
+    ),
+)
+def test_generic_overlay_configures_reasoning_field(
+    tmp_path: Path,
+    reasoning_yaml: str,
+    expected: str | bool | int,
+    model: str,
+    base_url: str,
+    api_key_env: str,
+) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "generic-reasoning.yaml",
+        f"""
+name: generic-reasoning
+provider: generic
+model: {model}
+connection:
+  base_url: {base_url}
+  auth: env
+  api_key_env: {api_key_env}
+  reasoning_field: reasoning_effort
+defaults:
+  reasoning: {reasoning_yaml}
+  temperature: 1.0
+  top_p: 0.95
+  max_tokens: 2048
+metadata:
+  context_window: 65536
+  max_output_tokens: 4096
+""".strip(),
+    )
+
+    previous_token = os.environ.get(api_key_env)
+    os.environ[api_key_env] = "test-token"
+    try:
+        with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+            resolved = ModelFactory.resolve_model_spec("generic-reasoning")
+            llm = ModelFactory.create_factory("generic-reasoning")(
+                LlmAgent(AgentConfig(name="reasoning"))
+            )
+            assert isinstance(llm, GenericLLM)
+            request = llm._prepare_api_request(
+                [{"role": "user", "content": "hi"}],
+                None,
+                llm.default_request_params,
+            )
+    finally:
+        if previous_token is None:
+            os.environ.pop(api_key_env, None)
+        else:
+            os.environ[api_key_env] = previous_token
+
+    assert resolved.provider is Provider.GENERIC
+    assert resolved.wire_model_name == model
+    assert llm._base_url() == base_url
+    assert llm._api_key() == "test-token"
+    assert request["model"] == model
+    assert request["temperature"] == 1.0
+    assert request["top_p"] == 0.95
+    assert request["max_tokens"] == 2048
+    assert "max_completion_tokens" not in request
+    assert request["stream"] is True
+    assert request["stream_options"] == {"include_usage": True}
+    assert "reasoning_effort" not in request
+    extra_body = request.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["reasoning_effort"] == expected
+    assert type(extra_body["reasoning_effort"]) is type(expected)
+    assert llm.model_info is not None
+    if model == "deepseek-ai/DeepSeek-V4-Flash-0731":
+        assert llm.model_info.reasoning == "reasoning_content"
+        assert llm._extract_reasoning_text(reasoning_content=["reasoning"]) == "reasoning"
+
+
+def test_generic_reasoning_field_uses_explicit_reasoning_override(tmp_path: Path) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "generic-reasoning.yaml",
+        """
+name: generic-reasoning
+provider: generic
+model: overlay-tests/Reasoning
+connection:
+  base_url: https://endpoint.example/v1
+  auth: none
+  reasoning_field: reasoning_level
+defaults:
+  reasoning: max
+metadata:
+  context_window: 65536
+  max_output_tokens: 4096
+""".strip(),
+    )
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        llm = ModelFactory.create_factory("generic-reasoning?reasoning=high")(
+            LlmAgent(AgentConfig(name="reasoning"))
+        )
+        assert isinstance(llm, GenericLLM)
+        request = llm._prepare_api_request(
+            [{"role": "user", "content": "hi"}],
+            None,
+            llm.default_request_params,
+        )
+
+    assert request["extra_body"] == {"reasoning_level": "high"}
+
+
+def test_generic_reasoning_field_without_reasoning_preserves_request(tmp_path: Path) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "generic-no-reasoning.yaml",
+        """
+name: generic-no-reasoning
+provider: generic
+model: overlay-tests/No-Reasoning
+connection:
+  base_url: https://endpoint.example/v1
+  auth: none
+  reasoning_field: reasoning_level
+metadata:
+  context_window: 65536
+  max_output_tokens: 4096
+""".strip(),
+    )
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        llm = ModelFactory.create_factory("generic-no-reasoning")(
+            LlmAgent(AgentConfig(name="reasoning"))
+        )
+        assert isinstance(llm, GenericLLM)
+        llm.set_reasoning_effort(None)
+        request = llm._prepare_api_request(
+            [{"role": "user", "content": "hi"}],
+            None,
+            llm.default_request_params,
+        )
+
+    assert "reasoning_effort" not in request
+    assert "extra_body" not in request
+
+
+def test_generic_overlay_without_reasoning_field_preserves_request_behavior(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "generic-default.yaml",
+        """
+name: generic-default
+provider: generic
+model: overlay-tests/Reasoning
+connection:
+  base_url: https://endpoint.example/v1
+  auth: none
+defaults:
+  reasoning: max
+  max_tokens: 2048
+metadata:
+  context_window: 65536
+  max_output_tokens: 4096
+""".strip(),
+    )
+    tools: list[ChatCompletionToolParam] = [
+        {
+            "type": "function",
+            "function": {
+                "name": "lookup",
+                "description": "Look up a value.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        llm = ModelFactory.create_factory("generic-default")(
+            LlmAgent(AgentConfig(name="reasoning"))
+        )
+        assert isinstance(llm, GenericLLM)
+        request = llm._prepare_api_request(
+            [{"role": "user", "content": "hi"}],
+            tools,
+            llm.default_request_params,
+        )
+
+    assert request["max_tokens"] == 2048
+    assert "max_completion_tokens" not in request
+    assert request["tools"] == tools
+    assert request["parallel_tool_calls"] is True
+    assert request["stream"] is True
+    assert request["stream_options"] == {"include_usage": True}
+    assert "reasoning_effort" not in request
+    assert "extra_body" not in request
+
+
+def test_generic_reasoning_field_replaces_conflicting_request_fields(tmp_path: Path) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "generic-conflict.yaml",
+        """
+name: generic-conflict
+provider: generic
+model: overlay-tests/Reasoning
+connection:
+  base_url: https://endpoint.example/v1
+  auth: none
+  reasoning_field: reasoning_level
+defaults:
+  reasoning: max
+metadata:
+  context_window: 65536
+  max_output_tokens: 4096
+""".strip(),
+    )
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        llm = ModelFactory.create_factory("generic-conflict")(
+            LlmAgent(AgentConfig(name="reasoning"))
+        )
+        assert isinstance(llm, GenericLLM)
+        request_params = llm.default_request_params.model_copy(
+            update={
+                "metadata": {
+                    "reasoning_effort": "low",
+                    "reasoning_level": "medium",
+                    "extra_body": {
+                        "reasoning_effort": "minimal",
+                        "reasoning_level": "low",
+                        "preserved": True,
+                    },
+                }
+            }
+        )
+        request = llm._prepare_api_request(
+            [{"role": "user", "content": "hi"}],
+            None,
+            request_params,
+        )
+
+    assert "reasoning_effort" not in request
+    assert "reasoning_level" not in request
+    assert request["extra_body"] == {
+        "preserved": True,
+        "reasoning_level": "max",
+    }
+
+
+@pytest.mark.parametrize(
+    "reasoning_field",
+    ("", "reasoning.effort", "reasoning[effort]", "reasoning-field", "1reasoning"),
+)
+def test_overlay_rejects_invalid_reasoning_field(reasoning_field: str) -> None:
+    with pytest.raises(ValueError, match="reasoning_field"):
+        ModelOverlayConnection.model_validate({"reasoning_field": reasoning_field})
+
+
+@pytest.mark.parametrize("legacy_value", ("reasoning_effort", "chat_template_kwargs"))
+def test_overlay_rejects_legacy_reasoning_api(legacy_value: str) -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"connection\.reasoning_api.*reasoning_field",
+    ):
+        ModelOverlayConnection.model_validate({"reasoning_api": legacy_value})
+
+
+def test_overlay_rejects_reasoning_field_for_non_generic_provider() -> None:
+    with pytest.raises(ValueError, match="supported only for provider 'generic'"):
+        ModelOverlayManifest.model_validate(
+            {
+                "name": "responses-reasoning",
+                "provider": "openresponses",
+                "model": "overlay-tests/Reasoning",
+                "connection": {"reasoning_field": "reasoning_effort"},
+            }
+        )
+
+
+def test_overlay_serialization_preserves_reasoning_field() -> None:
+    manifest = ModelOverlayManifest.model_validate(
+        {
+            "name": "generic-reasoning",
+            "provider": "generic",
+            "model": "overlay-tests/Reasoning",
+            "connection": {"reasoning_field": "reasoning_effort"},
+        }
+    )
+
+    serialized = serialize_model_overlay_manifest(manifest)
+
+    assert "reasoning_field: reasoning_effort" in serialized
+    assert "reasoning_api" not in serialized
 
 
 def test_overlay_presets_resolve_overlay_metadata_and_picker_entries(tmp_path: Path) -> None:
@@ -697,12 +1070,12 @@ metadata:
         await agent.attach_llm(ModelFactory.create_factory("big-local"))
 
         assert agent.llm is not None
-        assert agent.llm.default_request_params.maxTokens == 8192
+        assert agent.llm.default_request_params.max_tokens == 8192
 
         await agent.set_model("tiny-local")
 
         assert agent.llm is not None
-        assert agent.llm.default_request_params.maxTokens == 1024
+        assert agent.llm.default_request_params.max_tokens == 1024
         assert agent.llm.resolved_model is not None
         assert agent.llm.resolved_model.overlay_name == "tiny-local"
 

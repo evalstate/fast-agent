@@ -2,12 +2,27 @@ from __future__ import annotations
 
 import sys
 from types import ModuleType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from fast_agent.core import keyring_utils
 
 if TYPE_CHECKING:
     import pytest
+
+
+class _KeyringModule(ModuleType):
+    get_keyring: Callable[[], object]
+    set_password: Callable[[str, str, str], None]
+    delete_password: Callable[[str, str], None]
+    backends: ModuleType
+
+
+class _FailKeyringModule(ModuleType):
+    Keyring: type[object]
+
+
+class _KeyringBackendsModule(ModuleType):
+    fail: ModuleType
 
 
 def _reset_keyring_notice(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -54,7 +69,7 @@ def test_get_keyring_status_returns_unavailable_when_keyring_import_fails(
 def test_get_keyring_status_reports_writable_non_fail_backend(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    keyring_module = ModuleType("keyring")
+    keyring_module = _KeyringModule("keyring")
 
     class WorkingBackend:
         name = "working backend"
@@ -68,9 +83,9 @@ def test_get_keyring_status_reports_writable_non_fail_backend(
     def _delete_password(_service: str, _key: str) -> None:
         return None
 
-    setattr(keyring_module, "get_keyring", _get_keyring)
-    setattr(keyring_module, "set_password", _set_password)
-    setattr(keyring_module, "delete_password", _delete_password)
+    keyring_module.get_keyring = _get_keyring
+    keyring_module.set_password = _set_password
+    keyring_module.delete_password = _delete_password
     monkeypatch.setitem(sys.modules, "keyring", keyring_module)
     _reset_keyring_notice(monkeypatch)
 
@@ -84,21 +99,21 @@ def test_get_keyring_status_reports_writable_non_fail_backend(
 def test_get_keyring_status_treats_fail_backend_as_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    keyring_module = ModuleType("keyring")
-    backends_module = ModuleType("keyring.backends")
-    fail_module = ModuleType("keyring.backends.fail")
+    keyring_module = _KeyringModule("keyring")
+    backends_module = _KeyringBackendsModule("keyring.backends")
+    fail_module = _FailKeyringModule("keyring.backends.fail")
 
     class FailKeyring:
         name = "fail backend"
 
-    setattr(fail_module, "Keyring", FailKeyring)
+    fail_module.Keyring = FailKeyring
 
     def _get_keyring() -> FailKeyring:
         return FailKeyring()
 
-    setattr(keyring_module, "get_keyring", _get_keyring)
-    setattr(keyring_module, "backends", backends_module)
-    setattr(backends_module, "fail", fail_module)
+    keyring_module.get_keyring = _get_keyring
+    keyring_module.backends = backends_module
+    backends_module.fail = fail_module
     monkeypatch.setitem(sys.modules, "keyring", keyring_module)
     monkeypatch.setitem(sys.modules, "keyring.backends", backends_module)
     monkeypatch.setitem(sys.modules, "keyring.backends.fail", fail_module)

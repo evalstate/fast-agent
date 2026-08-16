@@ -1,4 +1,4 @@
-from mcp.types import GetPromptResult
+from mcp_types import GetPromptResult
 
 from fast_agent.mcp.prompt_metadata import (
     prompt_arguments,

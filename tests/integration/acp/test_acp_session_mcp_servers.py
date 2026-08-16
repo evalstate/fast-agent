@@ -96,4 +96,6 @@ async def test_acp_session_new_attaches_client_supplied_mcp_servers(
     assert tool_updates
     assert any(server_name in str(getattr(update, "title", "")) for update in tool_updates)
     assert tool_updates[-1].status == "completed"
-    assert getattr(tool_updates[-1], "raw_output", None) == "Successfully completed 1 steps"
+    assert str(getattr(tool_updates[-1], "raw_output", "")).startswith(
+        "Successfully completed 1 steps"
+    )

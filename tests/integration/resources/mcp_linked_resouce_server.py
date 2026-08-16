@@ -6,8 +6,7 @@ Simple MCP server that responds to tool calls with text and image content.
 import logging
 
 from fastmcp import FastMCP
-from mcp.types import ResourceLink
-from pydantic import AnyUrl
+from mcp_types import ResourceLink
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,9 +20,9 @@ def getlink() -> ResourceLink:
     return ResourceLink(
         name="linked resource",
         type="resource_link",
-        uri=AnyUrl("resource://fast-agent/linked-resource"),
+        uri="resource://fast-agent/linked-resource",
         description="A description, perhaps for the LLM",
-        mimeType="text/plain",
+        mime_type="text/plain",
     )
 
 

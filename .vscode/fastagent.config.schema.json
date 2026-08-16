@@ -1788,9 +1788,17 @@
       "additionalProperties": true,
       "properties": {
         "model": {
-          "default": "gpt-5-mini?reasoning=low",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
           "title": "Model",
-          "type": "string"
+          "description": "Model used for sampling requests. Falls back to the agent or configured global model."
         }
       },
       "title": "MCPSamplingSettings",
@@ -2214,14 +2222,6 @@
       },
       "title": "MCPTimelineSettings",
       "type": "object"
-    },
-    "McpUIMode": {
-      "enum": [
-        "disabled",
-        "enabled",
-        "auto"
-      ],
-      "type": "string"
     },
     "MetaAISettings": {
       "additionalProperties": true,
@@ -3195,6 +3195,14 @@
           "title": "Process Poll Max Wait Seconds",
           "type": "integer"
         },
+        "foreground_auto_await_max_seconds": {
+          "default": 240,
+          "description": "Maximum total foreground runtime before returning a live process; 0 returns it at the initial idle or total-runtime yield",
+          "maximum": 3600,
+          "minimum": 0,
+          "title": "Foreground Auto Await Max Seconds",
+          "type": "integer"
+        },
         "managed_process_poll_history_folding": {
           "default": "auto",
           "description": "Control repetitive quiet poll_process history folding: 'auto' uses validated model metadata, 'on' forces folding, and 'off' disables it",
@@ -4097,16 +4105,6 @@
     "logger": {
       "$ref": "#/$defs/LoggerSettings",
       "description": "Logger settings for the fast-agent application"
-    },
-    "mcp_ui_mode": {
-      "$ref": "#/$defs/McpUIMode",
-      "default": "enabled"
-    },
-    "mcp_ui_output_dir": {
-      "default": ".fast-agent/ui",
-      "title": "Mcp Ui Output Dir",
-      "type": "string",
-      "description": "Directory where MCP-UI HTML files are written. Relative paths are resolved from CWD."
     },
     "mcp_timeline": {
       "$ref": "#/$defs/MCPTimelineSettings",

@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, TypedDict
-
-from fast_agent.llm.request_params import is_structured_tool_policy
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fast_agent.config import MCPServerSettings
     from fast_agent.llm.request_params import StructuredToolPolicy
 
 Mode = Literal["interactive", "serve"]
@@ -30,23 +29,6 @@ def resolve_execution_mode(
     return "repl"
 
 
-class UrlServerConfig(TypedDict, total=False):
-    """Configuration for URL-backed MCP servers."""
-
-    transport: str
-    url: str
-    headers: dict[str, str]
-    auth: dict[str, str | bool]
-
-
-class StdioServerConfig(TypedDict):
-    """Configuration for STDIO-backed MCP servers."""
-
-    transport: Literal["stdio"]
-    command: str
-    args: list[str]
-
-
 @dataclass(slots=True)
 class AgentRunRequest:
     """Normalized request used by the CLI runtime."""
@@ -62,14 +44,13 @@ class AgentRunRequest:
     prompt_file: str | None
     result_file: str | None
     resume: str | None
-    url_servers: dict[str, UrlServerConfig] | None
-    stdio_servers: dict[str, StdioServerConfig] | None
+    startup_mcp_servers: dict[str, MCPServerSettings] | None
+    mcp_startup_notices: tuple[str, ...]
     agent_name: str | None
     target_agent_name: str | None
     skills_directory: Path | None
     home: Path | None
     no_home: bool
-    force_smart: bool
     shell_runtime: bool
     no_shell: bool
     mode: Mode
@@ -96,6 +77,8 @@ class AgentRunRequest:
     workspace: Path | None = None
     trajectory_output: Path | None = None
     trajectory_format: Literal["atif"] = "atif"
+    subagents: bool | None = None
+    subagent_model: str | None = None
 
     def __post_init__(self) -> None:
         self._validate_environment_options()
@@ -110,6 +93,10 @@ class AgentRunRequest:
             raise ValueError("--no-home cannot be combined with --resume")
         if self.shell_runtime and self.no_shell:
             raise ValueError("--shell cannot be combined with --no-shell")
+        if self.subagents is False and self.subagent_model is not None:
+            raise ValueError("--subagent-model cannot be combined with --no-subagents")
+        if self.subagent_model is not None:
+            self.subagents = True
 
     def _validate_timeout(self) -> None:
         if self.timeout_seconds is not None and self.timeout_seconds < 1:
@@ -138,6 +125,8 @@ class AgentRunRequest:
             self._validate_structured_output_mode()
 
     def _validate_structured_tool_policy(self) -> None:
+        from fast_agent.llm.request_params import is_structured_tool_policy
+
         if not is_structured_tool_policy(self.structured_tool_policy):
             raise ValueError(
                 "structured tool policy must be 'auto', 'always', 'defer', or 'no_tools'"
@@ -182,8 +171,8 @@ class AgentRunRequest:
             "trajectory_output": self.trajectory_output,
             "trajectory_format": self.trajectory_format,
             "resume": self.resume,
-            "url_servers": self.url_servers,
-            "stdio_servers": self.stdio_servers,
+            "startup_mcp_servers": self.startup_mcp_servers,
+            "mcp_startup_notices": self.mcp_startup_notices,
             "agent_name": self.agent_name,
             "target_agent_name": self.target_agent_name,
             "environment": self.environment,
@@ -191,9 +180,10 @@ class AgentRunRequest:
             "home": self.home,
             "workspace": self.workspace,
             "no_home": self.no_home,
-            "force_smart": self.force_smart,
             "shell_runtime": self.shell_runtime,
             "no_shell": self.no_shell,
+            "subagents": self.subagents,
+            "subagent_model": self.subagent_model,
             "prefer_local_shell": self.prefer_local_shell,
             "mode": self.mode,
             "transport": self.transport,

@@ -2,7 +2,7 @@ from enum import Enum
 
 import pytest
 from mcp import Tool
-from mcp.types import CallToolRequest, CallToolRequestParams, ListToolsResult, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, ListToolsResult, TextContent
 from pydantic import BaseModel
 
 from fast_agent.config import BedrockSettings
@@ -58,7 +58,7 @@ def test_bedrock_convert_messages_to_bedrock_includes_tool_use_block():
 
 def test_resolve_tool_use_name_uses_mapped_name():
     tool_list = ListToolsResult(
-        tools=[Tool(name="my-tool", description="demo", inputSchema={"type": "object"})]
+        tools=[Tool(name="my-tool", description="demo", input_schema={"type": "object"})]
     )
     tool_name_mapping = {"my_tool": "my-tool"}
 
@@ -203,7 +203,7 @@ async def test_bedrock_structured_schema_path_preserves_tools(monkeypatch):
     tool = Tool(
         name="lookup",
         description="Lookup data.",
-        inputSchema={"type": "object", "properties": {}},
+        input_schema={"type": "object", "properties": {}},
     )
     captured_tools = None
 
@@ -248,7 +248,7 @@ async def test_bedrock_structured_schema_prompt_preserves_history_and_tool_conte
     tool = Tool(
         name="lookup",
         description="Lookup data.",
-        inputSchema={"type": "object", "properties": {}},
+        input_schema={"type": "object", "properties": {}},
     )
     tool_call = CallToolRequest(
         method="tools/call",
@@ -265,7 +265,6 @@ async def test_bedrock_structured_schema_prompt_preserves_history_and_tool_conte
 
     llm = object.__new__(BedrockLLM)
     llm.default_request_params = RequestParams(model="amazon.nova-lite-v1:0")
-    llm.capabilities = {}
     llm._reasoning_effort = None
     llm._reasoning_effort_spec = None
 

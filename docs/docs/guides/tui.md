@@ -33,6 +33,12 @@ The `apply_patch` tool (supplied, and exposed by default to Codex and `GPT-5.2`+
 
 Tools can be labelled as generating python code for syntax highlighting (especially useful when integrating with [Pydantic Monty](https://github.com/pydantic/monty))
 
+Shell tool previews also highlight recognized heredoc bodies using the language
+of the stdin interpreter. This includes direct interpreters such as
+`python -`, repository-standard wrappers such as `uv run python -`, and
+TypeScript executed with `pnpm exec tsx -` (including `pnpm -C <dir> exec`).
+Highlighting is applied while the heredoc is still streaming.
+
 ## Shell Integration
 
 You can run a shell command with `!` - for example `! git status`. When the active agent uses a local shell environment, commands run attached to your terminal, so interactive programs such as `! nano` work as expected. If the active agent uses a remote or sandbox environment, `!` runs in that environment; use `!!` to force a local shell command instead.
@@ -71,21 +77,78 @@ Cast asset:
 
 When the internal `read_text_file` tool is used, by default 5 lines of the file are displayed. Adjust this with `shell_execution.output_display_lines`, `SHELL_EXECUTION__OUTPUT_DISPLAY_LINES`, or `fast-agent config shell`.
 
-Use `/history detail` to review the full contents of a turn and tool calls. 
+Use `/history detail <turn>` to review the full contents of a specific turn and its tool calls.
+When a stored MCP result includes `structuredContent`, its JSON is shown alongside the result's
+content blocks.
+
+## Output Review
+
+By default, **`fast-agent`** truncates tool inputs and outputs. 
+
+Use `/history review` to review the latest turn in full, or `/history review <turn>` to select a
+specific turn.
+
+## Inspecting Tool Schemas
+
+Use `/tools` to list tools available to the active agent. Use `/tool <name>` (or
+`/tools <name>`) to inspect a tool declaration:
+
+- the input JSON Schema is always shown;
+- when an MCP tool declares an `outputSchema`, fast-agent identifies it as a
+  structured output schema and shows the complete schema.
+
+```text
+/tools
+/tool hf__hf_whoami
+```
+
+The recording connects to the Hugging Face MCP server as `hf` and inspects its
+`hf_whoami` declaration.
+
+<div
+  class="fa-terminal-demo"
+  data-fa-asciinema-cast="../../assets/tui/mcp-tool-schema.cast"
+  data-fa-asciinema-cols="110"
+  data-fa-asciinema-rows="32"
+  data-fa-asciinema-poster="npt:0:08"
+  data-fa-asciinema-speed="0.85"
+  data-fa-asciinema-idle-time-limit="3"
+  data-fa-asciinema-fit="width"
+>
+  <div class="fa-terminal-theme-switch" aria-label="Terminal theme">
+    <button type="button" data-fa-terminal-theme="auto">Auto</button>
+    <button type="button" data-fa-terminal-theme="light">Light</button>
+    <button type="button" data-fa-terminal-theme="dark">Dark</button>
+  </div>
+  <div data-fa-asciinema-target></div>
+</div>
+
+<!--
+Cast asset:
+- Source: docs/docs/assets/tui/mcp-tool-schema.cast
+- Regenerate: uv run scripts/docs.py cast-build mcp-tool-schema
+- Replay locally: asciinema play docs/docs/assets/tui/mcp-tool-schema.cast
+-->
 
 ## Image Viewer
 
 Images received from the Assistant or tool calls are rendered to the console on the final turn. Local images that you attach to a user message are previewed in the user panel beneath the attachment link text.
 
+The recording below uses Hugging Face's live MCP server. It shows progress
+notifications during image generation, renders the returned image as terminal
+cells, and then opens `/mcp` to inspect the same modern connection with a
+60-segment, one-second-resolution activity timeline.
+
 !!! note "Recording format"
     The image in this asciinema capture uses halfblock rendering so it can be recorded as plain terminal cells. In a real terminal, `fast-agent` can use higher-resolution terminal image protocols when your terminal supports them.
+    
 
 <div
   class="fa-terminal-demo"
   data-fa-asciinema-cast="../../assets/tui/hf-image-generation.cast"
   data-fa-asciinema-cols="120"
   data-fa-asciinema-rows="34"
-  data-fa-asciinema-poster="npt:0:36"
+  data-fa-asciinema-poster="npt:0:42.3"
   data-fa-asciinema-speed="1"
   data-fa-asciinema-idle-time-limit="1.3"
   data-fa-asciinema-fit="width"
@@ -113,18 +176,62 @@ You can paste images directly with ++alt+v++. In terminals that reserve that cho
 
 Local image attachments, including pasted clipboard images, are displayed inline after your message when terminal image rendering is enabled. Remote image URLs remain as links.
 
-## Model Feature Toggles
+## Agent and Model Feature Toggles
 
-Use the function keys in the prompt to cycle model-specific runtime features:
+Use the function keys in the prompt to cycle agent and model runtime features:
 
-| Key    | Action                     |
-| ------ | -------------------------- |
-| ++f6++ | Cycle reasoning effort     |
-| ++f7++ | Cycle text verbosity       |
-| ++f8++ | Toggle or cycle web search |
-| ++f9++ | Toggle or cycle web fetch  |
+| Key    | Action                                               |
+| ------ | ---------------------------------------------------- |
+| ++f5++ | Cycle Standard → Delegate → Orchestrate → Harness-only |
+| ++f6++ | Cycle reasoning effort                               |
+| ++f7++ | Cycle text verbosity                                 |
+| ++f8++ | Toggle or cycle web search                           |
+| ++f9++ | Toggle or cycle web fetch                            |
 
-These toggles apply when the selected model/provider supports the feature.
+Delegate enables the built-in subagent tool. Orchestrate also enables the
+parent agent's harness tools for allow-listed commands and resources.
+Harness-only keeps those harness tools enabled without subagent delegation. The
+toolbar shows these capabilities as `↳⌘`, with active capabilities highlighted.
+Agent modes apply only to compatible agents and cannot override an explicit
+subagent disable. Model toggles apply when the selected model/provider supports
+the feature.
+
+## Status Bar
+
+Run `/help status` in the interactive prompt for this legend. The bar reads from
+left to right:
+
+```text
+status bar
+├─ Agent
+│  └─ <name>  active agent
+├─ Activity
+│  ├─ ↻  managed shell processes: dim idle, yellow active, red near the limit
+│  ├─ ↳  subagent delegation: green enabled, dim disabled
+│  └─ ⌘  harness tools: green enabled, dim disabled
+├─ Model
+│  ├─ T V D  text, vision, and document support
+│  │  └─ green supported; reversed white unsupported; red related content error
+│  ├─ ▲ / ▲1…▲9 / ▲+  no draft attachments / count / ten or more
+│  │  └─ green usable; red missing, unknown, or unsupported
+│  ├─ ⣀…⣿ (paired: ⢀…⢸ ⡀…⡇)  reasoning, then verbosity gauges
+│  │  └─ fuller and green → yellow → red mean higher; dim inactive; blue auto
+│  ├─ ∞<model>  plan (OAuth login/monthly token plan)
+│  ├─ ▼<model>  overlay
+│  ├─ »  service tier: dim standard, blue flex, red fast
+│  ├─ ⊕  web search: green enabled, dim disabled
+│  └─ ⇣  web fetch: green enabled, dim disabled
+├─ Context
+│  └─ <percent> used, or a zero-padded turn count when usage is unavailable
+├─ Mode
+│  └─ NRM normal input; MLT multiline input
+└─ Right side
+   ├─ <working directory> / fast-agent <version>
+   ├─ ◀  notifications, sampling, elicitation, warnings, or tool updates
+   └─ transient copy notice
+```
+
+Unsupported controls are omitted.
 
 ## Prompt Shortcuts
 

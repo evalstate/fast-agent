@@ -5,7 +5,8 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from fast_agent.config import get_settings
+from fast_agent.config import Settings, get_settings
+from fast_agent.utils.type_narrowing import is_str_object_dict
 
 # Absolute path for the test directory to ensure files are created in a known location
 TEST_DIR = Path(__file__).parent.resolve()
@@ -40,6 +41,11 @@ def write_config(file_path: Path, data: dict):
         yaml.dump(data, f)
 
 
+def custom_setting(settings: Settings, name: str) -> object:
+    assert settings.model_extra is not None
+    return settings.model_extra[name]
+
+
 def test_resolve_simple_env_var(temp_config_files):
     config_file, _ = temp_config_files
     config_data = {"api_key": "${TEST_API_KEY}"}
@@ -47,7 +53,7 @@ def test_resolve_simple_env_var(temp_config_files):
 
     with patch.dict(os.environ, {"TEST_API_KEY": "actual_key_from_env"}):
         settings = get_settings(str(config_file))
-        assert getattr(settings, "api_key") == "actual_key_from_env"
+        assert custom_setting(settings, "api_key") == "actual_key_from_env"
 
 
 def test_resolve_env_var_with_default_when_set(temp_config_files):
@@ -57,7 +63,7 @@ def test_resolve_env_var_with_default_when_set(temp_config_files):
 
     with patch.dict(os.environ, {"SERVICE_URL": "http://env.url"}):
         settings = get_settings(str(config_file))
-        assert getattr(settings, "service_url") == "http://env.url"
+        assert custom_setting(settings, "service_url") == "http://env.url"
 
 
 def test_resolve_env_var_with_default_when_not_set(temp_config_files):
@@ -67,7 +73,7 @@ def test_resolve_env_var_with_default_when_not_set(temp_config_files):
 
     with patch.dict(os.environ, {}, clear=True):
         settings = get_settings(str(config_file))
-        assert getattr(settings, "service_url") == "http://default.url"
+        assert custom_setting(settings, "service_url") == "http://default.url"
 
 
 def test_resolve_env_var_no_default_not_set(temp_config_files):
@@ -77,7 +83,7 @@ def test_resolve_env_var_no_default_not_set(temp_config_files):
 
     with patch.dict(os.environ, {}, clear=True):
         settings = get_settings(str(config_file))
-        assert getattr(settings, "another_key") == "${UNSET_KEY_NO_DEFAULT}"
+        assert custom_setting(settings, "another_key") == "${UNSET_KEY_NO_DEFAULT}"
 
 
 def test_nested_env_var_resolution(temp_config_files):
@@ -93,8 +99,8 @@ def test_nested_env_var_resolution(temp_config_files):
 
     with patch.dict(os.environ, {"NESTED_ENV_VAR": "nested_from_env"}):
         settings = get_settings(str(config_file))
-        parent = getattr(settings, "parent")
-        assert isinstance(parent, dict)
+        parent = custom_setting(settings, "parent")
+        assert is_str_object_dict(parent)
         assert parent["child_plain"] == "value"
         assert parent["child_env"] == "nested_from_env"
         assert parent["child_env_default"] == "default_child_val"
@@ -112,7 +118,7 @@ def test_env_var_in_list(temp_config_files):
     write_config(config_file, config_data)
     with patch.dict(os.environ, {"LIST_ITEM_ENV": "list_item_from_env"}):
         settings = get_settings(str(config_file))
-        items = getattr(settings, "items")
+        items = custom_setting(settings, "items")
         assert isinstance(items, list)
         assert items[0] == "item1"
         assert items[1] == "list_item_from_env"
@@ -137,10 +143,10 @@ def test_mixed_config_and_secrets_with_env_vars(temp_config_files):
         {"CONFIG_VAR": "env_config_val", "SECRET_ENV_KEY": "actual_secret"},
     ):
         settings = get_settings(str(config_file))
-        assert getattr(settings, "general_setting") == "from_config_file"
-        assert getattr(settings, "config_env") == "env_config_val"
-        assert getattr(settings, "secret_key") == "actual_secret"
-        assert getattr(settings, "db_password") == "default_db_pass"
+        assert custom_setting(settings, "general_setting") == "from_config_file"
+        assert custom_setting(settings, "config_env") == "env_config_val"
+        assert custom_setting(settings, "secret_key") == "actual_secret"
+        assert custom_setting(settings, "db_password") == "default_db_pass"
 
 
 def test_env_var_in_mcp_server_settings(temp_config_files):

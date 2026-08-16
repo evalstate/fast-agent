@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import pytest
-from mcp.types import (
+from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -127,7 +127,7 @@ def _write_session(tmp_path: Path) -> tuple[SessionManager, Path]:
             tool_results={
                 call_id: CallToolResult(
                     content=[TextContent(type="text", text="ok")],
-                    isError=False,
+                    is_error=False,
                 )
             },
         ),

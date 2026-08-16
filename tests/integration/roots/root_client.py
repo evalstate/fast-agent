@@ -1,7 +1,7 @@
 import anyio
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
-from mcp.types import ListRootsResult, Root
+from mcp_types import ListRootsResult, Root
 from pydantic import FileUrl
 
 

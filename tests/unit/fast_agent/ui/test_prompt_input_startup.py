@@ -3,11 +3,30 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 import pytest
+from rich.markup import render
 
 from fast_agent.ui.prompt import input as prompt_input
+from fast_agent.ui.prompt import input_startup
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
+
+
+@pytest.mark.parametrize("supports_clipboard_image_paste", [False, True])
+def test_input_help_banner_has_balanced_markup(
+    monkeypatch: pytest.MonkeyPatch,
+    supports_clipboard_image_paste: bool,
+) -> None:
+    monkeypatch.setattr(
+        input_startup,
+        "rich_print",
+        lambda markup: render(markup),
+    )
+
+    input_startup.show_input_help_banner(
+        is_human_input=False,
+        supports_clipboard_image_paste=supports_clipboard_image_paste,
+    )
 
 
 @pytest.mark.asyncio

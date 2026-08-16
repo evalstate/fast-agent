@@ -29,14 +29,14 @@ from a2a.types import (
 from fastapi.testclient import TestClient
 from fastmcp.server.auth import AccessToken
 from google.protobuf.json_format import MessageToDict
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     EmbeddedResource,
     ImageContent,
+    ResourceLink,
     TextContent,
     TextResourceContents,
 )
-from pydantic import AnyUrl
 
 from fast_agent.a2a.config import A2AAgentConfig
 from fast_agent.a2a.remote_agent import A2ARemoteAgent
@@ -1245,8 +1245,89 @@ def test_fast_agent_a2a_server_preserves_raw_file_input_parts() -> None:
     assert isinstance(content, EmbeddedResource)
     assert isinstance(content.resource, BlobResourceContents)
     assert str(content.resource.uri) == "attachment:///report.pdf"
-    assert content.resource.mimeType == "application/pdf"
+    assert content.resource.mime_type == "application/pdf"
     assert content.resource.blob == "JVBERiB0ZXN0IGJ5dGVz"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "file:///x",
+        "file:/x",
+        "file:x",
+        "FILE:///x",
+        "file://localhost/x",
+    ],
+)
+def test_fast_agent_a2a_server_rejects_file_url_input_parts(uri: str) -> None:
+    prompt = _prompt_from_a2a_message(
+        Message(
+            role=Role.ROLE_USER,
+            message_id="file-url-input",
+            parts=[Part(url=uri, media_type="text/plain", filename="attachment")],
+        )
+    )
+
+    assert len(prompt.content) == 1
+    content = prompt.content[0]
+    assert isinstance(content, TextContent)
+    assert content.text == "[Local file URL attachment was rejected.]"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("uri", ("http://[", "https://["))
+def test_fast_agent_a2a_server_falls_back_for_malformed_url_input_parts(uri: str) -> None:
+    prompt = _prompt_from_a2a_message(
+        Message(
+            role=Role.ROLE_USER,
+            message_id="malformed-url-input",
+            parts=[Part(url=uri, media_type="text/plain", filename="attachment")],
+        )
+    )
+
+    assert len(prompt.content) == 1
+    content = prompt.content[0]
+    assert isinstance(content, TextContent)
+    assert content.text == f"[attachment]({uri})"
+
+
+@pytest.mark.integration
+def test_fast_agent_a2a_server_rejects_malformed_file_url_input_part() -> None:
+    prompt = _prompt_from_a2a_message(
+        Message(
+            role=Role.ROLE_USER,
+            message_id="malformed-file-url-input",
+            parts=[Part(url="file://[", media_type="text/plain", filename="attachment")],
+        )
+    )
+
+    assert len(prompt.content) == 1
+    content = prompt.content[0]
+    assert isinstance(content, TextContent)
+    assert content.text == "[Local file URL attachment was rejected.]"
+
+
+@pytest.mark.integration
+def test_fast_agent_a2a_server_preserves_https_url_input_parts() -> None:
+    prompt = _prompt_from_a2a_message(
+        Message(
+            role=Role.ROLE_USER,
+            message_id="https-url-input",
+            parts=[
+                Part(
+                    url="https://example.test/report.pdf",
+                    media_type="application/pdf",
+                    filename="report.pdf",
+                )
+            ],
+        )
+    )
+
+    assert len(prompt.content) == 1
+    content = prompt.content[0]
+    assert isinstance(content, ResourceLink)
+    assert str(content.uri) == "https://example.test/report.pdf"
 
 
 @pytest.mark.integration
@@ -1268,7 +1349,7 @@ def test_fast_agent_a2a_server_maps_raw_image_input_parts() -> None:
     assert len(prompt.content) == 1
     content = prompt.content[0]
     assert isinstance(content, ImageContent)
-    assert content.mimeType == "image/png"
+    assert content.mime_type == "image/png"
     assert content.data == "aW1hZ2UgYnl0ZXM="
 
 
@@ -1293,7 +1374,7 @@ def test_fast_agent_a2a_server_preserves_raw_audio_as_blob_resource() -> None:
     assert isinstance(content, EmbeddedResource)
     assert isinstance(content.resource, BlobResourceContents)
     assert str(content.resource.uri) == "attachment:///clip.wav"
-    assert content.resource.mimeType == "audio/wav"
+    assert content.resource.mime_type == "audio/wav"
     assert content.resource.blob == "YXVkaW8gYnl0ZXM="
 
 
@@ -1306,8 +1387,8 @@ def test_fast_agent_a2a_server_emits_blob_resources_as_raw_file_parts() -> None:
                 EmbeddedResource(
                     type="resource",
                     resource=BlobResourceContents(
-                        uri=AnyUrl("attachment:///report.pdf"),
-                        mimeType="application/pdf",
+                        uri="attachment:///report.pdf",
+                        mime_type="application/pdf",
                         blob="JVBERiB0ZXN0IGJ5dGVz",
                     ),
                 )
@@ -1330,8 +1411,8 @@ def test_fast_agent_a2a_server_emits_json_text_resources_as_data_parts() -> None
                 EmbeddedResource(
                     type="resource",
                     resource=TextResourceContents(
-                        uri=AnyUrl("resource:///tickets.json"),
-                        mimeType="application/json",
+                        uri="resource:///tickets.json",
+                        mime_type="application/json",
                         text='{"tickets": [{"id": "REQ123", "status": "open"}]}',
                     ),
                 )

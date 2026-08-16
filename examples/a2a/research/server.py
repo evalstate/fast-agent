@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
     from a2a.server.agent_execution import RequestContext
     from a2a.server.events import EventQueue
-    from mcp.types import ContentBlock
+    from mcp_types import ContentBlock
 
     from fast_agent.tools.execution_environment import ShellEnvironment
     from fast_agent.types import AgentResponse

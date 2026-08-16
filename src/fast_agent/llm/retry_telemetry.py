@@ -4,7 +4,7 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Literal
 
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.constants import FAST_AGENT_RETRY
 from fast_agent.llm.provider.streaming_timeouts import StreamIdleTimeoutError
