@@ -23,7 +23,7 @@ from fast_agent.llm.provider.openai.tool_event_helpers import (
     item_type_is_responses_function_tool_call,
 )
 from fast_agent.utils.numeric import int_or_none
-from fast_agent.utils.text import strip_str_to_none
+from fast_agent.utils.text import collapse_whitespace, strip_str_to_none
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -35,6 +35,7 @@ RESPONSES_WEBSOCKET_BETA_HEADER_NAME = "OpenAI-Beta"
 RESPONSES_CREATE_EVENT_TYPE = "response.create"
 RESPONSES_WEBSOCKET_MAX_MESSAGE_BYTES = 4 * 1024 * 1024
 RESPONSES_WEBSOCKET_CLOSE_TIMEOUT_SECONDS = 0.25
+RESPONSES_WEBSOCKET_ERROR_DETAIL_LENGTH = 1000
 _STREAM_START_EVENT_TYPES = {
     "response.output_item.added",
     "response.function_call_arguments.delta",
@@ -133,6 +134,38 @@ def _stream_event_started(event_type: str | None) -> bool:
 
 def _non_empty_string(value: Any) -> str | None:
     return strip_str_to_none(value)
+
+
+def _websocket_handshake_error_detail(body: bytes) -> str:
+    text = body.decode("utf-8", errors="replace")
+    try:
+        payload = json.loads(text)
+    except (json.JSONDecodeError, RecursionError):
+        payload = None
+
+    values: list[str] = []
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, str):
+            values.append(error)
+        elif isinstance(error, dict):
+            values.extend(
+                value
+                for key in ("code", "message", "detail")
+                if isinstance(value := error.get(key), str)
+            )
+        values.extend(
+            value
+            for key in ("error_description", "message", "detail")
+            if isinstance(value := payload.get(key), str)
+        )
+
+    normalized_values = (collapse_whitespace(value) for value in values)
+    detail = ": ".join(dict.fromkeys(value for value in normalized_values if value))
+
+    if len(detail) > RESPONSES_WEBSOCKET_ERROR_DETAIL_LENGTH:
+        return f"{detail[: RESPONSES_WEBSOCKET_ERROR_DETAIL_LENGTH - 1]}…"
+    return detail
 
 
 def resolve_responses_ws_url(base_url: str) -> str:
@@ -496,8 +529,12 @@ async def connect_websocket(
                 connection = await manager.enter()
     except InvalidStatus as exc:
         await asyncio.shield(_close_connection_attempt(client, manager))
+        message = str(exc)
+        detail = _websocket_handshake_error_detail(exc.response.body)
+        if detail:
+            message = f"{message}: {detail}"
         raise ResponsesWebSocketError(
-            str(exc),
+            message,
             status=exc.response.status_code,
         ) from exc
     except BaseException:

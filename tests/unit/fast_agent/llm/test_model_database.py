@@ -526,6 +526,23 @@ def test_model_database_metaai_muse_spark_metadata():
         assert ModelDatabase.supports_mime(model, "video/mp4")
 
 
+def test_model_database_muse_glimmer_huggingface_metadata() -> None:
+    model = "meta-models/Muse-Glimmer-30B:together"
+    params = ModelDatabase.get_model_params(model, provider=Provider.HUGGINGFACE)
+
+    assert params is not None
+    assert params.default_provider == Provider.HUGGINGFACE
+    assert params.context_window == 131_072
+    assert params.max_output_tokens == 16_384
+    assert params.json_mode is None
+    assert params.reasoning == "stream"
+    assert params.stream_mode == "manual"
+    assert params.reasoning_effort_spec == ModelDatabase.MUSE_GLIMMER_REASONING_EFFORT_SPEC
+    assert ModelDatabase.supports_mime(model, "image/png")
+    assert not ModelDatabase.supports_mime(model, "application/pdf")
+    assert not ModelDatabase.supports_mime(model, "video/mp4")
+
+
 def test_model_database_google_video_audio_mime_types():
     """Test that Google models support expanded video/audio MIME types."""
     # Video formats (MP4, AVI, FLV, MOV, MPEG, MPG, WebM)

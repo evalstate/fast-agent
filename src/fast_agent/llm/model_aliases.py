@@ -61,6 +61,7 @@ BUILTIN_MODEL_ALIASES: Final[dict[str, str]] = {
     "muse": "metaai.muse-spark-1.2",
     "musecontrib": "metaai.muse-spark-1.2-contributor",
     "muse-spark": "metaai.muse-spark-1.2",
+    "glimmer": ("hf.meta-models/Muse-Glimmer-30B:together?temperature=1.0&top_p=0.95&top_k=64"),
     "minimax": "hf.MiniMaxAI/MiniMax-M3:together?temperature=1.0&top_p=0.95&top_k=40",
     "minimax25": "hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
     "minimax27": "hf.MiniMaxAI/MiniMax-M2.7:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",

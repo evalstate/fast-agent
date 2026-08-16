@@ -111,6 +111,43 @@ def test_prune_sessions_skips_pinned(tmp_path) -> None:
         reset_session_manager()
 
 
+@pytest.mark.asyncio
+async def test_metadata_updates_preserve_persisted_runtime_state(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session(metadata={"custom": "value"})
+    agent = _Agent(
+        name="main",
+        instruction="Stored prompt",
+        history=[_message("user", "hello"), _message("assistant", "done")],
+    )
+    await session.save_history(cast("AgentProtocol", agent))
+    session.set_execution_status("running")
+    before = session.load_snapshot()
+    updated_cwd = tmp_path / "updated-workspace"
+    session.info.metadata["cwd"] = str(updated_cwd)
+    session.info.metadata["acp_session_id"] = "acp-updated"
+
+    session.set_title("Renamed")
+    session.set_pinned(True)
+
+    after = session.load_snapshot()
+    assert after.metadata.title == "Renamed"
+    assert after.metadata.pinned is True
+    assert after.metadata.extras == {"custom": "value"}
+    assert after.continuation.active_agent == before.continuation.active_agent
+    assert after.continuation.cwd == str(updated_cwd)
+    assert after.continuation.lineage.acp_session_id == "acp-updated"
+    assert after.continuation.agents == before.continuation.agents
+    assert after.analysis == before.analysis
+    assert after.execution == before.execution
+    assert after.created_at == before.created_at
+    assert after.last_activity >= before.last_activity
+
+
 def test_session_history_window_rejects_boolean_config(tmp_path) -> None:
     old_settings = get_settings()
     override = old_settings.model_copy(

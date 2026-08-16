@@ -32,6 +32,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     WebSocketResponsesStream,
     _AttrObjectView,
     _SdkWebSocket,
+    _websocket_handshake_error_detail,
     build_ws_headers,
     connect_websocket,
     resolve_responses_ws_url,
@@ -105,6 +106,44 @@ class _HangingWebSocket(_FakeWebSocket):
         del timeout
         await asyncio.Event().wait()
         raise AssertionError("unreachable")
+
+
+def test_websocket_handshake_error_detail_is_bounded() -> None:
+    detail = _websocket_handshake_error_detail(
+        json.dumps({"message": "Access denied\n" + "x" * 1200}).encode()
+    )
+
+    assert detail.startswith("Access denied ")
+    assert detail.endswith("…")
+    assert len(detail) == 1000
+
+
+def test_websocket_handshake_error_detail_does_not_render_unrecognized_json() -> None:
+    detail = _websocket_handshake_error_detail(
+        b'{"access_token":"secret-access","refresh_token":"secret-refresh"}'
+    )
+
+    assert detail == ""
+
+
+def test_websocket_handshake_error_detail_does_not_render_malformed_json() -> None:
+    detail = _websocket_handshake_error_detail(b'{"access_token":"secret-access",')
+
+    assert detail == ""
+
+
+def test_websocket_handshake_error_detail_handles_pathologically_nested_json() -> None:
+    detail = _websocket_handshake_error_detail(b"[" * 2000 + b"0" + b"]" * 2000)
+
+    assert detail == ""
+
+
+def test_websocket_handshake_error_detail_ignores_whitespace_only_fields() -> None:
+    detail = _websocket_handshake_error_detail(
+        json.dumps({"error": " \n\t", "message": "Denied"}).encode()
+    )
+
+    assert detail == "Denied"
 
 
 @pytest.mark.asyncio

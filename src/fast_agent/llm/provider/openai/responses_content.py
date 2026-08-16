@@ -91,21 +91,24 @@ class ResponsesContentMixin:
         return self._dedupe_input_items(items)
 
     def _dedupe_input_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        seen_ids: set[str] = set()
+        seen_keys: set[tuple[str, ...]] = set()
         deduped: list[dict[str, Any]] = []
         for item in items:
-            item_id = item.get("id")
-            if item_id:
-                item_id_str = str(item_id)
-                if item_id_str in seen_ids:
+            key = self._input_item_dedupe_key(item)
+            if key is not None:
+                if key in seen_keys:
                     self.logger.debug(
                         "Dropping duplicate Responses item id",
-                        duplicate_id=item_id_str,
+                        duplicate_id=str(item.get("id")),
                     )
                     continue
-                seen_ids.add(item_id_str)
+                seen_keys.add(key)
             deduped.append(item)
         return deduped
+
+    def _input_item_dedupe_key(self, item: dict[str, Any]) -> tuple[str, ...] | None:
+        item_id = item.get("id")
+        return (str(item_id),) if item_id else None
 
     def _convert_message_to_items(self, msg: PromptMessageExtended) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []

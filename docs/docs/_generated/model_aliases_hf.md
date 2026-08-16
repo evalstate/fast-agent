@@ -12,6 +12,7 @@
 | `deepseek4pro-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `deepseekv4pro-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `gemma4` | `hf.google/gemma-4-31B-it:cerebras?temperature=1.0&top_p=0.95` |
+| `glimmer` | `hf.meta-models/Muse-Glimmer-30B:together?temperature=1.0&top_p=0.95&top_k=64` |
 | `glm` | `hf.zai-org/GLM-5.2:zai-org` |
 | `GLM 5.2 (deepinfra)` | `hf.zai-org/GLM-5.2:deepinfra` |
 | `GLM 5.2 (fireworks-ai)` | `hf.zai-org/GLM-5.2:fireworks-ai` |
@@ -35,6 +36,7 @@
 | `kimi27` | `hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on` |
 | `kimi27code` | `hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on` |
 | `kimithink` | `hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on` |
+| `meta-models/muse-glimmer-30b` | `meta-models/muse-glimmer-30b` |
 | `minimax` | `hf.MiniMaxAI/MiniMax-M3:together?temperature=1.0&top_p=0.95&top_k=40` |
 | `minimax2.5` | `hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40` |
 | `minimax21` | `hf.MiniMaxAI/MiniMax-M2.1:novita` |

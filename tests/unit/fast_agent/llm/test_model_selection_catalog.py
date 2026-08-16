@@ -353,6 +353,17 @@ def test_huggingface_curated_catalog_includes_both_kimi_k3_routes() -> None:
     assert all(entry.current for entry in kimi_k3_entries)
 
 
+def test_huggingface_curated_catalog_includes_muse_glimmer_together() -> None:
+    entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.HUGGINGFACE]
+    glimmer = next(entry for entry in entries if entry.alias == "glimmer")
+
+    assert glimmer.display_label == "Muse Glimmer 30B (together)"
+    assert glimmer.model == (
+        "hf.meta-models/Muse-Glimmer-30B:together?temperature=1.0&top_p=0.95&top_k=64"
+    )
+    assert glimmer.current is True
+
+
 def test_huggingface_curated_catalog_includes_deepseek_v4_flash_0731_routes() -> None:
     entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.HUGGINGFACE]
     aliases = {

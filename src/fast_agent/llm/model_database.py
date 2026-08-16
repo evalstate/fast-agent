@@ -407,6 +407,12 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value="medium"),
     )
 
+    MUSE_GLIMMER_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="high"),
+    )
+
     ANTHROPIC_WEB_SEARCH_LEGACY = "web_search_20250305"
     ANTHROPIC_WEB_FETCH_LEGACY = "web_fetch_20250910"
     ANTHROPIC_WEB_SEARCH_46 = "web_search_20260209"
@@ -884,6 +890,20 @@ class ModelDatabase:
         }
     )
 
+    MUSE_GLIMMER_HF = ModelParameters(
+        context_window=131_072,
+        # Together does not publish a separate output-token limit.
+        max_output_tokens=16_384,
+        tokenizes=OPENAI_VISION,
+        json_mode=None,
+        reasoning="stream",
+        reasoning_effort_spec=MUSE_GLIMMER_REASONING_EFFORT_SPEC,
+        # Together emits null id/type/name continuation fragments for streamed tool calls.
+        stream_mode="manual",
+        default_provider=Provider.HUGGINGFACE,
+        model_specific="You have image understanding capabilities.",
+    )
+
     GROK_43 = ModelParameters(
         context_window=1_000_000,
         max_output_tokens=65535,
@@ -1250,6 +1270,7 @@ class ModelDatabase:
         "moonshotai/kimi-k2.6": KIMI_MOONSHOT_26,
         "moonshotai/kimi-k2.7-code": KIMI_MOONSHOT_27_CODE,
         "moonshotai/kimi-k3": KIMI_K3_HF,
+        "meta-models/muse-glimmer-30b": MUSE_GLIMMER_HF,
         "kimi-k3": KIMI_K3,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony

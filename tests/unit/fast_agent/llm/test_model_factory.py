@@ -902,6 +902,16 @@ def test_huggingface_alias_without_provider():
     assert config.model_name == "moonshotai/Kimi-K2-Instruct-0905"
 
 
+def test_glimmer_alias_uses_together_with_recommended_sampling() -> None:
+    config = ModelFactory.parse_model_string("glimmer")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "meta-models/Muse-Glimmer-30B:together"
+    assert config.temperature == 1.0
+    assert config.top_p == 0.95
+    assert config.top_k == 64
+
+
 def test_builtin_glm_alias_uses_glm_52_default() -> None:
     config = ModelFactory.parse_model_string("glm")
     assert config.provider == Provider.HUGGINGFACE
