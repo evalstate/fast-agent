@@ -71,7 +71,7 @@ xAI's Responses API replays conversation context across Grok turns. By default I
     expiry.
 
 The file and URL expire together after `image_upload_ttl_seconds`, which
-defaults to 86,400 seconds and accepts values from 3,600 seconds (one hour)
+defaults to 1 day (86,400) seconds and accepts values from 3,600 seconds (one hour)
 through 2,592,000 seconds (30 days). Canonical conversation history retains the
 original image data, so persisted sessions remain portable and expired images
 can be uploaded again.
