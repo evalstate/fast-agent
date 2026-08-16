@@ -249,6 +249,7 @@ class ResponsesOutputMixin:
         model_name: str,
         *,
         requested_service_tier: Literal["fast", "flex"] | None = None,
+        service_tier: str | None = None,
     ) -> None:
         try:
             provider_value = getattr(self, "provider", Provider.RESPONSES)
@@ -260,6 +261,7 @@ class ResponsesOutputMixin:
                 provider=provider,
                 model=model_name,
             )
+            turn_usage.service_tier = service_tier
             self._finalize_turn_usage(
                 turn_usage,
                 requested_service_tier=requested_service_tier,

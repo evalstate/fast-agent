@@ -2183,7 +2183,7 @@ def test_request_service_tier_overrides_configured_default() -> None:
     assert args["service_tier"] == "flex"
 
 
-def test_request_service_tier_override_is_recorded_in_turn_usage() -> None:
+def test_requested_and_effective_service_tiers_are_recorded_in_turn_usage() -> None:
     llm = _build_responses_family_llm(
         Provider.RESPONSES,
         model_name="gpt-5.4",
@@ -2204,9 +2204,12 @@ def test_request_service_tier_override_is_recorded_in_turn_usage() -> None:
         usage,
         context.model_name,
         requested_service_tier=context.requested_service_tier,
+        service_tier="default",
     )
 
-    assert llm.usage_accumulator.turns[-1].requested_service_tier == "flex"
+    turn = llm.usage_accumulator.turns[-1]
+    assert turn.requested_service_tier == "flex"
+    assert turn.service_tier == "default"
 
 
 def test_codexresponses_request_service_tier_rejects_flex() -> None:
