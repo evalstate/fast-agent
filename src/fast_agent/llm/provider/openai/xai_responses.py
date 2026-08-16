@@ -243,6 +243,18 @@ class XAIResponsesLLM(ResponsesLLM):
             item.pop("id", None)
         return items
 
+    def _input_item_dedupe_key(self, item: dict[str, Any]) -> tuple[str, ...] | None:
+        key = super()._input_item_dedupe_key(item)
+        encrypted_content = item.get("encrypted_content")
+        if (
+            key is not None
+            and item.get("type") == "reasoning"
+            and isinstance(encrypted_content, str)
+            and encrypted_content
+        ):
+            return (*key, encrypted_content)
+        return key
+
     def _websocket_keepalive_options(self) -> ResponsesWebSocketKeepaliveOptions:
         # xAI currently doesn't reliably answer client-generated Ping frames.
         # Keep automatic Pong replies enabled while restoring the previous

@@ -8,7 +8,7 @@ from openai.types.responses import ResponseUsage
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
 from fast_agent.config import Settings, XAISettings, XAIWebSearchSettings
-from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS
+from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS, OPENAI_REASONING_ENCRYPTED
 from fast_agent.context import Context
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
@@ -447,6 +447,46 @@ def test_xai_replays_distinct_assistant_messages_when_provider_reuses_item_id(
         "Yes.",
     ]
     assert all("id" not in item for item in replayed if item["role"] == "assistant")
+
+
+@pytest.mark.parametrize("model", ["grok-4.5", "grok-4.6"])
+def test_xai_replays_distinct_reasoning_when_provider_reuses_item_id(model: str) -> None:
+    llm = XAIResponsesLLM(
+        context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
+        model=model,
+    )
+    messages = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[],
+            channels={
+                OPENAI_REASONING_ENCRYPTED: [
+                    TextContent(
+                        type="text",
+                        text=json.dumps(
+                            {
+                                "type": "reasoning",
+                                "id": "rs_reused",
+                                "encrypted_content": ciphertext,
+                            }
+                        ),
+                    )
+                ]
+            },
+        )
+        for ciphertext in ("cipher-turn-1", "cipher-turn-2", "cipher-turn-2")
+    ]
+
+    input_items = llm._convert_to_provider_format(messages)
+    args = llm._build_response_args(input_items, llm.default_request_params, tools=None)
+    planned = llm._new_ws_request_planner().plan(args)
+    reasoning = [item for item in planned.arguments["input"] if item["type"] == "reasoning"]
+
+    assert [item["encrypted_content"] for item in reasoning] == [
+        "cipher-turn-1",
+        "cipher-turn-2",
+    ]
+    assert [item["id"] for item in reasoning] == ["rs_reused", "rs_reused"]
 
 
 def test_xai_responses_advertises_web_search() -> None:
