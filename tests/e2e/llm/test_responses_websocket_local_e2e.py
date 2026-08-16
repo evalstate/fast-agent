@@ -177,7 +177,10 @@ async def test_sdk_websocket_handshake_timeout(unused_tcp_port: int) -> None:
 async def test_sdk_websocket_handshake_preserves_http_status(unused_tcp_port: int) -> None:
     async def _handler(request: web.Request) -> web.Response:
         del request
-        return web.Response(status=401, text="expired")
+        return web.json_response(
+            status=403,
+            data={"error": {"message": "Inference blocked by spending limit."}},
+        )
 
     app = web.Application()
     app.router.add_get("/v1/responses", _handler)
@@ -193,7 +196,8 @@ async def test_sdk_websocket_handshake_preserves_http_status(unused_tcp_port: in
                 headers={"Authorization": "Bearer expired"},
                 timeout_seconds=1.0,
             )
-        assert exc_info.value.status == 401
+        assert exc_info.value.status == 403
+        assert str(exc_info.value).endswith("Inference blocked by spending limit.")
     finally:
         await runner.cleanup()
 
