@@ -1,11 +1,15 @@
+import base64
 import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from mcp_types import TextContent
+from openai import AsyncOpenAI
 from openai.types.responses import ResponseUsage
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
+from pydantic import ValidationError
 
 from fast_agent.config import Settings, XAISettings, XAIWebSearchSettings
 from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS, OPENAI_REASONING_ENCRYPTED
@@ -18,6 +22,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     resolve_responses_ws_url,
 )
 from fast_agent.llm.provider.openai.tool_stream_state import OpenAIToolStreamState
+from fast_agent.llm.provider.openai.xai_image_uploads import XAIImageUploadManager
 from fast_agent.llm.provider.openai.xai_responses import (
     DEFAULT_XAI_MODEL,
     GROK_EXTENDED_STREAMING_TIMEOUT,
@@ -45,6 +50,76 @@ class _XAIStreamingHarness(XAIResponsesLLM):
         self.events.append((event_type, payload or {}))
 
 
+class _XAIFileAPISimulator:
+    def __init__(self, *, upload_status: int = 200, public_url_status: int = 200) -> None:
+        self.upload_status = upload_status
+        self.public_url_status = public_url_status
+        self.upload_bodies: list[bytes] = []
+        self.public_url_bodies: list[bytes] = []
+
+    async def __call__(self, request: httpx.Request) -> httpx.Response:
+        body = await request.aread()
+        if request.url.path == "/v1/files":
+            self.upload_bodies.append(body)
+            if self.upload_status != 200:
+                return httpx.Response(
+                    self.upload_status,
+                    json={"error": {"message": "upload unavailable", "type": "server_error"}},
+                )
+            file_number = len(self.upload_bodies)
+            return httpx.Response(
+                200,
+                json={
+                    "id": f"file_{file_number}",
+                    "bytes": 8,
+                    "created_at": 1_786_800_000,
+                    "expires_at": 1_786_886_400,
+                    "filename": "image.png",
+                    "object": "file",
+                    "purpose": "assistants",
+                    "status": "uploaded",
+                },
+            )
+        if request.url.path.startswith("/v1/files/file_") and request.url.path.endswith(
+            "/public-url"
+        ):
+            self.public_url_bodies.append(body)
+            if self.public_url_status != 200:
+                return httpx.Response(
+                    self.public_url_status,
+                    json={
+                        "error": {
+                            "message": "public URL unavailable",
+                            "type": "server_error",
+                        }
+                    },
+                )
+            file_id = request.url.path.split("/")[-2]
+            return httpx.Response(
+                200,
+                json={"public_url": f"https://files-cdn.x.ai/test/{file_id}.png"},
+            )
+        return httpx.Response(404)
+
+
+def _xai_file_client(simulator: _XAIFileAPISimulator) -> AsyncOpenAI:
+    return AsyncOpenAI(
+        api_key="test-key",
+        base_url="https://api.x.ai/v1",
+        max_retries=0,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(simulator)),
+    )
+
+
+def _inline_image_part(data: bytes = b"\x89PNG\r\n\x1a\n") -> dict[str, str]:
+    encoded = base64.b64encode(data).decode("ascii")
+    return {
+        "type": "input_image",
+        "image_url": f"data:image/png;base64,{encoded}",
+        "detail": "high",
+    }
+
+
 def test_xai_responses_provider_defaults_to_websocket_transport() -> None:
     llm = XAIResponsesLLM(
         context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
@@ -53,6 +128,156 @@ def test_xai_responses_provider_defaults_to_websocket_transport() -> None:
 
     assert llm.provider == Provider.XAI
     assert llm.configured_transport == "websocket"
+
+
+def test_xai_image_upload_settings_default_to_public_urls_and_validate_ttl() -> None:
+    settings = XAISettings()
+
+    assert settings.image_upload_mode == "public_url"
+    assert settings.image_upload_ttl_seconds == 86_400
+    assert XAISettings(image_upload_ttl_seconds=3_600).image_upload_ttl_seconds == 3_600
+    assert XAISettings(image_upload_ttl_seconds=2_592_000).image_upload_ttl_seconds == 2_592_000
+    with pytest.raises(ValidationError):
+        XAISettings(image_upload_ttl_seconds=3_599)
+    with pytest.raises(ValidationError):
+        XAISettings(image_upload_ttl_seconds=2_592_001)
+
+
+@pytest.mark.asyncio
+async def test_xai_image_upload_reuses_public_url_across_replayed_history() -> None:
+    simulator = _XAIFileAPISimulator()
+    llm = XAIResponsesLLM(
+        context=Context(
+            config=Settings(
+                xai=XAISettings(
+                    api_key="test-key",
+                    image_upload_mode="public_url",
+                    image_upload_ttl_seconds=86_400,
+                )
+            )
+        ),
+        model="grok-4.6",
+    )
+    image_part = _inline_image_part()
+    input_items = [
+        {
+            "type": "message",
+            "role": "user",
+            "content": [image_part, {"type": "input_text", "text": "Describe it"}],
+        }
+    ]
+    original = json.loads(json.dumps(input_items))
+
+    async with _xai_file_client(simulator) as client:
+        first = await llm._normalize_input_files(client, input_items)
+        second = await llm._normalize_input_files(client, input_items)
+
+    expected_image = {
+        "type": "input_image",
+        "image_url": "https://files-cdn.x.ai/test/file_1.png",
+        "detail": "high",
+    }
+    assert first[0]["content"][0] == expected_image
+    assert second[0]["content"][0] == expected_image
+    assert input_items == original
+    assert len(simulator.upload_bodies) == 1
+    assert simulator.public_url_bodies == [b"{}"]
+
+    upload_body = simulator.upload_bodies[0]
+    assert b'name="purpose"\r\n\r\nassistants' in upload_body
+    assert b'name="expires_after[anchor]"\r\n\r\ncreated_at' in upload_body
+    assert b'name="expires_after[seconds]"\r\n\r\n86400' in upload_body
+    assert b"image/png" in upload_body
+    assert upload_body.index(b'name="expires_after[seconds]"') < upload_body.index(b'name="file"')
+
+
+@pytest.mark.asyncio
+async def test_xai_image_upload_leaves_remote_and_unsupported_images_unchanged() -> None:
+    simulator = _XAIFileAPISimulator()
+    llm = XAIResponsesLLM(
+        context=Context(
+            config=Settings(xai=XAISettings(api_key="test-key", image_upload_mode="public_url"))
+        ),
+        model="grok-4.6",
+    )
+    remote = {"type": "input_image", "image_url": "https://example.com/image.png"}
+    unsupported = {
+        "type": "input_image",
+        "image_url": "data:image/webp;base64,AAAA",
+    }
+
+    async with _xai_file_client(simulator) as client:
+        normalized_remote, remote_changed = await llm._normalize_input_image_part(client, remote)
+        normalized_unsupported, unsupported_changed = await llm._normalize_input_image_part(
+            client, unsupported
+        )
+
+    assert normalized_remote is remote
+    assert remote_changed is False
+    assert normalized_unsupported is unsupported
+    assert unsupported_changed is False
+    assert simulator.upload_bodies == []
+
+
+@pytest.mark.asyncio
+async def test_xai_image_upload_failure_falls_back_to_inline_data() -> None:
+    simulator = _XAIFileAPISimulator(upload_status=503)
+    llm = XAIResponsesLLM(
+        context=Context(
+            config=Settings(xai=XAISettings(api_key="test-key", image_upload_mode="public_url"))
+        ),
+        model="grok-4.6",
+    )
+    image = _inline_image_part()
+
+    async with _xai_file_client(simulator) as client:
+        normalized, changed = await llm._normalize_input_image_part(client, image)
+
+    assert normalized is image
+    assert changed is False
+    assert len(simulator.upload_bodies) == 1
+    assert simulator.public_url_bodies == []
+
+
+@pytest.mark.asyncio
+async def test_xai_public_url_failure_falls_back_without_caching_upload() -> None:
+    simulator = _XAIFileAPISimulator(public_url_status=503)
+    llm = XAIResponsesLLM(
+        context=Context(
+            config=Settings(xai=XAISettings(api_key="test-key", image_upload_mode="public_url"))
+        ),
+        model="grok-4.6",
+    )
+    image = _inline_image_part()
+
+    async with _xai_file_client(simulator) as client:
+        first, first_changed = await llm._normalize_input_image_part(client, image)
+        second, second_changed = await llm._normalize_input_image_part(client, image)
+
+    assert first is image
+    assert first_changed is False
+    assert second is image
+    assert second_changed is False
+    assert len(simulator.upload_bodies) == 2
+    assert simulator.public_url_bodies == [b"{}", b"{}"]
+
+
+@pytest.mark.asyncio
+async def test_xai_image_upload_cache_refreshes_before_expiry() -> None:
+    now = 100.0
+    manager = XAIImageUploadManager(ttl_seconds=3_600, clock=lambda: now)
+    simulator = _XAIFileAPISimulator()
+    image_url = _inline_image_part()["image_url"]
+
+    async with _xai_file_client(simulator) as client:
+        first = await manager.public_url(client, image_url)
+        now = 3_641.0
+        second = await manager.public_url(client, image_url)
+
+    assert first == "https://files-cdn.x.ai/test/file_1.png"
+    assert second == "https://files-cdn.x.ai/test/file_2.png"
+    assert len(simulator.upload_bodies) == 2
+    assert len(simulator.public_url_bodies) == 2
 
 
 def test_xai_websocket_usage_preserves_missing_cache_write_as_unknown() -> None:

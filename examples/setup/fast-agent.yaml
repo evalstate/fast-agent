@@ -90,6 +90,10 @@ anthropic:
 # xai:
 #   reasoning_summary: concise
 #   stream_tool_calls: true
+#   # JPEG/PNG images use temporary public xAI CDN URLs by default.
+#   # Set to inline to disable uploads and send base64 data in every request.
+#   image_upload_mode: inline
+#   image_upload_ttl_seconds: 86400 # 1 hour to 30 days
 
 #shell_execution:
 # model-facing shell tools: auto (Grok shell/Process; others Bash/Process),
