@@ -46,6 +46,8 @@ xai:
   # base_url: "https://api.x.ai/v1" # default
   # reasoning_summary: concise # experimental; Grok 4.5/4.6
   # stream_tool_calls: true # experimental; Grok 4.5/4.6
+  # image_upload_mode: inline # disable temporary image uploads; default: public_url
+  # image_upload_ttl_seconds: 86400 # 1 hour to 30 days
 ```
 
 Environment variables:
@@ -55,6 +57,33 @@ Environment variables:
 - `FAST_AGENT_AUTH_FILE`: Explicit portable provider credential file
 
 An explicit `xai.api_key` or `XAI_API_KEY` takes precedence over stored OAuth.
+
+## Reuse images across turns
+
+xAI's Responses API replays conversation context across Grok turns. By default Images are uploaded to temporary URLs to keep transfer size short (references rather than base64 encoding).
+
+!!! info "Temporary public image URLs"
+
+    xAI image understanding accepts public URLs rather than uploaded file IDs.
+    fast-agent therefore creates an opaque public xAI CDN URL for each uploaded
+    image. Anyone possessing that URL can access it until it expires. Treat
+    debug logs and request traces containing these URLs as sensitive until
+    expiry.
+
+The file and URL expire together after `image_upload_ttl_seconds`, which
+defaults to 1 day (86,400) seconds and accepts values from 3,600 seconds (one hour)
+through 2,592,000 seconds (30 days). Canonical conversation history retains the
+original image data, so persisted sessions remain portable and expired images
+can be uploaded again.
+
+JPEG and PNG images up to xAI's 20 MiB image-understanding limit are uploaded;
+remote URLs and other media remain unchanged. If upload is unavailable,
+fast-agent falls back to the original inline image. To disable uploads:
+
+```yaml
+xai:
+  image_upload_mode: inline
+```
 
 ## Use a model
 

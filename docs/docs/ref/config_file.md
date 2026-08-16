@@ -361,6 +361,8 @@ google:
 xai:
   api_key: "your_xai_key"  # Can also use XAI_API_KEY env var
   base_url: "https://api.x.ai/v1"  # Optional, defaults to this value
+  # image_upload_mode: inline  # Default: public_url
+  # image_upload_ttl_seconds: 86400  # 1 hour to 30 days
 ```
 
 ### MetaAI

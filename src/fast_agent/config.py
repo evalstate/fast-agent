@@ -1470,6 +1470,19 @@ class XAISettings(BaseModel):
         default=False,
         description="Stream experimental function-call argument deltas from Grok 4.5/4.6.",
     )
+    image_upload_mode: Literal["inline", "public_url"] = Field(
+        default="public_url",
+        description=(
+            "Image transport (default: public_url): inline base64, or temporary xAI Files URLs. "
+            "Public URLs are accessible without authentication until they expire."
+        ),
+    )
+    image_upload_ttl_seconds: int = Field(
+        default=86_400,
+        ge=3_600,
+        le=2_592_000,
+        description="Lifetime for xAI image files and public URLs (1 hour to 30 days).",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
