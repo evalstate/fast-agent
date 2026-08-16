@@ -12,6 +12,16 @@ Usage:
                                       # Generate social card review sheet
     uv run scripts/docs.py social-variants
                                       # Generate CRT social card variant previews
+    uv run scripts/docs.py benchmark-social
+                                      # Render Terminal-Bench campaign storyboard
+    uv run scripts/docs.py benchmark-social --variant spotlight --high-quality
+                                      # Render Luna lossless and supersampled masters
+    uv run scripts/docs.py benchmark-social --variant deepseek --high-quality
+                                      # Render DeepSeek lossless and supersampled masters
+    uv run scripts/docs.py benchmark-social --variant pricing-convergence --high-quality
+                                      # Render pricing chart lossless and supersampled masters
+    uv run scripts/docs.py benchmark-social --variant deepseek-cache-cost --high-quality
+                                      # Render DeepSeek cache-cost chart masters
     uv run scripts/docs.py assets     # Verify committed interactive docs assets
     uv run scripts/docs.py assets-record tui-shell
                                       # Record an interactive docs asset
@@ -109,6 +119,14 @@ def social_variants() -> int:
     result = subprocess.run(
         [sys.executable, str(DOCS_DIR / "generate_social_cards.py"), "--variant-previews"],
         cwd=ROOT,
+    )
+    return result.returncode
+
+
+def benchmark_social(args: list[str]) -> int:
+    """Render Terminal-Bench campaign storyboard assets."""
+    result = subprocess.run(
+        [sys.executable, str(DOCS_DIR / "generate_benchmark_social.py"), *args], cwd=ROOT
     )
     return result.returncode
 
@@ -222,6 +240,8 @@ def main() -> int:
         return social_contact_sheet()
     elif command == "social-variants":
         return social_variants()
+    elif command == "benchmark-social":
+        return benchmark_social(sys.argv[2:])
     elif command == "assets":
         return assets(sys.argv[2:])
     elif command == "assets-record":
