@@ -51,8 +51,8 @@
   }
 
   function formatRunCost(result, taskCount) {
-    if (result.totalCost !== undefined) return "$" + result.totalCost.toFixed(2);
-    return "$" + Math.round(result.cost * taskCount).toLocaleString("en-US");
+    var total = result.totalCost !== undefined ? result.totalCost : result.cost * taskCount;
+    return "$" + Math.round(total).toLocaleString("en-US");
   }
 
   function overlapArea(first, second) {
