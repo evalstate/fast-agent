@@ -107,7 +107,7 @@ def _load_config(config_path: Path | None = None) -> tuple[dict[str, Any], Path]
         # Use explicit path
         resolved_path = config_path.resolve()
         if resolved_path.exists():
-            with resolved_path.open() as f:
+            with resolved_path.open(encoding="utf-8") as f:
                 config = _yaml.load(f) or {}
             return config, resolved_path
         # File doesn't exist yet - will be created
@@ -116,7 +116,7 @@ def _load_config(config_path: Path | None = None) -> tuple[dict[str, Any], Path]
     found_path = _default_config_file().resolve()
 
     if found_path.exists():
-        with found_path.open() as f:
+        with found_path.open(encoding="utf-8") as f:
             config = _yaml.load(f) or {}
         return config, found_path
 
@@ -128,7 +128,7 @@ def _load_effective_config(config_path: Path | None = None) -> dict[str, Any]:
     if config_path is not None:
         resolved_path = config_path.resolve()
         if resolved_path.exists():
-            with resolved_path.open() as f:
+            with resolved_path.open(encoding="utf-8") as f:
                 return _yaml.load(f) or {}
         return {}
 
@@ -202,7 +202,7 @@ def _replace_config_section(
 def _save_config(config: dict[str, Any], config_path: Path) -> None:
     """Save config to file, preserving comments."""
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    with config_path.open("w") as f:
+    with config_path.open("w", encoding="utf-8") as f:
         _yaml.dump(config, f)
 
 
