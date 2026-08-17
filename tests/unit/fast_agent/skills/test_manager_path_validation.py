@@ -1,5 +1,6 @@
 import ntpath
 import posixpath
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -105,6 +106,43 @@ def test_safe_install_dir_name_rejects_non_component_names(name: str) -> None:
 
     with pytest.raises(ValueError, match="not a single path component"):
         safe_install_dir_name(name, label="Skill")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "finder.",
+        "finder ",
+        "finder...",
+        "finder.  ",
+    ],
+)
+def test_safe_install_dir_name_rejects_names_windows_would_rename(name: str) -> None:
+    # These are the blind spot the flavour oracle shares with the guard: ntpath keeps
+    # trailing dots and spaces, so each of these *looks* like the direct child carrying
+    # its own name...
+    assert _is_direct_child(ntpath, _WINDOWS_ROOT, name)
+    # ...but Win32 canonicalization strips them, so on the platform that creates the
+    # directory "finder." addresses an already-installed "finder" instead of a new
+    # sibling. That is not an escape - nothing leaves the managed root - but it still
+    # breaks the accepting test's contract, and `plugin install --force` passes
+    # `replace_existing=True`, so the entry lands on top of an unrelated plugin.
+    with pytest.raises(ValueError, match="Windows path canonicalization"):
+        safe_install_dir_name(name, label="Skill")
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="only Win32 canonicalization renames a component with trailing dots or spaces",
+)
+def test_windows_renames_trailing_dot_names_onto_an_existing_directory(tmp_path: Path) -> None:
+    # The on-disk fact the guard above encodes, asserted rather than assumed.
+    (tmp_path / "finder").mkdir()
+
+    (tmp_path / "finder.").mkdir(exist_ok=True)
+
+    assert sorted(entry.name for entry in tmp_path.iterdir()) == ["finder"]
+    assert (tmp_path / "finder.").resolve() == (tmp_path / "finder").resolve()
 
 
 def test_resolve_repo_subdir_rejects_escape(tmp_path: Path) -> None:

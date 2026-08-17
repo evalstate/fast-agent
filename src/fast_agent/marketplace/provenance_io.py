@@ -20,6 +20,8 @@ if TYPE_CHECKING:
 
 SourceT = TypeVar("SourceT")
 _SHA256_FINGERPRINT_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+# Trailing characters Win32 path canonicalization drops from a path component.
+_WIN32_STRIPPED_TRAILING_CHARS = ". "
 
 
 class InstalledSourcePayloadFields(Protocol):
@@ -266,9 +268,20 @@ def safe_install_dir_name(name: str, *, label: str) -> str:
     cannot take outside ``root``. ``PureWindowsPath`` is used on every platform because
     it recognises the widest set of separators and drive-relative spellings, so a name
     accepted here is contained regardless of where the check ran.
+
+    Names the platform would rename are rejected too, because ``root / name`` then denotes
+    a directory other than the one the payload asked for. Win32 canonicalization strips
+    trailing dots and spaces - which ``PureWindowsPath`` keeps - so ``"finder."`` addresses
+    an already-installed ``finder`` rather than a new sibling. Rejected on every platform,
+    since a name a POSIX host accepts is installed on whichever platform runs it.
     """
     if name in {"", ".", ".."} or PureWindowsPath(name).parts != (name,):
         raise ValueError(f"{label} install directory name is not a single path component: {name!r}")
+    if name != name.rstrip(_WIN32_STRIPPED_TRAILING_CHARS):
+        raise ValueError(
+            f"{label} install directory name is changed by Windows path canonicalization, "
+            f"which strips trailing dots and spaces: {name!r}"
+        )
     return name
 
 

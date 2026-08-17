@@ -284,7 +284,7 @@ def test_plugin_install_stages_inside_managed_root_for_hostile_entry_name(
 
     def _recording_temporary_directory(
         *,
-        dir: Path,  # noqa: A002 - matches the tempfile keyword the caller uses
+        dir: Path,  # shadows a builtin to match the tempfile keyword the caller uses
         prefix: str,
     ) -> "tempfile.TemporaryDirectory[str]":
         created = real_temporary_directory(dir=dir, prefix=prefix)
