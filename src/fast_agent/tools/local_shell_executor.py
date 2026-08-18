@@ -228,6 +228,7 @@ class LocalShellExecutor:
         origin_session_id: str | None,
         agent_name: str | None,
         output_byte_limit: int,
+        output_retention_byte_limit: int,
         max_active_processes: int,
     ) -> DurableProcessSnapshot:
         """Launch one persistent local command through its detached supervisor."""
@@ -250,6 +251,7 @@ class LocalShellExecutor:
             origin_session_id=origin_session_id,
             agent_name=agent_name,
             output_byte_limit=output_byte_limit,
+            output_retention_byte_limit=output_retention_byte_limit,
             max_active_processes=max_active_processes,
         )
         store.launch(created.spec.process_id, environment=child_env)

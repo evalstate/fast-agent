@@ -1812,7 +1812,9 @@ async def dispatch_command_payload(
 
         report_current_session(
             session_manager,
-            agent=prompt_provider.get_agent(result.next_agent or agent),
+            agent_lookup=lambda: prompt_provider.registered_agents().get(
+                result.next_agent or agent
+            ),
         )
     return result or DispatchResult(handled=False)
 

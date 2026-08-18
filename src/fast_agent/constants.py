@@ -82,6 +82,9 @@ MAX_FOREGROUND_AUTO_AWAIT_SECONDS = 3600
 DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT = 16_000
 """Baseline byte limit for ACP terminal output when no model info exists."""
 
+DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES = 2 * 1024 * 1024
+"""Maximum bytes retained in each durable process output log by default."""
+
 TERMINAL_OUTPUT_TOKEN_RATIO = 0.83
 """Target fraction of model max output tokens to budget for terminal output (~2/3 after headroom)."""
 

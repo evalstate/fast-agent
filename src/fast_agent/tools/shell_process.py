@@ -56,6 +56,8 @@ class ProcessResultMetadata(TypedDict, total=False):
     exit_code: int
     output_line_count: int
     output_bytes_since_last_poll: int
+    retained_output_bytes_since_last_poll: int
+    dropped_output_bytes_since_last_poll: int
     seconds_since_last_output: float
     seconds_since_last_stdout: float
     seconds_since_last_stderr: float
@@ -66,6 +68,8 @@ class ProcessResultMetadata(TypedDict, total=False):
     output_spool_path: str
     retained_output_bytes: int
     retained_output_complete: bool
+    dropped_output_bytes: int
+    output_truncated: bool
     output_read_offset: int
     output_read_bytes: int
     output_read_has_more: bool

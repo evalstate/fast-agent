@@ -84,6 +84,7 @@ def test_shell_integer_settings_reject_boolean_values() -> None:
             "warning_interval_seconds": "30S",
             "output_display_lines": "12",
             "output_byte_limit": "4096",
+            "durable_output_max_bytes": "8192",
         }
     )
 
@@ -91,6 +92,7 @@ def test_shell_integer_settings_reject_boolean_values() -> None:
     assert settings.warning_interval_seconds == 30
     assert settings.output_display_lines == 12
     assert settings.output_byte_limit == 4096
+    assert settings.durable_output_max_bytes == 8192
 
     with pytest.raises(TypeError, match="timeout_seconds must be an integer"):
         ShellSettings.model_validate({"timeout_seconds": True})
@@ -103,6 +105,9 @@ def test_shell_integer_settings_reject_boolean_values() -> None:
 
     with pytest.raises(TypeError, match="output_byte_limit must be an integer"):
         ShellSettings.model_validate({"output_byte_limit": True})
+
+    with pytest.raises(TypeError, match="durable_output_max_bytes must be an integer"):
+        ShellSettings.model_validate({"durable_output_max_bytes": True})
 
 
 def test_opentelemetry_sample_rate_rejects_boolean_values() -> None:
