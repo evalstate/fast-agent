@@ -291,6 +291,40 @@ def test_supervisor_publishes_small_output_before_process_exit(tmp_path: Path) -
 
 @pytest.mark.unit
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+def test_supervisor_import_is_isolated_from_command_working_directory(tmp_path: Path) -> None:
+    working_directory = tmp_path / "command"
+    shadow_package = working_directory / "fast_agent" / "tools"
+    shadow_package.mkdir(parents=True)
+    marker = tmp_path / "shadow-imported"
+    (shadow_package.parent / "__init__.py").write_text("", encoding="utf-8")
+    (shadow_package / "__init__.py").write_text("", encoding="utf-8")
+    (shadow_package / "durable_process_supervisor.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).write_text('shadow')\n",
+        encoding="utf-8",
+    )
+    store = DurableProcessStore(tmp_path / "durable")
+    created = store.create(
+        command="printf child-ran",
+        shell=_SHELL,
+        cwd=working_directory,
+    )
+
+    store.launch(created.spec.process_id, environment=dict(os.environ))
+    completed = store.wait(created.spec.process_id, timeout_seconds=5)
+    output = store.read_output(
+        created.spec.process_id,
+        stream=DurableProcessStream.COMBINED,
+        offset=0,
+        limit=1024,
+    )
+
+    assert completed.status.state == "exited"
+    assert output.text == "child-ran"
+    assert not marker.exists()
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
 def test_drain_thread_failure_is_propagated() -> None:
     read_descriptor, write_descriptor = os.pipe()
     os.write(write_descriptor, b"output")
@@ -600,7 +634,7 @@ async def test_shell_runtime_does_not_claim_stale_process_was_stopped(
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
-async def test_shell_runtime_enforces_capacity_for_durable_launches(
+async def test_shell_runtime_counts_unattached_durable_processes_for_capacity(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "processes"
@@ -617,8 +651,6 @@ async def test_shell_runtime_enforces_capacity_for_durable_launches(
         working_directory=tmp_path,
         durable_process_root=root,
     )
-    for snapshot in store.discover():
-        await runtime.attach_durable_process(snapshot.spec.process_id)
 
     durable_result = await runtime.execute({"command": "sleep 30", "background": True})
     session_result = await runtime.execute(
@@ -629,12 +661,185 @@ async def test_shell_runtime_enforces_capacity_for_durable_launches(
         }
     )
 
-    assert runtime.active_process_count == MAX_MANAGED_SHELL_PROCESSES
     for result in (durable_result, session_result):
         assert result.is_error is True
         assert isinstance(result.content[0], TextContent)
         assert f"at most {MAX_MANAGED_SHELL_PROCESSES}" in result.content[0].text
     await runtime.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+async def test_durable_poll_waits_for_unread_output_to_settle(tmp_path: Path) -> None:
+    root = tmp_path / "processes"
+    script = tmp_path / "burst.py"
+    script.write_text(
+        "import time\n"
+        "print('first', flush=True)\n"
+        "time.sleep(0.5)\n"
+        "print('second', flush=True)\n"
+        "time.sleep(30)\n",
+        encoding="utf-8",
+    )
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger(__name__),
+        working_directory=tmp_path,
+        durable_process_root=root,
+    )
+    result = await runtime.execute(
+        {
+            "command": f'exec "{sys.executable}" "{script}"',
+            "background": True,
+        }
+    )
+    metadata = process_result_metadata(result)
+    assert metadata is not None
+    process_id = metadata["process_id"]
+    store = DurableProcessStore(root)
+    deadline = time.monotonic() + 2
+    while store.get(process_id).output_bytes == 0 and time.monotonic() < deadline:
+        await asyncio.sleep(0.02)
+    assert store.get(process_id).output_bytes > 0
+
+    try:
+        started = time.monotonic()
+        poll_result = await runtime.poll_process(
+            {
+                "process_id": process_id,
+                "wait_sec": 4,
+                "wake_on_output": True,
+            }
+        )
+        elapsed = time.monotonic() - started
+    finally:
+        await runtime.terminate_process({"process_id": process_id})
+        await asyncio.to_thread(store.wait, process_id, timeout_seconds=5)
+        await runtime.close()
+
+    poll_metadata = process_result_metadata(poll_result)
+    assert poll_metadata is not None
+    assert poll_metadata["process_yield_reason"] == "output"
+    assert 1.8 <= elapsed < 3.5
+    assert poll_metadata["output_bytes_since_last_poll"] > 0
+    assert poll_metadata["seconds_since_last_output"] >= 1.8
+    assert poll_result.content
+    assert isinstance(poll_result.content[0], TextContent)
+    assert "first" in poll_result.content[0].text
+    assert "second" in poll_result.content[0].text
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+async def test_cancelled_durable_poll_preserves_output_debounce(tmp_path: Path) -> None:
+    root = tmp_path / "processes"
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger(__name__),
+        working_directory=tmp_path,
+        durable_process_root=root,
+    )
+    result = await runtime.execute(
+        {
+            "command": "printf ready; sleep 30",
+            "background": True,
+        }
+    )
+    metadata = process_result_metadata(result)
+    assert metadata is not None
+    process_id = metadata["process_id"]
+    store = DurableProcessStore(root)
+    deadline = time.monotonic() + 2
+    while store.get(process_id).output_bytes == 0 and time.monotonic() < deadline:
+        await asyncio.sleep(0.02)
+    assert store.get(process_id).output_bytes > 0
+
+    try:
+        first_poll = asyncio.create_task(
+            runtime.poll_process(
+                {
+                    "process_id": process_id,
+                    "wait_sec": 4,
+                    "wake_on_output": True,
+                }
+            )
+        )
+        await asyncio.sleep(1)
+        first_poll.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first_poll
+
+        started = time.monotonic()
+        poll_result = await runtime.poll_process(
+            {
+                "process_id": process_id,
+                "wait_sec": 3,
+                "wake_on_output": True,
+            }
+        )
+        elapsed = time.monotonic() - started
+    finally:
+        await runtime.terminate_process({"process_id": process_id})
+        await asyncio.to_thread(store.wait, process_id, timeout_seconds=5)
+        await runtime.close()
+
+    poll_metadata = process_result_metadata(poll_result)
+    assert poll_metadata is not None
+    assert poll_metadata["process_yield_reason"] == "output"
+    assert 0.7 <= elapsed < 1.5
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+async def test_continuous_durable_output_waits_until_poll_deadline(tmp_path: Path) -> None:
+    root = tmp_path / "processes"
+    script = tmp_path / "continuous.py"
+    script.write_text(
+        "import time\n"
+        "for index in range(30):\n"
+        "    print(index, flush=True)\n"
+        "    time.sleep(0.1)\n"
+        "time.sleep(30)\n",
+        encoding="utf-8",
+    )
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger(__name__),
+        working_directory=tmp_path,
+        durable_process_root=root,
+    )
+    result = await runtime.execute(
+        {
+            "command": f'exec "{sys.executable}" "{script}"',
+            "background": True,
+        }
+    )
+    metadata = process_result_metadata(result)
+    assert metadata is not None
+    process_id = metadata["process_id"]
+    store = DurableProcessStore(root)
+
+    try:
+        started = time.monotonic()
+        poll_result = await runtime.poll_process(
+            {
+                "process_id": process_id,
+                "wait_sec": 1,
+                "wake_on_output": True,
+            }
+        )
+        elapsed = time.monotonic() - started
+    finally:
+        await runtime.terminate_process({"process_id": process_id})
+        await asyncio.to_thread(store.wait, process_id, timeout_seconds=5)
+        await runtime.close()
+
+    poll_metadata = process_result_metadata(poll_result)
+    assert poll_metadata is not None
+    assert poll_metadata["process_yield_reason"] == "deadline"
+    assert elapsed >= 0.8
+    assert poll_metadata["output_bytes_since_last_poll"] > 0
+    assert poll_metadata["poll_deadline_overshoot_seconds"] >= 0
 
 
 @pytest.mark.asyncio

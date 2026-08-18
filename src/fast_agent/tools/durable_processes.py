@@ -236,7 +236,7 @@ class DurableProcessStore:
         """Start a detached supervisor that inherits, but never persists, ``environment``."""
 
         directory = self._directory(process_id)
-        spec = _read_spec(directory)
+        _read_spec(directory)
         current = _read_status(directory)
         if current.state != "created":
             raise DurableProcessError(f"{process_id} has already been launched.")
@@ -258,6 +258,7 @@ class DurableProcessStore:
                 subprocess.Popen(
                     [
                         sys.executable,
+                        "-P",
                         "-m",
                         "fast_agent.tools.durable_process_supervisor",
                         "--root",
@@ -268,7 +269,7 @@ class DurableProcessStore:
                     stdin=stdin,
                     stdout=output,
                     stderr=output,
-                    cwd=spec.cwd,
+                    cwd=self._root,
                     env=dict(environment),
                     start_new_session=True,
                     close_fds=True,

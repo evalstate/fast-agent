@@ -252,6 +252,8 @@ class ShellRuntime:
         )
         self._attached_durable_processes: set[str] = set()
         self._durable_output_offsets: dict[str, int] = {}
+        self._durable_observed_output_bytes: dict[str, int] = {}
+        self._durable_last_output_times: dict[str, float] = {}
         self._durable_poll_locks: dict[str, asyncio.Lock] = {}
         self._session_id_provider = session_id_provider
         self._next_process_id = 1
@@ -449,6 +451,16 @@ class ShellRuntime:
                 active += 1
         return active
 
+    def _stored_active_durable_process_count(self) -> int:
+        store = self._durable_process_store
+        if store is None:
+            return 0
+        try:
+            snapshots = store.discover()
+        except OSError:
+            return 0
+        return sum(self._durable_status(snapshot) == "running" for snapshot in snapshots)
+
     def set_extended_guidance(self, enabled: bool) -> None:
         """Refresh model-facing minimal tools when model guidance policy changes."""
         self.set_minimal_shell_tool_contract(
@@ -546,6 +558,10 @@ class ShellRuntime:
         async with self._processes_lock:
             self._attached_durable_processes.add(process_id)
             self._durable_output_offsets.setdefault(process_id, 0)
+            observed_bytes = self._durable_observed_output_bytes.get(process_id, 0)
+            if snapshot.output_bytes > observed_bytes:
+                self._durable_last_output_times[process_id] = time.monotonic()
+            self._durable_observed_output_bytes[process_id] = snapshot.output_bytes
             self._durable_poll_locks.setdefault(process_id, asyncio.Lock())
         return snapshot
 
@@ -974,15 +990,24 @@ class ShellRuntime:
         poll_started_at = time.monotonic()
         try:
             snapshot = await asyncio.to_thread(store.get, process_id)
-            initial_bytes = snapshot.output_bytes
-            deadline = time.monotonic() + wait_sec
-            while wait_sec > 0 and self._durable_status(snapshot) == "running":
-                if time.monotonic() >= deadline:
-                    break
-                await asyncio.sleep(min(0.1, max(deadline - time.monotonic(), 0)))
-                snapshot = await asyncio.to_thread(store.get, process_id)
-                if wake_on_output and snapshot.output_bytes > initial_bytes:
-                    break
+            should_wait = wait_sec > 0 and self._durable_status(snapshot) == "running"
+            output_wake = False
+            unread_offset = self._durable_output_offsets.get(process_id, 0)
+            observed_bytes = self._durable_observed_output_bytes.get(process_id, 0)
+            if snapshot.output_bytes > observed_bytes:
+                self._durable_last_output_times[process_id] = poll_started_at
+            self._durable_observed_output_bytes[process_id] = snapshot.output_bytes
+            if snapshot.output_bytes > unread_offset:
+                self._durable_last_output_times.setdefault(process_id, poll_started_at)
+            if should_wait:
+                snapshot, output_wake = await self._wait_for_durable_process_poll(
+                    store,
+                    process_id,
+                    snapshot,
+                    unread_offset=unread_offset,
+                    wait_sec=wait_sec,
+                    wake_on_output=wake_on_output,
+                )
             output, output_bytes = await self._read_durable_output_delta(
                 process_id,
                 snapshot,
@@ -994,11 +1019,27 @@ class ShellRuntime:
             )
 
         status = self._durable_status(snapshot)
+        if status != "running":
+            poll_yield_reason = "completion"
+        elif output_wake:
+            poll_yield_reason = "output"
+        elif should_wait:
+            poll_yield_reason = "deadline"
+        else:
+            poll_yield_reason = "nonblocking"
         started_at = snapshot.status.started_at or snapshot.spec.created_at
         elapsed = max(
             (time.time() if status == "running" else snapshot.status.updated_at) - started_at,
             0.0,
         )
+        poll_elapsed_seconds = time.monotonic() - poll_started_at
+        last_output_time = self._durable_last_output_times.get(process_id)
+        seconds_since_last_output = (
+            max(time.monotonic() - last_output_time, 0.0)
+            if last_output_time is not None
+            else max(time.time() - snapshot.spec.created_at, 0.0)
+        )
+        output_observed = bool(snapshot.stdout_bytes or snapshot.stderr_bytes)
         lines = [output] if output else []
         lines.extend(
             [
@@ -1011,23 +1052,35 @@ class ShellRuntime:
             lines.append(f"process exit code was {snapshot.status.exit_code}")
         elif status == "running":
             lines.append("This durable process remains available across fast-agent invocations.")
-        return process_result(
+        result = process_result(
             "\n".join(lines),
             is_error=status in {"failed", "unavailable"},
             metadata={
                 "process_id": process_id,
                 "lifecycle": "persistent",
                 "process_status": status,
+                "process_yield_reason": poll_yield_reason,
                 "process_elapsed_seconds": elapsed,
                 "os_process_id": snapshot.status.child_pid,
                 "output_bytes_since_last_poll": output_bytes,
+                "seconds_since_last_output": seconds_since_last_output,
                 "total_output_bytes": snapshot.output_bytes,
                 "stdout_bytes": snapshot.stdout_bytes,
                 "stderr_bytes": snapshot.stderr_bytes,
-                "has_observed_output": bool(snapshot.stdout_bytes or snapshot.stderr_bytes),
+                "has_observed_output": output_observed,
                 "poll_wait_sec": wait_sec,
                 "poll_wake_on_output": wake_on_output,
-                "poll_elapsed_seconds": time.monotonic() - poll_started_at,
+                "poll_elapsed_seconds": poll_elapsed_seconds,
+                **(
+                    {
+                        "poll_deadline_overshoot_seconds": max(
+                            poll_elapsed_seconds - wait_sec,
+                            0.0,
+                        )
+                    }
+                    if poll_yield_reason == "deadline"
+                    else {}
+                ),
                 **(
                     {"exit_code": snapshot.status.exit_code}
                     if snapshot.status.exit_code is not None
@@ -1035,6 +1088,57 @@ class ShellRuntime:
                 ),
             },
         )
+        self._append_poll_output_activity(
+            result,
+            output_bytes=output_bytes,
+            output_lines=len(output.splitlines()),
+            seconds_since_last_output=seconds_since_last_output,
+            output_observed=output_observed,
+        )
+        return result
+
+    async def _wait_for_durable_process_poll(
+        self,
+        store: DurableProcessStore,
+        process_id: str,
+        snapshot: DurableProcessSnapshot,
+        *,
+        unread_offset: int,
+        wait_sec: int,
+        wake_on_output: bool,
+    ) -> tuple[DurableProcessSnapshot, bool]:
+        """Wait for durable completion/deadline, optionally after output settles."""
+        observed_bytes = snapshot.output_bytes
+        deadline = time.monotonic() + wait_sec
+        while self._durable_status(snapshot) == "running":
+            now = time.monotonic()
+            remaining = deadline - now
+            if remaining <= 0:
+                return snapshot, False
+
+            pending_output = observed_bytes > unread_offset
+            last_output_time = self._durable_last_output_times.get(process_id, now)
+            seconds_since_last_output = max(now - last_output_time, 0.0)
+            if (
+                wake_on_output
+                and pending_output
+                and seconds_since_last_output >= _PROCESS_OUTPUT_DEBOUNCE_SECONDS
+            ):
+                return snapshot, True
+
+            quiet_wait = (
+                _PROCESS_OUTPUT_DEBOUNCE_SECONDS - seconds_since_last_output
+                if wake_on_output and pending_output
+                else remaining
+            )
+            await asyncio.sleep(min(0.1, remaining, quiet_wait))
+            snapshot = await asyncio.to_thread(store.get, process_id)
+            if snapshot.output_bytes > observed_bytes:
+                self._durable_last_output_times[process_id] = time.monotonic()
+            observed_bytes = snapshot.output_bytes
+            self._durable_observed_output_bytes[process_id] = observed_bytes
+
+        return snapshot, False
 
     async def _read_durable_process_output(
         self,
@@ -1559,7 +1663,9 @@ class ShellRuntime:
             active_managed_processes = sum(
                 not process.task.done() for process in self._managed_processes.values()
             )
-            active_durable_processes = await asyncio.to_thread(self._active_durable_process_count)
+            active_durable_processes = await asyncio.to_thread(
+                self._stored_active_durable_process_count
+            )
             if active_managed_processes + active_durable_processes >= MAX_MANAGED_SHELL_PROCESSES:
                 raise RuntimeError(
                     f"at most {MAX_MANAGED_SHELL_PROCESSES} managed shell processes may run at once"
@@ -1664,6 +1770,9 @@ class ShellRuntime:
         process_id = snapshot.spec.process_id
         self._attached_durable_processes.add(process_id)
         self._durable_output_offsets[process_id] = 0
+        self._durable_observed_output_bytes[process_id] = snapshot.output_bytes
+        if snapshot.output_bytes > 0:
+            self._durable_last_output_times[process_id] = time.monotonic()
         self._durable_poll_locks[process_id] = asyncio.Lock()
 
     def _durable_launch_result(
