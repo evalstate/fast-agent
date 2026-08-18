@@ -110,6 +110,48 @@ def test_reports_prompt_lifecycle_in_order_and_releases(
 
 
 @pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="Unix sockets are unavailable")
+def test_reports_session_presentation_and_deduplicates_it(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = tmp_path / "herdr.sock"
+    requests, server = _capture_requests(socket_path, 2)
+    _configure_herdr(monkeypatch, socket_path)
+
+    for _ in range(2):
+        herdr_lifecycle.report_session_metadata(
+            session_id="session-1",
+            title="Review auth",
+            model="provider.model?reasoning=high",
+            agent_name="reviewer",
+            pinned=True,
+            forked_from="session-0",
+        )
+    _wait_for_requests(requests, 1)
+    herdr_lifecycle.release_agent()
+
+    server.join(1)
+    assert not server.is_alive()
+    assert [request["method"] for request in requests] == [
+        "pane.report_metadata",
+        "pane.release_agent",
+    ]
+    params = requests[0]["params"]
+    assert isinstance(params, dict)
+    params = cast("dict[str, object]", params)
+    assert params["title"] == "Review auth"
+    assert params["display_agent"] == "Review auth"
+    assert params["applies_to_source"] == "herdr:fast-agent"
+    assert params["tokens"] == {
+        "session": "session-1",
+        "model": "provider.model?reasoning=high",
+        "agent_name": "reviewer",
+        "pinned": "pinned",
+        "forked_from": "session-0",
+    }
+
+
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="Unix sockets are unavailable")
 def test_nested_blocked_scope_restores_latest_base_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -275,6 +317,44 @@ def test_windows_transport_uses_injected_herdr_binary(
     assert calls[0][5:7] == ["herdr:fast-agent", "--agent"]
     assert calls[0][-2:] == ["--state", "idle"]
     assert calls[1][1:4] == ["pane", "release-agent", "w1:p2"]
+
+
+def test_windows_transport_maps_session_metadata_to_cli(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[list[str]] = []
+
+    def run(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(herdr_lifecycle, "_uses_windows_cli_transport", lambda: True)
+    monkeypatch.setattr(herdr_lifecycle.subprocess, "run", run)
+    _configure_herdr(monkeypatch, tmp_path / "unused.sock", bin_path=r"C:\Herdr\herdr.exe")
+    monkeypatch.delenv("HERDR_SOCKET_PATH")
+
+    herdr_lifecycle.report_session_metadata(
+        session_id="session-1",
+        title=None,
+        model="provider.model",
+        agent_name="agent",
+        pinned=False,
+        forked_from=None,
+    )
+    deadline = time.monotonic() + 1
+    while len(calls) < 1 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert len(calls) == 1
+    herdr_lifecycle.release_agent()
+
+    metadata_command = calls[0]
+    assert metadata_command[1:4] == ["pane", "report-metadata", "w1:p2"]
+    assert "--clear-title" in metadata_command
+    assert "--clear-display-agent" in metadata_command
+    assert "session=session-1" in metadata_command
+    assert "model=provider.model" in metadata_command
+    assert metadata_command.count("--clear-token") == 2
 
 
 def test_delivery_retries_after_transport_exception(
