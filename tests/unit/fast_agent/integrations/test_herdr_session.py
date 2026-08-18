@@ -6,6 +6,14 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 from fast_agent.integrations import herdr_session
+from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.usage_tracking import (
+    CompletionTokenUsage,
+    PromptTokenUsage,
+    TurnUsage,
+    UsageAccumulator,
+    UsageSchema,
+)
 
 if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol
@@ -28,10 +36,23 @@ def test_report_session_maps_persisted_and_active_metadata(monkeypatch) -> None:
         ),
         directory=Path("/tmp/sessions/session-1"),
     )
+    usage = UsageAccumulator(
+        turns=[
+            TurnUsage(
+                provider=Provider.RESPONSES,
+                usage_schema=UsageSchema.OPENAI_RESPONSES,
+                model="model",
+                prompt=PromptTokenUsage(total=300),
+                completion=CompletionTokenUsage(total=50),
+            )
+        ]
+    )
+    usage.set_context_window_size(1_000)
     agent = SimpleNamespace(
         name="active-agent",
         config=SimpleNamespace(model="provider.model?reasoning=high"),
         context=None,
+        usage_accumulator=usage,
     )
     monkeypatch.setattr(
         herdr_session,
@@ -53,6 +74,8 @@ def test_report_session_maps_persisted_and_active_metadata(monkeypatch) -> None:
             "agent_name": "saved-agent",
             "pinned": True,
             "forked_from": "session-0",
+            "context_usage": "35.0% context",
+            "token_usage": "300 in · 50 out",
         }
     ]
 
@@ -77,5 +100,7 @@ def test_report_current_session_clears_metadata_without_a_session(monkeypatch) -
             "agent_name": None,
             "pinned": False,
             "forked_from": None,
+            "context_usage": None,
+            "token_usage": None,
         }
     ]

@@ -91,6 +91,8 @@ class _HerdrLifecycleReporter:
                 str | None,
                 bool,
                 str | None,
+                str | None,
+                str | None,
             ]
             | None
         ) = None
@@ -145,10 +147,21 @@ class _HerdrLifecycleReporter:
         agent_name: str | None,
         pinned: bool,
         forked_from: str | None,
+        context_usage: str | None,
+        token_usage: str | None,
     ) -> None:
         if os.getpid() != self._creator_pid:
             return
-        metadata = (session_id, title, model, agent_name, pinned, forked_from)
+        metadata = (
+            session_id,
+            title,
+            model,
+            agent_name,
+            pinned,
+            forked_from,
+            context_usage,
+            token_usage,
+        )
         with self._lock:
             if self._closing or metadata == self._session_metadata:
                 return
@@ -165,6 +178,8 @@ class _HerdrLifecycleReporter:
                         "agent_name": agent_name,
                         "pinned": "pinned" if pinned else None,
                         "forked_from": forked_from,
+                        "context": context_usage,
+                        "tokens": token_usage,
                     },
                     "clear_title": title is None,
                     "clear_display_agent": title is None,
@@ -429,6 +444,8 @@ def report_session_metadata(
     agent_name: str | None,
     pinned: bool,
     forked_from: str | None,
+    context_usage: str | None = None,
+    token_usage: str | None = None,
 ) -> None:
     """Report display-only persisted session metadata when running inside Herdr."""
     try:
@@ -441,6 +458,8 @@ def report_session_metadata(
                 agent_name=agent_name,
                 pinned=pinned,
                 forked_from=forked_from,
+                context_usage=context_usage,
+                token_usage=token_usage,
             )
     except Exception:
         pass
