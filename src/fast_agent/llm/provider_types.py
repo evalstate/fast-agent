@@ -32,6 +32,7 @@ class Provider(Enum):
     GOOGLE = ("google", "Google")  # For Google GenAI native library
     OPENAI = ("openai", "OpenAI")
     OPENROUTER = ("openrouter", "OpenRouter")
+    ORCAROUTER = ("orcarouter", "OrcaRouter")  # OpenAI-compatible model routing gateway
     TENSORZERO = ("tensorzero", "TensorZero")  # For TensorZero Gateway
     AZURE = ("azure", "Azure")  # Azure OpenAI Service
     ALIYUN = ("aliyun", "Aliyun")  # Aliyun Bailian OpenAI Service

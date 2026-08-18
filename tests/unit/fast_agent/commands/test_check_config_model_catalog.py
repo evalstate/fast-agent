@@ -118,6 +118,17 @@ def test_show_provider_model_catalog_moonshot_includes_curated_model(capsys) -> 
     assert "moonshot.kimi-k3" in _collapse(output)
 
 
+def test_show_provider_model_catalog_orcarouter_includes_curated_models(capsys) -> None:
+    show_provider_model_catalog("orcarouter")
+
+    output = capsys.readouterr().out
+    assert "OrcaRouter model catalog (curated)" in output
+    assert "orcarouter-gpt4o-mini" in output
+    assert "orcarouter-auto" in output
+    assert "orcarouter.openai/gpt-4o-mini" in _collapse(output)
+    assert "orcarouter.orcarouter/auto" in _collapse(output)
+
+
 def test_show_models_overview_includes_provider_args_and_named_aliases(
     tmp_path: Path,
     capsys,
