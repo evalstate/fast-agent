@@ -55,6 +55,8 @@ class _CaptureState:
         self._stdout_dropped_bytes = 0
         self._stderr_dropped_bytes = 0
         self._output_dropped_bytes = 0
+        self._generation = 0
+        self._persisted_generation = -1
 
     def write(
         self,
@@ -85,17 +87,32 @@ class _CaptureState:
             combined_output.write(payload[:combined_retained])
             self._output_total_bytes += len(payload)
             self._output_dropped_bytes += len(payload) - combined_retained
+            self._generation += 1
 
     def snapshot(self) -> DurableProcessCapture:
         with self._lock:
-            return DurableProcessCapture(
-                stdout_total_bytes=self._stdout_total_bytes,
-                stderr_total_bytes=self._stderr_total_bytes,
-                output_total_bytes=self._output_total_bytes,
-                stdout_dropped_bytes=self._stdout_dropped_bytes,
-                stderr_dropped_bytes=self._stderr_dropped_bytes,
-                output_dropped_bytes=self._output_dropped_bytes,
-            )
+            return self._snapshot_locked()
+
+    def persist(self, directory: Path, *, force: bool = False) -> bool:
+        with self._lock:
+            generation = self._generation
+            if not force and generation == self._persisted_generation:
+                return False
+            snapshot = self._snapshot_locked()
+        _write_capture(directory, snapshot)
+        with self._lock:
+            self._persisted_generation = max(self._persisted_generation, generation)
+        return True
+
+    def _snapshot_locked(self) -> DurableProcessCapture:
+        return DurableProcessCapture(
+            stdout_total_bytes=self._stdout_total_bytes,
+            stderr_total_bytes=self._stderr_total_bytes,
+            output_total_bytes=self._output_total_bytes,
+            stdout_dropped_bytes=self._stdout_dropped_bytes,
+            stderr_dropped_bytes=self._stderr_dropped_bytes,
+            output_dropped_bytes=self._output_dropped_bytes,
+        )
 
 
 def main() -> int:
@@ -172,7 +189,7 @@ def _supervise(
                 byte_limit=spec.output_retention_byte_limit,
                 lock=combined_lock,
             )
-            _write_capture(directory, capture.snapshot())
+            capture.persist(directory, force=True)
             drain_failures: SimpleQueue[BaseException] = SimpleQueue()
             output_threads = (
                 threading.Thread(
@@ -227,7 +244,7 @@ def _supervise(
             if not _drain_output_threads(output_threads):
                 raise OSError("Durable process output did not drain after process exit.")
             _raise_drain_failure(drain_failures)
-            _write_capture(directory, capture.snapshot())
+            capture.persist(directory)
             now = time.time()
             _write_status(
                 directory,
@@ -248,7 +265,7 @@ def _supervise(
         now = time.time()
         if capture is not None:
             with suppress(OSError, DurableProcessRecordError):
-                _write_capture(directory, capture.snapshot())
+                capture.persist(directory)
         with suppress(OSError, DurableProcessRecordError):
             _write_status(
                 directory,
@@ -265,7 +282,7 @@ def _supervise(
     finally:
         if capture is not None:
             with suppress(OSError, DurableProcessRecordError):
-                _write_capture(directory, capture.snapshot())
+                capture.persist(directory)
         with suppress(OSError, DurableProcessRecordError):
             store.prune_terminal_records()
 
@@ -285,7 +302,7 @@ def _wait_for_child(
     while child.poll() is None:
         _raise_drain_failure(drain_failures)
         if time.monotonic() >= next_capture:
-            _write_capture(directory, capture.snapshot())
+            capture.persist(directory)
             next_capture = time.monotonic() + _CAPTURE_PERSIST_SECONDS
         if not stop_requested and (shutdown.requested or _stop_requested(directory)):
             stop_requested = True

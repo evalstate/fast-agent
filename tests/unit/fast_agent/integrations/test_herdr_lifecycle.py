@@ -386,3 +386,51 @@ def test_delivery_retries_after_transport_exception(
     reporter.release()
 
     assert attempts[:2] == [0.5, 1.5]
+
+
+def test_session_metadata_retries_after_delivery_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    environment = herdr_lifecycle._HerdrEnvironment(
+        pane_id="w1:p2",
+        socket_path=str(tmp_path / "unused.sock"),
+        bin_path=None,
+    )
+    reporter = herdr_lifecycle._HerdrLifecycleReporter(environment)
+    attempts: list[float] = []
+
+    def send_attempt(_request, timeout_seconds: float) -> bool:
+        attempts.append(timeout_seconds)
+        return len(attempts) >= 3
+
+    monkeypatch.setattr(reporter, "_send_request_attempt", send_attempt)
+
+    def report() -> None:
+        reporter.report_session_metadata(
+            session_id="session-1",
+            title="Retry metadata",
+            model="provider.model",
+            agent_name="agent",
+            pinned=False,
+            forked_from=None,
+            context_usage=None,
+            token_usage=None,
+        )
+
+    report()
+    deadline = time.monotonic() + 1
+    while reporter._pending_session_metadata is not None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert attempts == [0.5, 1.5]
+
+    report()
+    deadline = time.monotonic() + 1
+    while reporter._pending_session_metadata is not None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert attempts == [0.5, 1.5, 0.5]
+
+    report()
+    time.sleep(0.05)
+    assert attempts == [0.5, 1.5, 0.5]
+    reporter.release()

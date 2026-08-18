@@ -183,6 +183,27 @@ def test_durable_process_caps_logs_while_continuing_to_drain(tmp_path: Path) -> 
     assert completed.output_dropped_bytes == 400000 - 1024
 
 
+@pytest.mark.unit
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+def test_silent_durable_process_does_not_rewrite_capture(tmp_path: Path) -> None:
+    store = DurableProcessStore(tmp_path / "durable")
+    created = store.create(command="sleep 30", shell=_SHELL, cwd=tmp_path)
+    store.launch(created.spec.process_id, environment=dict(os.environ))
+    store.wait_for_launch(created.spec.process_id, timeout_seconds=5)
+    capture_path = store.directory(created.spec.process_id) / "capture.json"
+    initial = capture_path.stat()
+
+    try:
+        time.sleep(0.35)
+        unchanged = capture_path.stat()
+    finally:
+        store.request_stop(created.spec.process_id)
+        store.wait(created.spec.process_id, timeout_seconds=5)
+
+    assert unchanged.st_ino == initial.st_ino
+    assert unchanged.st_mtime_ns == initial.st_mtime_ns
+
+
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
 async def test_durable_poll_consumes_dropped_output_accounting(tmp_path: Path) -> None:
