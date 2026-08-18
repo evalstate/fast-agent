@@ -1807,6 +1807,13 @@ async def dispatch_command_payload(
             ),
         )
     )
+    if result is not None:
+        from fast_agent.integrations.herdr_session import report_current_session
+
+        report_current_session(
+            session_manager,
+            agent=prompt_provider.get_agent(result.next_agent or agent),
+        )
     return result or DispatchResult(handled=False)
 
 
