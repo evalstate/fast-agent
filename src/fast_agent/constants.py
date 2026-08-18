@@ -73,6 +73,9 @@ MAX_PROCESS_POLL_WAIT_SECONDS = 3600
 MAX_PROCESS_OUTPUT_QUERY_CHARS = 512
 """Maximum literal query length for retained process output."""
 
+MAX_RETAINED_DURABLE_PROCESS_RECORDS = 100
+"""Maximum completed durable process records retained under fast-agent home."""
+
 MAX_FOREGROUND_AUTO_AWAIT_SECONDS = 3600
 """Maximum configurable total runtime for foreground auto-await."""
 

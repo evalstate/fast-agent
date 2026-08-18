@@ -133,7 +133,7 @@ def test_durable_process_completes_after_store_replacement_and_captures_logs(
     assert completed.status.exit_code == 7
     assert replacement.discover() == [completed]
     assert stdout.text == "stdout"
-    assert stdout.next_offset == 0
+    assert stdout.next_offset == len(b"stdout")
     assert stdout.match_count == 1
     assert stderr.text == "stderr"
     assert "stdout" in combined.text
@@ -237,6 +237,70 @@ def test_invalid_utf8_record_is_skipped_as_malformed(tmp_path: Path) -> None:
         valid.spec.process_id,
         additional.spec.process_id,
     }
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+def test_terminal_record_retention_prunes_oldest_records(tmp_path: Path) -> None:
+    root = tmp_path / "durable"
+    store = DurableProcessStore(root, max_terminal_records=10)
+    stale = store.create(command="sleep 30", shell=_SHELL, cwd=tmp_path)
+    stale_status_path = store.directory(stale.spec.process_id) / "status.json"
+    stale_status = json.loads(stale_status_path.read_text(encoding="utf-8"))
+    stale_status.update(
+        {
+            "state": "running",
+            "updated_at": 0.0,
+            "heartbeat_at": 0.0,
+            "supervisor_pid": 99_999_999,
+            "child_pid": 99_999_998,
+            "started_at": 0.0,
+        }
+    )
+    stale_status_path.write_text(json.dumps(stale_status), encoding="utf-8")
+    terminal_ids: list[str] = []
+    for index in range(3):
+        created = store.create(command=f"exit {index}", shell=_SHELL, cwd=tmp_path)
+        terminal_ids.append(created.spec.process_id)
+        status_path = store.directory(created.spec.process_id) / "status.json"
+        status = json.loads(status_path.read_text(encoding="utf-8"))
+        status.update(
+            {
+                "state": "exited",
+                "exit_code": index,
+                "updated_at": float(index + 1),
+                "heartbeat_at": float(index + 1),
+            }
+        )
+        status_path.write_text(json.dumps(status), encoding="utf-8")
+    control = store.directory(terminal_ids[0]) / "control"
+    control.mkdir()
+    (control / "stop.json").write_text("{}", encoding="utf-8")
+    active = store.create(command="sleep 30", shell=_SHELL, cwd=tmp_path)
+
+    replacement = DurableProcessStore(root, max_terminal_records=2)
+    discovered_ids = {snapshot.spec.process_id for snapshot in replacement.discover()}
+
+    assert discovered_ids == {terminal_ids[1], terminal_ids[2], active.spec.process_id}
+    assert not (root / stale.spec.process_id).exists()
+    assert not (root / terminal_ids[0]).exists()
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+def test_supervisor_honors_terminal_record_retention(tmp_path: Path) -> None:
+    root = tmp_path / "durable"
+    store = DurableProcessStore(root, max_terminal_records=1)
+    for _ in range(2):
+        created = store.create(command="exit 0", shell=_SHELL, cwd=tmp_path)
+        store.launch(created.spec.process_id, environment=dict(os.environ))
+        store.wait(created.spec.process_id, timeout_seconds=5)
+
+    deadline = time.monotonic() + 2
+    while len(store.discover()) > 1 and time.monotonic() < deadline:
+        time.sleep(0.02)
+
+    assert len(store.discover()) == 1
 
 
 @pytest.mark.unit
@@ -449,11 +513,22 @@ def test_durable_output_query_searches_beyond_response_limit(tmp_path: Path) -> 
 
     assert limited.text == "MATCH one\n"
     assert limited.match_count == 2
-    assert limited.next_offset == 0
+    assert limited.next_offset == len(("ordinary output\n" * 20 + "MATCH one\n").encode())
     assert limited.at_end is False
     assert complete.text == "MATCH one\nMATCH two\n"
     assert complete.match_count == 2
     assert complete.at_end is True
+
+    continued = store.read_output(
+        created.spec.process_id,
+        stream=DurableProcessStream.COMBINED,
+        offset=limited.next_offset,
+        limit=1024,
+        query="MATCH",
+    )
+    assert continued.text == "MATCH two\n"
+    assert continued.match_count == 1
+    assert continued.at_end is True
 
 
 @pytest.mark.unit
@@ -477,8 +552,8 @@ def test_durable_output_query_scans_bounded_chunks_across_boundary(tmp_path: Pat
     assert output.text == "x" * 32
     assert output.returned_bytes == 32
     assert output.match_count == 1
-    assert output.next_offset == 0
-    assert output.at_end is False
+    assert output.next_offset == output_path.stat().st_size
+    assert output.at_end is True
 
     with pytest.raises(ValueError, match="query must be at most 512 characters"):
         store.read_output(
@@ -753,6 +828,31 @@ async def test_shell_runtime_counts_unattached_durable_processes_for_capacity(
         assert isinstance(result.content[0], TextContent)
         assert f"at most {MAX_MANAGED_SHELL_PROCESSES}" in result.content[0].text
     await runtime.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+async def test_shell_runtime_disables_durability_when_store_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    durable_root = tmp_path / "processes"
+    durable_root.write_text("not a directory", encoding="utf-8")
+
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger(__name__),
+        working_directory=tmp_path,
+        durable_process_root=durable_root,
+    )
+    try:
+        result = await runtime.execute({"command": "printf foreground"})
+    finally:
+        await runtime.close()
+
+    assert runtime.durable_process_root is None
+    assert result.is_error is False
+    assert isinstance(result.content[0], TextContent)
+    assert "foreground" in result.content[0].text
 
 
 @pytest.mark.asyncio

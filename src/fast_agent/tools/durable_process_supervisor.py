@@ -13,6 +13,8 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from typing import TYPE_CHECKING, BinaryIO
 
+from fast_agent.constants import MAX_RETAINED_DURABLE_PROCESS_RECORDS
+
 if TYPE_CHECKING:
     from types import FrameType
 
@@ -46,6 +48,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
     parser.add_argument("--process-id", required=True)
+    parser.add_argument(
+        "--max-terminal-records",
+        type=int,
+        default=MAX_RETAINED_DURABLE_PROCESS_RECORDS,
+    )
     arguments = parser.parse_args()
     root = Path(arguments.root)
     process_id = arguments.process_id
@@ -60,7 +67,10 @@ def main() -> int:
     }
     try:
         validate_process_id(process_id)
-        store = DurableProcessStore(root)
+        store = DurableProcessStore(
+            root,
+            max_terminal_records=arguments.max_terminal_records,
+        )
         _supervise(store, process_id, shutdown=shutdown)
     except DurableProcessRecordError:
         return 2
@@ -181,6 +191,9 @@ def _supervise(
                     started_at=started_at,
                 ),
             )
+    finally:
+        with suppress(OSError, DurableProcessRecordError):
+            store.prune_terminal_records()
 
 
 def _wait_for_child(

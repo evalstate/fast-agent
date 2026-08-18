@@ -37,6 +37,7 @@ from fast_agent.mcp.tool_result_metadata import (
     update_tool_result_display_metadata,
 )
 from fast_agent.tools.durable_processes import (
+    DurableProcessError,
     DurableProcessOutput,
     DurableProcessRecordError,
     DurableProcessSnapshot,
@@ -244,12 +245,16 @@ class ShellRuntime:
         self._minimal_shell_tool_requires_description = minimal_shell_tool_requires_description
         self._extended_guidance = extended_guidance
         self._managed_processes: dict[str, ManagedShellProcess] = {}
-        self._durable_process_store = (
-            DurableProcessStore(durable_process_root)
-            if durable_process_root is not None
-            and isinstance(self._environment, LocalShellExecutor)
-            else None
-        )
+        self._durable_process_store: DurableProcessStore | None = None
+        if durable_process_root is not None and isinstance(self._environment, LocalShellExecutor):
+            try:
+                self._durable_process_store = DurableProcessStore(durable_process_root)
+            except (DurableProcessError, OSError) as exc:
+                self._logger.warning(
+                    "Durable process storage is unavailable at %s: %s",
+                    durable_process_root,
+                    exc,
+                )
         self._attached_durable_processes: set[str] = set()
         self._durable_output_offsets: dict[str, int] = {}
         self._durable_observed_output_bytes: dict[str, int] = {}

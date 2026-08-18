@@ -7,11 +7,13 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import stat
 import subprocess
 import sys
 import time
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -23,6 +25,7 @@ from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     MAX_MANAGED_SHELL_PROCESSES,
     MAX_PROCESS_OUTPUT_QUERY_CHARS,
+    MAX_RETAINED_DURABLE_PROCESS_RECORDS,
 )
 
 if TYPE_CHECKING:
@@ -35,6 +38,7 @@ _PROCESS_ID_LENGTH: Final = len(_PROCESS_ID_PREFIX) + 32
 _MAX_OUTPUT_READ_BYTES: Final = 1024 * 1024
 _OUTPUT_SEARCH_CHUNK_BYTES: Final = 64 * 1024
 _NONTERMINAL_STATES: Final = frozenset({"created", "starting", "running", "stopping"})
+_TERMINAL_STATES: Final = frozenset({"exited", "stopped", "unavailable"})
 
 DurableProcessState = Literal[
     "created",
@@ -127,13 +131,18 @@ class DurableProcessStore:
         root: Path,
         *,
         heartbeat_timeout_seconds: float = 5.0,
+        max_terminal_records: int = MAX_RETAINED_DURABLE_PROCESS_RECORDS,
     ) -> None:
         _require_posix()
         if heartbeat_timeout_seconds <= 0:
             raise ValueError("heartbeat_timeout_seconds must be positive.")
+        if max_terminal_records < 0:
+            raise ValueError("max_terminal_records must not be negative.")
         self._root = root.resolve()
         self._heartbeat_timeout_seconds = heartbeat_timeout_seconds
+        self._max_terminal_records = max_terminal_records
         _ensure_private_directory(self._root)
+        self.prune_terminal_records()
 
     @property
     def root(self) -> Path:
@@ -269,6 +278,8 @@ class DurableProcessStore:
                         str(self._root),
                         "--process-id",
                         process_id,
+                        "--max-terminal-records",
+                        str(self._max_terminal_records),
                     ],
                     stdin=stdin,
                     stdout=output,
@@ -292,6 +303,9 @@ class DurableProcessStore:
                 ),
             )
             raise
+        finally:
+            with suppress(OSError, DurableProcessRecordError):
+                self.prune_terminal_records()
         return self.get(process_id)
 
     def discover(self) -> list[DurableProcessSnapshot]:
@@ -305,6 +319,37 @@ class DurableProcessStore:
                 except DurableProcessRecordError:
                     continue
         return snapshots
+
+    def prune_terminal_records(self) -> int:
+        """Remove oldest completed records beyond the configured retention count."""
+
+        removed = 0
+        with FileLock(self._root / ".capacity.lock", mode=0o600):
+            terminal_records: list[tuple[float, float, str]] = []
+            for entry in self._root.iterdir():
+                if not entry.is_dir() or not _is_process_id(entry.name):
+                    continue
+                try:
+                    directory = self._directory(entry.name)
+                    spec = _read_spec(directory)
+                    status = _read_status(directory)
+                except DurableProcessRecordError:
+                    continue
+                if self._status_is_prunable(status):
+                    terminal_records.append((status.updated_at, spec.created_at, spec.process_id))
+
+            terminal_records.sort(reverse=True)
+            for _, _, process_id in terminal_records[self._max_terminal_records :]:
+                try:
+                    directory = self._directory(process_id)
+                    status = _read_status(directory)
+                except DurableProcessRecordError:
+                    continue
+                if not self._status_is_prunable(status):
+                    continue
+                _remove_directory(directory)
+                removed += 1
+        return removed
 
     def get(self, process_id: str) -> DurableProcessSnapshot:
         """Read one process snapshot, marking a stale supervisor as unavailable."""
@@ -499,6 +544,11 @@ class DurableProcessStore:
             and time.time() - last_seen_at > self._heartbeat_timeout_seconds
         )
 
+    def _status_is_prunable(self, status: DurableProcessStatus) -> bool:
+        return status.state in _TERMINAL_STATES or (
+            self._is_stale(status) and not _process_is_running(status.supervisor_pid)
+        )
+
 
 def validate_process_id(process_id: str) -> None:
     """Reject process identifiers that are not stable, generated IDs."""
@@ -552,6 +602,18 @@ def _validate_environment(environment: Mapping[str, str]) -> None:
     for key, value in environment.items():
         if not key or "=" in key or "\x00" in key or "\x00" in value:
             raise ValueError("environment entries must be non-empty, NUL-free strings.")
+
+
+def _process_is_running(process_id: int | None) -> bool:
+    if process_id is None:
+        return False
+    try:
+        os.kill(process_id, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def _write_spec(directory: Path, spec: DurableProcessSpec) -> None:
@@ -709,13 +771,15 @@ def _search_output(
 ) -> DurableProcessOutput:
     selected = bytearray()
     match_count = 0
-    returned_matches = 0
-    truncated_match = False
     scan_bytes = max(_file_size(path) - offset, 0)
+    scan_end = offset + scan_bytes
+    continuation_offset: int | None = None
+    has_more = False
     with path.open("rb") as output:
         output.seek(offset)
-        for matched, line_prefix, line_bytes in _iter_output_search_lines(
+        for matched, line_start, line_end, line_prefix, line_bytes in _iter_output_search_lines(
             output,
+            base_offset=offset,
             scan_bytes=scan_bytes,
             query=query,
             prefix_limit=limit,
@@ -725,17 +789,25 @@ def _search_output(
             match_count += 1
             remaining = limit - len(selected)
             if remaining <= 0:
+                if continuation_offset is None:
+                    continuation_offset = line_start
+                has_more = True
                 continue
-            selected.extend(line_prefix[:remaining])
-            returned_matches += 1
-            if line_bytes > remaining:
-                truncated_match = True
+            if line_bytes <= remaining:
+                selected.extend(line_prefix)
+                continue
+            if not selected:
+                selected.extend(line_prefix[:remaining])
+                continuation_offset = line_end
+                continue
+            if continuation_offset is None:
+                continuation_offset = line_start
+            has_more = True
 
-    has_more = truncated_match or returned_matches < match_count
     return DurableProcessOutput(
         stream=stream,
         offset=offset,
-        next_offset=offset,
+        next_offset=continuation_offset if continuation_offset is not None else scan_end,
         text=bytes(selected).decode("utf-8", errors="replace"),
         at_end=not has_more,
         returned_bytes=len(selected),
@@ -773,12 +845,15 @@ class _OutputSearchLine:
 def _iter_output_search_lines(
     output: BinaryIO,
     *,
+    base_offset: int,
     scan_bytes: int,
     query: str,
     prefix_limit: int,
-) -> Iterator[tuple[bool, bytes, int]]:
+) -> Iterator[tuple[bool, int, int, bytes, int]]:
     line = _OutputSearchLine(query=query, prefix_limit=prefix_limit)
     line_has_data = False
+    line_start = base_offset
+    position = base_offset
     remaining_bytes = scan_bytes
     while remaining_bytes > 0:
         chunk = output.read(min(_OUTPUT_SEARCH_CHUNK_BYTES, remaining_bytes))
@@ -792,15 +867,19 @@ def _iter_output_search_lines(
             fragment = chunk[cursor:end]
             line.feed(fragment, final=newline >= 0)
             line_has_data = True
+            position += len(fragment)
             cursor = end
             if newline >= 0:
-                yield line.result()
+                matched, prefix, encoded_bytes = line.result()
+                yield matched, line_start, position, prefix, encoded_bytes
                 line = _OutputSearchLine(query=query, prefix_limit=prefix_limit)
                 line_has_data = False
+                line_start = position
 
     if line_has_data:
         line.feed(b"", final=True)
-        yield line.result()
+        matched, prefix, encoded_bytes = line.result()
+        yield matched, line_start, position, prefix, encoded_bytes
 
 
 def _read_session_links(directory: Path, *, origin: str | None) -> tuple[str, ...]:
@@ -999,6 +1078,4 @@ def _fsync_directory(directory: Path) -> None:
 
 
 def _remove_directory(directory: Path) -> None:
-    for child in directory.iterdir():
-        child.unlink()
-    directory.rmdir()
+    shutil.rmtree(directory)
