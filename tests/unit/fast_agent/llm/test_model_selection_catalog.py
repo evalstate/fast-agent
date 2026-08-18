@@ -166,6 +166,16 @@ def test_groq_current_aliases_drop_deprecated_kimi_entry() -> None:
     assert "qwen3-32b" in aliases
 
 
+def test_orcarouter_catalog_exposes_default_and_auto_router() -> None:
+    aliases = ModelSelectionCatalog.list_current_aliases(Provider.ORCAROUTER)
+
+    assert aliases == ["orcarouter-gpt4o-mini", "orcarouter-auto"]
+    assert ModelSelectionCatalog.list_current_models(Provider.ORCAROUTER) == [
+        "orcarouter.openai/gpt-4o-mini",
+        "orcarouter.orcarouter/auto",
+    ]
+
+
 @pytest.mark.parametrize(
     "provider",
     (
