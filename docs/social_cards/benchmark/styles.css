@@ -342,6 +342,12 @@ body {
   color: var(--fg);
   font-size: 55px;
 }
+.spotlight--grok .spotlight-primary-score strong {
+  font-size: 68px;
+}
+.spotlight--grok .spotlight-primary-cost strong {
+  font-size: 50px;
+}
 .spotlight-primary-divider {
   color: var(--fg-2);
   font-size: 46px;
@@ -725,6 +731,249 @@ body {
 }
 .cache-cost-row.official .cache-cost-track span {
   background: #5f73f6;
+}
+
+/* Grok / Sol task swings */
+.task-swings-chart .content {
+  padding: 18px 50px 8px;
+}
+.task-swings-heading {
+  position: relative;
+}
+.task-swings-heading h1 {
+  margin: 0;
+  color: #18181b;
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.task-swings-heading p {
+  margin: 7px 0 0;
+  color: #52525b;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.task-swings-heading > strong {
+  position: absolute;
+  top: 8px;
+  right: 0;
+  color: #71717a;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.task-swings-table {
+  margin-top: 15px;
+  border-top: 1px solid #d4d4d8;
+}
+.task-swing-header,
+.task-swing-row {
+  display: grid;
+  grid-template-columns: minmax(330px, 1.35fr) 1fr 1fr 90px;
+  align-items: center;
+  column-gap: 18px;
+}
+.task-swing-header {
+  min-height: 32px;
+  color: #71717a;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.task-swing-header span:not(:first-child) {
+  text-align: center;
+}
+.task-swing-row {
+  min-height: 53px;
+  border-top: 1px solid #e4e4e7;
+}
+.task-swing-row.starts-sol {
+  border-top: 3px solid #a1a1aa;
+}
+.task-swing-task {
+  color: #27272a;
+  font-size: 18px;
+  letter-spacing: -0.025em;
+}
+.task-swing-outcome {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.task-swing-dots {
+  display: flex;
+  gap: 5px;
+}
+.task-swing-dots i {
+  display: block;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+}
+.task-swing-dots .pass {
+  background: #159b68;
+}
+.task-swing-dots .fail {
+  background: #d94a4a;
+}
+.task-swing-outcome strong {
+  min-width: 34px;
+  color: #3f3f46;
+  font-size: 15px;
+}
+.task-swing-edge {
+  font-size: 14px;
+  text-align: center;
+}
+.task-swing-edge.grok {
+  color: #2563eb;
+}
+.task-swing-edge.sol {
+  color: #c2410c;
+}
+
+/* Alternative Grok social-share card */
+.grok-share {
+  background:
+    radial-gradient(circle at 5% 100%, rgba(245, 164, 0, 0.065), transparent 24rem),
+    #090a0d;
+}
+.grok-share::before {
+  opacity: 0.2;
+}
+.grok-share .masthead {
+  height: 82px;
+  padding: 0 50px;
+}
+.grok-share .brand {
+  width: 190px;
+}
+.grok-share .status {
+  border-color: rgba(245, 164, 0, 0.4);
+  color: var(--amber-hi);
+}
+.grok-share .content {
+  display: grid;
+  grid-template-columns: 0.86fr 1.14fr;
+}
+.grok-share--swapped .content {
+  grid-template-columns: 1.14fr 0.86fr;
+}
+.grok-share-hero {
+  position: relative;
+  padding: 28px 40px 22px 50px;
+  border-right: 1px solid rgba(245, 164, 0, 0.28);
+}
+.grok-share--swapped .grok-share-hero {
+  order: 2;
+  padding-right: 50px;
+  padding-left: 40px;
+  border-right: 0;
+  border-left: 1px solid rgba(245, 164, 0, 0.28);
+}
+.grok-share--swapped .grok-share-context {
+  order: 1;
+}
+.grok-share-eyebrow {
+  margin: 0;
+  color: var(--fg-2);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.grok-share-hero h1 {
+  margin: 13px 0 0;
+  color: var(--fg);
+  font-size: 48px;
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  text-transform: lowercase;
+}
+.grok-share-agent {
+  margin: 8px 0 0;
+  color: var(--amber-hi);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.grok-share-score {
+  margin: 0;
+  padding: 17px 18px 14px;
+}
+.grok-share-score strong,
+.grok-share-score span {
+  display: block;
+}
+.grok-share-score strong {
+  color: var(--fg);
+  font-size: 94px;
+  font-weight: 700;
+  letter-spacing: -0.09em;
+  line-height: 0.82;
+}
+.grok-share-score span {
+  margin-top: 12px;
+  color: var(--fg-2);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.grok-share-metrics {
+  margin-top: 21px;
+  border: 1px solid rgba(240, 236, 226, 0.18);
+  background: rgba(255, 255, 255, 0.018);
+}
+.grok-share-costs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-top: 1px solid rgba(240, 236, 226, 0.18);
+}
+.grok-share-costs p {
+  margin: 0;
+  padding: 14px 18px 13px;
+}
+.grok-share-costs p + p {
+  border-left: 1px solid rgba(240, 236, 226, 0.18);
+}
+.grok-share-costs strong,
+.grok-share-costs span {
+  display: block;
+}
+.grok-share-costs strong {
+  color: var(--amber-hi);
+  font-size: 36px;
+  line-height: 1;
+}
+.grok-share-costs span {
+  margin-top: 6px;
+  color: var(--fg-2);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.grok-share-benchmark {
+  margin: 17px 0 0;
+  color: var(--fg);
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -0.045em;
+}
+.grok-share-benchmark strong {
+  color: var(--amber-hi);
+  font-size: 32px;
+}
+.grok-share .footer {
+  height: 50px;
 }
 
 /* Legacy spotlight chart styles */

@@ -16,12 +16,20 @@ Usage:
                                       # Render Terminal-Bench campaign storyboard
     uv run scripts/docs.py benchmark-social --variant spotlight --high-quality
                                       # Render Luna lossless and supersampled masters
+    uv run scripts/docs.py benchmark-social --variant grok --high-quality
+                                      # Render Grok 4.6 spotlight masters
+    uv run scripts/docs.py benchmark-social --variant grok-share --high-quality
+                                      # Render alternative Grok social-share masters
+    uv run scripts/docs.py benchmark-social --variant grok-share-swapped --high-quality
+                                      # Render mirrored Grok social-share masters
     uv run scripts/docs.py benchmark-social --variant deepseek --high-quality
                                       # Render DeepSeek lossless and supersampled masters
     uv run scripts/docs.py benchmark-social --variant pricing-convergence --high-quality
                                       # Render pricing chart lossless and supersampled masters
     uv run scripts/docs.py benchmark-social --variant deepseek-cache-cost --high-quality
                                       # Render DeepSeek cache-cost chart masters
+    uv run scripts/docs.py benchmark-social --variant task-swings --high-quality
+                                      # Render Grok / Sol task-swing comparison masters
     uv run scripts/docs.py assets     # Verify committed interactive docs assets
     uv run scripts/docs.py assets-record tui-shell
                                       # Record an interactive docs asset

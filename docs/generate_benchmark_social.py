@@ -21,9 +21,13 @@ WIDTH = 1200
 HEIGHT = 630
 VARIANTS = {
     "spotlight": "GPT-5.6 Luna max · $19.61 complete run",
+    "grok": "Grok 4.6 high · 87.19% with fast-agent",
+    "grok-share": "Grok 4.6 high · social-share alternative",
+    "grok-share-swapped": "Grok 4.6 high · mirrored social-share alternative",
     "deepseek": "DeepSeek V4 Flash 0731 · $8.74 complete run",
     "pricing-convergence": "Normal pricing / Flex and off-peak convergence",
     "deepseek-cache-cost": "DeepSeek V4 Flash 0731 · cache pricing run cost",
+    "task-swings": "Grok 4.6 vs GPT-5.6 Sol · major task swings",
 }
 
 
@@ -125,7 +129,7 @@ def write_review() -> None:
 <body>
   <header>
     <h1>Terminal-Bench social storyboard</h1>
-    <p>Two benchmark spotlights and two pricing comparisons.</p>
+    <p>Terminal-Bench benchmark spotlight and comparison campaign cards.</p>
   </header>
   <main>{"".join(cards)}</main>
 </body>

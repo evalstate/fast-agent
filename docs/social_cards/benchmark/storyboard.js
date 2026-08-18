@@ -17,6 +17,23 @@
       footerAccent: "PR #184 · pending leaderboard review",
       className: "",
     },
+    grok: {
+      focusModel: "Grok 4.6 · high",
+      identity: "grok 4.6 high",
+      contextModels: [
+        "GPT-5.6 Sol · high",
+        "Grok 4.6 · high",
+        "Fable 5 · xhigh",
+        "Opus 4.8 · high",
+      ],
+      trialQualifier: "source-job cost",
+      spendCopy: "388 rewarded trials out of 445.",
+      footerNote: "Grok cost: aggregated configured source-job cost",
+      footerAccent: "PR #212 · static analysis passed",
+      className: " spotlight--grok",
+      swapCostEmphasis: true,
+      primaryCostDigits: 2,
+    },
     deepseek: {
       focusModel: "DeepSeek V4 Flash · max",
       identity: "deepseek v4 flash 0731",
@@ -130,6 +147,14 @@
   }
 
   function spotlightMain(focus, config) {
+    var primaryCost = config.swapCostEmphasis
+      ? "$" + focus.costPerTrial.toFixed(config.primaryCostDigits || 3)
+      : formatExactTotal(focus.total);
+    var primaryCostLabel = config.swapCostEmphasis ? "cost / trial" : "complete run cost";
+    var supportingCost = config.swapCostEmphasis
+      ? formatExactTotal(focus.total)
+      : formatTrial(focus.costPerTrial);
+    var supportingCostLabel = config.swapCostEmphasis ? "complete run cost" : "/ trial";
     return [
       '<section class="spotlight-main">',
       '<div class="spotlight-identity"><strong>' + config.identity +
@@ -138,11 +163,12 @@
       '<p class="spotlight-primary-score"><strong>' + focus.score.toFixed(1) +
         "%</strong><span>score</span></p>",
       '<span class="spotlight-primary-divider">|</span>',
-      '<p class="spotlight-primary-cost"><strong>' + formatExactTotal(focus.total) +
-        "</strong><span>complete run cost</span></p>",
+      '<p class="spotlight-primary-cost"><strong>' + primaryCost +
+        "</strong><span>" + primaryCostLabel + "</span></p>",
       "</div>",
-      '<p class="spotlight-trial"><strong>' + formatTrial(focus.costPerTrial) +
-        "</strong> / trial <span>· " + config.trialQualifier + "</span></p>",
+      '<p class="spotlight-trial"><strong>' + supportingCost +
+        "</strong> " + supportingCostLabel + " <span>· " +
+        config.trialQualifier + "</span></p>",
       '<p class="spotlight-copy">' + config.spendCopy + "</p>",
       '<code class="spotlight-model">' + focus.modelString + "</code>",
       '<p class="spotlight-benchmark">Terminal-Bench <strong>2.1</strong></p>',
@@ -369,12 +395,124 @@
     ].join("");
   }
 
+  function renderTaskSwings(root) {
+    var tasks = [
+      { task: "configure-git-webserver", grok: 5, sol: 1 },
+      { task: "pytorch-model-recovery", grok: 5, sol: 1 },
+      { task: "gcode-to-text", grok: 4, sol: 1 },
+      { task: "gpt2-codegolf", grok: 0, sol: 5 },
+      { task: "extract-elf", grok: 1, sol: 4 },
+      { task: "video-processing", grok: 0, sol: 3 },
+    ];
+
+    function trialDots(passes) {
+      var dots = [];
+      for (var index = 0; index < 5; index += 1) {
+        dots.push('<i class="' + (index < passes ? "pass" : "fail") + '"></i>');
+      }
+      return [
+        '<span class="task-swing-outcome" aria-label="' + passes + ' passes out of 5">',
+        '<span class="task-swing-dots" aria-hidden="true">' + dots.join("") + "</span>",
+        "<strong>" + passes + "/5</strong>",
+        "</span>",
+      ].join("");
+    }
+
+    var rows = tasks.map(function (task, index) {
+      var grokAhead = task.grok > task.sol;
+      var edge = Math.abs(task.grok - task.sol);
+      return [
+        '<div class="task-swing-row ' + (index === 3 ? "starts-sol" : "") + '">',
+        '<strong class="task-swing-task">' + task.task + "</strong>",
+        trialDots(task.grok),
+        trialDots(task.sol),
+        '<strong class="task-swing-edge ' + (grokAhead ? "grok" : "sol") + '">',
+        (grokAhead ? "GROK" : "SOL") + " +" + edge,
+        "</strong>",
+        "</div>",
+      ].join("");
+    }).join("");
+
+    root.innerHTML = [
+      '<article class="card pricing-chart task-swings-chart">',
+      masthead(
+        "task comparison",
+        "../../docs/assets/brand/fast-agent-lockup-light.svg"
+      ),
+      '<div class="content">',
+      '<div class="task-swings-heading">',
+      "<h1>Major task swings</h1>",
+      "<p>Grok 4.6 high vs GPT-5.6 Sol high · fast-agent</p>",
+      '<strong>|Δ| ≥ 3 of 5 trials</strong>',
+      "</div>",
+      '<div class="task-swings-table">',
+      '<div class="task-swing-header"><span>Task</span><span>Grok 4.6</span>',
+      "<span>GPT-5.6 Sol</span><span>Δ Passes</span></div>",
+      rows,
+      "</div>",
+      "</div>",
+      '<footer class="footer"><span class="primary">89 tasks · five trials each</span>',
+      "<span>56 tasks were 5/5 for both</span>",
+      '<span class="spacer"></span><span>PR #212 · PR #174</span>',
+      "</footer>",
+      "</article>",
+    ].join("");
+  }
+
+  function renderGrokShare(root, swapped) {
+    var results = cardResults(CARDS.grok).sort(function (first, second) {
+      return second.score - first.score;
+    });
+    var focus = results.find(function (result) {
+      return result.model === CARDS.grok.focusModel;
+    });
+
+    root.innerHTML = [
+      '<article class="card grok-share' + (swapped ? " grok-share--swapped" : "") + '">',
+      masthead("frontier result · provisional"),
+      '<div class="content">',
+      '<section class="grok-share-hero">',
+      '<p class="grok-share-eyebrow">445 trials · frontier comparison</p>',
+      "<h1>Grok 4.6 high</h1>",
+      '<p class="grok-share-agent">fast-agent</p>',
+      '<div class="grok-share-metrics">',
+      '<p class="grok-share-score"><strong>' + focus.score.toFixed(1) +
+        "%</strong><span>score</span></p>",
+      '<div class="grok-share-costs">',
+      '<p><strong>' + formatCostForShare(focus.costPerTrial) +
+        '</strong><span>per task</span></p>',
+      '<p><strong>$' + Math.round(focus.total) + '</strong><span>full run</span></p>',
+      "</div>",
+      "</div>",
+      '<p class="grok-share-benchmark">Terminal-Bench <strong>2.1</strong></p>',
+      "</section>",
+      '<section class="spotlight-context grok-share-context">',
+      '<div class="context-header"><span>Model / harness</span><span>Cost</span>' +
+        "<span>Score</span><span>$/trial</span></div>",
+      contextRows(results, focus),
+      "</section>",
+      "</div>",
+      '<footer class="footer"><span class="primary">388 / 445 rewarded trials</span>',
+      "<span>fast-agent 0.10.9 · Grok 4.6 high</span>",
+      '<span class="spacer"></span><span class="accent">PR #212 · static analysis passed</span>',
+      "</footer>",
+      "</article>",
+    ].join("");
+  }
+
+  function formatCostForShare(value) {
+    return "$" + value.toFixed(2);
+  }
+
   function start() {
     var root = document.getElementById("storyboard");
     var variant = new URLSearchParams(window.location.search).get("variant") || "spotlight";
     try {
       if (variant === "pricing-convergence") renderPricing(root);
       else if (variant === "deepseek-cache-cost") renderDeepseekCacheCost(root);
+      else if (variant === "task-swings") renderTaskSwings(root);
+      else if (variant === "grok-share") renderGrokShare(root, false);
+      else if (variant === "grok-share-swapped") renderGrokShare(root, true);
       else renderSpotlight(root, CARDS[variant] || CARDS.spotlight);
     } catch (error) {
       root.innerHTML = '<div class="error">Unable to load benchmark data: ' +
