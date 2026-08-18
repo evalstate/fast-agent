@@ -6,6 +6,7 @@ import os
 from typing import TYPE_CHECKING
 
 from fast_agent.integrations.herdr_lifecycle import report_session_metadata
+from fast_agent.llm.model_display_name import format_model_display_name
 from fast_agent.session import extract_session_title
 from fast_agent.ui.context_usage_display import format_compact_context_usage_percent
 from fast_agent.utils.count_display import format_compact_count
@@ -15,14 +16,24 @@ if TYPE_CHECKING:
     from fast_agent.session import Session, SessionManager
 
 
-def _usage_metadata(agent: "AgentProtocol | None") -> tuple[str | None, str | None]:
+def _usage_metadata(
+    agent: "AgentProtocol | None",
+    *,
+    model: str | None,
+) -> tuple[str | None, str | None]:
     usage = agent.usage_accumulator if agent is not None else None
+    context_percentage = (
+        format_compact_context_usage_percent(usage.context_usage_percentage)
+        if usage is not None
+        else None
+    )
+    context_parts = [
+        part for part in (context_percentage, format_model_display_name(model)) if part is not None
+    ]
+    context_usage = " - ".join(context_parts) or None
+
     if usage is None:
-        return None, None
-
-    context_percentage = format_compact_context_usage_percent(usage.context_usage_percentage)
-    context_usage = f"{context_percentage} context" if context_percentage is not None else None
-
+        return context_usage, None
     summary = usage.summary
     token_parts: list[str] = []
     if summary.prompt.total is not None:
@@ -57,7 +68,7 @@ def report_session(
         else None
     )
     forked_from = metadata.get("forked_from")
-    context_usage, token_usage = _usage_metadata(agent)
+    context_usage, token_usage = _usage_metadata(agent, model=model)
     report_session_metadata(
         session_id=session.info.name if session is not None else None,
         title=extract_session_title(metadata),

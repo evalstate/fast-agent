@@ -50,7 +50,7 @@ def test_report_session_maps_persisted_and_active_metadata(monkeypatch) -> None:
     usage.set_context_window_size(1_000)
     agent = SimpleNamespace(
         name="active-agent",
-        config=SimpleNamespace(model="provider.model?reasoning=high"),
+        config=SimpleNamespace(model="codexresponses.gpt-5.6-sol?reasoning=high"),
         context=None,
         usage_accumulator=usage,
     )
@@ -70,11 +70,11 @@ def test_report_session_maps_persisted_and_active_metadata(monkeypatch) -> None:
         {
             "session_id": "session-1",
             "title": "Review auth",
-            "model": "provider.model?reasoning=high",
+            "model": "codexresponses.gpt-5.6-sol?reasoning=high",
             "agent_name": "saved-agent",
             "pinned": True,
             "forked_from": "session-0",
-            "context_usage": "35.0% context",
+            "context_usage": "35.0% - gpt-5.6-sol",
             "token_usage": "300 in · 50 out",
         }
     ]
