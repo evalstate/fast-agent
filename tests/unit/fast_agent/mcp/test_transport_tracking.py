@@ -209,6 +209,68 @@ def test_listen_channel_tracks_requests_notifications_and_state() -> None:
     assert snapshot.listen.activity_buckets == ["none", "request"]
 
 
+def test_listen_ping_reply_clears_pending_ping_request() -> None:
+    """A ping reply arriving on `listen` must resolve the request parked by another channel."""
+    metrics = TransportChannelMetrics()
+
+    for index in range(3):
+        metrics.record_event(
+            ChannelEvent(
+                channel="post-json",
+                event_type="message",
+                message=JSONRPCRequest(jsonrpc="2.0", id=index, method="ping"),
+            )
+        )
+        metrics.record_event(
+            ChannelEvent(
+                channel="listen",
+                event_type="message",
+                message=JSONRPCResponse(jsonrpc="2.0", id=index, result={}),
+            )
+        )
+
+    snapshot = metrics.snapshot()
+    assert snapshot.listen is not None
+    # the replies are pings, not ordinary responses
+    assert snapshot.listen.response_count == 0
+    assert snapshot.listen.last_message_summary == "ping"
+    # and nothing is left parked once every ping has been answered
+    assert metrics._ping_request_ids == set()
+
+
+def test_listen_channel_still_tallies_after_ping_routing() -> None:
+    """Routing `listen` through the shared tally must not stop it counting."""
+    metrics = TransportChannelMetrics()
+
+    metrics.record_event(
+        ChannelEvent(
+            channel="listen",
+            event_type="message",
+            message=JSONRPCRequest(jsonrpc="2.0", id="l-1", method="subscriptions/listen"),
+        )
+    )
+    metrics.record_event(
+        ChannelEvent(
+            channel="listen",
+            event_type="message",
+            message=JSONRPCNotification(jsonrpc="2.0", method="notifications/tools/list_changed"),
+        )
+    )
+    metrics.record_event(
+        ChannelEvent(
+            channel="listen",
+            event_type="message",
+            message=JSONRPCResponse(jsonrpc="2.0", id="l-1", result={}),
+        )
+    )
+
+    snapshot = metrics.snapshot()
+    assert snapshot.listen is not None
+    assert snapshot.listen.request_count == 1
+    assert snapshot.listen.notification_count == 1
+    assert snapshot.listen.response_count == 1
+
+
 def test_unsupported_listen_channel_is_hidden() -> None:
     metrics = TransportChannelMetrics()
     metrics.record_event(
