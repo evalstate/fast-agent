@@ -5,7 +5,7 @@ from typing import Any, Literal, TypeAlias, cast
 
 from mcp_types import Tool
 
-from fast_agent.constants import MAX_TERMINAL_OUTPUT_BYTE_LIMIT
+from fast_agent.constants import MAX_PROCESS_OUTPUT_QUERY_CHARS, MAX_TERMINAL_OUTPUT_BYTE_LIMIT
 from fast_agent.tools.filesystem_tool_args import (
     coerce_optional_string_argument,
     coerce_positive_int_argument,
@@ -25,7 +25,6 @@ from fast_agent.utils.tool_names import (
 
 MAX_IDLE_YIELD_SECONDS = 30
 MAX_ALIGNED_SHELL_TIMEOUT_SECONDS = 600
-MAX_PROCESS_OUTPUT_QUERY_CHARS = 512
 PROCESS_OUTPUT_DEBOUNCE_SECONDS = 2.0
 
 _EXECUTE_ARGUMENTS = frozenset(
