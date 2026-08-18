@@ -1,4 +1,5 @@
 import asyncio
+import os
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -508,6 +509,21 @@ async def test_shell_output_limit_refreshes_after_llm_attach() -> None:
     assert shell_runtime.output_byte_limit == calculate_terminal_output_limit_for_model(
         "claude-opus-4-6"
     )
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+async def test_public_home_setting_enables_durable_process_store(tmp_path: Path) -> None:
+    home = tmp_path / "custom-home"
+    settings = Settings(home=str(home))
+    config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=True)
+    agent = McpAgent(config=config, context=Context(config=settings))
+
+    shell_runtime = agent.shell_runtime
+    assert shell_runtime is not None
+    assert shell_runtime.durable_process_root == home / "processes"
 
     await agent._aggregator.close()
 

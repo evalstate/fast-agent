@@ -196,6 +196,36 @@ Agent modes apply only to compatible agents and cannot override an explicit
 subagent disable. Model toggles apply when the selected model/provider supports
 the feature.
 
+## Durable background processes
+
+Persistent local background commands are supervised independently of the
+fast-agent invocation that started them. On POSIX systems with fast-agent home
+enabled, their records and output are stored under
+`.fast-agent/processes/` (or the configured fast-agent home).
+
+Use:
+
+```text
+/process
+/process --history
+/process attach <process-id>
+```
+
+`/process` shows processes already managed by the current runtime and durable
+processes discovered from earlier invocations. `attach` adopts management and
+output observation in the current runtime; it does not reconnect terminal
+input. Once attached, the model-facing `process` tool can inspect output, wait,
+or request that the supervisor stop the process.
+
+The session active when a process starts is recorded as provenance. Attaching
+from another session adds a non-owning association: deleting, forking, or
+leaving a session does not stop the process. Startup reports available durable
+processes and records whose supervisor is no longer available.
+
+Durable supervision is currently local and POSIX-only. Session-scoped commands,
+remote execution environments, Windows, and `--no-home` retain their existing
+process lifecycle behavior.
+
 ## Status Bar
 
 Run `/help status` in the interactive prompt for this legend. The bar reads from

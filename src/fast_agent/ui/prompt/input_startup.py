@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
 
     from fast_agent.core.agent_app import AgentApp
+    from fast_agent.tools.durable_processes import DurableProcessSnapshot
 
 
 @runtime_checkable
@@ -35,6 +36,11 @@ class ContextBackedStatusAgent(Protocol):
 class LlmBackedStatusAgent(Protocol):
     @property
     def llm(self) -> object | None: ...
+
+
+@runtime_checkable
+class DurableProcessStartupRuntime(Protocol):
+    async def discover_durable_processes(self) -> tuple["DurableProcessSnapshot", ...]: ...
 
 
 @runtime_checkable
@@ -307,6 +313,34 @@ async def show_shell_startup(
         return
 
     rich_print(format_shell_notice(shell_context.access_modes, shell_context.runtime))
+    if isinstance(shell_context.runtime, DurableProcessStartupRuntime):
+        durable_processes = await shell_context.runtime.discover_durable_processes()
+        running = [
+            process
+            for process in durable_processes
+            if process.status.state in {"created", "starting", "running", "stopping"}
+        ]
+        unavailable = [
+            process for process in durable_processes if process.status.state == "unavailable"
+        ]
+        if running:
+            rich_print(
+                Text(
+                    f"Startup warning: {len(running)} durable background process"
+                    f"{'es are' if len(running) != 1 else ' is'} available. "
+                    "Run /process to inspect or attach.",
+                    style="yellow",
+                )
+            )
+        if unavailable:
+            rich_print(
+                Text(
+                    f"{len(unavailable)} durable process"
+                    f"{'es are' if len(unavailable) != 1 else ' is'} no longer available. "
+                    "Run /process --history to inspect.",
+                    style="yellow",
+                )
+            )
     if agent_provider and not is_human_input:
         await display_all_agents_with_hierarchy(available_agents, agent_provider)
     await show_streaming_status(

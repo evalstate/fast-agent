@@ -1,3 +1,7 @@
+import logging
+import os
+from pathlib import Path
+
 import pytest
 
 from fast_agent.commands.context import (
@@ -7,7 +11,11 @@ from fast_agent.commands.context import (
 )
 from fast_agent.commands.handlers.display import handle_processes
 from fast_agent.commands.results import CommandMessage
-from fast_agent.tools.shell_runtime import ManagedProcessSnapshot
+from fast_agent.session.session_manager import SessionManager
+from fast_agent.tools.durable_processes import DurableProcessSnapshot, DurableProcessStore
+from fast_agent.tools.shell_runtime import ManagedProcessSnapshot, ShellRuntime
+
+_SHELL = Path("/bin/sh")
 
 
 class _Runtime:
@@ -37,9 +45,22 @@ class _Runtime:
             ),
         )
 
+    async def discover_durable_processes(self) -> tuple[DurableProcessSnapshot, ...]:
+        return ()
+
+    async def attach_durable_process(
+        self,
+        process_id: str,
+        *,
+        session_id: str | None = None,
+    ) -> DurableProcessSnapshot:
+        del process_id, session_id
+        raise AssertionError("not expected")
+
 
 class _Agent:
-    shell_runtime = _Runtime()
+    def __init__(self, shell_runtime: _Runtime | ShellRuntime | None = None) -> None:
+        self.shell_runtime = shell_runtime or _Runtime()
 
 
 class _IO(NonInteractiveCommandIOBase):
@@ -89,3 +110,39 @@ async def test_handle_processes_history_renders_only_finished_processes() -> Non
     assert "**1 finished** · 2 retained" in text
     assert "`process-2` | completed (0) |" in text
     assert "process-1" not in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+async def test_handle_process_attach_falls_back_to_acp_session_id(tmp_path: Path) -> None:
+    root = tmp_path / "processes"
+    store = DurableProcessStore(root)
+    created = store.create(command="exit 0", shell=_SHELL, cwd=tmp_path)
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger(__name__),
+        working_directory=tmp_path,
+        durable_process_root=root,
+    )
+    context = CommandContext(
+        agent_provider=StaticAgentProvider({"main": _Agent(runtime)}),
+        current_agent_name="main",
+        io=_IO(),
+        acp_session_id="acp-session-1",
+        session_manager=SessionManager(
+            cwd=tmp_path,
+            home_override=tmp_path / "home",
+        ),
+    )
+
+    try:
+        outcome = await handle_processes(
+            context,
+            agent_name="main",
+            attach_process_id=created.spec.process_id,
+        )
+    finally:
+        await runtime.close()
+
+    assert outcome.messages[0].channel == "system"
+    assert store.get(created.spec.process_id).session_ids == ("acp-session-1",)
