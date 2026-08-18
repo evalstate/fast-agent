@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import os
+import signal
 import stat
 import sys
 import threading
@@ -23,6 +24,7 @@ from fast_agent.tools.durable_process_supervisor import (
     _raise_drain_failure,
 )
 from fast_agent.tools.durable_processes import (
+    _OUTPUT_SEARCH_CHUNK_BYTES,
     DurableProcessError,
     DurableProcessRecordError,
     DurableProcessSnapshot,
@@ -209,6 +211,32 @@ def test_durable_process_rejects_malformed_records_and_stale_supervisors(tmp_pat
     stale = store.get(created.spec.process_id)
 
     assert stale.status.state == "unavailable"
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+def test_invalid_utf8_record_is_skipped_as_malformed(tmp_path: Path) -> None:
+    store = DurableProcessStore(tmp_path / "durable")
+    valid = store.create(command="exit 0", shell=_SHELL, cwd=tmp_path)
+    corrupt = store.create(command="exit 1", shell=_SHELL, cwd=tmp_path)
+    status_path = store.directory(corrupt.spec.process_id) / "status.json"
+    status_path.write_bytes(b"\x80")
+
+    with pytest.raises(DurableProcessRecordError) as error:
+        store.get(corrupt.spec.process_id)
+
+    assert isinstance(error.value.__cause__, UnicodeDecodeError)
+    assert [snapshot.spec.process_id for snapshot in store.discover()] == [valid.spec.process_id]
+    additional = store.create(
+        command="exit 2",
+        shell=_SHELL,
+        cwd=tmp_path,
+        max_active_processes=2,
+    )
+    assert {snapshot.spec.process_id for snapshot in store.discover()} == {
+        valid.spec.process_id,
+        additional.spec.process_id,
+    }
 
 
 @pytest.mark.unit
@@ -429,6 +457,40 @@ def test_durable_output_query_searches_beyond_response_limit(tmp_path: Path) -> 
 
 
 @pytest.mark.unit
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+def test_durable_output_query_scans_bounded_chunks_across_boundary(tmp_path: Path) -> None:
+    store = DurableProcessStore(tmp_path / "durable")
+    created = store.create(command="exit 0", shell=_SHELL, cwd=tmp_path)
+    output_path = store.directory(created.spec.process_id) / "output.log"
+    output_path.write_bytes(
+        b"x" * (_OUTPUT_SEARCH_CHUNK_BYTES - 2) + b"MATCH" + b"y" * (_OUTPUT_SEARCH_CHUNK_BYTES * 2)
+    )
+
+    output = store.read_output(
+        created.spec.process_id,
+        stream=DurableProcessStream.COMBINED,
+        offset=0,
+        limit=32,
+        query="MATCH",
+    )
+
+    assert output.text == "x" * 32
+    assert output.returned_bytes == 32
+    assert output.match_count == 1
+    assert output.next_offset == 0
+    assert output.at_end is False
+
+    with pytest.raises(ValueError, match="query must be at most 512 characters"):
+        store.read_output(
+            created.spec.process_id,
+            stream=DurableProcessStream.COMBINED,
+            offset=0,
+            limit=32,
+            query="x" * 513,
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.skipif(
     not sys.platform.startswith("linux"),
     reason="process-group descendant assertion uses /proc",
@@ -482,6 +544,31 @@ def test_supervisor_failure_cleans_up_child_process_group(tmp_path: Path) -> Non
     unavailable = store.wait(created.spec.process_id, timeout_seconds=5)
 
     assert unavailable.status.state == "unavailable"
+    assert not _linux_process_is_running(running.status.child_pid)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("termination_signal", [signal.SIGTERM, signal.SIGINT])
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="orphan assertion uses /proc",
+)
+def test_supervisor_signal_stops_child_process_group(
+    tmp_path: Path,
+    termination_signal: signal.Signals,
+) -> None:
+    store = DurableProcessStore(tmp_path / "durable")
+    created = store.create(command="sleep 30", shell=_SHELL, cwd=tmp_path)
+    store.launch(created.spec.process_id, environment=dict(os.environ))
+    running = store.wait_for_launch(created.spec.process_id, timeout_seconds=5)
+    assert running.status.supervisor_pid is not None
+    assert running.status.child_pid is not None
+
+    os.kill(running.status.supervisor_pid, termination_signal)
+    stopped = store.wait(created.spec.process_id, timeout_seconds=5)
+
+    assert stopped.status.state == "stopped"
+    assert stopped.status.exit_code is not None
     assert not _linux_process_is_running(running.status.child_pid)
 
 

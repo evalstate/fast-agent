@@ -11,7 +11,10 @@ import time
 from contextlib import suppress
 from pathlib import Path
 from queue import Empty, SimpleQueue
-from typing import BinaryIO
+from typing import TYPE_CHECKING, BinaryIO
+
+if TYPE_CHECKING:
+    from types import FrameType
 
 from fast_agent.tools.durable_processes import (
     DurableProcessRecordError,
@@ -32,6 +35,11 @@ _STREAM_CHUNK_BYTES = 65536
 _OUTPUT_DRAIN_SECONDS = 2.0
 
 
+class _ShutdownRequest:
+    def __init__(self) -> None:
+        self.requested = False
+
+
 def main() -> int:
     """Run one process supervisor selected by explicit root and process ID."""
 
@@ -41,16 +49,33 @@ def main() -> int:
     arguments = parser.parse_args()
     root = Path(arguments.root)
     process_id = arguments.process_id
+    shutdown = _ShutdownRequest()
+
+    def request_shutdown(_signal_number: int, _frame: FrameType | None) -> None:
+        shutdown.requested = True
+
+    previous_handlers = {
+        signal_number: signal.signal(signal_number, request_shutdown)
+        for signal_number in (signal.SIGTERM, signal.SIGINT)
+    }
     try:
         validate_process_id(process_id)
         store = DurableProcessStore(root)
-        _supervise(store, process_id)
+        _supervise(store, process_id, shutdown=shutdown)
     except DurableProcessRecordError:
         return 2
+    finally:
+        for signal_number, previous_handler in previous_handlers.items():
+            signal.signal(signal_number, previous_handler)
     return 0
 
 
-def _supervise(store: DurableProcessStore, process_id: str) -> None:
+def _supervise(
+    store: DurableProcessStore,
+    process_id: str,
+    *,
+    shutdown: _ShutdownRequest,
+) -> None:
     directory = store.root / process_id
     spec = _read_spec(directory)
     started_at = time.time()
@@ -120,6 +145,7 @@ def _supervise(store: DurableProcessStore, process_id: str) -> None:
                 child,
                 started_at=started_at,
                 drain_failures=drain_failures,
+                shutdown=shutdown,
             )
             if not _drain_output_threads(output_threads):
                 raise OSError("Durable process output did not drain after process exit.")
@@ -163,12 +189,13 @@ def _wait_for_child(
     *,
     started_at: float,
     drain_failures: SimpleQueue[BaseException],
+    shutdown: _ShutdownRequest,
 ) -> bool:
     stop_requested = False
     next_heartbeat = time.monotonic() + _HEARTBEAT_SECONDS
     while child.poll() is None:
         _raise_drain_failure(drain_failures)
-        if not stop_requested and _stop_requested(directory):
+        if not stop_requested and (shutdown.requested or _stop_requested(directory)):
             stop_requested = True
             now = time.time()
             _write_status(

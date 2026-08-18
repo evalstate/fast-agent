@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import hashlib
 import json
 import math
@@ -21,15 +22,18 @@ from filelock import FileLock
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     MAX_MANAGED_SHELL_PROCESSES,
+    MAX_PROCESS_OUTPUT_QUERY_CHARS,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Iterator, Mapping
+    from typing import BinaryIO
 
 _VERSION: Final = 1
 _PROCESS_ID_PREFIX: Final = "process-"
 _PROCESS_ID_LENGTH: Final = len(_PROCESS_ID_PREFIX) + 32
 _MAX_OUTPUT_READ_BYTES: Final = 1024 * 1024
+_OUTPUT_SEARCH_CHUNK_BYTES: Final = 64 * 1024
 _NONTERMINAL_STATES: Final = frozenset({"created", "starting", "running", "stopping"})
 
 DurableProcessState = Literal[
@@ -354,6 +358,8 @@ class DurableProcessStore:
             raise ValueError(f"limit must be between 1 and {_MAX_OUTPUT_READ_BYTES}.")
         if query == "":
             raise ValueError("query must not be empty.")
+        if query is not None and len(query) > MAX_PROCESS_OUTPUT_QUERY_CHARS:
+            raise ValueError(f"query must be at most {MAX_PROCESS_OUTPUT_QUERY_CHARS} characters.")
 
         path = _output_path(self._directory(process_id), stream)
         if query is not None:
@@ -705,20 +711,24 @@ def _search_output(
     match_count = 0
     returned_matches = 0
     truncated_match = False
+    scan_bytes = max(_file_size(path) - offset, 0)
     with path.open("rb") as output:
         output.seek(offset)
-        for raw_line in output:
-            line = raw_line.decode("utf-8", errors="replace")
-            if query not in line:
+        for matched, line_prefix, line_bytes in _iter_output_search_lines(
+            output,
+            scan_bytes=scan_bytes,
+            query=query,
+            prefix_limit=limit,
+        ):
+            if not matched:
                 continue
             match_count += 1
             remaining = limit - len(selected)
             if remaining <= 0:
                 continue
-            line_blob = line.encode("utf-8", errors="replace")
-            selected.extend(line_blob[:remaining])
+            selected.extend(line_prefix[:remaining])
             returned_matches += 1
-            if len(line_blob) > remaining:
+            if line_bytes > remaining:
                 truncated_match = True
 
     has_more = truncated_match or returned_matches < match_count
@@ -731,6 +741,66 @@ def _search_output(
         returned_bytes=len(selected),
         match_count=match_count,
     )
+
+
+class _OutputSearchLine:
+    def __init__(self, *, query: str, prefix_limit: int) -> None:
+        self._query = query
+        self._query_overlap = max(len(query) - 1, 0)
+        self._prefix_limit = prefix_limit
+        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self._search_tail = ""
+        self._prefix = bytearray()
+        self._encoded_bytes = 0
+        self._matched = False
+
+    def feed(self, payload: bytes, *, final: bool) -> None:
+        text = self._decoder.decode(payload, final=final)
+        candidate = self._search_tail + text
+        if not self._matched and self._query in candidate:
+            self._matched = True
+        self._search_tail = candidate[-self._query_overlap :] if self._query_overlap else ""
+        encoded = text.encode("utf-8")
+        self._encoded_bytes += len(encoded)
+        remaining = self._prefix_limit - len(self._prefix)
+        if remaining > 0:
+            self._prefix.extend(encoded[:remaining])
+
+    def result(self) -> tuple[bool, bytes, int]:
+        return self._matched, bytes(self._prefix), self._encoded_bytes
+
+
+def _iter_output_search_lines(
+    output: BinaryIO,
+    *,
+    scan_bytes: int,
+    query: str,
+    prefix_limit: int,
+) -> Iterator[tuple[bool, bytes, int]]:
+    line = _OutputSearchLine(query=query, prefix_limit=prefix_limit)
+    line_has_data = False
+    remaining_bytes = scan_bytes
+    while remaining_bytes > 0:
+        chunk = output.read(min(_OUTPUT_SEARCH_CHUNK_BYTES, remaining_bytes))
+        if not chunk:
+            break
+        remaining_bytes -= len(chunk)
+        cursor = 0
+        while cursor < len(chunk):
+            newline = chunk.find(b"\n", cursor)
+            end = len(chunk) if newline < 0 else newline + 1
+            fragment = chunk[cursor:end]
+            line.feed(fragment, final=newline >= 0)
+            line_has_data = True
+            cursor = end
+            if newline >= 0:
+                yield line.result()
+                line = _OutputSearchLine(query=query, prefix_limit=prefix_limit)
+                line_has_data = False
+
+    if line_has_data:
+        line.feed(b"", final=True)
+        yield line.result()
 
 
 def _read_session_links(directory: Path, *, origin: str | None) -> tuple[str, ...]:
@@ -820,6 +890,8 @@ def _read_json(path: Path) -> dict[str, object]:
         payload = path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise DurableProcessRecordError(f"Missing durable process record: {path.name}.") from exc
+    except UnicodeDecodeError as exc:
+        raise DurableProcessRecordError(f"Malformed durable process record: {path.name}.") from exc
     try:
         decoded: object = json.loads(payload)
     except json.JSONDecodeError as exc:

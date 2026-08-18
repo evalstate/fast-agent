@@ -70,6 +70,9 @@ MIN_PROCESS_POLL_WAIT_SECONDS = 10
 MAX_PROCESS_POLL_WAIT_SECONDS = 3600
 """Maximum configurable managed-process wait in seconds."""
 
+MAX_PROCESS_OUTPUT_QUERY_CHARS = 512
+"""Maximum literal query length for retained process output."""
+
 MAX_FOREGROUND_AUTO_AWAIT_SECONDS = 3600
 """Maximum configurable total runtime for foreground auto-await."""
 
