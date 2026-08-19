@@ -12,6 +12,8 @@ from fast_agent.ui.context_usage_display import format_compact_context_usage_per
 from fast_agent.utils.count_display import format_compact_count
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.session import Session, SessionManager
 
@@ -85,7 +87,10 @@ def report_current_session(
     manager: "SessionManager | None",
     *,
     agent: "AgentProtocol | None" = None,
+    agent_lookup: "Callable[[], AgentProtocol | None] | None" = None,
 ) -> None:
     if os.environ.get("HERDR_ENV") != "1" or manager is None:
         return
+    if agent is None and agent_lookup is not None:
+        agent = agent_lookup()
     report_session(manager.current_session, agent=agent)

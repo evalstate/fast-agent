@@ -7,11 +7,13 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import stat
 import subprocess
 import sys
 import time
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -20,9 +22,11 @@ from typing import TYPE_CHECKING, Final, Literal
 from filelock import FileLock
 
 from fast_agent.constants import (
+    DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES,
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     MAX_MANAGED_SHELL_PROCESSES,
     MAX_PROCESS_OUTPUT_QUERY_CHARS,
+    MAX_RETAINED_DURABLE_PROCESS_RECORDS,
 )
 
 if TYPE_CHECKING:
@@ -35,6 +39,7 @@ _PROCESS_ID_LENGTH: Final = len(_PROCESS_ID_PREFIX) + 32
 _MAX_OUTPUT_READ_BYTES: Final = 1024 * 1024
 _OUTPUT_SEARCH_CHUNK_BYTES: Final = 64 * 1024
 _NONTERMINAL_STATES: Final = frozenset({"created", "starting", "running", "stopping"})
+_TERMINAL_STATES: Final = frozenset({"exited", "stopped", "unavailable"})
 
 DurableProcessState = Literal[
     "created",
@@ -79,6 +84,7 @@ class DurableProcessSpec:
     origin_session_id: str | None
     agent_name: str | None
     output_byte_limit: int
+    output_retention_byte_limit: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +109,25 @@ class DurableProcessSnapshot:
     stdout_bytes: int
     stderr_bytes: int
     output_bytes: int
+    stdout_total_bytes: int
+    stderr_total_bytes: int
+    output_total_bytes: int
+    stdout_dropped_bytes: int
+    stderr_dropped_bytes: int
+    output_dropped_bytes: int
     session_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DurableProcessCapture:
+    """Persisted raw and dropped output byte accounting."""
+
+    stdout_total_bytes: int
+    stderr_total_bytes: int
+    output_total_bytes: int
+    stdout_dropped_bytes: int
+    stderr_dropped_bytes: int
+    output_dropped_bytes: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,13 +151,18 @@ class DurableProcessStore:
         root: Path,
         *,
         heartbeat_timeout_seconds: float = 5.0,
+        max_terminal_records: int = MAX_RETAINED_DURABLE_PROCESS_RECORDS,
     ) -> None:
         _require_posix()
         if heartbeat_timeout_seconds <= 0:
             raise ValueError("heartbeat_timeout_seconds must be positive.")
+        if max_terminal_records < 0:
+            raise ValueError("max_terminal_records must not be negative.")
         self._root = root.resolve()
         self._heartbeat_timeout_seconds = heartbeat_timeout_seconds
+        self._max_terminal_records = max_terminal_records
         _ensure_private_directory(self._root)
+        self.prune_terminal_records()
 
     @property
     def root(self) -> Path:
@@ -150,6 +179,7 @@ class DurableProcessStore:
         origin_session_id: str | None = None,
         agent_name: str | None = None,
         output_byte_limit: int = DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
+        output_retention_byte_limit: int = DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES,
         max_active_processes: int = MAX_MANAGED_SHELL_PROCESSES,
     ) -> DurableProcessSnapshot:
         """Create a private durable record without launching its supervisor."""
@@ -158,6 +188,8 @@ class DurableProcessStore:
             raise ValueError("command must not be empty.")
         if output_byte_limit <= 0:
             raise ValueError("output_byte_limit must be positive.")
+        if output_retention_byte_limit <= 0:
+            raise ValueError("output_retention_byte_limit must be positive.")
         if max_active_processes <= 0:
             raise ValueError("max_active_processes must be positive.")
         shell_path = _validate_shell(shell)
@@ -175,6 +207,7 @@ class DurableProcessStore:
                 origin_session_id=origin_session_id,
                 agent_name=agent_name,
                 output_byte_limit=output_byte_limit,
+                output_retention_byte_limit=output_retention_byte_limit,
             )
 
     def _create_record(
@@ -186,6 +219,7 @@ class DurableProcessStore:
         origin_session_id: str | None,
         agent_name: str | None,
         output_byte_limit: int,
+        output_retention_byte_limit: int,
     ) -> DurableProcessSnapshot:
         for _ in range(16):
             process_id = _new_process_id()
@@ -205,6 +239,7 @@ class DurableProcessStore:
                     origin_session_id=origin_session_id,
                     agent_name=agent_name,
                     output_byte_limit=output_byte_limit,
+                    output_retention_byte_limit=output_retention_byte_limit,
                 )
                 _write_spec(directory, spec)
                 for stream in DurableProcessStream:
@@ -225,6 +260,12 @@ class DurableProcessStore:
                     stdout_bytes=0,
                     stderr_bytes=0,
                     output_bytes=0,
+                    stdout_total_bytes=0,
+                    stderr_total_bytes=0,
+                    output_total_bytes=0,
+                    stdout_dropped_bytes=0,
+                    stderr_dropped_bytes=0,
+                    output_dropped_bytes=0,
                     session_ids=((origin_session_id,) if origin_session_id is not None else ()),
                 )
             except BaseException:
@@ -269,6 +310,8 @@ class DurableProcessStore:
                         str(self._root),
                         "--process-id",
                         process_id,
+                        "--max-terminal-records",
+                        str(self._max_terminal_records),
                     ],
                     stdin=stdin,
                     stdout=output,
@@ -292,6 +335,9 @@ class DurableProcessStore:
                 ),
             )
             raise
+        finally:
+            with suppress(OSError, DurableProcessRecordError):
+                self.prune_terminal_records()
         return self.get(process_id)
 
     def discover(self) -> list[DurableProcessSnapshot]:
@@ -305,6 +351,37 @@ class DurableProcessStore:
                 except DurableProcessRecordError:
                     continue
         return snapshots
+
+    def prune_terminal_records(self) -> int:
+        """Remove oldest completed records beyond the configured retention count."""
+
+        removed = 0
+        with FileLock(self._root / ".capacity.lock", mode=0o600):
+            terminal_records: list[tuple[float, float, str]] = []
+            for entry in self._root.iterdir():
+                if not entry.is_dir() or not _is_process_id(entry.name):
+                    continue
+                try:
+                    directory = self._directory(entry.name)
+                    spec = _read_spec(directory)
+                    status = _read_status(directory)
+                except DurableProcessRecordError:
+                    continue
+                if self._status_is_prunable(status):
+                    terminal_records.append((status.updated_at, spec.created_at, spec.process_id))
+
+            terminal_records.sort(reverse=True)
+            for _, _, process_id in terminal_records[self._max_terminal_records :]:
+                try:
+                    directory = self._directory(process_id)
+                    status = _read_status(directory)
+                except DurableProcessRecordError:
+                    continue
+                if not self._status_is_prunable(status):
+                    continue
+                _remove_directory(directory)
+                removed += 1
+        return removed
 
     def get(self, process_id: str) -> DurableProcessSnapshot:
         """Read one process snapshot, marking a stale supervisor as unavailable."""
@@ -322,12 +399,27 @@ class DurableProcessStore:
                 child_pid=status.child_pid,
                 started_at=status.started_at,
             )
+        stdout_bytes = _file_size(_output_path(directory, DurableProcessStream.STDOUT))
+        stderr_bytes = _file_size(_output_path(directory, DurableProcessStream.STDERR))
+        output_bytes = _file_size(_output_path(directory, DurableProcessStream.COMBINED))
+        capture = _read_capture(
+            directory,
+            stdout_bytes=stdout_bytes,
+            stderr_bytes=stderr_bytes,
+            output_bytes=output_bytes,
+        )
         return DurableProcessSnapshot(
             spec=spec,
             status=status,
-            stdout_bytes=_file_size(_output_path(directory, DurableProcessStream.STDOUT)),
-            stderr_bytes=_file_size(_output_path(directory, DurableProcessStream.STDERR)),
-            output_bytes=_file_size(_output_path(directory, DurableProcessStream.COMBINED)),
+            stdout_bytes=stdout_bytes,
+            stderr_bytes=stderr_bytes,
+            output_bytes=output_bytes,
+            stdout_total_bytes=capture.stdout_total_bytes,
+            stderr_total_bytes=capture.stderr_total_bytes,
+            output_total_bytes=capture.output_total_bytes,
+            stdout_dropped_bytes=capture.stdout_dropped_bytes,
+            stderr_dropped_bytes=capture.stderr_dropped_bytes,
+            output_dropped_bytes=capture.output_dropped_bytes,
             session_ids=_read_session_links(directory, origin=spec.origin_session_id),
         )
 
@@ -499,6 +591,11 @@ class DurableProcessStore:
             and time.time() - last_seen_at > self._heartbeat_timeout_seconds
         )
 
+    def _status_is_prunable(self, status: DurableProcessStatus) -> bool:
+        return status.state in _TERMINAL_STATES or (
+            self._is_stale(status) and not _process_is_running(status.supervisor_pid)
+        )
+
 
 def validate_process_id(process_id: str) -> None:
     """Reject process identifiers that are not stable, generated IDs."""
@@ -554,6 +651,18 @@ def _validate_environment(environment: Mapping[str, str]) -> None:
             raise ValueError("environment entries must be non-empty, NUL-free strings.")
 
 
+def _process_is_running(process_id: int | None) -> bool:
+    if process_id is None:
+        return False
+    try:
+        os.kill(process_id, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def _write_spec(directory: Path, spec: DurableProcessSpec) -> None:
     path = directory / "spec.json"
     payload = _encode_json(
@@ -567,6 +676,7 @@ def _write_spec(directory: Path, spec: DurableProcessSpec) -> None:
             "origin_session_id": spec.origin_session_id,
             "agent_name": spec.agent_name,
             "output_byte_limit": spec.output_byte_limit,
+            "output_retention_byte_limit": spec.output_retention_byte_limit,
         }
     )
     descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o400)
@@ -578,21 +688,22 @@ def _write_spec(directory: Path, spec: DurableProcessSpec) -> None:
 
 def _read_spec(directory: Path) -> DurableProcessSpec:
     value = _read_json(directory / "spec.json")
-    _require_keys(
-        value,
-        {
-            "version",
-            "process_id",
-            "command",
-            "shell",
-            "cwd",
-            "created_at",
-            "origin_session_id",
-            "agent_name",
-            "output_byte_limit",
-        },
-        "spec",
-    )
+    legacy_keys = {
+        "version",
+        "process_id",
+        "command",
+        "shell",
+        "cwd",
+        "created_at",
+        "origin_session_id",
+        "agent_name",
+        "output_byte_limit",
+    }
+    if frozenset(value) not in {
+        frozenset(legacy_keys),
+        frozenset({*legacy_keys, "output_retention_byte_limit"}),
+    }:
+        raise DurableProcessRecordError("Malformed durable process spec.")
     version = _required_int(value, "version", "spec")
     process_id = _required_str(value, "process_id", "spec")
     command = _required_str(value, "command", "spec")
@@ -602,10 +713,20 @@ def _read_spec(directory: Path) -> DurableProcessSpec:
     origin_session_id = _optional_str(value, "origin_session_id", "spec")
     agent_name = _optional_str(value, "agent_name", "spec")
     output_byte_limit = _required_int(value, "output_byte_limit", "spec")
+    output_retention_byte_limit = (
+        _required_int(value, "output_retention_byte_limit", "spec")
+        if "output_retention_byte_limit" in value
+        else DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES
+    )
     if version != _VERSION:
         raise DurableProcessRecordError("Unsupported durable process spec version.")
     validate_process_id(process_id)
-    if directory.name != process_id or not command or output_byte_limit <= 0:
+    if (
+        directory.name != process_id
+        or not command
+        or output_byte_limit <= 0
+        or output_retention_byte_limit <= 0
+    ):
         raise DurableProcessRecordError("Invalid durable process spec.")
     return DurableProcessSpec(
         process_id=process_id,
@@ -616,6 +737,7 @@ def _read_spec(directory: Path) -> DurableProcessSpec:
         origin_session_id=origin_session_id,
         agent_name=agent_name,
         output_byte_limit=output_byte_limit,
+        output_retention_byte_limit=output_retention_byte_limit,
     )
 
 
@@ -677,6 +799,84 @@ def _read_status(directory: Path) -> DurableProcessStatus:
     return status
 
 
+def _write_capture(directory: Path, capture: DurableProcessCapture) -> None:
+    _atomic_replace(
+        directory / "capture.json",
+        _encode_json(
+            {
+                "version": _VERSION,
+                "stdout_total_bytes": capture.stdout_total_bytes,
+                "stderr_total_bytes": capture.stderr_total_bytes,
+                "output_total_bytes": capture.output_total_bytes,
+                "stdout_dropped_bytes": capture.stdout_dropped_bytes,
+                "stderr_dropped_bytes": capture.stderr_dropped_bytes,
+                "output_dropped_bytes": capture.output_dropped_bytes,
+            }
+        ),
+    )
+
+
+def _read_capture(
+    directory: Path,
+    *,
+    stdout_bytes: int,
+    stderr_bytes: int,
+    output_bytes: int,
+) -> DurableProcessCapture:
+    path = directory / "capture.json"
+    if not path.exists():
+        return DurableProcessCapture(
+            stdout_total_bytes=stdout_bytes,
+            stderr_total_bytes=stderr_bytes,
+            output_total_bytes=output_bytes,
+            stdout_dropped_bytes=0,
+            stderr_dropped_bytes=0,
+            output_dropped_bytes=0,
+        )
+    value = _read_json(path)
+    _require_keys(
+        value,
+        {
+            "version",
+            "stdout_total_bytes",
+            "stderr_total_bytes",
+            "output_total_bytes",
+            "stdout_dropped_bytes",
+            "stderr_dropped_bytes",
+            "output_dropped_bytes",
+        },
+        "capture",
+    )
+    if _required_int(value, "version", "capture") != _VERSION:
+        raise DurableProcessRecordError("Unsupported durable process capture version.")
+    stdout_total_bytes = _required_int(value, "stdout_total_bytes", "capture")
+    stderr_total_bytes = _required_int(value, "stderr_total_bytes", "capture")
+    output_total_bytes = _required_int(value, "output_total_bytes", "capture")
+    stdout_dropped_bytes = _required_int(value, "stdout_dropped_bytes", "capture")
+    stderr_dropped_bytes = _required_int(value, "stderr_dropped_bytes", "capture")
+    output_dropped_bytes = _required_int(value, "output_dropped_bytes", "capture")
+    if (
+        min(
+            stdout_total_bytes,
+            stderr_total_bytes,
+            output_total_bytes,
+            stdout_dropped_bytes,
+            stderr_dropped_bytes,
+            output_dropped_bytes,
+        )
+        < 0
+    ):
+        raise DurableProcessRecordError("Invalid durable process capture.")
+    return DurableProcessCapture(
+        stdout_total_bytes=max(stdout_total_bytes, stdout_bytes),
+        stderr_total_bytes=max(stderr_total_bytes, stderr_bytes),
+        output_total_bytes=max(output_total_bytes, output_bytes),
+        stdout_dropped_bytes=stdout_dropped_bytes,
+        stderr_dropped_bytes=stderr_dropped_bytes,
+        output_dropped_bytes=output_dropped_bytes,
+    )
+
+
 def _validate_status(status: DurableProcessStatus) -> None:
     if not math.isfinite(status.updated_at):
         raise DurableProcessRecordError("Invalid durable process status timestamp.")
@@ -709,13 +909,15 @@ def _search_output(
 ) -> DurableProcessOutput:
     selected = bytearray()
     match_count = 0
-    returned_matches = 0
-    truncated_match = False
     scan_bytes = max(_file_size(path) - offset, 0)
+    scan_end = offset + scan_bytes
+    continuation_offset: int | None = None
+    has_more = False
     with path.open("rb") as output:
         output.seek(offset)
-        for matched, line_prefix, line_bytes in _iter_output_search_lines(
+        for matched, line_start, line_end, line_prefix, line_bytes in _iter_output_search_lines(
             output,
+            base_offset=offset,
             scan_bytes=scan_bytes,
             query=query,
             prefix_limit=limit,
@@ -725,17 +927,25 @@ def _search_output(
             match_count += 1
             remaining = limit - len(selected)
             if remaining <= 0:
+                if continuation_offset is None:
+                    continuation_offset = line_start
+                has_more = True
                 continue
-            selected.extend(line_prefix[:remaining])
-            returned_matches += 1
-            if line_bytes > remaining:
-                truncated_match = True
+            if line_bytes <= remaining:
+                selected.extend(line_prefix)
+                continue
+            if not selected:
+                selected.extend(line_prefix[:remaining])
+                continuation_offset = line_end
+                continue
+            if continuation_offset is None:
+                continuation_offset = line_start
+            has_more = True
 
-    has_more = truncated_match or returned_matches < match_count
     return DurableProcessOutput(
         stream=stream,
         offset=offset,
-        next_offset=offset,
+        next_offset=continuation_offset if continuation_offset is not None else scan_end,
         text=bytes(selected).decode("utf-8", errors="replace"),
         at_end=not has_more,
         returned_bytes=len(selected),
@@ -773,12 +983,15 @@ class _OutputSearchLine:
 def _iter_output_search_lines(
     output: BinaryIO,
     *,
+    base_offset: int,
     scan_bytes: int,
     query: str,
     prefix_limit: int,
-) -> Iterator[tuple[bool, bytes, int]]:
+) -> Iterator[tuple[bool, int, int, bytes, int]]:
     line = _OutputSearchLine(query=query, prefix_limit=prefix_limit)
     line_has_data = False
+    line_start = base_offset
+    position = base_offset
     remaining_bytes = scan_bytes
     while remaining_bytes > 0:
         chunk = output.read(min(_OUTPUT_SEARCH_CHUNK_BYTES, remaining_bytes))
@@ -792,15 +1005,19 @@ def _iter_output_search_lines(
             fragment = chunk[cursor:end]
             line.feed(fragment, final=newline >= 0)
             line_has_data = True
+            position += len(fragment)
             cursor = end
             if newline >= 0:
-                yield line.result()
+                matched, prefix, encoded_bytes = line.result()
+                yield matched, line_start, position, prefix, encoded_bytes
                 line = _OutputSearchLine(query=query, prefix_limit=prefix_limit)
                 line_has_data = False
+                line_start = position
 
     if line_has_data:
         line.feed(b"", final=True)
-        yield line.result()
+        matched, prefix, encoded_bytes = line.result()
+        yield matched, line_start, position, prefix, encoded_bytes
 
 
 def _read_session_links(directory: Path, *, origin: str | None) -> tuple[str, ...]:
@@ -999,6 +1216,4 @@ def _fsync_directory(directory: Path) -> None:
 
 
 def _remove_directory(directory: Path) -> None:
-    for child in directory.iterdir():
-        child.unlink()
-    directory.rmdir()
+    shutil.rmtree(directory)

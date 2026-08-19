@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 # Import tool progress context for reporting shell execution progress
 from fast_agent.agents.tool_agent import _tool_progress_context
 from fast_agent.constants import (
+    DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES,
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
     MAX_MANAGED_SHELL_PROCESSES,
@@ -37,6 +38,7 @@ from fast_agent.mcp.tool_result_metadata import (
     update_tool_result_display_metadata,
 )
 from fast_agent.tools.durable_processes import (
+    DurableProcessError,
     DurableProcessOutput,
     DurableProcessRecordError,
     DurableProcessSnapshot,
@@ -244,14 +246,20 @@ class ShellRuntime:
         self._minimal_shell_tool_requires_description = minimal_shell_tool_requires_description
         self._extended_guidance = extended_guidance
         self._managed_processes: dict[str, ManagedShellProcess] = {}
-        self._durable_process_store = (
-            DurableProcessStore(durable_process_root)
-            if durable_process_root is not None
-            and isinstance(self._environment, LocalShellExecutor)
-            else None
-        )
+        self._durable_process_store: DurableProcessStore | None = None
+        if durable_process_root is not None and isinstance(self._environment, LocalShellExecutor):
+            try:
+                self._durable_process_store = DurableProcessStore(durable_process_root)
+            except (DurableProcessError, OSError) as exc:
+                self._logger.warning(
+                    "Durable process storage is unavailable at %s: %s",
+                    durable_process_root,
+                    exc,
+                )
         self._attached_durable_processes: set[str] = set()
         self._durable_output_offsets: dict[str, int] = {}
+        self._durable_output_total_offsets: dict[str, int] = {}
+        self._durable_output_dropped_offsets: dict[str, int] = {}
         self._durable_observed_output_bytes: dict[str, int] = {}
         self._durable_last_output_times: dict[str, float] = {}
         self._durable_poll_locks: dict[str, asyncio.Lock] = {}
@@ -265,6 +273,7 @@ class ShellRuntime:
         configured_profile = tool_profile or "auto"
         self._retained_output_directory: Path | None = None
         self._retained_output_max_bytes = 0
+        self._durable_output_max_bytes = DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES
         self._retained_output_next_id = 1
         self._retained_output_via_process = False
         retain_truncated_output = False
@@ -280,6 +289,7 @@ class ShellRuntime:
             )
             configured_profile = tool_profile or shell_config.tool_profile
             self._retained_output_max_bytes = shell_config.retained_output_max_bytes
+            self._durable_output_max_bytes = shell_config.durable_output_max_bytes
             retain_truncated_output = shell_config.retain_truncated_output
             retained_output_parent = shell_config.retained_output_temp_directory
         if foreground_auto_await_max_seconds is not None:
@@ -559,9 +569,11 @@ class ShellRuntime:
             self._attached_durable_processes.add(process_id)
             self._durable_output_offsets.setdefault(process_id, 0)
             observed_bytes = self._durable_observed_output_bytes.get(process_id, 0)
-            if snapshot.output_bytes > observed_bytes:
+            if snapshot.output_total_bytes > observed_bytes:
                 self._durable_last_output_times[process_id] = time.monotonic()
-            self._durable_observed_output_bytes[process_id] = snapshot.output_bytes
+            self._durable_observed_output_bytes[process_id] = snapshot.output_total_bytes
+            self._durable_output_total_offsets.setdefault(process_id, 0)
+            self._durable_output_dropped_offsets.setdefault(process_id, 0)
             self._durable_poll_locks.setdefault(process_id, asyncio.Lock())
         return snapshot
 
@@ -586,7 +598,7 @@ class ShellRuntime:
             status=status,
             elapsed_seconds=max(elapsed_at - started_at, 0.0),
             os_process_id=snapshot.status.child_pid,
-            total_output_bytes=snapshot.output_bytes,
+            total_output_bytes=snapshot.output_total_bytes,
             exit_code=snapshot.status.exit_code,
             lifecycle="persistent",
             output_spool_path=None,
@@ -793,11 +805,16 @@ class ShellRuntime:
                         "command_summary": summarize_command(snapshot.spec.command),
                         "elapsed_seconds": managed_snapshot.elapsed_seconds,
                         "os_process_id": snapshot.status.child_pid,
-                        "total_output_bytes": snapshot.output_bytes,
-                        "stdout_bytes": snapshot.stdout_bytes,
-                        "stderr_bytes": snapshot.stderr_bytes,
+                        "total_output_bytes": snapshot.output_total_bytes,
+                        "stdout_bytes": snapshot.stdout_total_bytes,
+                        "stderr_bytes": snapshot.stderr_total_bytes,
+                        "retained_output_bytes": snapshot.output_bytes,
+                        "dropped_output_bytes": snapshot.output_dropped_bytes,
+                        "output_truncated": snapshot.output_dropped_bytes > 0,
                         "process_status": managed_snapshot.status,
-                        "has_observed_output": bool(snapshot.stdout_bytes or snapshot.stderr_bytes),
+                        "has_observed_output": bool(
+                            snapshot.stdout_total_bytes or snapshot.stderr_total_bytes
+                        ),
                     }
                 )
             return metadata
@@ -924,6 +941,8 @@ class ShellRuntime:
         offset = self._durable_output_offsets.get(process_id, 0)
         unread_bytes = max(snapshot.output_bytes - offset, 0)
         if unread_bytes == 0:
+            self._durable_output_total_offsets[process_id] = snapshot.output_total_bytes
+            self._durable_output_dropped_offsets[process_id] = snapshot.output_dropped_bytes
             return "", 0
         output_limit = min(
             snapshot.spec.output_byte_limit,
@@ -972,6 +991,8 @@ class ShellRuntime:
                 + tail.text
             )
         self._durable_output_offsets[process_id] = snapshot.output_bytes
+        self._durable_output_total_offsets[process_id] = snapshot.output_total_bytes
+        self._durable_output_dropped_offsets[process_id] = snapshot.output_dropped_bytes
         return text.rstrip("\n"), unread_bytes
 
     async def _poll_durable_process(
@@ -992,12 +1013,12 @@ class ShellRuntime:
             snapshot = await asyncio.to_thread(store.get, process_id)
             should_wait = wait_sec > 0 and self._durable_status(snapshot) == "running"
             output_wake = False
-            unread_offset = self._durable_output_offsets.get(process_id, 0)
+            unread_offset = self._durable_output_total_offsets.get(process_id, 0)
             observed_bytes = self._durable_observed_output_bytes.get(process_id, 0)
-            if snapshot.output_bytes > observed_bytes:
+            if snapshot.output_total_bytes > observed_bytes:
                 self._durable_last_output_times[process_id] = poll_started_at
-            self._durable_observed_output_bytes[process_id] = snapshot.output_bytes
-            if snapshot.output_bytes > unread_offset:
+            self._durable_observed_output_bytes[process_id] = snapshot.output_total_bytes
+            if snapshot.output_total_bytes > unread_offset:
                 self._durable_last_output_times.setdefault(process_id, poll_started_at)
             if should_wait:
                 snapshot, output_wake = await self._wait_for_durable_process_poll(
@@ -1008,7 +1029,15 @@ class ShellRuntime:
                     wait_sec=wait_sec,
                     wake_on_output=wake_on_output,
                 )
-            output, output_bytes = await self._read_durable_output_delta(
+            output_bytes = max(snapshot.output_total_bytes - unread_offset, 0)
+            retained_output_offset = self._durable_output_offsets.get(process_id, 0)
+            retained_output_bytes = max(snapshot.output_bytes - retained_output_offset, 0)
+            dropped_output_offset = self._durable_output_dropped_offsets.get(process_id, 0)
+            dropped_output_bytes = max(
+                snapshot.output_dropped_bytes - dropped_output_offset,
+                0,
+            )
+            output, _ = await self._read_durable_output_delta(
                 process_id,
                 snapshot,
             )
@@ -1039,7 +1068,7 @@ class ShellRuntime:
             if last_output_time is not None
             else max(time.time() - snapshot.spec.created_at, 0.0)
         )
-        output_observed = bool(snapshot.stdout_bytes or snapshot.stderr_bytes)
+        output_observed = bool(snapshot.stdout_total_bytes or snapshot.stderr_total_bytes)
         lines = [output] if output else []
         lines.extend(
             [
@@ -1063,10 +1092,15 @@ class ShellRuntime:
                 "process_elapsed_seconds": elapsed,
                 "os_process_id": snapshot.status.child_pid,
                 "output_bytes_since_last_poll": output_bytes,
+                "retained_output_bytes_since_last_poll": retained_output_bytes,
+                "dropped_output_bytes_since_last_poll": dropped_output_bytes,
                 "seconds_since_last_output": seconds_since_last_output,
-                "total_output_bytes": snapshot.output_bytes,
-                "stdout_bytes": snapshot.stdout_bytes,
-                "stderr_bytes": snapshot.stderr_bytes,
+                "total_output_bytes": snapshot.output_total_bytes,
+                "stdout_bytes": snapshot.stdout_total_bytes,
+                "stderr_bytes": snapshot.stderr_total_bytes,
+                "retained_output_bytes": snapshot.output_bytes,
+                "dropped_output_bytes": snapshot.output_dropped_bytes,
+                "output_truncated": snapshot.output_dropped_bytes > 0,
                 "has_observed_output": output_observed,
                 "poll_wait_sec": wait_sec,
                 "poll_wake_on_output": wake_on_output,
@@ -1108,7 +1142,7 @@ class ShellRuntime:
         wake_on_output: bool,
     ) -> tuple[DurableProcessSnapshot, bool]:
         """Wait for durable completion/deadline, optionally after output settles."""
-        observed_bytes = snapshot.output_bytes
+        observed_bytes = snapshot.output_total_bytes
         deadline = time.monotonic() + wait_sec
         while self._durable_status(snapshot) == "running":
             now = time.monotonic()
@@ -1133,9 +1167,9 @@ class ShellRuntime:
             )
             await asyncio.sleep(min(0.1, remaining, quiet_wait))
             snapshot = await asyncio.to_thread(store.get, process_id)
-            if snapshot.output_bytes > observed_bytes:
+            if snapshot.output_total_bytes > observed_bytes:
                 self._durable_last_output_times[process_id] = time.monotonic()
-            observed_bytes = snapshot.output_bytes
+            observed_bytes = snapshot.output_total_bytes
             self._durable_observed_output_bytes[process_id] = observed_bytes
 
         return snapshot, False
@@ -1173,6 +1207,9 @@ class ShellRuntime:
         payload = {
             "process_id": parsed.process_id,
             "process_status": status,
+            "retained_output_bytes": snapshot.output_bytes,
+            "dropped_output_bytes": snapshot.output_dropped_bytes,
+            "output_truncated": snapshot.output_dropped_bytes > 0,
             **self._durable_output_payload(output),
         }
         return process_result(
@@ -1182,7 +1219,11 @@ class ShellRuntime:
                 "process_id": parsed.process_id,
                 "process_status": status,
                 "retained_output_bytes": snapshot.output_bytes,
-                "retained_output_complete": status != "running",
+                "retained_output_complete": (
+                    status != "running" and snapshot.output_dropped_bytes == 0
+                ),
+                "dropped_output_bytes": snapshot.output_dropped_bytes,
+                "output_truncated": snapshot.output_dropped_bytes > 0,
                 "output_read_offset": parsed.offset,
                 "output_read_bytes": output.returned_bytes,
                 "output_read_has_more": not output.at_end,
@@ -1742,6 +1783,7 @@ class ShellRuntime:
                         if parsed.output_byte_limit is not None
                         else self._output_byte_limit
                     ),
+                    output_retention_byte_limit=self._durable_output_max_bytes,
                     max_active_processes=durable_capacity,
                 ),
                 name="fast-agent-durable-process-launch",
@@ -1770,8 +1812,10 @@ class ShellRuntime:
         process_id = snapshot.spec.process_id
         self._attached_durable_processes.add(process_id)
         self._durable_output_offsets[process_id] = 0
-        self._durable_observed_output_bytes[process_id] = snapshot.output_bytes
-        if snapshot.output_bytes > 0:
+        self._durable_output_total_offsets[process_id] = 0
+        self._durable_output_dropped_offsets[process_id] = 0
+        self._durable_observed_output_bytes[process_id] = snapshot.output_total_bytes
+        if snapshot.output_total_bytes > 0:
             self._durable_last_output_times[process_id] = time.monotonic()
         self._durable_poll_locks[process_id] = asyncio.Lock()
 
@@ -1830,9 +1874,12 @@ class ShellRuntime:
                 "process_yield_reason": "background",
                 "process_elapsed_seconds": 0.0,
                 "os_process_id": snapshot.status.child_pid,
-                "total_output_bytes": snapshot.output_bytes,
-                "stdout_bytes": snapshot.stdout_bytes,
-                "stderr_bytes": snapshot.stderr_bytes,
+                "total_output_bytes": snapshot.output_total_bytes,
+                "stdout_bytes": snapshot.stdout_total_bytes,
+                "stderr_bytes": snapshot.stderr_total_bytes,
+                "retained_output_bytes": snapshot.output_bytes,
+                "dropped_output_bytes": snapshot.output_dropped_bytes,
+                "output_truncated": snapshot.output_dropped_bytes > 0,
                 **(
                     {"exit_code": snapshot.status.exit_code}
                     if snapshot.status.exit_code is not None

@@ -22,6 +22,16 @@ type _HerdrMethod = Literal[
     "pane.report_metadata",
     "pane.release_agent",
 ]
+type _SessionMetadata = tuple[
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    bool,
+    str | None,
+    str | None,
+    str | None,
+]
 
 _AGENT_LABEL = "fast-agent"
 _SOURCE = "herdr:fast-agent"
@@ -46,6 +56,7 @@ class _HerdrRequest:
     params: dict[str, object]
     completion: threading.Event | None = None
     stop_after: bool = False
+    session_metadata: _SessionMetadata | None = None
 
 
 def _herdr_environment() -> _HerdrEnvironment | None:
@@ -83,19 +94,9 @@ class _HerdrLifecycleReporter:
         self._sequence = time.time_ns()
         self._base_state: HerdrBaseState = "unknown"
         self._blocked_depth = 0
-        self._session_metadata: (
-            tuple[
-                str | None,
-                str | None,
-                str | None,
-                str | None,
-                bool,
-                str | None,
-                str | None,
-                str | None,
-            ]
-            | None
-        ) = None
+        self._session_metadata: _SessionMetadata | None = None
+        self._pending_session_metadata: _SessionMetadata | None = None
+        self._latest_metadata_request_id: str | None = None
         self._closing = False
         self._worker = threading.Thread(
             target=self._run_worker,
@@ -163,10 +164,11 @@ class _HerdrLifecycleReporter:
             token_usage,
         )
         with self._lock:
-            if self._closing or metadata == self._session_metadata:
+            if self._closing or metadata == self._pending_session_metadata:
                 return
-            self._session_metadata = metadata
-            self._enqueue_locked(
+            if self._pending_session_metadata is None and metadata == self._session_metadata:
+                return
+            request = self._build_request(
                 "pane.report_metadata",
                 params={
                     "applies_to_source": _SOURCE,
@@ -184,7 +186,11 @@ class _HerdrLifecycleReporter:
                     "clear_title": title is None,
                     "clear_display_agent": title is None,
                 },
+                session_metadata=metadata,
             )
+            self._pending_session_metadata = metadata
+            self._latest_metadata_request_id = request.request_id
+            self._requests.put(request)
 
     def release(self) -> None:
         if os.getpid() != self._creator_pid:
@@ -226,6 +232,7 @@ class _HerdrLifecycleReporter:
         params: dict[str, object] | None = None,
         completion: threading.Event | None = None,
         stop_after: bool = False,
+        session_metadata: _SessionMetadata | None = None,
     ) -> _HerdrRequest:
         self._sequence += 1
         request_params: dict[str, object] = {
@@ -244,6 +251,7 @@ class _HerdrLifecycleReporter:
             params=request_params,
             completion=completion,
             stop_after=stop_after,
+            session_metadata=session_metadata,
         )
 
     def _discard_queued_requests_locked(self) -> None:
@@ -256,24 +264,41 @@ class _HerdrLifecycleReporter:
     def _run_worker(self) -> None:
         while True:
             request = self._requests.get()
+            delivered = False
             try:
-                self._send_request(request)
+                delivered = self._send_request(request)
             except Exception:
                 pass
             finally:
+                if request.session_metadata is not None:
+                    self._complete_metadata_request(request, delivered=delivered)
                 if request.completion is not None:
                     request.completion.set()
             if request.stop_after:
                 return
 
-    def _send_request(self, request: _HerdrRequest) -> None:
+    def _complete_metadata_request(
+        self,
+        request: _HerdrRequest,
+        *,
+        delivered: bool,
+    ) -> None:
+        with self._lock:
+            if delivered:
+                self._session_metadata = request.session_metadata
+            if self._latest_metadata_request_id == request.request_id:
+                self._pending_session_metadata = None
+                self._latest_metadata_request_id = None
+
+    def _send_request(self, request: _HerdrRequest) -> bool:
         for timeout_seconds in _DELIVERY_TIMEOUT_SECONDS:
             try:
                 delivered = self._send_request_attempt(request, timeout_seconds)
             except Exception:
                 delivered = False
             if delivered:
-                return
+                return True
+        return False
 
     def _send_request_attempt(
         self,

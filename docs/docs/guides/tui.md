@@ -226,6 +226,15 @@ Durable supervision is currently local and POSIX-only. Session-scoped commands,
 remote execution environments, Windows, and `--no-home` retain their existing
 process lifecycle behavior.
 
+Fast-agent retains the newest 100 completed durable process records and
+automatically removes older terminal records. Running records are never removed
+by retention cleanup. Each stdout, stderr, and combined durable output log is
+capped by `shell_execution.durable_output_max_bytes`; output beyond the cap is
+still drained but is reported as dropped and is unavailable for later readback.
+If the process store cannot be created or fails its private-directory checks,
+fast-agent logs a warning and continues with ordinary shell execution while
+durable management is disabled.
+
 ## Status Bar
 
 Run `/help status` in the interactive prompt for this legend. The bar reads from

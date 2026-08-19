@@ -41,15 +41,25 @@ def test_build_shell_form_includes_write_text_file_mode_field() -> None:
     assert "auto|on|off|apply_patch" in mode_field.description
 
 
-def test_build_shell_form_allows_default_retained_output_quota() -> None:
+@pytest.mark.parametrize(
+    ("field_name", "expected_default"),
+    [
+        ("retained_output_max_bytes", 2 * 1024 * 1024),
+        ("durable_output_max_bytes", 2 * 1024 * 1024),
+    ],
+)
+def test_build_shell_form_allows_default_retained_output_quota(
+    field_name: str,
+    expected_default: int,
+) -> None:
     current = ShellSettings()
     schema = _build_shell_form(current)
 
-    field = schema.fields["retained_output_max_bytes"]
+    field = schema.fields[field_name]
     assert isinstance(field, IntegerField)
-    assert field.default == current.retained_output_max_bytes
+    assert field.default == expected_default
     assert field.maximum is not None
-    assert field.maximum >= current.retained_output_max_bytes
+    assert field.maximum >= expected_default
 
 
 def test_build_shell_form_uses_managed_process_wait_ceiling() -> None:
@@ -191,12 +201,14 @@ def test_normalize_shell_updates_persists_retained_output_settings() -> None:
             "output_byte_limit": 0,
             "retain_truncated_output": False,
             "retained_output_max_bytes": 4 * 1024 * 1024,
+            "durable_output_max_bytes": 8 * 1024 * 1024,
             "prefer_local_shell": True,
         }
     )
 
     assert updates["retain_truncated_output"] is False
     assert updates["retained_output_max_bytes"] == 4 * 1024 * 1024
+    assert updates["durable_output_max_bytes"] == 8 * 1024 * 1024
     assert updates["prefer_local_shell"] is True
 
 

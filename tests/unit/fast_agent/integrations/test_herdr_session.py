@@ -104,3 +104,12 @@ def test_report_current_session_clears_metadata_without_a_session(monkeypatch) -
             "token_usage": None,
         }
     ]
+
+
+def test_report_current_session_does_not_resolve_agent_when_inactive(monkeypatch) -> None:
+    monkeypatch.delenv("HERDR_ENV", raising=False)
+
+    herdr_session.report_current_session(
+        cast("SessionManager", SimpleNamespace(current_session=None)),
+        agent_lookup=lambda: (_ for _ in ()).throw(AssertionError("unexpected lookup")),
+    )
