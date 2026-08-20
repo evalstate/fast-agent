@@ -36,6 +36,7 @@ _LEGACY_METADATA_KEYS = frozenset(
         "git",
         "label",
         "last_history_by_agent",
+        "last_user_prompt",
         "pinned",
         "title",
     }
@@ -56,6 +57,7 @@ class SessionMetadataSnapshot(BaseModel):
     title: str | None = None
     label: str | None = None
     first_user_preview: str | None = None
+    last_user_prompt: str | None = None
     pinned: bool = False
     extras: dict[str, JsonValue] = Field(default_factory=dict)
 
@@ -347,6 +349,7 @@ def synthesize_legacy_session_snapshot(payload: Mapping[str, object]) -> Session
         title=_optional_str(metadata_mapping, "title", session_id),
         label=_optional_str(metadata_mapping, "label", session_id),
         first_user_preview=_optional_str(metadata_mapping, "first_user_preview", session_id),
+        last_user_prompt=_optional_str(metadata_mapping, "last_user_prompt", session_id),
         pinned=_optional_bool(metadata_mapping, "pinned", session_id, default=False),
         extras=_legacy_metadata_extras(metadata_mapping, session_id),
     )
@@ -380,6 +383,7 @@ def snapshot_from_session_info(info: "SessionInfo") -> SessionSnapshot:
         title=_typed_str(metadata_dict.get("title")),
         label=_typed_str(metadata_dict.get("label")),
         first_user_preview=_typed_str(metadata_dict.get("first_user_preview")),
+        last_user_prompt=_typed_str(metadata_dict.get("last_user_prompt")),
         pinned=metadata_dict.get("pinned") is True,
         extras=_session_info_metadata_extras(metadata_dict, info.name),
     )
@@ -484,6 +488,8 @@ def _metadata_fields_from_snapshot(snapshot: SessionSnapshot) -> dict[str, JsonV
         metadata["label"] = snapshot.metadata.label
     if snapshot.metadata.first_user_preview is not None:
         metadata["first_user_preview"] = snapshot.metadata.first_user_preview
+    if snapshot.metadata.last_user_prompt is not None:
+        metadata["last_user_prompt"] = snapshot.metadata.last_user_prompt
     if snapshot.metadata.pinned:
         metadata["pinned"] = True
     if snapshot.continuation.active_agent is not None:

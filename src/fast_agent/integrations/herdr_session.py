@@ -17,6 +17,27 @@ if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.session import Session, SessionManager
 
+_PROMPT_LIMIT = 200
+
+
+def _metadata_text(
+    metadata: dict[str, object], key: str, *, limit: int | None = None
+) -> str | None:
+    value = metadata.get(key)
+    if not isinstance(value, str):
+        return None
+    normalized = " ".join(value.split())
+    if not normalized:
+        return None
+    return normalized[:limit] if limit is not None else normalized
+
+
+def _session_presentation(metadata: dict[str, object]) -> tuple[str | None, str | None]:
+    prompt = _metadata_text(metadata, "last_user_prompt", limit=_PROMPT_LIMIT)
+    manual_title = _metadata_text(metadata, "title") or _metadata_text(metadata, "label")
+    display_title = manual_title or prompt or extract_session_title(metadata)
+    return display_title, prompt
+
 
 def _usage_metadata(
     agent: "AgentProtocol | None",
@@ -70,16 +91,18 @@ def report_session(
         else None
     )
     forked_from = metadata.get("forked_from")
+    display_title, prompt = _session_presentation(metadata)
     context_usage, token_usage = _usage_metadata(agent, model=model)
     report_session_metadata(
         session_id=session.info.name if session is not None else None,
-        title=extract_session_title(metadata),
+        title=display_title,
         model=model,
         agent_name=agent_name,
         pinned=metadata.get("pinned") is True,
         forked_from=forked_from if isinstance(forked_from, str) else None,
         context_usage=context_usage,
         token_usage=token_usage,
+        prompt=prompt,
     )
 
 

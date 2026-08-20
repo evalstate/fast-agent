@@ -27,6 +27,7 @@ from filelock import FileLock
 
 from fast_agent.constants import DEFAULT_HOME_DIR
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.paths import resolve_home_paths
 from fast_agent.session.snapshot import (
     SessionChildLinkSnapshot,
@@ -71,6 +72,7 @@ SESSION_LOCK_STALE_SECONDS = 300
 HISTORY_PREFIX = "history_"
 HISTORY_SUFFIX = ".json"
 HISTORY_PREVIOUS_SUFFIX = "_previous.json"
+LAST_USER_PROMPT_LIMIT = 200
 
 
 def session_metadata_title(metadata: Mapping[str, object] | None) -> str | None:
@@ -163,13 +165,38 @@ def _first_user_preview(messages: list["PromptMessageExtended"], limit: int = 24
     for message in messages:
         if message.role != "user":
             continue
-        if message.is_template:
+        if message.is_template or message.tool_results:
             continue
         text = message.all_text() or message.first_text() or ""
         text = " ".join(text.split())
         if not text:
             continue
         return text[:limit]
+    return None
+
+
+def normalize_user_prompt(value: object, limit: int = LAST_USER_PROMPT_LIMIT) -> str | None:
+    if isinstance(value, str):
+        text = value
+    else:
+        content = getattr(value, "content", None)
+        blocks = content if isinstance(content, list) else [content] if content is not None else []
+        text = "\n".join(part for block in blocks if (part := get_text(block)) is not None)
+    normalized = " ".join(text.split())
+    return normalized[:limit] if normalized else None
+
+
+def _last_user_prompt(
+    messages: list["PromptMessageExtended"],
+    limit: int = LAST_USER_PROMPT_LIMIT,
+) -> str | None:
+    for message in reversed(messages):
+        if message.role != "user":
+            continue
+        if message.is_template or message.tool_results:
+            continue
+        if prompt := normalize_user_prompt(message, limit):
+            return prompt
     return None
 
 
@@ -378,6 +405,9 @@ class Session:
             preview = _first_user_preview(agent.message_history)
             if preview:
                 self.info.metadata["first_user_preview"] = preview
+        last_user_prompt = _last_user_prompt(agent.message_history)
+        if last_user_prompt:
+            self.info.metadata["last_user_prompt"] = last_user_prompt
 
         snapshot = capture_session_snapshot(
             session=self,
@@ -662,6 +692,16 @@ class Session:
         self.info.metadata["title"] = title
         self.info.last_activity = datetime.now()
         self._save_metadata()
+
+    def set_last_user_prompt(self, prompt: object) -> str | None:
+        """Persist the normalized latest external user prompt."""
+        normalized = normalize_user_prompt(prompt)
+        if normalized is None:
+            return None
+        self.info.metadata["last_user_prompt"] = normalized
+        self.info.last_activity = datetime.now()
+        self._save_metadata()
+        return normalized
 
     def latest_history_path(self, agent_name: str | None = None) -> pathlib.Path | None:
         """Return the most recent history file for this session, if any."""

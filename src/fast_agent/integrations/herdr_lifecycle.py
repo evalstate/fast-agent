@@ -31,6 +31,7 @@ type _SessionMetadata = tuple[
     str | None,
     str | None,
     str | None,
+    str | None,
 ]
 
 _AGENT_LABEL = "fast-agent"
@@ -150,6 +151,7 @@ class _HerdrLifecycleReporter:
         forked_from: str | None,
         context_usage: str | None,
         token_usage: str | None,
+        prompt: str | None = None,
     ) -> None:
         if os.getpid() != self._creator_pid:
             return
@@ -162,6 +164,7 @@ class _HerdrLifecycleReporter:
             forked_from,
             context_usage,
             token_usage,
+            prompt,
         )
         with self._lock:
             if self._closing or metadata == self._pending_session_metadata:
@@ -182,6 +185,7 @@ class _HerdrLifecycleReporter:
                         "forked_from": forked_from,
                         "context": context_usage,
                         "tokens": token_usage,
+                        "prompt": prompt,
                     },
                     "clear_title": title is None,
                     "clear_display_agent": title is None,
@@ -471,6 +475,7 @@ def report_session_metadata(
     forked_from: str | None,
     context_usage: str | None = None,
     token_usage: str | None = None,
+    prompt: str | None = None,
 ) -> None:
     """Report display-only persisted session metadata when running inside Herdr."""
     try:
@@ -485,6 +490,7 @@ def report_session_metadata(
                 forked_from=forked_from,
                 context_usage=context_usage,
                 token_usage=token_usage,
+                prompt=prompt,
             )
     except Exception:
         pass

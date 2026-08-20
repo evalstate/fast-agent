@@ -128,6 +128,7 @@ def test_reports_session_presentation_and_deduplicates_it(
             forked_from="session-0",
             context_usage="42.0% context",
             token_usage="128,000 in · 4,200 out",
+            prompt="Review the authentication flow",
         )
     _wait_for_requests(requests, 1)
     herdr_lifecycle.release_agent()
@@ -152,6 +153,7 @@ def test_reports_session_presentation_and_deduplicates_it(
         "forked_from": "session-0",
         "context": "42.0% context",
         "tokens": "128,000 in · 4,200 out",
+        "prompt": "Review the authentication flow",
     }
 
 
@@ -358,7 +360,7 @@ def test_windows_transport_maps_session_metadata_to_cli(
     assert "--clear-display-agent" in metadata_command
     assert "session=session-1" in metadata_command
     assert "model=provider.model" in metadata_command
-    assert metadata_command.count("--clear-token") == 4
+    assert metadata_command.count("--clear-token") == 5
 
 
 def test_delivery_retries_after_transport_exception(

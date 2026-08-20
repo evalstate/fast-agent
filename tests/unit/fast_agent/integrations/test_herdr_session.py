@@ -30,6 +30,7 @@ def test_report_session_maps_persisted_and_active_metadata(monkeypatch) -> None:
                 "agent_name": "saved-agent",
                 "pinned": True,
                 "forked_from": "session-0",
+                "last_user_prompt": "Check the latest auth changes",
             },
             created_at=datetime.now(),
             last_activity=datetime.now(),
@@ -76,6 +77,7 @@ def test_report_session_maps_persisted_and_active_metadata(monkeypatch) -> None:
             "forked_from": "session-0",
             "context_usage": "35.0% - gpt-5.6-sol",
             "token_usage": "300 in · 50 out",
+            "prompt": "Check the latest auth changes",
         }
     ]
 
@@ -102,8 +104,40 @@ def test_report_current_session_clears_metadata_without_a_session(monkeypatch) -
             "forked_from": None,
             "context_usage": None,
             "token_usage": None,
+            "prompt": None,
         }
     ]
+
+
+def test_session_presentation_prefers_manual_title_over_latest_prompt() -> None:
+    prompt = "latest prompt"
+
+    assert herdr_session._session_presentation(
+        {
+            "title": "  Manual session title ",
+            "last_user_prompt": prompt,
+            "first_user_preview": "first prompt",
+        }
+    ) == ("Manual session title", prompt)
+
+
+def test_session_presentation_uses_normalized_capped_latest_prompt() -> None:
+    prompt = "Please review\n\n" + ("the latest changes " * 20)
+    normalized = " ".join(prompt.split())[:200]
+
+    assert herdr_session._session_presentation(
+        {
+            "last_user_prompt": prompt,
+            "first_user_preview": "first prompt",
+        }
+    ) == (normalized, normalized)
+
+
+def test_session_presentation_falls_back_for_older_sessions() -> None:
+    assert herdr_session._session_presentation({"first_user_preview": " Original prompt "}) == (
+        "Original prompt",
+        None,
+    )
 
 
 def test_report_current_session_does_not_resolve_agent_when_inactive(monkeypatch) -> None:
