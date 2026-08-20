@@ -9,6 +9,7 @@ from fast_agent.core.agent_app import AgentApp, _format_interactive_final_error
 
 if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.session import SessionManager
 
 
 class _Agent:
@@ -131,7 +132,7 @@ async def test_prompt_records_and_reports_user_text_before_sending(monkeypatch) 
         lambda reported_session, *, agent: events.append(("report", (reported_session, agent))),
     )
 
-    result = await app.interactive(session_manager=manager)
+    result = await app.interactive(session_manager=cast("SessionManager", manager))
 
     assert result == "done"
     assert events == [
