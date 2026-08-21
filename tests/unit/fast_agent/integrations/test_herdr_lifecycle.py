@@ -363,6 +363,57 @@ def test_windows_transport_maps_session_metadata_to_cli(
     assert metadata_command.count("--clear-token") == 5
 
 
+def test_windows_transport_maps_session_usage_without_clearing_presentation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[list[str]] = []
+
+    def run(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(herdr_lifecycle, "_uses_windows_cli_transport", lambda: True)
+    monkeypatch.setattr(herdr_lifecycle.subprocess, "run", run)
+    _configure_herdr(monkeypatch, tmp_path / "unused.sock", bin_path=r"C:\Herdr\herdr.exe")
+    monkeypatch.delenv("HERDR_SOCKET_PATH")
+
+    herdr_lifecycle.report_session_usage("$0.0123")
+    deadline = time.monotonic() + 1
+    while len(calls) < 1 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert len(calls) == 1
+    herdr_lifecycle.release_agent()
+
+    metadata_command = calls[0]
+    assert metadata_command[1:4] == ["pane", "report-metadata", "w1:p2"]
+    assert "tokens=$0.0123" in metadata_command
+    assert "--clear-title" not in metadata_command
+    assert "--clear-display-agent" not in metadata_command
+
+
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="Unix sockets are unavailable")
+def test_reports_session_usage_over_socket(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    socket_path = tmp_path / "herdr.sock"
+    requests, server = _capture_requests(socket_path, 2)
+    _configure_herdr(monkeypatch, socket_path)
+
+    herdr_lifecycle.report_session_usage("$0.0123")
+    _wait_for_requests(requests, 1)
+    herdr_lifecycle.release_agent()
+
+    server.join(1)
+    assert not server.is_alive()
+    params = requests[0]["params"]
+    assert isinstance(params, dict)
+    params = cast("dict[str, object]", params)
+    assert params["applies_to_source"] == "herdr:fast-agent"
+    assert params["tokens"] == {"tokens": "$0.0123"}
+
+
 def test_delivery_retries_after_transport_exception(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

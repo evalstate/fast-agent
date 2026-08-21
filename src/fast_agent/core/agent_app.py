@@ -865,6 +865,7 @@ class AgentApp:
         if agent is None:
             return
 
+        from fast_agent.integrations.herdr_lifecycle import report_session_usage
         from fast_agent.plugins.post_user_turn import run_plugin_post_user_turn
 
         turn_usage, session_usage = self._collect_plugin_usage(agent, turn_start_indices)
@@ -875,6 +876,7 @@ class AgentApp:
             session_usage=session_usage,
             config=self._plugin_config,
             display=display_plugin_post_user_turn,
+            report_session_usage=report_session_usage,
         )
 
     @staticmethod

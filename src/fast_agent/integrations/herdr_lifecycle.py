@@ -196,6 +196,20 @@ class _HerdrLifecycleReporter:
             self._latest_metadata_request_id = request.request_id
             self._requests.put(request)
 
+    def report_session_usage(self, usage: str) -> None:
+        if os.getpid() != self._creator_pid or not usage:
+            return
+        with self._lock:
+            if self._closing:
+                return
+            self._enqueue_locked(
+                "pane.report_metadata",
+                params={
+                    "applies_to_source": _SOURCE,
+                    "tokens": {"tokens": usage},
+                },
+            )
+
     def release(self) -> None:
         if os.getpid() != self._creator_pid:
             return
@@ -409,7 +423,10 @@ class _HerdrLifecycleReporter:
             if isinstance(title, str):
                 command.extend(["--title", title, "--display-agent", title])
             else:
-                command.extend(["--clear-title", "--clear-display-agent"])
+                if request.params.get("clear_title") is True:
+                    command.append("--clear-title")
+                if request.params.get("clear_display_agent") is True:
+                    command.append("--clear-display-agent")
             tokens = request.params.get("tokens")
             if isinstance(tokens, dict):
                 for name, value in tokens.items():
@@ -492,6 +509,16 @@ def report_session_metadata(
                 token_usage=token_usage,
                 prompt=prompt,
             )
+    except Exception:
+        pass
+
+
+def report_session_usage(usage: str) -> None:
+    """Report a plugin-projected session usage value when running inside Herdr."""
+    try:
+        reporter = _active_reporter()
+        if reporter is not None:
+            reporter.report_session_usage(usage)
     except Exception:
         pass
 

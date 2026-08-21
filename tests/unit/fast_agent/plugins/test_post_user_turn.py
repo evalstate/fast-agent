@@ -77,3 +77,38 @@ async def test_failing_post_user_turn_plugin_does_not_block_later_plugin(
     )
 
     assert displayed == ["working"]
+
+
+@pytest.mark.asyncio
+async def test_structured_post_user_turn_result_reports_session_usage(
+    tmp_path: Path,
+) -> None:
+    plugin_file = tmp_path / "structured.py"
+    plugin_file.write_text(
+        "from fast_agent.plugins import PluginPostUserTurnOutput\n"
+        "\n"
+        "def display(ctx):\n"
+        "    return PluginPostUserTurnOutput(\n"
+        "        display='Cost: $0.01 last',\n"
+        "        session_usage='$0.12',\n"
+        "    )\n",
+        encoding="utf-8",
+    )
+    handlers = load_plugin_post_user_turn_handlers(
+        [PluginPostUserTurnSpec("cost", f"{plugin_file}:display")]
+    )
+    displayed: list[str] = []
+    reported: list[str] = []
+
+    await run_plugin_post_user_turn(
+        handlers,
+        agent_name="assistant",
+        turn_usage=(),
+        session_usage=(),
+        config={},
+        display=displayed.append,
+        report_session_usage=reported.append,
+    )
+
+    assert displayed == ["Cost: $0.01 last"]
+    assert reported == ["$0.12"]

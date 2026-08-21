@@ -9,6 +9,7 @@ import pytest
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.core.agent_app import AgentApp
+from fast_agent.integrations import herdr_lifecycle
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import (
     CompletionTokenUsage,
@@ -186,14 +187,24 @@ def test_plugin_usage_collects_parallel_turn_and_session_attempts() -> None:
 @pytest.mark.asyncio
 async def test_interactive_send_runs_post_user_turn_plugin_once_and_quiet_send_skips_it(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     marker = tmp_path / "calls.txt"
     hook = tmp_path / "hook.py"
     hook.write_text(
+        "from fast_agent.plugins import PluginPostUserTurnOutput\n"
+        "\n"
         "def display(ctx):\n"
         f"    with open({marker.as_posix()!r}, 'a', encoding='utf-8') as stream:\n"
-        "        stream.write(f'{len(ctx.turn_usage)}:{len(ctx.session_usage)}\\n')\n",
+        "        stream.write(f'{len(ctx.turn_usage)}:{len(ctx.session_usage)}\\n')\n"
+        "    return PluginPostUserTurnOutput(session_usage='$0.0123')\n",
         encoding="utf-8",
+    )
+    reported_usage: list[str] = []
+    monkeypatch.setattr(
+        herdr_lifecycle,
+        "report_session_usage",
+        reported_usage.append,
     )
 
     usage = UsageAccumulator()
@@ -227,6 +238,7 @@ async def test_interactive_send_runs_post_user_turn_plugin_once_and_quiet_send_s
 
     assert marker.read_text(encoding="utf-8") == "1:1\n"
     assert len(app.user_turn_usage) == 1
+    assert reported_usage == ["$0.0123"]
 
 
 def test_regular_agent_usage_displays_cache_percentage_and_ttl() -> None:

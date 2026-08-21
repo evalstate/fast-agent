@@ -45,6 +45,7 @@ def test_report_session_maps_persisted_and_active_metadata(monkeypatch) -> None:
                 model="model",
                 prompt=PromptTokenUsage(total=300),
                 completion=CompletionTokenUsage(total=50),
+                cost_usd=0.0123,
             )
         ]
     )
@@ -76,10 +77,41 @@ def test_report_session_maps_persisted_and_active_metadata(monkeypatch) -> None:
             "pinned": True,
             "forked_from": "session-0",
             "context_usage": "35.0% - gpt-5.6-sol",
-            "token_usage": "300 in · 50 out",
+            "token_usage": "$0.0123",
             "prompt": "Check the latest auth changes",
         }
     ]
+
+
+def test_usage_metadata_falls_back_to_tokens_when_any_cost_is_unavailable() -> None:
+    usage = UsageAccumulator(
+        turns=[
+            TurnUsage(
+                provider=Provider.RESPONSES,
+                usage_schema=UsageSchema.OPENAI_RESPONSES,
+                model="model",
+                prompt=PromptTokenUsage(total=300),
+                completion=CompletionTokenUsage(total=50),
+                cost_usd=0.0123,
+            ),
+            TurnUsage(
+                provider=Provider.RESPONSES,
+                usage_schema=UsageSchema.OPENAI_RESPONSES,
+                model="model",
+                prompt=PromptTokenUsage(total=200),
+                completion=CompletionTokenUsage(total=25),
+            ),
+        ]
+    )
+    agent = SimpleNamespace(usage_accumulator=usage)
+
+    context_usage, token_usage = herdr_session._usage_metadata(
+        cast("AgentProtocol", agent),
+        model=None,
+    )
+
+    assert context_usage is None
+    assert token_usage == "500 in · 75 out"
 
 
 def test_report_current_session_clears_metadata_without_a_session(monkeypatch) -> None:

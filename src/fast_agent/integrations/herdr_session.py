@@ -57,6 +57,11 @@ def _usage_metadata(
 
     if usage is None:
         return context_usage, None
+    costs = [turn.cost_usd for turn in usage.turns]
+    if costs and all(cost is not None for cost in costs):
+        total_cost_usd = sum(cost for cost in costs if cost is not None)
+        return context_usage, f"${total_cost_usd:.4f}"
+
     summary = usage.summary
     token_parts: list[str] = []
     if summary.prompt.total is not None:
