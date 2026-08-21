@@ -398,3 +398,8 @@ For example:
 - `qwen-fast`
 
 Each can resolve to the same backend model name while carrying distinct runtime settings.
+
+For a one-off test, use `fast-agent go --model <route>.<model> --base-url
+<url>` instead of creating an overlay. The CLI URL overrides the selected
+overlay's `connection.base_url` for that run only; the overlay manifest is not
+modified.

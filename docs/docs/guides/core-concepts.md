@@ -350,6 +350,32 @@ fast-agent go --model 'responses.gpt-5?web_search=on'
 fast-agent go --model 'xai.grok-4.3?x_search=on'
 ```
 
+Override only the selected model's endpoint for one run with `--base-url`.
+The model string still selects the provider adapter and protocol:
+
+```bash
+# OpenAI-compatible Chat Completions
+fast-agent go \
+  --model generic.deepseek-v4-flash \
+  --base-url https://gateway.example/v1
+
+# Open Responses-compatible Responses API
+fast-agent go \
+  --model openresponses.deepseek-v4-flash \
+  --base-url https://responses.example/v1
+```
+
+The CLI URL takes precedence over an overlay or provider-configured URL. It
+does not change automatic model routing, and it applies only to the selected
+primary agent. Use an explicit provider prefix when the endpoint protocol
+differs from the model's default route.
+
+The selected route's configured API key and default headers are retained and
+sent to the override URL. Use the matching provider credential environment
+variable or an overlay when the alternate endpoint needs different
+authentication. `--base-url` cannot be combined with multiple models or
+`--resume`.
+
 Model references are exact tokens like `$system.fast`. Define them in the
 home config and reuse them in cards:
 

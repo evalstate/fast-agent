@@ -505,6 +505,7 @@ def build_agent_run_request(
     workspace: Path | None = None,
     subagents: bool | None = None,
     subagent_model: str | None = None,
+    model_base_url: str | None = None,
 ) -> AgentRunRequest:
     """Build a normalized runtime request from legacy CLI kwargs."""
     validate_no_home_conflicts(
@@ -609,6 +610,7 @@ def build_agent_run_request(
         missing_shell_cwd_policy=missing_shell_cwd_policy,
         subagents=True if subagent_model is not None else subagents,
         subagent_model=subagent_model,
+        model_base_url=model_base_url,
     )
 
 
@@ -673,6 +675,7 @@ def build_command_run_request(
     workspace: Path | None = None,
     subagents: bool | None = None,
     subagent_model: str | None = None,
+    model_base_url: str | None = None,
 ) -> AgentRunRequest:
     """Build a normalized request directly from command option values."""
     validate_no_home_conflicts(
@@ -738,4 +741,5 @@ def build_command_run_request(
         missing_shell_cwd_policy=missing_shell_cwd_policy,
         subagents=subagents,
         subagent_model=subagent_model,
+        model_base_url=model_base_url,
     )

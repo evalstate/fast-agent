@@ -44,6 +44,32 @@ class LLMClass(Protocol):
     def __call__(self, **kwargs: Any) -> FastAgentLLMProtocol: ...
 
 
+@dataclass(frozen=True, slots=True)
+class RunModelEndpointLLMFactory:
+    llm_factory: LLMFactoryProtocol
+    agent_name: str
+    base_url: str
+
+    def __call__(self, agent: AgentProtocol, **kwargs: Any) -> FastAgentLLMProtocol:
+        if agent.name == self.agent_name:
+            kwargs["base_url"] = self.base_url
+            kwargs["run_model_base_url"] = self.base_url
+        return self.llm_factory(agent, **kwargs)
+
+
+def with_run_model_endpoint(
+    llm_factory: LLMFactoryProtocol,
+    *,
+    agent_name: str,
+    base_url: str,
+) -> LLMFactoryProtocol:
+    return RunModelEndpointLLMFactory(
+        llm_factory=llm_factory,
+        agent_name=agent_name,
+        base_url=base_url,
+    )
+
+
 TransportSetting = Literal["sse", "websocket", "auto"]
 ServiceTierSetting = Literal["fast", "flex"]
 ModelQueryPairs = Sequence[tuple[str, str]]
@@ -1085,6 +1111,8 @@ class ModelFactory:
                     **llm_args,
                     **resolved_model.llm_init_kwargs,
                 }
+            if "base_url" in kwargs:
+                llm_args["base_url"] = kwargs["base_url"]
             llm: FastAgentLLMProtocol = llm_class(**llm_args)
             return llm
 
