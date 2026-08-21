@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -312,6 +313,46 @@ def test_build_command_run_request_resolves_defaults() -> None:
     assert request.result_file == "out.json"
     assert request.execution_mode == "repl"
     assert request.environment is None
+
+
+def test_build_command_run_request_carries_model_base_url() -> None:
+    request = build_command_run_request(
+        name="cli",
+        instruction_option=None,
+        config_path=None,
+        servers=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
+        agent_cards=None,
+        card_tools=None,
+        model="generic.deepseek-v4-flash",
+        model_base_url="  https://gateway.example/v1  ",
+        message=None,
+        prompt_file=None,
+        result_file=None,
+        resume=None,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        target_agent_name=None,
+        skills_directory=None,
+        home=Path("."),
+        shell_enabled=False,
+        mode="interactive",
+    )
+
+    assert request.model_base_url == "https://gateway.example/v1"
+    assert request.to_agent_setup_kwargs()["model_base_url"] == "https://gateway.example/v1"
+
+    with pytest.raises(ValueError, match="--base-url cannot be empty"):
+        replace(request, model_base_url="  ")
+
+    with pytest.raises(ValueError, match="--base-url cannot be combined with multiple models"):
+        replace(request, model="generic.one,generic.two")
+
+    with pytest.raises(ValueError, match="--base-url cannot be combined with --resume"):
+        replace(request, resume="last")
 
 
 def test_build_command_run_request_carries_environment_name() -> None:

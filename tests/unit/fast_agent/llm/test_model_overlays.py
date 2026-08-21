@@ -128,6 +128,17 @@ def test_export_preserves_hf_namespace_before_database_lookup() -> None:
     assert manifest.model == "OpenAI/GPT-OSS-120B:CEREBRAS"
 
 
+def test_export_strips_hf_route_suffix_when_provider_changes() -> None:
+    manifest = build_model_overlay_manifest_from_database(
+        "hf.zai-org/GLM-5.2:deepinfra?reasoning=high",
+        provider=Provider.GENERIC,
+    )
+
+    assert manifest.name == "generic-zai-org-GLM-5.2"
+    assert manifest.provider == Provider.GENERIC
+    assert manifest.model == "zai-org/GLM-5.2?reasoning=high"
+
+
 def test_export_accepts_slash_prefixed_provider_model() -> None:
     manifest = build_model_overlay_manifest_from_database("anthropic/claude-sonnet-4-5")
 
@@ -1108,6 +1119,31 @@ remote-qwen:
         assert isinstance(llm, OpenResponsesLLM)
         assert llm._base_url() == "https://secret.example/v1"
         assert llm._api_key() == "secret-token"
+
+
+def test_explicit_base_url_overrides_overlay_connection(tmp_path: Path) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "endpoint-overlay.yaml",
+        """
+name: endpoint-overlay
+provider: generic
+model: deepseek-v4-flash
+connection:
+  base_url: https://overlay.example/v1
+  auth: none
+""".strip(),
+    )
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        llm = ModelFactory.create_factory("endpoint-overlay")(
+            LlmAgent(AgentConfig(name="primary")),
+            base_url="https://cli.example/v1",
+        )
+
+        assert isinstance(llm, GenericLLM)
+        assert llm._base_url() == "https://cli.example/v1"
 
 
 def test_overlay_context_window_survives_missing_max_output_tokens(tmp_path: Path) -> None:

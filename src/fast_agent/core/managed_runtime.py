@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from fast_agent.core.fastagent import (
         AgentInstance,
         ManagedRunState,
+        RunModelEndpointOverride,
         RunRuntime,
         RunSettings,
         RuntimeCallbacks,
@@ -83,6 +84,7 @@ class ManagedRuntimeMixin:
     def _build_model_factory_func(
         self,
         cli_model_override: str | None,
+        model_endpoint_override: "RunModelEndpointOverride | None" = None,
     ) -> "ModelFactoryFunctionProtocol":
         raise NotImplementedError
 
@@ -147,7 +149,10 @@ class ManagedRuntimeMixin:
         active_settings = config.get_settings()
         shell_settings = active_settings.shell_execution
         return RunRuntime(
-            model_factory_func=self._build_model_factory_func(settings.cli_model_override),
+            model_factory_func=self._build_model_factory_func(
+                settings.cli_model_override,
+                settings.model_endpoint_override,
+            ),
             global_prompt_context=self._build_global_prompt_context(
                 apply_global_prompt_context=not settings.is_acp_server_mode,
                 no_home_mode=settings.no_home_mode,

@@ -136,6 +136,7 @@ class FastAgentLLMProtocol(Protocol):
 
     default_request_params: RequestParams
     instruction: str | None
+    run_model_base_url: str | None
     verb: str | ProgressAction | None
 
     def add_stream_listener(

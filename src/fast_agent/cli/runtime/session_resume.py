@@ -73,6 +73,10 @@ async def resume_session_if_requested(
         request.target_agent_name = result.active_agent
 
     preview_agent = resume_preview_agent(agent_app, request, default_agent, result.loaded)
+    if request.is_repl:
+        from fast_agent.integrations.herdr_session import report_session
+
+        report_session(result.session, agent=preview_agent)
     emit_resume_assistant_preview(
         agent_app,
         preview_agent,

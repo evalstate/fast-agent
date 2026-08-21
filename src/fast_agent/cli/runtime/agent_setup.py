@@ -1025,6 +1025,7 @@ def _apply_fast_args(
     _validate_resume_request(request)
     if request.model:
         fast.args.model = request.model
+    fast.args.model_base_url = request.model_base_url
     fast.args.resume_requested = request.resume is not None
     fast.args.resume_session_id = _resume_session_id(request)
     if model_source_override:

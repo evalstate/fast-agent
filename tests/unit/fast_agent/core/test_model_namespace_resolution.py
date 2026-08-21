@@ -12,6 +12,7 @@ from fast_agent.config import Settings
 from fast_agent.context import Context
 from fast_agent.core.direct_factory import get_model_factory
 from fast_agent.core.exceptions import ModelConfigError
+from fast_agent.core.fastagent import FastAgent, RunModelEndpointOverride
 from fast_agent.core.model_resolution import (
     get_context_cli_model_override,
     get_context_model_references,
@@ -19,6 +20,7 @@ from fast_agent.core.model_resolution import (
     resolve_model_spec,
 )
 from fast_agent.llm.internal.passthrough import PassthroughLLM
+from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 
 
 def _build_context() -> Context:
@@ -37,6 +39,66 @@ def _build_context() -> Context:
             },
         )
     )
+
+
+@pytest.mark.asyncio
+async def test_run_model_endpoint_override_is_scoped_to_target_agent() -> None:
+    fast = FastAgent("test", parse_cli_args=False)
+    await fast.app.initialize()
+    try:
+        model_factory = fast._build_model_factory_func(
+            None,
+            RunModelEndpointOverride(
+                agent_name="primary",
+                base_url="https://gateway.example/v1",
+            ),
+        )
+        llm_factory = model_factory("generic.deepseek-v4-flash")
+
+        primary = LlmAgent(AgentConfig(name="primary"))
+        await primary.attach_llm(llm_factory)
+        other_llm = llm_factory(LlmAgent(AgentConfig(name="other")))
+
+        primary_llm = primary.llm
+        assert isinstance(primary_llm, GenericLLM)
+        assert isinstance(other_llm, GenericLLM)
+        assert primary_llm._base_url() == "https://gateway.example/v1"
+        assert other_llm._base_url() == "http://localhost:11434/v1"
+
+        await primary.set_model("generic.zai-org/glm-5.2")
+
+        assert isinstance(primary.llm, GenericLLM)
+        assert primary.llm._base_url() == "https://gateway.example/v1"
+    finally:
+        await fast.app.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_run_model_endpoint_override_resolves_card_default_agent() -> None:
+    fast = FastAgent("test", parse_cli_args=False)
+
+    @fast.agent(name="primary", model="passthrough", default=True)
+    async def primary() -> None:
+        pass
+
+    @fast.agent(name="other", model="passthrough")
+    async def other() -> None:
+        pass
+
+    await fast.app.initialize()
+    try:
+        fast.args.agent = "agent"
+        fast.args.model_base_url = "https://gateway.example/v1"
+
+        settings = fast._prepare_run_settings()
+
+        assert settings.target_agent_name == "primary"
+        assert settings.model_endpoint_override == RunModelEndpointOverride(
+            agent_name="primary",
+            base_url="https://gateway.example/v1",
+        )
+    finally:
+        await fast.app.cleanup()
 
 
 def test_resolve_model_reference_passthrough() -> None:

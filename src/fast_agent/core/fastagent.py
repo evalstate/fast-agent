@@ -89,6 +89,12 @@ __all__ = [
 ]
 
 
+@dataclass(frozen=True, slots=True)
+class RunModelEndpointOverride:
+    agent_name: str
+    base_url: str
+
+
 @dataclass(frozen=True)
 class RunSettings:
     quiet_mode: bool
@@ -102,6 +108,7 @@ class RunSettings:
     resume_session_id: str | None = None
     target_agent_name: str | None = None
     subagent_policy: SubagentRuntimePolicy = SubagentRuntimePolicy()
+    model_endpoint_override: RunModelEndpointOverride | None = None
 
 
 @dataclass
@@ -723,6 +730,13 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         target_agent_name = (
             target_agent_name_arg if isinstance(target_agent_name_arg, str) else None
         )
+        if (
+            target_agent_name == _DEFAULT_CLI_AGENT_PLACEHOLDER
+            and target_agent_name not in self.agents
+        ):
+            target_agent_name = self.get_default_agent_name()
+        model_base_url_arg = getattr(self.args, "model_base_url", None)
+        model_base_url = model_base_url_arg if isinstance(model_base_url_arg, str) else None
         subagents_arg = getattr(self.args, "subagents", None)
         subagents = subagents_arg if isinstance(subagents_arg, bool) else None
         subagent_model_arg = getattr(self.args, "subagent_model", None)
@@ -750,6 +764,14 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
             resume_requested=resume_requested,
             resume_session_id=resume_session_id,
             target_agent_name=target_agent_name,
+            model_endpoint_override=(
+                RunModelEndpointOverride(
+                    agent_name=target_agent_name,
+                    base_url=model_base_url,
+                )
+                if target_agent_name is not None and model_base_url is not None
+                else None
+            ),
             subagent_policy=SubagentRuntimePolicy(
                 enabled=subagents,
                 model=subagent_model,
@@ -864,16 +886,28 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         self._handle_dump_requests()
 
     def _build_model_factory_func(
-        self, cli_model_override: str | None
+        self,
+        cli_model_override: str | None,
+        model_endpoint_override: RunModelEndpointOverride | None = None,
     ) -> ModelFactoryFunctionProtocol:
         """Build the model-factory closure used during agent instantiation."""
 
         def model_factory_func(model: Any = None, request_params: Any = None) -> Any:
-            return get_model_factory(
+            llm_factory = get_model_factory(
                 self.context,
                 model=model,
                 request_params=request_params,
                 cli_model=cli_model_override,
+            )
+            if model_endpoint_override is None:
+                return llm_factory
+
+            from fast_agent.llm.model_factory import with_run_model_endpoint
+
+            return with_run_model_endpoint(
+                llm_factory,
+                agent_name=model_endpoint_override.agent_name,
+                base_url=model_endpoint_override.base_url,
             )
 
         return model_factory_func

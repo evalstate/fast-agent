@@ -179,6 +179,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self._init_request_params = request_params
         self._resolved_model_spec = kwargs.pop("resolved_model_spec", None)
         self._init_base_url = kwargs.pop("base_url", None)
+        self.run_model_base_url = kwargs.pop("run_model_base_url", None)
         self._init_default_headers = self._normalize_default_headers(
             kwargs.pop("default_headers", None)
         )

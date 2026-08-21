@@ -133,6 +133,10 @@ async def save_session_history(ctx: "HookContext") -> None:
         session=session,
         previous_title=previous_title,
     )
+    if session_context.acp_context is None:
+        from fast_agent.integrations.herdr_session import report_session
+
+        report_session(session, agent=cast("AgentProtocol", ctx.agent))
 
 
 def _session_history_context(ctx: "HookContext") -> _SessionHistoryContext:

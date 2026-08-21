@@ -16,6 +16,10 @@ from fast_agent.commands.command_discovery import (
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.config import get_settings
 from fast_agent.mcp.types import McpAgentProtocol
+from fast_agent.tools.durable_processes import (
+    DurableProcessRecordError,
+    DurableProcessSnapshot,
+)
 from fast_agent.ui.usage_display import collect_agents_from_provider
 from fast_agent.utils.commandline import split_commandline
 from fast_agent.utils.markdown import escape_markdown_table_cell, markdown_code_span
@@ -47,6 +51,15 @@ class _ShellRuntimeInfoProvider(Protocol):
 @runtime_checkable
 class _ManagedProcessRuntimeProvider(Protocol):
     async def process_snapshots(self) -> tuple["ManagedProcessSnapshot", ...]: ...
+
+    async def discover_durable_processes(self) -> tuple[DurableProcessSnapshot, ...]: ...
+
+    async def attach_durable_process(
+        self,
+        process_id: str,
+        *,
+        session_id: str | None = None,
+    ) -> DurableProcessSnapshot: ...
 
 
 def _last_assistant_text(message_history: Sequence["PromptMessageExtended"]) -> str | None:
@@ -190,6 +203,7 @@ async def handle_processes(
     *,
     agent_name: str,
     show_history: bool = False,
+    attach_process_id: str | None = None,
 ) -> CommandOutcome:
     """Render active processes by default, or retained finished history."""
     outcome = CommandOutcome()
@@ -211,8 +225,53 @@ async def handle_processes(
         )
         return outcome
 
+    if attach_process_id is not None:
+        session_id = (
+            ctx.session_runtime.current_session_id() if ctx.session_runtime is not None else None
+        ) or ctx.acp_session_id
+        try:
+            snapshot = await shell_runtime.attach_durable_process(
+                attach_process_id,
+                session_id=session_id,
+            )
+        except (DurableProcessRecordError, ValueError) as exc:
+            outcome.add_message(
+                f"Could not attach durable process `{attach_process_id}`: {exc}",
+                channel="error",
+                right_info="process attach",
+                render_markdown=True,
+            )
+            return outcome
+        status = _durable_process_display_status(snapshot)
+        lines = [
+            f"# attached `{snapshot.spec.process_id}`",
+            "",
+            f"- **status:** {status}",
+            f"- **PID:** {snapshot.status.child_pid or '—'}",
+            f"- **cwd:** `{snapshot.spec.cwd}`",
+            f"- **command:** {markdown_code_span(summarize_command(snapshot.spec.command))}",
+            "",
+            (
+                "Management and output observation are now attached to this runtime; "
+                "terminal input is not attached."
+            ),
+        ]
+        if session_id is not None:
+            lines.append(f"Associated with session `{session_id}`.")
+        outcome.add_message(
+            "\n".join(lines),
+            right_info="process attach",
+            render_markdown=True,
+        )
+        return outcome
+
     snapshots = list(await shell_runtime.process_snapshots())
-    if not snapshots:
+    durable = list(await shell_runtime.discover_durable_processes())
+    attached_ids = {snapshot.process_id for snapshot in snapshots}
+    discoverable = [
+        snapshot for snapshot in durable if snapshot.spec.process_id not in attached_ids
+    ]
+    if not snapshots and not discoverable:
         outcome.add_message(
             "No managed shell processes.",
             right_info="process",
@@ -222,7 +281,12 @@ async def handle_processes(
     active = [snapshot for snapshot in snapshots if snapshot.status == "running"]
     completed = [snapshot for snapshot in snapshots if snapshot.status != "running"]
     visible = completed if show_history else active
-    if not visible:
+    visible_discoverable = [
+        snapshot
+        for snapshot in discoverable
+        if (_durable_process_display_status(snapshot) != "running") == show_history
+    ]
+    if not visible and not visible_discoverable:
         message = (
             "No finished managed shell processes."
             if show_history
@@ -235,37 +299,77 @@ async def handle_processes(
         )
         return outcome
 
-    lines = [
-        "# finished managed processes" if show_history else "# active managed processes",
-        "",
-        (
-            f"**{len(completed)} finished** · {len(snapshots)} retained"
-            if show_history
-            else f"↻ **{len(active)} active**"
-        ),
-        "",
-        "| Process | Status | Elapsed | PID | Command |",
-        "| --- | --- | ---: | ---: | --- |",
-    ]
-    for snapshot in visible:
-        status = snapshot.status
-        if snapshot.exit_code is not None:
-            status = f"{status} ({snapshot.exit_code})"
-        command = markdown_code_span(
-            escape_markdown_table_cell(summarize_command(snapshot.command))
+    if visible:
+        lines = [
+            "# finished managed processes" if show_history else "# active managed processes",
+            "",
+            (
+                f"**{len(completed)} finished** · {len(snapshots)} retained"
+                if show_history
+                else f"↻ **{len(active)} active**"
+            ),
+            "",
+            "| Process | Status | Elapsed | PID | Command |",
+            "| --- | --- | ---: | ---: | --- |",
+        ]
+        for snapshot in visible:
+            status = snapshot.status
+            if snapshot.exit_code is not None:
+                status = f"{status} ({snapshot.exit_code})"
+            command = markdown_code_span(
+                escape_markdown_table_cell(summarize_command(snapshot.command))
+            )
+            lines.append(
+                "| "
+                f"`{snapshot.process_id}` | {status} | "
+                f"{format_duration(snapshot.elapsed_seconds)} | "
+                f"{snapshot.os_process_id or '—'} | {command} |"
+            )
+        outcome.add_message(
+            "\n".join(lines),
+            right_info="process history" if show_history else "process",
+            render_markdown=True,
         )
-        lines.append(
-            "| "
-            f"`{snapshot.process_id}` | {status} | "
-            f"{format_duration(snapshot.elapsed_seconds)} | "
-            f"{snapshot.os_process_id or '—'} | {command} |"
+    if visible_discoverable:
+        lines = [
+            "# discoverable durable processes",
+            "",
+            "| Process | Status | PID | Session | Command |",
+            "| --- | --- | ---: | --- | --- |",
+        ]
+        for snapshot in visible_discoverable:
+            sessions = ", ".join(snapshot.session_ids) or "—"
+            lines.append(
+                "| "
+                f"`{snapshot.spec.process_id}` | "
+                f"{_durable_process_display_status(snapshot)} | "
+                f"{snapshot.status.child_pid or '—'} | "
+                f"{escape_markdown_table_cell(sessions)} | "
+                f"{markdown_code_span(escape_markdown_table_cell(summarize_command(snapshot.spec.command)))} |"
+            )
+        lines.extend(
+            [
+                "",
+                "Use `/process attach <process-id>` to adopt management and output observation.",
+            ]
         )
-    outcome.add_message(
-        "\n".join(lines),
-        right_info="process history" if show_history else "process",
-        render_markdown=True,
-    )
+        outcome.add_message(
+            "\n".join(lines),
+            right_info="durable processes",
+            render_markdown=True,
+        )
     return outcome
+
+
+def _durable_process_display_status(snapshot: DurableProcessSnapshot) -> str:
+    state = snapshot.status.state
+    if state in {"created", "starting", "running", "stopping"}:
+        return "running"
+    if state == "stopped":
+        return "terminated"
+    if state == "unavailable":
+        return "unavailable"
+    return "completed" if snapshot.status.exit_code == 0 else "failed"
 
 
 async def handle_check(

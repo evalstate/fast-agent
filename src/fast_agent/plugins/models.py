@@ -50,7 +50,15 @@ class PluginPostUserTurnSpec:
     handler: str
 
 
-type PluginPostUserTurnResult = str | None
+@dataclass(frozen=True, slots=True)
+class PluginPostUserTurnOutput:
+    """Optional terminal and external-status projections from a post-turn plugin."""
+
+    display: str | None = None
+    session_usage: str | None = None
+
+
+type PluginPostUserTurnResult = str | PluginPostUserTurnOutput | None
 type PluginPostUserTurnReturn = PluginPostUserTurnResult | Awaitable[PluginPostUserTurnResult]
 
 

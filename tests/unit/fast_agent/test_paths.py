@@ -107,6 +107,10 @@ def test_resolve_home_paths_uses_get_settings_home(
         settings = config_module.get_settings(home=selected_home)
 
         assert resolve_home_paths(settings, cwd=tmp_path).root == selected_home.resolve()
+        assert (
+            resolve_home_paths(settings, cwd=tmp_path).processes
+            == selected_home.resolve() / "processes"
+        )
     finally:
         config_module._settings = None
 

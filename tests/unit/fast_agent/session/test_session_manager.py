@@ -227,6 +227,47 @@ async def test_save_history_preview_skips_empty_first_user_message(tmp_path) -> 
     await session.save_history(cast("AgentProtocol", agent))
 
     assert session.info.metadata["first_user_preview"] == "actual prompt"
+    assert session.info.metadata["last_user_prompt"] == "actual prompt"
+
+
+@pytest.mark.asyncio
+async def test_save_history_updates_and_persists_latest_user_prompt(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session()
+    agent = _Agent(
+        name="main",
+        instruction="Stored prompt",
+        history=[
+            _message("user", "first prompt"),
+            _message("assistant", "first answer"),
+            _message("user", "  latest\n\n" + ("prompt " * 40)),
+            _message("assistant", "latest answer"),
+        ],
+    )
+
+    await session.save_history(cast("AgentProtocol", agent))
+
+    expected = ("latest " + ("prompt " * 40)).strip()[:200]
+    assert session.info.metadata["first_user_preview"] == "first prompt"
+    assert session.info.metadata["last_user_prompt"] == expected
+    payload = json.loads((session.directory / "session.json").read_text(encoding="utf-8"))
+    snapshot = load_session_snapshot(payload)
+    assert snapshot.metadata.last_user_prompt == expected
+
+    agent.message_history.extend(
+        [
+            _message("user", "new intent"),
+            _message("assistant", "new answer"),
+        ]
+    )
+    await session.save_history(cast("AgentProtocol", agent))
+
+    assert session.info.metadata["first_user_preview"] == "first prompt"
+    assert session.info.metadata["last_user_prompt"] == "new intent"
 
 
 @pytest.mark.asyncio

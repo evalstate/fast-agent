@@ -277,6 +277,51 @@ def test_deepseek_custom_endpoint_uses_reasoning_without_wire_suffix(
     assert request["reasoning_effort"] == expected_effort
 
 
+def test_deepseek_constructor_endpoint_uses_custom_route_profile() -> None:
+    llm = HuggingFaceLLM(
+        context=Context(config=Settings()),
+        model="deepseek-ai/DeepSeek-V4-Flash-0731",
+        base_url="https://dedicated.example.test/v1",
+    )
+
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert llm._base_url() == "https://dedicated.example.test/v1"
+    assert request["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731"
+    assert request["reasoning_effort"] == "max"
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    (
+        "https://router.huggingface.co/v1/",
+        "HTTPS://ROUTER.HUGGINGFACE.CO/v1",
+        "https://router.huggingface.co:443/v1",
+    ),
+)
+def test_equivalent_huggingface_router_urls_do_not_use_custom_profile(
+    base_url: str,
+) -> None:
+    llm = HuggingFaceLLM(
+        context=Context(config=Settings()),
+        model="deepseek-ai/DeepSeek-V4-Flash-0731",
+        base_url=base_url,
+    )
+
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert request["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731"
+    assert "reasoning_effort" not in request
+
+
 def test_deepseek_custom_endpoint_does_not_override_explicit_router_backend() -> None:
     settings = Settings(hf=HuggingFaceSettings(base_url="https://dedicated.example.test/v1"))
     llm = HuggingFaceLLM(

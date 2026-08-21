@@ -699,6 +699,16 @@ def _split_provider_prefix(model_name: str) -> tuple[Provider | None, str]:
     return None, raw
 
 
+def _strip_hf_provider_suffix(model_name: str) -> str:
+    model_spec, separator, query = model_name.partition("?")
+    if ":" not in model_spec:
+        return model_name
+    base_model, _provider_suffix = model_spec.rsplit(":", 1)
+    if not base_model:
+        return model_name
+    return f"{base_model}{separator}{query}"
+
+
 def build_model_overlay_manifest_from_database(
     model_name: str,
     *,
@@ -720,9 +730,10 @@ def build_model_overlay_manifest_from_database(
     lookup_name = model_name if prefix_provider is not None else bare_model
     if prefix_provider == Provider.HUGGINGFACE and starts_with_casefold(model_name, "huggingface."):
         lookup_name = f"{Provider.HUGGINGFACE.value}.{bare_model}"
-    effective_provider = provider or prefix_provider
-    if effective_provider is None and "/" in bare_model:
-        effective_provider = Provider.HUGGINGFACE
+    source_provider = prefix_provider
+    if source_provider is None and "/" in bare_model:
+        source_provider = Provider.HUGGINGFACE
+    effective_provider = provider or source_provider
 
     existing = None
     if effective_provider is not None:
@@ -740,7 +751,11 @@ def build_model_overlay_manifest_from_database(
     resolved_provider = effective_provider or existing.default_provider or Provider.OPENAI
 
     # The manifest should store the bare model name (without our own prefix)
-    manifest_model = bare_model
+    manifest_model = (
+        _strip_hf_provider_suffix(bare_model)
+        if source_provider == Provider.HUGGINGFACE and resolved_provider != Provider.HUGGINGFACE
+        else bare_model
+    )
     name = overlay_name or _default_export_overlay_name(resolved_provider, manifest_model)
 
     # Map ModelParameters fields that are supported by ModelOverlayMetadata
