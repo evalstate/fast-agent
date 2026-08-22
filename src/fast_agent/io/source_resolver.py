@@ -31,8 +31,7 @@ def read_text_source(source: str | Path, *, label: str = "source") -> str:
             response.raise_for_status()
         except requests.RequestException as exc:
             raise ValueError(f"Could not read {label} {source_text}: {exc}") from exc
-        response.encoding = response.encoding or "utf-8"
-        return response.text
+        return response.content.decode("utf-8")
 
     if parsed.scheme == "hf":
         return _read_hf_text_source(source_text, label=label)
