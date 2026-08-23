@@ -394,6 +394,18 @@ def test_direct_kimi_model_routes_to_huggingface() -> None:
     assert config.model_name == "moonshotai/kimi-k2"
 
 
+def test_qwen38_catalog_entry_resolves_to_huggingface_wire_contract() -> None:
+    resolved = ModelFactory.resolve_model_spec("qwen/qwen3.8-27b:featherless-ai")
+    info = resolved.build_model_info()
+
+    assert resolved.provider is Provider.HUGGINGFACE
+    assert resolved.wire_model_name == "Qwen/Qwen3.8-27B:featherless-ai"
+    assert info is not None
+    assert info.context_window == 262_144
+    assert info.max_output_tokens == 131_072
+    assert "video/mp4" in info.tokenizes
+
+
 def test_kimi26_alias_sets_thinking_sampling_defaults() -> None:
     config = ModelFactory.parse_model_string("kimi26")
 

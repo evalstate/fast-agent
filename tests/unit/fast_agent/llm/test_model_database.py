@@ -277,6 +277,41 @@ def test_huggingface_qwen36_structured_output_uses_prompt_only() -> None:
     assert "YOU MUST RESPOND WITH A JSON OBJECT" in prepared_text
 
 
+def test_qwen38_defers_json_object_until_after_tool_use() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
+    tool = Tool(
+        name="lookup",
+        description="Lookup data.",
+        input_schema={"type": "object", "properties": {}},
+    )
+    llm = _make_hf_llm("Qwen/Qwen3.8-27B")
+    messages = [Prompt.user("look up and return json")]
+    request_params = RequestParams(structured_schema=schema)
+
+    prepared_messages, prepared_params = llm._prepare_structured_request(
+        messages,
+        request_params,
+        [tool],
+    )
+
+    assert llm._should_defer_structured_schema_for_tools(
+        messages,
+        request_params,
+        [tool],
+    )
+    assert prepared_params.structured_schema is None
+    assert prepared_params.response_format is None
+    assert not llm._should_suppress_tools_for_structured_final(
+        prepared_messages,
+        prepared_params,
+        [tool],
+    )
+
+
 def test_huggingface_kimi25_uses_schema_mode() -> None:
     params = ModelDatabase.get_model_params("moonshotai/Kimi-K2.5")
 

@@ -240,6 +240,7 @@ class ModelDatabase:
         "video/webm",
     ]
     QWEN_MULTIMODAL: ClassVar[list[str]] = ["text/plain", "image/jpeg", "image/png", "image/webp"]
+    QWEN38_MULTIMODAL: ClassVar[list[str]] = [*QWEN_MULTIMODAL, "video/mp4"]
     XAI_VISION: ClassVar[list[str]] = ["text/plain", "image/jpeg", "image/png"]
     TEXT_ONLY: ClassVar[list[str]] = ["text/plain"]
     # encourage commentary
@@ -294,6 +295,13 @@ class ModelDatabase:
     OPENAI_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["minimal", "low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    QWEN38_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "xhigh"],
+        allow_toggle_disable=True,
         default=ReasoningEffortSetting(kind="effort", value="medium"),
     )
 
@@ -1084,6 +1092,19 @@ class ModelDatabase:
         default_provider=Provider.HUGGINGFACE,
     )
 
+    HF_PROVIDER_QWEN38 = ModelParameters(
+        context_window=262_144,
+        max_output_tokens=131_072,
+        tokenizes=QWEN38_MULTIMODAL,
+        json_mode="object",
+        structured_tool_policy="defer",
+        shell_tool_profile="grok_shell",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=QWEN38_REASONING_EFFORT_SPEC,
+        default_provider=Provider.HUGGINGFACE,
+        default_temperature=1.0,
+    )
+
     # Groq-hosted Qwen3.6-27B. Groq's OpenAI-compatible API returns reasoning in
     # a separate `reasoning` delta field when `reasoning_format=parsed`, which
     # fast-agent extracts and streams via the "stream" reasoning mode. Capability
@@ -1293,6 +1314,7 @@ class ModelDatabase:
         "qwen/qwen3.5-397b-a17b": HF_PROVIDER_QWEN35,
         "qwen/qwen3.6-35b-a3b": HF_PROVIDER_QWEN36,
         "qwen/qwen3.6-27b": GROQ_QWEN36_27B,
+        "qwen/qwen3.8-27b": HF_PROVIDER_QWEN38,
         "google/gemma-4-31b-it": HF_PROVIDER_GEMMA4_31B,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
         "deepseek-ai/deepseek-v3.2": HF_PROVIDER_DEEPSEEK32,
@@ -1325,7 +1347,9 @@ class ModelDatabase:
             )
         }
     )
-    _PROVIDER_WIRE_MODEL_NAMES: ClassVar[dict[tuple[Provider, str], str]] = {}
+    _PROVIDER_WIRE_MODEL_NAMES: ClassVar[dict[tuple[Provider, str], str]] = {
+        (Provider.HUGGINGFACE, "qwen/qwen3.8-27b"): "Qwen/Qwen3.8-27B",
+    }
 
     @classmethod
     def get_model_params(
@@ -1712,8 +1736,17 @@ class ModelDatabase:
 
     @classmethod
     def resolve_wire_model_name(cls, *, provider: Provider, model_name: str) -> str:
-        normalized = cls.normalize_model_name(model_name)
-        return cls._PROVIDER_WIRE_MODEL_NAMES.get((provider, normalized), model_name.strip())
+        stripped = model_name.strip()
+        base_model = stripped
+        route_suffix = ""
+        if provider is Provider.HUGGINGFACE and ":" in stripped:
+            base_model, route = stripped.rsplit(":", 1)
+            if route:
+                route_suffix = f":{route}"
+
+        normalized = cls.normalize_model_name(base_model)
+        wire_model = cls._PROVIDER_WIRE_MODEL_NAMES.get((provider, normalized))
+        return f"{wire_model}{route_suffix}" if wire_model is not None else stripped
 
     @classmethod
     def list_long_context_models(cls) -> list[str]:

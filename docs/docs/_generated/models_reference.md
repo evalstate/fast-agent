@@ -53,9 +53,9 @@
 | `moonshotai/kimi-k2` | `groq` | Text | `json` (schema) | — | — | — |
 | `qwen3-32b` | `groq` | Text | `json` (object) | — | — | — |
 | `qwen3.6-27b` | `groq` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen3.6-27b?reasoning=off` | — | — |
+| `DeepSeek V4 Flash 0731 (baseten)` | `hf` | Text | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `DeepSeek V4 Flash 0731 (baseten)?reasoning=max` | — | — |
 | `Kimi K3 (together)` | `hf` | Text, Vision | `json` (schema) | effort: `low`, `high`, `max`<br>Example: `Kimi K3 (together)?reasoning=max` | — | — |
 | `deepseek-ai/deepseek-v3.1` | `hf` | Text | `json` (schema) | — | — | — |
-| `deepseek-ai/deepseek-v4-flash-0731` | `hf` | Text | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseek-ai/deepseek-v4-flash-0731?reasoning=max` | — | — |
 | `deepseek-hf` | `hf` | Text | `json` (schema) | — | — | — |
 | `deepseek32` | `hf` | Text | `json` (schema) | — | — | — |
 | `gemma4` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `gemma4?reasoning=none` | — | — |
@@ -76,6 +76,7 @@
 | `minimax25` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `minimax25?reasoning=off` | — | — |
 | `minimax27` | `hf` | Text | `json` (schema) | — | — | — |
 | `minimax` | `hf` | Text, Vision | `json` (schema) | — | — | — |
+| `qwen/qwen3.8-27b` | `hf` | Text, Vision, Video | `json` (object) | effort: `low`, `medium`, `xhigh`, `off`<br>Example: `qwen/qwen3.8-27b?reasoning=medium` | — | — |
 | `qwen35` | `hf` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen35?reasoning=off` | — | — |
 | `qwen36` | `hf` | Text | — | toggle: `on`, `off`<br>Example: `qwen36?reasoning=off` | — | — |
 | `Muse Spark 1.1` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `Muse Spark 1.1?reasoning=medium` | — | — |
