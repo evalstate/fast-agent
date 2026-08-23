@@ -17,11 +17,14 @@ from .hydrator import (
     SessionHydrator,
 )
 from .identity import SessionSaveContext, SessionSaveIdentity, resolve_session_for_save
+from .locking import SessionBusyError, SessionCheckpointBusyError, SessionOwner
 from .session_manager import (
     ResumeSessionAgentsResult,
     Session,
+    SessionDeleteResult,
     SessionInfo,
     SessionManager,
+    SessionPruneResult,
     apply_session_window,
     display_session_name,
     get_active_session_manager,
@@ -91,6 +94,9 @@ __all__ = [
     "ResolvedSessionExport",
     "ResumeSessionAgentsResult",
     "Session",
+    "SessionBusyError",
+    "SessionCheckpointBusyError",
+    "SessionDeleteResult",
     "SessionAgentSnapshot",
     "SessionAnalysisSnapshot",
     "SessionAttachmentRef",
@@ -120,6 +126,8 @@ __all__ = [
     "SessionManager",
     "SessionMetadataSnapshot",
     "SessionModelOverlayRef",
+    "SessionOwner",
+    "SessionPruneResult",
     "SessionRequestSettingsSnapshot",
     "SessionSaveContext",
     "SessionSaveIdentity",

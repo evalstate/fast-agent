@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from openai import AsyncOpenAI, AuthenticationError, DefaultAioHttpClient
 
-from fast_agent.core.exceptions import ProviderKeyError
+from fast_agent.core.exceptions import ModelConfigError, ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.provider.openai.codex_oauth import parse_chatgpt_account_id
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
@@ -39,6 +39,31 @@ class CodexResponsesLLM(ResponsesLLM):
         kwargs.pop("provider", None)
         super().__init__(provider=provider, **kwargs)
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
+        self._validate_codex_max_tokens(self.default_request_params)
+
+    def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
+        params = super()._initialize_default_params(kwargs)
+        params.max_tokens = None
+        return params
+
+    @staticmethod
+    def _validate_codex_max_tokens(request_params: RequestParams) -> None:
+        if request_params.max_tokens is not None:
+            raise ModelConfigError(
+                "Provider 'codexresponses' does not support max_tokens: "
+                "the Codex Responses endpoint does not accept max_output_tokens."
+            )
+        metadata = request_params.metadata or {}
+        unsupported_metadata = (
+            "max_tokens",
+            "maxTokens",
+            "max_output_tokens",
+            "maxOutputTokens",
+        )
+        if any(metadata.get(key) is not None for key in unsupported_metadata):
+            raise ModelConfigError(
+                "Provider 'codexresponses' does not support max token limits in request metadata."
+            )
 
     def _display_model(self, model: str | None) -> str | None:
         if not model:
@@ -214,6 +239,7 @@ class CodexResponsesLLM(ResponsesLLM):
         request_params: RequestParams,
         tools: list[Tool] | None,
     ) -> dict[str, Any]:
+        self._validate_codex_max_tokens(request_params)
         args = super()._build_response_args(input_items, request_params, tools)
         model = request_params.model or self.default_request_params.model
         if self._uses_codex_responses_lite(model):
@@ -239,10 +265,5 @@ class CodexResponsesLLM(ResponsesLLM):
             reasoning = args.get("reasoning")
             if isinstance(reasoning, dict):
                 reasoning["context"] = "all_turns"
-        if "max_output_tokens" in args:
-            args.pop("max_output_tokens", None)
-            self.logger.debug(
-                "Dropping max_output_tokens for Codex responses; parameter unsupported by API"
-            )
         args["tool_choice"] = request_params.sampling_tool_choice or "auto"
         return args

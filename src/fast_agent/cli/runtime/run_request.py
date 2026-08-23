@@ -79,10 +79,12 @@ class AgentRunRequest:
     trajectory_format: Literal["atif"] = "atif"
     subagents: bool | None = None
     subagent_model: str | None = None
+    model_base_url: str | None = None
 
     def __post_init__(self) -> None:
         self._validate_environment_options()
         self._validate_timeout()
+        self._validate_model_base_url()
         self._resolve_execution_mode()
         self._validate_structured_options()
 
@@ -101,6 +103,17 @@ class AgentRunRequest:
     def _validate_timeout(self) -> None:
         if self.timeout_seconds is not None and self.timeout_seconds < 1:
             raise ValueError("--timeout must be a positive integer")
+
+    def _validate_model_base_url(self) -> None:
+        if self.model_base_url is None:
+            return
+        self.model_base_url = self.model_base_url.strip()
+        if not self.model_base_url:
+            raise ValueError("--base-url cannot be empty")
+        if self.model is not None and "," in self.model:
+            raise ValueError("--base-url cannot be combined with multiple models")
+        if self.resume is not None:
+            raise ValueError("--base-url cannot be combined with --resume")
 
     def _resolve_execution_mode(self) -> None:
         resolved_execution_mode = resolve_execution_mode(
@@ -184,6 +197,7 @@ class AgentRunRequest:
             "no_shell": self.no_shell,
             "subagents": self.subagents,
             "subagent_model": self.subagent_model,
+            "model_base_url": self.model_base_url,
             "prefer_local_shell": self.prefer_local_shell,
             "mode": self.mode,
             "transport": self.transport,

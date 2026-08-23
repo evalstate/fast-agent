@@ -170,8 +170,12 @@ def available_service_tier_values(
 
 
 def service_tier_command_values(llm: "FastAgentLLMProtocol | None") -> tuple[str, ...]:
-    values = ["on", "off"]
-    if "flex" in available_service_tier_values(llm):
+    available = available_service_tier_values(llm)
+    values: list[str] = []
+    if "fast" in available:
+        values.append("on")
+    values.append("off")
+    if "flex" in available:
         values.append("flex")
     values.append("status")
     return tuple(values)

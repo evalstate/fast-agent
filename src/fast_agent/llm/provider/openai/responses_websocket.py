@@ -76,12 +76,16 @@ class ResponsesWebSocketError(RuntimeError):
         error_code: str | None = None,
         status: int | None = None,
         error_param: str | None = None,
+        headers: dict[str, str] | None = None,
+        stream_id: str | None = None,
     ) -> None:
         super().__init__(message)
         self.stream_started = stream_started
         self.error_code = error_code
         self.status = status
         self.error_param = error_param
+        self.headers = headers
+        self.stream_id = stream_id
 
 
 class _AttrObjectView:
@@ -946,13 +950,22 @@ class WebSocketResponsesStream:
         self._raise_payload_error(payload)
 
     def _raise_payload_error(self, payload: Mapping[str, Any]) -> None:
-        error_message, error_code, error_status, error_param = self._extract_error_details(payload)
+        (
+            error_message,
+            error_code,
+            error_status,
+            error_param,
+            error_headers,
+            stream_id,
+        ) = self._extract_error_details(payload)
         raise ResponsesWebSocketError(
             error_message,
             stream_started=self._stream_started,
             error_code=error_code,
             status=error_status,
             error_param=error_param,
+            headers=error_headers,
+            stream_id=stream_id,
         )
 
     async def get_final_response(self) -> Any:
@@ -966,17 +979,26 @@ class WebSocketResponsesStream:
     @staticmethod
     def _extract_error_details(
         payload: Mapping[str, Any],
-    ) -> tuple[str, str | None, int | None, str | None]:
+    ) -> tuple[
+        str,
+        str | None,
+        int | None,
+        str | None,
+        dict[str, str] | None,
+        str | None,
+    ]:
         error_status = int_or_none(payload.get("status"))
+        stream_id = _non_empty_string(payload.get("stream_id"))
         error_code: str | None = None
         error_param: str | None = None
+        error_headers: dict[str, str] | None = None
 
         message = payload.get("message")
         top_level_message = _non_empty_string(message)
 
         error = payload.get("error")
         if (error_text := _non_empty_string(error)) is not None:
-            return error_text, None, error_status, None
+            return error_text, None, error_status, None, None, stream_id
         if isinstance(error, Mapping):
             code_value = error.get("code")
             if (code_value := _non_empty_string(code_value)) is not None:
@@ -990,14 +1012,43 @@ class WebSocketResponsesStream:
             if (param_value := _non_empty_string(param_value)) is not None:
                 error_param = param_value
 
+            headers_value = error.get("headers")
+            if isinstance(headers_value, Mapping):
+                error_headers = {
+                    key: value
+                    for key, value in headers_value.items()
+                    if isinstance(key, str) and isinstance(value, str)
+                }
+
             error_message = error.get("message")
             if (error_message := _non_empty_string(error_message)) is not None:
-                return error_message, error_code, error_status, error_param
+                return (
+                    error_message,
+                    error_code,
+                    error_status,
+                    error_param,
+                    error_headers,
+                    stream_id,
+                )
 
         if top_level_message:
-            return top_level_message, error_code, error_status, error_param
+            return (
+                top_level_message,
+                error_code,
+                error_status,
+                error_param,
+                error_headers,
+                stream_id,
+            )
 
-        return "WebSocket Responses request failed.", error_code, error_status, error_param
+        return (
+            "WebSocket Responses request failed.",
+            error_code,
+            error_status,
+            error_param,
+            error_headers,
+            stream_id,
+        )
 
 
 def _preview_text(raw_data: str, *, limit: int = 240) -> str:

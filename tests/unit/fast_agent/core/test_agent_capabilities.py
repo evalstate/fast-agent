@@ -6,6 +6,7 @@ from fast_agent.core.agent_capabilities import (
     AgentCapabilityMode,
     cycle_agent_capability_mode,
     resolve_agent_capability_mode,
+    set_agent_capability_mode,
 )
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.harness_tools import set_harness_tools
@@ -28,6 +29,14 @@ def test_agent_capability_mode_cycles_harness_only_to_standard() -> None:
 
     assert resolve_agent_capability_mode(agent) is AgentCapabilityMode.HARNESS_ONLY
     assert cycle_agent_capability_mode(agent) is AgentCapabilityMode.STANDARD
+
+
+@pytest.mark.parametrize("mode", AgentCapabilityMode)
+def test_set_agent_capability_mode_applies_exact_mode(mode: AgentCapabilityMode) -> None:
+    agent = ToolAgent(AgentConfig("dev"))
+
+    assert set_agent_capability_mode(agent, mode) is mode
+    assert resolve_agent_capability_mode(agent) is mode
 
 
 def test_agent_capability_mode_respects_explicit_subagent_disable() -> None:

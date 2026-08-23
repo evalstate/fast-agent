@@ -29,7 +29,7 @@ from fast_agent.mcp.helpers.content_helpers import (
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.utils.text import strip_casefold
 
-GoogleToolResult: TypeAlias = tuple[str, str | None, CallToolResult]
+GoogleToolResult: TypeAlias = tuple[str, str, CallToolResult]
 
 
 class GoogleConverter:
@@ -279,6 +279,11 @@ class GoogleConverter:
 
         parts: list[types.Part] = []
         for tool_name, tool_call_id, tool_result in tool_results:
+            if not tool_name.strip():
+                raise ValueError("Google FunctionResponse requires a function name.")
+            if not tool_call_id.strip():
+                raise ValueError("Google FunctionResponse requires a function call ID.")
+
             textual_outputs, media_parts = self._google_tool_result_parts(tool_result)
 
             output_text = "\n".join(textual_outputs)
@@ -564,8 +569,6 @@ class GoogleConverter:
                 include_thoughts=True,
                 thinking_level=thinking_level,
             )
-        if thinking_budget == 0:
-            return types.ThinkingConfig(include_thoughts=True, thinking_budget=0)
 
         return types.ThinkingConfig(
             include_thoughts=True,

@@ -45,7 +45,7 @@ class _FakeFilesApi:
 
 class _FakeAnthropic:
     def __init__(self) -> None:
-        self.beta = SimpleNamespace(files=_FakeFilesApi())
+        self.files = _FakeFilesApi()
 
 
 @pytest.mark.asyncio
@@ -67,7 +67,7 @@ async def test_prepare_anthropic_file_resources_uploads_office_documents() -> No
 
     meta = dict(resource.meta or {})
     assert meta[ANTHROPIC_FILE_ID_META_KEY] == "file_1"
-    assert anthropic.beta.files.calls == [("report.docx", docx_bytes, resource.mime_type)]
+    assert anthropic.files.calls == [("report.docx", docx_bytes, resource.mime_type)]
 
 
 @pytest.mark.asyncio
@@ -98,7 +98,7 @@ async def test_prepare_anthropic_file_resources_caches_repeated_uploads() -> Non
 
     await llm._prepare_anthropic_file_resources(anthropic, messages)
 
-    assert len(anthropic.beta.files.calls) == 1
+    assert len(anthropic.files.calls) == 1
     assert dict(first.meta or {})[ANTHROPIC_FILE_ID_META_KEY] == "file_1"
     assert dict(second.meta or {})[ANTHROPIC_FILE_ID_META_KEY] == "file_1"
 
@@ -121,7 +121,7 @@ async def test_prepare_anthropic_file_resources_infers_document_mime_from_uri() 
 
     meta = dict(resource.meta or {})
     assert meta[ANTHROPIC_FILE_ID_META_KEY] == "file_1"
-    assert anthropic.beta.files.calls == [
+    assert anthropic.files.calls == [
         (
             "report.docx",
             docx_bytes,

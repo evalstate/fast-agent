@@ -7,7 +7,6 @@ Provides automatic saving and loading of conversation sessions in the fast-agent
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import inspect
 import json
 import os
@@ -15,19 +14,22 @@ import pathlib
 import re
 import secrets
 import shutil
-import socket
 import string
 import tempfile
-import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
-
-from filelock import FileLock
+from typing import TYPE_CHECKING, Any, Literal
 
 from fast_agent.constants import DEFAULT_HOME_DIR
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.paths import resolve_home_paths
+from fast_agent.session.locking import (
+    SessionBusyError,
+    SessionLockStore,
+    SessionOwner,
+    SessionOwnerLease,
+)
 from fast_agent.session.snapshot import (
     SessionChildLinkSnapshot,
     SessionExecutionStatus,
@@ -65,12 +67,10 @@ SESSION_TIMESTAMP_FORMAT = "%y%m%d%H%M"
 SESSION_ID_PATTERN = re.compile(
     rf"^(?:[A-Za-z0-9]{{{SESSION_ID_LENGTH}}}|\d{{10}}-[A-Za-z0-9]{{{SESSION_ID_LENGTH}}})$"
 )
-SESSION_LOCK_FILENAME = ".session.lock"
-SUBAGENT_ALIAS_LOCK_FILENAME = ".subagents.lock"
-SESSION_LOCK_STALE_SECONDS = 300
 HISTORY_PREFIX = "history_"
 HISTORY_SUFFIX = ".json"
 HISTORY_PREVIOUS_SUFFIX = "_previous.json"
+LAST_USER_PROMPT_LIMIT = 200
 
 
 def session_metadata_title(metadata: Mapping[str, object] | None) -> str | None:
@@ -163,13 +163,38 @@ def _first_user_preview(messages: list["PromptMessageExtended"], limit: int = 24
     for message in messages:
         if message.role != "user":
             continue
-        if message.is_template:
+        if message.is_template or message.tool_results:
             continue
         text = message.all_text() or message.first_text() or ""
         text = " ".join(text.split())
         if not text:
             continue
         return text[:limit]
+    return None
+
+
+def normalize_user_prompt(value: object, limit: int = LAST_USER_PROMPT_LIMIT) -> str | None:
+    if isinstance(value, str):
+        text = value
+    else:
+        content = getattr(value, "content", None)
+        blocks = content if isinstance(content, list) else [content] if content is not None else []
+        text = "\n".join(part for block in blocks if (part := get_text(block)) is not None)
+    normalized = " ".join(text.split())
+    return normalized[:limit] if normalized else None
+
+
+def _last_user_prompt(
+    messages: list["PromptMessageExtended"],
+    limit: int = LAST_USER_PROMPT_LIMIT,
+) -> str | None:
+    for message in reversed(messages):
+        if message.role != "user":
+            continue
+        if message.is_template or message.tool_results:
+            continue
+        if prompt := normalize_user_prompt(message, limit):
+            return prompt
     return None
 
 
@@ -285,6 +310,27 @@ class ResumeSessionAgentsResult:
     active_agent: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class SessionDeleteResult:
+    """Detailed persisted session deletion outcome."""
+
+    session_id: str
+    status: Literal["deleted", "not_found", "invalid", "busy", "error"]
+    owner: SessionOwner | None = None
+
+    @property
+    def deleted(self) -> bool:
+        return self.status == "deleted"
+
+
+@dataclass(frozen=True, slots=True)
+class SessionPruneResult:
+    """Detailed persisted session pruning outcome."""
+
+    removed: int
+    busy: tuple[SessionDeleteResult, ...] = ()
+
+
 class Session:
     """Represents a single conversation session."""
 
@@ -324,6 +370,28 @@ class Session:
         compact JSON and previously captured git state is reused instead of
         re-queried. Turn-boundary saves keep the full-fidelity behaviour.
         """
+        async with self._history_save_lock:
+            with self._mutation_lock():
+                return await self._save_history_transaction(
+                    agent,
+                    filename,
+                    agent_registry=agent_registry,
+                    identity=identity,
+                    resolved_prompts=resolved_prompts,
+                    checkpoint=checkpoint,
+                )
+
+    async def _save_history_transaction(
+        self,
+        agent: AgentProtocol,
+        filename: str | None,
+        *,
+        agent_registry: Mapping[str, AgentProtocol] | None,
+        identity: "SessionSaveIdentity | None",
+        resolved_prompts: Mapping[str, str] | None,
+        checkpoint: bool,
+    ) -> str:
+        """Write one complete committed checkpoint while exclusively locked."""
         from fast_agent.history.history_exporter import HistoryExporter
 
         self.info.last_activity = datetime.now()
@@ -347,8 +415,7 @@ class Session:
             filename = current_filename
         else:
             filepath = self.directory / filename
-            async with self._history_save_lock:
-                result = await HistoryExporter.save(agent, str(filepath), compact=checkpoint)
+            result = await HistoryExporter.save(agent, str(filepath), compact=checkpoint)
 
         # Update session info
         if rotating and current_filename:
@@ -378,6 +445,9 @@ class Session:
             preview = _first_user_preview(agent.message_history)
             if preview:
                 self.info.metadata["first_user_preview"] = preview
+        last_user_prompt = _last_user_prompt(agent.message_history)
+        if last_user_prompt:
+            self.info.metadata["last_user_prompt"] = last_user_prompt
 
         snapshot = capture_session_snapshot(
             session=self,
@@ -387,7 +457,7 @@ class Session:
             resolved_prompts=resolved_prompts,
             refresh_git=not checkpoint,
         )
-        self._save_snapshot(snapshot)
+        self._write_snapshot(snapshot)
         return result
 
     async def _save_rotating_history(
@@ -417,12 +487,11 @@ class Session:
             ) as handle:
                 temp_path = pathlib.Path(handle.name)
 
-            async with self._history_save_lock:
-                await HistoryExporter.save(agent, str(temp_path), compact=compact)
+            await HistoryExporter.save(agent, str(temp_path), compact=compact)
 
-                if current_path.exists():
-                    current_path.replace(previous_path)
-                temp_path.replace(current_path)
+            if current_path.exists():
+                current_path.replace(previous_path)
+            temp_path.replace(current_path)
         finally:
             if temp_path and temp_path.exists():
                 try:
@@ -437,18 +506,21 @@ class Session:
 
     def _save_metadata(self) -> None:
         """Save session metadata without replacing persisted runtime state."""
+        with self._mutation_lock():
+            self._save_metadata_locked()
+
+    def _save_metadata_locked(self) -> None:
         updated = snapshot_from_session_info(self.info)
-        with self._metadata_lock():
-            snapshot = self._load_snapshot_or_compatibility()
-            snapshot.created_at = updated.created_at
-            snapshot.last_activity = updated.last_activity
-            snapshot.metadata = updated.metadata
-            _merge_compatibility_continuation(snapshot, updated)
-            self._write_snapshot(snapshot)
+        snapshot = self._load_snapshot_or_compatibility()
+        snapshot.created_at = updated.created_at
+        snapshot.last_activity = updated.last_activity
+        snapshot.metadata = updated.metadata
+        _merge_compatibility_continuation(snapshot, updated)
+        self._write_snapshot(snapshot)
 
     def _save_snapshot(self, snapshot: SessionSnapshot) -> None:
         """Save a typed snapshot payload."""
-        with self._metadata_lock():
+        with self._mutation_lock():
             self._write_snapshot(snapshot)
 
     def _write_snapshot(self, snapshot: SessionSnapshot) -> None:
@@ -486,11 +558,12 @@ class Session:
 
     def set_pinned(self, pinned: bool) -> None:
         """Pin or unpin the session to prevent auto-pruning."""
-        if pinned:
-            self.info.metadata["pinned"] = True
-        else:
-            self.info.metadata.pop("pinned", None)
-        self._save_metadata()
+        with self._mutation_lock():
+            if pinned:
+                self.info.metadata["pinned"] = True
+            else:
+                self.info.metadata.pop("pinned", None)
+            self._save_metadata_locked()
 
     def has_persisted_content(self) -> bool:
         """Return True when this session has saved conversation history."""
@@ -509,13 +582,14 @@ class Session:
 
     def set_execution_status(self, status: SessionExecutionStatus) -> None:
         """Record the terminal lifecycle state for an execution session."""
-        snapshot = self._load_snapshot_or_compatibility()
-        now = datetime.now()
-        snapshot.last_activity = now
-        snapshot.execution.status = status
-        snapshot.execution.completed_at = now if status != "running" else None
-        self.info.last_activity = now
-        self._save_snapshot(snapshot)
+        with self._mutation_lock():
+            snapshot = self._load_snapshot_or_compatibility()
+            now = datetime.now()
+            snapshot.last_activity = now
+            snapshot.execution.status = status
+            snapshot.execution.completed_at = now if status != "running" else None
+            self.info.last_activity = now
+            self._write_snapshot(snapshot)
 
     def _load_snapshot_or_compatibility(self) -> SessionSnapshot:
         metadata_file = self.directory / "session.json"
@@ -527,7 +601,8 @@ class Session:
 
     def load_snapshot(self) -> SessionSnapshot:
         """Load the typed continuation snapshot for this session."""
-        return self._load_snapshot_or_compatibility()
+        with self._checkpoint_lock():
+            return self._load_snapshot_or_compatibility()
 
     def is_user_visible(self) -> bool:
         """Return whether this session should appear in interactive session surfaces."""
@@ -539,8 +614,10 @@ class Session:
         """Delete this session when it only contains startup metadata."""
         if self.is_user_visible():
             return False
-        self.delete()
-        return True
+        manager = self._manager
+        if manager is None:
+            return False
+        return manager.delete_owned_session(self)
 
     def _atomic_write_json(self, path: pathlib.Path, payload: dict[str, Any]) -> None:
         temp_path: pathlib.Path | None = None
@@ -568,100 +645,43 @@ class Session:
                         data={"path": str(temp_path)},
                     )
 
-    @contextlib.contextmanager
-    def _metadata_lock(self):
-        lock_path = self.directory / SESSION_LOCK_FILENAME
-        acquired = False
-        existing_info: dict[str, Any] | None = None
-        lock_payload = {
-            "pid": os.getpid(),
-            "host": socket.gethostname(),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
+    def _checkpoint_lock(self):
+        manager = self._manager
+        if manager is None:
+            raise RuntimeError("Persisted session operations require an owning SessionManager.")
+        return manager._locks.checkpoint(self.info.name)
 
-        try:
-            acquired = self._try_acquire_lock(lock_path, lock_payload)
-        except Exception as exc:
-            logger.warning(
-                "Failed to acquire session metadata lock",
-                data={"session": self.info.name, "error": str(exc)},
-            )
-
-        if not acquired:
-            existing_info = self._read_lock_info(lock_path)
-            logger.warning(
-                "Session metadata lock already held; proceeding without exclusive lock",
-                data={
-                    "session": self.info.name,
-                    "lock_path": str(lock_path),
-                    "locked_by": existing_info,
-                },
-            )
-
-        try:
-            yield
-        finally:
-            if acquired:
-                try:
-                    lock_path.unlink()
-                except FileNotFoundError:
-                    pass
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to release session metadata lock",
-                        data={"session": self.info.name, "error": str(exc)},
-                    )
-
-    def _try_acquire_lock(self, lock_path: pathlib.Path, payload: dict[str, Any]) -> bool:
-        try:
-            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            return self._try_replace_stale_lock(lock_path, payload)
-        except FileNotFoundError:
-            lock_path.parent.mkdir(parents=True, exist_ok=True)
-            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-
-        with os.fdopen(fd, "w") as handle:
-            json.dump(payload, handle)
-            handle.flush()
-            os.fsync(handle.fileno())
-        return True
-
-    def _try_replace_stale_lock(self, lock_path: pathlib.Path, payload: dict[str, Any]) -> bool:
-        try:
-            mtime = lock_path.stat().st_mtime
-        except FileNotFoundError:
-            return self._try_acquire_lock(lock_path, payload)
-        except Exception:
-            return False
-
-        if (time.time() - mtime) < SESSION_LOCK_STALE_SECONDS:
-            return False
-
-        try:
-            lock_path.unlink()
-        except Exception:
-            return False
-        return self._try_acquire_lock(lock_path, payload)
-
-    def _read_lock_info(self, lock_path: pathlib.Path) -> dict[str, Any] | None:
-        try:
-            with lock_path.open(encoding="utf-8") as handle:
-                data = json.load(handle)
-                return data if isinstance(data, dict) else None
-        except Exception:
-            return None
+    def _mutation_lock(self):
+        manager = self._manager
+        if manager is None:
+            raise RuntimeError("Persisted session operations require an owning SessionManager.")
+        manager._acquire_owner(self.info.name)
+        return manager._locks.checkpoint(self.info.name)
 
     def delete(self) -> None:
         """Delete this session."""
-        if self.directory.exists():
-            shutil.rmtree(self.directory)
+        manager = self._manager
+        if manager is None:
+            raise RuntimeError("Persisted session deletion requires an owning SessionManager.")
+        manager.delete_owned_session(self)
 
     def set_title(self, title: str) -> None:
         """Set a user-friendly title for this session."""
-        self.info.metadata["title"] = title
-        self.info.last_activity = datetime.now()
-        self._save_metadata()
+        with self._mutation_lock():
+            self.info.metadata["title"] = title
+            self.info.last_activity = datetime.now()
+            self._save_metadata_locked()
+
+    def set_last_user_prompt(self, prompt: object) -> str | None:
+        """Persist the normalized latest external user prompt."""
+        normalized = normalize_user_prompt(prompt)
+        if normalized is None:
+            return None
+        with self._mutation_lock():
+            self.info.metadata["last_user_prompt"] = normalized
+            self.info.last_activity = datetime.now()
+            self._save_metadata_locked()
+        return normalized
 
     def latest_history_path(self, agent_name: str | None = None) -> pathlib.Path | None:
         """Return the most recent history file for this session, if any."""
@@ -721,6 +741,8 @@ class SessionManager:
         cwd: pathlib.Path | None = None,
         home_override: str | pathlib.Path | None = None,
         respect_env_override: bool = True,
+        surface: str | None = None,
+        retain_multiple: bool = False,
     ) -> None:
         """Initialize session manager."""
         explicit_cwd = cwd is not None
@@ -735,6 +757,11 @@ class SessionManager:
         self.workspace_dir = base
         self.base_dir = home_paths.sessions
         self.base_dir.mkdir(parents=True, exist_ok=True)
+        self._locks = SessionLockStore(self.base_dir)
+        self._started_at = datetime.now(timezone.utc).isoformat()
+        self._surface = surface
+        self._retain_multiple = retain_multiple
+        self._owner_leases: dict[str, SessionOwnerLease] = {}
         self._current_session: Session | None = None
 
     @property
@@ -754,27 +781,36 @@ class SessionManager:
         if session_id is None:
             session_id = self._generate_session_id()
 
-        # Create session directory
-        session_dir = self.base_dir / session_id
-        while session_dir.exists():
-            session_id = self._generate_session_id()
+        while True:
             session_dir = self.base_dir / session_id
+            if session_dir.exists():
+                session_id = self._generate_session_id()
+                continue
+            self._acquire_owner(session_id)
+            try:
+                session_dir.mkdir()
+            except FileExistsError:
+                self.release_session(session_id)
+                session_id = self._generate_session_id()
+                continue
+            break
 
-        session_dir.mkdir(parents=True)
-
-        # Create session info
-        now = datetime.now()
-        info = SessionInfo(
-            name=session_id,
-            created_at=now,
-            last_activity=now,
-            history_files=[],
-            metadata=session_metadata,
-        )
-
-        session = Session(info, session_dir, manager=self)
-        session._save_metadata()
-        self._current_session = session
+        try:
+            now = datetime.now()
+            info = SessionInfo(
+                name=session_id,
+                created_at=now,
+                last_activity=now,
+                history_files=[],
+                metadata=session_metadata,
+            )
+            session = Session(info, session_dir, manager=self)
+            session._save_metadata()
+        except BaseException:
+            shutil.rmtree(session_dir, ignore_errors=True)
+            self.release_session(session_id)
+            raise
+        self._activate(session)
         self._prune_sessions()
         logger.info(f"Created new session: {session_id}")
         return session
@@ -811,18 +847,34 @@ class SessionManager:
                     session._save_metadata()
                 return session
 
-        session_dir.mkdir(parents=True, exist_ok=False)
-        now = datetime.now()
-        info = SessionInfo(
-            name=requested_id,
-            created_at=now,
-            last_activity=now,
-            history_files=[],
-            metadata=session_metadata,
-        )
-        session = Session(info, session_dir, manager=self)
-        session._save_metadata()
-        self._current_session = session
+        self._acquire_owner(requested_id)
+        try:
+            session_dir.mkdir(parents=True, exist_ok=False)
+        except FileExistsError:
+            self.release_session(requested_id)
+            loaded = self.load_session(requested_id)
+            if loaded is None:
+                raise RuntimeError(
+                    f"Session '{requested_id}' appeared without valid metadata."
+                ) from None
+            return loaded
+
+        try:
+            now = datetime.now()
+            info = SessionInfo(
+                name=requested_id,
+                created_at=now,
+                last_activity=now,
+                history_files=[],
+                metadata=session_metadata,
+            )
+            session = Session(info, session_dir, manager=self)
+            session._save_metadata()
+        except BaseException:
+            shutil.rmtree(session_dir, ignore_errors=True)
+            self.release_session(requested_id)
+            raise
+        self._activate(session)
         self._prune_sessions()
         logger.info(f"Created new session: {requested_id}")
         return session
@@ -844,7 +896,7 @@ class SessionManager:
 
         children_dir = parent.directory / "children"
         children_dir.mkdir(parents=True, exist_ok=True)
-        lock = FileLock(children_dir / SUBAGENT_ALIAS_LOCK_FILENAME, timeout=5)
+        lock = self._locks.auxiliary(parent.info.name, "subagents", timeout=5)
         with lock:
             ordinal = self._next_subagent_ordinal(children_dir) if alias_slug is not None else None
             while True:
@@ -885,6 +937,7 @@ class SessionManager:
                 child._save_snapshot(snapshot)
             except Exception:
                 shutil.rmtree(child_dir, ignore_errors=True)
+                self.release_session(child_id)
                 raise
         logger.info(
             "Created child session",
@@ -978,63 +1031,115 @@ class SessionManager:
 
     def prune_empty_sessions(self) -> int:
         """Remove abandoned unpinned sessions that contain only startup metadata."""
+        return self.prune_empty_sessions_result().removed
+
+    def prune_empty_sessions_result(self) -> SessionPruneResult:
+        """Remove disposable sessions and report owner-busy skips."""
         current_name = self._current_session.info.name if self._current_session else None
         removed = 0
+        busy: list[SessionDeleteResult] = []
         for info in self.list_sessions():
             if info.name == current_name:
                 continue
             session = self.get_session(info.name)
-            if session is not None and session.delete_if_empty():
+            if session is None or session.is_user_visible():
+                continue
+            result = self.delete_session_result(info.name)
+            if result.deleted:
                 removed += 1
-        return removed
+            elif result.status == "busy":
+                busy.append(result)
+        return SessionPruneResult(removed=removed, busy=tuple(busy))
 
     def load_session(self, name: str) -> Session | None:
-        """Load an existing session."""
-        session_dir = self.base_dir / name
+        """Acquire ownership, then load an existing session without mutating it."""
+        session_id = _normalize_explicit_session_id(name)
+        if session_id is None:
+            logger.warning(
+                "Invalid session id provided for loading",
+                data={"session_id": name},
+            )
+            return None
+        session_dir = self.base_dir / session_id
         metadata_file = session_dir / "session.json"
 
         if not session_dir.is_dir() or not metadata_file.exists():
             return None
 
+        acquired_here = session_id not in self._owner_leases
+        self._acquire_owner(session_id)
         try:
             with metadata_file.open(encoding="utf-8") as f:
                 data = json.load(f)
                 snapshot = load_session_snapshot(data)
 
-            snapshot.last_activity = datetime.now()
             info = session_info_from_snapshot(snapshot)
             session = Session(info, session_dir, manager=self)
-            session._save_snapshot(snapshot)
-            self._current_session = session
-            logger.info(f"Loaded session: {name}")
+            self._activate(session)
+            logger.info(f"Loaded session: {session_id}")
             return session
         except Exception as e:
-            logger.error(f"Failed to load session {name}: {e}")
+            if acquired_here:
+                self.release_session(session_id)
+            logger.error(f"Failed to load session {session_id}: {e}")
             return None
 
     def delete_session(self, name: str) -> bool:
-        """Delete a session."""
+        """Delete an unowned session, preserving the compatibility boolean API."""
+        return self.delete_session_result(name).deleted
+
+    def delete_session_result(self, name: str) -> SessionDeleteResult:
+        """Delete a session unless any manager or process owns it."""
         session_id = _normalize_explicit_session_id(name)
         if session_id is None:
             logger.warning(
                 "Invalid session id provided for deletion",
                 data={"session_id": name},
             )
-            return False
+            return SessionDeleteResult(name, "invalid")
         session_dir = self.base_dir / session_id
 
         if not session_dir.is_dir():
-            return False
+            return SessionDeleteResult(session_id, "not_found")
+
+        if lease := self._owner_leases.get(session_id):
+            return SessionDeleteResult(session_id, "busy", lease.owner)
 
         try:
-            shutil.rmtree(session_dir)
+            lease = self._locks.acquire_owner(
+                session_id,
+                started_at=self._started_at,
+                surface=self._surface or "maintenance",
+                token=secrets.token_urlsafe(24),
+            )
+        except SessionBusyError as exc:
+            return SessionDeleteResult(session_id, "busy", exc.owner)
+
+        try:
+            with self._locks.checkpoint(session_id):
+                shutil.rmtree(session_dir)
             logger.info(f"Deleted session: {session_id}")
-            if self._current_session and self._current_session.info.name == session_id:
-                self._current_session = None
-            return True
+            return SessionDeleteResult(session_id, "deleted")
         except Exception as e:
             logger.error(f"Failed to delete session {session_id}: {e}")
+            return SessionDeleteResult(session_id, "error")
+        finally:
+            lease.release()
+
+    def delete_owned_session(self, session: Session) -> bool:
+        """Delete a session owned by this manager as an explicit lifecycle action."""
+        session_id = session.info.name
+        if session_id not in self._owner_leases:
+            return self.delete_session(session_id)
+        try:
+            with self._locks.checkpoint(session_id):
+                shutil.rmtree(session.directory)
+        except FileNotFoundError:
+            self.release_session(session_id)
             return False
+        logger.info(f"Deleted session: {session_id}")
+        self.release_session(session_id)
+        return True
 
     async def save_current_session(
         self,
@@ -1051,11 +1156,12 @@ class SessionManager:
             self._current_session = identity.session
 
         if self._current_session and not self._current_session.directory.exists():
+            missing_session_id = self._current_session.info.name
             logger.warning(
                 "Current session directory is missing; creating a replacement session",
-                data={"session": self._current_session.info.name},
+                data={"session": missing_session_id},
             )
-            self._current_session = None
+            self.release_session(missing_session_id)
 
         if not self._current_session:
             # Auto-create a session if none exists
@@ -1192,32 +1298,90 @@ class SessionManager:
         )
 
     def fork_current_session(self, title: str | None = None) -> Session | None:
-        """Fork the current or latest session by cloning its typed snapshot."""
-        source = self._current_session or self.load_latest_session()
+        """Fork the current or latest committed checkpoint."""
+        return self.fork_session(title=title)
+
+    def fork_session(
+        self,
+        source_name: str | None = None,
+        *,
+        title: str | None = None,
+    ) -> Session | None:
+        """Fork a named or current session without acquiring source ownership."""
+        if source_name is not None:
+            resolved_name = self._resolve_session_name(source_name)
+            source = self.get_session(resolved_name) if resolved_name is not None else None
+        elif self._current_session is not None:
+            source = self._current_session
+        else:
+            sessions = self.list_sessions()
+            source = self.get_session(sessions[0].name) if sessions else None
         if not source:
             return None
 
-        source_snapshot = self._load_authoritative_snapshot(source)
-        new_session = self.create_session()
-        copied_history_files = self._copy_fork_history_files(
-            source=source,
-            snapshot=source_snapshot,
-            dest_dir=new_session.directory,
-        )
-        forked_snapshot = clone_session_snapshot_for_fork(
-            source_snapshot,
-            new_session_id=new_session.info.name,
-            copied_history_files=copied_history_files,
-            cloned_at=new_session.info.created_at,
-            title=title,
-        )
-        new_session.info = session_info_from_snapshot(forked_snapshot)
-        new_session._save_snapshot(forked_snapshot)
+        with self._locks.checkpoint(source.info.name):
+            source_snapshot = self._load_authoritative_snapshot(source)
+            new_session = self._publish_fork(
+                source=source,
+                source_snapshot=source_snapshot,
+                title=title,
+            )
+        self._activate(new_session)
         return new_session
+
+    def _publish_fork(
+        self,
+        *,
+        source: Session,
+        source_snapshot: SessionSnapshot,
+        title: str | None,
+    ) -> Session:
+        session_id = self.generate_session_id()
+        self._acquire_owner(session_id)
+        lease = self._owner_leases[session_id]
+        session_dir = self.base_dir / session_id
+        staging_root = self.base_dir / ".staging"
+        staging_root.mkdir(exist_ok=True)
+        staging_dir = staging_root / f"{session_id}-{lease.owner.token}"
+        try:
+            staging_dir.mkdir()
+            created_at = datetime.now()
+            copied_history_files = self._copy_fork_history_files(
+                source=source,
+                snapshot=source_snapshot,
+                dest_dir=staging_dir,
+            )
+            forked_snapshot = clone_session_snapshot_for_fork(
+                source_snapshot,
+                new_session_id=session_id,
+                copied_history_files=copied_history_files,
+                cloned_at=created_at,
+                title=title,
+            )
+            session = Session(
+                session_info_from_snapshot(forked_snapshot),
+                staging_dir,
+                manager=self,
+            )
+            session._write_snapshot(forked_snapshot)
+            staging_dir.replace(session_dir)
+            session.directory = session_dir
+            return session
+        except BaseException:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            self.release_session(session_id)
+            raise
 
     def get_session(self, name: str) -> Session | None:
         """Get a session without making it current."""
-        session_dir = self.base_dir / name
+        session_id = _normalize_explicit_session_id(name)
+        if session_id is None:
+            logger.warning(
+                "Invalid session id provided for lookup",
+                data={"session_id": name},
+            )
+            return None
+        session_dir = self.base_dir / session_id
         metadata_file = session_dir / "session.json"
 
         if not session_dir.is_dir() or not metadata_file.exists():
@@ -1229,7 +1393,7 @@ class SessionManager:
                 info = SessionInfo.from_dict(data)
             return Session(info, session_dir, manager=self)
         except Exception as e:
-            logger.error(f"Failed to get session {name}: {e}")
+            logger.error(f"Failed to get session {session_id}: {e}")
             return None
 
     def _prune_sessions(self, max_sessions: int | None = None) -> None:
@@ -1347,9 +1511,55 @@ class SessionManager:
             copied_history_files[history_file] = self._copy_history_file(src_path, dest_dir)
         return copied_history_files
 
+    def _acquire_owner(self, session_id: str) -> SessionOwnerLease:
+        existing = self._owner_leases.get(session_id)
+        if existing is not None:
+            return existing
+        lease = self._locks.acquire_owner(
+            session_id,
+            started_at=self._started_at,
+            surface=self._surface,
+            token=secrets.token_urlsafe(24),
+        )
+        self._owner_leases[session_id] = lease
+        return lease
+
+    def _activate(self, session: Session) -> None:
+        current = self._current_session
+        if (
+            not self._retain_multiple
+            and current is not None
+            and current.info.name != session.info.name
+        ):
+            self.release_session(current.info.name)
+        self._current_session = session
+
+    def owns_session(self, session_id: str) -> bool:
+        """Return whether this manager retains the session owner lease."""
+        return session_id in self._owner_leases
+
+    def release_session(self, session_id: str) -> None:
+        """Release one retained session owner lease."""
+        lease = self._owner_leases.pop(session_id, None)
+        if lease is not None:
+            try:
+                lease.release()
+            except Exception as exc:
+                logger.warning(
+                    "Failed to release session owner lease",
+                    data={"session": session_id, "error": str(exc)},
+                )
+        if self._current_session is not None and self._current_session.info.name == session_id:
+            self._current_session = None
+
+    def close(self) -> None:
+        """Release all retained owner leases."""
+        for session_id in list(self._owner_leases):
+            self.release_session(session_id)
+
     def set_current_session(self, session: Session) -> None:
         """Set the current session."""
-        self._current_session = session
+        self._activate(session)
 
 
 _session_manager: SessionManager | None = None
@@ -1358,12 +1568,16 @@ _session_manager: SessionManager | None = None
 def reset_session_manager() -> None:
     """Reset the global session manager (forces reinitialization)."""
     global _session_manager
+    if _session_manager is not None:
+        _session_manager.close()
     _session_manager = None
 
 
 def set_session_manager(manager: SessionManager) -> None:
     """Set the process-level session manager for legacy consumers."""
     global _session_manager
+    if _session_manager is not None and _session_manager is not manager:
+        _session_manager.close()
     _session_manager = manager
 
 

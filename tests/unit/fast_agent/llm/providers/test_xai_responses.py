@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import httpx
+import httpx2
 import pytest
 from mcp_types import TextContent
 from openai import AsyncOpenAI
@@ -57,17 +57,17 @@ class _XAIFileAPISimulator:
         self.upload_bodies: list[bytes] = []
         self.public_url_bodies: list[bytes] = []
 
-    async def __call__(self, request: httpx.Request) -> httpx.Response:
+    async def __call__(self, request: httpx2.Request) -> httpx2.Response:
         body = await request.aread()
         if request.url.path == "/v1/files":
             self.upload_bodies.append(body)
             if self.upload_status != 200:
-                return httpx.Response(
+                return httpx2.Response(
                     self.upload_status,
                     json={"error": {"message": "upload unavailable", "type": "server_error"}},
                 )
             file_number = len(self.upload_bodies)
-            return httpx.Response(
+            return httpx2.Response(
                 200,
                 json={
                     "id": f"file_{file_number}",
@@ -85,7 +85,7 @@ class _XAIFileAPISimulator:
         ):
             self.public_url_bodies.append(body)
             if self.public_url_status != 200:
-                return httpx.Response(
+                return httpx2.Response(
                     self.public_url_status,
                     json={
                         "error": {
@@ -95,11 +95,11 @@ class _XAIFileAPISimulator:
                     },
                 )
             file_id = request.url.path.split("/")[-2]
-            return httpx.Response(
+            return httpx2.Response(
                 200,
                 json={"public_url": f"https://files-cdn.x.ai/test/{file_id}.png"},
             )
-        return httpx.Response(404)
+        return httpx2.Response(404)
 
 
 def _xai_file_client(simulator: _XAIFileAPISimulator) -> AsyncOpenAI:
@@ -107,7 +107,7 @@ def _xai_file_client(simulator: _XAIFileAPISimulator) -> AsyncOpenAI:
         api_key="test-key",
         base_url="https://api.x.ai/v1",
         max_retries=0,
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(simulator)),
+        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(simulator)),
     )
 
 

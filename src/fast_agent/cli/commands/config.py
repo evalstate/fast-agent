@@ -62,6 +62,7 @@ SHELL_FORM_BOOL_DEFAULTS: dict[str, bool] = {
 
 SHELL_FORM_POSITIVE_INTEGER_FIELDS = (
     "retained_output_max_bytes",
+    "durable_output_max_bytes",
     "process_poll_max_wait_seconds",
 )
 
@@ -256,7 +257,7 @@ def _build_shell_form(current: ShellSettings) -> FormSchema:
                 default=current_value,
             )
         elif annotation is int:
-            if name == "retained_output_max_bytes":
+            if name in {"retained_output_max_bytes", "durable_output_max_bytes"}:
                 maximum = 1024 * 1024 * 1024
             elif name == "process_poll_max_wait_seconds":
                 maximum = MAX_PROCESS_POLL_WAIT_SECONDS

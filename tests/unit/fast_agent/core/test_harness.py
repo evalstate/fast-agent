@@ -261,6 +261,7 @@ async def test_file_harness_persistence_attaches_session_manager(tmp_path: "Path
     manager = support.context.session_manager
     assert manager is not None
     assert manager.current_session is persisted
+    manager.close()
 
 
 @pytest.mark.asyncio
@@ -312,6 +313,7 @@ async def test_file_harness_persistence_removes_empty_session_on_cancellation(
     snapshot = snapshot_from_session_info(session.info)
     snapshot.continuation.agents["support"] = SessionAgentSnapshot(model_spec="test-model")
     session._save_snapshot(snapshot)
+    manager.release_session(session.info.name)
     persistence = FileHarnessSessionPersistence(tmp_path)
 
     task = asyncio.create_task(persistence.create_or_load("customer-123", instance, "support"))
@@ -322,6 +324,92 @@ async def test_file_harness_persistence_removes_empty_session_on_cancellation(
         await task
 
     assert not session.directory.exists()
+
+
+@pytest.mark.asyncio
+async def test_harness_close_releases_persisted_session_owner(tmp_path: "Path") -> None:
+    from fast_agent.context import Context
+    from fast_agent.core.harness_persistence import FileHarnessSessionPersistence
+    from fast_agent.session import SessionBusyError, SessionManager
+
+    async def create_instance() -> AgentInstance:
+        support = FakeAgent("support", default=True)
+        support.context = Context()
+        agents = {"support": cast("AgentProtocol", support)}
+        return AgentInstance(AgentApp(agents), agents)
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        del instance
+
+    sessions = HarnessSessions(
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        persistence=FileHarnessSessionPersistence(tmp_path),
+    )
+    live = await sessions.create("owned-harness-session", agent_name="support")
+    manager = live.session_manager
+    assert manager is not None
+    persisted = manager.current_session
+    assert persisted is not None
+    persisted.set_title("Keep after close")
+
+    contender = SessionManager(home_override=tmp_path, surface="contender")
+    with pytest.raises(SessionBusyError):
+        contender.load_session(live.id)
+
+    await sessions.close_all()
+
+    loaded = contender.load_session(live.id)
+    assert loaded is not None
+    contender.close()
+
+
+@pytest.mark.asyncio
+async def test_harness_delete_keeps_persisted_session_owned_until_disposal_finishes(
+    tmp_path: "Path",
+) -> None:
+    from fast_agent.context import Context
+    from fast_agent.core.harness_persistence import FileHarnessSessionPersistence
+    from fast_agent.session import SessionBusyError, SessionManager
+
+    disposal_started = asyncio.Event()
+    allow_disposal = asyncio.Event()
+
+    async def create_instance() -> AgentInstance:
+        agent = FakeAgent("main", default=True)
+        agent.context = Context()
+        agents = {"main": cast("AgentProtocol", agent)}
+        return AgentInstance(AgentApp(agents), agents)
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        disposal_started.set()
+        await allow_disposal.wait()
+        await instance.shutdown()
+
+    sessions = HarnessSessions(
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        persistence=FileHarnessSessionPersistence(tmp_path),
+    )
+    session = await sessions.create("owned-harness-session")
+    persisted_manager = session.session_manager
+    assert persisted_manager is not None
+    persisted = persisted_manager.current_session
+    assert persisted is not None
+    persisted.set_title("Delete me")
+
+    deleting = asyncio.create_task(session.delete())
+    await disposal_started.wait()
+
+    contender = SessionManager(home_override=tmp_path, surface="contender")
+    with pytest.raises(SessionBusyError):
+        contender.load_session(session.id)
+
+    allow_disposal.set()
+    await deleting
+
+    assert not (tmp_path / "sessions" / session.id).exists()
+    contender.close()
 
 
 class FakeAgent:
@@ -453,6 +541,11 @@ class FakePersistence:
 
     async def delete(self, session_id: str) -> None:
         self.deleted.append(session_id)
+
+    async def delete_owned(self, session_id: str, handle: object | None) -> bool:
+        del handle
+        await self.delete(session_id)
+        return True
 
 
 class FakeShellEnvironment:
@@ -694,6 +787,7 @@ async def test_harness_session_validates_after_file_persistence_hydration(
         provider="codexresponses",
     )
     persisted._save_snapshot(snapshot)
+    manager.release_session(persisted.info.name)
 
     def validate_instance(instance: AgentInstance) -> None:
         agent = cast("ModelAgent", instance.agents["main"])

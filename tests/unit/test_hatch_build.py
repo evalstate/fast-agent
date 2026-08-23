@@ -43,6 +43,7 @@ def _load_hatch_build_module() -> "ModuleType":
 
 _hatch_build = _load_hatch_build_module()
 _example_mappings = _hatch_build._example_mappings
+_generated_artifacts_ignore = _hatch_build.GENERATED_ARTIFACTS_IGNORE
 
 
 def test_example_mappings_include_markdown_assets() -> None:
@@ -51,3 +52,12 @@ def test_example_mappings_include_markdown_assets() -> None:
     assert mappings["examples/markdown"] == (
         Path("src") / "fast_agent" / "resources" / "examples" / "markdown"
     )
+
+
+def test_generated_artifacts_ignore_excludes_runtime_homes() -> None:
+    ignored = _generated_artifacts_ignore(
+        "examples/workflows",
+        [".fast-agent", "agent.py", "fastagent.jsonl", "stream-debug"],
+    )
+
+    assert ignored == {".fast-agent", "fastagent.jsonl", "stream-debug"}

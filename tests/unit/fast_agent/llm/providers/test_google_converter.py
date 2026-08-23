@@ -1,5 +1,6 @@
 import base64
 
+import pytest
 from google.genai import types
 from mcp_types import (
     BlobResourceContents,
@@ -12,6 +13,7 @@ from mcp_types import (
 from fast_agent.llm.provider.google.google_converter import GoogleConverter
 from fast_agent.types import (
     PromptMessageExtended,
+    RequestParams,
     audio_link,
     image_link,
     resource_link,
@@ -345,7 +347,9 @@ def test_convert_resource_link_in_tool_result():
 
     result = CallToolResult(content=[link], is_error=False)
 
-    contents = converter.convert_function_results_to_google([("video_generator", None, result)])
+    contents = converter.convert_function_results_to_google(
+        [("video_generator", "call_video", result)]
+    )
 
     assert len(contents) == 1
     content = contents[0]
@@ -382,7 +386,9 @@ def test_convert_video_blob_in_tool_result():
     )
     result = CallToolResult(content=[resource], is_error=False)
 
-    contents = converter.convert_function_results_to_google([("attach_media", None, result)])
+    contents = converter.convert_function_results_to_google(
+        [("attach_media", "call_video", result)]
+    )
 
     assert len(contents) == 1
     parts = contents[0].parts
@@ -413,7 +419,9 @@ def test_convert_audio_blob_in_tool_result():
     )
     result = CallToolResult(content=[resource], is_error=False)
 
-    contents = converter.convert_function_results_to_google([("attach_media", None, result)])
+    contents = converter.convert_function_results_to_google(
+        [("attach_media", "call_audio", result)]
+    )
 
     assert len(contents) == 1
     parts = contents[0].parts
@@ -441,7 +449,9 @@ def test_convert_resource_link_text_in_tool_result():
 
     result = CallToolResult(content=[link], is_error=False)
 
-    contents = converter.convert_function_results_to_google([("config_reader", None, result)])
+    contents = converter.convert_function_results_to_google(
+        [("config_reader", "call_config", result)]
+    )
 
     assert len(contents) == 1
     content = contents[0]
@@ -484,6 +494,48 @@ def test_gemini3_removes_sampling_parameters_and_budget():
     assert config.thinking_config is not None
     assert config.thinking_config.thinking_level == "MEDIUM"
     assert config.thinking_config.thinking_budget is None
+
+
+def test_gemini37_uses_level_only_config_and_omits_candidate_count() -> None:
+    converter = GoogleConverter()
+    params = RequestParams(
+        model="gemini-3.7-flash",
+        temperature=0.7,
+        top_k=40,
+        top_p=0.9,
+    )
+
+    config = converter.convert_request_params_to_google_config(
+        params,
+        thinking_budget=0,
+    )
+
+    assert config.temperature is None
+    assert config.top_p is None
+    assert config.top_k is None
+    assert config.candidate_count is None
+    assert config.thinking_config is not None
+    assert config.thinking_config.thinking_level == "MEDIUM"
+    assert config.thinking_config.thinking_budget is None
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "tool_call_id", "message"),
+    [
+        ("", "call_123", "function name"),
+        ("lookup", "", "function call ID"),
+    ],
+)
+def test_google_function_response_requires_name_and_call_id(
+    tool_name: str,
+    tool_call_id: str,
+    message: str,
+) -> None:
+    converter = GoogleConverter()
+    result = CallToolResult(content=[TextContent(type="text", text="result")])
+
+    with pytest.raises(ValueError, match=message):
+        converter.convert_function_results_to_google([(tool_name, tool_call_id, result)])
 
 
 def test_convert_multiple_function_results_into_single_content():

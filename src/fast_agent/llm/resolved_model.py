@@ -58,11 +58,15 @@ class ResolvedModelSpec:
 
     @property
     def max_output_tokens(self) -> int | None:
+        if self.provider == Provider.CODEX_RESPONSES:
+            return None
         model_info = self.build_model_info()
         return None if model_info is None else model_info.max_output_tokens
 
     @property
     def default_max_tokens(self) -> int | None:
+        if self.provider == Provider.CODEX_RESPONSES:
+            return None
         overlay = self.overlay
         if overlay is None:
             return None
@@ -112,6 +116,11 @@ class ResolvedModelSpec:
     def response_service_tiers(self) -> tuple[Literal["fast", "flex"], ...] | None:
         model_params = self.model_params
         return model_params.response_service_tiers if model_params is not None else None
+
+    @property
+    def google_service_tiers(self) -> tuple[Literal["flex"], ...]:
+        model_params = self.model_params
+        return model_params.google_service_tiers if model_params is not None else ()
 
     @property
     def stream_mode(self) -> Literal["openai", "manual"]:
@@ -265,7 +274,9 @@ class ResolvedModelSpec:
                 name=info.name if info is not None else self.wire_model_name,
                 provider=info.provider if info is not None else self.provider,
                 context_window=context_window,
-                max_output_tokens=max_output_tokens,
+                max_output_tokens=(
+                    None if self.provider == Provider.CODEX_RESPONSES else max_output_tokens
+                ),
                 tokenizes=tokenizes or ["text/plain"],
                 json_mode=info.json_mode if info is not None else None,
                 reasoning=info.reasoning if info is not None else None,
@@ -280,7 +291,11 @@ class ResolvedModelSpec:
             name=self.wire_model_name,
             provider=self.provider,
             context_window=context_window,
-            max_output_tokens=model_params.max_output_tokens,
+            max_output_tokens=(
+                None
+                if self.provider == Provider.CODEX_RESPONSES
+                else model_params.max_output_tokens
+            ),
             tokenizes=model_params.tokenizes,
             json_mode=model_params.json_mode,
             reasoning=model_params.reasoning,

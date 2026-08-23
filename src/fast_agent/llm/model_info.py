@@ -129,7 +129,9 @@ class ModelInfo:
             name=canonical_name,
             provider=provider,
             context_window=params.context_window,
-            max_output_tokens=params.max_output_tokens,
+            max_output_tokens=(
+                None if provider == Provider.CODEX_RESPONSES else params.max_output_tokens
+            ),
             tokenizes=params.tokenizes,
             json_mode=params.json_mode,
             reasoning=params.reasoning,

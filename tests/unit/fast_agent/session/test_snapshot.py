@@ -11,7 +11,9 @@ import pytest
 from mcp_types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.config import get_settings
+from fast_agent.core.agent_capabilities import AgentCapabilityMode, set_agent_capability_mode
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -105,6 +107,12 @@ class _Llm:
         self.model_name = model_name
         self.provider = SimpleNamespace(config_name=provider_name)
         self.default_request_params = request_params
+        self.web_search_supported = False
+        self.web_search_enabled = False
+        self.x_search_supported = False
+        self.x_search_enabled = False
+        self.web_fetch_supported = False
+        self.web_fetch_enabled = False
         self.resolved_model = _ResolvedModel(
             _Overlay(overlay_manifest_path) if overlay_manifest_path is not None else None,
             selected_model_name=model_name,
@@ -204,7 +212,7 @@ def test_legacy_session_synthesizes_into_typed_snapshot() -> None:
     assert agent_snapshot.model_overlay_refs == []
 
 
-def test_session_snapshot_v4_round_trips_unchanged() -> None:
+def test_session_snapshot_v5_round_trips_unchanged() -> None:
     snapshot = SessionSnapshot(
         session_id="2604141705-AbCd12",
         created_at=datetime(2026, 4, 14, 17, 5, 0),
@@ -250,6 +258,7 @@ def test_session_snapshot_v4_round_trips_unchanged() -> None:
                     resolved_prompt="You are dev.",
                     model="passthrough",
                     provider="test",
+                    capability_mode="orchestrate",
                     request_settings=SessionRequestSettingsSnapshot(
                         max_tokens=2048,
                         temperature=0.2,
@@ -290,7 +299,7 @@ def test_session_snapshot_v4_round_trips_unchanged() -> None:
     assert reloaded == snapshot
 
 
-def test_load_session_rewrites_legacy_file_as_v4_snapshot(tmp_path) -> None:
+def test_load_session_reads_legacy_file_without_rewriting_it(tmp_path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
         home_override=tmp_path / ".fast-agent",
@@ -316,11 +325,12 @@ def test_load_session_rewrites_legacy_file_as_v4_snapshot(tmp_path) -> None:
     session = manager.load_session(session_id)
 
     assert session is not None
-    rewritten = json.loads(metadata_path.read_text(encoding="utf-8"))
-    assert rewritten["schema_version"] == 4
-    assert rewritten["session_id"] == session_id
-    assert rewritten["created_at"] == payload["created_at"]
-    assert rewritten["last_activity"] != payload["last_activity"]
+    assert metadata_path.read_text(encoding="utf-8") == original_text
+    snapshot = session.load_snapshot()
+    assert snapshot.schema_version == 5
+    assert snapshot.session_id == session_id
+    assert snapshot.continuation.active_agent == "dev"
+    assert snapshot.continuation.agents["dev"].history_file == "history_dev.json"
 
 
 def test_malformed_legacy_fields_warn_but_still_synthesize() -> None:
@@ -387,8 +397,54 @@ def test_v3_snapshot_migrates_execution_metadata() -> None:
 
     snapshot = load_session_snapshot(payload)
 
-    assert snapshot.schema_version == 4
+    assert snapshot.schema_version == 5
     assert snapshot.execution == SessionExecutionSnapshot()
+
+
+def test_v4_snapshot_migrates_capability_mode() -> None:
+    payload = {
+        "schema_version": 4,
+        "session_id": "2604141705-AbCd12",
+        "created_at": "2026-04-14T17:05:00",
+        "last_activity": "2026-04-14T17:09:00",
+        "metadata": {},
+        "continuation": {},
+        "analysis": {},
+        "execution": {},
+    }
+
+    snapshot = load_session_snapshot(payload)
+
+    assert snapshot.schema_version == 5
+    assert snapshot.continuation.agents == {}
+
+
+def test_capture_session_snapshot_persists_capability_mode(tmp_path: Path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session()
+    agent = ToolAgent(AgentConfig("foo"))
+    set_agent_capability_mode(agent, AgentCapabilityMode.ORCHESTRATE)
+
+    snapshot = capture_session_snapshot(
+        session=session,
+        active_agent=agent,
+        agent_registry=None,
+        identity=SessionSaveIdentity(
+            manager=manager,
+            session=session,
+            created=False,
+            acp_session_id=None,
+            session_cwd=tmp_path,
+            session_store_scope="workspace",
+            session_store_cwd=tmp_path,
+        ),
+    )
+
+    assert snapshot.continuation.agents["foo"].capability_mode == "orchestrate"
 
 
 def test_capture_session_snapshot_maps_runtime_state_for_all_known_agents(tmp_path: Path) -> None:
@@ -551,6 +607,45 @@ def test_capture_session_snapshot_maps_runtime_state_for_all_known_agents(tmp_pa
         completion_tokens=25,
         total_tokens=125,
     )
+
+
+def test_capture_session_snapshot_preserves_runtime_x_search_setting(tmp_path: Path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session()
+    agent = _Agent(
+        name="xai",
+        instruction="instruction",
+        config=AgentConfig("xai", model="xai.grok-4"),
+        llm=_Llm(
+            model_name="xai.grok-4?x_search=off",
+            provider_name="xai",
+            request_params=RequestParams(),
+        ),
+    )
+    assert agent.llm is not None
+    agent.llm.x_search_supported = True
+    agent.llm.x_search_enabled = True
+
+    snapshot = capture_session_snapshot(
+        session=session,
+        active_agent=cast("AgentProtocol", agent),
+        agent_registry=None,
+        identity=SessionSaveIdentity(
+            manager=manager,
+            session=session,
+            created=False,
+            acp_session_id=None,
+            session_cwd=tmp_path,
+            session_store_scope="workspace",
+            session_store_cwd=tmp_path,
+        ),
+    )
+
+    assert snapshot.continuation.agents["xai"].model_spec == "xai.grok-4?x_search=on"
 
 
 def test_capture_session_snapshot_preserves_existing_execution_metadata(tmp_path: Path) -> None:
@@ -911,7 +1006,7 @@ async def test_save_history_writes_captured_snapshot_payload(tmp_path: Path) -> 
     await session.save_history(cast("AgentProtocol", agent))
 
     payload = json.loads((session.directory / "session.json").read_text(encoding="utf-8"))
-    assert payload["schema_version"] == 4
+    assert payload["schema_version"] == 5
     assert payload["continuation"]["active_agent"] == "main"
     assert payload["metadata"]["first_user_preview"] == "hello save path"
 

@@ -52,6 +52,7 @@
 | `moonshotai/kimi-k3` | `moonshotai/kimi-k3` |
 | `qwen/qwen3.5-397b-a17b` | `qwen/qwen3.5-397b-a17b` |
 | `qwen/qwen3.6-35b-a3b` | `qwen/qwen3.6-35b-a3b` |
+| `qwen/qwen3.8-27b` | `qwen/qwen3.8-27b` |
 | `qwen35` | `hf.Qwen/Qwen3.5-397B-A17B:novita?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0&presence_penalty=0.0&repetition_penalty=1.0&reasoning=on` |
 | `qwen35instruct` | `hf.Qwen/Qwen3.5-397B-A17B:novita?temperature=0.7&top_p=0.8&top_k=20&min_p=0.0&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off` |
 | `qwen36` | `hf.Qwen/Qwen3.6-35B-A3B:deepinfra?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0&presence_penalty=0.0&repetition_penalty=1.0&reasoning=on` |

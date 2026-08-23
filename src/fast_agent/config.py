@@ -18,6 +18,7 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 
 from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
 from fast_agent.constants import (
+    DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES,
     MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
     MAX_PROCESS_POLL_WAIT_SECONDS,
 )
@@ -357,6 +358,11 @@ class ShellSettings(BaseModel):
         ge=1,
         description="Maximum bytes retained per shell process when retention is enabled",
     )
+    durable_output_max_bytes: int = Field(
+        default=DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES,
+        ge=1,
+        description="Maximum bytes retained in each durable process output log",
+    )
     retained_output_temp_directory: Path | None = Field(
         default=None,
         description=(
@@ -489,6 +495,12 @@ class ShellSettings(BaseModel):
     @classmethod
     def _coerce_retained_output_max_bytes(cls, value: Any) -> int:
         _reject_bool_integer_field(value, field_name="retained_output_max_bytes")
+        return int(value.strip()) if isinstance(value, str) else int(value)
+
+    @field_validator("durable_output_max_bytes", mode="before")
+    @classmethod
+    def _coerce_durable_output_max_bytes(cls, value: Any) -> int:
+        _reject_bool_integer_field(value, field_name="durable_output_max_bytes")
         return int(value.strip()) if isinstance(value, str) else int(value)
 
     @field_validator("process_poll_max_wait_seconds", mode="before")
@@ -1435,6 +1447,10 @@ class GoogleSettings(BaseModel):
     default_headers: dict[str, str] | None = Field(
         default=None,
         description="Custom headers for all API requests",
+    )
+    service_tier: Literal["flex"] | None = Field(
+        default=None,
+        description="Gemini service tier: flex or unset for standard.",
     )
     transport: Literal["sse", "websocket", "auto"] | None = Field(
         default=None,

@@ -93,6 +93,17 @@ class ModelSelectionCatalog:
         ),
         Provider.GOOGLE: (
             CatalogModelEntry(
+                alias="gemini37flash",
+                display_label="Gemini 3.7 Flash",
+                model="google.gemini-3.7-flash",
+                fast=True,
+                description=(
+                    "GA coding and agent model. Through Dec 31, 2026, Standard is "
+                    "$0.75/M input and $3.75/M output; Flex is $0.375/M input and "
+                    "$1.875/M output."
+                ),
+            ),
+            CatalogModelEntry(
                 alias="gemini35flash",
                 display_label="Gemini 3.5 Flash",
                 model="google.gemini-3.5-flash",

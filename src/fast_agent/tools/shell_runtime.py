@@ -17,7 +17,7 @@ from mcp_types import CallToolResult, TextContent, Tool
 from rich.text import Text
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from fast_agent.config import Settings
     from fast_agent.tools.execution_environment import ShellEnvironment, ShellExecutionResult
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 # Import tool progress context for reporting shell execution progress
 from fast_agent.agents.tool_agent import _tool_progress_context
 from fast_agent.constants import (
+    DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES,
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
     MAX_MANAGED_SHELL_PROCESSES,
@@ -36,6 +37,14 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.tool_result_metadata import (
     update_tool_result_display_metadata,
 )
+from fast_agent.tools.durable_processes import (
+    DurableProcessError,
+    DurableProcessOutput,
+    DurableProcessRecordError,
+    DurableProcessSnapshot,
+    DurableProcessStore,
+    DurableProcessStream,
+)
 from fast_agent.tools.execution_environment import (
     ShellExecution,
     ShellExecutionRequest,
@@ -43,6 +52,10 @@ from fast_agent.tools.execution_environment import (
     execute_shell,
 )
 from fast_agent.tools.local_shell_executor import LocalShellExecutor
+from fast_agent.tools.output_truncation import (
+    format_output_truncation_notice,
+    split_output_byte_limit,
+)
 from fast_agent.tools.process_resources import (
     ProcessResourceSnapshot,
     observe_resource_changes,
@@ -201,6 +214,8 @@ class ShellRuntime:
         tool_profile: ShellToolProfile | None = None,
         model_tool_profile: ResolvedShellToolProfile | None = None,
         foreground_auto_await_max_seconds: float | None = None,
+        durable_process_root: Path | None = None,
+        session_id_provider: Callable[[], str | None] | None = None,
     ) -> None:
         self._working_directory = str(working_directory) if working_directory is not None else None
         self._environment = shell_environment or LocalShellExecutor(
@@ -231,6 +246,24 @@ class ShellRuntime:
         self._minimal_shell_tool_requires_description = minimal_shell_tool_requires_description
         self._extended_guidance = extended_guidance
         self._managed_processes: dict[str, ManagedShellProcess] = {}
+        self._durable_process_store: DurableProcessStore | None = None
+        if durable_process_root is not None and isinstance(self._environment, LocalShellExecutor):
+            try:
+                self._durable_process_store = DurableProcessStore(durable_process_root)
+            except (DurableProcessError, OSError) as exc:
+                self._logger.warning(
+                    "Durable process storage is unavailable at %s: %s",
+                    durable_process_root,
+                    exc,
+                )
+        self._attached_durable_processes: set[str] = set()
+        self._durable_output_offsets: dict[str, int] = {}
+        self._durable_output_total_offsets: dict[str, int] = {}
+        self._durable_output_dropped_offsets: dict[str, int] = {}
+        self._durable_observed_output_bytes: dict[str, int] = {}
+        self._durable_last_output_times: dict[str, float] = {}
+        self._durable_poll_locks: dict[str, asyncio.Lock] = {}
+        self._session_id_provider = session_id_provider
         self._next_process_id = 1
         self._processes_lock = asyncio.Lock()
         self._output_display_lines: int | None = None
@@ -240,6 +273,7 @@ class ShellRuntime:
         configured_profile = tool_profile or "auto"
         self._retained_output_directory: Path | None = None
         self._retained_output_max_bytes = 0
+        self._durable_output_max_bytes = DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES
         self._retained_output_next_id = 1
         self._retained_output_via_process = False
         retain_truncated_output = False
@@ -255,6 +289,7 @@ class ShellRuntime:
             )
             configured_profile = tool_profile or shell_config.tool_profile
             self._retained_output_max_bytes = shell_config.retained_output_max_bytes
+            self._durable_output_max_bytes = shell_config.durable_output_max_bytes
             retain_truncated_output = shell_config.retain_truncated_output
             retained_output_parent = shell_config.retained_output_temp_directory
         if foreground_auto_await_max_seconds is not None:
@@ -407,7 +442,34 @@ class ShellRuntime:
     @property
     def active_process_count(self) -> int:
         """Return the number of managed processes that are currently alive."""
-        return sum(not process.task.done() for process in self._managed_processes.values())
+        return (
+            sum(not process.task.done() for process in self._managed_processes.values())
+            + self._active_durable_process_count()
+        )
+
+    def _active_durable_process_count(self) -> int:
+        store = self._durable_process_store
+        if store is None:
+            return 0
+        active = 0
+        for process_id in self._attached_durable_processes:
+            try:
+                snapshot = store.get(process_id)
+            except (DurableProcessRecordError, OSError):
+                continue
+            if self._durable_status(snapshot) == "running":
+                active += 1
+        return active
+
+    def _stored_active_durable_process_count(self) -> int:
+        store = self._durable_process_store
+        if store is None:
+            return 0
+        try:
+            snapshots = store.discover()
+        except OSError:
+            return 0
+        return sum(self._durable_status(snapshot) == "running" for snapshot in snapshots)
 
     def set_extended_guidance(self, enabled: bool) -> None:
         """Refresh model-facing minimal tools when model guidance policy changes."""
@@ -460,8 +522,98 @@ class ShellRuntime:
         """Return retained process state for interactive status displays."""
         async with self._processes_lock:
             processes = tuple(self._managed_processes.values())
+            attached_durable_processes = tuple(self._attached_durable_processes)
         now = time.monotonic()
-        return tuple(self._process_snapshot(process, now=now) for process in processes)
+        snapshots = [self._process_snapshot(process, now=now) for process in processes]
+        store = self._durable_process_store
+        if store is not None:
+            for process_id in sorted(attached_durable_processes):
+                try:
+                    durable = await asyncio.to_thread(store.get, process_id)
+                except DurableProcessRecordError:
+                    continue
+                snapshots.append(self._durable_managed_snapshot(durable))
+        return tuple(snapshots)
+
+    async def discover_durable_processes(self) -> tuple[DurableProcessSnapshot, ...]:
+        """Return all durable local processes visible in this fast-agent home."""
+
+        store = self._durable_process_store
+        if store is None:
+            return ()
+        try:
+            return tuple(await asyncio.to_thread(store.discover))
+        except (DurableProcessRecordError, OSError) as exc:
+            self._logger.warning(f"Could not discover durable processes: {exc}")
+            return ()
+
+    async def attach_durable_process(
+        self,
+        process_id: str,
+        *,
+        session_id: str | None = None,
+    ) -> DurableProcessSnapshot:
+        """Adopt durable process observation and management in this runtime."""
+
+        store = self._durable_process_store
+        if store is None:
+            raise DurableProcessRecordError("Durable local processes are not available.")
+        snapshot = await asyncio.to_thread(store.get, process_id)
+        if session_id is not None:
+            snapshot = await asyncio.to_thread(
+                store.link_session,
+                process_id,
+                session_id=session_id,
+            )
+        async with self._processes_lock:
+            self._attached_durable_processes.add(process_id)
+            self._durable_output_offsets.setdefault(process_id, 0)
+            observed_bytes = self._durable_observed_output_bytes.get(process_id, 0)
+            if snapshot.output_total_bytes > observed_bytes:
+                self._durable_last_output_times[process_id] = time.monotonic()
+            self._durable_observed_output_bytes[process_id] = snapshot.output_total_bytes
+            self._durable_output_total_offsets.setdefault(process_id, 0)
+            self._durable_output_dropped_offsets.setdefault(process_id, 0)
+            self._durable_poll_locks.setdefault(process_id, asyncio.Lock())
+        return snapshot
+
+    @property
+    def durable_process_root(self) -> Path | None:
+        """Return the active durable process root, when supported."""
+
+        store = self._durable_process_store
+        return store.root if store is not None else None
+
+    @staticmethod
+    def _durable_managed_snapshot(
+        snapshot: DurableProcessSnapshot,
+    ) -> ManagedProcessSnapshot:
+        status = ShellRuntime._durable_status(snapshot)
+        started_at = snapshot.status.started_at or snapshot.spec.created_at
+        elapsed_at = snapshot.status.updated_at if status != "running" else time.time()
+        return ManagedProcessSnapshot(
+            process_id=snapshot.spec.process_id,
+            command=snapshot.spec.command,
+            working_directory=str(snapshot.spec.cwd),
+            status=status,
+            elapsed_seconds=max(elapsed_at - started_at, 0.0),
+            os_process_id=snapshot.status.child_pid,
+            total_output_bytes=snapshot.output_total_bytes,
+            exit_code=snapshot.status.exit_code,
+            lifecycle="persistent",
+            output_spool_path=None,
+        )
+
+    @staticmethod
+    def _durable_status(snapshot: DurableProcessSnapshot) -> str:
+        state = snapshot.status.state
+        if state in {"created", "starting", "running", "stopping"}:
+            return "running"
+        if state == "stopped":
+            return "terminated"
+        if state == "unavailable":
+            return "unavailable"
+        return "completed" if snapshot.status.exit_code == 0 else "failed"
 
     @staticmethod
     def _process_snapshot(
@@ -637,6 +789,34 @@ class ShellRuntime:
         process_id = operation.process_id
         process = self._managed_processes.get(process_id) if isinstance(process_id, str) else None
         if process is None:
+            if (
+                isinstance(process_id, str)
+                and process_id in self._attached_durable_processes
+                and self._durable_process_store is not None
+            ):
+                try:
+                    snapshot = self._durable_process_store.get(process_id)
+                except DurableProcessRecordError:
+                    return metadata
+                managed_snapshot = self._durable_managed_snapshot(snapshot)
+                metadata.update(
+                    {
+                        "command": snapshot.spec.command,
+                        "command_summary": summarize_command(snapshot.spec.command),
+                        "elapsed_seconds": managed_snapshot.elapsed_seconds,
+                        "os_process_id": snapshot.status.child_pid,
+                        "total_output_bytes": snapshot.output_total_bytes,
+                        "stdout_bytes": snapshot.stdout_total_bytes,
+                        "stderr_bytes": snapshot.stderr_total_bytes,
+                        "retained_output_bytes": snapshot.output_bytes,
+                        "dropped_output_bytes": snapshot.output_dropped_bytes,
+                        "output_truncated": snapshot.output_dropped_bytes > 0,
+                        "process_status": managed_snapshot.status,
+                        "has_observed_output": bool(
+                            snapshot.stdout_total_bytes or snapshot.stderr_total_bytes
+                        ),
+                    }
+                )
             return metadata
 
         snapshot = self._process_snapshot(process, now=time.monotonic())
@@ -750,6 +930,324 @@ class ShellRuntime:
         }
         return _text_result(json.dumps(payload, indent=2), is_error=False)
 
+    async def _read_durable_output_delta(
+        self,
+        process_id: str,
+        snapshot: DurableProcessSnapshot,
+    ) -> tuple[str, int]:
+        store = self._durable_process_store
+        if store is None:
+            return "", 0
+        offset = self._durable_output_offsets.get(process_id, 0)
+        unread_bytes = max(snapshot.output_bytes - offset, 0)
+        if unread_bytes == 0:
+            self._durable_output_total_offsets[process_id] = snapshot.output_total_bytes
+            self._durable_output_dropped_offsets[process_id] = snapshot.output_dropped_bytes
+            return "", 0
+        output_limit = min(
+            snapshot.spec.output_byte_limit,
+            MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
+        )
+        if unread_bytes <= output_limit:
+            output = await asyncio.to_thread(
+                store.read_output,
+                process_id,
+                stream=DurableProcessStream.COMBINED,
+                offset=offset,
+                limit=unread_bytes,
+            )
+            text = output.text
+        else:
+            window = split_output_byte_limit(output_limit)
+            head, tail = await asyncio.gather(
+                asyncio.to_thread(
+                    store.read_output,
+                    process_id,
+                    stream=DurableProcessStream.COMBINED,
+                    offset=offset,
+                    limit=max(window.head_bytes, 1),
+                ),
+                asyncio.to_thread(
+                    store.read_output,
+                    process_id,
+                    stream=DurableProcessStream.COMBINED,
+                    offset=snapshot.output_bytes - window.tail_bytes,
+                    limit=max(window.tail_bytes, 1),
+                ),
+            )
+            text = (
+                head.text
+                + format_output_truncation_notice(
+                    label="Output",
+                    total_bytes=unread_bytes,
+                    head_bytes=window.head_bytes,
+                    tail_bytes=window.tail_bytes,
+                    guidance=(
+                        "Use the process tool with action='read_output' to inspect "
+                        "the durable output spool."
+                    ),
+                )
+                + "\n"
+                + tail.text
+            )
+        self._durable_output_offsets[process_id] = snapshot.output_bytes
+        self._durable_output_total_offsets[process_id] = snapshot.output_total_bytes
+        self._durable_output_dropped_offsets[process_id] = snapshot.output_dropped_bytes
+        return text.rstrip("\n"), unread_bytes
+
+    async def _poll_durable_process(
+        self,
+        process_id: str,
+        *,
+        wait_sec: int,
+        wake_on_output: bool,
+    ) -> CallToolResult:
+        store = self._durable_process_store
+        if store is None or process_id not in self._attached_durable_processes:
+            return _text_result(
+                f"Error: managed shell process {process_id!r} was not found",
+                is_error=True,
+            )
+        poll_started_at = time.monotonic()
+        try:
+            snapshot = await asyncio.to_thread(store.get, process_id)
+            should_wait = wait_sec > 0 and self._durable_status(snapshot) == "running"
+            output_wake = False
+            unread_offset = self._durable_output_total_offsets.get(process_id, 0)
+            observed_bytes = self._durable_observed_output_bytes.get(process_id, 0)
+            if snapshot.output_total_bytes > observed_bytes:
+                self._durable_last_output_times[process_id] = poll_started_at
+            self._durable_observed_output_bytes[process_id] = snapshot.output_total_bytes
+            if snapshot.output_total_bytes > unread_offset:
+                self._durable_last_output_times.setdefault(process_id, poll_started_at)
+            if should_wait:
+                snapshot, output_wake = await self._wait_for_durable_process_poll(
+                    store,
+                    process_id,
+                    snapshot,
+                    unread_offset=unread_offset,
+                    wait_sec=wait_sec,
+                    wake_on_output=wake_on_output,
+                )
+            output_bytes = max(snapshot.output_total_bytes - unread_offset, 0)
+            retained_output_offset = self._durable_output_offsets.get(process_id, 0)
+            retained_output_bytes = max(snapshot.output_bytes - retained_output_offset, 0)
+            dropped_output_offset = self._durable_output_dropped_offsets.get(process_id, 0)
+            dropped_output_bytes = max(
+                snapshot.output_dropped_bytes - dropped_output_offset,
+                0,
+            )
+            output, _ = await self._read_durable_output_delta(
+                process_id,
+                snapshot,
+            )
+        except (DurableProcessRecordError, OSError) as exc:
+            return _text_result(
+                f"Error: durable process {process_id!r} could not be read: {exc}",
+                is_error=True,
+            )
+
+        status = self._durable_status(snapshot)
+        if status != "running":
+            poll_yield_reason = "completion"
+        elif output_wake:
+            poll_yield_reason = "output"
+        elif should_wait:
+            poll_yield_reason = "deadline"
+        else:
+            poll_yield_reason = "nonblocking"
+        started_at = snapshot.status.started_at or snapshot.spec.created_at
+        elapsed = max(
+            (time.time() if status == "running" else snapshot.status.updated_at) - started_at,
+            0.0,
+        )
+        poll_elapsed_seconds = time.monotonic() - poll_started_at
+        last_output_time = self._durable_last_output_times.get(process_id)
+        seconds_since_last_output = (
+            max(time.monotonic() - last_output_time, 0.0)
+            if last_output_time is not None
+            else max(time.time() - snapshot.spec.created_at, 0.0)
+        )
+        output_observed = bool(snapshot.stdout_total_bytes or snapshot.stderr_total_bytes)
+        lines = [output] if output else []
+        lines.extend(
+            [
+                f"process_id: {process_id}",
+                f"process status: {status}",
+                f"elapsed_seconds: {elapsed:.1f}",
+            ]
+        )
+        if snapshot.status.exit_code is not None:
+            lines.append(f"process exit code was {snapshot.status.exit_code}")
+        elif status == "running":
+            lines.append("This durable process remains available across fast-agent invocations.")
+        result = process_result(
+            "\n".join(lines),
+            is_error=status in {"failed", "unavailable"},
+            metadata={
+                "process_id": process_id,
+                "lifecycle": "persistent",
+                "process_status": status,
+                "process_yield_reason": poll_yield_reason,
+                "process_elapsed_seconds": elapsed,
+                "os_process_id": snapshot.status.child_pid,
+                "output_bytes_since_last_poll": output_bytes,
+                "retained_output_bytes_since_last_poll": retained_output_bytes,
+                "dropped_output_bytes_since_last_poll": dropped_output_bytes,
+                "seconds_since_last_output": seconds_since_last_output,
+                "total_output_bytes": snapshot.output_total_bytes,
+                "stdout_bytes": snapshot.stdout_total_bytes,
+                "stderr_bytes": snapshot.stderr_total_bytes,
+                "retained_output_bytes": snapshot.output_bytes,
+                "dropped_output_bytes": snapshot.output_dropped_bytes,
+                "output_truncated": snapshot.output_dropped_bytes > 0,
+                "has_observed_output": output_observed,
+                "poll_wait_sec": wait_sec,
+                "poll_wake_on_output": wake_on_output,
+                "poll_elapsed_seconds": poll_elapsed_seconds,
+                **(
+                    {
+                        "poll_deadline_overshoot_seconds": max(
+                            poll_elapsed_seconds - wait_sec,
+                            0.0,
+                        )
+                    }
+                    if poll_yield_reason == "deadline"
+                    else {}
+                ),
+                **(
+                    {"exit_code": snapshot.status.exit_code}
+                    if snapshot.status.exit_code is not None
+                    else {}
+                ),
+            },
+        )
+        self._append_poll_output_activity(
+            result,
+            output_bytes=output_bytes,
+            output_lines=len(output.splitlines()),
+            seconds_since_last_output=seconds_since_last_output,
+            output_observed=output_observed,
+        )
+        return result
+
+    async def _wait_for_durable_process_poll(
+        self,
+        store: DurableProcessStore,
+        process_id: str,
+        snapshot: DurableProcessSnapshot,
+        *,
+        unread_offset: int,
+        wait_sec: int,
+        wake_on_output: bool,
+    ) -> tuple[DurableProcessSnapshot, bool]:
+        """Wait for durable completion/deadline, optionally after output settles."""
+        observed_bytes = snapshot.output_total_bytes
+        deadline = time.monotonic() + wait_sec
+        while self._durable_status(snapshot) == "running":
+            now = time.monotonic()
+            remaining = deadline - now
+            if remaining <= 0:
+                return snapshot, False
+
+            pending_output = observed_bytes > unread_offset
+            last_output_time = self._durable_last_output_times.get(process_id, now)
+            seconds_since_last_output = max(now - last_output_time, 0.0)
+            if (
+                wake_on_output
+                and pending_output
+                and seconds_since_last_output >= _PROCESS_OUTPUT_DEBOUNCE_SECONDS
+            ):
+                return snapshot, True
+
+            quiet_wait = (
+                _PROCESS_OUTPUT_DEBOUNCE_SECONDS - seconds_since_last_output
+                if wake_on_output and pending_output
+                else remaining
+            )
+            await asyncio.sleep(min(0.1, remaining, quiet_wait))
+            snapshot = await asyncio.to_thread(store.get, process_id)
+            if snapshot.output_total_bytes > observed_bytes:
+                self._durable_last_output_times[process_id] = time.monotonic()
+            observed_bytes = snapshot.output_total_bytes
+            self._durable_observed_output_bytes[process_id] = observed_bytes
+
+        return snapshot, False
+
+    async def _read_durable_process_output(
+        self,
+        parsed: MinimalProcessReadOutputArguments,
+    ) -> CallToolResult:
+        store = self._durable_process_store
+        if store is None or parsed.process_id not in self._attached_durable_processes:
+            return _text_result(
+                f"Error: managed shell process {parsed.process_id!r} was not found",
+                is_error=True,
+            )
+        limit = parsed.limit or min(
+            self._output_byte_limit,
+            MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
+        )
+        try:
+            snapshot = await asyncio.to_thread(store.get, parsed.process_id)
+            output = await asyncio.to_thread(
+                store.read_output,
+                parsed.process_id,
+                stream=DurableProcessStream.COMBINED,
+                offset=parsed.offset,
+                limit=limit,
+                query=parsed.query,
+            )
+        except (DurableProcessRecordError, OSError, ValueError) as exc:
+            return _text_result(
+                f"Error: durable process output could not be read: {exc}",
+                is_error=True,
+            )
+        status = self._durable_status(snapshot)
+        payload = {
+            "process_id": parsed.process_id,
+            "process_status": status,
+            "retained_output_bytes": snapshot.output_bytes,
+            "dropped_output_bytes": snapshot.output_dropped_bytes,
+            "output_truncated": snapshot.output_dropped_bytes > 0,
+            **self._durable_output_payload(output),
+        }
+        return process_result(
+            json.dumps(payload, indent=2),
+            is_error=False,
+            metadata={
+                "process_id": parsed.process_id,
+                "process_status": status,
+                "retained_output_bytes": snapshot.output_bytes,
+                "retained_output_complete": (
+                    status != "running" and snapshot.output_dropped_bytes == 0
+                ),
+                "dropped_output_bytes": snapshot.output_dropped_bytes,
+                "output_truncated": snapshot.output_dropped_bytes > 0,
+                "output_read_offset": parsed.offset,
+                "output_read_bytes": output.returned_bytes,
+                "output_read_has_more": not output.at_end,
+                **(
+                    {
+                        "output_query": parsed.query,
+                        "output_match_count": output.match_count or 0,
+                    }
+                    if parsed.query is not None
+                    else {}
+                ),
+            },
+        )
+
+    @staticmethod
+    def _durable_output_payload(output: DurableProcessOutput) -> dict[str, object]:
+        return {
+            "offset": output.offset,
+            "next_offset": output.next_offset,
+            "at_end": output.at_end,
+            "content": output.text,
+            **({"match_count": output.match_count} if output.match_count is not None else {}),
+        }
+
     async def read_process_output(
         self,
         parsed: MinimalProcessReadOutputArguments,
@@ -757,6 +1255,8 @@ class ShellRuntime:
         """Read bounded retained output owned by one managed process."""
         process = await self._get_managed_process(parsed.process_id)
         if process is None:
+            if parsed.process_id in self._attached_durable_processes:
+                return await self._read_durable_process_output(parsed)
             return _text_result(
                 f"Error: managed shell process {parsed.process_id!r} was not found",
                 is_error=True,
@@ -1201,7 +1701,13 @@ class ShellRuntime:
             ]
             while len(self._managed_processes) >= MAX_MANAGED_SHELL_PROCESSES and completed_ids:
                 self._managed_processes.pop(completed_ids.pop(0))
-            if len(self._managed_processes) >= MAX_MANAGED_SHELL_PROCESSES:
+            active_managed_processes = sum(
+                not process.task.done() for process in self._managed_processes.values()
+            )
+            active_durable_processes = await asyncio.to_thread(
+                self._stored_active_durable_process_count
+            )
+            if active_managed_processes + active_durable_processes >= MAX_MANAGED_SHELL_PROCESSES:
                 raise RuntimeError(
                     f"at most {MAX_MANAGED_SHELL_PROCESSES} managed shell processes may run at once"
                 )
@@ -1246,6 +1752,146 @@ class ShellRuntime:
             )
             self._managed_processes[process_id] = process
             return process
+
+    async def _start_durable_process(
+        self,
+        parsed: ShellExecuteArguments,
+    ) -> DurableProcessSnapshot:
+        store = self._durable_process_store
+        if store is None or not isinstance(self._environment, LocalShellExecutor):
+            raise RuntimeError("Durable local processes are not available.")
+        session_id = self._session_id_provider() if self._session_id_provider is not None else None
+        async with self._processes_lock:
+            active_managed_processes = sum(
+                not process.task.done() for process in self._managed_processes.values()
+            )
+            durable_capacity = MAX_MANAGED_SHELL_PROCESSES - active_managed_processes
+            if durable_capacity <= 0:
+                raise RuntimeError(
+                    f"at most {MAX_MANAGED_SHELL_PROCESSES} managed shell processes may run at once"
+                )
+            launch_task = asyncio.create_task(
+                asyncio.to_thread(
+                    self._environment.start_durable_process,
+                    store,
+                    command=parsed.command,
+                    cwd=Path(self._resolve_managed_working_directory(parsed.cwd)),
+                    origin_session_id=session_id,
+                    agent_name=self._agent_name,
+                    output_byte_limit=(
+                        parsed.output_byte_limit
+                        if parsed.output_byte_limit is not None
+                        else self._output_byte_limit
+                    ),
+                    output_retention_byte_limit=self._durable_output_max_bytes,
+                    max_active_processes=durable_capacity,
+                ),
+                name="fast-agent-durable-process-launch",
+            )
+            cancelled: asyncio.CancelledError | None = None
+            try:
+                snapshot = await asyncio.shield(launch_task)
+            except asyncio.CancelledError as exc:
+                cancelled = exc
+                while True:
+                    try:
+                        snapshot = await asyncio.shield(launch_task)
+                    except asyncio.CancelledError:
+                        if launch_task.cancelled():
+                            raise exc from None
+                        continue
+                    except Exception as launch_error:
+                        raise exc from launch_error
+                    break
+            self._register_durable_process(snapshot)
+            if cancelled is not None:
+                raise cancelled
+        return snapshot
+
+    def _register_durable_process(self, snapshot: DurableProcessSnapshot) -> None:
+        process_id = snapshot.spec.process_id
+        self._attached_durable_processes.add(process_id)
+        self._durable_output_offsets[process_id] = 0
+        self._durable_output_total_offsets[process_id] = 0
+        self._durable_output_dropped_offsets[process_id] = 0
+        self._durable_observed_output_bytes[process_id] = snapshot.output_total_bytes
+        if snapshot.output_total_bytes > 0:
+            self._durable_last_output_times[process_id] = time.monotonic()
+        self._durable_poll_locks[process_id] = asyncio.Lock()
+
+    def _durable_launch_result(
+        self,
+        snapshot: DurableProcessSnapshot,
+    ) -> CallToolResult:
+        process_id = snapshot.spec.process_id
+        status = self._durable_status(snapshot)
+        store = self._durable_process_store
+        output_spool_path = str(store.directory(process_id)) if store is not None else None
+        if status == "running":
+            status_lines = [
+                "Managed background process is still running.",
+                (
+                    "This durable process remains available across fast-agent invocations. "
+                    "Use `process` with action='status' to inspect it or action='stop' "
+                    "to request termination."
+                ),
+            ]
+        elif status == "completed":
+            status_lines = [
+                "Managed background process completed before launch acknowledgement.",
+                f"process exit code was {snapshot.status.exit_code}",
+            ]
+        elif status == "failed":
+            status_lines = [
+                "Managed background process failed before launch acknowledgement.",
+                f"process exit code was {snapshot.status.exit_code}",
+            ]
+        elif status == "terminated":
+            status_lines = ["Managed background process was stopped during launch."]
+        else:
+            status_lines = ["Managed background process supervisor is unavailable."]
+        message = "\n".join(
+            [
+                status_lines[0],
+                "effective_lifecycle: persistent",
+                f"process_id: {process_id}",
+                f"os_pid: {snapshot.status.child_pid}",
+                *(
+                    [f"output_spool_path: {output_spool_path}"]
+                    if output_spool_path is not None
+                    else []
+                ),
+                *status_lines[1:],
+            ]
+        )
+        return process_result(
+            message,
+            is_error=status in {"failed", "unavailable"},
+            metadata={
+                "process_id": process_id,
+                "lifecycle": "persistent",
+                "process_status": status,
+                "process_yield_reason": "background",
+                "process_elapsed_seconds": 0.0,
+                "os_process_id": snapshot.status.child_pid,
+                "total_output_bytes": snapshot.output_total_bytes,
+                "stdout_bytes": snapshot.stdout_total_bytes,
+                "stderr_bytes": snapshot.stderr_total_bytes,
+                "retained_output_bytes": snapshot.output_bytes,
+                "dropped_output_bytes": snapshot.output_dropped_bytes,
+                "output_truncated": snapshot.output_dropped_bytes > 0,
+                **(
+                    {"exit_code": snapshot.status.exit_code}
+                    if snapshot.status.exit_code is not None
+                    else {}
+                ),
+                **(
+                    {"output_spool_path": output_spool_path}
+                    if output_spool_path is not None
+                    else {}
+                ),
+            },
+        )
 
     @staticmethod
     def _record_managed_process_completion(
@@ -1531,6 +2177,15 @@ class ShellRuntime:
 
         process = await self._get_managed_process(parsed.process_id)
         if process is None:
+            async with self._processes_lock:
+                durable_poll_lock = self._durable_poll_locks.get(parsed.process_id)
+            if durable_poll_lock is not None:
+                async with durable_poll_lock:
+                    return await self._poll_durable_process(
+                        parsed.process_id,
+                        wait_sec=parsed.wait_sec,
+                        wake_on_output=parsed.wake_on_output,
+                    )
             return _text_result(
                 f"Error: managed shell process {parsed.process_id!r} was not found",
                 is_error=True,
@@ -1698,6 +2353,53 @@ class ShellRuntime:
 
         process = await self._get_managed_process(process_id)
         if process is None:
+            if (
+                process_id in self._attached_durable_processes
+                and self._durable_process_store is not None
+            ):
+                try:
+                    snapshot = await asyncio.to_thread(
+                        self._durable_process_store.get,
+                        process_id,
+                    )
+                    status = self._durable_status(snapshot)
+                    if status == "unavailable":
+                        return process_result(
+                            f"process_id: {process_id}\noutcome: unavailable\n"
+                            "The supervisor is no longer available; no stop request was sent.",
+                            is_error=True,
+                            metadata={
+                                "process_id": process_id,
+                                "process_status": "unavailable",
+                            },
+                        )
+                    if status != "running":
+                        return process_result(
+                            f"process_id: {process_id}\noutcome: already_exited",
+                            is_error=False,
+                            metadata={
+                                "process_id": process_id,
+                                "process_status": "already_exited",
+                            },
+                        )
+                    created = await asyncio.to_thread(
+                        self._durable_process_store.request_stop,
+                        process_id,
+                    )
+                except (DurableProcessRecordError, OSError) as exc:
+                    return _text_result(
+                        f"Error: durable process {process_id!r} could not be stopped: {exc}",
+                        is_error=True,
+                    )
+                return process_result(
+                    f"process_id: {process_id}\noutcome: "
+                    f"{'stop_requested' if created else 'stop_already_requested'}",
+                    is_error=False,
+                    metadata={
+                        "process_id": process_id,
+                        "process_status": "stopping",
+                    },
+                )
             return _text_result(
                 f"Error: managed shell process {process_id!r} was not found",
                 is_error=True,
@@ -1945,6 +2647,18 @@ class ShellRuntime:
             processes = list(self._managed_processes.values())
             self._managed_processes.clear()
         running = [process for process in processes if not process.task.done()]
+        durable_running: list[DurableProcessSnapshot] = []
+        if self._durable_process_store is not None:
+            for process_id in sorted(self._attached_durable_processes):
+                try:
+                    snapshot = await asyncio.to_thread(
+                        self._durable_process_store.get,
+                        process_id,
+                    )
+                except DurableProcessRecordError:
+                    continue
+                if self._durable_status(snapshot) == "running":
+                    durable_running.append(snapshot)
         if running:
             console.console.print(
                 f"Warning: {len(running)} background process"
@@ -1963,6 +2677,19 @@ class ShellRuntime:
                         if process.request.output_spool_path is not None
                         else ""
                     ),
+                    style="yellow",
+                )
+        if durable_running:
+            console.console.print(
+                f"{len(durable_running)} durable background process"
+                f"{'es remain' if len(durable_running) != 1 else ' remains'} available "
+                "for a later fast-agent invocation:",
+                style="yellow",
+            )
+            for snapshot in durable_running:
+                console.console.print(
+                    f"  {snapshot.spec.process_id}, os_pid={snapshot.status.child_pid}, "
+                    "lifecycle=persistent",
                     style="yellow",
                 )
         for process in processes:
@@ -2084,6 +2811,48 @@ class ShellRuntime:
             f"background={parsed.background}, "
             f"lifecycle={parsed.lifecycle}"
         )
+        if (
+            parsed.background
+            and parsed.lifecycle == "persistent"
+            and self._durable_process_store is not None
+        ):
+            self._progress.emit(
+                action=ProgressAction.CALLING_TOOL,
+                tool_use_id=tool_use_id,
+                tool_event="start",
+            )
+            try:
+                snapshot = await self._start_durable_process(parsed)
+            except Exception as exc:
+                self._logger.error(f"Durable process launch failed: {exc}")
+                self._progress.emit(
+                    action=ProgressAction.TOOL_PROGRESS,
+                    tool_use_id=tool_use_id,
+                    details=f"failed: {exc}",
+                    tool_state="failed",
+                    tool_terminal=True,
+                )
+                return _text_result(f"Command execution failed: {exc}", is_error=True)
+            result = self._durable_launch_result(snapshot)
+            status = self._durable_status(snapshot)
+            progress_details = (
+                f"running ({snapshot.spec.process_id})"
+                if status == "running"
+                else (
+                    f"{status} (exit {snapshot.status.exit_code})"
+                    if snapshot.status.exit_code is not None
+                    else status
+                )
+            )
+            self._progress.emit(
+                action=ProgressAction.TOOL_PROGRESS,
+                tool_use_id=tool_use_id,
+                details=progress_details,
+                tool_state=("failed" if status in {"failed", "unavailable"} else "completed"),
+                tool_terminal=True,
+                process_yield_reason="background",
+            )
+            return result
 
         progress_context = progress_display.paused() if display_tools_enabled() else nullcontext()
         process: ManagedShellProcess | None = None

@@ -951,6 +951,30 @@ def test_get_completions_for_model_fast_values() -> None:
     assert "status" in names
 
 
+def test_get_completions_for_model_fast_flex_only_values() -> None:
+    class _LlmStub(_CapabilityLlmStub):
+        reasoning_effort_spec = None
+        text_verbosity_spec = None
+        service_tier_supported = True
+        available_service_tiers = ("flex",)
+        web_search_supported = False
+        web_fetch_supported = False
+
+    class _AgentStub:
+        llm = _LlmStub()
+
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_AgentStub())),
+    )
+
+    doc = Document("/model fast ", cursor_position=len("/model fast "))
+    names = [completion.text for completion in completer.get_completions(doc, None)]
+
+    assert names == ["off", "flex", "status"]
+
+
 def test_get_completions_for_model_task_budget_values() -> None:
     class _LlmStub(_CapabilityLlmStub):
         reasoning_effort_spec = None

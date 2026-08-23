@@ -113,7 +113,6 @@ def initialize_base_default_params(
         isinstance(model, str)
         and resolved_model_spec is not None
         and model == resolved_model_spec.wire_model_name
-        and resolved_model_spec.max_output_tokens is not None
     ):
         max_tokens = resolved_model_spec.max_output_tokens
     else:

@@ -56,6 +56,7 @@ class TopLevelReasoningEffort:
     disabled_efforts: frozenset[str] = frozenset()
     effort_map: Mapping[str, str] | None = None
     toggle_disable: bool = True
+    chat_template_toggle_field: str | None = None
     cleanup_extra_body: frozenset[str] = frozenset()
 
     def apply(
@@ -66,6 +67,18 @@ class TopLevelReasoningEffort:
         spec: ReasoningEffortSpec | None,
     ) -> None:
         effective = _effective_setting(setting, spec)
+        if effective is not None and effective.kind == "toggle" and self.chat_template_toggle_field:
+            extra_body = _extra_body(arguments)
+            _set_chat_template_kwarg(
+                extra_body,
+                self.chat_template_toggle_field,
+                bool(effective.value),
+            )
+            _commit_extra_body(arguments, extra_body)
+            if effective.value is False:
+                arguments.pop("reasoning_effort", None)
+                return
+
         effort = self.default_effort
         disabled = False
         if effective is not None:
@@ -220,6 +233,7 @@ _GLM_52 = "zai-org/glm-5.2"
 _KIMI_K3 = "moonshotai/kimi-k3"
 _GEMMA_4 = "google/gemma-4-31b-it"
 _MUSE_GLIMMER = "meta-models/muse-glimmer-30b"
+_QWEN_38 = "qwen/qwen3.8-27b"
 
 _DEEPSEEK_REASONING = TopLevelReasoningEffort(default_effort="max")
 _KIMI_K3_REASONING = TopLevelReasoningEffort(
@@ -245,6 +259,12 @@ _GEMMA_4_CEREBRAS_REASONING = TopLevelReasoningEffort(
     cleanup_extra_body=frozenset({"chat_template_kwargs"}),
 )
 _MUSE_GLIMMER_REASONING = ChatTemplateReasoningStrength(default_strength="high")
+_QWEN_38_REASONING = TopLevelReasoningEffort(
+    default_effort="medium",
+    allowed_efforts=frozenset({"low", "medium", "xhigh"}),
+    toggle_disable=False,
+    chat_template_toggle_field="enable_thinking",
+)
 
 HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
     (
@@ -308,6 +328,10 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
             profile=HuggingFaceRouteProfile(
                 reasoning=ChatTemplateReasoningToggle("enable_thinking")
             ),
+        ),
+        RouterProfileRule(
+            model=_QWEN_38,
+            profile=HuggingFaceRouteProfile(reasoning=_QWEN_38_REASONING),
         ),
         RouterProfileRule(
             model=_GEMMA_4,

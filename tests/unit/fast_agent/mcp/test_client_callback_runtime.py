@@ -23,7 +23,7 @@ from fast_agent.config import (
     MCPServerSettings,
     Settings,
 )
-from fast_agent.context import Context
+from fast_agent.context import Context, cleanup_context, get_initialized_context
 from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
 from fast_agent.mcp.mcp_aggregator import MCPAggregator
 from fast_agent.mcp.mcp_connection_manager import _transport_notification_handler
@@ -39,6 +39,19 @@ def _context(*, auto_sampling: bool = False, elicitation_mode: str = "forms") ->
             }
         )
     )
+
+
+@pytest.mark.asyncio
+async def test_runtime_without_context_does_not_initialize_global_application() -> None:
+    await cleanup_context()
+
+    runtime = MCPClientCallbackRuntime(
+        server_name="oauth",
+        server_config=MCPServerSettings(),
+    )
+
+    assert runtime.context is None
+    assert get_initialized_context() is None
 
 
 @pytest.mark.asyncio

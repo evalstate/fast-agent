@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import httpx2
 import pytest
 from openai import APIError
 from openai.types.responses import ResponseErrorEvent
@@ -800,6 +801,8 @@ async def test_failed_responses_raise_provider_error_details() -> None:
             "code": "server_error",
         }
     }
+    assert isinstance(exc_info.value.request, httpx2.Request)
+    assert str(exc_info.value.request.url) == "https://responses.invalid/responses"
 
 
 @pytest.mark.unit
@@ -831,3 +834,5 @@ async def test_error_event_raises_provider_error_details() -> None:
             "code": "rate_limit_exceeded",
         }
     }
+    assert isinstance(exc_info.value.request, httpx2.Request)
+    assert str(exc_info.value.request.url) == "https://responses.invalid/responses"

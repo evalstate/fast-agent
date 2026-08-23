@@ -11,6 +11,12 @@ import pytest
 from mcp_types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.tool_agent import ToolAgent
+from fast_agent.context import Context
+from fast_agent.core.agent_capabilities import AgentCapabilityMode, resolve_agent_capability_mode
+from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import (
@@ -92,6 +98,12 @@ class _Agent:
             model_name=self.config.model,
             provider=_ProviderStub(),
             resolved_model=SimpleNamespace(overlay=None),
+            web_search_supported=False,
+            web_search_enabled=False,
+            web_fetch_supported=False,
+            web_fetch_enabled=False,
+            x_search_supported=False,
+            x_search_enabled=False,
         )
         self.usage_accumulator = _UsageAccumulator()
         self.message_history = list(history or [])
@@ -600,6 +612,144 @@ async def test_hydrate_session_restores_runtime_state_and_replaces_usage(
     assert runtime_foo.usage_accumulator.turns == [_TurnRecord("restored-usage")]
     assert loaded_paths == [history_path]
     assert loader_threads[0] != caller_thread
+
+
+@pytest.mark.asyncio
+async def test_hydrate_session_discards_persisted_codex_max_tokens(tmp_path: Path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session()
+    snapshot = SessionSnapshot(
+        session_id=session.info.name,
+        created_at=session.info.created_at,
+        last_activity=session.info.last_activity,
+        continuation=SessionContinuationSnapshot(
+            active_agent="foo",
+            agents={
+                "foo": SessionAgentSnapshot(
+                    request_settings=SessionRequestSettingsSnapshot(
+                        max_tokens=32_768,
+                        temperature=0.3,
+                    )
+                )
+            },
+        ),
+    )
+    _write_snapshot(session, snapshot)
+
+    runtime_foo = _Agent(name="foo", instruction="Runtime prompt")
+    runtime_foo.llm.provider = Provider.CODEX_RESPONSES
+    persisted_session = manager.load_session(session.info.name)
+    assert persisted_session is not None
+
+    result = await SessionHydrator().hydrate_session(
+        session=persisted_session,
+        agents={"foo": cast("AgentProtocol", runtime_foo)},
+        fallback_agent_name="foo",
+    )
+
+    params = runtime_foo.config.default_request_params
+    assert params is not None
+    assert params.max_tokens is None
+    assert params.temperature == 0.3
+    assert [warning.code for warning in result.warnings] == ["unsupported-max-tokens-discarded"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("runtime_config", "warning_codes", "expected_mode"),
+    [
+        (
+            AgentConfig("foo"),
+            [],
+            AgentCapabilityMode.ORCHESTRATE,
+        ),
+        (
+            AgentConfig("foo", subagents=False),
+            ["capability-mode-restore-conflict"],
+            AgentCapabilityMode.STANDARD,
+        ),
+    ],
+)
+async def test_hydrate_session_restores_capability_mode_or_warns_for_config_conflict(
+    tmp_path: Path,
+    runtime_config: AgentConfig,
+    warning_codes: list[str],
+    expected_mode: AgentCapabilityMode,
+) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session()
+    snapshot = SessionSnapshot(
+        session_id=session.info.name,
+        created_at=session.info.created_at,
+        last_activity=session.info.last_activity,
+        continuation=SessionContinuationSnapshot(
+            active_agent="foo",
+            agents={
+                "foo": SessionAgentSnapshot(
+                    capability_mode=AgentCapabilityMode.ORCHESTRATE.value,
+                )
+            },
+        ),
+    )
+    _write_snapshot(session, snapshot)
+    persisted_session = manager.load_session(session.info.name)
+    assert persisted_session is not None
+
+    agent = ToolAgent(runtime_config)
+    result = await SessionHydrator().hydrate_session(
+        session=persisted_session,
+        agents={"foo": cast("AgentProtocol", agent)},
+        fallback_agent_name="foo",
+    )
+
+    assert resolve_agent_capability_mode(agent) is expected_mode
+    assert [warning.code for warning in result.warnings] == warning_codes
+
+
+@pytest.mark.asyncio
+async def test_hydrate_session_restores_supported_web_tool_states_via_model_spec(
+    tmp_path: Path,
+) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session()
+    source = LlmAgent(AgentConfig("foo"), context=Context())
+    await source.attach_llm(
+        ModelFactory.create_factory("anthropic.claude-opus-4-6?web_search=on&web_fetch=off")
+    )
+    await session.save_history(source)
+
+    saved_snapshot = session.load_snapshot().continuation.agents["foo"]
+    assert saved_snapshot.model_spec == ("anthropic.claude-opus-4-6?web_search=on&web_fetch=off")
+
+    target = LlmAgent(AgentConfig("foo"), context=Context())
+    await target.attach_llm(
+        ModelFactory.create_factory("anthropic.claude-opus-4-6?web_search=off&web_fetch=on")
+    )
+    persisted_session = manager.load_session(session.info.name)
+    assert persisted_session is not None
+
+    result = await SessionHydrator().hydrate_session(
+        session=persisted_session,
+        agents={"foo": target},
+        fallback_agent_name="foo",
+    )
+
+    assert result.warnings == []
+    assert target.llm is not None
+    assert target.llm.web_search_enabled is True
+    assert target.llm.web_fetch_enabled is False
 
 
 @pytest.mark.asyncio

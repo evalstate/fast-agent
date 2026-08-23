@@ -12,7 +12,13 @@ if TYPE_CHECKING:
     from fast_agent.commands.session_summaries import SessionListSummary
     from fast_agent.config import Settings
     from fast_agent.interfaces import AgentProtocol
-    from fast_agent.session import ResumeSessionAgentsResult, Session, SessionInfo, SessionManager
+    from fast_agent.session import (
+        ResumeSessionAgentsResult,
+        Session,
+        SessionDeleteResult,
+        SessionInfo,
+        SessionManager,
+    )
     from fast_agent.session.identity import SessionStoreScope
 
 
@@ -88,6 +94,9 @@ class SessionManagerCommandRuntime:
 
     def delete_session(self, session_id: str) -> bool:
         return self.resolve_manager().delete_session(session_id)
+
+    def delete_session_result(self, session_id: str) -> SessionDeleteResult:
+        return self.resolve_manager().delete_session_result(session_id)
 
     def resolve_session_name(self, name: str | None) -> str | None:
         return self.resolve_manager().resolve_session_name(name)

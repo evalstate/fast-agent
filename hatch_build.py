@@ -9,8 +9,11 @@ from typing import Any
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 GENERATED_ARTIFACTS_IGNORE = shutil.ignore_patterns(
+    ".fast-agent",
     "build",
     "__pycache__",
+    "fastagent.jsonl",
+    "stream-debug",
     "*.egg-info",
     "*.py[co]",
 )

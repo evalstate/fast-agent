@@ -17,7 +17,22 @@ from typing import Literal
 
 type HerdrAgentState = Literal["idle", "working", "blocked", "unknown"]
 type HerdrBaseState = Literal["idle", "working", "unknown"]
-type _HerdrMethod = Literal["pane.report_agent", "pane.release_agent"]
+type _HerdrMethod = Literal[
+    "pane.report_agent",
+    "pane.report_metadata",
+    "pane.release_agent",
+]
+type _SessionMetadata = tuple[
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    bool,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+]
 
 _AGENT_LABEL = "fast-agent"
 _SOURCE = "herdr:fast-agent"
@@ -42,6 +57,7 @@ class _HerdrRequest:
     params: dict[str, object]
     completion: threading.Event | None = None
     stop_after: bool = False
+    session_metadata: _SessionMetadata | None = None
 
 
 def _herdr_environment() -> _HerdrEnvironment | None:
@@ -79,6 +95,9 @@ class _HerdrLifecycleReporter:
         self._sequence = time.time_ns()
         self._base_state: HerdrBaseState = "unknown"
         self._blocked_depth = 0
+        self._session_metadata: _SessionMetadata | None = None
+        self._pending_session_metadata: _SessionMetadata | None = None
+        self._latest_metadata_request_id: str | None = None
         self._closing = False
         self._worker = threading.Thread(
             target=self._run_worker,
@@ -121,6 +140,76 @@ class _HerdrLifecycleReporter:
             if self._blocked_depth == 0:
                 self._enqueue_locked("pane.report_agent", state=self._base_state)
 
+    def report_session_metadata(
+        self,
+        *,
+        session_id: str | None,
+        title: str | None,
+        model: str | None,
+        agent_name: str | None,
+        pinned: bool,
+        forked_from: str | None,
+        context_usage: str | None,
+        token_usage: str | None,
+        prompt: str | None = None,
+    ) -> None:
+        if os.getpid() != self._creator_pid:
+            return
+        metadata = (
+            session_id,
+            title,
+            model,
+            agent_name,
+            pinned,
+            forked_from,
+            context_usage,
+            token_usage,
+            prompt,
+        )
+        with self._lock:
+            if self._closing or metadata == self._pending_session_metadata:
+                return
+            if self._pending_session_metadata is None and metadata == self._session_metadata:
+                return
+            request = self._build_request(
+                "pane.report_metadata",
+                params={
+                    "applies_to_source": _SOURCE,
+                    "title": title,
+                    "display_agent": title,
+                    "tokens": {
+                        "session": session_id,
+                        "model": model,
+                        "agent_name": agent_name,
+                        "pinned": "pinned" if pinned else None,
+                        "forked_from": forked_from,
+                        "context": context_usage,
+                        "tokens": token_usage,
+                        "prompt": prompt,
+                    },
+                    "clear_title": title is None,
+                    "clear_display_agent": title is None,
+                },
+                session_metadata=metadata,
+            )
+            self._pending_session_metadata = metadata
+            self._latest_metadata_request_id = request.request_id
+            self._requests.put(request)
+
+    def report_session_usage(self, usage: str) -> None:
+        if os.getpid() != self._creator_pid or not usage:
+            return
+        with self._lock:
+            if self._closing:
+                return
+            self._enqueue_locked(
+                "pane.report_metadata",
+                params={
+                    "applies_to_source": _SOURCE,
+                    "tokens": {"tokens": usage},
+                },
+            )
+
     def release(self) -> None:
         if os.getpid() != self._creator_pid:
             return
@@ -149,32 +238,38 @@ class _HerdrLifecycleReporter:
         method: _HerdrMethod,
         *,
         state: HerdrAgentState | None = None,
+        params: dict[str, object] | None = None,
     ) -> None:
-        self._requests.put(self._build_request(method, state=state))
+        self._requests.put(self._build_request(method, state=state, params=params))
 
     def _build_request(
         self,
         method: _HerdrMethod,
         *,
         state: HerdrAgentState | None = None,
+        params: dict[str, object] | None = None,
         completion: threading.Event | None = None,
         stop_after: bool = False,
+        session_metadata: _SessionMetadata | None = None,
     ) -> _HerdrRequest:
         self._sequence += 1
-        params: dict[str, object] = {
+        request_params: dict[str, object] = {
             "pane_id": self._environment.pane_id,
             "source": _SOURCE,
             "agent": _AGENT_LABEL,
             "seq": self._sequence,
         }
         if state is not None:
-            params["state"] = state
+            request_params["state"] = state
+        if params is not None:
+            request_params.update(params)
         return _HerdrRequest(
             request_id=f"{_SOURCE}:{self._request_nonce}:{self._sequence}",
             method=method,
-            params=params,
+            params=request_params,
             completion=completion,
             stop_after=stop_after,
+            session_metadata=session_metadata,
         )
 
     def _discard_queued_requests_locked(self) -> None:
@@ -187,24 +282,41 @@ class _HerdrLifecycleReporter:
     def _run_worker(self) -> None:
         while True:
             request = self._requests.get()
+            delivered = False
             try:
-                self._send_request(request)
+                delivered = self._send_request(request)
             except Exception:
                 pass
             finally:
+                if request.session_metadata is not None:
+                    self._complete_metadata_request(request, delivered=delivered)
                 if request.completion is not None:
                     request.completion.set()
             if request.stop_after:
                 return
 
-    def _send_request(self, request: _HerdrRequest) -> None:
+    def _complete_metadata_request(
+        self,
+        request: _HerdrRequest,
+        *,
+        delivered: bool,
+    ) -> None:
+        with self._lock:
+            if delivered:
+                self._session_metadata = request.session_metadata
+            if self._latest_metadata_request_id == request.request_id:
+                self._pending_session_metadata = None
+                self._latest_metadata_request_id = None
+
+    def _send_request(self, request: _HerdrRequest) -> bool:
         for timeout_seconds in _DELIVERY_TIMEOUT_SECONDS:
             try:
                 delivered = self._send_request_attempt(request, timeout_seconds)
             except Exception:
                 delivered = False
             if delivered:
-                return
+                return True
+        return False
 
     def _send_request_attempt(
         self,
@@ -284,23 +396,44 @@ class _HerdrLifecycleReporter:
         seq = request.params.get("seq")
         if bin_path is None or not isinstance(seq, int):
             return None
+        subcommand = {
+            "pane.release_agent": "release-agent",
+            "pane.report_agent": "report-agent",
+            "pane.report_metadata": "report-metadata",
+        }[request.method]
         command = [
             bin_path,
             "pane",
-            "release-agent" if request.method == "pane.release_agent" else "report-agent",
+            subcommand,
             self._environment.pane_id,
             "--source",
             _SOURCE,
-            "--agent",
-            _AGENT_LABEL,
-            "--seq",
-            str(seq),
         ]
+        if request.method != "pane.report_metadata":
+            command.extend(["--agent", _AGENT_LABEL])
+        command.extend(["--seq", str(seq)])
         if request.method == "pane.report_agent":
             state = request.params.get("state")
             if not isinstance(state, str):
                 return None
             command.extend(["--state", state])
+        elif request.method == "pane.report_metadata":
+            command.extend(["--agent", _AGENT_LABEL, "--applies-to-source", _SOURCE])
+            title = request.params.get("title")
+            if isinstance(title, str):
+                command.extend(["--title", title, "--display-agent", title])
+            else:
+                if request.params.get("clear_title") is True:
+                    command.append("--clear-title")
+                if request.params.get("clear_display_agent") is True:
+                    command.append("--clear-display-agent")
+            tokens = request.params.get("tokens")
+            if isinstance(tokens, dict):
+                for name, value in tokens.items():
+                    if isinstance(value, str):
+                        command.extend(["--token", f"{name}={value}"])
+                    elif value is None:
+                        command.extend(["--clear-token", str(name)])
         return command
 
 
@@ -345,6 +478,47 @@ def report_agent_state(state: HerdrBaseState) -> None:
         reporter = _active_reporter()
         if reporter is not None:
             reporter.report_state(state)
+    except Exception:
+        pass
+
+
+def report_session_metadata(
+    *,
+    session_id: str | None,
+    title: str | None,
+    model: str | None,
+    agent_name: str | None,
+    pinned: bool,
+    forked_from: str | None,
+    context_usage: str | None = None,
+    token_usage: str | None = None,
+    prompt: str | None = None,
+) -> None:
+    """Report display-only persisted session metadata when running inside Herdr."""
+    try:
+        reporter = _active_reporter()
+        if reporter is not None:
+            reporter.report_session_metadata(
+                session_id=session_id,
+                title=title,
+                model=model,
+                agent_name=agent_name,
+                pinned=pinned,
+                forked_from=forked_from,
+                context_usage=context_usage,
+                token_usage=token_usage,
+                prompt=prompt,
+            )
+    except Exception:
+        pass
+
+
+def report_session_usage(usage: str) -> None:
+    """Report a plugin-projected session usage value when running inside Herdr."""
+    try:
+        reporter = _active_reporter()
+        if reporter is not None:
+            reporter.report_session_usage(usage)
     except Exception:
         pass
 

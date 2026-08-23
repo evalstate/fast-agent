@@ -14,6 +14,7 @@ from fast_agent.core.instruction_utils import (
 )
 from fast_agent.core.prompt_templates import (
     _format_client_info,
+    _format_execution_environment,
     enrich_with_environment_context,
     load_skills_for_context,
     refresh_execution_environment_context,
@@ -159,6 +160,29 @@ def test_format_client_info_normalizes_via_client() -> None:
             }
         )
         == "fast-agent 1.0 via terminal 2.0"
+    )
+
+
+def test_format_execution_environment_deduplicates_labels() -> None:
+    assert (
+        _format_execution_environment(
+            name="local",
+            kind="local",
+            provider=None,
+            shell_name="bash",
+            cwd="/app",
+        )
+        == "local (shell: bash, cwd: /app)"
+    )
+    assert (
+        _format_execution_environment(
+            name="sandbox",
+            kind="remote",
+            provider="sandbox",
+            shell_name="sh",
+            cwd="/workspace",
+        )
+        == "sandbox remote (shell: sh, cwd: /workspace)"
     )
 
 

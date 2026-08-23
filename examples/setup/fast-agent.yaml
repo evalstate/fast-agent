@@ -118,6 +118,8 @@ anthropic:
 #  retain_truncated_output: true
 # maximum retained bytes per shell process
 #  retained_output_max_bytes: 2097152
+# maximum retained bytes in each persistent stdout, stderr, and combined log
+#  durable_output_max_bytes: 2097152
 # optional parent directory for retained-output session directories
 #  retained_output_temp_directory: null
 # maximum duration of one model-initiated managed-process wait

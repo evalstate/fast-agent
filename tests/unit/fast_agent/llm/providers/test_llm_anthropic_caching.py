@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-import httpx
+import httpx2
 import pytest
 from anthropic import AuthenticationError
 from anthropic.types.beta import (
@@ -614,9 +614,9 @@ class TestAnthropicCaching:
         llm = RecordingCacheDiagnosticsLLM(context=ctx, model="claude-sonnet-5")
         error = AuthenticationError(
             message="invalid API key",
-            response=httpx.Response(
+            response=httpx2.Response(
                 401,
-                request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
+                request=httpx2.Request("POST", "https://api.anthropic.com/v1/messages"),
             ),
             body=None,
         )

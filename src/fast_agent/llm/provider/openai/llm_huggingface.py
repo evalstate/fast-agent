@@ -1,5 +1,6 @@
 import os
 from typing import Any
+from urllib.parse import urlsplit
 
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.huggingface_router_profiles import (
@@ -108,7 +109,9 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
     def _move_hf_sampling_fields_to_extra_body(self, arguments: dict[str, Any]) -> None:
         extra_body_raw = arguments.get("extra_body", {})
-        extra_body: dict[str, Any] = extra_body_raw if isinstance(extra_body_raw, dict) else {}
+        extra_body: dict[str, Any] = (
+            dict(extra_body_raw) if isinstance(extra_body_raw, dict) else {}
+        )
 
         moved = False
         for key in self._HF_EXTRA_BODY_SAMPLING_KEYS:
@@ -177,7 +180,7 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         if not normalized_model:
             return None
         backend = explicit_provider or self._hf_provider_suffix
-        if backend is None and self._provider_base_url() != HUGGINGFACE_BASE_URL:
+        if backend is None and not self._uses_huggingface_router():
             # A dedicated HF endpoint does not use a router-provider suffix in
             # its wire model. Use an internal marker solely for route-profile
             # selection so known model contracts still apply.
@@ -185,6 +188,19 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         return RouterRoute(
             model=normalized_model,
             backend=backend,
+        )
+
+    def _uses_huggingface_router(self) -> bool:
+        effective = urlsplit(self._base_url() or "")
+        default = urlsplit(HUGGINGFACE_BASE_URL)
+        effective_port = effective.port or (443 if effective.scheme.casefold() == "https" else 80)
+        default_port = default.port or (443 if default.scheme.casefold() == "https" else 80)
+        return (
+            effective.scheme.casefold() == default.scheme.casefold()
+            and effective.hostname == default.hostname
+            and effective_port == default_port
+            and effective.path.rstrip("/") == default.path.rstrip("/")
+            and effective.query == default.query
         )
 
     def _resolve_default_provider(self) -> str | None:

@@ -783,6 +783,15 @@ class AgentApp:
             )
 
         async def send_wrapper(message, agent_name) -> str:
+            if session_manager is not None and session_manager.current_session is not None:
+                prompt_text = session_manager.current_session.set_last_user_prompt(message)
+                if prompt_text is not None:
+                    from fast_agent.integrations.herdr_session import report_session
+
+                    report_session(
+                        session_manager.current_session,
+                        agent=self._agent(agent_name),
+                    )
             return await send_with_error_handling(message, agent_name, show_usage=True)
 
         async def quiet_send_wrapper(message, agent_name) -> str:
@@ -856,6 +865,7 @@ class AgentApp:
         if agent is None:
             return
 
+        from fast_agent.integrations.herdr_lifecycle import report_session_usage
         from fast_agent.plugins.post_user_turn import run_plugin_post_user_turn
 
         turn_usage, session_usage = self._collect_plugin_usage(agent, turn_start_indices)
@@ -866,6 +876,7 @@ class AgentApp:
             session_usage=session_usage,
             config=self._plugin_config,
             display=display_plugin_post_user_turn,
+            report_session_usage=report_session_usage,
         )
 
     @staticmethod

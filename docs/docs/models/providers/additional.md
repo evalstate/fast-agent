@@ -109,6 +109,15 @@ openresponses:
 fast-agent --model openresponses.openai/gpt-oss-120b:groq
 ```
 
+For a one-off endpoint test, keep the `openresponses` route explicit and
+override only its destination:
+
+```bash
+OPENRESPONSES_API_KEY=... fast-agent go \
+  --model openresponses.deepseek-v4-flash \
+  --base-url https://responses.example/v1
+```
+
 Provider-managed MCP is not supported by `openresponses`. Use the OpenAI `responses` provider when you need `management: provider`.
 
 ## TensorZero
@@ -153,5 +162,17 @@ generic:
 ```bash
 fast-agent --model generic.llama3.2:latest
 ```
+
+Use `--base-url` for a one-off Chat Completions endpoint without changing the
+configured generic provider:
+
+```bash
+GENERIC_API_KEY=... fast-agent go \
+  --model generic.deepseek-v4-flash \
+  --base-url https://gateway.example/v1
+```
+
+`generic` continues to use Chat Completions; `--base-url` changes the host, not
+the protocol.
 
 For reusable local names, defaults, metadata, and authentication behavior, prefer [Model Overlays](../model_overlays/).

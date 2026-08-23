@@ -7,6 +7,7 @@ and delegates operations to an attached FastAgentLLMProtocol instance.
 
 import asyncio
 import fnmatch
+import os
 import re
 import time
 from abc import ABC
@@ -102,6 +103,7 @@ from fast_agent.mcp.tool_result_metadata import (
     tool_result_display_metadata,
 )
 from fast_agent.mcp.tool_result_truncation import truncate_tool_result_for_llm
+from fast_agent.paths import resolve_home_paths
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_TOOL_NAME
@@ -1306,6 +1308,15 @@ class McpAgent(ABC, ToolAgent):
 
         shell_settings = self._resolve_shell_runtime_settings()
         shell_tool_name, require_description = self._resolve_minimal_shell_tool_contract()
+        config = self._context.config if self._context else None
+        durable_process_root = (
+            resolve_home_paths(config).processes
+            if os.name == "posix"
+            and config is not None
+            and not config._fast_agent_no_home
+            and (config.home is not None or config._fast_agent_home is not None)
+            else None
+        )
 
         self._shell_runtime_activation_reason = activation_reason
         self._shell_runtime = ShellRuntime(
@@ -1318,7 +1329,7 @@ class McpAgent(ABC, ToolAgent):
             process_poll_default_wait_seconds=(shell_settings.process_poll_default_wait_seconds),
             tool_profile=shell_settings.tool_profile,
             model_tool_profile=shell_settings.model_tool_profile,
-            config=self._context.config if self._context else None,
+            config=config,
             agent_name=self._name,
             shell_environment=self._shell_environment,
             minimal_shell_tool_name=shell_tool_name,
@@ -1326,6 +1337,8 @@ class McpAgent(ABC, ToolAgent):
             extended_guidance=self._prefers_extended_shell_guidance(
                 self._resolve_shell_tool_model_name()
             ),
+            durable_process_root=durable_process_root,
+            session_id_provider=self._current_shell_session_id,
         )
         self._shell_runtime_enabled = self._shell_runtime.enabled
         self._bash_tool = self._shell_runtime.tool
@@ -1339,6 +1352,24 @@ class McpAgent(ABC, ToolAgent):
                     console.console.print(
                         format_shell_notice(self._shell_access_modes, self._shell_runtime)
                     )
+
+    def _current_shell_session_id(self) -> str | None:
+        context = self._context
+        if context is None:
+            return None
+
+        # ACP instances share a workspace SessionManager, whose current session
+        # changes as other ACP sessions are initialized.  The ACP context is
+        # attached to this agent instance and therefore identifies the process
+        # origin unambiguously.
+        if context.acp is not None:
+            return context.acp.session_id
+
+        session_manager = context.session_manager
+        if session_manager is None:
+            return None
+        session = session_manager.current_session
+        return session.info.name if session is not None else None
 
     @property
     def shell_runtime_enabled(self) -> bool:

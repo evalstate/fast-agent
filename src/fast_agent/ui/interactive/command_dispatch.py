@@ -442,6 +442,7 @@ def _command_route_handler(
             route.handler,
             agent_name=agent,
             show_history=process_payload.show_history,
+            attach_process_id=process_payload.attach_process_id,
         )
 
     value_payload = cast("Any", payload)
@@ -1806,6 +1807,15 @@ async def dispatch_command_payload(
             ),
         )
     )
+    if result is not None:
+        from fast_agent.integrations.herdr_session import report_current_session
+
+        report_current_session(
+            session_manager,
+            agent_lookup=lambda: prompt_provider.registered_agents().get(
+                result.next_agent or agent
+            ),
+        )
     return result or DispatchResult(handled=False)
 
 

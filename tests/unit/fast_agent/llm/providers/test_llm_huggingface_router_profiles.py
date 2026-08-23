@@ -1,14 +1,17 @@
 from collections.abc import AsyncIterator
 
 import pytest
+from mcp.types import TextContent
 from openai.types.chat import ChatCompletionChunk
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.config import HuggingFaceSettings, Settings
+from fast_agent.constants import REASONING
 from fast_agent.context import Context
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
 def _factory_request(model: str) -> dict[str, object]:
@@ -111,6 +114,56 @@ def test_muse_glimmer_together_applies_chat_template_contract(
             "reasoning_strength": reasoning_strength,
         },
     }
+
+
+@pytest.mark.parametrize(
+    ("model", "reasoning_effort"),
+    (
+        ("qwen/qwen3.8-27b", "medium"),
+        ("qwen/qwen3.8-27b?reasoning=low", "low"),
+        ("qwen/qwen3.8-27b?reasoning=xhigh", "xhigh"),
+    ),
+)
+def test_qwen38_applies_reasoning_effort_route_contract(
+    model: str,
+    reasoning_effort: str,
+) -> None:
+    request = _factory_request(model)
+
+    assert request["model"] == "Qwen/Qwen3.8-27B"
+    assert request["reasoning_effort"] == reasoning_effort
+
+
+def test_qwen38_disables_thinking_through_chat_template_contract() -> None:
+    request = _factory_request("qwen/qwen3.8-27b?reasoning=off")
+
+    assert request["model"] == "Qwen/Qwen3.8-27B"
+    assert "reasoning_effort" not in request
+    assert request["extra_body"] == {
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+
+
+def test_qwen38_replays_reasoning_as_reasoning_content() -> None:
+    llm = HuggingFaceLLM(
+        context=Context(config=Settings()),
+        model="Qwen/Qwen3.8-27B",
+    )
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="answer")],
+        channels={REASONING: [TextContent(type="text", text="private reasoning")]},
+    )
+
+    converted = llm._convert_extended_messages_to_provider([message])
+
+    assert converted == [
+        {
+            "role": "assistant",
+            "content": "answer",
+            "reasoning_content": "private reasoning",
+        }
+    ]
 
 
 async def _stream_chunks(
@@ -275,6 +328,51 @@ def test_deepseek_custom_endpoint_uses_reasoning_without_wire_suffix(
     assert llm._provider_base_url() == "https://dedicated.example.test/v1"
     assert request["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731"
     assert request["reasoning_effort"] == expected_effort
+
+
+def test_deepseek_constructor_endpoint_uses_custom_route_profile() -> None:
+    llm = HuggingFaceLLM(
+        context=Context(config=Settings()),
+        model="deepseek-ai/DeepSeek-V4-Flash-0731",
+        base_url="https://dedicated.example.test/v1",
+    )
+
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert llm._base_url() == "https://dedicated.example.test/v1"
+    assert request["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731"
+    assert request["reasoning_effort"] == "max"
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    (
+        "https://router.huggingface.co/v1/",
+        "HTTPS://ROUTER.HUGGINGFACE.CO/v1",
+        "https://router.huggingface.co:443/v1",
+    ),
+)
+def test_equivalent_huggingface_router_urls_do_not_use_custom_profile(
+    base_url: str,
+) -> None:
+    llm = HuggingFaceLLM(
+        context=Context(config=Settings()),
+        model="deepseek-ai/DeepSeek-V4-Flash-0731",
+        base_url=base_url,
+    )
+
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert request["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731"
+    assert "reasoning_effort" not in request
 
 
 def test_deepseek_custom_endpoint_does_not_override_explicit_router_backend() -> None:

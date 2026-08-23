@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
@@ -10,6 +11,8 @@ DEFAULT_OLLAMA_MODEL = "llama3.2:latest"
 
 
 class GenericLLM(OpenAILLM):
+    _EXTRA_BODY_SAMPLING_KEYS = ("top_k", "min_p", "repetition_penalty")
+
     def __init__(self, **kwargs) -> None:
         kwargs.pop("provider", None)
         super().__init__(provider=Provider.GENERIC, **kwargs)
@@ -35,3 +38,20 @@ class GenericLLM(OpenAILLM):
             base_url = self.context.config.generic.base_url
 
         return base_url
+
+    def _prepare_api_request(
+        self,
+        messages,
+        tools: list | None,
+        request_params: RequestParams,
+    ) -> dict[str, Any]:
+        arguments = super()._prepare_api_request(messages, tools, request_params)
+        extra_body_raw = arguments.get("extra_body")
+        extra_body = dict(extra_body_raw) if isinstance(extra_body_raw, dict) else {}
+        for key in self._EXTRA_BODY_SAMPLING_KEYS:
+            value = arguments.pop(key, None)
+            if value is not None:
+                extra_body[key] = value
+        if extra_body:
+            arguments["extra_body"] = extra_body
+        return arguments

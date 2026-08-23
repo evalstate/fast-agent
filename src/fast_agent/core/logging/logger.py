@@ -275,6 +275,7 @@ class LoggingConfig:
             return
         bus = AsyncEventBus.get()
         await bus.stop()
+        AsyncEventBus.reset()
         cls._initialized = False
 
 

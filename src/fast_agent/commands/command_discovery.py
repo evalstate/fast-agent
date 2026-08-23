@@ -436,7 +436,7 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         ),
         _simple_command_entry(
             "fast",
-            summary="Shortcut for /model fast",
+            summary="Set the active model service tier (shortcut for /model fast)",
             usage="/fast [on|off|flex|status]",
             examples=["/fast flex"],
         ),
@@ -463,17 +463,26 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         ),
         {
             "name": "process",
-            "summary": "Show managed shell processes",
-            "usage": "/process [--history]",
+            "summary": "Show or attach managed shell processes",
+            "usage": "/process [--history|attach <process-id>]",
             "actions": [
                 {
                     "name": "history",
                     "summary": "show retained finished processes",
                     "aliases": ["--history"],
                     "usage": "/process --history",
-                }
+                },
+                {
+                    "name": "attach",
+                    "summary": "adopt durable process management and observation",
+                    "usage": "/process attach <process-id>",
+                },
             ],
-            "examples": ["/process", "/process --history"],
+            "examples": [
+                "/process",
+                "/process --history",
+                "/process attach process-0123456789abcdef0123456789abcdef",
+            ],
         },
         {
             "name": "mcp",
