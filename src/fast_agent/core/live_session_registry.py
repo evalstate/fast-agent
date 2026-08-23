@@ -21,7 +21,7 @@ class LiveSessionRecord(Protocol):
     closed: bool
 
 
-RecordT = TypeVar("RecordT")
+RecordT = TypeVar("RecordT", bound=LiveSessionRecord)
 ContextT = TypeVar("ContextT")
 
 
@@ -47,15 +47,30 @@ class InMemoryLiveSessionRegistry(Generic[RecordT, ContextT]):
     def lock(self) -> asyncio.Lock:
         return self._lock
 
-    async def get(self, session_id: str) -> RecordT:
+    async def get(
+        self,
+        session_id: str,
+        *,
+        guard: Callable[[], None] | None = None,
+    ) -> RecordT:
         async with self._lock:
+            if guard is not None:
+                guard()
             try:
                 return self._records[session_id]
             except KeyError as exc:
                 raise KeyError(f"Session '{session_id}' not found") from exc
 
-    async def create(self, session_id: str, context: ContextT) -> RecordT:
+    async def create(
+        self,
+        session_id: str,
+        context: ContextT,
+        *,
+        guard: Callable[[], None] | None = None,
+    ) -> RecordT:
         async with self._lock:
+            if guard is not None:
+                guard()
             if session_id in self._records:
                 raise ValueError(f"Session '{session_id}' already exists")
 
@@ -69,16 +84,24 @@ class InMemoryLiveSessionRegistry(Generic[RecordT, ContextT]):
             self._records[session_id] = record
             return record
 
-    async def get_or_create(self, session_id: str, context: ContextT) -> RecordT:
+    async def get_or_create(
+        self,
+        session_id: str,
+        context: ContextT,
+        *,
+        guard: Callable[[], None] | None = None,
+    ) -> RecordT:
         async with self._lock:
+            if guard is not None:
+                guard()
             existing = self._records.get(session_id)
         if existing is not None:
             return existing
         try:
-            return await self.create(session_id, context)
+            return await self.create(session_id, context, guard=guard)
         except ValueError as exc:
             try:
-                return await self.get(session_id)
+                return await self.get(session_id, guard=guard)
             except KeyError:
                 raise exc from None
 
@@ -87,6 +110,7 @@ class InMemoryLiveSessionRegistry(Generic[RecordT, ContextT]):
         session_id: str,
         *,
         before_delete: Callable[[RecordT], None] | None = None,
+        after_dispose: Callable[[RecordT], Awaitable[None]] | None = None,
     ) -> RecordT | None:
         async with self._lock:
             record = self._records.get(session_id)
@@ -95,10 +119,15 @@ class InMemoryLiveSessionRegistry(Generic[RecordT, ContextT]):
             if before_delete is not None:
                 before_delete(record)
             del self._records[session_id]
-            self._close_record(record)
+            record.closed = True
             instance = self._record_instance(record)
 
-        await self._instance_factory.dispose_instance(instance)
+        try:
+            await self._instance_factory.dispose_instance(instance)
+            if after_dispose is not None:
+                await after_dispose(record)
+        finally:
+            self._close_record(record)
         return record
 
     async def close_all(self) -> None:
@@ -111,6 +140,11 @@ class InMemoryLiveSessionRegistry(Generic[RecordT, ContextT]):
         for record in records:
             with suppress(Exception):
                 await self._instance_factory.dispose_instance(self._record_instance(record))
+
+    async def records(self) -> list[RecordT]:
+        """Return a stable snapshot of live records."""
+        async with self._lock:
+            return list(self._records.values())
 
 
 __all__ = [

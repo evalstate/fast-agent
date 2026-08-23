@@ -54,6 +54,9 @@ def test_report_session_maps_persisted_and_active_metadata(monkeypatch) -> None:
         name="active-agent",
         config=SimpleNamespace(model="codexresponses.gpt-5.6-sol?reasoning=high"),
         context=None,
+        llm=SimpleNamespace(
+            resolved_model=SimpleNamespace(wire_model_name="should-not-replace-direct-spec")
+        ),
         usage_accumulator=usage,
     )
     monkeypatch.setattr(
@@ -81,6 +84,35 @@ def test_report_session_maps_persisted_and_active_metadata(monkeypatch) -> None:
             "prompt": "Check the latest auth changes",
         }
     ]
+
+
+def test_report_session_resolves_model_reference_for_herdr(monkeypatch) -> None:
+    reports: list[dict[str, object]] = []
+    session = SimpleNamespace(
+        info=SimpleNamespace(name="session-1", metadata={}),
+        directory=Path("/tmp/sessions/session-1"),
+    )
+    agent = SimpleNamespace(
+        name="active-agent",
+        config=SimpleNamespace(model="$system.fast"),
+        context=None,
+        llm=SimpleNamespace(resolved_model=SimpleNamespace(wire_model_name="claude-haiku-4-5")),
+        usage_accumulator=None,
+    )
+    monkeypatch.setattr(
+        herdr_session,
+        "report_session_metadata",
+        lambda **kwargs: reports.append(kwargs),
+    )
+    monkeypatch.setenv("HERDR_ENV", "1")
+
+    herdr_session.report_session(
+        cast("Session", session),
+        agent=cast("AgentProtocol", agent),
+    )
+
+    assert reports[0]["model"] == "claude-haiku-4-5"
+    assert reports[0]["context_usage"] == "claude-haiku-4-5"
 
 
 def test_usage_metadata_falls_back_to_tokens_when_any_cost_is_unavailable() -> None:

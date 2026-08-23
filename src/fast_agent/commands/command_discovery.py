@@ -436,7 +436,7 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         ),
         _simple_command_entry(
             "fast",
-            summary="Shortcut for /model fast",
+            summary="Set the active model service tier (shortcut for /model fast)",
             usage="/fast [on|off|flex|status]",
             examples=["/fast flex"],
         ),

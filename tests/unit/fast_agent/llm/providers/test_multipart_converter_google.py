@@ -33,7 +33,7 @@ class TestOpenAIToolConverter(unittest.TestCase):
 
         # Convert directly to OpenAI tool message
         converted: list[Content] = self.converter.convert_function_results_to_google(
-            [("test", None, tool_result)]
+            [("test", "call_test", tool_result)]
         )
         assert 1 == len(converted)
         assert "user" == converted[0].role
@@ -66,7 +66,7 @@ class TestOpenAIToolConverter(unittest.TestCase):
         tool_call_id1 = "call_text_only"
         tool_call_id2 = "call_with_image"
 
-        results: list[tuple[str, str | None, CallToolResult]] = [
+        results: list[tuple[str, str, CallToolResult]] = [
             (tool_name1, tool_call_id1, text_result),
             (tool_name2, tool_call_id2, image_result),
         ]

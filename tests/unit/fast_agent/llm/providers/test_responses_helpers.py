@@ -758,6 +758,42 @@ def test_codex_responses_display_model_uses_infinity_marker() -> None:
     llm = CodexResponsesLLM(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex")
 
     assert llm._display_model("gpt-5.3-codex") == "∞gpt-5.3-codex"
+    assert llm.default_request_params.max_tokens is None
+
+
+def test_codex_responses_rejects_explicit_default_max_tokens() -> None:
+    with pytest.raises(ModelConfigError, match="does not support max_tokens"):
+        CodexResponsesLLM(
+            provider=Provider.CODEX_RESPONSES,
+            model="gpt-5.3-codex",
+            request_params=RequestParams(max_tokens=32_768),
+        )
+
+
+def test_codex_responses_rejects_per_request_max_tokens() -> None:
+    llm = CodexResponsesLLM(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex")
+
+    with pytest.raises(ModelConfigError, match="does not support max_tokens"):
+        llm._build_response_args(
+            [],
+            RequestParams(model="gpt-5.3-codex", max_tokens=32_768),
+            [],
+        )
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["max_tokens", "maxTokens", "max_output_tokens", "maxOutputTokens"],
+)
+def test_codex_responses_rejects_per_request_metadata_max_tokens(key: str) -> None:
+    llm = CodexResponsesLLM(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex")
+
+    with pytest.raises(ModelConfigError, match="request metadata"):
+        llm._build_response_args(
+            [],
+            RequestParams(model="gpt-5.3-codex", metadata={key: 32_768}),
+            [],
+        )
 
 
 class _FakeResponsesStream:

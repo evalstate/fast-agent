@@ -109,7 +109,9 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
     def _move_hf_sampling_fields_to_extra_body(self, arguments: dict[str, Any]) -> None:
         extra_body_raw = arguments.get("extra_body", {})
-        extra_body: dict[str, Any] = extra_body_raw if isinstance(extra_body_raw, dict) else {}
+        extra_body: dict[str, Any] = (
+            dict(extra_body_raw) if isinstance(extra_body_raw, dict) else {}
+        )
 
         moved = False
         for key in self._HF_EXTRA_BODY_SAMPLING_KEYS:

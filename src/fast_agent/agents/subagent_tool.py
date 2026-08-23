@@ -944,6 +944,8 @@ async def _finalize_subagent_run(
                 clone=clone,
                 child_name=child_name,
             )
+            if child_session is not None and child_session.manager is not None:
+                child_session.manager.release_session(child_session.info.name)
     finally:
         progress.finish(effective_status)
     return result

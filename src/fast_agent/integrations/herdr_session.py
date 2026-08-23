@@ -39,6 +39,16 @@ def _session_presentation(metadata: dict[str, object]) -> tuple[str | None, str 
     return display_title, prompt
 
 
+def _reported_model(agent: "AgentProtocol | None", configured_model: object) -> str | None:
+    if agent is not None:
+        agent_model = agent.config.model
+        if agent_model and agent_model.startswith("$") and agent.llm is not None:
+            return agent.llm.resolved_model.wire_model_name
+        if agent_model:
+            return agent_model
+    return configured_model if isinstance(configured_model, str) and configured_model else None
+
+
 def _usage_metadata(
     agent: "AgentProtocol | None",
     *,
@@ -87,14 +97,7 @@ def report_session(
         if agent is not None
         else None
     )
-    configured_model = metadata.get("model")
-    model = (
-        agent.config.model
-        if agent is not None and agent.config.model
-        else configured_model
-        if isinstance(configured_model, str) and configured_model
-        else None
-    )
+    model = _reported_model(agent, metadata.get("model"))
     forked_from = metadata.get("forked_from")
     display_title, prompt = _session_presentation(metadata)
     context_usage, token_usage = _usage_metadata(agent, model=model)

@@ -1448,6 +1448,10 @@ class GoogleSettings(BaseModel):
         default=None,
         description="Custom headers for all API requests",
     )
+    service_tier: Literal["flex"] | None = Field(
+        default=None,
+        description="Gemini service tier: flex or unset for standard.",
+    )
     transport: Literal["sse", "websocket", "auto"] | None = Field(
         default=None,
         description="Responses transport mode override: sse, websocket, or auto fallback.",

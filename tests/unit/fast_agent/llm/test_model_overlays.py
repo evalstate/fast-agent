@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import (
@@ -368,6 +369,9 @@ defaults:
   reasoning: {reasoning_yaml}
   temperature: 1.0
   top_p: 0.95
+  top_k: 20
+  min_p: 0.0
+  repetition_penalty: 1.0
   max_tokens: 2048
 metadata:
   context_window: 65536
@@ -402,6 +406,9 @@ metadata:
     assert request["model"] == model
     assert request["temperature"] == 1.0
     assert request["top_p"] == 0.95
+    assert "top_k" not in request
+    assert "min_p" not in request
+    assert "repetition_penalty" not in request
     assert request["max_tokens"] == 2048
     assert "max_completion_tokens" not in request
     assert request["stream"] is True
@@ -411,6 +418,9 @@ metadata:
     assert isinstance(extra_body, dict)
     assert extra_body["reasoning_effort"] == expected
     assert type(extra_body["reasoning_effort"]) is type(expected)
+    assert extra_body["top_k"] == 20
+    assert extra_body["min_p"] == 0.0
+    assert extra_body["repetition_penalty"] == 1.0
     assert llm.model_info is not None
     if model == "deepseek-ai/DeepSeek-V4-Flash-0731":
         assert llm.model_info.reasoning == "reasoning_content"
@@ -838,6 +848,50 @@ metadata:
         assert big_llm.usage_accumulator is not None
         assert tiny_llm.usage_accumulator.context_window_size == 8192
         assert big_llm.usage_accumulator.context_window_size == 131072
+
+
+@pytest.mark.parametrize(
+    "limit_config",
+    [
+        "defaults:\n  max_tokens: 2048",
+    ],
+)
+def test_codexresponses_overlay_rejects_output_limit(
+    tmp_path: Path,
+    limit_config: str,
+) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "limited-codex.yaml",
+        f"""
+name: limited-codex
+provider: codexresponses
+model: gpt-5.6-sol
+connection:
+  auth: none
+{limit_config}
+""".strip(),
+    )
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        with pytest.raises(ModelConfigError, match="does not support|cannot declare"):
+            ModelFactory.resolve_model_spec("limited-codex")
+
+
+def test_exported_codexresponses_overlay_with_output_capability_is_loadable(tmp_path: Path) -> None:
+    home = tmp_path / ".fast-agent"
+    manifest = build_model_overlay_manifest_from_database("codexresponses.gpt-5.6-sol")
+    _write_overlay(home, "exported-codex.yaml", serialize_model_overlay_manifest(manifest))
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        resolved = ModelFactory.resolve_model_spec(manifest.name)
+
+    assert resolved.source == "overlay"
+    assert resolved.provider == Provider.CODEX_RESPONSES
+    assert resolved.overlay is not None
+    assert resolved.overlay.manifest.metadata.max_output_tokens == 128_000
+    assert resolved.max_output_tokens is None
 
 
 def test_overlay_resolution_precedence_beats_custom_preset(tmp_path: Path) -> None:

@@ -454,6 +454,7 @@ class DurableProcessStore:
             raise ValueError(f"query must be at most {MAX_PROCESS_OUTPUT_QUERY_CHARS} characters.")
 
         path = _output_path(self._directory(process_id), stream)
+        offset = min(offset, _file_size(path))
         if query is not None:
             return _search_output(
                 path,

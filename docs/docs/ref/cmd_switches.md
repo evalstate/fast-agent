@@ -142,9 +142,19 @@ Remove empty session placeholders left by interrupted startups:
 fast-agent session prune --empty
 ```
 
-This preserves sessions with history, titles, previews, or pins. Run it when no
-other fast-agent process is starting or waiting for its first turn, because
-those live sessions are also empty until they persist content.
+This preserves sessions with history, titles, previews, or pins and skips
+sessions currently owned by another fast-agent process.
+
+Fork the latest committed checkpoint without stopping its active owner:
+
+```bash
+fast-agent session fork <session-id> [--title "Branch title"]
+```
+
+Resuming an active session fails with owner details rather than opening a
+second writer. Wait for the owner to exit or fork its latest committed
+checkpoint. Do not delete files under `sessions/.locks/`; lock-file presence
+alone does not mean a session is active.
 
 ## fast-agent check Command
 

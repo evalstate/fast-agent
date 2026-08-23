@@ -1355,9 +1355,20 @@ class McpAgent(ABC, ToolAgent):
 
     def _current_shell_session_id(self) -> str | None:
         context = self._context
-        if context is None or context.session_manager is None:
+        if context is None:
             return None
-        session = context.session_manager.current_session
+
+        # ACP instances share a workspace SessionManager, whose current session
+        # changes as other ACP sessions are initialized.  The ACP context is
+        # attached to this agent instance and therefore identifies the process
+        # origin unambiguously.
+        if context.acp is not None:
+            return context.acp.session_id
+
+        session_manager = context.session_manager
+        if session_manager is None:
+            return None
+        session = session_manager.current_session
         return session.info.name if session is not None else None
 
     @property

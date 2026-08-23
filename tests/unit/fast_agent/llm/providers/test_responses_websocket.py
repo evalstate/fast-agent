@@ -9,6 +9,10 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from aiohttp import WSMsgType
 from mcp_types import CallToolResult, TextContent
+from openai.types.beta.beta_responses_server_event import (
+    BetaResponseWsError,
+    BetaResponseWsErrorError,
+)
 from websockets.exceptions import ConnectionClosedError
 from websockets.frames import Close
 
@@ -996,21 +1000,26 @@ async def test_websocket_stream_close_reports_received_and_sent_frames() -> None
 
 @pytest.mark.asyncio
 async def test_websocket_stream_error_payload_exposes_error_details() -> None:
+    error_event = BetaResponseWsError(
+        type="error",
+        status=400,
+        stream_id="stream_abc",
+        error=BetaResponseWsErrorError(
+            type="invalid_request_error",
+            code=" previous_response_not_found ",
+            message=" Previous response with id 'resp_abc' not found. ",
+            param=" previous_response_id ",
+            headers={
+                "request-id": "req_abc",
+                "x-ratelimit-remaining-requests": "99",
+            },
+        ),
+    )
     websocket = _FakeWebSocket(
         [
             SimpleNamespace(
                 type=WSMsgType.TEXT,
-                data=json.dumps(
-                    {
-                        "type": "error",
-                        "status": 400,
-                        "error": {
-                            "code": " previous_response_not_found ",
-                            "message": " Previous response with id 'resp_abc' not found. ",
-                            "param": " previous_response_id ",
-                        },
-                    }
-                ),
+                data=error_event.model_dump_json(),
             )
         ]
     )
@@ -1023,6 +1032,11 @@ async def test_websocket_stream_error_payload_exposes_error_details() -> None:
     assert excinfo.value.error_code == "previous_response_not_found"
     assert excinfo.value.status == 400
     assert excinfo.value.error_param == "previous_response_id"
+    assert excinfo.value.headers == {
+        "request-id": "req_abc",
+        "x-ratelimit-remaining-requests": "99",
+    }
+    assert excinfo.value.stream_id == "stream_abc"
 
 
 @pytest.mark.asyncio

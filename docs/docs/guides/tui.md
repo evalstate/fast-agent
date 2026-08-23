@@ -194,7 +194,8 @@ Harness-only keeps those harness tools enabled without subagent delegation. The
 toolbar shows these capabilities as `↳⌘`, with active capabilities highlighted.
 Agent modes apply only to compatible agents and cannot override an explicit
 subagent disable. Model toggles apply when the selected model/provider supports
-the feature.
+the feature. Web search, web fetch, and the agent capability mode are saved in
+the session checkpoint and restored on resume.
 
 ## Durable background processes
 

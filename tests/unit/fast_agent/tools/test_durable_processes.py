@@ -664,6 +664,35 @@ def test_durable_output_query_searches_beyond_response_limit(tmp_path: Path) -> 
 
 @pytest.mark.unit
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+def test_durable_output_clamps_offset_beyond_current_eof(tmp_path: Path) -> None:
+    store = DurableProcessStore(tmp_path / "durable")
+    created = store.create(command="exit 0", shell=_SHELL, cwd=tmp_path)
+    output_path = store.directory(created.spec.process_id) / "output.log"
+    output_path.write_text("first", encoding="utf-8")
+
+    at_eof = store.read_output(
+        created.spec.process_id,
+        stream=DurableProcessStream.COMBINED,
+        offset=100,
+        limit=1024,
+    )
+    output_path.write_text("first second", encoding="utf-8")
+    continued = store.read_output(
+        created.spec.process_id,
+        stream=DurableProcessStream.COMBINED,
+        offset=at_eof.next_offset,
+        limit=1024,
+    )
+
+    assert at_eof.offset == len(b"first")
+    assert at_eof.next_offset == len(b"first")
+    assert at_eof.at_end is True
+    assert continued.text == " second"
+    assert continued.next_offset == len(b"first second")
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
 def test_durable_output_query_scans_bounded_chunks_across_boundary(tmp_path: Path) -> None:
     store = DurableProcessStore(tmp_path / "durable")
     created = store.create(command="exit 0", shell=_SHELL, cwd=tmp_path)

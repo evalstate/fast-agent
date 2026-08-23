@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import sys
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -271,6 +272,8 @@ class HarnessSession:
     async def _begin_session_operation(self, operation: str) -> None:
         async with self._manager._lock:
             self._raise_if_closed()
+            if self._manager._closing:
+                raise RuntimeError("Harness sessions are closing.")
             if self._record.active_operation is not None:
                 raise RuntimeError(
                     f"Session '{self.id}' is already running {self._record.active_operation}; "
@@ -366,11 +369,12 @@ class HarnessSessions:
             )
         )
         self._lock = self._registry.lock
+        self._closing = False
 
     async def get(self, session_id: str | None = None) -> HarnessSession:
         """Return an existing session."""
         normalized_id = _normalize_session_id(session_id)
-        record = await self._registry.get(normalized_id)
+        record = await self._registry.get(normalized_id, guard=self._raise_if_closing)
         return _session_from_record(record)
 
     async def create(
@@ -384,6 +388,7 @@ class HarnessSessions:
         record = await self._registry.create(
             normalized_id,
             context=agent_name,
+            guard=self._raise_if_closing,
         )
         return _session_from_record(record)
 
@@ -398,6 +403,7 @@ class HarnessSessions:
         record = await self._registry.get_or_create(
             normalized_id,
             context=agent_name,
+            guard=self._raise_if_closing,
         )
         return _session_from_record(record)
 
@@ -407,11 +413,18 @@ class HarnessSessions:
         record = await self._registry.delete(
             normalized_id,
             before_delete=self._raise_if_active,
+            after_dispose=self._delete_persisted_record,
         )
         if record is None:
             return
-        if self._persistence is not None:
-            await self._persistence.delete(normalized_id)
+
+    async def _delete_persisted_record(self, record: _HarnessSessionRecord) -> None:
+        if self._persistence is None:
+            return
+        deleted = await self._persistence.delete_owned(record.session_id, record.persistence_handle)
+        if not deleted:
+            raise RuntimeError(f"Persisted session '{record.session_id}' could not be deleted.")
+        record.persistence_handle = None
 
     async def _execute_shell(
         self,
@@ -434,11 +447,19 @@ class HarnessSessions:
         )
 
     async def _close_all(self) -> None:
+        async with self._lock:
+            self._closing = True
+        while any(record.active_operation is not None for record in await self._registry.records()):
+            await asyncio.sleep(0)
         await self._registry.close_all()
 
     async def close_all(self) -> None:
         """Close all live harness sessions and dispose their instances."""
         await self._close_all()
+
+    def _raise_if_closing(self) -> None:
+        if self._closing:
+            raise RuntimeError("Harness sessions are closing.")
 
     async def _create_record(
         self,
@@ -479,7 +500,10 @@ class HarnessSessions:
         from fast_agent.session.session_manager import Session
 
         if isinstance(persistence_handle, Session):
+            manager = persistence_handle.manager
             persistence_handle.delete_if_empty()
+            if manager is not None:
+                manager.release_session(persistence_handle.info.name)
 
     @staticmethod
     def _raise_if_active(record: _HarnessSessionRecord) -> None:

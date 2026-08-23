@@ -619,6 +619,50 @@ def test_opus_47_drops_sampling_parameters_from_request_payload() -> None:
     assert "top_k" not in result
 
 
+def test_sonnet_45_moves_sampling_parameters_to_extra_body() -> None:
+    llm = _make_llm("claude-sonnet-4-5")
+    existing_extra_body = {"custom": True}
+
+    result = llm.prepare_provider_arguments(
+        {
+            "model": "claude-sonnet-4-5",
+            "messages": [],
+            "max_tokens": 1000,
+            "extra_body": existing_extra_body,
+        },
+        RequestParams(temperature=0.7, top_p=0.9, top_k=10),
+        llm.ANTHROPIC_EXCLUDE_FIELDS,
+    )
+
+    assert "temperature" not in result
+    assert "top_p" not in result
+    assert "top_k" not in result
+    assert result["extra_body"] == {
+        "custom": True,
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "top_k": 10,
+    }
+    assert existing_extra_body == {"custom": True}
+
+
+def test_sonnet_45_explicit_extra_body_sampling_takes_precedence() -> None:
+    llm = _make_llm("claude-sonnet-4-5")
+
+    result = llm.prepare_provider_arguments(
+        {
+            "model": "claude-sonnet-4-5",
+            "messages": [],
+            "max_tokens": 1000,
+            "extra_body": {"temperature": 0.2},
+        },
+        RequestParams(temperature=0.7),
+        llm.ANTHROPIC_EXCLUDE_FIELDS,
+    )
+
+    assert result["extra_body"] == {"temperature": 0.2}
+
+
 def test_opus_5_drops_sampling_parameters_from_request_payload() -> None:
     llm = _make_llm("claude-opus-5")
 
@@ -635,6 +679,23 @@ def test_opus_5_drops_sampling_parameters_from_request_payload() -> None:
     assert "temperature" not in result
     assert "top_p" not in result
     assert "top_k" not in result
+
+
+def test_opus_5_drops_sampling_parameters_from_extra_body() -> None:
+    llm = _make_llm("claude-opus-5")
+
+    result = llm.prepare_provider_arguments(
+        {
+            "model": "claude-opus-5",
+            "messages": [],
+            "max_tokens": 1000,
+            "extra_body": {"temperature": 0.2, "custom": True},
+        },
+        RequestParams(),
+        llm.ANTHROPIC_EXCLUDE_FIELDS,
+    )
+
+    assert result["extra_body"] == {"custom": True}
 
 
 def test_fable_5_drops_sampling_parameters_from_request_payload() -> None:

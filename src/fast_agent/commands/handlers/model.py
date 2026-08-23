@@ -163,13 +163,15 @@ def _resolve_service_tier_command_selection(
     *,
     command_value: ServiceTierCommandValue | None,
     current_value: str | None,
-    flex_available: bool,
+    available_tiers: tuple[ServiceTierValue, ...],
 ) -> ServiceTierValue | None:
     if command_value is None or command_value == "toggle":
-        return None if current_value in SERVICE_TIER_VALUES else "fast"
+        return None if current_value in SERVICE_TIER_VALUES else available_tiers[0]
     if command_value in _FIXED_SERVICE_TIER_SELECTIONS:
-        return _FIXED_SERVICE_TIER_SELECTIONS[command_value]
-    if command_value == "flex" and flex_available:
+        selection = _FIXED_SERVICE_TIER_SELECTIONS[command_value]
+        if selection is None or selection in available_tiers:
+            return selection
+    if command_value == "flex" and command_value in available_tiers:
         return "flex"
     raise ValueError
 
@@ -219,7 +221,7 @@ def _apply_service_tier_command(
         new_value = _resolve_service_tier_command_selection(
             command_value=command_value,
             current_value=resolve_service_tier(llm),
-            flex_available="flex" in available_service_tier_values(llm),
+            available_tiers=available_service_tier_values(llm),
         )
     except ValueError:
         _add_invalid_service_tier_message(

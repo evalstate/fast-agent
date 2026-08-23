@@ -86,6 +86,12 @@ class StubSessionRuntime:
         self.deleted.append(session_id)
         return self.sessions.pop(session_id, None) is not None
 
+    def delete_session_result(self, session_id: str) -> Any:
+        from fast_agent.session import SessionDeleteResult
+
+        deleted = self.delete_session(session_id)
+        return SessionDeleteResult(session_id, "deleted" if deleted else "not_found")
+
     def resolve_session_name(self, name: str | None) -> str | None:
         return name or self.current_session_id()
 

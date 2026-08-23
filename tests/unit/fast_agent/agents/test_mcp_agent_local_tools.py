@@ -3,7 +3,7 @@ import os
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import pytest
 from fastmcp.tools import FunctionTool, ToolResult
@@ -17,6 +17,7 @@ from mcp_types import (
 )
 from rich.text import Text
 
+from fast_agent.acp.acp_context import ACPContext
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import (
     McpAgent,
@@ -41,6 +42,8 @@ from fast_agent.mcp.tool_result_metadata import (
     update_tool_result_display_metadata,
 )
 from fast_agent.skills.registry import SkillRegistry
+from fast_agent.tools.durable_processes import DurableProcessStore
+from fast_agent.tools.shell_process import process_result_metadata
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -53,6 +56,9 @@ from fast_agent.utils.tool_names import (
     LUNA_EXEC_TOOL_NAME,
     PROCESS_TOOL_NAME,
 )
+
+if TYPE_CHECKING:
+    from fast_agent.tools.shell_runtime import ShellRuntime
 
 
 def test_runtime_mcp_overlay_does_not_mutate_agent_config() -> None:
@@ -526,6 +532,69 @@ async def test_public_home_setting_enables_durable_process_store(tmp_path: Path)
     assert shell_runtime.durable_process_root == home / "processes"
 
     await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+async def test_durable_process_provenance_uses_each_agent_acp_session(tmp_path: Path) -> None:
+    """ACP agents must not use another session's shared-manager current pointer."""
+    shared_manager = SimpleNamespace(
+        current_session=SimpleNamespace(info=SimpleNamespace(name="second-session"))
+    )
+    first_context = Context(
+        config=Settings(home=str(tmp_path / "home")),
+        session_manager=shared_manager,
+        acp=ACPContext(connection=cast("Any", object()), session_id="first-session"),
+    )
+    second_context = Context(
+        config=Settings(home=str(tmp_path / "home")),
+        session_manager=shared_manager,
+        acp=ACPContext(connection=cast("Any", object()), session_id="second-session"),
+    )
+    config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=True)
+    first_agent = McpAgent(config=config, context=first_context)
+    second_agent = McpAgent(config=config, context=second_context)
+    first_runtime = first_agent.shell_runtime
+    second_runtime = second_agent.shell_runtime
+    assert first_runtime is not None
+    assert second_runtime is not None
+    assert first_runtime.durable_process_root == second_runtime.durable_process_root
+    durable_root = first_runtime.durable_process_root
+    assert durable_root is not None
+
+    process_ids: list[tuple["ShellRuntime", str]] = []
+    try:
+        first_result = await first_runtime.execute({"command": "sleep 30", "background": True})
+        first_metadata = process_result_metadata(first_result)
+        assert first_metadata is not None
+        first_process_id = first_metadata["process_id"]
+        process_ids.append((first_runtime, first_process_id))
+
+        second_result = await second_runtime.execute({"command": "sleep 30", "background": True})
+        second_metadata = process_result_metadata(second_result)
+        assert second_metadata is not None
+        second_process_id = second_metadata["process_id"]
+        process_ids.append((second_runtime, second_process_id))
+
+        store = DurableProcessStore(durable_root)
+        first_snapshot = store.get(first_process_id)
+        second_snapshot = store.get(second_process_id)
+        assert first_snapshot.spec.origin_session_id == "first-session"
+        assert first_snapshot.session_ids == ("first-session",)
+        assert second_snapshot.spec.origin_session_id == "second-session"
+        assert second_snapshot.session_ids == ("second-session",)
+    finally:
+        for runtime, process_id in process_ids:
+            await runtime.terminate_process({"process_id": process_id})
+            await asyncio.to_thread(
+                DurableProcessStore(durable_root).wait,
+                process_id,
+                timeout_seconds=5,
+            )
+        await first_runtime.close()
+        await second_runtime.close()
+        await first_agent._aggregator.close()
+        await second_agent._aggregator.close()
 
 
 @pytest.mark.asyncio

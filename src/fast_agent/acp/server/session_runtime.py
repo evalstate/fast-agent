@@ -28,7 +28,11 @@ from fast_agent.acp.server.mcp_server_conversion import (
     ACPConfiguredMCPServer,
     convert_acp_mcp_server,
 )
-from fast_agent.acp.server.models import ACPSessionState, SessionMCPServerState
+from fast_agent.acp.server.models import (
+    ACPSessionState,
+    SessionMCPServerState,
+    SessionStateInitialization,
+)
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_permission_adapter import ACPToolPermissionAdapter
 from fast_agent.acp.tool_progress import ACPToolProgressManager
@@ -72,6 +76,7 @@ class _SessionInitialization:
     instance: AgentInstance
     removed_session_mcp_servers: list[tuple[str, str]]
     force_reconnect_targets: set[tuple[str, str]]
+    created: bool
     tool_handler_created: bool = False
     permission_handler_created: bool = False
     terminal_runtime_created: bool = False
@@ -103,6 +108,8 @@ class SessionRuntimeHost(Protocol):
         session_state: ACPSessionState,
         instance: AgentInstance,
     ) -> Any: ...
+
+    async def _rollback_session_initialization(self, session_id: str) -> None: ...
 
     async def _send_available_commands_update(self, session_id: str) -> None: ...
 
@@ -949,12 +956,14 @@ class ACPServerSessionRuntime:
                 )
                 session_state.session_mcp_servers = requested_mcp_servers
             instance = session_state.instance
+            created = False
         else:
             instance = await self._host._instance_factory.create_instance()
             live_sessions.sessions[session_id] = instance
             session_state = ACPSessionState(session_id=session_id, instance=instance)
             session_state.session_mcp_servers = requested_mcp_servers
             live_sessions.session_state[session_id] = session_state
+            created = True
 
         session_state.session_cwd = cwd
         if session_state.session_store_scope == "workspace":
@@ -965,6 +974,7 @@ class ACPServerSessionRuntime:
             instance=instance,
             removed_session_mcp_servers=removed_session_mcp_servers,
             force_reconnect_targets=force_reconnect_targets,
+            created=created,
         )
 
     def _ensure_progress_manager(
@@ -1125,82 +1135,93 @@ class ACPServerSessionRuntime:
         *,
         cwd: str,
         mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio],
-    ) -> tuple[ACPSessionState, SessionModeState]:
+    ) -> SessionStateInitialization:
         requested_mcp_servers = self._copy_requested_mcp_servers(mcp_servers)
 
         async with self._host._session_lock:
-            initialization = await self._prepare_session_initialization(
-                session_id,
-                cwd=cwd,
-                requested_mcp_servers=requested_mcp_servers,
-            )
-            tool_handler = self._ensure_progress_manager(initialization, session_id=session_id)
-            self._ensure_permission_handler(
-                initialization,
+            initialization: _SessionInitialization | None = None
+            try:
+                initialization = await self._prepare_session_initialization(
+                    session_id,
+                    cwd=cwd,
+                    requested_mcp_servers=requested_mcp_servers,
+                )
+                tool_handler = self._ensure_progress_manager(initialization, session_id=session_id)
+                self._ensure_permission_handler(
+                    initialization,
+                    session_id=session_id,
+                    cwd=cwd,
+                    tool_handler=tool_handler,
+                )
+                self._ensure_terminal_runtime(
+                    initialization,
+                    session_id=session_id,
+                    tool_handler=tool_handler,
+                )
+                self._ensure_filesystem_runtime(
+                    initialization,
+                    session_id=session_id,
+                    tool_handler=tool_handler,
+                )
+
+                session_state = initialization.session_state
+                instance = initialization.instance
+                for agent_name, server_name in initialization.removed_session_mcp_servers:
+                    await self._detach_server_from_agent(
+                        instance,
+                        agent_name=agent_name,
+                        server_name=server_name,
+                    )
+                await self._apply_session_mcp_overlay(
+                    session_state,
+                    instance,
+                    force_reconnect_targets=initialization.force_reconnect_targets,
+                )
+
+                session_context: dict[str, str] = {}
+                enrich_with_environment_context(
+                    session_context,
+                    cwd,
+                    self._prompt_client_info(),
+                    self._host._skills_directory_override,
+                )
+                self._apply_session_agent_bindings(
+                    session_state,
+                    instance,
+                    bind_tool_handler=initialization.tool_handler_created,
+                    bind_permission_handler=initialization.permission_handler_created,
+                    bind_runtimes=(
+                        initialization.terminal_runtime_created
+                        or initialization.filesystem_runtime_created
+                    ),
+                    register_stream_listeners=initialization.tool_handler_created,
+                )
+                if initialization.filesystem_runtime_created:
+                    await self._rebuild_agent_instructions_for_filesystem(instance)
+                session_modes = await self._finalize_session_instance_state(
+                    session_state,
+                    instance,
+                    session_cwd=cwd,
+                    prompt_context=session_context,
+                )
+            except BaseException:
+                if initialization is not None and initialization.created:
+                    await self._host._rollback_session_initialization(session_id)
+                raise
+
+            logger.info(
+                "Session modes initialized",
+                name="acp_session_modes_init",
                 session_id=session_id,
-                cwd=cwd,
-                tool_handler=tool_handler,
-            )
-            self._ensure_terminal_runtime(
-                initialization,
-                session_id=session_id,
-                tool_handler=tool_handler,
-            )
-            self._ensure_filesystem_runtime(
-                initialization,
-                session_id=session_id,
-                tool_handler=tool_handler,
+                current_mode=session_modes.current_mode_id,
+                mode_count=len(session_modes.available_modes),
             )
 
-        session_state = initialization.session_state
-        instance = initialization.instance
-        for agent_name, server_name in initialization.removed_session_mcp_servers:
-            await self._detach_server_from_agent(
-                instance,
-                agent_name=agent_name,
-                server_name=server_name,
+            return SessionStateInitialization(
+                session_state=session_state,
+                session_modes=session_modes,
+                created=initialization.created,
             )
-        await self._apply_session_mcp_overlay(
-            session_state,
-            instance,
-            force_reconnect_targets=initialization.force_reconnect_targets,
-        )
-
-        session_context: dict[str, str] = {}
-        enrich_with_environment_context(
-            session_context,
-            cwd,
-            self._prompt_client_info(),
-            self._host._skills_directory_override,
-        )
-        self._apply_session_agent_bindings(
-            session_state,
-            instance,
-            bind_tool_handler=initialization.tool_handler_created,
-            bind_permission_handler=initialization.permission_handler_created,
-            bind_runtimes=(
-                initialization.terminal_runtime_created or initialization.filesystem_runtime_created
-            ),
-            register_stream_listeners=initialization.tool_handler_created,
-        )
-        if initialization.filesystem_runtime_created:
-            await self._rebuild_agent_instructions_for_filesystem(instance)
-        session_modes = await self._finalize_session_instance_state(
-            session_state,
-            instance,
-            session_cwd=cwd,
-            prompt_context=session_context,
-        )
-
-        logger.info(
-            "Session modes initialized",
-            name="acp_session_modes_init",
-            session_id=session_id,
-            current_mode=session_modes.current_mode_id,
-            mode_count=len(session_modes.available_modes),
-        )
-
-        return session_state, session_modes
 
     def build_status_line_meta(
         self, agent: AgentProtocol | None, turn_start_index: int | None

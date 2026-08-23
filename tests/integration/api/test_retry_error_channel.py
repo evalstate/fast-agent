@@ -1,8 +1,8 @@
 import json
 from types import SimpleNamespace
 
+import httpx2
 import pytest
-from httpx import Request
 from openai import APIError
 
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_RETRY
@@ -31,7 +31,11 @@ class FailingOpenAILLM(OpenAILLM):
     ) -> PromptMessageExtended:
         self.attempts += 1
         self._notify_stream_listeners(StreamChunk(text=f"partial {self.attempts}"))
-        raise APIError("simulated failure", Request("GET", "http://example.com"), body=None)
+        raise APIError(
+            "simulated failure",
+            httpx2.Request("GET", "http://example.com"),
+            body=None,
+        )
 
 
 @pytest.mark.asyncio

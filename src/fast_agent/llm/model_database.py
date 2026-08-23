@@ -100,6 +100,9 @@ class ModelParameters(BaseModel):
     response_service_tiers: tuple[Literal["fast", "flex"], ...] | None = None
     """Supported service_tier values for Responses APIs, if explicitly defined."""
 
+    google_service_tiers: tuple[Literal["flex"], ...] = ()
+    """Supported service_tier values for the native Google API."""
+
     codex_responses_lite: bool = False
     """Whether Codex uses the internal Responses Lite request contract."""
 
@@ -393,6 +396,12 @@ class ModelDatabase:
     GOOGLE_THINKING_LEVEL_SPEC = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["minimal", "low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    GOOGLE_FLASH_37_THINKING_LEVEL_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high"],
         default=ReasoningEffortSetting(kind="effort", value="medium"),
     )
 
@@ -808,6 +817,15 @@ class ModelDatabase:
             "Gemini models are capable of handling YouTube video links when attached as video "
             "resource links."
         ),
+    )
+
+    GEMINI_37_FLASH = GEMINI_STANDARD_STRUCTURED.model_copy(
+        update={
+            "reasoning_effort_spec": GOOGLE_FLASH_37_THINKING_LEVEL_SPEC,
+            "google_service_tiers": ("flex",),
+            "shell_tool_profile": "minimal_process",
+            "shell_edit_tool": "write_text_file",
+        }
     )
 
     GEMINI_2_FLASH = ModelParameters(
@@ -1272,6 +1290,7 @@ class ModelDatabase:
         "gemini-2.0-flash": _with_fast(GEMINI_2_FLASH),
         "gemini-2.5-pro": GEMINI_25_STANDARD,
         "gemini-2.5-flash": _with_fast(GEMINI_25_STANDARD),
+        "gemini-3.7-flash": _with_fast(GEMINI_37_FLASH),
         "gemini-3.5-flash": _with_fast(GEMINI_STANDARD_STRUCTURED),
         "gemini-3-pro-preview": GEMINI_STANDARD,
         "gemini-3-flash-preview": GEMINI_STANDARD_STRUCTURED,
@@ -1651,6 +1670,12 @@ class ModelDatabase:
         return params.response_service_tiers if params else None
 
     @classmethod
+    def get_google_service_tiers(cls, model: str) -> tuple[Literal["flex"], ...]:
+        """Get supported native Google service tiers for a model."""
+        params = cls.get_model_params(model)
+        return params.google_service_tiers if params else ()
+
+    @classmethod
     def uses_codex_responses_lite(cls, model: str) -> bool:
         """Return whether Codex uses the Responses Lite contract for a model."""
         params = cls.get_model_params(model)
@@ -1667,6 +1692,15 @@ class ModelDatabase:
         if service_tiers is None:
             return None
         return service_tier in service_tiers
+
+    @classmethod
+    def supports_google_service_tier(
+        cls,
+        model: str,
+        service_tier: Literal["flex"],
+    ) -> bool:
+        """Return native Google service-tier support for a model."""
+        return service_tier in cls.get_google_service_tiers(model)
 
     @classmethod
     def supports_response_transport(

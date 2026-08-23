@@ -26,6 +26,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.reasoning_effort import reasoning_setting_telemetry_value
 from fast_agent.mcp.connect_targets import redact_mcp_url
 from fast_agent.mcp.failures import MCPFailure, classify_mcp_failure, render_mcp_failure
+from fast_agent.session.locking import SessionCheckpointBusyError
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.utils.commandline import join_commandline
@@ -1531,7 +1532,11 @@ def _classify_cli_mcp_failure(
 
 async def run_agent_request(request: AgentRunRequest) -> None:
     """Run the normalized CLI request."""
-    startup_model_source_override = await _select_startup_model_if_needed(request)
+    try:
+        startup_model_source_override = await _select_startup_model_if_needed(request)
+    except SessionCheckpointBusyError as exc:
+        typer.echo(str(exc), err=True)
+        raise SystemExit(1) from exc
     serve_permissions_enabled = _serve_permissions_enabled(request)
     instruction = _request_instruction(request)
     _configure_stdio_server_console(request)
