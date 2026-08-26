@@ -120,7 +120,7 @@ class TestCIMDOAuthProvider:
 
         assert (
             captured_kwargs.get("client_metadata_url")
-            == "https://fast-agent.ai/oauth/client-v2.json"
+            == "https://fast-agent.ai/oauth/client-v3.json"
         )
 
     @pytest.mark.parametrize("env_value", ["", "   "])
