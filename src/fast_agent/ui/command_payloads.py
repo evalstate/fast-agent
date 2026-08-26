@@ -41,6 +41,7 @@ class EnvironmentCommand(CommandBase):
 class ProcessCommand(CommandBase):
     show_history: bool = False
     attach_process_id: str | None = None
+    terminate_process_id: str | None = None
     kind: Literal["process"] = "process"
 
 

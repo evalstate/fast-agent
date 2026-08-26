@@ -319,7 +319,7 @@ class AgentCompleter(Completer):
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
             "environment": "List configured execution environments",
-            "process": "Show or attach shell processes (/process attach <process-id>)",
+            "process": "Show, attach, or terminate shell processes",
             "resume": "Resume the last session or specified session id",
             "session": "Manage sessions (/session list|new|resume|title|fork|delete|pin|unpin|export)",
             "card": _catalog_command_description("card"),

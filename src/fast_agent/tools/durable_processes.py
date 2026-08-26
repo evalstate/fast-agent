@@ -275,7 +275,7 @@ class DurableProcessStore:
         raise DurableProcessError("Could not allocate a unique durable process ID.")
 
     def _active_process_count(self) -> int:
-        return sum(snapshot.status.state in _NONTERMINAL_STATES for snapshot in self.discover())
+        return sum(snapshot.status.state in _NONTERMINAL_STATES for snapshot in self._discover())
 
     def launch(self, process_id: str, *, environment: Mapping[str, str]) -> DurableProcessSnapshot:
         """Start a detached supervisor that inherits, but never persists, ``environment``."""
@@ -341,8 +341,12 @@ class DurableProcessStore:
         return self.get(process_id)
 
     def discover(self) -> list[DurableProcessSnapshot]:
-        """Return snapshots for all strictly-valid process IDs under this root."""
+        """Return valid snapshots, persisting unavailable process tombstones."""
 
+        with FileLock(self._root / ".capacity.lock", mode=0o600):
+            return self._discover()
+
+    def _discover(self) -> list[DurableProcessSnapshot]:
         snapshots: list[DurableProcessSnapshot] = []
         for entry in sorted(self._root.iterdir()):
             if entry.is_dir() and _is_process_id(entry.name):
@@ -367,6 +371,7 @@ class DurableProcessStore:
                     status = _read_status(directory)
                 except DurableProcessRecordError:
                     continue
+                status = self._persist_unavailable_status(directory, status)
                 if self._status_is_prunable(status):
                     terminal_records.append((status.updated_at, spec.created_at, spec.process_id))
 
@@ -389,6 +394,7 @@ class DurableProcessStore:
         directory = self._directory(process_id)
         spec = _read_spec(directory)
         status = _read_status(directory)
+        status = self._persist_unavailable_status(directory, status)
         if self._is_stale(status):
             status = DurableProcessStatus(
                 state="unavailable",
@@ -593,8 +599,40 @@ class DurableProcessStore:
         )
 
     def _status_is_prunable(self, status: DurableProcessStatus) -> bool:
-        return status.state in _TERMINAL_STATES or (
-            self._is_stale(status) and not _process_is_running(status.supervisor_pid)
+        return status.state in _TERMINAL_STATES
+
+    def _persist_unavailable_status(
+        self,
+        directory: Path,
+        status: DurableProcessStatus,
+    ) -> DurableProcessStatus:
+        abandoned_launch = (
+            status.state in {"created", "starting"}
+            and status.supervisor_pid is None
+            and status.child_pid is None
+            and self._is_stale(status)
+        )
+        if not self._status_has_disappeared(status) and not abandoned_launch:
+            return status
+        unavailable = DurableProcessStatus(
+            state="unavailable",
+            exit_code=None,
+            updated_at=status.updated_at,
+            heartbeat_at=status.heartbeat_at,
+            supervisor_pid=status.supervisor_pid,
+            child_pid=status.child_pid,
+            started_at=status.started_at,
+        )
+        _write_status(directory, unavailable)
+        return unavailable
+
+    def _status_has_disappeared(self, status: DurableProcessStatus) -> bool:
+        return (
+            status.state in _NONTERMINAL_STATES
+            and status.supervisor_pid is not None
+            and status.child_pid is not None
+            and not _process_is_running(status.supervisor_pid)
+            and not _process_is_running(status.child_pid)
         )
 
 
@@ -657,7 +695,7 @@ def _process_is_running(process_id: int | None) -> bool:
         return False
     try:
         os.kill(process_id, 0)
-    except ProcessLookupError:
+    except (OverflowError, ProcessLookupError):
         return False
     except PermissionError:
         return True

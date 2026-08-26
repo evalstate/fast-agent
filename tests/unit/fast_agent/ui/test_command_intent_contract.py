@@ -452,13 +452,25 @@ def test_parse_special_input_process_attach_command() -> None:
     assert actual.attach_process_id == "process-0123456789abcdef0123456789abcdef"
 
 
+@pytest.mark.parametrize("root", ["/process", "/processes"])
+def test_parse_special_input_process_terminate_command(root: str) -> None:
+    from fast_agent.ui.command_payloads import ProcessCommand
+
+    actual = parse_special_input(f"{root} terminate process-0123456789abcdef0123456789abcdef")
+
+    assert isinstance(actual, ProcessCommand)
+    assert actual.terminate_process_id == "process-0123456789abcdef0123456789abcdef"
+
+
 def test_parse_special_input_process_rejects_unknown_option() -> None:
     from fast_agent.ui.command_payloads import CommandError
 
     actual = parse_special_input("/process --all")
 
     assert isinstance(actual, CommandError)
-    assert actual.message == "Usage: /process [--history|attach <process-id>]"
+    assert actual.message == (
+        "Usage: /process [--history|attach <process-id>|terminate <process-id>]"
+    )
 
 
 def test_parse_attach_uses_windows_aware_tokenization(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -377,18 +377,21 @@ def _add_resume_result_messages(
     outcome: CommandOutcome,
     result: ResumeSessionAgentsResult,
 ) -> None:
+    from fast_agent.session import format_session_reference
+
     loaded = result.loaded
     session = result.session
+    session_reference = format_session_reference(session.info)
     if loaded:
         loaded_list = ", ".join(sorted(loaded.keys()))
         outcome.add_message(
-            f"Resumed session: {session.info.name} ({loaded_list})",
+            Text(f"Resumed session: {session_reference} ({loaded_list})"),
             channel="info",
             right_info="session",
         )
     else:
         outcome.add_message(
-            f"Resumed session: {session.info.name} (no history yet)",
+            Text(f"Resumed session: {session_reference} (no history yet)"),
             channel="warning",
             right_info="session",
         )
@@ -414,6 +417,53 @@ def _add_resume_result_messages(
             usage_notice,
             channel="warning",
             right_info="session",
+        )
+
+
+def _add_resumed_process_messages(
+    outcome: CommandOutcome,
+    result: ResumeSessionAgentsResult,
+    *,
+    attached_process_ids: tuple[str, ...],
+    unavailable_process_ids: tuple[str, ...],
+    unattached_process_ids: tuple[str, ...],
+) -> None:
+    from fast_agent.session import format_session_reference
+
+    session_reference = format_session_reference(result.session.info)
+    if attached_process_ids:
+        count = len(attached_process_ids)
+        outcome.add_message(
+            Text(
+                f"Reattached {count} durable process{'es' if count != 1 else ''} "
+                f"for resumed session {session_reference}."
+            ),
+            channel="info",
+            right_info="process resume",
+        )
+    if unavailable_process_ids:
+        count = len(unavailable_process_ids)
+        process_ids = ", ".join(unavailable_process_ids)
+        outcome.add_message(
+            Text(
+                f"{count} durable process record{'s are' if count != 1 else ' is'} "
+                f"unavailable for resumed session {session_reference}: {process_ids}. "
+                "Run /process --history to inspect."
+            ),
+            channel="warning",
+            right_info="process resume",
+        )
+    if unattached_process_ids:
+        count = len(unattached_process_ids)
+        process_ids = ", ".join(unattached_process_ids)
+        outcome.add_message(
+            Text(
+                f"Could not reattach {count} active durable process"
+                f"{'es' if count != 1 else ''} because no compatible agent runtime is "
+                f"available: {process_ids}. Run /process to inspect."
+            ),
+            channel="warning",
+            right_info="process resume",
         )
 
 
@@ -540,7 +590,27 @@ async def handle_resume_session(
         return outcome
 
     active_agent_name = result.active_agent or agent_name
+    from fast_agent.session import resume_durable_processes
+
+    process_resume = await resume_durable_processes(
+        agents_map,
+        session_id=result.session.info.name,
+        fallback_agent_name=active_agent_name,
+    )
     _add_resume_result_messages(outcome, result)
+    _add_resumed_process_messages(
+        outcome,
+        result,
+        attached_process_ids=tuple(
+            snapshot.spec.process_id for snapshot in process_resume.attached
+        ),
+        unavailable_process_ids=tuple(
+            snapshot.spec.process_id for snapshot in process_resume.unavailable
+        ),
+        unattached_process_ids=tuple(
+            snapshot.spec.process_id for snapshot in process_resume.unattached
+        ),
+    )
     _add_available_history_summary(outcome, result)
 
     agent_obj = _active_resume_agent(

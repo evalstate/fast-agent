@@ -472,6 +472,7 @@ async def test_run_cli_flow_harness_resume_queues_assistant_preview(
         info=SimpleNamespace(
             name="2607032031-AiS7lt",
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
+            metadata={},
         )
     )
     fast.harness_app._session_restore_result = ResumeSessionAgentsResult(
@@ -1596,6 +1597,7 @@ async def test_resume_session_interactive_queues_markdown_preview(
         info=SimpleNamespace(
             name="session-1",
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
+            metadata={},
         )
     )
 
@@ -1646,6 +1648,7 @@ async def test_resume_session_interactive_queues_git_warning_after_preview(
         info=SimpleNamespace(
             name="session-1",
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
+            metadata={},
         )
     )
     app._session_restore_result = ResumeSessionAgentsResult(
@@ -1707,6 +1710,7 @@ async def test_resume_session_preview_fallback_preserves_loaded_order(
         info=SimpleNamespace(
             name="session-ordered",
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
+            metadata={},
         )
     )
 
@@ -1755,6 +1759,7 @@ async def test_resume_session_interactive_handles_usage_notices_from_result(
         info=SimpleNamespace(
             name="session-2",
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
+            metadata={},
         )
     )
 
@@ -1806,6 +1811,7 @@ async def test_resume_session_applies_hydrated_active_agent_to_request(
         info=SimpleNamespace(
             name="session-2b",
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
+            metadata={},
         )
     )
 
@@ -1854,6 +1860,7 @@ async def test_resume_session_prefers_explicit_target_agent_for_fallback_history
         info=SimpleNamespace(
             name="session-3",
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
+            metadata={},
         )
     )
     app._session_restore_result = ResumeSessionAgentsResult(

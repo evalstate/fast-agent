@@ -149,7 +149,11 @@ class ModelSelectionCatalog:
                 display_label="DeepSeek V4 Pro",
             ),
         ),
-        Provider.ZAI: (_builtin_entry("zaiglm", display_label="GLM 5.2"),),
+        Provider.ZAI: (
+            _builtin_entry("zaiglm53", display_label="GLM 5.3"),
+            _builtin_entry("zaiglm53flash", display_label="GLM 5.3 Flash", fast=True),
+            _builtin_entry("zaiglm", display_label="GLM 5.2", current=True),
+        ),
         Provider.MOONSHOT: (_builtin_entry("kimik3", display_label="Kimi K3"),),
         Provider.OPENROUTER: (),
         Provider.ALIYUN: (

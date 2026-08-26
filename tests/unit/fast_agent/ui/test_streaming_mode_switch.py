@@ -1279,6 +1279,16 @@ def test_preserve_final_frame_requires_rendered_content() -> None:
     assert handle.preserve_final_frame() is False
 
 
+def test_streaming_model_update_invalidates_header_cache() -> None:
+    handle = _make_handle("markdown")
+
+    assert "model-before" not in handle._build_header().plain
+
+    handle.update_model("model-before ↔ ↗")
+
+    assert "model-before ↔ ↗" in handle._build_header().plain
+
+
 def test_preserve_final_frame_allows_pending_reasoning_content() -> None:
     handle = _make_handle("markdown")
     handle.update_chunk(StreamChunk("<think>"))

@@ -78,6 +78,7 @@ anthropic:
 # zai:
 #   api_key: "${ZAI_API_KEY}"
 #   # base_url: "https://api.z.ai/api/paas/v4/"
+#   # Coding Plan: "https://api.z.ai/api/coding/paas/v4/"
 #   # default_model: "glm-5.2"
 
 # Native Moonshot Chat Completions provider:

@@ -210,6 +210,7 @@ Use:
 /process
 /process --history
 /process attach <process-id>
+/process terminate <process-id>
 ```
 
 `/process` shows processes already managed by the current runtime and durable
@@ -218,18 +219,28 @@ output observation in the current runtime; it does not reconnect terminal
 input. Once attached, the model-facing `process` tool can inspect output, wait,
 or request that the supervisor stop the process.
 
+`terminate` stops a process already managed by the current runtime or sends a
+stop request to a discoverable durable process without attaching it. Durable
+termination remains supervisor-mediated; unavailable records are never
+signalled directly.
+
 The session active when a process starts is recorded as provenance. Attaching
 from another session adds a non-owning association: deleting, forking, or
 leaving a session does not stop the process. Startup reports available durable
-processes and records whose supervisor is no longer available.
+processes and identifies their associated sessions when those sessions still
+exist. Resuming a session reattaches its active durable processes and warns
+about associated unavailable records. Discovery marks records unavailable once
+both the supervisor and child process have disappeared, or when a stale launch
+never published either process ID. Their provenance and retained output remain
+in history until normal terminal-record retention removes them.
 
 Durable supervision is currently local and POSIX-only. Session-scoped commands,
 remote execution environments, Windows, and `--no-home` retain their existing
 process lifecycle behavior.
 
 Fast-agent retains the newest 100 completed durable process records and
-automatically removes older terminal records. Running records are never removed
-by retention cleanup. Each stdout, stderr, and combined durable output log is
+automatically removes older terminal records. Active records are not removed by
+retention cleanup. Each stdout, stderr, and combined durable output log is
 capped by `shell_execution.durable_output_max_bytes`; output beyond the cap is
 still drained but is reported as dropped and is unavailable for later readback.
 If the process store cannot be created or fails its private-directory checks,

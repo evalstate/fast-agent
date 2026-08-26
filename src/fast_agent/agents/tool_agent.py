@@ -443,6 +443,15 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
+        with self._turn_indicator_scope():
+            return await self._generate_tool_turn_impl(messages, request_params, tools)
+
+    async def _generate_tool_turn_impl(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> PromptMessageExtended:
         """
         Generate a response using the LLM, and handle tool calls if necessary.
         Messages are already normalized to list[PromptMessageExtended].

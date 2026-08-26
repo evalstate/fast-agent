@@ -231,7 +231,9 @@ async def test_resume_session_switches_to_hydrated_active_agent() -> None:
     alpha = _Agent("alpha", history=[_assistant_message("alpha preview")])
     beta = _Agent("beta", history=[_assistant_message("beta preview")])
     io = _StubIO()
-    session = SimpleNamespace(info=SimpleNamespace(name="s-1", metadata={}))
+    session = SimpleNamespace(
+        info=SimpleNamespace(name="s-1", metadata={"title": "[/bold] process work"})
+    )
 
     async def _resume_agents(*args, **kwargs):
         del args, kwargs
@@ -261,3 +263,4 @@ async def test_resume_session_switches_to_hydrated_active_agent() -> None:
     assert io.history_overviews
     assert io.history_overviews[0][0] == "beta"
     assert any("beta preview" in str(message.text) for message in outcome.messages)
+    assert any("[/bold] process work" in message.plain_text() for message in outcome.messages)

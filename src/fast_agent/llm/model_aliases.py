@@ -85,6 +85,8 @@ BUILTIN_MODEL_ALIASES: Final[dict[str, str]] = {
     "glm52": "hf.zai-org/GLM-5.2:zai-org",
     "glm": "hf.zai-org/GLM-5.2:zai-org",
     "zaiglm": "zai.glm-5.2",
+    "zaiglm53": "zai.glm-5.3",
+    "zaiglm53flash": "zai.glm-5.3-flash",
     "deepseek-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
     "deepseek32": "hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
     "deepseek4-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",

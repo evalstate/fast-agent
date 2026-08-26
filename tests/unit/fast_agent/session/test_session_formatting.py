@@ -9,6 +9,7 @@ from fast_agent.session.formatting import (
     format_history_summary,
     format_session_agent_label,
     format_session_entries,
+    format_session_reference,
 )
 from fast_agent.session.session_manager import SessionInfo
 
@@ -45,6 +46,19 @@ def test_extract_session_title_uses_first_nonblank_metadata_value() -> None:
 def test_extract_session_title_ignores_structured_metadata_values() -> None:
     assert extract_session_title({"title": {"text": "Review"}, "label": ["fallback"]}) is None
     assert extract_session_title({"title": 123, "first_user_preview": " Review "}) == "Review"
+
+
+def test_format_session_reference_uses_short_id_and_title() -> None:
+    now = datetime(2026, 8, 25, 12, 0)
+    session = SessionInfo(
+        name="2608251200-AbCdEf",
+        created_at=now,
+        last_activity=now,
+        history_files=[],
+        metadata={"title": "Process work"},
+    )
+
+    assert format_session_reference(session) == "AbCdEf · Process work"
 
 
 def test_format_session_entries_marks_pinned() -> None:

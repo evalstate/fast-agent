@@ -690,6 +690,9 @@ class _DiffLive(RenderHook):
 class NullStreamingHandle:
     """No-op streaming handle used when streaming is disabled."""
 
+    def update_model(self, model: str | None) -> None:
+        del model
+
     def update(self, chunk: str) -> None:
         del chunk
 
@@ -937,6 +940,15 @@ class StreamingMessageHandle:
         if len(self._header_cache) > 8:
             self._header_cache.clear()
         return combined
+
+    def update_model(self, model: str | None) -> None:
+        from fast_agent.llm.model_display_name import resolve_model_display_name
+
+        display_model = resolve_model_display_name(model)
+        self._header_right = f"[dim]{display_model}[/dim]" if display_model else ""
+        self._header_cache.clear()
+        if self._active and self._live_started:
+            self._render_current_buffer()
 
     def _pause_progress_display(self) -> None:
         if self._progress_display and not self._progress_paused:
@@ -1810,6 +1822,8 @@ __all__ = [
 
 
 class StreamingHandle(Protocol):
+    def update_model(self, model: str | None) -> None: ...
+
     def update(self, chunk: str) -> None: ...
     def update_chunk(self, chunk: StreamChunk) -> None: ...
 

@@ -158,6 +158,9 @@ class FastAgentLLMProtocol(Protocol):
     def usage_accumulator(self) -> UsageAccumulator | None: ...
 
     @property
+    def websocket_turn_indicator(self) -> str | None: ...
+
+    @property
     def provider(self) -> Provider: ...
 
     @property

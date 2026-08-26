@@ -1699,6 +1699,11 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self._usage_accumulator = value
 
     @property
+    def websocket_turn_indicator(self) -> str | None:
+        """Return the transport outcome glyph for the most recent transfer."""
+        return None
+
+    @property
     def provider(self) -> Provider:
         """
         Return the LLM provider type.

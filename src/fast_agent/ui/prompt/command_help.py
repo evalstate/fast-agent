@@ -63,6 +63,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  /environment   - List configured execution environments",
             "  /process [--history] - Show active, durable, or retained shell processes",
             "  /process attach <process-id> - Adopt durable process management and observation",
+            "  /process terminate <process-id> - Terminate a managed or durable process",
             "  /mcp           - Show detailed MCP server status for the active agent",
             "  /mcp status    - Show detailed MCP server status for the active agent",
             "  /mcp list      - List configured and attached MCP servers",

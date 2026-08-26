@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 import typer
+from rich.markup import escape
 
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
 from fast_agent.session.preview import find_last_assistant_preview_text
@@ -71,6 +72,28 @@ async def resume_session_if_requested(
 
     if result.active_agent is not None:
         request.target_agent_name = result.active_agent
+
+    from fast_agent.session import resume_durable_processes
+
+    process_resume = await resume_durable_processes(
+        agent_app.registered_agents(),
+        session_id=result.session.info.name,
+        fallback_agent_name=request.target_agent_name or default_agent.name,
+    )
+    emit_resume_process_notices(
+        result,
+        attached_process_ids=tuple(
+            snapshot.spec.process_id for snapshot in process_resume.attached
+        ),
+        unavailable_process_ids=tuple(
+            snapshot.spec.process_id for snapshot in process_resume.unavailable
+        ),
+        unattached_process_ids=tuple(
+            snapshot.spec.process_id for snapshot in process_resume.unattached
+        ),
+        interactive_notice=interactive_notice,
+        queue_startup_notice=queue_startup_notice,
+    )
 
     preview_agent = resume_preview_agent(agent_app, request, default_agent, result.loaded)
     if request.is_repl:
@@ -146,16 +169,20 @@ def emit_resume_status_notices(
     interactive_notice: bool,
     queue_startup_notice: StartupNotice,
 ) -> None:
+    from fast_agent.session import format_session_reference
+
     session = result.session
+    session_reference = format_session_reference(session.info)
     session_time = session.info.last_activity.strftime("%y-%m-%d %H:%M")
     resume_notice = (
-        f"[dim]Resumed session[/dim] [cyan]{session.info.name}[/cyan] [dim]({session_time})[/dim]"
+        f"[dim]Resumed session[/dim] [cyan]{escape(session_reference)}[/cyan] "
+        f"[dim]({session_time})[/dim]"
     )
     emit_resume_notice(
         resume_notice,
         interactive_notice=interactive_notice,
         queue_startup_notice=queue_startup_notice,
-        plain_notice=f"Resumed session {session.info.name} ({session_time})",
+        plain_notice=f"Resumed session {session_reference} ({session_time})",
     )
     emit_missing_resume_agents_notice(
         result.missing_agents,
@@ -169,6 +196,61 @@ def emit_resume_status_notices(
         deferred=False,
     )
     emit_resume_usage_notices(result.usage_notices, interactive_notice, queue_startup_notice)
+
+
+def emit_resume_process_notices(
+    result: ResumeSessionAgentsResult,
+    *,
+    attached_process_ids: tuple[str, ...],
+    unavailable_process_ids: tuple[str, ...],
+    unattached_process_ids: tuple[str, ...],
+    interactive_notice: bool,
+    queue_startup_notice: StartupNotice,
+) -> None:
+    from fast_agent.session import format_session_reference
+
+    session_reference = format_session_reference(result.session.info)
+    if attached_process_ids:
+        count = len(attached_process_ids)
+        emit_resume_notice(
+            f"[dim]Reattached {count} durable process"
+            f"{'es' if count != 1 else ''} for resumed session[/dim] "
+            f"[cyan]{escape(session_reference)}[/cyan][dim].[/dim]",
+            interactive_notice=interactive_notice,
+            queue_startup_notice=queue_startup_notice,
+            plain_notice=(
+                f"Reattached {count} durable process{'es' if count != 1 else ''} "
+                f"for resumed session {session_reference}."
+            ),
+        )
+    if unavailable_process_ids:
+        count = len(unavailable_process_ids)
+        process_ids = ", ".join(unavailable_process_ids)
+        notice = (
+            f"{count} durable process record{'s are' if count != 1 else ' is'} "
+            f"unavailable for resumed session {session_reference}: {process_ids}. "
+            "Run /process --history to inspect."
+        )
+        emit_resume_notice(
+            f"[yellow]{escape(notice)}[/yellow]",
+            interactive_notice=interactive_notice,
+            queue_startup_notice=queue_startup_notice,
+            plain_notice=notice,
+        )
+    if unattached_process_ids:
+        count = len(unattached_process_ids)
+        process_ids = ", ".join(unattached_process_ids)
+        notice = (
+            f"Could not reattach {count} active durable process"
+            f"{'es' if count != 1 else ''} because no compatible agent runtime is "
+            f"available: {process_ids}. Run /process to inspect."
+        )
+        emit_resume_notice(
+            f"[yellow]{escape(notice)}[/yellow]",
+            interactive_notice=interactive_notice,
+            queue_startup_notice=queue_startup_notice,
+            plain_notice=notice,
+        )
 
 
 def emit_missing_resume_agents_notice(
