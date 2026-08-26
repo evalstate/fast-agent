@@ -1626,6 +1626,28 @@ def test_managed_command_completions_use_catalogued_options(
         assert expected_short_options <= names
 
 
+@pytest.mark.parametrize(
+    ("command_text", "expected"),
+    [
+        ("/process ", {"--history", "history", "attach", "terminate"}),
+        ("/processes ", {"--history", "history", "attach", "terminate"}),
+        ("/process --h", {"--history"}),
+        ("/process at", {"attach"}),
+    ],
+)
+def test_process_command_completions(command_text: str, expected: set[str]) -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    completions = list(
+        completer.get_completions(
+            Document(command_text, cursor_position=len(command_text)),
+            None,
+        )
+    )
+
+    assert {completion.text for completion in completions} == expected
+
+
 def test_command_completion_descriptions_avoid_parenthetical_plurals() -> None:
     completer = AgentCompleter(agents=["agent1"])
 

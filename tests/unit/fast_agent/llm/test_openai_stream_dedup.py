@@ -5,6 +5,7 @@ import pytest
 
 from fast_agent.context import Context
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+from fast_agent.llm.provider.openai.llm_zai import ZaiLLM
 
 
 def test_extract_incremental_delta_with_cumulative_content() -> None:
@@ -25,6 +26,11 @@ def test_extract_incremental_delta_with_non_cumulative_content() -> None:
     delta, cumulative = OpenAILLM._extract_incremental_delta("Part 2", cumulative)
     assert delta == "Part 2"
     assert cumulative == "Part 1Part 2"
+
+
+def test_reasoning_content_wins_over_blank_reasoning_field() -> None:
+    assert OpenAILLM._extract_reasoning_text(" ", "actual reasoning") == "actual reasoning"
+    assert OpenAILLM._extract_reasoning_text(None, " ") == " "
 
 
 @dataclass
@@ -211,3 +217,38 @@ async def test_manual_stream_accumulates_interleaved_reasoning_content_and_tools
     assert completion.choices[0].message.tool_calls[0].id == "tool-1"
     assert completion.choices[0].message.tool_calls[0].function.name == "do_work"
     assert completion.choices[0].message.tool_calls[0].function.arguments == '{"x":1}'
+
+
+@pytest.mark.asyncio
+async def test_manual_stream_normalizes_reasoning_for_generic_history() -> None:
+    llm = OpenAILLM(context=Context(), model="glm-5.2")
+    chunks = [
+        StubChunk([StubChoice(StubDelta(reasoning_content="first."))]),
+        StubChunk([StubChoice(StubDelta(reasoning_content="Second sentence"))]),
+        StubChunk([StubChoice(StubDelta(content="done"), finish_reason="stop")]),
+    ]
+
+    _, reasoning = await llm._process_stream_manual(
+        _stream_chunks(chunks),
+        "glm-5.2",
+    )
+
+    assert reasoning == ["first.", " Second sentence"]
+
+
+@pytest.mark.asyncio
+async def test_zai_manual_stream_returns_unmodified_reasoning_for_history() -> None:
+    llm = ZaiLLM(context=Context(), model="glm-5.3")
+    chunks = [
+        StubChunk([StubChoice(StubDelta(reasoning_content="first"))]),
+        StubChunk([StubChoice(StubDelta(reasoning_content=" "))]),
+        StubChunk([StubChoice(StubDelta(reasoning_content="Second sentence"))]),
+        StubChunk([StubChoice(StubDelta(content="done"), finish_reason="stop")]),
+    ]
+
+    _, reasoning = await llm._process_stream_manual(
+        _stream_chunks(chunks),
+        "glm-5.3",
+    )
+
+    assert reasoning == ["first", " ", "Second sentence"]

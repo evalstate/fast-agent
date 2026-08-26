@@ -314,10 +314,14 @@ def _parse_process_command(remainder: str) -> CommandPayload:
         tokens = split_commandline(stripped, syntax="posix")
     except ValueError:
         tokens = []
-    if len(tokens) == 2 and strip_casefold(tokens[0]) == "attach":
-        return ProcessCommand(attach_process_id=tokens[1])
+    if len(tokens) == 2:
+        action = strip_casefold(tokens[0])
+        if action == "attach":
+            return ProcessCommand(attach_process_id=tokens[1])
+        if action == "terminate":
+            return ProcessCommand(terminate_process_id=tokens[1])
     return CommandError(
-        message="Usage: /process [--history|attach <process-id>]",
+        message="Usage: /process [--history|attach <process-id>|terminate <process-id>]",
     )
 
 

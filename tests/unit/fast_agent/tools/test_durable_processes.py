@@ -352,6 +352,118 @@ def test_invalid_utf8_record_is_skipped_as_malformed(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+def test_discovery_persists_unavailable_when_supervisor_and_child_disappeared(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "durable"
+    store = DurableProcessStore(root)
+    created = store.create(command="sleep 30", shell=_SHELL, cwd=tmp_path)
+    status_path = store.directory(created.spec.process_id) / "status.json"
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    status.update(
+        {
+            "state": "running",
+            "supervisor_pid": 99_999_999,
+            "child_pid": 99_999_998,
+        }
+    )
+    status_path.write_text(json.dumps(status), encoding="utf-8")
+
+    discovered = store.discover()
+    persisted = json.loads(status_path.read_text(encoding="utf-8"))
+
+    assert len(discovered) == 1
+    assert discovered[0].status.state == "unavailable"
+    assert persisted["state"] == "unavailable"
+    assert (root / created.spec.process_id).exists()
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+def test_discovery_retains_record_with_surviving_orphaned_child(tmp_path: Path) -> None:
+    store = DurableProcessStore(
+        tmp_path / "durable",
+        heartbeat_timeout_seconds=0.01,
+        max_terminal_records=0,
+    )
+    created = store.create(command="sleep 30", shell=_SHELL, cwd=tmp_path)
+    status_path = store.directory(created.spec.process_id) / "status.json"
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    status.update(
+        {
+            "state": "running",
+            "updated_at": 0.0,
+            "heartbeat_at": 0.0,
+            "supervisor_pid": 99_999_999,
+            "child_pid": os.getpid(),
+        }
+    )
+    status_path.write_text(json.dumps(status), encoding="utf-8")
+
+    discovered = store.discover()
+    persisted = json.loads(status_path.read_text(encoding="utf-8"))
+
+    assert len(discovered) == 1
+    assert discovered[0].status.state == "unavailable"
+    assert persisted["state"] == "running"
+    assert store.prune_terminal_records() == 0
+    assert store.directory(created.spec.process_id).exists()
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+def test_discovery_handles_out_of_range_process_ids(tmp_path: Path) -> None:
+    root = tmp_path / "durable"
+    store = DurableProcessStore(root)
+    created = store.create(command="sleep 30", shell=_SHELL, cwd=tmp_path)
+    status_path = store.directory(created.spec.process_id) / "status.json"
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    status.update(
+        {
+            "state": "running",
+            "supervisor_pid": 10**100,
+            "child_pid": 10**100,
+        }
+    )
+    status_path.write_text(json.dumps(status), encoding="utf-8")
+
+    discovered = store.discover()
+
+    assert len(discovered) == 1
+    assert discovered[0].status.state == "unavailable"
+    assert (root / created.spec.process_id).exists()
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+def test_retention_prunes_stale_launch_with_unpublished_process_ids(
+    tmp_path: Path,
+) -> None:
+    store = DurableProcessStore(
+        tmp_path / "durable",
+        heartbeat_timeout_seconds=0.01,
+        max_terminal_records=0,
+    )
+    created = store.create(command="sleep 30", shell=_SHELL, cwd=tmp_path)
+    status_path = store.directory(created.spec.process_id) / "status.json"
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    status.update(
+        {
+            "state": "starting",
+            "updated_at": 0.0,
+            "heartbeat_at": 0.0,
+            "supervisor_pid": None,
+            "child_pid": None,
+        }
+    )
+    status_path.write_text(json.dumps(status), encoding="utf-8")
+
+    assert store.prune_terminal_records() == 1
+    assert not (store.root / created.spec.process_id).exists()
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
 def test_terminal_record_retention_prunes_oldest_records(tmp_path: Path) -> None:
     root = tmp_path / "durable"
     store = DurableProcessStore(root, max_terminal_records=10)

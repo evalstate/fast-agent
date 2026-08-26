@@ -37,6 +37,14 @@ def extract_session_title(metadata: Mapping[str, object] | None) -> str | None:
     return session_metadata_title(metadata)
 
 
+def format_session_reference(info: SessionInfo) -> str:
+    """Return a compact session ID with its title when available."""
+
+    display_name = display_session_name(info.name)
+    title = extract_session_title(info.metadata)
+    return f"{display_name} · {title}" if title else display_name
+
+
 def _history_agent_names(metadata: Mapping[str, object]) -> list[str]:
     history_map = metadata.get("last_history_by_agent")
     if not isinstance(history_map, Mapping):

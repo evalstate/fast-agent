@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.tools.execution_environment import ShellRuntimeInfo
-    from fast_agent.tools.shell_runtime import ManagedProcessSnapshot
+    from fast_agent.tools.shell_runtime import ManagedProcessSnapshot, ProcessTerminationOutcome
     from fast_agent.types import PromptMessageExtended
 
 
@@ -60,6 +60,14 @@ class _ManagedProcessRuntimeProvider(Protocol):
         *,
         session_id: str | None = None,
     ) -> DurableProcessSnapshot: ...
+
+
+@runtime_checkable
+class _ProcessTerminationRuntimeProvider(Protocol):
+    async def terminate_interactive_process(
+        self,
+        process_id: str,
+    ) -> "ProcessTerminationOutcome": ...
 
 
 def _last_assistant_text(message_history: Sequence["PromptMessageExtended"]) -> str | None:
@@ -204,6 +212,7 @@ async def handle_processes(
     agent_name: str,
     show_history: bool = False,
     attach_process_id: str | None = None,
+    terminate_process_id: str | None = None,
 ) -> CommandOutcome:
     """Render active processes by default, or retained finished history."""
     outcome = CommandOutcome()
@@ -261,6 +270,45 @@ async def handle_processes(
         outcome.add_message(
             "\n".join(lines),
             right_info="process attach",
+            render_markdown=True,
+        )
+        return outcome
+
+    if terminate_process_id is not None:
+        if not isinstance(shell_runtime, _ProcessTerminationRuntimeProvider):
+            outcome.add_message(
+                "Process termination is not available for this runtime.",
+                channel="warning",
+                right_info="process terminate",
+            )
+            return outcome
+        result = await shell_runtime.terminate_interactive_process(terminate_process_id)
+        if result.state == "terminated":
+            message = f"Terminated managed process `{terminate_process_id}`."
+            channel = "system"
+        elif result.state == "stop_requested":
+            message = f"Termination requested for durable process `{terminate_process_id}`."
+            channel = "system"
+        elif result.state == "stop_already_requested":
+            message = f"Termination was already requested for `{terminate_process_id}`."
+            channel = "info"
+        elif result.state == "already_exited":
+            message = f"Process `{terminate_process_id}` has already exited."
+            channel = "info"
+        elif result.state == "unavailable":
+            message = f"Process `{terminate_process_id}` is unavailable; no stop request was sent."
+            channel = "error"
+        elif result.state == "not_found":
+            message = f"Managed process `{terminate_process_id}` was not found."
+            channel = "error"
+        else:
+            detail = f": {result.error}" if result.error else "."
+            message = f"Could not terminate process `{terminate_process_id}`{detail}"
+            channel = "error"
+        outcome.add_message(
+            message,
+            channel=channel,
+            right_info="process terminate",
             render_markdown=True,
         )
         return outcome
@@ -351,6 +399,7 @@ async def handle_processes(
             [
                 "",
                 "Use `/process attach <process-id>` to adopt management and output observation.",
+                "Use `/process terminate <process-id>` to request termination without attaching.",
             ]
         )
         outcome.add_message(

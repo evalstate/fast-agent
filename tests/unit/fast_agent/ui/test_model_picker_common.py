@@ -490,8 +490,17 @@ def test_build_snapshot_includes_native_zai_provider() -> None:
     )
 
     assert option.provider is Provider.ZAI
-    assert [entry.alias for entry in option.curated_entries] == ["zaiglm"]
-    assert [entry.model for entry in option.curated_entries] == ["zai.glm-5.2"]
+    assert [entry.alias for entry in option.curated_entries] == [
+        "zaiglm53",
+        "zaiglm53flash",
+        "zaiglm",
+    ]
+    assert [entry.model for entry in option.curated_entries] == [
+        "zai.glm-5.3",
+        "zai.glm-5.3-flash",
+        "zai.glm-5.2",
+    ]
+    assert [entry.fast for entry in option.curated_entries] == [False, True, False]
 
 
 def test_build_snapshot_includes_native_moonshot_provider() -> None:

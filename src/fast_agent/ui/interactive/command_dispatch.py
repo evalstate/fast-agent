@@ -443,6 +443,7 @@ def _command_route_handler(
             agent_name=agent,
             show_history=process_payload.show_history,
             attach_process_id=process_payload.attach_process_id,
+            terminate_process_id=process_payload.terminate_process_id,
         )
 
     value_payload = cast("Any", payload)

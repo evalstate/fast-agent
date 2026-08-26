@@ -1,5 +1,6 @@
 """Session management for fast-agent."""
 
+from .durable_processes import DurableProcessResumeResult, resume_durable_processes
 from .formatting import (
     SessionEntrySummary,
     SessionListMode,
@@ -8,6 +9,7 @@ from .formatting import (
     format_history_summary,
     format_session_agent_label,
     format_session_entries,
+    format_session_reference,
 )
 from .hydrator import (
     NonResumableSessionError,
@@ -89,6 +91,7 @@ __all__ = [
     "ExportFormat",
     "ExportRequest",
     "ExportResult",
+    "DurableProcessResumeResult",
     "InvalidSessionExportTargetError",
     "NonResumableSessionError",
     "ResolvedSessionExport",
@@ -147,6 +150,7 @@ __all__ = [
     "format_history_summary",
     "format_session_agent_label",
     "format_session_entries",
+    "format_session_reference",
     "format_subagent_alias",
     "get_session_history_window",
     "get_active_session_manager",
@@ -154,6 +158,7 @@ __all__ = [
     "is_session_pinned",
     "load_session_snapshot",
     "reset_session_manager",
+    "resume_durable_processes",
     "set_session_manager",
     "resolve_session_for_save",
     "session_info_from_snapshot",

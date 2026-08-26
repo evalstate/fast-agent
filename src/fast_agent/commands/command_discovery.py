@@ -463,8 +463,8 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         ),
         {
             "name": "process",
-            "summary": "Show or attach managed shell processes",
-            "usage": "/process [--history|attach <process-id>]",
+            "summary": "Show, attach, or terminate managed shell processes",
+            "usage": "/process [--history|attach <process-id>|terminate <process-id>]",
             "actions": [
                 {
                     "name": "history",
@@ -477,11 +477,17 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
                     "summary": "adopt durable process management and observation",
                     "usage": "/process attach <process-id>",
                 },
+                {
+                    "name": "terminate",
+                    "summary": "terminate a managed or discoverable durable process",
+                    "usage": "/process terminate <process-id>",
+                },
             ],
             "examples": [
                 "/process",
                 "/process --history",
                 "/process attach process-0123456789abcdef0123456789abcdef",
+                "/process terminate process-0123456789abcdef0123456789abcdef",
             ],
         },
         {

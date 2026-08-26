@@ -122,4 +122,6 @@
 | `grok43` | `xai` | Text, Vision | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `grok43?reasoning=high` | — | — |
 | `grok45` | `xai` | Text, Vision | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `grok45?reasoning=high` | — | — |
 | `grok` | `xai` | Text, Vision | `json` (schema) | effort: `low`, `medium`, `high`, `xhigh`<br>Example: `grok?reasoning=high` | — | — |
+| `zaiglm53` | `zai` | Text | `json` (object) | effort: `low`, `high`, `max`<br>Example: `zaiglm53?reasoning=max` | — | — |
+| `zaiglm53flash` | `zai` | Text, Vision, Document, Video | `json` (object) | effort: `low`, `high`, `max`<br>Example: `zaiglm53flash?reasoning=max` | — | — |
 | `zaiglm` | `zai` | Text | `json` (object) | effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `zaiglm?reasoning=max` | — | — |

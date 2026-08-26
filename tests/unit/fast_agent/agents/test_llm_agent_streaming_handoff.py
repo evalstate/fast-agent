@@ -13,6 +13,8 @@ from fast_agent.constants import (
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
     REASONING,
 )
+from fast_agent.llm.provider.openai.responses import ResponsesLLM
+from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay, StreamingPreferences
@@ -26,6 +28,10 @@ class _FakeStreamHandle:
         self.finalize_calls: list[PromptMessageExtended] = []
         self.close_calls = 0
         self.wait_for_drain_calls = 0
+        self.updated_models: list[str | None] = []
+
+    def update_model(self, model: str | None) -> None:
+        self.updated_models.append(model)
 
     def update(self, _chunk: str) -> None:
         return
@@ -170,10 +176,30 @@ async def test_generate_impl_preserves_streamed_frame_and_skips_reprint_when_saf
     assert handle.wait_for_drain_calls == 1
     assert handle.preserve_called is True
     assert handle.finalize_calls == [response]
+    assert handle.updated_models == [None]
     assert len(agent.shown_messages) == 1
     assert agent.shown_messages[0]["render_message"] is False
     assert agent.shown_messages[0]["show_reprint_banner"] is False
     assert agent.url_elicitation_calls == []
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_generate_impl_updates_preserved_header_with_websocket_indicator() -> None:
+    handle = _FakeStreamHandle(has_scrolled=False, preserve_result=True)
+    response = _response_message("short streamed response")
+    agent = _StreamingHarnessAgent(handle=handle, response=response)
+    llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
+    llm._record_ws_turn_outcome("reused")
+    agent._llm = llm
+
+    result = await agent.generate_impl([_seed_message()])
+
+    assert result is response
+    assert handle.updated_models == ["gpt-5.3-codex ↔"]
+    assert handle.preserve_called is True
+    assert handle.finalize_calls == [response]
+    assert agent.shown_messages[0]["render_message"] is False
 
 
 @pytest.mark.unit

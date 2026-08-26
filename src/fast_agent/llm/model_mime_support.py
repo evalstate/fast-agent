@@ -16,6 +16,9 @@ def provider_document_mime_override(
     if not normalized_mime_type or normalized_mime_type not in DOCUMENT_MIME_TYPES:
         return None
 
+    if provider == Provider.ZAI and resource_source == "embedded":
+        return False
+
     if (
         resource_source == "link"
         and provider in {Provider.ANTHROPIC, Provider.ANTHROPIC_VERTEX}
@@ -47,6 +50,12 @@ def tokenizes_support_mime(
 
     normalized = normalize_mime_type(mime_type)
     candidate = normalized or ""
+    if (
+        provider == Provider.ZAI
+        and resource_source == "embedded"
+        and candidate.startswith("video/")
+    ):
+        return False
     if candidate.endswith("/*") and "/" in candidate:
         prefix = candidate.split("/", 1)[0] + "/"
         return any(supported.startswith(prefix) for supported in normalized_supported)

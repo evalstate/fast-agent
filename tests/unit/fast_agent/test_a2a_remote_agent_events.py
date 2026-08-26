@@ -48,6 +48,9 @@ class _FakeStreamHandle:
         self.chunks: list[str] = []
         self.finalized = False
 
+    def update_model(self, model: str | None) -> None:
+        del model
+
     def update_chunk(self, chunk: StreamChunk) -> None:
         self.chunks.append(chunk.text)
 

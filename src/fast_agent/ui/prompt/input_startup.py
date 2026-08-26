@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
 
     from fast_agent.core.agent_app import AgentApp
-    from fast_agent.tools.durable_processes import DurableProcessSnapshot
+    from fast_agent.session.session_manager import SessionManager
 
 
 @runtime_checkable
@@ -39,8 +39,51 @@ class LlmBackedStatusAgent(Protocol):
 
 
 @runtime_checkable
+class DurableProcessStartupStatus(Protocol):
+    @property
+    def state(self) -> str: ...
+
+
+@runtime_checkable
+class DurableProcessStartupSpec(Protocol):
+    @property
+    def process_id(self) -> str: ...
+
+    @property
+    def origin_session_id(self) -> str | None: ...
+
+
+@runtime_checkable
+class DurableProcessStartupSnapshot(Protocol):
+    @property
+    def status(self) -> DurableProcessStartupStatus: ...
+
+    @property
+    def spec(self) -> DurableProcessStartupSpec: ...
+
+    @property
+    def session_ids(self) -> tuple[str, ...]: ...
+
+
+@runtime_checkable
+class ManagedProcessStartupSnapshot(Protocol):
+    @property
+    def process_id(self) -> str: ...
+
+
+@runtime_checkable
+class ShellRuntimeStartupProvider(Protocol):
+    @property
+    def shell_runtime(self) -> object | None: ...
+
+
+@runtime_checkable
 class DurableProcessStartupRuntime(Protocol):
-    async def discover_durable_processes(self) -> tuple["DurableProcessSnapshot", ...]: ...
+    async def discover_durable_processes(
+        self,
+    ) -> tuple[DurableProcessStartupSnapshot, ...]: ...
+
+    async def process_snapshots(self) -> tuple[ManagedProcessStartupSnapshot, ...]: ...
 
 
 @runtime_checkable
@@ -303,6 +346,7 @@ async def show_shell_startup(
     agent_provider: "AgentApp | None",
     shell_context: ShellInputContextLike,
     shell_agent: object | None,
+    session_manager: SessionManager | None,
     is_human_input: bool,
     available_agents: Iterable[str],
     display_all_agents_with_hierarchy: Callable[
@@ -315,32 +359,63 @@ async def show_shell_startup(
     rich_print(format_shell_notice(shell_context.access_modes, shell_context.runtime))
     if isinstance(shell_context.runtime, DurableProcessStartupRuntime):
         durable_processes = await shell_context.runtime.discover_durable_processes()
+        runtimes: list[DurableProcessStartupRuntime] = [shell_context.runtime]
+        if agent_provider is not None:
+            for agent in agent_provider.registered_agents().values():
+                if not isinstance(agent, ShellRuntimeStartupProvider):
+                    continue
+                runtime = agent.shell_runtime
+                if not isinstance(runtime, DurableProcessStartupRuntime):
+                    continue
+                if all(runtime is not candidate for candidate in runtimes):
+                    runtimes.append(runtime)
+        attached_ids: set[str] = set()
+        for runtime in runtimes:
+            attached_ids.update(process.process_id for process in await runtime.process_snapshots())
         running = [
             process
             for process in durable_processes
-            if process.status.state in {"created", "starting", "running", "stopping"}
-        ]
-        unavailable = [
-            process for process in durable_processes if process.status.state == "unavailable"
+            if process.spec.process_id not in attached_ids
+            and process.status.state in {"created", "starting", "running", "stopping"}
         ]
         if running:
+            from fast_agent.session import format_session_reference
+
             rich_print(
                 Text(
                     f"Startup warning: {len(running)} durable background process"
                     f"{'es are' if len(running) != 1 else ' is'} available. "
-                    "Run /process to inspect or attach.",
+                    "Resume an associated session to inherit its processes, or run "
+                    "/process to inspect and attach them.",
                     style="yellow",
                 )
             )
-        if unavailable:
-            rich_print(
-                Text(
-                    f"{len(unavailable)} durable process"
-                    f"{'es are' if len(unavailable) != 1 else ' is'} no longer available. "
-                    "Run /process --history to inspect.",
-                    style="yellow",
+            session_counts: dict[str, int] = {}
+            if session_manager is not None:
+                for process in running:
+                    process_references: set[str] = set()
+                    session_ids = (
+                        process.spec.origin_session_id,
+                        *process.session_ids,
+                    )
+                    for session_id in session_ids:
+                        if session_id is None:
+                            continue
+                        session = session_manager.get_session(session_id)
+                        if session is None:
+                            continue
+                        reference = format_session_reference(session.info)
+                        if reference in process_references:
+                            continue
+                        process_references.add(reference)
+                        session_counts[reference] = session_counts.get(reference, 0) + 1
+            for reference, count in sorted(session_counts.items()):
+                rich_print(
+                    Text(
+                        f"  {count} process{'es' if count != 1 else ''} from session {reference}.",
+                        style="yellow",
+                    )
                 )
-            )
     if agent_provider and not is_human_input:
         await display_all_agents_with_hierarchy(available_agents, agent_provider)
     await show_streaming_status(

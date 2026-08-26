@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from pathlib import Path
@@ -146,3 +147,111 @@ async def test_handle_process_attach_falls_back_to_acp_session_id(tmp_path: Path
 
     assert outcome.messages[0].channel == "system"
     assert store.get(created.spec.process_id).session_ids == ("acp-session-1",)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+async def test_handle_process_terminate_requests_stop_without_attaching(tmp_path: Path) -> None:
+    root = tmp_path / "processes"
+    store = DurableProcessStore(root)
+    created = store.create(command="sleep 30", shell=_SHELL, cwd=tmp_path)
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger(__name__),
+        working_directory=tmp_path,
+        durable_process_root=root,
+    )
+    context = CommandContext(
+        agent_provider=StaticAgentProvider({"main": _Agent(runtime)}),
+        current_agent_name="main",
+        io=_IO(),
+        session_manager=SessionManager(
+            cwd=tmp_path,
+            home_override=tmp_path / "home",
+        ),
+    )
+
+    try:
+        outcome = await handle_processes(
+            context,
+            agent_name="main",
+            terminate_process_id=created.spec.process_id,
+        )
+        attached = await runtime.process_snapshots()
+    finally:
+        await runtime.close()
+
+    assert outcome.messages[0].channel == "system"
+    assert "Termination requested" in outcome.messages[0].plain_text()
+    assert store.request_stop(created.spec.process_id) is False
+    assert attached == ()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+async def test_handle_process_terminate_refuses_unavailable_record(tmp_path: Path) -> None:
+    root = tmp_path / "processes"
+    store = DurableProcessStore(root)
+    created = store.create(command="sleep 30", shell=_SHELL, cwd=tmp_path)
+    status_path = store.directory(created.spec.process_id) / "status.json"
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    status.update(
+        {
+            "state": "running",
+            "supervisor_pid": 99_999_999,
+            "child_pid": 99_999_998,
+        }
+    )
+    status_path.write_text(json.dumps(status), encoding="utf-8")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger(__name__),
+        working_directory=tmp_path,
+        durable_process_root=root,
+    )
+    context = CommandContext(
+        agent_provider=StaticAgentProvider({"main": _Agent(runtime)}),
+        current_agent_name="main",
+        io=_IO(),
+    )
+
+    try:
+        outcome = await handle_processes(
+            context,
+            agent_name="main",
+            terminate_process_id=created.spec.process_id,
+        )
+    finally:
+        await runtime.close()
+
+    assert outcome.messages[0].channel == "error"
+    assert "no stop request was sent" in outcome.messages[0].plain_text()
+    assert not (store.directory(created.spec.process_id) / "control").exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+async def test_handle_process_terminate_rejects_invalid_process_id(tmp_path: Path) -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger(__name__),
+        working_directory=tmp_path,
+        durable_process_root=tmp_path / "processes",
+    )
+    context = CommandContext(
+        agent_provider=StaticAgentProvider({"main": _Agent(runtime)}),
+        current_agent_name="main",
+        io=_IO(),
+    )
+
+    try:
+        outcome = await handle_processes(
+            context,
+            agent_name="main",
+            terminate_process_id="process-1",
+        )
+    finally:
+        await runtime.close()
+
+    assert outcome.messages[0].channel == "error"
+    assert "was not found" in outcome.messages[0].plain_text()

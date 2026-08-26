@@ -244,6 +244,13 @@ class ModelDatabase:
     ]
     QWEN_MULTIMODAL: ClassVar[list[str]] = ["text/plain", "image/jpeg", "image/png", "image/webp"]
     QWEN38_MULTIMODAL: ClassVar[list[str]] = [*QWEN_MULTIMODAL, "video/mp4"]
+    ZAI_GLM_53_FLASH_MULTIMODAL: ClassVar[list[str]] = [
+        "text/plain",
+        "image/jpeg",
+        "image/png",
+        "application/pdf",
+        "video/quicktime",
+    ]
     XAI_VISION: ClassVar[list[str]] = ["text/plain", "image/jpeg", "image/png"]
     TEXT_ONLY: ClassVar[list[str]] = ["text/plain"]
     # encourage commentary
@@ -319,6 +326,12 @@ class ModelDatabase:
         kind="effort",
         allowed_efforts=["none", "minimal", "low", "medium", "high", "xhigh", "max"],
         allow_toggle_disable=True,
+        default=ReasoningEffortSetting(kind="effort", value="max"),
+    )
+
+    GLM_53_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "high", "max"],
         default=ReasoningEffortSetting(kind="effort", value="max"),
     )
 
@@ -1019,6 +1032,29 @@ class ModelDatabase:
         default_provider=Provider.HUGGINGFACE,
     )
 
+    GLM_5_3 = ModelParameters(
+        context_window=1_000_000,
+        max_output_tokens=131072,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=GLM_53_REASONING_EFFORT_SPEC,
+        stream_mode="manual",
+        default_provider=Provider.ZAI,
+    )
+
+    GLM_5_3_FLASH = ModelParameters(
+        context_window=1_000_000,
+        max_output_tokens=131072,
+        tokenizes=ZAI_GLM_53_FLASH_MULTIMODAL,
+        json_mode="object",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=GLM_53_REASONING_EFFORT_SPEC,
+        stream_mode="manual",
+        default_provider=Provider.ZAI,
+        fast=True,
+    )
+
     MINIMAX_21 = ModelParameters(
         context_window=202752,
         max_output_tokens=131072,
@@ -1286,6 +1322,8 @@ class ModelDatabase:
         "deepseek-ai/deepseek-v4-flash-0731": _with_fast(DEEPSEEK_V4_FLASH_HF),
         # Z.ai models
         "glm-5.2": GLM_5_2.model_copy(update={"default_provider": Provider.ZAI}),
+        "glm-5.3": GLM_5_3,
+        "glm-5.3-flash": GLM_5_3_FLASH,
         # Google Gemini Models (vanilla aliases and versioned)
         "gemini-2.0-flash": _with_fast(GEMINI_2_FLASH),
         "gemini-2.5-pro": GEMINI_25_STANDARD,
