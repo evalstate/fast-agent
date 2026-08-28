@@ -346,7 +346,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
                 self._default_request_params.model = None
             return
 
-        from fast_agent.llm.model_factory import ModelFactory
+        from fast_agent.llm.model_factory import ModelFactory, with_run_model_endpoint
 
         model_with_aliases = resolve_model_reference(
             model,
@@ -365,6 +365,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             request_params.model = wire_model
 
         llm_factory = ModelFactory.create_factory(model_with_aliases)
+        if self._llm is not None and self._llm.run_model_base_url is not None:
+            llm_factory = with_run_model_endpoint(
+                llm_factory,
+                agent_name=self.name,
+                base_url=self._llm.run_model_base_url,
+            )
 
         await self.attach_llm(
             llm_factory,

@@ -10,7 +10,7 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.llm_decorator import RemovedContentSummary
 from fast_agent.constants import ANTHROPIC_CITATIONS_CHANNEL, ANTHROPIC_SERVER_TOOLS_CHANNEL
-from fast_agent.llm.provider.openai.responses import ResponsesLLM
+from fast_agent.llm.provider.openai.responses import ResponsesLLM, ResponsesWsTurnOutcome
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import (
     CompletionTokenUsage,
@@ -539,6 +539,80 @@ async def test_show_assistant_message_appends_websocket_indicator_to_model() -> 
     assert len(capture_display.calls) == 1
     call = capture_display.calls[0]
     assert call.get("model") == "gpt-5.3-codex ↔"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("first_outcome", "final_outcome", "expected_models"),
+    [
+        ("reused", "reused", ["gpt-5.3-codex ↔", "gpt-5.3-codex ↔"]),
+        ("reused", "reconnected", ["gpt-5.3-codex ↔", "gpt-5.3-codex ↔ ↗"]),
+        ("fresh", "reconnected", ["gpt-5.3-codex ↗", "gpt-5.3-codex ↗"]),
+    ],
+)
+async def test_show_assistant_message_aggregates_websocket_indicators_for_tool_turn(
+    first_outcome: ResponsesWsTurnOutcome,
+    final_outcome: ResponsesWsTurnOutcome,
+    expected_models: list[str],
+) -> None:
+    agent = LlmAgent(AgentConfig("websocket-indicator-turn"))
+    capture_display = _CaptureDisplay()
+    agent.display = capture_display
+    llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
+    agent._llm = llm
+
+    tool_call = CallToolRequest(
+        method="tools/call",
+        params=CallToolRequestParams(name="demo-tool", arguments={}),
+    )
+    tool_message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="need tool")],
+        tool_calls={"call_1": tool_call},
+        stop_reason=LlmStopReason.TOOL_USE,
+    )
+    end_message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="done")],
+        stop_reason=LlmStopReason.END_TURN,
+    )
+
+    with agent._turn_indicator_scope():
+        llm._record_ws_turn_outcome(first_outcome)
+        await agent.show_assistant_message(tool_message)
+        llm._record_ws_turn_outcome(final_outcome)
+        await agent.show_assistant_message(end_message)
+
+    assert [call.get("model") for call in capture_display.calls] == expected_models
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_websocket_indicator_aggregate_resets_for_next_turn() -> None:
+    agent = LlmAgent(AgentConfig("websocket-indicator-reset"))
+    capture_display = _CaptureDisplay()
+    agent.display = capture_display
+    llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
+    agent._llm = llm
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="done")],
+        stop_reason=LlmStopReason.END_TURN,
+    )
+
+    with agent._turn_indicator_scope():
+        llm._record_ws_turn_outcome("reused")
+        await agent.show_assistant_message(message)
+
+    with agent._turn_indicator_scope():
+        llm._record_ws_turn_outcome("fresh")
+        await agent.show_assistant_message(message)
+
+    assert [call.get("model") for call in capture_display.calls] == [
+        "gpt-5.3-codex ↔",
+        "gpt-5.3-codex ↗",
+    ]
 
 
 @pytest.mark.unit

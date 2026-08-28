@@ -87,12 +87,9 @@ def _format_execution_environment(
     cwd: str | None,
 ) -> str:
     parts: list[str] = []
-    if name:
-        parts.append(name)
-    if kind:
-        parts.append(kind)
-    if provider and provider != kind:
-        parts.append(provider)
+    for label in (name, kind, provider):
+        if label and label not in parts:
+            parts.append(label)
 
     text = " ".join(parts) if parts else "unknown"
     details: list[str] = []

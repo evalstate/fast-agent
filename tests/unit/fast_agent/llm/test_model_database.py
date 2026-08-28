@@ -224,6 +224,26 @@ def test_gemini35_flash_specs_match_api_guide() -> None:
     assert params.reasoning_effort_spec.default.value == "medium"
 
 
+def test_gemini37_flash_specs_match_api_guide() -> None:
+    params = ModelDatabase.get_model_params("gemini-3.7-flash")
+
+    assert params is not None
+    assert params.context_window == 1_048_576
+    assert params.max_output_tokens == 65_536
+    assert params.fast is True
+    assert params.structured_tool_policy is None
+    assert params.google_search_supported is True
+    assert params.reasoning == "google_thinking"
+    assert params.reasoning_effort_spec is not None
+    assert params.reasoning_effort_spec.allowed_efforts == ["low", "medium", "high"]
+    assert params.reasoning_effort_spec.default == ReasoningEffortSetting(
+        kind="effort",
+        value="medium",
+    )
+    assert params.google_service_tiers == ("flex",)
+    assert ModelDatabase.supports_google_service_tier("gemini-3.7-flash", "flex")
+
+
 def test_gemini31_pro_allows_tools_with_structured_output() -> None:
     params = ModelDatabase.get_model_params("gemini-3.1-pro-preview")
 
@@ -275,6 +295,41 @@ def test_huggingface_qwen36_structured_output_uses_prompt_only() -> None:
     prepared_text = prepared_messages[-1].last_text()
     assert prepared_text is not None
     assert "YOU MUST RESPOND WITH A JSON OBJECT" in prepared_text
+
+
+def test_qwen38_defers_json_object_until_after_tool_use() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
+    tool = Tool(
+        name="lookup",
+        description="Lookup data.",
+        input_schema={"type": "object", "properties": {}},
+    )
+    llm = _make_hf_llm("Qwen/Qwen3.8-27B")
+    messages = [Prompt.user("look up and return json")]
+    request_params = RequestParams(structured_schema=schema)
+
+    prepared_messages, prepared_params = llm._prepare_structured_request(
+        messages,
+        request_params,
+        [tool],
+    )
+
+    assert llm._should_defer_structured_schema_for_tools(
+        messages,
+        request_params,
+        [tool],
+    )
+    assert prepared_params.structured_schema is None
+    assert prepared_params.response_format is None
+    assert not llm._should_suppress_tools_for_structured_final(
+        prepared_messages,
+        prepared_params,
+        [tool],
+    )
 
 
 def test_huggingface_kimi25_uses_schema_mode() -> None:
@@ -474,6 +529,14 @@ def test_deepseek_v4_flash_uses_learned_shell_contract() -> None:
         assert "heredoc" not in params.model_specific.casefold()
 
 
+def test_gemini_37_flash_uses_validated_shell_contract() -> None:
+    params = ModelDatabase.get_model_params("gemini-3.7-flash")
+
+    assert params is not None
+    assert params.shell_tool_profile == "minimal_process"
+    assert params.shell_edit_tool == "write_text_file"
+
+
 def test_model_database_xai_grok_aliases_and_responses_transport():
     assert ModelDatabase.get_default_provider("grok") == Provider.XAI
     assert ModelDatabase.get_default_provider("grok-4.3") == Provider.XAI
@@ -524,6 +587,23 @@ def test_model_database_metaai_muse_spark_metadata():
         assert ModelDatabase.supports_mime(model, "image/png")
         assert ModelDatabase.supports_mime(model, "application/pdf")
         assert ModelDatabase.supports_mime(model, "video/mp4")
+
+
+def test_model_database_muse_glimmer_huggingface_metadata() -> None:
+    model = "meta-models/Muse-Glimmer-30B:together"
+    params = ModelDatabase.get_model_params(model, provider=Provider.HUGGINGFACE)
+
+    assert params is not None
+    assert params.default_provider == Provider.HUGGINGFACE
+    assert params.context_window == 131_072
+    assert params.max_output_tokens == 16_384
+    assert params.json_mode is None
+    assert params.reasoning == "stream"
+    assert params.stream_mode == "manual"
+    assert params.reasoning_effort_spec == ModelDatabase.MUSE_GLIMMER_REASONING_EFFORT_SPEC
+    assert ModelDatabase.supports_mime(model, "image/png")
+    assert not ModelDatabase.supports_mime(model, "application/pdf")
+    assert not ModelDatabase.supports_mime(model, "video/mp4")
 
 
 def test_model_database_google_video_audio_mime_types():

@@ -18,12 +18,13 @@ def _build_llm(config: Settings | None = None, **kwargs) -> GoogleNativeLLM:
 
 @pytest.mark.unit
 def test_google_search_supported_models() -> None:
-    """Grounding with Google Search should be supported on Gemini 2.5 and Gemini 3/3.5 models."""
+    """Grounding with Google Search should be supported on current Gemini models."""
     for model in (
         "gemini-2.5-flash",
         "gemini-2.5-pro",
         "gemini-3-pro-preview",
         "gemini-3.5-flash",
+        "gemini-3.7-flash",
         "gemini-2.0-flash",
     ):
         llm = _build_llm(model=model)

@@ -333,8 +333,10 @@ class TestRequestParamsInLLM:
         assert result["model"] == "claude-3-7-sonnet"  # From base_args
         assert result["max_tokens"] == 1000  # From base_args
         assert result["system"] == "You are a helpful assistant"  # From base_args
-        assert result["temperature"] == 0.7  # From params
-        assert result["top_k"] == 10  # From metadata
+        assert result["extra_body"] == {
+            "temperature": 0.7,  # From params
+            "top_k": 10,  # From metadata
+        }
         assert "maxTokens" not in result  # Should be excluded
         assert "systemPrompt" not in result  # Should be excluded
         assert "use_history" not in result  # Should be excluded

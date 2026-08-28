@@ -758,6 +758,42 @@ def test_codex_responses_display_model_uses_infinity_marker() -> None:
     llm = CodexResponsesLLM(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex")
 
     assert llm._display_model("gpt-5.3-codex") == "∞gpt-5.3-codex"
+    assert llm.default_request_params.max_tokens is None
+
+
+def test_codex_responses_rejects_explicit_default_max_tokens() -> None:
+    with pytest.raises(ModelConfigError, match="does not support max_tokens"):
+        CodexResponsesLLM(
+            provider=Provider.CODEX_RESPONSES,
+            model="gpt-5.3-codex",
+            request_params=RequestParams(max_tokens=32_768),
+        )
+
+
+def test_codex_responses_rejects_per_request_max_tokens() -> None:
+    llm = CodexResponsesLLM(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex")
+
+    with pytest.raises(ModelConfigError, match="does not support max_tokens"):
+        llm._build_response_args(
+            [],
+            RequestParams(model="gpt-5.3-codex", max_tokens=32_768),
+            [],
+        )
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["max_tokens", "maxTokens", "max_output_tokens", "maxOutputTokens"],
+)
+def test_codex_responses_rejects_per_request_metadata_max_tokens(key: str) -> None:
+    llm = CodexResponsesLLM(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex")
+
+    with pytest.raises(ModelConfigError, match="request metadata"):
+        llm._build_response_args(
+            [],
+            RequestParams(model="gpt-5.3-codex", metadata={key: 32_768}),
+            [],
+        )
 
 
 class _FakeResponsesStream:
@@ -2183,7 +2219,7 @@ def test_request_service_tier_overrides_configured_default() -> None:
     assert args["service_tier"] == "flex"
 
 
-def test_request_service_tier_override_is_recorded_in_turn_usage() -> None:
+def test_requested_and_effective_service_tiers_are_recorded_in_turn_usage() -> None:
     llm = _build_responses_family_llm(
         Provider.RESPONSES,
         model_name="gpt-5.4",
@@ -2204,9 +2240,12 @@ def test_request_service_tier_override_is_recorded_in_turn_usage() -> None:
         usage,
         context.model_name,
         requested_service_tier=context.requested_service_tier,
+        service_tier="default",
     )
 
-    assert llm.usage_accumulator.turns[-1].requested_service_tier == "flex"
+    turn = llm.usage_accumulator.turns[-1]
+    assert turn.requested_service_tier == "flex"
+    assert turn.service_tier == "default"
 
 
 def test_codexresponses_request_service_tier_rejects_flex() -> None:

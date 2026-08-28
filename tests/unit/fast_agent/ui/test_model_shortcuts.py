@@ -119,6 +119,19 @@ def test_build_model_shortcut_hints_codexresponses_omit_flex() -> None:
     ]
 
 
+def test_build_model_shortcut_hints_google_flex_only() -> None:
+    class _GoogleShortcutStub(_ShortcutStub):
+        available_service_tiers = ("flex",)
+
+    hints = build_model_shortcut_hints(cast("FastAgentLLMProtocol", _GoogleShortcutStub()))
+
+    assert hints[0] == ModelShortcutHint(
+        "Shift+Tab",
+        "Service tier",
+        "standard, flex",
+    )
+
+
 def test_build_model_shortcut_hints_include_adaptive_for_auto_reasoning() -> None:
     class _AutoReasoningShortcutStub(_ShortcutStub):
         reasoning_effort_spec = ReasoningEffortSpec(

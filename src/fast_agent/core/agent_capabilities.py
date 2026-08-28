@@ -48,13 +48,41 @@ def cycle_agent_capability_mode(agent: object) -> AgentCapabilityMode:
 
     mode = resolve_agent_capability_mode(agent)
     if mode is AgentCapabilityMode.STANDARD:
-        _enable_subagents(agent)
+        next_mode = AgentCapabilityMode.DELEGATE
     elif mode is AgentCapabilityMode.DELEGATE:
-        set_harness_tools(agent, True)
+        next_mode = AgentCapabilityMode.ORCHESTRATE
     elif mode is AgentCapabilityMode.ORCHESTRATE:
-        set_subagent_tool_enabled(agent, False)
+        next_mode = AgentCapabilityMode.HARNESS_ONLY
     else:
-        set_harness_tools(agent, False)
+        next_mode = AgentCapabilityMode.STANDARD
+    return set_agent_capability_mode(agent, next_mode)
+
+
+def set_agent_capability_mode(
+    agent: object,
+    mode: AgentCapabilityMode,
+) -> AgentCapabilityMode:
+    """Set the built-in tool combination represented by ``mode``."""
+    if not agent_capability_mode_supported(agent):
+        return resolve_agent_capability_mode(agent)
+
+    subagents_enabled = mode in {
+        AgentCapabilityMode.DELEGATE,
+        AgentCapabilityMode.ORCHESTRATE,
+    }
+    if subagents_enabled:
+        _enable_subagents(agent)
+    else:
+        set_subagent_tool_enabled(agent, False)
+
+    set_harness_tools(
+        agent,
+        mode
+        in {
+            AgentCapabilityMode.ORCHESTRATE,
+            AgentCapabilityMode.HARNESS_ONLY,
+        },
+    )
     return resolve_agent_capability_mode(agent)
 
 

@@ -16,7 +16,13 @@ if TYPE_CHECKING:
     from fast_agent.commands.session_summaries import SessionListSummary
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.llm.usage_tracking import UsageAccumulator
-    from fast_agent.session import ResumeSessionAgentsResult, Session, SessionInfo, SessionManager
+    from fast_agent.session import (
+        ResumeSessionAgentsResult,
+        Session,
+        SessionDeleteResult,
+        SessionInfo,
+        SessionManager,
+    )
     from fast_agent.session.identity import SessionStoreScope
     from fast_agent.types import PromptMessageExtended
 
@@ -168,6 +174,8 @@ class SessionCommandRuntime(Protocol):
     def list_sessions(self) -> list["SessionInfo"]: ...
 
     def delete_session(self, session_id: str) -> bool: ...
+
+    def delete_session_result(self, session_id: str) -> "SessionDeleteResult": ...
 
     def resolve_session_name(self, name: str | None) -> str | None: ...
 

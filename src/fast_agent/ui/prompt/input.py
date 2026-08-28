@@ -671,6 +671,7 @@ async def _show_shell_startup(
     shell_context: ShellInputContext,
     shell_agent: object | None,
     is_human_input: bool,
+    session_manager: "SessionManager | None" = None,
 ) -> None:
     _sync_startup_output()
     await input_startup.show_shell_startup(
@@ -678,6 +679,7 @@ async def _show_shell_startup(
         agent_provider=agent_provider,
         shell_context=shell_context,
         shell_agent=shell_agent,
+        session_manager=session_manager,
         is_human_input=is_human_input,
         available_agents=available_agents,
         display_all_agents_with_hierarchy=_display_all_agents_with_hierarchy,
@@ -707,6 +709,7 @@ async def _show_input_startup(
     shell_agent: object | None,
     agent_provider: "AgentApp | None",
     supports_clipboard_image_paste: bool,
+    session_manager: "SessionManager | None" = None,
 ) -> None:
     global help_message_shown
     _show_stop_hint_message(default=default, show_stop_hint=show_stop_hint)
@@ -728,6 +731,7 @@ async def _show_input_startup(
         shell_context=shell_context,
         shell_agent=shell_agent,
         is_human_input=is_human_input,
+        session_manager=session_manager,
     )
     if agent_provider and _startup_notices:
         _render_startup_notices(agent_name=agent_name, agent_provider=agent_provider)
@@ -864,6 +868,7 @@ async def get_enhanced_input(
         shell_agent=shell_input.agent,
         agent_provider=agent_provider,
         supports_clipboard_image_paste=supports_clipboard_image_paste,
+        session_manager=session_manager,
     )
     _show_a2a_prompt_status(agent_name=agent_name, agent_provider=agent_provider)
     buffer_default = pre_populate_buffer if pre_populate_buffer else default

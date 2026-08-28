@@ -22,6 +22,7 @@ from fast_agent.llm.model_factory import ModelFactory, ParsedModelSpec, Provider
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.anthropic.llm_anthropic_vertex import AnthropicVertexLLM
+from fast_agent.llm.provider.google.llm_google_native import GoogleNativeLLM
 from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
@@ -255,6 +256,12 @@ def test_model_query_max_tokens_aliases_preserve_url_order() -> None:
     assert config.max_tokens == 48_000
 
 
+@pytest.mark.parametrize("key", ["max_tokens", "maxTokens"])
+def test_codexresponses_rejects_max_tokens_query(key: str) -> None:
+    with pytest.raises(ModelConfigError, match="does not support max_tokens"):
+        ModelFactory.parse_model_string(f"codexresponses.gpt-5.6-sol?{key}=32768")
+
+
 @pytest.mark.parametrize("value", ["", "0", "-1", "1.5", "many"])
 def test_invalid_max_tokens_query(value: str) -> None:
     with pytest.raises(ModelConfigError, match="Invalid max_tokens query value"):
@@ -394,6 +401,18 @@ def test_direct_kimi_model_routes_to_huggingface() -> None:
     assert config.model_name == "moonshotai/kimi-k2"
 
 
+def test_qwen38_catalog_entry_resolves_to_huggingface_wire_contract() -> None:
+    resolved = ModelFactory.resolve_model_spec("qwen/qwen3.8-27b:featherless-ai")
+    info = resolved.build_model_info()
+
+    assert resolved.provider is Provider.HUGGINGFACE
+    assert resolved.wire_model_name == "Qwen/Qwen3.8-27B:featherless-ai"
+    assert info is not None
+    assert info.context_window == 262_144
+    assert info.max_output_tokens == 131_072
+    assert "video/mp4" in info.tokenizes
+
+
 def test_kimi26_alias_sets_thinking_sampling_defaults() -> None:
     config = ModelFactory.parse_model_string("kimi26")
 
@@ -483,6 +502,24 @@ def test_model_query_service_tier_normalizes_case_and_spacing():
 def test_invalid_service_tier_query():
     with pytest.raises(ModelConfigError, match="service_tier query value: 'turbo'"):
         ModelFactory.parse_model_string("responses.gpt-5-mini?service_tier=%20TURBO%20")
+
+
+def test_google_gemini37_flex_service_tier_query() -> None:
+    config = ModelFactory.parse_model_string("google.gemini-3.7-flash?service_tier=flex")
+
+    assert config.provider == Provider.GOOGLE
+    assert config.model_name == "gemini-3.7-flash"
+    assert config.service_tier == "flex"
+
+
+def test_google_rejects_fast_service_tier_query() -> None:
+    with pytest.raises(ModelConfigError, match="supports only service_tier=flex"):
+        ModelFactory.parse_model_string("google.gemini-3.7-flash?service_tier=fast")
+
+
+def test_google_rejects_flex_for_unsupported_model() -> None:
+    with pytest.raises(ModelConfigError, match="does not support service_tier=flex"):
+        ModelFactory.parse_model_string("google.gemini-3.5-flash?service_tier=flex")
 
 
 def test_model_query_streaming_timeout() -> None:
@@ -697,6 +734,15 @@ def test_factory_passes_service_tier_query_to_request_params() -> None:
     assert llm.default_request_params.service_tier == "fast"
 
 
+def test_factory_passes_google_flex_service_tier_to_native_llm() -> None:
+    factory = ModelFactory.create_factory("gemini37?service_tier=flex")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+
+    assert isinstance(llm, GoogleNativeLLM)
+    assert llm.default_request_params.service_tier == "flex"
+    assert llm.get_request_params().streaming_timeout == 900
+
+
 def test_factory_service_tier_query_does_not_override_explicit_request_params() -> None:
     factory = ModelFactory.create_factory("responses.gpt-5?service_tier=fast")
     llm = factory(
@@ -795,6 +841,32 @@ def test_factory_codexresponses_explicit_flex_request_params_rejected() -> None:
         factory(
             LlmAgent(AgentConfig(name="Test Agent")),
             request_params=RequestParams(service_tier="flex"),
+        )
+
+
+def test_codexresponses_route_omits_max_output_capability_and_default() -> None:
+    codex_resolved = ModelFactory.resolve_model_spec("codexresponses.gpt-5.6-sol")
+    responses_resolved = ModelFactory.resolve_model_spec("responses.gpt-5.6-sol")
+
+    assert codex_resolved.max_output_tokens is None
+    assert responses_resolved.max_output_tokens == 128_000
+
+    llm = ModelFactory.create_factory("codexresponses.gpt-5.6-sol")(
+        LlmAgent(AgentConfig(name="Test Agent"))
+    )
+
+    assert llm.default_request_params.max_tokens is None
+    assert llm.model_info is not None
+    assert llm.model_info.max_output_tokens is None
+
+
+def test_factory_codexresponses_explicit_max_tokens_rejected() -> None:
+    factory = ModelFactory.create_factory("codexresponses.gpt-5.6-sol")
+
+    with pytest.raises(ModelConfigError, match="does not support max_tokens"):
+        factory(
+            LlmAgent(AgentConfig(name="Test Agent")),
+            request_params=RequestParams(max_tokens=32_768),
         )
 
 
@@ -902,6 +974,16 @@ def test_huggingface_alias_without_provider():
     assert config.model_name == "moonshotai/Kimi-K2-Instruct-0905"
 
 
+def test_glimmer_alias_uses_together_with_recommended_sampling() -> None:
+    config = ModelFactory.parse_model_string("glimmer")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "meta-models/Muse-Glimmer-30B:together"
+    assert config.temperature == 1.0
+    assert config.top_p == 0.95
+    assert config.top_k == 64
+
+
 def test_builtin_glm_alias_uses_glm_52_default() -> None:
     config = ModelFactory.parse_model_string("glm")
     assert config.provider == Provider.HUGGINGFACE
@@ -999,6 +1081,14 @@ def test_gemini35_flash_aliases_resolve_to_current_google_flash(alias: str):
     config = ModelFactory.parse_model_string(alias)
     assert config.provider == Provider.GOOGLE
     assert config.model_name == "gemini-3.5-flash"
+
+
+@pytest.mark.parametrize("alias", ["gemini", "gemini37", "gemini37flash", "gemini3.7flash"])
+def test_gemini37_flash_aliases_resolve_to_current_google_flash(alias: str) -> None:
+    config = ModelFactory.parse_model_string(alias)
+
+    assert config.provider == Provider.GOOGLE
+    assert config.model_name == "gemini-3.7-flash"
 
 
 def test_deepseek_alias_resolves_to_deepseek_responses_model():

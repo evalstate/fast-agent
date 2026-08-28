@@ -1058,6 +1058,7 @@ async def test_finalization_timeout_still_releases_clone_and_merges_usage(tmp_pa
     assert parent.usage_accumulator is not None
     assert parent.usage_accumulator.summary.prompt.total == 3
     assert parent.subagent_usage_accumulator.summary.completion.total == 2
+    assert not manager.owns_session(persisted_child.info.name)
     await parent.shutdown()
 
 

@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from fast_agent.config import Settings
+    from fast_agent.tools.durable_processes import DurableProcessSnapshot, DurableProcessStore
 
 _STREAM_READ_CHUNK_SIZE = 4096
 _MAX_PENDING_STREAM_BYTES = 65536
@@ -217,6 +218,47 @@ class LocalShellExecutor:
             )
         )
         return execution.result
+
+    def start_durable_process(
+        self,
+        store: DurableProcessStore,
+        *,
+        command: str,
+        cwd: Path,
+        origin_session_id: str | None,
+        agent_name: str | None,
+        output_byte_limit: int,
+        output_retention_byte_limit: int,
+        max_active_processes: int,
+    ) -> DurableProcessSnapshot:
+        """Launch one persistent local command through its detached supervisor."""
+
+        working_directory = self.resolve_working_directory(cwd)
+        if error := self.validate_working_directory(working_directory):
+            raise ValueError(error)
+        shell_path = self.runtime_info().path
+        if shell_path is None:
+            raise RuntimeError("Durable local processes require a detected shell executable.")
+        child_env = build_child_environment(
+            active_home=self._config._fast_agent_home if self._config is not None else None,
+            no_home=self._config._fast_agent_no_home if self._config is not None else False,
+        )
+        child_env.update(self._default_env)
+        created = store.create(
+            command=command,
+            shell=Path(shell_path),
+            cwd=working_directory,
+            origin_session_id=origin_session_id,
+            agent_name=agent_name,
+            output_byte_limit=output_byte_limit,
+            output_retention_byte_limit=output_retention_byte_limit,
+            max_active_processes=max_active_processes,
+        )
+        store.launch(created.spec.process_id, environment=child_env)
+        try:
+            return store.wait_for_launch(created.spec.process_id, timeout_seconds=2)
+        except TimeoutError:
+            return store.get(created.spec.process_id)
 
     async def execute(
         self,

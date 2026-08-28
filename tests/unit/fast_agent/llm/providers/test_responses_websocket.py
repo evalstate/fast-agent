@@ -9,6 +9,10 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from aiohttp import WSMsgType
 from mcp_types import CallToolResult, TextContent
+from openai.types.beta.beta_responses_server_event import (
+    BetaResponseWsError,
+    BetaResponseWsErrorError,
+)
 from websockets.exceptions import ConnectionClosedError
 from websockets.frames import Close
 
@@ -32,6 +36,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     WebSocketResponsesStream,
     _AttrObjectView,
     _SdkWebSocket,
+    _websocket_handshake_error_detail,
     build_ws_headers,
     connect_websocket,
     resolve_responses_ws_url,
@@ -105,6 +110,44 @@ class _HangingWebSocket(_FakeWebSocket):
         del timeout
         await asyncio.Event().wait()
         raise AssertionError("unreachable")
+
+
+def test_websocket_handshake_error_detail_is_bounded() -> None:
+    detail = _websocket_handshake_error_detail(
+        json.dumps({"message": "Access denied\n" + "x" * 1200}).encode()
+    )
+
+    assert detail.startswith("Access denied ")
+    assert detail.endswith("…")
+    assert len(detail) == 1000
+
+
+def test_websocket_handshake_error_detail_does_not_render_unrecognized_json() -> None:
+    detail = _websocket_handshake_error_detail(
+        b'{"access_token":"secret-access","refresh_token":"secret-refresh"}'
+    )
+
+    assert detail == ""
+
+
+def test_websocket_handshake_error_detail_does_not_render_malformed_json() -> None:
+    detail = _websocket_handshake_error_detail(b'{"access_token":"secret-access",')
+
+    assert detail == ""
+
+
+def test_websocket_handshake_error_detail_handles_pathologically_nested_json() -> None:
+    detail = _websocket_handshake_error_detail(b"[" * 2000 + b"0" + b"]" * 2000)
+
+    assert detail == ""
+
+
+def test_websocket_handshake_error_detail_ignores_whitespace_only_fields() -> None:
+    detail = _websocket_handshake_error_detail(
+        json.dumps({"error": " \n\t", "message": "Denied"}).encode()
+    )
+
+    assert detail == "Denied"
 
 
 @pytest.mark.asyncio
@@ -957,21 +1000,26 @@ async def test_websocket_stream_close_reports_received_and_sent_frames() -> None
 
 @pytest.mark.asyncio
 async def test_websocket_stream_error_payload_exposes_error_details() -> None:
+    error_event = BetaResponseWsError(
+        type="error",
+        status=400,
+        stream_id="stream_abc",
+        error=BetaResponseWsErrorError(
+            type="invalid_request_error",
+            code=" previous_response_not_found ",
+            message=" Previous response with id 'resp_abc' not found. ",
+            param=" previous_response_id ",
+            headers={
+                "request-id": "req_abc",
+                "x-ratelimit-remaining-requests": "99",
+            },
+        ),
+    )
     websocket = _FakeWebSocket(
         [
             SimpleNamespace(
                 type=WSMsgType.TEXT,
-                data=json.dumps(
-                    {
-                        "type": "error",
-                        "status": 400,
-                        "error": {
-                            "code": " previous_response_not_found ",
-                            "message": " Previous response with id 'resp_abc' not found. ",
-                            "param": " previous_response_id ",
-                        },
-                    }
-                ),
+                data=error_event.model_dump_json(),
             )
         ]
     )
@@ -984,6 +1032,11 @@ async def test_websocket_stream_error_payload_exposes_error_details() -> None:
     assert excinfo.value.error_code == "previous_response_not_found"
     assert excinfo.value.status == 400
     assert excinfo.value.error_param == "previous_response_id"
+    assert excinfo.value.headers == {
+        "request-id": "req_abc",
+        "x-ratelimit-remaining-requests": "99",
+    }
+    assert excinfo.value.stream_id == "stream_abc"
 
 
 @pytest.mark.asyncio

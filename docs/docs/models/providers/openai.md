@@ -39,6 +39,7 @@ Encrypted reasoning blocks are used to maintain model intelligence between tool 
 | OpenAI hosted connectors | Yes | No | No |
 | WebSocket transport | Yes, with SSE fallback | Yes, with SSE fallback where supported | No |
 | `service_tier` | `fast` / `flex` where the model supports it | `fast` only; no `flex` | No |
+| Configurable output limit | `max_tokens` | No | `max_tokens` |
 
 ## Model availability
 
@@ -86,6 +87,7 @@ The `codexresponses` provider is similar to `responses`, with these main differe
 
 - The `flex` service tier is **not supported**.
 - Remote MCP and Connectors are **not supported**.
+- Output token limits are **not supported**; explicit `max_tokens` settings are rejected.
 - The supported model list includes `gpt-5.3-codex-spark`.
 - Billing is via the Codex subscription.
 

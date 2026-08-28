@@ -11,7 +11,12 @@ from fast_agent.commands.handlers._text_formatting import indexed_row, resolve_t
 from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.mcp.types import McpAgentProtocol
-from fast_agent.session import display_session_name, format_session_agent_label
+from fast_agent.session import (
+    SessionBusyError,
+    SessionCheckpointBusyError,
+    display_session_name,
+    format_session_agent_label,
+)
 from fast_agent.session.preview import find_last_assistant_preview_text
 from fast_agent.ui.shell_notice import format_shell_notice
 from fast_agent.utils.action_normalization import normalize_action_token
@@ -323,14 +328,24 @@ async def handle_clear_sessions(
             outcome.add_message("No sessions found.", channel="warning", right_info="session")
             return outcome
         deleted = 0
+        busy = 0
         for session_info in all_sessions:
-            if runtime.delete_session(session_info.name):
+            result = runtime.delete_session_result(session_info.name)
+            if result.deleted:
                 deleted += 1
+            elif result.status == "busy":
+                busy += 1
         outcome.add_message(
             f"Deleted {format_count(deleted, 'session')}.",
             channel="info",
             right_info="session",
         )
+        if busy:
+            outcome.add_message(
+                f"Skipped {format_count(busy, 'active session')}. Close it before deleting.",
+                channel="warning",
+                right_info="session",
+            )
         return outcome
 
     sessions = apply_session_window(runtime.list_sessions())
@@ -342,8 +357,17 @@ async def handle_clear_sessions(
             return outcome
         target_name = sessions[ordinal - 1].name
 
-    if runtime.delete_session(target_name):
+    delete_result = runtime.delete_session_result(target_name)
+    if delete_result.deleted:
         outcome.add_message(f"Deleted session: {target_name}", channel="info")
+    elif delete_result.status == "busy":
+        owner = delete_result.owner
+        detail = f" ({owner.describe()})" if owner is not None else ""
+        outcome.add_message(
+            f"Session is active and was not deleted: {target_name}{detail}",
+            channel="warning",
+            right_info="session",
+        )
     else:
         outcome.add_message(f"Session not found: {target}", channel="error")
     return outcome
@@ -353,18 +377,21 @@ def _add_resume_result_messages(
     outcome: CommandOutcome,
     result: ResumeSessionAgentsResult,
 ) -> None:
+    from fast_agent.session import format_session_reference
+
     loaded = result.loaded
     session = result.session
+    session_reference = format_session_reference(session.info)
     if loaded:
         loaded_list = ", ".join(sorted(loaded.keys()))
         outcome.add_message(
-            f"Resumed session: {session.info.name} ({loaded_list})",
+            Text(f"Resumed session: {session_reference} ({loaded_list})"),
             channel="info",
             right_info="session",
         )
     else:
         outcome.add_message(
-            f"Resumed session: {session.info.name} (no history yet)",
+            Text(f"Resumed session: {session_reference} (no history yet)"),
             channel="warning",
             right_info="session",
         )
@@ -390,6 +417,53 @@ def _add_resume_result_messages(
             usage_notice,
             channel="warning",
             right_info="session",
+        )
+
+
+def _add_resumed_process_messages(
+    outcome: CommandOutcome,
+    result: ResumeSessionAgentsResult,
+    *,
+    attached_process_ids: tuple[str, ...],
+    unavailable_process_ids: tuple[str, ...],
+    unattached_process_ids: tuple[str, ...],
+) -> None:
+    from fast_agent.session import format_session_reference
+
+    session_reference = format_session_reference(result.session.info)
+    if attached_process_ids:
+        count = len(attached_process_ids)
+        outcome.add_message(
+            Text(
+                f"Reattached {count} durable process{'es' if count != 1 else ''} "
+                f"for resumed session {session_reference}."
+            ),
+            channel="info",
+            right_info="process resume",
+        )
+    if unavailable_process_ids:
+        count = len(unavailable_process_ids)
+        process_ids = ", ".join(unavailable_process_ids)
+        outcome.add_message(
+            Text(
+                f"{count} durable process record{'s are' if count != 1 else ' is'} "
+                f"unavailable for resumed session {session_reference}: {process_ids}. "
+                "Run /process --history to inspect."
+            ),
+            channel="warning",
+            right_info="process resume",
+        )
+    if unattached_process_ids:
+        count = len(unattached_process_ids)
+        process_ids = ", ".join(unattached_process_ids)
+        outcome.add_message(
+            Text(
+                f"Could not reattach {count} active durable process"
+                f"{'es' if count != 1 else ''} because no compatible agent runtime is "
+                f"available: {process_ids}. Run /process to inspect."
+            ),
+            channel="warning",
+            right_info="process resume",
         )
 
 
@@ -498,11 +572,15 @@ async def handle_resume_session(
 
     fallback_agent_name = ctx.agent_provider.resolve_target_agent_name(agent_name)
 
-    result = await runtime.resume_agents(
-        agents_map,
-        session_id,
-        fallback_agent_name=fallback_agent_name,
-    )
+    try:
+        result = await runtime.resume_agents(
+            agents_map,
+            session_id,
+            fallback_agent_name=fallback_agent_name,
+        )
+    except SessionBusyError as exc:
+        outcome.add_message(str(exc), channel="error", right_info="session")
+        return outcome
 
     if not result:
         if session_id:
@@ -512,7 +590,27 @@ async def handle_resume_session(
         return outcome
 
     active_agent_name = result.active_agent or agent_name
+    from fast_agent.session import resume_durable_processes
+
+    process_resume = await resume_durable_processes(
+        agents_map,
+        session_id=result.session.info.name,
+        fallback_agent_name=active_agent_name,
+    )
     _add_resume_result_messages(outcome, result)
+    _add_resumed_process_messages(
+        outcome,
+        result,
+        attached_process_ids=tuple(
+            snapshot.spec.process_id for snapshot in process_resume.attached
+        ),
+        unavailable_process_ids=tuple(
+            snapshot.spec.process_id for snapshot in process_resume.unavailable
+        ),
+        unattached_process_ids=tuple(
+            snapshot.spec.process_id for snapshot in process_resume.unattached
+        ),
+    )
     _add_available_history_summary(outcome, result)
 
     agent_obj = _active_resume_agent(
@@ -572,7 +670,11 @@ async def handle_fork_session(
     assert runtime is not None
 
     title = _strip_wrapping_quotes(title)
-    forked = runtime.fork_current_session(title=title)
+    try:
+        forked = runtime.fork_current_session(title=title)
+    except SessionCheckpointBusyError as exc:
+        outcome.add_message(str(exc), channel="warning", right_info="session")
+        return outcome
     if forked is None:
         outcome.add_message(
             "No session available to fork.", channel="warning", right_info="session"

@@ -1437,6 +1437,33 @@ def _help_command_completions(
     return _subcommand_completions(partial, HELP_TOPIC_DESCRIPTIONS)
 
 
+def _process_command_completions(
+    _completer: "AgentCompleter",
+    text: str,
+    text_lower: str,
+) -> list[Completion] | None:
+    prefix = next(
+        (
+            candidate
+            for candidate in ("/process ", "/processes ")
+            if text_lower.startswith(candidate)
+        ),
+        None,
+    )
+    if prefix is None:
+        return None
+    partial = text[len(prefix) :]
+    return _subcommand_completions(
+        partial,
+        {
+            "--history": "Show retained finished processes",
+            "history": "Show retained finished processes",
+            "attach": "Adopt durable process management and observation",
+            "terminate": "Terminate a managed or discoverable durable process",
+        },
+    )
+
+
 def command_completions(
     completer: "AgentCompleter",
     text: str,
@@ -1448,6 +1475,7 @@ def command_completions(
         ...,
     ] = (
         _help_command_completions,
+        _process_command_completions,
         _tools_command_completions,
         _history_command_completions,
         _compact_command_completions,

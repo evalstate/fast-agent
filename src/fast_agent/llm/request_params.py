@@ -208,7 +208,7 @@ class RequestParams(CreateMessageRequestParams):
     """Optional repetition penalty (provider support varies)."""
 
     service_tier: Literal["fast", "flex"] | None = None
-    """Responses-family service tier override (fast/priority or flex)."""
+    """Provider service tier override: fast/priority or flex where supported."""
 
     @field_validator(
         "max_tokens",

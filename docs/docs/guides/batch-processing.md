@@ -53,8 +53,8 @@ sessions:
   merges the chunk outputs into the final JSONL file.
 - **Efficient provider execution**. Stable instructions, tools, schemas, and
   templates can benefit from provider prompt caching where supported; OpenAI
-  Responses models can use `service_tier=flex` for cost-sensitive throughput;
-  and Responses-family models can use WebSocket transport to reduce
+  Responses and Gemini 3.7 Flash can use `service_tier=flex` for cost-sensitive
+  throughput; and Responses-family models can use WebSocket transport to reduce
   per-request connection overhead.
 - **Resumable outputs**. Use `--resume` to append only rows whose successful
   result is not already present, so interrupted or partially failed jobs can be
@@ -75,6 +75,16 @@ fast-agent batch run \
   --input rows.jsonl \
   --output results.jsonl \
   --model "responses.gpt-5.4-mini?service_tier=flex"
+```
+
+Gemini 3.7 Flash uses the same model-string control. Flex is synchronous but best-effort and may
+take 1–15 minutes per request:
+
+```bash
+fast-agent batch run \
+  --input rows.jsonl \
+  --output results.jsonl \
+  --model "gemini37flash?service_tier=flex"
 ```
 
 ## 1. Source input data

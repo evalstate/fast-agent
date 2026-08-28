@@ -320,15 +320,17 @@ def test_google_catalog_exposes_curated_and_fast_models() -> None:
     assert ModelSelectionCatalog.list_all_models(Provider.GOOGLE)
 
 
-def test_google_picker_lists_gemini35_flash_first() -> None:
+def test_google_picker_lists_gemini37_flash_first() -> None:
     entries = ModelSelectionCatalog.list_entries(Provider.GOOGLE)
     current_entries = [entry for entry in entries if entry.current]
 
     assert current_entries
     first = current_entries[0]
-    assert first.alias == "gemini35flash"
-    assert first.model == "google.gemini-3.5-flash"
+    assert first.alias == "gemini37flash"
+    assert first.model == "google.gemini-3.7-flash"
     assert first.fast is True
+    assert "$0.75/M input" in (first.description or "")
+    assert "$0.375/M input" in (first.description or "")
 
 
 def test_catalog_lists_legacy_aliases_when_configured() -> None:
@@ -351,6 +353,17 @@ def test_huggingface_curated_catalog_includes_both_kimi_k3_routes() -> None:
         ("Kimi K3 (together)", "hf.moonshotai/Kimi-K3:together"),
     ]
     assert all(entry.current for entry in kimi_k3_entries)
+
+
+def test_huggingface_curated_catalog_includes_muse_glimmer_together() -> None:
+    entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.HUGGINGFACE]
+    glimmer = next(entry for entry in entries if entry.alias == "glimmer")
+
+    assert glimmer.display_label == "Muse Glimmer 30B (together)"
+    assert glimmer.model == (
+        "hf.meta-models/Muse-Glimmer-30B:together?temperature=1.0&top_p=0.95&top_k=64"
+    )
+    assert glimmer.current is True
 
 
 def test_huggingface_curated_catalog_includes_deepseek_v4_flash_0731_routes() -> None:

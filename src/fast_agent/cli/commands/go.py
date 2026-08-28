@@ -202,6 +202,30 @@ def _resolve_request_update_notice(
     return check_for_update_notice(home=home)
 
 
+def _resolve_model_base_url_option(
+    base_url: str | None,
+    *,
+    model: str | None,
+    resume: str | None,
+) -> str | None:
+    if base_url is None:
+        return None
+    normalized = base_url.strip()
+    if not normalized:
+        raise typer.BadParameter("Cannot be empty.", param_hint="--base-url")
+    if model is not None and "," in model:
+        raise typer.BadParameter(
+            "Cannot be combined with multiple models.",
+            param_hint="--base-url",
+        )
+    if resume is not None:
+        raise typer.BadParameter(
+            "Cannot be combined with --resume.",
+            param_hint="--base-url",
+        )
+    return normalized
+
+
 @app.callback(invoke_without_command=True, no_args_is_help=False)
 def go(
     ctx: typer.Context,
@@ -232,6 +256,12 @@ def go(
     client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
     mcp_protocol: McpProtocolOption | None = CommonAgentOptions.mcp_protocol(),
     model: str | None = CommonAgentOptions.model(),
+    base_url: str | None = typer.Option(
+        None,
+        "--base-url",
+        metavar="<url>",
+        help="Override the selected model endpoint for this run without changing its provider route.",
+    ),
     pack: str | None = typer.Option(
         None,
         "--pack",
@@ -335,6 +365,12 @@ def go(
         )
         raise typer.Exit(1)
 
+    base_url = _resolve_model_base_url_option(
+        base_url,
+        model=model,
+        resume=resume,
+    )
+
     resolved_workspace, resolved_home = resolve_workspace_and_home_options(
         ctx,
         workspace=workspace,
@@ -428,6 +464,7 @@ def go(
         agent_cards=agent_cards,
         card_tools=card_tools,
         model=model,
+        model_base_url=base_url,
         message=message,
         prompt_file=prompt_file,
         attachments=attach,

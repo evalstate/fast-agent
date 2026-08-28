@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class HomePaths:
     root: Path
+    processes: Path
     card_packs: Path
     plugins: Path
     agent_cards: Path
@@ -103,6 +104,7 @@ def resolve_home_paths(
     root = resolve_home_dir(settings=settings, cwd=cwd, override=override)
     return HomePaths(
         root=root,
+        processes=root / "processes",
         card_packs=root / "card-packs",
         plugins=root / "plugins",
         agent_cards=root / "agent-cards",

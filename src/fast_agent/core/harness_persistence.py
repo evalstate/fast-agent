@@ -35,6 +35,8 @@ class HarnessSessionPersistence(Protocol):
 
     async def delete(self, session_id: str) -> None: ...
 
+    async def delete_owned(self, session_id: str, handle: object | None) -> bool: ...
+
 
 @dataclass(frozen=True, slots=True)
 class FileHarnessSessionPersistence:
@@ -53,6 +55,7 @@ class FileHarnessSessionPersistence:
 
         manager = SessionManager(
             home_override=self.home,
+            surface="harness",
         )
         persisted_session = manager.create_session_with_id(
             session_id,
@@ -82,6 +85,7 @@ class FileHarnessSessionPersistence:
             return hydration.session
         except BaseException:
             persisted_session.delete_if_empty()
+            manager.close()
             raise
 
     async def save(
@@ -100,6 +104,16 @@ class FileHarnessSessionPersistence:
             home_override=self.home,
         )
         manager.delete_session(session_id)
+
+    async def delete_owned(self, session_id: str, handle: object | None) -> bool:
+        from fast_agent.session.session_manager import SessionManager
+
+        session = cast("Session", handle)
+        manager = session.manager
+        if manager is None:
+            fresh_manager = SessionManager(home_override=self.home)
+            return fresh_manager.delete_session(session_id)
+        return manager.delete_owned_session(session)
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +155,11 @@ class CallbackHarnessSessionPersistence:
     async def delete(self, session_id: str) -> None:
         if self.delete_persisted_session is not None:
             await self.delete_persisted_session(session_id)
+
+    async def delete_owned(self, session_id: str, handle: object | None) -> bool:
+        del handle
+        await self.delete(session_id)
+        return True
 
 
 __all__ = [

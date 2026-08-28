@@ -1219,6 +1219,7 @@ class ResponsesLLM(
                 response.usage,
                 context.model_name,
                 requested_service_tier=context.requested_service_tier,
+                service_tier=getattr(response, "service_tier", None),
             )
         self.history.set(result.input_items)
 

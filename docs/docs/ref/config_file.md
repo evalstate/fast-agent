@@ -361,6 +361,8 @@ google:
 xai:
   api_key: "your_xai_key"  # Can also use XAI_API_KEY env var
   base_url: "https://api.x.ai/v1"  # Optional, defaults to this value
+  # image_upload_mode: inline  # Default: public_url
+  # image_upload_ttl_seconds: 86400  # 1 hour to 30 days
 ```
 
 ### MetaAI
@@ -806,6 +808,7 @@ shell_execution:
   output_byte_limit: 16000  # Explicit value; omit for catalog/default selection, null for auto
   retain_truncated_output: true
   retained_output_max_bytes: 2097152  # Per shell process
+  durable_output_max_bytes: 2097152  # Per persistent stdout/stderr/combined log
   retained_output_temp_directory: null  # Optional parent directory
   process_poll_max_wait_seconds: 3600  # Accepted range: 1–3600
   foreground_auto_await_max_seconds: 240  # Total runtime; range: 0–3600; 0 disables
@@ -836,6 +839,12 @@ result exceeds its model-facing preview. The truncation notice includes the
 temporary path so the model can inspect selected ranges or search the complete
 output. Each process is limited by `retained_output_max_bytes`; retained files
 are removed when the shell runtime closes.
+
+`durable_output_max_bytes` separately caps each persistent process
+`stdout.log`, `stderr.log`, and combined `output.log`. Fast-agent continues
+draining child pipes after a log reaches the cap and reports the excess as
+dropped output, preventing verbose persistent commands from filling the
+filesystem or blocking on full pipes.
 
 `foreground_auto_await_max_seconds` is the maximum total foreground runtime,
 measured from shell process start, during which a finite command remains in its

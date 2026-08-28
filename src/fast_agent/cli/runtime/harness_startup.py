@@ -15,6 +15,7 @@ from fast_agent.core.exceptions import (
     ServerInitializationError,
 )
 from fast_agent.core.harness_app import AppOpenRequest
+from fast_agent.session.locking import SessionBusyError
 from fast_agent.tools.environment_registry import UnknownEnvironmentError
 from fast_agent.ui.usage_display import collect_agents_from_provider, finalize_usage_report
 from fast_agent.utils.text import strip_to_none
@@ -129,6 +130,14 @@ def _latest_session_id_with_assistant_preview(manager: "SessionManager") -> str 
     return None
 
 
+def _latest_session_id_with_content(manager: "SessionManager") -> str | None:
+    for info in manager.list_sessions():
+        session = manager.get_session(info.name)
+        if session is not None and session.has_persisted_content():
+            return info.name
+    return None
+
+
 def initial_harness_session_id(request: AgentRunRequest) -> str:
     from fast_agent.session.session_manager import SessionManager
 
@@ -152,8 +161,7 @@ def resolve_harness_resume_session_id(
     preview_session_id = _latest_session_id_with_assistant_preview(manager)
     if preview_session_id is not None:
         return preview_session_id
-    latest = manager.load_latest_session(require_content=True)
-    return latest.info.name if latest is not None else None
+    return _latest_session_id_with_content(manager)
 
 
 def resume_bootstrap_model(request: AgentRunRequest) -> str | None:
@@ -251,6 +259,7 @@ async def run_harness_cli_flow(
         ModelConfigError,
         CircularDependencyError,
         UnknownEnvironmentError,
+        SessionBusyError,
     ) as exc:
         fast._handle_error(exc)
         raise SystemExit(1) from exc
@@ -271,8 +280,12 @@ async def run_cli_flow(
 
     if prepare is not None:
         prepare()
-    async with fast.run(environment=request.environment) as agent_app:
-        await flow(agent_app, request)
+    try:
+        async with fast.run(environment=request.environment) as agent_app:
+            await flow(agent_app, request)
+    except SessionBusyError as exc:
+        fast._handle_error(exc)
+        raise SystemExit(1) from exc
 
 
 async def run_harness_parallel_cli_flow(
@@ -315,6 +328,7 @@ async def run_harness_parallel_cli_flow(
         ModelConfigError,
         CircularDependencyError,
         UnknownEnvironmentError,
+        SessionBusyError,
     ) as exc:
         fast._handle_error(exc)
         raise SystemExit(1) from exc
@@ -338,5 +352,9 @@ async def run_parallel_cli_flow(
         )
         return
 
-    async with fast.run(environment=request.environment) as agent_app:
-        await flow(agent_app, request, fan_out_agent_names)
+    try:
+        async with fast.run(environment=request.environment) as agent_app:
+            await flow(agent_app, request, fan_out_agent_names)
+    except SessionBusyError as exc:
+        fast._handle_error(exc)
+        raise SystemExit(1) from exc

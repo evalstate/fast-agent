@@ -4,7 +4,7 @@ import secrets
 from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from google import genai
 from google.genai import (
@@ -19,8 +19,13 @@ from mcp_types import (
     TextContent,
 )
 
-from fast_agent.constants import DEFAULT_MAX_ITERATIONS, FAST_AGENT_SAFETY_DETAILS, REASONING
-from fast_agent.core.exceptions import ProviderKeyError
+from fast_agent.constants import (
+    DEFAULT_MAX_ITERATIONS,
+    DEFAULT_STREAMING_TIMEOUT,
+    FAST_AGENT_SAFETY_DETAILS,
+    REASONING,
+)
+from fast_agent.core.exceptions import ModelConfigError, ProviderKeyError
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.google._stream_capture import (
@@ -53,7 +58,12 @@ logging.getLogger("google_genai").setLevel(logging.ERROR)
 
 # Define default model and potentially other Google-specific defaults
 DEFAULT_GOOGLE_MODEL = "gemini3"
+GOOGLE_FLEX_STREAMING_TIMEOUT = 900.0
+_GOOGLE_FLEX_VERTEX_MAX_TIMEOUT = 1800.0
+_GOOGLE_VERTEX_REQUEST_TYPE_HEADER = "X-Vertex-AI-LLM-Request-Type"
+_GOOGLE_VERTEX_SHARED_REQUEST_TYPE_HEADER = "X-Vertex-AI-LLM-Shared-Request-Type"
 _GOOGLE_VERTEX_PARTNER_MODEL_PREFIXES = ("claude",)
+GoogleServiceTier = Literal["flex"]
 _GOOGLE_FINISH_REASON_MAP: dict[str, LlmStopReason] = {
     "STOP": LlmStopReason.END_TURN,
     "MAX_TOKENS": LlmStopReason.MAX_TOKENS,
@@ -155,9 +165,14 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             bool(web_search_override) if isinstance(web_search_override, bool) else None
         )
         super().__init__(provider=Provider.GOOGLE, **kwargs)
+        self._google_streaming_timeout_configured = bool(
+            self._init_request_params
+            and "streaming_timeout" in self._init_request_params.model_fields_set
+        )
         # Initialize the converter
         self._converter = GoogleConverter()
         self._init_reasoning(kwargs)
+        self._configure_service_tier()
 
     @property
     def web_search_supported(self) -> bool:
@@ -181,6 +196,103 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         if not self.web_search_supported:
             raise ValueError("Current model does not support web search configuration.")
         self._web_search_override = value
+
+    def _available_google_service_tiers_for_model(
+        self,
+        model: str | None,
+    ) -> tuple[GoogleServiceTier, ...]:
+        if not model:
+            return ()
+        model_id = model.rsplit("/models/", maxsplit=1)[-1]
+        return ModelDatabase.get_google_service_tiers(model_id)
+
+    def _ensure_google_service_tier(
+        self,
+        value: Literal["fast", "flex"] | None,
+        *,
+        model: str | None,
+        source: str,
+    ) -> GoogleServiceTier | None:
+        if value is None:
+            return None
+        available = self._available_google_service_tiers_for_model(model)
+        if value == "flex" and value in available:
+            return value
+        allowed = ", ".join(available) or "none"
+        raise ModelConfigError(
+            f"Google model '{model or 'unknown'}' does not support service tier '{value}' "
+            f"from {source}. Allowed values: {allowed} or unset (standard)."
+        )
+
+    def _configure_service_tier(self) -> None:
+        config = self.context.config.google if self.context.config else None
+        service_tier_configured = bool(
+            self._init_request_params
+            and "service_tier" in self._init_request_params.model_fields_set
+        )
+        if (
+            self.default_request_params.service_tier is None
+            and config is not None
+            and not service_tier_configured
+        ):
+            self.default_request_params.service_tier = config.service_tier
+        self.default_request_params.service_tier = self._ensure_google_service_tier(
+            self.default_request_params.service_tier,
+            model=self.default_request_params.model,
+            source="initial configuration",
+        )
+
+    @property
+    def service_tier_supported(self) -> bool:
+        return bool(self.available_service_tiers)
+
+    @property
+    def available_service_tiers(self) -> tuple[GoogleServiceTier, ...]:
+        return self._available_google_service_tiers_for_model(self.default_request_params.model)
+
+    @property
+    def service_tier(self) -> GoogleServiceTier | None:
+        value = self.default_request_params.service_tier
+        return value if value == "flex" else None
+
+    def set_service_tier(self, value: Literal["fast", "flex"] | None) -> None:
+        try:
+            resolved = self._ensure_google_service_tier(
+                value,
+                model=self.default_request_params.model,
+                source="runtime selection",
+            )
+        except ModelConfigError as exc:
+            raise ValueError(str(exc)) from exc
+        self.default_request_params.service_tier = resolved
+
+    def _resolve_google_service_tier(
+        self,
+        request_params: RequestParams,
+    ) -> GoogleServiceTier | None:
+        return self._ensure_google_service_tier(
+            request_params.service_tier,
+            model=request_params.model,
+            source="request params",
+        )
+
+    def get_request_params(
+        self,
+        request_params: RequestParams | None = None,
+    ) -> RequestParams:
+        resolved = super().get_request_params(request_params)
+        service_tier = self._resolve_google_service_tier(resolved)
+        request_timeout_configured = bool(
+            request_params and "streaming_timeout" in request_params.model_fields_set
+        )
+        if (
+            service_tier == "flex"
+            and not request_timeout_configured
+            and not self._google_streaming_timeout_configured
+            and resolved.streaming_timeout == DEFAULT_STREAMING_TIMEOUT
+        ):
+            resolved.streaming_timeout = GOOGLE_FLEX_STREAMING_TIMEOUT
+        return resolved
 
     def _init_reasoning(self, kwargs: dict) -> None:
         """Wire up reasoning/thinking from kwargs or config."""
@@ -298,21 +410,79 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
 
         return f"projects/{project_id}/locations/{location}/publishers/google/models/{model}"
 
-    def _initialize_google_client(self) -> genai.Client:
+    def _provider_base_url(self) -> str | None:
+        config = self.context.config.google if self.context.config else None
+        return config.base_url if config else None
+
+    def _provider_default_headers(self) -> dict[str, str] | None:
+        config = self.context.config.google if self.context.config else None
+        return config.default_headers if config else None
+
+    def _google_http_options(
+        self,
+        *,
+        service_tier: GoogleServiceTier | None = None,
+        vertex_enabled: bool = False,
+        timeout_seconds: float | None = None,
+    ) -> types.HttpOptions | None:
+        base_url = self._base_url()
+        headers = self._default_headers()
+        api_version: str | None = None
+        timeout: int | None = None
+        if service_tier == "flex":
+            timeout = round(
+                1000
+                * (
+                    timeout_seconds
+                    if timeout_seconds is not None
+                    else GOOGLE_FLEX_STREAMING_TIMEOUT
+                )
+            )
+            if vertex_enabled:
+                headers = dict(headers or {})
+                headers[_GOOGLE_VERTEX_REQUEST_TYPE_HEADER] = "shared"
+                headers[_GOOGLE_VERTEX_SHARED_REQUEST_TYPE_HEADER] = "flex"
+                api_version = "v1"
+        if base_url is None and headers is None and api_version is None and timeout is None:
+            return None
+        return types.HttpOptions(
+            base_url=base_url,
+            headers=headers,
+            api_version=api_version,
+            timeout=timeout,
+        )
+
+    def _initialize_google_client(
+        self,
+        *,
+        service_tier: GoogleServiceTier | None = None,
+        timeout_seconds: float | None = None,
+    ) -> genai.Client:
         """
         Initializes the google.genai client.
 
         Reads Google API key or Vertex AI configuration from context config.
         """
+        vertex_enabled, project_id, location = self._vertex_cfg()
+        if service_tier == "flex" and vertex_enabled:
+            if location != "global":
+                raise ModelConfigError("Google Vertex Flex requires location 'global'.")
+            if timeout_seconds is not None and timeout_seconds > _GOOGLE_FLEX_VERTEX_MAX_TIMEOUT:
+                raise ModelConfigError("Google Vertex Flex timeout cannot exceed 1800 seconds.")
+
         try:
+            http_options = self._google_http_options(
+                service_tier=service_tier,
+                vertex_enabled=vertex_enabled,
+                timeout_seconds=timeout_seconds,
+            )
             # Prefer Vertex AI (ADC/IAM) if enabled. This path must NOT require an API key.
-            vertex_enabled, project_id, location = self._vertex_cfg()
             if vertex_enabled:
                 return genai.Client(
                     vertexai=True,
                     project=project_id,
                     location=location,
-                    # http_options=types.HttpOptions(api_version='v1')
+                    http_options=http_options,
                 )
 
             # Otherwise, default to Gemini Developer API (API key required).
@@ -325,8 +495,10 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
 
             return genai.Client(
                 api_key=api_key,
-                # http_options=types.HttpOptions(api_version='v1')
+                http_options=http_options,
             )
+        except ModelConfigError:
+            raise
         except Exception as e:
             # Catch potential initialization errors and raise ProviderKeyError
             raise ProviderKeyError("Failed to initialize Google GenAI client.", str(e)) from e
@@ -823,6 +995,8 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         response_mime_type: str | None,
         response_schema: object | None,
         suppress_tools: bool,
+        service_tier: GoogleServiceTier | None = None,
+        vertex_enabled: bool = False,
     ) -> types.GenerateContentConfig:
         thinking_budget, thinking_level = self._resolve_thinking_config()
         generate_content_config = self._converter.convert_request_params_to_google_config(
@@ -834,6 +1008,8 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             generate_content_config.response_mime_type = response_mime_type
         if response_schema is not None:
             generate_content_config.response_schema = response_schema
+        if service_tier == "flex" and not vertex_enabled:
+            generate_content_config.service_tier = types.ServiceTier.FLEX
         if available_tools:
             generate_content_config.tools = available_tools
             if tools and not suppress_tools:
@@ -887,6 +1063,8 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         self,
         api_response: types.GenerateContentResponse,
         model_name: str,
+        *,
+        requested_service_tier: GoogleServiceTier | None,
     ) -> None:
         usage_metadata = getattr(api_response, "usage_metadata", None)
         if not usage_metadata:
@@ -896,7 +1074,10 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 usage_metadata,
                 model=model_name,
             )
-            self._finalize_turn_usage(turn_usage)
+            self._finalize_turn_usage(
+                turn_usage,
+                requested_service_tier=requested_service_tier,
+            )
         except Exception as e:
             self.logger.warning(f"Failed to track usage: {e}")
 
@@ -1122,6 +1303,8 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             suppress_tools=suppress_tools,
             sampling_tool_choice=request_params.sampling_tool_choice,
         )
+        service_tier = self._resolve_google_service_tier(request_params)
+        vertex_enabled, _, _ = self._vertex_cfg()
         generate_content_config = self._google_generate_content_config(
             request_params,
             tools=tools,
@@ -1129,9 +1312,14 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             response_mime_type=response_mime_type,
             response_schema=response_schema,
             suppress_tools=suppress_tools,
+            service_tier=service_tier,
+            vertex_enabled=vertex_enabled,
         )
 
-        client = self._initialize_google_client()
+        client = self._initialize_google_client(
+            service_tier=service_tier,
+            timeout_seconds=request_params.streaming_timeout,
+        )
         model_name = self._resolve_model_name(request_params.model or DEFAULT_GOOGLE_MODEL)
         try:
             api_response = await self._call_google_generate_content(
@@ -1144,7 +1332,11 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 streaming_timeout=request_params.streaming_timeout,
             )
             self.logger.debug("Google generate_content response:", data=api_response)
-            self._track_google_usage(api_response, model_name)
+            self._track_google_usage(
+                api_response,
+                model_name,
+                requested_service_tier=service_tier,
+            )
         except errors.APIError as e:
             # Handle specific Google API errors
             self.logger.error(f"Google API Error: {e.code} - {e.message}")
@@ -1283,7 +1475,12 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             conversation_history.extend(self._new_messages_since_last_assistant(multipart_messages))
         elif request_params.use_history and len(multipart_messages) > 1:
             conversation_history.extend(self._convert_to_provider_format(multipart_messages[:-1]))
-        conversation_history.extend(self._google_turn_messages(multipart_messages))
+        conversation_history.extend(
+            self._google_turn_messages(
+                multipart_messages,
+                model=request_params.model or self.default_request_params.model or "",
+            )
+        )
         return conversation_history
 
     def _new_messages_since_last_assistant(
@@ -1303,14 +1500,32 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
     def _google_turn_messages(
         self,
         multipart_messages: list[PromptMessageExtended],
+        *,
+        model: str,
     ) -> list[types.Content]:
         last_message = multipart_messages[-1]
         turn_messages = self._google_tool_result_messages(multipart_messages, last_message)
         if last_message.content:
             turn_messages.extend(self._converter.convert_to_google_content([last_message]))
         if not turn_messages:
-            turn_messages.append(types.Content(role="user", parts=[types.Part.from_text(text="")]))
+            raise ValueError("Google generateContent requires a non-empty final user turn.")
+        if self._is_gemini_37(model) and not self._has_google_final_turn_input(turn_messages):
+            raise ValueError("Gemini 3.7 Flash requires non-empty text in the final user turn.")
         return turn_messages
+
+    @staticmethod
+    def _is_gemini_37(model: str) -> bool:
+        return strip_casefold(model).endswith("gemini-3.7-flash")
+
+    @staticmethod
+    def _has_google_final_turn_input(turn_messages: list[types.Content]) -> bool:
+        for content in turn_messages:
+            for part in content.parts or []:
+                if part.function_response is not None:
+                    return True
+                if isinstance(part.text, str) and part.text.strip():
+                    return True
+        return False
 
     def _google_tool_result_messages(
         self,
@@ -1321,10 +1536,14 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             return []
 
         id_to_name = self._last_assistant_tool_names(multipart_messages)
-        tool_results_pairs: list[GoogleToolResult] = [
-            (id_to_name.get(call_id, "tool"), call_id, result)
-            for call_id, result in last_message.tool_results.items()
-        ]
+        tool_results_pairs: list[GoogleToolResult] = []
+        for call_id, result in last_message.tool_results.items():
+            tool_name = id_to_name.get(call_id)
+            if not tool_name:
+                raise ValueError(
+                    f"Google FunctionResponse cannot resolve function name for call '{call_id}'."
+                )
+            tool_results_pairs.append((tool_name, call_id, result))
         if not tool_results_pairs:
             return []
         return self._converter.convert_function_results_to_google(tool_results_pairs)
@@ -1370,7 +1589,12 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             if msg.tool_results:
                 tool_results_pairs: list[GoogleToolResult] = []
                 for call_id, result in msg.tool_results.items():
-                    tool_name = id_to_name.get(call_id, "tool")
+                    tool_name = id_to_name.get(call_id)
+                    if not tool_name:
+                        raise ValueError(
+                            "Google FunctionResponse cannot resolve function name "
+                            f"for call '{call_id}'."
+                        )
                     tool_results_pairs.append((tool_name, call_id, result))
 
                 if tool_results_pairs:

@@ -43,7 +43,7 @@ from fast_agent.core.exceptions import AgentConfigError, EnvironmentStartupError
 from fast_agent.core.harness_app import DefaultHarnessApp
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import load_messages
-from fast_agent.session import ResumeSessionAgentsResult
+from fast_agent.session import ResumeSessionAgentsResult, SessionBusyError
 from fast_agent.session.hydrator import SessionHydrationWarning
 from fast_agent.tools.environment_registry import UnknownEnvironmentError
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -472,6 +472,7 @@ async def test_run_cli_flow_harness_resume_queues_assistant_preview(
         info=SimpleNamespace(
             name="2607032031-AiS7lt",
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
+            metadata={},
         )
     )
     fast.harness_app._session_restore_result = ResumeSessionAgentsResult(
@@ -623,13 +624,15 @@ def test_initial_harness_session_id_uses_latest_resume_alias(
 ) -> None:
     from fast_agent.session import SessionManager
 
-    session = SessionManager(home_override=tmp_path).create_session_with_id("2607032031-AiS7lt")
+    manager = SessionManager(home_override=tmp_path)
+    session = manager.create_session_with_id("2607032031-AiS7lt")
     (session.directory / "history_agent.json").write_text("[]", encoding="utf-8")
     request = _make_request(result_file=None, message=None)
     request.home = tmp_path
     request.resume = resume
 
     assert initial_harness_session_id(request) == "2607032031-AiS7lt"
+    manager.close()
 
 
 def test_initial_harness_session_id_skips_latest_without_assistant_preview(
@@ -754,6 +757,30 @@ async def test_run_cli_flow_handles_harness_startup_errors_like_cli_run() -> Non
 
     assert exc_info.value.code == 1
     assert fast.handled_errors == [error]
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_exits_nonzero_for_busy_resume() -> None:
+    request = _make_request(result_file=None, message=None)
+    request.resume = "busy-session"
+    error = SessionBusyError("busy-session", None)
+    fast = _FailingHarnessRuntime(error)
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del agent_app, request, session_manager, harness_session
+
+    with pytest.raises(SystemExit) as exc_info:
+        await run_cli_flow(cast("Any", fast), request, flow=flow)
+
+    assert exc_info.value.code == 1
+    assert fast.handled_errors == [error]
+    assert "fast-agent session fork busy-session" in str(error)
 
 
 @pytest.mark.asyncio
@@ -1570,6 +1597,7 @@ async def test_resume_session_interactive_queues_markdown_preview(
         info=SimpleNamespace(
             name="session-1",
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
+            metadata={},
         )
     )
 
@@ -1620,6 +1648,7 @@ async def test_resume_session_interactive_queues_git_warning_after_preview(
         info=SimpleNamespace(
             name="session-1",
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
+            metadata={},
         )
     )
     app._session_restore_result = ResumeSessionAgentsResult(
@@ -1681,6 +1710,7 @@ async def test_resume_session_preview_fallback_preserves_loaded_order(
         info=SimpleNamespace(
             name="session-ordered",
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
+            metadata={},
         )
     )
 
@@ -1729,6 +1759,7 @@ async def test_resume_session_interactive_handles_usage_notices_from_result(
         info=SimpleNamespace(
             name="session-2",
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
+            metadata={},
         )
     )
 
@@ -1780,6 +1811,7 @@ async def test_resume_session_applies_hydrated_active_agent_to_request(
         info=SimpleNamespace(
             name="session-2b",
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
+            metadata={},
         )
     )
 
@@ -1828,6 +1860,7 @@ async def test_resume_session_prefers_explicit_target_agent_for_fallback_history
         info=SimpleNamespace(
             name="session-3",
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
+            metadata={},
         )
     )
     app._session_restore_result = ResumeSessionAgentsResult(

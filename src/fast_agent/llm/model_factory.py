@@ -44,6 +44,32 @@ class LLMClass(Protocol):
     def __call__(self, **kwargs: Any) -> FastAgentLLMProtocol: ...
 
 
+@dataclass(frozen=True, slots=True)
+class RunModelEndpointLLMFactory:
+    llm_factory: LLMFactoryProtocol
+    agent_name: str
+    base_url: str
+
+    def __call__(self, agent: AgentProtocol, **kwargs: Any) -> FastAgentLLMProtocol:
+        if agent.name == self.agent_name:
+            kwargs["base_url"] = self.base_url
+            kwargs["run_model_base_url"] = self.base_url
+        return self.llm_factory(agent, **kwargs)
+
+
+def with_run_model_endpoint(
+    llm_factory: LLMFactoryProtocol,
+    *,
+    agent_name: str,
+    base_url: str,
+) -> LLMFactoryProtocol:
+    return RunModelEndpointLLMFactory(
+        llm_factory=llm_factory,
+        agent_name=agent_name,
+        base_url=base_url,
+    )
+
+
 TransportSetting = Literal["sse", "websocket", "auto"]
 ServiceTierSetting = Literal["fast", "flex"]
 ModelQueryPairs = Sequence[tuple[str, str]]
@@ -853,6 +879,17 @@ def _validate_service_tier_constraints(
     model_name: str,
     service_tier: ServiceTierSetting | None,
 ) -> None:
+    if provider == Provider.GOOGLE and service_tier is not None:
+        if service_tier != "flex":
+            raise ModelConfigError(
+                "Provider 'google' supports only service_tier=flex or unset (standard)."
+            )
+        if not ModelDatabase.supports_google_service_tier(model_name, "flex"):
+            raise ModelConfigError(
+                f"Model '{model_name}' does not support service_tier=flex with provider 'google'."
+            )
+        return
+
     if service_tier != "flex":
         return
 
@@ -871,6 +908,19 @@ def _validate_service_tier_constraints(
             f"Model '{model_name}' does not support service_tier=flex "
             f"with provider '{provider.config_name}'. Allowed values are fast or unset "
             "(standard)."
+        )
+
+
+def _validate_max_tokens_constraints(
+    provider: Provider,
+    max_tokens: int | None,
+) -> None:
+    if provider != Provider.CODEX_RESPONSES:
+        return
+    if max_tokens is not None:
+        raise ModelConfigError(
+            "Provider 'codexresponses' does not support max_tokens: "
+            "the Codex Responses endpoint does not accept max_output_tokens."
         )
 
 
@@ -961,6 +1011,10 @@ class ModelFactory:
 
         _validate_transport_constraints(provider, model_name, merged_overrides.transport)
         _validate_service_tier_constraints(provider, model_name, merged_overrides.service_tier)
+        _validate_max_tokens_constraints(
+            provider,
+            merged_overrides.max_tokens,
+        )
         return ParsedModelSpec(
             raw_input=raw_input,
             expanded_input=expanded_model_spec,
@@ -1010,6 +1064,11 @@ class ModelFactory:
             source = "preset" if selected_token in presets else "direct"
 
         model_config = parsed.to_model_config()
+        if selected_overlay is not None:
+            _validate_max_tokens_constraints(
+                parsed.provider,
+                selected_overlay.manifest.defaults.max_tokens,
+            )
 
         model_params = None
         if selected_overlay is not None:
@@ -1085,6 +1144,8 @@ class ModelFactory:
                     **llm_args,
                     **resolved_model.llm_init_kwargs,
                 }
+            if "base_url" in kwargs:
+                llm_args["base_url"] = kwargs["base_url"]
             llm: FastAgentLLMProtocol = llm_class(**llm_args)
             return llm
 

@@ -42,7 +42,6 @@ from acp.schema import (
     ResumeSessionResponse,
     SessionCapabilities,
     SessionListCapabilities,
-    SessionModeState,
     SessionResumeCapabilities,
     SseMcpServer,
     TerminalAuthMethod,
@@ -57,7 +56,7 @@ from acp.schema import (
 from fast_agent.acp.acp_context import ClientCapabilities as FAClientCapabilities
 from fast_agent.acp.acp_context import ClientInfo
 from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
-from fast_agent.acp.server.models import ACPSessionState
+from fast_agent.acp.server.models import ACPSessionState, SessionStateInitialization
 from fast_agent.acp.server.prompt_flow import ACPPromptFlow, PromptFlowHost
 from fast_agent.acp.server.session_runtime import ACPServerSessionRuntime, SessionRuntimeHost
 from fast_agent.acp.server.session_store import ACPServerSessionStore, SessionStoreHost
@@ -479,7 +478,12 @@ class AgentACPServer(ACPAgent):
         key = (str(expected_paths.sessions.resolve()), str(resolved_cwd))
         manager = self._session_managers.get(key)
         if manager is None:
-            manager = SessionManager(cwd=cwd, home_override=home_override)
+            manager = SessionManager(
+                cwd=cwd,
+                home_override=home_override,
+                surface="acp",
+                retain_multiple=True,
+            )
             self._session_managers[key] = manager
         return manager
 
@@ -583,7 +587,7 @@ class AgentACPServer(ACPAgent):
         *,
         cwd: str,
         mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio],
-    ) -> tuple[ACPSessionState, SessionModeState]:
+    ) -> SessionStateInitialization:
         return await self._session_runtime.initialize_session_state(
             session_id,
             cwd=cwd,
@@ -664,11 +668,13 @@ class AgentACPServer(ACPAgent):
             mcp_server_count=len(mcp_servers or []),
         )
 
-        session_state, session_modes = await self._initialize_session_state(
+        initialization = await self._initialize_session_state(
             session_id,
             cwd=request_cwd,
             mcp_servers=mcp_servers or [],
         )
+        session_state = initialization.session_state
+        session_modes = initialization.session_modes
         session_state.attach_session_manager(manager)
 
         logger.info(
@@ -918,13 +924,37 @@ class AgentACPServer(ACPAgent):
         """Clean up all sessions and dispose of agent instances."""
         logger.info(f"Cleaning up {len(self.sessions)} sessions")
 
+        current_task = asyncio.current_task()
+        prompt_tasks = [
+            task
+            for task in self._session_tasks.values()
+            if task is not current_task and not task.done()
+        ]
+        for task in prompt_tasks:
+            task.cancel()
+        if prompt_tasks:
+            await asyncio.gather(*prompt_tasks, return_exceptions=True)
+
         async with self._session_lock:
+            session_managers = {
+                id(manager): manager
+                for manager in (
+                    *self._session_managers.values(),
+                    *(
+                        state.session_manager
+                        for state in self._session_state.values()
+                        if state.session_manager is not None
+                    ),
+                )
+            }
             for session_id, state in list(self._session_state.items()):
                 await self._cleanup_session_state(session_id, state)
 
             disposed_instances = await self._dispose_session_instances()
             await self._dispose_bootstrap_instance(disposed_instances)
             self._live_sessions.clear_all()
+            for manager in session_managers.values():
+                manager.close()
 
         logger.info("ACP cleanup complete")
 
@@ -964,6 +994,22 @@ class AgentACPServer(ACPAgent):
                     f"Error cleaning up ACPContext for session {session_id}: {e}",
                     name="acp_context_cleanup_error",
                 )
+
+        if state.persisted_session is not None and state.session_manager is not None:
+            state.session_manager.release_session(state.persisted_session.info.name)
+            state.persisted_session = None
+
+    async def _rollback_session_initialization(self, session_id: str) -> None:
+        """Dispose state published by a failed session initialization."""
+        state = self._session_state.pop(session_id, None)
+        instance = self.sessions.pop(session_id, None)
+        self._live_sessions.prompt_locks.pop(session_id, None)
+        self._live_sessions.active_prompts.discard(session_id)
+        self._session_tasks.pop(session_id, None)
+        if state is not None:
+            await self._cleanup_session_state(session_id, state)
+        if instance is not None:
+            await self._instance_factory.dispose_instance(instance)
 
     async def _dispose_session_instances(self) -> set[int]:
         disposed_instances: set[int] = set()

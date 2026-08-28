@@ -1,32 +1,23 @@
-import importlib
 import os
 import subprocess
 import time
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
+import pytest_asyncio
 
 from fast_agent import FastAgent
+from fast_agent.core.logging.logger import LoggingConfig
+from fast_agent.core.logging.transport import AsyncEventBus
 
 
-# Keep the auto-cleanup fixture
-@pytest.fixture(scope="function", autouse=True)
-def cleanup_event_bus():
-    """Reset the AsyncEventBus between tests using its reset method"""
-    # Run the test
+@pytest_asyncio.fixture(autouse=True)
+async def cleanup_event_bus() -> AsyncIterator[None]:
+    """Gracefully stop loop-owned logging tasks between end-to-end tests."""
     yield
-
-    # Reset the AsyncEventBus after each test
-    try:
-        # Import the module with the AsyncEventBus
-        transport_module = importlib.import_module("fast_agent.core.logging.transport")
-        AsyncEventBus = getattr(transport_module, "AsyncEventBus", None)
-
-        # Call the reset method if available
-        if AsyncEventBus and hasattr(AsyncEventBus, "reset"):
-            AsyncEventBus.reset()
-    except Exception:
-        pass
+    await LoggingConfig.shutdown()
+    AsyncEventBus.reset()
 
 
 # Set the project root directory for tests

@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompts.prompt_load import (
     load_prompt,
@@ -369,6 +371,7 @@ class SessionHydrator:
             warnings=warnings,
         )
         self._restore_agent_request_settings(agent, agent_name, agent_snapshot, warnings)
+        self._restore_agent_capability_mode(agent, agent_name, agent_snapshot, warnings)
         await self._restore_mcp_attachments(agent, agent_name, agent_snapshot, warnings)
         self._restore_agent_tool_attachments(agent, agent_name, agent_snapshot, agents, warnings)
 
@@ -412,6 +415,23 @@ class SessionHydrator:
         request_settings = agent_snapshot.request_settings
         if request_settings is None:
             return
+        llm = agent.llm
+        if (
+            request_settings.max_tokens is not None
+            and llm is not None
+            and llm.provider == Provider.CODEX_RESPONSES
+        ):
+            warnings.append(
+                SessionHydrationWarning(
+                    code="unsupported-max-tokens-discarded",
+                    message=(
+                        f"Discarded persisted max_tokens for Codex Responses agent "
+                        f"{agent_name!r}; the endpoint does not support output token limits."
+                    ),
+                    agent_name=agent_name,
+                )
+            )
+            request_settings = request_settings.model_copy(update={"max_tokens": None})
         try:
             self._apply_request_settings(agent, request_settings)
         except Exception as exc:
@@ -419,6 +439,36 @@ class SessionHydrator:
                 SessionHydrationWarning(
                     code="request-settings-restore-failed",
                     message=f"Failed to restore request settings for agent {agent_name!r}: {exc}",
+                    agent_name=agent_name,
+                )
+            )
+
+    @staticmethod
+    def _restore_agent_capability_mode(
+        agent: AgentProtocol,
+        agent_name: str,
+        agent_snapshot: SessionAgentSnapshot,
+        warnings: list[SessionHydrationWarning],
+    ) -> None:
+        capability_mode = agent_snapshot.capability_mode
+        if capability_mode is None:
+            return
+
+        from fast_agent.core.agent_capabilities import (
+            AgentCapabilityMode,
+            set_agent_capability_mode,
+        )
+
+        try:
+            set_agent_capability_mode(agent, AgentCapabilityMode(capability_mode))
+        except AgentConfigError as exc:
+            warnings.append(
+                SessionHydrationWarning(
+                    code="capability-mode-restore-conflict",
+                    message=(
+                        f"Could not restore capability mode {capability_mode!r} for agent "
+                        f"{agent_name!r}: {exc}"
+                    ),
                     agent_name=agent_name,
                 )
             )

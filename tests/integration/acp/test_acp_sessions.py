@@ -98,13 +98,18 @@ async def test_acp_prompt_saves_session_history(
 
     sessions_root = tmp_path / ".fast-agent" / "sessions"
     assert sessions_root.exists()
-    session_dirs = [path for path in sessions_root.iterdir() if path.is_dir()]
+    assert not list((sessions_root / ".locks").glob("*.owner.json"))
+    session_dirs = [
+        path
+        for path in sessions_root.iterdir()
+        if path.is_dir() and (path / "session.json").exists()
+    ]
     assert len(session_dirs) == 1
     session_dir = session_dirs[0]
     session_meta_path = session_dir / "session.json"
     assert session_meta_path.exists()
     metadata = json.loads(session_meta_path.read_text())
-    assert metadata["schema_version"] == 4
+    assert metadata["schema_version"] == 5
     active_agent = metadata["continuation"]["active_agent"]
     assert isinstance(active_agent, str)
     assert active_agent
@@ -368,6 +373,7 @@ async def test_acp_session_resume_emits_current_mode_update(
     os.environ["FAST_AGENT_HOME"] = str(home)
     os.chdir(tmp_path)
     session_manager_module._session_manager = None
+    manager = None
     try:
         manager = SessionManager(cwd=tmp_path, home_override=home)
         session = manager.create_session()
@@ -389,6 +395,8 @@ async def test_acp_session_resume_emits_current_mode_update(
 
         await session.save_history(cast("AgentProtocol", StubAgent()))
     finally:
+        if manager is not None:
+            manager.close()
         session_manager_module._session_manager = None
         os.chdir(original_cwd)
         if original_home is None:
@@ -450,12 +458,15 @@ async def test_acp_session_list_returns_saved_sessions(
     os.chdir(tmp_path)
     session_manager_module._session_manager = None
     session = None
+    manager = None
     try:
         manager = SessionManager(cwd=tmp_path, home_override=home)
         session = manager.create_session(
             metadata={"title": "ACP list test", "cwd": str(tmp_path.resolve())}
         )
     finally:
+        if manager is not None:
+            manager.close()
         session_manager_module._session_manager = None
         os.chdir(original_cwd)
         if original_home is None:
@@ -509,6 +520,7 @@ async def test_acp_session_list_reads_workspace_scoped_sessions_when_server_runs
     original_cwd = Path.cwd()
     session_manager_module._session_manager = None
     session = None
+    manager = None
     try:
         os.chdir(session_cwd)
         manager = SessionManager(
@@ -517,6 +529,8 @@ async def test_acp_session_list_reads_workspace_scoped_sessions_when_server_runs
         )
         session = manager.create_session(metadata={"title": "Workspace scoped list"})
     finally:
+        if manager is not None:
+            manager.close()
         session_manager_module._session_manager = None
         os.chdir(original_cwd)
 
@@ -577,6 +591,7 @@ async def test_acp_load_session_streams_history(
     os.chdir(tmp_path)
     session_manager_module._session_manager = None
     session = None
+    manager = None
     try:
         manager = SessionManager(cwd=tmp_path, home_override=home)
         session = manager.create_session(metadata={"title": "History load"})
@@ -604,6 +619,8 @@ async def test_acp_load_session_streams_history(
 
         await session.save_history(cast("AgentProtocol", StubAgent()))
     finally:
+        if manager is not None:
+            manager.close()
         session_manager_module._session_manager = None
         os.chdir(original_cwd)
         if original_home is None:
@@ -687,6 +704,7 @@ async def test_acp_load_session_reads_workspace_scoped_session_when_server_runs_
     original_cwd = Path.cwd()
     session_manager_module._session_manager = None
     session = None
+    manager = None
     try:
         os.chdir(session_cwd)
         manager = SessionManager(
@@ -718,6 +736,8 @@ async def test_acp_load_session_reads_workspace_scoped_session_when_server_runs_
 
         await session.save_history(cast("AgentProtocol", StubAgent()))
     finally:
+        if manager is not None:
+            manager.close()
         session_manager_module._session_manager = None
         os.chdir(original_cwd)
 

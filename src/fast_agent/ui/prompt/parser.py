@@ -304,13 +304,24 @@ def _parse_compact_command(remainder: str) -> CommandPayload:
 
 
 def _parse_process_command(remainder: str) -> CommandPayload:
-    option = strip_casefold(remainder)
-    if not option:
+    stripped = remainder.strip()
+    if not stripped:
         return ProcessCommand()
+    option = strip_casefold(stripped)
     if option in {"history", "--history"}:
         return ProcessCommand(show_history=True)
+    try:
+        tokens = split_commandline(stripped, syntax="posix")
+    except ValueError:
+        tokens = []
+    if len(tokens) == 2:
+        action = strip_casefold(tokens[0])
+        if action == "attach":
+            return ProcessCommand(attach_process_id=tokens[1])
+        if action == "terminate":
+            return ProcessCommand(terminate_process_id=tokens[1])
     return CommandError(
-        message="Usage: /process [--history]",
+        message="Usage: /process [--history|attach <process-id>|terminate <process-id>]",
     )
 
 

@@ -226,7 +226,10 @@ async def initialize_context(
     if config.session_history and not config._fast_agent_no_home:
         from fast_agent.session.session_manager import SessionManager, set_session_manager
 
-        context.session_manager = SessionManager(home_override=config.home)
+        context.session_manager = SessionManager(
+            home_override=config.home,
+            surface="runtime",
+        )
         set_session_manager(context.session_manager)
 
     override_directories = None
@@ -260,13 +263,26 @@ async def cleanup_context() -> None:
     Cleanup the global application context.
     """
 
+    global _global_context
+    if _global_context is not None and _global_context.session_manager is not None:
+        _global_context.session_manager.close()
+        from fast_agent.session.session_manager import reset_session_manager
+
+        reset_session_manager()
+
     # Shutdown logging and telemetry
     await LoggingConfig.shutdown()
     if _otel_tracer_provider is not None:
         _otel_tracer_provider.force_flush()
+    _global_context = None
 
 
 _global_context: Context | None = None
+
+
+def get_initialized_context() -> Context | None:
+    """Return the active global context without creating one."""
+    return _global_context
 
 
 def get_current_context() -> Context:

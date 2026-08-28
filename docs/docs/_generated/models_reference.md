@@ -43,22 +43,24 @@
 | `gemini25` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `auto`, `minimal`, `low`, `medium`, `high`, `off`<br>Example: `gemini25?reasoning=auto` | — | — |
 | `gemini25pro` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `auto`, `minimal`, `low`, `medium`, `high`, `off`<br>Example: `gemini25pro?reasoning=auto` | — | — |
 | `gemini2` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | — | — | — |
+| `gemini3.1` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini3.1?reasoning=medium` | — | — |
 | `gemini3.1flashlite` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini3.1flashlite?reasoning=medium` | — | — |
 | `gemini35` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini35?reasoning=medium` | — | — |
 | `gemini3` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini3?reasoning=medium` | — | — |
 | `gemini3flash` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini3flash?reasoning=medium` | — | — |
-| `gemini` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini?reasoning=medium` | — | — |
+| `gemini` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `gemini?reasoning=medium` | — | — |
 | `moonshotai/kimi-k2-instruct-0905` | `groq` | Text | `json` (schema) | — | — | — |
 | `moonshotai/kimi-k2-thinking` | `groq` | Text | `json` (schema) | — | — | — |
 | `moonshotai/kimi-k2` | `groq` | Text | `json` (schema) | — | — | — |
 | `qwen3-32b` | `groq` | Text | `json` (object) | — | — | — |
 | `qwen3.6-27b` | `groq` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen3.6-27b?reasoning=off` | — | — |
+| `DeepSeek V4 Flash 0731 (baseten)` | `hf` | Text | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `DeepSeek V4 Flash 0731 (baseten)?reasoning=max` | — | — |
 | `Kimi K3 (together)` | `hf` | Text, Vision | `json` (schema) | effort: `low`, `high`, `max`<br>Example: `Kimi K3 (together)?reasoning=max` | — | — |
 | `deepseek-ai/deepseek-v3.1` | `hf` | Text | `json` (schema) | — | — | — |
-| `deepseek-ai/deepseek-v4-flash-0731` | `hf` | Text | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseek-ai/deepseek-v4-flash-0731?reasoning=max` | — | — |
 | `deepseek-hf` | `hf` | Text | `json` (schema) | — | — | — |
 | `deepseek32` | `hf` | Text | `json` (schema) | — | — | — |
 | `gemma4` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `gemma4?reasoning=none` | — | — |
+| `glimmer` | `hf` | Text, Vision | — | effort: `low`, `medium`, `high`, `xhigh`<br>Example: `glimmer?reasoning=high` | — | — |
 | `glm47` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm47?reasoning=off` | — | — |
 | `glm51` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm51?reasoning=off` | — | — |
 | `glm5` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm5?reasoning=off` | — | — |
@@ -75,6 +77,7 @@
 | `minimax25` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `minimax25?reasoning=off` | — | — |
 | `minimax27` | `hf` | Text | `json` (schema) | — | — | — |
 | `minimax` | `hf` | Text, Vision | `json` (schema) | — | — | — |
+| `qwen/qwen3.8-27b` | `hf` | Text, Vision, Video | `json` (object) | effort: `low`, `medium`, `xhigh`, `off`<br>Example: `qwen/qwen3.8-27b?reasoning=medium` | — | — |
 | `qwen35` | `hf` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen35?reasoning=off` | — | — |
 | `qwen36` | `hf` | Text | — | toggle: `on`, `off`<br>Example: `qwen36?reasoning=off` | — | — |
 | `Muse Spark 1.1` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `Muse Spark 1.1?reasoning=medium` | — | — |
@@ -119,4 +122,6 @@
 | `grok43` | `xai` | Text, Vision | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `grok43?reasoning=high` | — | — |
 | `grok45` | `xai` | Text, Vision | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `grok45?reasoning=high` | — | — |
 | `grok` | `xai` | Text, Vision | `json` (schema) | effort: `low`, `medium`, `high`, `xhigh`<br>Example: `grok?reasoning=high` | — | — |
+| `zaiglm53` | `zai` | Text | `json` (object) | effort: `low`, `high`, `max`<br>Example: `zaiglm53?reasoning=max` | — | — |
+| `zaiglm53flash` | `zai` | Text, Vision, Document, Video | `json` (object) | effort: `low`, `high`, `max`<br>Example: `zaiglm53flash?reasoning=max` | — | — |
 | `zaiglm` | `zai` | Text | `json` (object) | effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `zaiglm?reasoning=max` | — | — |

@@ -55,6 +55,11 @@ def test_cycle_service_tier_omits_flex_when_not_supported() -> None:
     assert cycle_service_tier("fast", allowed_tiers=("fast",)) is None
 
 
+def test_cycle_service_tier_supports_flex_only_models() -> None:
+    assert cycle_service_tier(None, allowed_tiers=("flex",)) == "flex"
+    assert cycle_service_tier("flex", allowed_tiers=("flex",)) is None
+
+
 def test_cycle_service_tier_deduplicates_allowed_tiers() -> None:
     assert cycle_service_tier(None, allowed_tiers=("fast", "fast", "flex")) == "fast"
     assert cycle_service_tier("fast", allowed_tiers=("fast", "fast", "flex")) == "flex"

@@ -279,7 +279,7 @@ def get_secrets_summary(secrets_path: Path | None) -> dict:
 
     # File exists, attempt to parse
     try:
-        with secrets_path.open("r") as f:
+        with secrets_path.open("r", encoding="utf-8") as f:
             secrets = yaml.safe_load(f)
 
         # Mark as successfully parsed
@@ -715,7 +715,7 @@ def get_config_summary(config_path: Path | None) -> dict:
 
     # File exists, attempt to parse
     try:
-        with config_path.open("r") as f:
+        with config_path.open("r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
 
         result["status"] = "parsed"
@@ -2265,7 +2265,7 @@ def show(
     console.print(f"\n[bold]{file_type.capitalize()} file:[/bold] {config_path}\n")
 
     try:
-        with config_path.open("r") as f:
+        with config_path.open("r", encoding="utf-8") as f:
             content = f.read()
 
         # Try to parse as YAML to check validity
