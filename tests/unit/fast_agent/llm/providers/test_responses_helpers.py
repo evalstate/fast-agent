@@ -1301,7 +1301,16 @@ def test_tool_fallback_notifications_for_custom_tool_call() -> None:
 
 def test_dedupes_duplicate_reasoning_ids():
     harness = _ContentHarness()
-    payload = {"type": "reasoning", "encrypted_content": "abc", "id": "rs_dup"}
+    payload = {
+        "schema": "fast-agent.openai-responses.reasoning-replay",
+        "version": 1,
+        "item": {
+            "type": "reasoning",
+            "id": "rs_dup",
+            "summary": [],
+            "encrypted_content": "abc",
+        },
+    }
     reasoning_block = TextContent(type="text", text=json.dumps(payload))
     channels = {OPENAI_REASONING_ENCRYPTED: [reasoning_block]}
 
@@ -1331,6 +1340,24 @@ def test_encrypted_reasoning_replay_preserves_raw_summary_and_omits_status() -> 
     )
 
     blocks = output_harness._extract_encrypted_reasoning(response)
+    assert len(blocks) == 1
+    assert isinstance(blocks[0], TextContent)
+    persisted = json.loads(blocks[0].text)
+    assert persisted == {
+        "schema": "fast-agent.openai-responses.reasoning-replay",
+        "version": 1,
+        "item": {
+            "type": "reasoning",
+            "id": "rs_123",
+            "summary": [
+                {
+                    "type": "summary_text",
+                    "text": "Checked the arithmetic.",
+                }
+            ],
+            "encrypted_content": "encrypted-reasoning",
+        },
+    }
     message = PromptMessageExtended(
         role="assistant",
         content=[],
@@ -1348,7 +1375,6 @@ def test_encrypted_reasoning_replay_preserves_raw_summary_and_omits_status() -> 
                     "text": "Checked the arithmetic.",
                 }
             ],
-            "content": None,
             "encrypted_content": "encrypted-reasoning",
         }
     ]

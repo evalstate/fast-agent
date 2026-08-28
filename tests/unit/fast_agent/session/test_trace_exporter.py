@@ -40,6 +40,7 @@ from fast_agent.session import (
     SessionSnapshot,
     SessionTraceExporter,
 )
+from fast_agent.session.atif_models import AtifTrajectory
 from fast_agent.session.session_manager import SessionManager
 from fast_agent.session.trace_export_atif import (
     AtifRunSource,
@@ -508,10 +509,15 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
     ]
     assert payload["subagent_trajectories"][0]["trajectory_id"] == "traj_child_1"
     assert payload["subagent_trajectories"][0]["agent"]["name"] == "worker"
-    assert payload["subagent_trajectories"][0]["final_metrics"]["extra"] == {
-        "total_reasoning_tokens": 2,
-        "total_tool_use_tokens": 1,
-    }
+    child_extra = payload["subagent_trajectories"][0]["final_metrics"]["extra"]
+    assert child_extra["total_reasoning_tokens"] == 2
+    assert child_extra["total_tool_use_tokens"] == 1
+    assert child_extra["llm_usage_expected_call_count"] == 1
+    assert child_extra["llm_usage_observed_call_count"] == 1
+    assert child_extra["llm_usage_calls_complete"] is True
+    assert child_extra["observed_prompt_tokens_lower_bound"] == 11
+    assert child_extra["observed_completion_tokens_lower_bound"] == 4
+    assert child_extra["observed_cached_tokens_lower_bound"] == 3
     assert child_reads == 1
     assert tool_step["metrics"]["cached_tokens"] == 7
     assert tool_step["metrics"]["extra"] == {
@@ -522,24 +528,29 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
         "tool_use_prompt_tokens": 2,
         "tool_calls": 2,
         "cache_write_tokens": 0,
+        "usage_provider_attempt_count": 2,
         "raw_usage": [{}, {}],
     }
-    assert payload["final_metrics"] == {
-        "total_prompt_tokens": 46,
-        "total_completion_tokens": 12,
-        "total_cached_tokens": 10,
-        "total_steps": 4,
-        "extra": {
-            "total_reasoning_tokens": 5,
-            "total_tool_use_tokens": 3,
-            "root_prompt_tokens": 35,
-            "root_completion_tokens": 8,
-            "root_cached_tokens": 7,
-            "subagent_prompt_tokens": 11,
-            "subagent_completion_tokens": 4,
-            "subagent_cached_tokens": 3,
-        },
-    }
+    final_metrics = payload["final_metrics"]
+    assert final_metrics["total_prompt_tokens"] == 46
+    assert final_metrics["total_completion_tokens"] == 12
+    assert final_metrics["total_cached_tokens"] == 10
+    assert final_metrics["total_steps"] == 4
+    final_extra = final_metrics["extra"]
+    assert final_extra["total_reasoning_tokens"] == 5
+    assert final_extra["total_tool_use_tokens"] == 3
+    assert final_extra["root_prompt_tokens"] == 35
+    assert final_extra["root_completion_tokens"] == 8
+    assert final_extra["root_cached_tokens"] == 7
+    assert final_extra["subagent_prompt_tokens"] == 11
+    assert final_extra["subagent_completion_tokens"] == 4
+    assert final_extra["subagent_cached_tokens"] == 3
+    assert final_extra["llm_usage_expected_call_count"] == 4
+    assert final_extra["llm_usage_observed_call_count"] == 4
+    assert final_extra["llm_usage_calls_complete"] is True
+    assert final_extra["observed_prompt_tokens_lower_bound"] == 46
+    assert final_extra["observed_completion_tokens_lower_bound"] == 12
+    assert final_extra["observed_cached_tokens_lower_bound"] == 10
 
     private_output = tmp_path / "private-atif.json"
     private_output.write_text("stale", encoding="utf-8")
@@ -632,7 +643,7 @@ def test_atif_omits_unknown_tool_use_tokens() -> None:
 
     unknown = trajectory(None)
     assert "tool_use_prompt_tokens" not in unknown["steps"][0]["metrics"]["extra"]
-    assert "extra" not in unknown["final_metrics"]
+    assert "total_tool_use_tokens" not in unknown["final_metrics"]["extra"]
 
     reported_zero = trajectory(0)
     assert reported_zero["steps"][0]["metrics"]["extra"]["tool_use_prompt_tokens"] == 0
@@ -719,6 +730,134 @@ def test_atif_final_metrics_require_complete_llm_step_usage() -> None:
     assert trajectory.final_metrics.total_completion_tokens is None
     assert trajectory.final_metrics.total_cached_tokens is None
     assert trajectory.final_metrics.total_cost_usd is None
+    assert trajectory.steps[0].metrics is not None
+    assert trajectory.steps[0].metrics.prompt_tokens == 10
+    assert trajectory.steps[0].metrics.completion_tokens == 2
+    assert trajectory.steps[0].metrics.cached_tokens == 0
+    assert trajectory.steps[0].metrics.cost_usd == pytest.approx(0.01)
+    assert trajectory.steps[1].metrics is None
+    assert trajectory.final_metrics.extra is not None
+    assert trajectory.final_metrics.extra["llm_usage_expected_call_count"] == 2
+    assert trajectory.final_metrics.extra["llm_usage_observed_call_count"] == 1
+    assert trajectory.final_metrics.extra["llm_usage_call_coverage_ratio"] == 0.5
+    assert trajectory.final_metrics.extra["llm_usage_calls_complete"] is False
+    assert trajectory.final_metrics.extra["observed_prompt_tokens_lower_bound"] == 10
+    assert trajectory.final_metrics.extra["observed_completion_tokens_lower_bound"] == 2
+    assert trajectory.final_metrics.extra["observed_cached_tokens_lower_bound"] == 0
+    assert trajectory.final_metrics.extra["observed_cost_usd_lower_bound"] == pytest.approx(0.01)
+
+    payload = trajectory.to_json_dict()
+    assert "total_prompt_tokens" not in payload["final_metrics"]
+    assert "total_completion_tokens" not in payload["final_metrics"]
+    assert "total_cached_tokens" not in payload["final_metrics"]
+    assert "total_cost_usd" not in payload["final_metrics"]
+    restored = AtifTrajectory.model_validate(payload)
+    assert restored.final_metrics is not None
+    assert restored.final_metrics.total_prompt_tokens is None
+    assert restored.final_metrics.extra == trajectory.final_metrics.extra
+
+
+def test_atif_usage_coverage_counts_provider_attempts_within_one_step() -> None:
+    usage = {
+        "schema": "fast-agent.usage/v2",
+        "provider_attempts": [
+            {
+                "provider": "openai",
+                "usage_schema": "openai-chat",
+                "model": "model",
+                "prompt": {"total": 10, "cache_read": 1},
+                "completion": {"total": 2},
+                "tool_calls": 0,
+            },
+            {
+                "provider": "openai",
+                "usage_schema": "openai-chat",
+                "model": "model",
+                "prompt": {"total": 20, "cache_read": 2},
+                "completion": {"total": 3},
+                "tool_calls": 0,
+            },
+        ],
+    }
+    message = PromptMessageExtended(
+        role="assistant",
+        channels={FAST_AGENT_USAGE: [TextContent(type="text", text=json.dumps(usage))]},
+    )
+
+    trajectory = build_atif_trajectory(
+        AtifRunSource(
+            session_id="session",
+            agent_name="agent",
+            model_name="model",
+            provider="openai",
+            history=[message],
+            message_timestamps=(None,),
+        )
+    )
+
+    assert trajectory.steps[0].llm_call_count == 2
+    assert trajectory.final_metrics is not None
+    assert trajectory.final_metrics.total_prompt_tokens == 30
+    assert trajectory.final_metrics.total_completion_tokens == 5
+    assert trajectory.final_metrics.total_cached_tokens == 3
+    assert trajectory.final_metrics.extra is not None
+    assert trajectory.final_metrics.extra["llm_usage_expected_call_count"] == 2
+    assert trajectory.final_metrics.extra["llm_usage_observed_call_count"] == 2
+    assert trajectory.final_metrics.extra["llm_usage_calls_complete"] is True
+
+
+def test_atif_retry_with_missing_attempt_keeps_known_usage_as_lower_bound() -> None:
+    usage = {
+        "schema": "fast-agent.usage/v2",
+        "provider_attempts": [
+            {
+                "provider": "openai",
+                "usage_schema": "openai-chat",
+                "model": "model",
+                "prompt": {"total": 10, "cache_read": 1},
+                "completion": {"total": 2},
+                "tool_calls": 0,
+            }
+        ],
+    }
+    retry = {
+        "schema": "fast-agent.retry/v1",
+        "provider_attempts": 2,
+        "retries": [],
+    }
+    message = PromptMessageExtended(
+        role="assistant",
+        channels={
+            FAST_AGENT_USAGE: [TextContent(type="text", text=json.dumps(usage))],
+            FAST_AGENT_RETRY: [TextContent(type="text", text=json.dumps(retry))],
+        },
+    )
+
+    trajectory = build_atif_trajectory(
+        AtifRunSource(
+            session_id="session",
+            agent_name="agent",
+            model_name="model",
+            provider="openai",
+            history=[message],
+            message_timestamps=(None,),
+        )
+    )
+
+    assert trajectory.steps[0].llm_call_count == 2
+    assert trajectory.steps[0].metrics is not None
+    assert trajectory.steps[0].metrics.prompt_tokens == 10
+    assert trajectory.final_metrics is not None
+    assert trajectory.final_metrics.total_prompt_tokens is None
+    assert trajectory.final_metrics.total_completion_tokens is None
+    assert trajectory.final_metrics.total_cached_tokens is None
+    assert trajectory.final_metrics.extra is not None
+    assert trajectory.final_metrics.extra["llm_usage_expected_call_count"] == 2
+    assert trajectory.final_metrics.extra["llm_usage_observed_call_count"] == 1
+    assert trajectory.final_metrics.extra["llm_usage_calls_complete"] is False
+    assert trajectory.final_metrics.extra["observed_prompt_tokens_lower_bound"] == 10
+    assert trajectory.final_metrics.extra["observed_completion_tokens_lower_bound"] == 2
+    assert trajectory.final_metrics.extra["observed_cached_tokens_lower_bound"] == 1
 
 
 def test_atif_fanout_totals_include_all_model_routes() -> None:
@@ -775,6 +914,69 @@ def test_atif_fanout_totals_include_all_model_routes() -> None:
     assert trajectory.final_metrics.extra is not None
     assert trajectory.final_metrics.extra["total_reasoning_tokens"] == 3
     assert trajectory.final_metrics.extra["total_tool_use_tokens"] == 3
+    assert trajectory.final_metrics.extra["llm_usage_expected_call_count"] == 2
+    assert trajectory.final_metrics.extra["llm_usage_observed_call_count"] == 2
+    assert trajectory.final_metrics.extra["llm_usage_calls_complete"] is True
+    assert trajectory.final_metrics.extra["observed_prompt_tokens_lower_bound"] == 30
+    assert trajectory.final_metrics.extra["observed_completion_tokens_lower_bound"] == 6
+    assert trajectory.final_metrics.extra["observed_cached_tokens_lower_bound"] == 3
+
+
+def test_atif_fanout_propagates_missing_usage_and_known_lower_bounds() -> None:
+    usage = {
+        "schema": "fast-agent.usage/v2",
+        "provider_attempts": [
+            {
+                "provider": "openai",
+                "usage_schema": "openai-chat",
+                "model": "known",
+                "prompt": {"total": 10, "cache_read": 1},
+                "completion": {"total": 2},
+                "tool_calls": 0,
+            }
+        ],
+    }
+    sources = [
+        AtifRunSource(
+            session_id="session",
+            agent_name="known",
+            model_name="known",
+            provider="openai",
+            history=[
+                PromptMessageExtended(
+                    role="assistant",
+                    channels={FAST_AGENT_USAGE: [TextContent(type="text", text=json.dumps(usage))]},
+                )
+            ],
+            message_timestamps=(None,),
+        ),
+        AtifRunSource(
+            session_id="session",
+            agent_name="unknown",
+            model_name="unknown",
+            provider="openai",
+            history=[PromptMessageExtended(role="assistant")],
+            message_timestamps=(None,),
+        ),
+    ]
+
+    trajectory = build_atif_fanout_trajectory(
+        session_id="session",
+        sources=sources,
+    )
+
+    assert trajectory.final_metrics is not None
+    assert trajectory.final_metrics.total_prompt_tokens is None
+    assert trajectory.final_metrics.total_completion_tokens is None
+    assert trajectory.final_metrics.total_cached_tokens is None
+    assert trajectory.final_metrics.total_cost_usd is None
+    assert trajectory.final_metrics.extra is not None
+    assert trajectory.final_metrics.extra["llm_usage_expected_call_count"] == 2
+    assert trajectory.final_metrics.extra["llm_usage_observed_call_count"] == 1
+    assert trajectory.final_metrics.extra["llm_usage_calls_complete"] is False
+    assert trajectory.final_metrics.extra["observed_prompt_tokens_lower_bound"] == 10
+    assert trajectory.final_metrics.extra["observed_completion_tokens_lower_bound"] == 2
+    assert trajectory.final_metrics.extra["observed_cached_tokens_lower_bound"] == 1
 
 
 def test_session_trace_exporter_treats_latest_target_case_insensitively(tmp_path: Path) -> None:

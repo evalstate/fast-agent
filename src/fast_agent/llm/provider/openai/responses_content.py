@@ -10,8 +10,8 @@ from fast_agent.constants import (
     OPENAI_ASSISTANT_MESSAGE_ITEMS,
     OPENAI_MCP_LIST_TOOLS_ITEMS,
     OPENAI_REASONING_ENCRYPTED,
-    REASONING,
 )
+from fast_agent.llm.provider.openai.reasoning_replay import parse_reasoning_replay
 from fast_agent.llm.provider.openai.tool_event_helpers import first_nonempty_string
 from fast_agent.mcp.helpers.content_helpers import (
     canonicalize_tool_result_content_for_llm,
@@ -248,19 +248,15 @@ class ResponsesContentMixin:
         if not encrypted_blocks:
             return []
 
-        summary = self._build_reasoning_summary_payload(channels)
         items: list[dict[str, Any]] = []
         for data in self._json_channel_payloads(
             encrypted_blocks,
             malformed_log_message="Skipping malformed encrypted reasoning block",
         ):
-            if not data.get("encrypted_content"):
+            item = parse_reasoning_replay(data)
+            if item is None:
                 continue
-            item = dict(data)
-            item.setdefault("type", "reasoning")
-            if item.get("summary") is None:
-                item["summary"] = summary
-            items.append(item)
+            items.append(dict(item))
         return items
 
     def _json_channel_payloads(
@@ -282,22 +278,6 @@ class ResponsesContentMixin:
             if isinstance(payload, dict):
                 payloads.append(payload)
         return payloads
-
-    def _build_reasoning_summary_payload(
-        self, channels: Mapping[str, Iterable[ContentBlock]] | None
-    ) -> list[dict[str, str]]:
-        if not channels:
-            return []
-        reasoning_blocks = channels.get(REASONING) or []
-        summary_texts: list[str] = []
-        for block in reasoning_blocks:
-            text = get_text(block)
-            if text:
-                summary_texts.append(text)
-        summary_text = "\n".join(summary_texts).strip()
-        if not summary_text:
-            return []
-        return [{"type": "summary_text", "text": summary_text}]
 
     @staticmethod
     def _content_mime_type(content: ContentBlock) -> str | None:

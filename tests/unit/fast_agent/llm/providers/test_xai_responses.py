@@ -690,9 +690,19 @@ def test_xai_replays_distinct_reasoning_when_provider_reuses_item_id(model: str)
                         type="text",
                         text=json.dumps(
                             {
-                                "type": "reasoning",
-                                "id": "rs_reused",
-                                "encrypted_content": ciphertext,
+                                "schema": "fast-agent.openai-responses.reasoning-replay",
+                                "version": 1,
+                                "item": {
+                                    "type": "reasoning",
+                                    "id": "rs_reused",
+                                    "summary": [
+                                        {
+                                            "type": "summary_text",
+                                            "text": f"summary-{ciphertext}",
+                                        }
+                                    ],
+                                    "encrypted_content": ciphertext,
+                                },
                             }
                         ),
                     )
@@ -712,6 +722,11 @@ def test_xai_replays_distinct_reasoning_when_provider_reuses_item_id(model: str)
         "cipher-turn-2",
     ]
     assert [item["id"] for item in reasoning] == ["rs_reused", "rs_reused"]
+    assert [item["summary"][0]["text"] for item in reasoning] == [
+        "summary-cipher-turn-1",
+        "summary-cipher-turn-2",
+    ]
+    assert all("schema" not in item and "version" not in item for item in reasoning)
 
 
 def test_xai_responses_advertises_web_search() -> None:

@@ -1682,7 +1682,7 @@ async def test_foreground_auto_await_returns_completion_after_idle_yield() -> No
     assert metadata["process_status"] == "completed"
     auto_await = metadata["foreground_auto_await"]
     assert auto_await["initial_yield_reason"] == "idle"
-    assert auto_await["max_total_seconds"] == 240
+    assert auto_await["max_total_seconds"] == 30
     assert auto_await["outcome"] == "process_finished"
     assert auto_await["initial_yield_elapsed_seconds"] >= 0.01
     assert auto_await["awaited_seconds"] >= 0
