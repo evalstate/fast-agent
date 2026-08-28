@@ -145,6 +145,11 @@ class ModelSelectionCatalog:
                 fast=True,
             ),
             _builtin_entry(
+                "deepseekvision",
+                display_label="DeepSeek V4 Flash Vision (experimental)",
+                fast=True,
+            ),
+            _builtin_entry(
                 "DeepSeek V4 Pro",
                 display_label="DeepSeek V4 Pro",
             ),

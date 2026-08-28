@@ -182,7 +182,10 @@ def test_deepseek_provider_defaults_to_v4_flash() -> None:
     assert llm.default_request_params.model == "deepseek-v4-flash"
 
 
-@pytest.mark.parametrize("model", ["deepseek-v4-flash", "deepseek-v4-pro"])
+@pytest.mark.parametrize(
+    "model",
+    ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "deepseek-v4-pro"],
+)
 def test_deepseek_provider_config_default_model_used_when_model_missing(model: str) -> None:
     settings = Settings(deepseek=DeepSeekSettings(default_model=model))
     llm = DeepSeekResponsesLLM(context=Context(config=settings), model="")

@@ -1104,6 +1104,17 @@ def test_deepseek_pro_alias_resolves_to_deepseek_responses_model() -> None:
     assert config.model_name == "deepseek-v4-pro"
 
 
+@pytest.mark.parametrize(
+    "model",
+    ("deepseekvision", "deepseek-v4-flash-vision-exp"),
+)
+def test_deepseek_vision_model_resolves_to_deepseek_responses(model: str) -> None:
+    config = ModelFactory.parse_model_string(model)
+
+    assert config.provider == Provider.DEEPSEEK
+    assert config.model_name == "deepseek-v4-flash-vision-exp"
+
+
 def test_deepseek_hf_aliases_resolve_to_hf_deepseek_v4_pro():
     for alias in ("deepseek-hf", "deepseek4-hf", "deepseek4pro-hf", "deepseekv4pro-hf"):
         config = ModelFactory.parse_model_string(alias)
@@ -1111,7 +1122,10 @@ def test_deepseek_hf_aliases_resolve_to_hf_deepseek_v4_pro():
         assert config.model_name == "deepseek-ai/DeepSeek-V4-Pro:together"
 
 
-@pytest.mark.parametrize("model", ["deepseek-v4-flash", "deepseek-v4-pro"])
+@pytest.mark.parametrize(
+    "model",
+    ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "deepseek-v4-pro"],
+)
 def test_deepseek_responses_model_resolves_to_official_provider(model: str) -> None:
     config = ModelFactory.parse_model_string(model)
 

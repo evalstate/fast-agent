@@ -36,6 +36,7 @@
 | `terra` | `codexresponses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `terra?reasoning=high` | `low`, `medium`, `high`<br>Example: `terra?verbosity=low` | — |
 | `deepseek` | `deepseek` | Text | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseek?reasoning=max` | — | — |
 | `deepseekpro` | `deepseek` | Text | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseekpro?reasoning=max` | — | — |
+| `deepseekvision` | `deepseek` | Text, Vision | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseekvision?reasoning=max` | — | — |
 | `passthrough` | `fast-agent` | Text | `json` (schema) | — | — | — |
 | `playback` | `fast-agent` | Text | `json` (schema) | — | — | — |
 | `silent` | `fast-agent` | Text | `json` (schema) | — | — | — |

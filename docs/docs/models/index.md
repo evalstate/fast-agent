@@ -194,14 +194,16 @@ stateless Responses API:
 ```bash
 fast-agent --model deepseek
 fast-agent --model deepseekpro
+fast-agent --model deepseekvision
 fast-agent --model "deepseek?reasoning=high"
 fast-agent --model "deepseek?web_search=true"
 ```
 
-The native route supports `deepseek-v4-flash` and `deepseek-v4-pro`. Both
-provide reasoning, function tools, JSON Schema structured output, and
-provider-managed web search. Hugging Face aliases such as `deepseek-hf` are
-separate routes.
+The native route supports `deepseek-v4-flash`,
+`deepseek-v4-flash-vision-exp`, and `deepseek-v4-pro`. All provide reasoning,
+function tools, JSON Schema structured output, and provider-managed web search.
+The experimental vision variant also accepts JPEG, PNG, GIF, and WebP images.
+Hugging Face aliases such as `deepseek-hf` are separate routes.
 
 ### xAI
 
