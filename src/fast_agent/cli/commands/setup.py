@@ -73,7 +73,7 @@ def create_file(path: Path, content: str, force: bool = False) -> bool:
             console.print(f"Skipping {path}")
             return False
 
-    path.write_text(content.strip() + "\n")
+    path.write_text(content.strip() + "\n", encoding="utf-8")
     console.print(f"[green]Created[/green] {path}")
     return True
 
