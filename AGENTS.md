@@ -1,7 +1,5 @@
 <!-- fast-agent-subagents -->
 
-Use codexresponses.gpt-5.6-terra?reasoning=high subagents to help with analysis, design and coding tasks where clean context or cross
-examination is helpful. Use codexresponses.gpt-5.6-sol?reasoning=high where extra intelligence is required.
 
 ## fast-agent contributor notes
 

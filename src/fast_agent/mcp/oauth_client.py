@@ -70,7 +70,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-DEFAULT_CLIENT_METADATA_URL = "https://fast-agent.ai/oauth/client.json"
+DEFAULT_CLIENT_METADATA_URL = "https://fast-agent.ai/oauth/client-v3.json"
 _OAUTH_TRACE_ENV = "FAST_AGENT_TRACE_MCP_OAUTH"
 
 OAuthEventType = Literal[

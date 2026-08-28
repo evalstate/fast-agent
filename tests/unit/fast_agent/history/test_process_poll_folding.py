@@ -846,12 +846,17 @@ def test_fold_archives_exact_usage_and_atif_restores_totals() -> None:
     assert trajectory.final_metrics.total_completion_tokens == 65
     assert trajectory.final_metrics.total_cost_usd == pytest.approx(0.15)
     assert trajectory.final_metrics.total_steps == 7
-    assert trajectory.final_metrics.extra == {
-        "total_reasoning_tokens": 15,
-        "total_tool_use_tokens": 15,
-        "folded_process_poll_steps": 3,
-        "process_poll_context_rewrites": 1,
-    }
+    assert trajectory.final_metrics.extra is not None
+    assert trajectory.final_metrics.extra["total_reasoning_tokens"] == 15
+    assert trajectory.final_metrics.extra["total_tool_use_tokens"] == 15
+    assert trajectory.final_metrics.extra["folded_process_poll_steps"] == 3
+    assert trajectory.final_metrics.extra["process_poll_context_rewrites"] == 1
+    assert trajectory.final_metrics.extra["llm_usage_expected_call_count"] == 5
+    assert trajectory.final_metrics.extra["llm_usage_observed_call_count"] == 5
+    assert trajectory.final_metrics.extra["llm_usage_calls_complete"] is True
+    assert trajectory.final_metrics.extra["observed_prompt_tokens_lower_bound"] == 515
+    assert trajectory.final_metrics.extra["observed_completion_tokens_lower_bound"] == 65
+    assert trajectory.final_metrics.extra["observed_cached_tokens_lower_bound"] == 400
     assert len(trajectory.steps) == 7
     step_metrics = [step.metrics for step in trajectory.steps if step.metrics is not None]
     assert sum(metric.prompt_tokens or 0 for metric in step_metrics) == 515
@@ -1292,12 +1297,17 @@ def test_repeated_running_folds_preserve_exact_cumulative_usage() -> None:
     assert trajectory.final_metrics.total_cached_tokens == 560
     assert trajectory.final_metrics.total_completion_tokens == 98
     assert trajectory.final_metrics.total_steps == 11
-    assert trajectory.final_metrics.extra == {
-        "total_reasoning_tokens": 28,
-        "total_tool_use_tokens": 28,
-        "folded_process_poll_steps": 5,
-        "process_poll_context_rewrites": 3,
-    }
+    assert trajectory.final_metrics.extra is not None
+    assert trajectory.final_metrics.extra["total_reasoning_tokens"] == 28
+    assert trajectory.final_metrics.extra["total_tool_use_tokens"] == 28
+    assert trajectory.final_metrics.extra["folded_process_poll_steps"] == 5
+    assert trajectory.final_metrics.extra["process_poll_context_rewrites"] == 3
+    assert trajectory.final_metrics.extra["llm_usage_expected_call_count"] == 7
+    assert trajectory.final_metrics.extra["llm_usage_observed_call_count"] == 7
+    assert trajectory.final_metrics.extra["llm_usage_calls_complete"] is True
+    assert trajectory.final_metrics.extra["observed_prompt_tokens_lower_bound"] == 728
+    assert trajectory.final_metrics.extra["observed_completion_tokens_lower_bound"] == 98
+    assert trajectory.final_metrics.extra["observed_cached_tokens_lower_bound"] == 560
     assert len(trajectory.steps) == 11
     boundaries = [trajectory.steps[index] for index in (4, 7, 9)]
     context_management = [

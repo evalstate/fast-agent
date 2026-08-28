@@ -3196,7 +3196,7 @@
           "type": "integer"
         },
         "foreground_auto_await_max_seconds": {
-          "default": 240,
+          "default": 30,
           "description": "Maximum total foreground runtime before returning a live process; 0 returns it at the initial idle or total-runtime yield",
           "maximum": 3600,
           "minimum": 0,

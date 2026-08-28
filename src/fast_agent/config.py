@@ -377,7 +377,7 @@ class ShellSettings(BaseModel):
         description="Maximum duration of one model-initiated managed-process wait",
     )
     foreground_auto_await_max_seconds: int = Field(
-        default=240,
+        default=30,
         ge=0,
         le=MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
         description=(

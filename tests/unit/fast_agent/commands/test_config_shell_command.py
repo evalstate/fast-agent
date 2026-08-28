@@ -78,7 +78,7 @@ def test_foreground_auto_await_setting_has_bounded_zero_opt_out() -> None:
 
     field = schema.fields["foreground_auto_await_max_seconds"]
     assert isinstance(field, IntegerField)
-    assert field.default == 240
+    assert field.default == 30
     assert field.minimum == 0
     assert field.maximum == MAX_FOREGROUND_AUTO_AWAIT_SECONDS
 

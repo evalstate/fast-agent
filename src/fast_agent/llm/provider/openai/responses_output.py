@@ -10,6 +10,7 @@ from pydantic_core import from_json
 
 from fast_agent.core.logging.json_serializer import snapshot_json_value
 from fast_agent.event_progress import ProgressAction
+from fast_agent.llm.provider.openai.reasoning_replay import capture_reasoning_replay
 from fast_agent.llm.provider.openai.tool_event_helpers import (
     first_nonempty_string,
     item_type_is_responses_function_tool_call,
@@ -479,11 +480,15 @@ class ResponsesOutputMixin:
         for output_item in getattr(response, "output", []) or []:
             if getattr(output_item, "type", None) != "reasoning":
                 continue
-            payload = snapshot_json_value(output_item)
-            if not isinstance(payload, dict) or not payload.get("encrypted_content"):
+            payload = capture_reasoning_replay(output_item)
+            if payload is None:
                 continue
-            payload.pop("status", None)
-            encrypted_blocks.append(TextContent(type="text", text=json.dumps(payload)))
+            encrypted_blocks.append(
+                TextContent(
+                    type="text",
+                    text=json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                )
+            )
         return encrypted_blocks
 
     @staticmethod

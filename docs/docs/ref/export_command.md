@@ -93,6 +93,11 @@ fast-agent export latest --privacy-filter --download-privacy-filter
 - `--format atif` is pinned to ATIF v1.7. Future schema versions require an
   explicit format implementation; existing ATIF output will not silently
   change versions.
+- ATIF canonical `final_metrics.total_*` values use complete-data semantics. If
+  any expected LLM call lacks usage telemetry, those totals remain unknown.
+  `final_metrics.extra` records expected and observed usage-call counts,
+  completeness, and explicitly named `observed_*_lower_bound` values without
+  promoting partial accounting to campaign totals.
 - If `--output` is omitted, fast-agent writes
   `{session_id}__{agent_name}__codex.jsonl` in the current working directory.
 - The corresponding default ATIF filename is
