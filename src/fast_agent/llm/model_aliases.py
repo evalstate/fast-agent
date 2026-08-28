@@ -41,6 +41,7 @@ BUILTIN_MODEL_ALIASES: Final[dict[str, str]] = {
     "fable5": "claude-fable-5",
     "deepseek": "deepseek.deepseek-v4-flash",
     "deepseekpro": "deepseek.deepseek-v4-pro",
+    "deepseekvision": "deepseek.deepseek-v4-flash-vision-exp",
     "gemini": "gemini-3.7-flash",
     "gemini2": "gemini-2.0-flash",
     "gemini25": "gemini-2.5-flash",

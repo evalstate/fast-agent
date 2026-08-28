@@ -129,9 +129,9 @@ def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() ->
         ) == ModelFactory.parse_model_string(model_spec)
 
 
-def test_deepseek_catalog_exposes_both_responses_models() -> None:
+def test_deepseek_catalog_exposes_native_responses_models() -> None:
     aliases = ModelSelectionCatalog.list_current_aliases(Provider.DEEPSEEK)
-    assert aliases == ["deepseek", "DeepSeek V4 Pro"]
+    assert aliases == ["deepseek", "deepseekvision", "DeepSeek V4 Pro"]
 
 
 def test_non_current_aliases_are_listed_but_not_current() -> None:

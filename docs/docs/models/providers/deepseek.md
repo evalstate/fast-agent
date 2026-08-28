@@ -10,8 +10,8 @@ social:
 # DeepSeek
 
 Use the `deepseek` provider for fast-agent's native DeepSeek Responses route.
-It uses a stateless Responses API over SSE and supports `deepseek-v4-flash`
-and `deepseek-v4-pro`.
+It uses a stateless Responses API over SSE and supports `deepseek-v4-flash`,
+`deepseek-v4-flash-vision-exp`, and `deepseek-v4-pro`.
 
 ## Setup
 
@@ -46,6 +46,22 @@ or its explicit model string:
 deepseek.deepseek-v4-pro
 ```
 
+Select the experimental vision model with:
+
+```bash
+fast-agent go --model deepseekvision --message "Describe this image."
+```
+
+or its explicit model string:
+
+```text
+deepseek.deepseek-v4-flash-vision-exp
+```
+
+The vision model accepts JPEG, PNG, GIF, and WebP images from inline data or
+public URLs. Attach images through the TUI or other fast-agent input surfaces;
+the native adapter sends them as Responses API `input_image` parts.
+
 The native provider rejects other model names such as `deepseek-chat` and
 `deepseek-reasoner`.
 
@@ -73,8 +89,9 @@ deepseek:
 ```
 
 `base_url`, `default_model`, and `default_headers` are optional. A configured
-`default_model` must be `deepseek-v4-flash` or `deepseek-v4-pro`. Flash remains
-the default when this setting is omitted.
+`default_model` must be `deepseek-v4-flash`,
+`deepseek-v4-flash-vision-exp`, or `deepseek-v4-pro`. Flash remains the default
+when this setting is omitted.
 
 Run `fast-agent check` after configuring credentials.
 
@@ -133,7 +150,8 @@ DeepSeek's route differs from OpenAI's stateful Responses API:
 - requests use SSE; WebSocket transport is not supported;
 - server-side response storage and continuation are not used;
 - service tiers are not supported;
-- image, PDF, audio, video, and file inputs are not supported;
+- image input is supported only by `deepseek-v4-flash-vision-exp`;
+- PDF, audio, video, and general file inputs are not supported;
 - OpenAI-only request fields such as `include`, `parallel_tool_calls`,
   `service_tier`, and `store` are omitted.
 
@@ -159,6 +177,8 @@ route.
 
 - [DeepSeek platform](https://platform.deepseek.com/)
 - [DeepSeek API documentation](https://api-docs.deepseek.com/)
+- [DeepSeek vision guide](https://api-docs.deepseek.com/guides/vision)
+- [DeepSeek models and pricing](https://api-docs.deepseek.com/quick_start/pricing)
 
 See [Models Reference](../models_reference/) for the generated capability row,
 context limit, output limit, and supported input modalities.

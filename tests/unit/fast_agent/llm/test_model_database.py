@@ -505,6 +505,9 @@ def test_model_database_supports_mime_basic():
         "deepseek-v4-flash",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+    for mime_type in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+        assert ModelDatabase.supports_mime("deepseek-v4-flash-vision-exp", mime_type)
+    assert not ModelDatabase.supports_mime("deepseek-v4-flash-vision-exp", "application/pdf")
 
     # Wildcard checks
     assert ModelDatabase.supports_mime("gpt-4o", "image/*")
