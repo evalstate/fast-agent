@@ -33,6 +33,25 @@
       className: " spotlight--grok",
       swapCostEmphasis: true,
       primaryCostDigits: 2,
+      costSnapshot: "original",
+    },
+    "grok-medium": {
+      focusModel: "Grok 4.6 · medium",
+      identity: "grok 4.6 medium",
+      contextModels: [
+        "GPT-5.6 Sol · high",
+        "Grok 4.6 · medium",
+        "Grok 4.6 · high",
+        "Fable 5 · xhigh",
+      ],
+      footerAccent: "PR #221 · static analysis passed",
+      share: {
+        className: " grok-share--medium",
+        status: "promoted result · provisional",
+        eyebrow: "445 trials · promoted submission",
+        footerPrimary: "390 / 445 rewarded trials",
+        footerModel: "fast-agent 0.10.10 · Grok 4.6 medium",
+      },
     },
     deepseek: {
       focusModel: "DeepSeek V4 Flash · max",
@@ -95,16 +114,27 @@
     var results = allResults();
     return config.contextModels.map(function (model) {
       var result = results.find(function (entry) { return entry.model === model; });
+      var useOriginalCost =
+        config.costSnapshot === "original" && result.originalCost !== undefined;
+      var costPerTrial = useOriginalCost ? result.originalCost : result.cost;
+      var total = useOriginalCost
+        ? (result.originalTotalCost !== undefined
+          ? result.originalTotalCost
+          : result.sourceTotalCost !== undefined
+            ? result.sourceTotalCost
+            : costPerTrial * data.taskCount)
+        : runTotal(result, data.taskCount);
       return {
         fastAgent: Boolean(result.fastAgent),
+        costEstimate: Boolean(result.costEstimate) && !useOriginalCost,
         model: result.model,
         modelString: result.modelString || "",
         name: displayName(result),
         harness: result.harness,
         status: result.disclaimer ? "Provisional" : "Published",
         score: result.score,
-        costPerTrial: result.cost,
-        total: runTotal(result, data.taskCount),
+        costPerTrial: costPerTrial,
+        total: total,
       };
     });
   }
@@ -132,12 +162,17 @@
 
   function contextRows(results, focus) {
     return results.map(function (result) {
-      var classes = "context-row" + (result.model === focus.model ? " featured" : "");
+      var classes = "context-row" +
+        (result.model === focus.model ? " featured" : "") +
+        (result.costEstimate ? " repriced" : "");
+      var repricedLabel = result.costEstimate
+        ? ' · <span class="repriced-label">repriced</span>'
+        : "";
       return [
         '<div class="' + classes + '">',
         "<div><strong>" + result.name + "</strong><small>" + result.harness +
           ' · <span class="run-status ' + result.status.toLowerCase() + '">' +
-          result.status + "</span></small></div>",
+          result.status + "</span>" + repricedLabel + "</small></div>",
         '<span class="cost">' + formatExactTotal(result.total) + "</span>",
         '<span class="score">' + result.score.toFixed(1) + "%</span>",
         '<span class="trial-cost">' + formatTrial(result.costPerTrial) + "</span>",
@@ -459,21 +494,24 @@
     ].join("");
   }
 
-  function renderGrokShare(root, swapped) {
-    var results = cardResults(CARDS.grok).sort(function (first, second) {
+  function renderGrokShare(root, config, swapped) {
+    var share = config.share || {};
+    var results = cardResults(config).sort(function (first, second) {
       return second.score - first.score;
     });
     var focus = results.find(function (result) {
-      return result.model === CARDS.grok.focusModel;
+      return result.model === config.focusModel;
     });
 
     root.innerHTML = [
-      '<article class="card grok-share' + (swapped ? " grok-share--swapped" : "") + '">',
-      masthead("frontier result · provisional"),
+      '<article class="card grok-share' + (share.className || "") +
+        (swapped ? " grok-share--swapped" : "") + '">',
+      masthead(share.status || "frontier result · provisional"),
       '<div class="content">',
       '<section class="grok-share-hero">',
-      '<p class="grok-share-eyebrow">445 trials · frontier comparison</p>',
-      "<h1>Grok 4.6 high</h1>",
+      '<p class="grok-share-eyebrow">' +
+        (share.eyebrow || "445 trials · frontier comparison") + "</p>",
+      "<h1>" + config.identity + "</h1>",
       '<p class="grok-share-agent">fast-agent</p>',
       '<div class="grok-share-metrics">',
       '<p class="grok-share-score"><strong>' + focus.score.toFixed(1) +
@@ -492,9 +530,10 @@
       contextRows(results, focus),
       "</section>",
       "</div>",
-      '<footer class="footer"><span class="primary">388 / 445 rewarded trials</span>',
-      "<span>fast-agent 0.10.9 · Grok 4.6 high</span>",
-      '<span class="spacer"></span><span class="accent">PR #212 · static analysis passed</span>',
+      '<footer class="footer"><span class="primary">' +
+        (share.footerPrimary || "388 / 445 rewarded trials") + "</span>",
+      "<span>" + (share.footerModel || "fast-agent 0.10.9 · Grok 4.6 high") + "</span>",
+      '<span class="spacer"></span><span class="accent">' + config.footerAccent + "</span>",
       "</footer>",
       "</article>",
     ].join("");
@@ -504,15 +543,276 @@
     return "$" + value.toFixed(2);
   }
 
+  function animationFrame(params, name, fallback) {
+    var rawValue = params.get(name);
+    if (rawValue === null || rawValue.trim() === "") return fallback;
+    var value = Number(rawValue);
+    return Number.isFinite(value) ? value : fallback;
+  }
+
+  function renderSolPriceAnimation(root, frameOverride, fpsOverride) {
+    document.documentElement.classList.add("sol-price-animation-page");
+    document.body.classList.add("sol-price-animation-page");
+    var campaign = window.fastAgentBenchmark.campaigns.solPriceAnimation;
+    var params = new URLSearchParams(window.location.search);
+    var fps = Math.max(
+      1,
+      Math.round(fpsOverride === undefined ? animationFrame(params, "fps", 30) : fpsOverride)
+    );
+    var pulseFrames = Math.round(0.6 * fps);
+    var motionFrames = Math.round(3.5 * fps);
+    var holdFrames = Math.round(4 * fps);
+    var motionEndFrame = pulseFrames + motionFrames;
+    var totalFrames = motionEndFrame + holdFrames;
+    var frame = Math.max(
+      0,
+      Math.min(
+        totalFrames - 1,
+        Math.round(
+          frameOverride === undefined ? animationFrame(params, "frame", 0) : frameOverride
+        )
+      )
+    );
+    var movementFrame = Math.max(0, frame - pulseFrames);
+    var progress = Math.min(movementFrame / motionFrames, 1);
+    var eased = progress < 0.5
+      ? 4 * progress * progress * progress
+      : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+    var revealProgress = Math.min(movementFrame / Math.round(0.5 * fps), 1);
+    var priceReveal = 1 - Math.pow(1 - revealProgress, 3);
+    var pulseIntensity = 0;
+    if (frame < pulseFrames) {
+      var pulseCycleFrames = Math.max(1, Math.round(pulseFrames / 3));
+      var pulsePhase = (frame % pulseCycleFrames) / pulseCycleFrames;
+      if (pulsePhase < 1 / 3) pulseIntensity = 1;
+      else if (pulsePhase < 2 / 3) pulseIntensity = 2 - pulsePhase * 3;
+    }
+    var movingCost = campaign.sol.originalCost +
+      (campaign.sol.currentCost - campaign.sol.originalCost) * eased;
+    var scoreAxis = campaign.axes.score;
+    var costAxis = campaign.axes.cost;
+    var plot = { left: 112, right: 1144, top: 154, bottom: 608 };
+    var width = plot.right - plot.left;
+    var height = plot.bottom - plot.top;
+    var x = function (cost) {
+      var ratio = (Math.log10(cost) - Math.log10(costAxis.min)) /
+        (Math.log10(costAxis.max) - Math.log10(costAxis.min));
+      return plot.right - ratio * width;
+    };
+    var y = function (score) {
+      return plot.bottom -
+        ((score - scoreAxis.min) / (scoreAxis.max - scoreAxis.min)) * height;
+    };
+    var oldX = x(campaign.sol.originalCost);
+    var currentX = x(campaign.sol.currentCost);
+    var movingX = x(movingCost);
+    var solY = y(campaign.sol.score);
+
+    root.innerHTML = [
+      '<article class="card sol-price-animation">',
+      masthead("Sol pricing · 20% lower"),
+      '<div class="content"></div>',
+      '<footer class="footer">',
+      '<span class="primary">445 trials · provisional submissions</span>',
+      "<span>Current Sol pricing · Aug 24, 2026</span>",
+      '<span class="spacer"></span>',
+      '<span class="accent">PR #180 · #212 · #221 · #174</span>',
+      "</footer>",
+      "</article>",
+    ].join("");
+
+    var svg = svgElement("svg", {
+      viewBox: "0 0 1200 740",
+      role: "img",
+      "aria-label":
+        "Terminal-Bench score versus cost per task. GPT-5.6 Sol high moves from " +
+        "$0.607 to $0.486 per task while retaining an 88.3 percent score.",
+    });
+    svg.appendChild(svgElement("text", {
+      x: 54, y: 52, "class": "animation-title",
+    }, campaign.title));
+
+    var priceShift = svgElement("text", {
+      x: 760, y: 55, "class": "animation-price-shift",
+    });
+    priceShift.appendChild(svgElement("tspan", {
+      "class": "animation-price-old",
+    }, "$" + campaign.sol.originalCost.toFixed(3)));
+    priceShift.appendChild(svgElement("tspan", {
+      dx: 16, opacity: priceReveal, "class": "animation-price-arrow",
+    }, "→"));
+    priceShift.appendChild(svgElement("tspan", {
+      dx: 16, opacity: priceReveal, "class": "animation-price-new",
+    }, "$" + campaign.sol.currentCost.toFixed(3)));
+    priceShift.appendChild(svgElement("tspan", {
+      dx: 8, opacity: priceReveal, "class": "animation-price-unit",
+    }, "/ TASK"));
+    svg.appendChild(priceShift);
+    svg.appendChild(svgElement("text", {
+      x: 1144, y: 84, opacity: priceReveal,
+      "class": "animation-reduction", "text-anchor": "end",
+    }, Math.round(campaign.sol.reduction * 100) + "% LOWER API PRICE"));
+
+    scoreAxis.ticks.forEach(function (tick) {
+      var tickY = y(tick);
+      svg.appendChild(svgElement("line", {
+        x1: plot.left, y1: tickY, x2: plot.right, y2: tickY,
+        "class": "animation-grid",
+      }));
+      svg.appendChild(svgElement("text", {
+        x: plot.left - 16, y: tickY + 5, "class": "animation-tick",
+        "text-anchor": "end",
+      }, tick + "%"));
+    });
+    costAxis.ticks.forEach(function (tick) {
+      var tickX = x(tick);
+      svg.appendChild(svgElement("line", {
+        x1: tickX, y1: plot.top, x2: tickX, y2: plot.bottom,
+        "class": "animation-grid",
+      }));
+      svg.appendChild(svgElement("text", {
+        x: tickX, y: plot.bottom + 27, "class": "animation-tick",
+        "text-anchor": "middle",
+      }, "$" + tick.toFixed(2)));
+    });
+    svg.appendChild(svgElement("line", {
+      x1: plot.left, y1: plot.top, x2: plot.left, y2: plot.bottom,
+      "class": "animation-axis",
+    }));
+    svg.appendChild(svgElement("line", {
+      x1: plot.left, y1: plot.bottom, x2: plot.right, y2: plot.bottom,
+      "class": "animation-axis",
+    }));
+    svg.appendChild(svgElement("text", {
+      x: 26, y: (plot.top + plot.bottom) / 2,
+      "class": "animation-axis-label",
+      transform: "rotate(-90 26 " + ((plot.top + plot.bottom) / 2) + ")",
+      "text-anchor": "middle",
+    }, "TERMINAL-BENCH 2.1 SCORE (%) · HIGHER ↑"));
+    svg.appendChild(svgElement("text", {
+      x: (plot.left + plot.right) / 2,
+      y: 696,
+      "class": "animation-axis-label",
+      "text-anchor": "middle",
+    }, "COST / TASK (USD) · CHEAPER →"));
+
+    var labelPositions = {
+      "grok-4.5-high": { dx: 0, dy: -45, anchor: "middle" },
+      "grok-4.6-high": { dx: -16, dy: 40, anchor: "end" },
+      "grok-4.6-medium": { dx: 16, dy: 40, anchor: "start" },
+    };
+    campaign.results.forEach(function (result) {
+      var pointX = x(result.cost);
+      var pointY = y(result.score);
+      var label = labelPositions[result.id];
+      var group = svgElement("g", { "class": "animation-point animation-point--grok" });
+      group.appendChild(svgElement("circle", { cx: pointX, cy: pointY, r: 9 }));
+      var text = svgElement("text", {
+        x: pointX + label.dx,
+        y: pointY + label.dy,
+        "class": "animation-point-label",
+        "text-anchor": label.anchor,
+      });
+      text.appendChild(svgElement("tspan", {
+        x: pointX + label.dx, "class": "animation-point-model",
+      }, result.model.replace(" · ", " ") + " · " + result.score.toFixed(1) + "%"));
+      text.appendChild(svgElement("tspan", {
+        x: pointX + label.dx, dy: 18, "class": "animation-point-numbers",
+      }, "$" + result.cost.toFixed(3) + " / TASK"));
+      group.appendChild(text);
+      svg.appendChild(group);
+    });
+
+    svg.appendChild(svgElement("line", {
+      x1: oldX, y1: solY, x2: movingX, y2: solY,
+      "class": "animation-sol-trail",
+    }));
+    svg.appendChild(svgElement("circle", {
+      cx: oldX, cy: solY, r: 11, "class": "animation-sol-original",
+    }));
+    svg.appendChild(svgElement("text", {
+      x: oldX, y: solY + 36, "class": "animation-sol-original-label",
+      "text-anchor": "middle",
+    }, "ORIGINAL $" + campaign.sol.originalCost.toFixed(3)));
+    svg.appendChild(svgElement("circle", {
+      cx: currentX, cy: solY, r: 14, "class": "animation-sol-target",
+    }));
+    svg.appendChild(svgElement("circle", {
+      cx: movingX, cy: solY,
+      r: 16 + progress * 5 + pulseIntensity * 10,
+      opacity: 0.35 + pulseIntensity * 0.55,
+      "class": "animation-sol-halo",
+    }));
+    svg.appendChild(svgElement("circle", {
+      cx: movingX, cy: solY, r: 10 + pulseIntensity * 2,
+      "class": "animation-sol-point",
+    }));
+    var solLabelX = movingX + 16;
+    var solLabel = svgElement("text", {
+      x: solLabelX, y: solY - 38, "class": "animation-sol-label",
+      "text-anchor": "start",
+    });
+    solLabel.appendChild(svgElement("tspan", {
+      x: solLabelX, "class": "animation-sol-model",
+    }, "GPT-5.6 SOL HIGH · 88.3%"));
+    svg.appendChild(solLabel);
+
+    root.querySelector(".content").appendChild(svg);
+  }
+
+  function playSolPriceAnimation(root) {
+    var fps = 30;
+    var pulseFrames = Math.round(0.6 * fps);
+    var motionFrames = Math.round(3.5 * fps);
+    var motionEndFrame = pulseFrames + motionFrames;
+    var durationMs = 8100;
+    var startedAt;
+    var lastFrame = -1;
+    var requestId;
+
+    function draw(now) {
+      if (startedAt === undefined) startedAt = now;
+      var elapsed = (now - startedAt) % durationMs;
+      var frame = Math.min(Math.floor(elapsed * fps / 1000), motionEndFrame);
+      if (frame !== lastFrame) {
+        renderSolPriceAnimation(root, frame, fps);
+        lastFrame = frame;
+      }
+      requestId = window.requestAnimationFrame(draw);
+    }
+
+    function restart() {
+      startedAt = undefined;
+      lastFrame = -1;
+      if (requestId !== undefined) window.cancelAnimationFrame(requestId);
+      requestId = window.requestAnimationFrame(draw);
+    }
+
+    root.addEventListener("click", restart);
+    document.addEventListener("keydown", function (event) {
+      if (event.key === " " || event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        restart();
+      }
+    });
+    restart();
+  }
+
   function start() {
     var root = document.getElementById("storyboard");
-    var variant = new URLSearchParams(window.location.search).get("variant") || "spotlight";
+    var params = new URLSearchParams(window.location.search);
+    var variant = params.get("variant") || "spotlight";
     try {
       if (variant === "pricing-convergence") renderPricing(root);
       else if (variant === "deepseek-cache-cost") renderDeepseekCacheCost(root);
       else if (variant === "task-swings") renderTaskSwings(root);
-      else if (variant === "grok-share") renderGrokShare(root, false);
-      else if (variant === "grok-share-swapped") renderGrokShare(root, true);
+      else if (variant === "sol-price-animation") {
+        if (params.has("frame")) renderSolPriceAnimation(root);
+        else playSolPriceAnimation(root);
+      }
+      else if (variant === "grok-medium") renderGrokShare(root, CARDS["grok-medium"], false);
+      else if (variant === "grok-share") renderGrokShare(root, CARDS.grok, false);
+      else if (variant === "grok-share-swapped") renderGrokShare(root, CARDS.grok, true);
       else renderSpotlight(root, CARDS[variant] || CARDS.spotlight);
     } catch (error) {
       root.innerHTML = '<div class="error">Unable to load benchmark data: ' +

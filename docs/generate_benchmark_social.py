@@ -22,6 +22,7 @@ HEIGHT = 630
 VARIANTS = {
     "spotlight": "GPT-5.6 Luna max · $19.61 complete run",
     "grok": "Grok 4.6 high · 87.19% with fast-agent",
+    "grok-medium": "Grok 4.6 medium · 87.64% with fast-agent",
     "grok-share": "Grok 4.6 high · social-share alternative",
     "grok-share-swapped": "Grok 4.6 high · mirrored social-share alternative",
     "deepseek": "DeepSeek V4 Flash 0731 · $8.74 complete run",

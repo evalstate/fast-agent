@@ -12,6 +12,7 @@
   --amber-dim: rgba(245, 164, 0, 0.14);
   --deepseek: #55bfb6;
   --deepseek-hi: #8be0d7;
+  --repriced: #67e8f9;
   --mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -26,6 +27,12 @@ body {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--mono);
+}
+
+html.sol-price-animation-page,
+body.sol-price-animation-page {
+  width: 1200px;
+  height: 900px;
 }
 
 body {
@@ -192,6 +199,163 @@ body {
 .scatter .point-label .numbers { fill: var(--fg-2); font-size: 10px; }
 .scatter .point.fast-agent .point-label .numbers { fill: var(--amber); }
 
+/* Sol repricing animation */
+.sol-price-animation {
+  background:
+    radial-gradient(circle at 92% 12%, rgba(103, 232, 249, 0.06), transparent 24rem),
+    radial-gradient(circle at 8% 100%, rgba(245, 164, 0, 0.06), transparent 25rem),
+    var(--bg);
+}
+.sol-price-animation-page .sol-price-animation {
+  width: 1200px;
+  height: 900px;
+}
+.sol-price-animation::before {
+  opacity: 0.2;
+}
+.sol-price-animation .masthead {
+  height: 100px;
+  padding: 0 50px;
+}
+.sol-price-animation .brand {
+  width: 210px;
+}
+.sol-price-animation .status {
+  border-color: rgba(103, 232, 249, 0.5);
+  background: rgba(103, 232, 249, 0.08);
+  color: var(--repriced);
+}
+.sol-price-animation .content {
+  height: 740px;
+}
+.sol-price-animation svg {
+  display: block;
+  width: 1200px;
+  height: 740px;
+}
+.sol-price-animation .footer {
+  height: 60px;
+}
+.sol-price-animation .animation-title {
+  fill: var(--fg);
+  font-size: 35px;
+  font-weight: 700;
+  letter-spacing: -0.045em;
+}
+.sol-price-animation .animation-price-shift {
+  font-size: 29px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+.sol-price-animation .animation-price-old {
+  fill: var(--fg-1);
+  text-decoration: line-through;
+}
+.sol-price-animation .animation-price-arrow,
+.sol-price-animation .animation-price-new {
+  fill: var(--repriced);
+}
+.sol-price-animation .animation-price-unit {
+  fill: var(--fg-2);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+.sol-price-animation .animation-reduction {
+  fill: var(--repriced);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+}
+.sol-price-animation .animation-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.sol-price-animation .animation-axis {
+  stroke: var(--line-hi);
+  stroke-width: 1.5;
+}
+.sol-price-animation .animation-tick {
+  fill: var(--fg-1);
+  font-size: 14px;
+  font-weight: 600;
+}
+.sol-price-animation .animation-axis-label {
+  fill: var(--fg-1);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+.sol-price-animation .animation-point--grok circle {
+  fill: var(--amber);
+  stroke: var(--amber-hi);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 7px rgba(245, 164, 0, 0.34));
+}
+.sol-price-animation .animation-point-label {
+  fill: var(--amber-hi);
+  font-size: 14px;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-linejoin: round;
+  stroke-width: 6px;
+}
+.sol-price-animation .animation-point-model {
+  font-size: 17px;
+  font-weight: 700;
+}
+.sol-price-animation .animation-point-numbers {
+  fill: var(--fg-1);
+  font-size: 13px;
+  font-weight: 600;
+}
+.sol-price-animation .animation-sol-trail {
+  stroke: var(--repriced);
+  stroke-linecap: round;
+  stroke-width: 4;
+}
+.sol-price-animation .animation-sol-original {
+  fill: var(--bg);
+  stroke: var(--fg-2);
+  stroke-dasharray: 5 4;
+  stroke-width: 2;
+}
+.sol-price-animation .animation-sol-original-label {
+  fill: var(--fg-1);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 5px;
+}
+.sol-price-animation .animation-sol-target {
+  fill: none;
+  stroke: rgba(103, 232, 249, 0.35);
+  stroke-dasharray: 4 4;
+  stroke-width: 2;
+}
+.sol-price-animation .animation-sol-halo {
+  fill: rgba(103, 232, 249, 0.1);
+  stroke: rgba(103, 232, 249, 0.24);
+  stroke-width: 2;
+}
+.sol-price-animation .animation-sol-point {
+  fill: var(--repriced);
+  stroke: #d5f8ff;
+  stroke-width: 3;
+  filter: drop-shadow(0 0 10px rgba(103, 232, 249, 0.72));
+}
+.sol-price-animation .animation-sol-label {
+  fill: var(--repriced);
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-linejoin: round;
+  stroke-width: 7px;
+}
+.sol-price-animation .animation-sol-model {
+  font-size: 16px;
+  font-weight: 700;
+}
 /* Cost-bar story */
 .cost-bars .content { padding: 24px 50px 20px; }
 .story-heading {
@@ -974,6 +1138,29 @@ body {
 }
 .grok-share .footer {
   height: 50px;
+}
+.grok-share--medium .context-header,
+.grok-share--medium .context-row {
+  grid-template-columns: 1fr 130px 108px 100px;
+}
+.grok-share--medium .context-row .cost {
+  font-size: 27px;
+}
+.grok-share--medium .context-row .score {
+  font-size: 29px;
+}
+.grok-share--medium .context-row .trial-cost {
+  font-size: 23px;
+}
+.grok-share--medium .context-row.repriced .cost,
+.grok-share--medium .context-row.repriced .trial-cost,
+.grok-share--medium .repriced-label {
+  color: var(--repriced);
+}
+.grok-share--medium .repriced-label {
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 /* Legacy spotlight chart styles */
