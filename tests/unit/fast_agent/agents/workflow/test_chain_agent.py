@@ -266,6 +266,134 @@ async def test_cumulative_chain_structured_preserves_prior_response_content_bloc
 
 
 @pytest.mark.asyncio
+async def test_chain_generate_non_cumulative_passes_only_previous_output() -> None:
+    first = RecordingAgent("first", "first output")
+    second = RecordingAgent("second", "second output")
+    chain = ChainAgent(AgentConfig("chain"), [first, second])
+
+    result = await chain.generate(
+        PromptMessageExtended(role="user", content=[text_content("start")])
+    )
+
+    assert result.all_text() == "second output"
+    assert len(first.generate_inputs) == 1
+    assert len(second.generate_inputs) == 1
+    first_input = first.generate_inputs[0]
+    assert len(first_input) == 1
+    assert first_input[0].role == "user"
+    assert first_input[0].all_text() == "start"
+    second_input = second.generate_inputs[0]
+    assert len(second_input) == 1
+    assert second_input[0].role == "user"
+    assert second_input[0].all_text() == "first output"
+
+
+@pytest.mark.asyncio
+async def test_cumulative_chain_generate_calls_all_agents() -> None:
+    first = RecordingAgent("first", "first output")
+    second = RecordingAgent("second", "second output")
+    chain = ChainAgent(AgentConfig("chain"), [first, second], cumulative=True)
+
+    await chain.generate(
+        PromptMessageExtended(role="user", content=[text_content("start")])
+    )
+
+    assert len(first.generate_inputs) == 1, "first agent must be called exactly once"
+    assert len(second.generate_inputs) == 1, "second agent must be called exactly once"
+
+
+@pytest.mark.asyncio
+async def test_cumulative_chain_generate_passes_prior_outputs_as_context() -> None:
+    first = RecordingAgent("first", "first output")
+    second = RecordingAgent("second", "second output")
+    third = RecordingAgent("third", "third output")
+    chain = ChainAgent(AgentConfig("chain"), [first, second, third], cumulative=True)
+
+    await chain.generate(
+        PromptMessageExtended(role="user", content=[text_content("start")])
+    )
+
+    assert len(first.generate_inputs) == 1
+    assert len(second.generate_inputs) == 1
+    assert len(third.generate_inputs) == 1
+    assert [m.all_text() for m in first.generate_inputs[0]] == ["start"]
+    assert [m.all_text() for m in second.generate_inputs[0]] == ["start", "first output"]
+    assert [m.all_text() for m in third.generate_inputs[0]] == [
+        "start",
+        "first output",
+        "second output",
+    ]
+    for msg in second.generate_inputs[0]:
+        assert msg.role == "user"
+    for msg in third.generate_inputs[0]:
+        assert msg.role == "user"
+
+
+@pytest.mark.asyncio
+async def test_cumulative_chain_generate_response_contains_all_outputs() -> None:
+    first = RecordingAgent("first", "first output")
+    second = RecordingAgent("second", "second output")
+    chain = ChainAgent(AgentConfig("chain"), [first, second], cumulative=True)
+
+    result = await chain.generate(
+        PromptMessageExtended(role="user", content=[text_content("start")])
+    )
+
+    response_text = result.all_text()
+    assert "<fastagent:request>start</fastagent:request>" in response_text
+    assert "<fastagent:response agent='first'>first output</fastagent:response>" in response_text
+    assert "<fastagent:response agent='second'>second output</fastagent:response>" in response_text
+
+
+@pytest.mark.asyncio
+async def test_cumulative_chain_generate_preserves_prior_response_content_blocks() -> None:
+    first = MultimodalRecordingAgent("first", "first output")
+    second = RecordingAgent("second", "second output")
+    chain = ChainAgent(AgentConfig("chain"), [first, second], cumulative=True)
+
+    await chain.generate(
+        PromptMessageExtended(role="user", content=[text_content("start")])
+    )
+
+    assert len(second.generate_inputs) == 1
+    prior_response = second.generate_inputs[0][1]
+    assert prior_response.role == "user"
+    assert len(prior_response.content) == 2
+    assert prior_response.content[0] == text_content("first output")
+    assert isinstance(prior_response.content[1], ImageContent)
+
+
+@pytest.mark.asyncio
+async def test_chain_generate_propagates_child_execution_errors() -> None:
+    first = FailingGenerateAgent("first", "ignored")
+    final = RecordingAgent("final", "result")
+    chain = ChainAgent(AgentConfig("chain"), [first, final])
+
+    with pytest.raises(RuntimeError, match="first failed"):
+        await chain.generate(
+            PromptMessageExtended(role="user", content=[text_content("start")])
+        )
+
+    assert final.generate_inputs == []
+
+
+@pytest.mark.asyncio
+async def test_cumulative_chain_generate_propagates_child_execution_errors() -> None:
+    first = RecordingAgent("first", "first output")
+    second = FailingGenerateAgent("second", "ignored")
+    final = RecordingAgent("final", "result")
+    chain = ChainAgent(AgentConfig("chain"), [first, second, final], cumulative=True)
+
+    with pytest.raises(RuntimeError, match="second failed"):
+        await chain.generate(
+            PromptMessageExtended(role="user", content=[text_content("start")])
+        )
+
+    assert len(first.generate_inputs) == 1
+    assert final.generate_inputs == []
+
+
+@pytest.mark.asyncio
 async def test_chain_structured_propagates_child_execution_errors() -> None:
     first = FailingGenerateAgent("first", "ignored")
     final = RecordingAgent("final", "structured")
