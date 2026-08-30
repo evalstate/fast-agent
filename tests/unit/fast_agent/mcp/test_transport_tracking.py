@@ -389,3 +389,84 @@ def test_ping_request_variants_are_classified_as_ping(method: str) -> None:
     assert snapshot.stdio.last_message_summary == "ping"
     assert snapshot.stdio.activity_buckets[-1] == "ping"
     assert snapshot.stdio.request_count == 0
+
+
+def _ping_request(channel: ChannelName, request_id: object) -> ChannelEvent:
+    return ChannelEvent(
+        channel=channel,
+        event_type="message",
+        message=JSONRPCRequest(jsonrpc="2.0", id=request_id, method="ping"),
+    )
+
+
+def _response(channel: ChannelName, request_id: object) -> ChannelEvent:
+    return ChannelEvent(
+        channel=channel,
+        event_type="message",
+        message=JSONRPCResponse(jsonrpc="2.0", id=request_id, result={}),
+    )
+
+
+def _build_bucket(scenario: str, reply_channel: ChannelName) -> TransportChannelMetrics:
+    """Compose one activity bucket on ``reply_channel``, per the scenario table."""
+    metrics = TransportChannelMetrics()
+
+    if scenario in {"A", "B", "F"}:
+        # the ping is issued elsewhere; the reply is the cross-channel case
+        metrics.record_event(_ping_request("post-json", "p-1"))
+    if scenario == "B":
+        metrics.record_event(
+            ChannelEvent(
+                channel=reply_channel,
+                event_type="message",
+                message=JSONRPCNotification(
+                    jsonrpc="2.0", method="notifications/tools/list_changed"
+                ),
+            )
+        )
+    if scenario in {"C", "F"}:
+        # a genuine response that must not be masked by the ping reply
+        metrics.record_event(_response(reply_channel, "r-1"))
+    if scenario in {"A", "B", "F"}:
+        metrics.record_event(_response(reply_channel, "p-1"))
+
+    return metrics
+
+
+@pytest.mark.parametrize(
+    ("scenario", "expected_bucket", "expected_response_count"),
+    [
+        ("A", "ping", 0),
+        ("B", "ping", 0),
+        ("C", "response", 1),
+        ("F", "response", 1),
+    ],
+)
+def test_ping_exchange_rendering_matches_scenario_table(
+    scenario: str, expected_bucket: str, expected_response_count: int
+) -> None:
+    """Pin the four bucket compositions from the #926 review.
+
+    A and B are the fix: a bucket whose only content was a miscounted ping now
+    renders as ``ping`` instead of ``response``. C and F are the guard rails --
+    ``_history_priority`` ranks ``RESPONSE`` above ``PING``, so a genuine
+    response sharing the bucket keeps the summary, and only the ping is
+    discounted from ``response_count``.
+    """
+    snapshot = _build_bucket(scenario, "listen").snapshot()
+
+    assert snapshot.listen is not None
+    assert snapshot.listen.activity_buckets[-1] == expected_bucket
+    assert snapshot.listen.response_count == expected_response_count
+
+
+@pytest.mark.parametrize("scenario", ["A", "B", "C", "F"])
+def test_listen_matches_get_on_the_scenario_table(scenario: str) -> None:
+    """``listen`` was the outlier: ``get`` already rendered these buckets this way."""
+    listen = _build_bucket(scenario, "listen").snapshot().listen
+    get = _build_bucket(scenario, "get").snapshot().get
+
+    assert listen is not None
+    assert get is not None
+    assert listen.activity_buckets[-1] == get.activity_buckets[-1]
+    assert listen.response_count == get.response_count
