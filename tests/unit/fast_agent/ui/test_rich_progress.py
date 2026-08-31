@@ -523,7 +523,7 @@ class TestAggregatorInitializedVisibility:
         assert len(rendered.plain) == len(prefix) + 3
         display.stop()
 
-    def test_process_poll_heartbeats_toggle_next_dot_blink(self) -> None:
+    def test_process_poll_countdown_blinks_without_heartbeat_updates(self) -> None:
         display = _make_display()
         event = _make_event(
             action=ProgressAction.CALLING_TOOL,
@@ -533,16 +533,18 @@ class TestAggregatorInitializedVisibility:
         )
 
         display.update(event)
-        fields = _task_fields(display, "test-agent::call-poll-blink")
-        assert fields["process_poll_blink_next"] is False
+        task_id = display._taskmap["test-agent::call-poll-blink"]
+        task = next(task for task in display._progress.tasks if task.id == task_id)
+        assert task.start_time is not None
+        task.start_time = task.get_time() - 0.1
+        column = SpinnerDescriptionColumn(spinner_name="braille_dense")
 
-        display.update(event)
-        fields = _task_fields(display, "test-agent::call-poll-blink")
-        assert fields["process_poll_blink_next"] is True
+        visible = column.render(task)
+        task.start_time -= 0.5
+        blinked = column.render(task)
 
-        display.update(event)
-        fields = _task_fields(display, "test-agent::call-poll-blink")
-        assert fields["process_poll_blink_next"] is False
+        assert visible.plain.endswith("⣿  ")
+        assert blinked.plain.endswith("⡿  ")
 
     def test_process_poll_completion_snaps_countdown_empty_before_drop(self, monkeypatch) -> None:
         deferred_callbacks: list[Callable[[], None]] = []
