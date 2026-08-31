@@ -46,8 +46,10 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     WebSocketResponsesStream,
     build_ws_headers,
     connect_websocket,
+    merge_headers_case_insensitive,
     resolve_responses_ws_url,
     send_response_request,
+    websocket_reuse_key,
 )
 from fast_agent.llm.provider.openai.schema_sanitizer import (
     sanitize_response_format_schema,
@@ -400,12 +402,14 @@ class ResponsesLLM(
     def _available_service_tiers_for_model(
         self, model_name: str | None
     ) -> tuple[ResponsesServiceTier, ...]:
+        model_name = model_name or self.default_request_params.model
+        configured_tiers = (
+            self._get_model_response_service_tiers(model_name) if model_name else None
+        )
         if self.provider == Provider.CODEX_RESPONSES:
-            return ("fast",)
-        if model_name:
-            configured_tiers = self._get_model_response_service_tiers(model_name)
-            if configured_tiers is not None:
-                return configured_tiers
+            return ("fast",) if configured_tiers and "fast" in configured_tiers else ()
+        if configured_tiers is not None:
+            return configured_tiers
         return ("fast", "flex")
 
     def _normalize_service_tier(self, raw_value: Any) -> ResponsesServiceTier | None:
@@ -1457,9 +1461,10 @@ class ResponsesLLM(
         arguments = self._build_response_args(normalized_input, request_params, tools)
         request_headers = arguments.pop("extra_headers", None)
         self._prepare_websocket_arguments(arguments)
-        ws_headers = self._build_websocket_headers()
-        if isinstance(request_headers, dict):
-            ws_headers.update(request_headers)
+        ws_headers = merge_headers_case_insensitive(
+            self._build_websocket_headers(),
+            request_headers if isinstance(request_headers, dict) else None,
+        )
         self._record_ws_phase(phase_timings, "build_args", phase_started_at)
         self.logger.debug("Responses websocket request", data=arguments)
         capture_filename = _stream_capture_filename(self.chat_turn())
@@ -1489,7 +1494,10 @@ class ResponsesLLM(
             )
 
         phase_started_at = time.perf_counter()
-        connection, is_reusable = await self._ws_connections.acquire(_create_connection)
+        connection, is_reusable = await self._ws_connections.acquire(
+            _create_connection,
+            reuse_key=websocket_reuse_key(context.ws_url, context.ws_headers),
+        )
         self._record_ws_phase(context.phase_timings, "acquire_connection", phase_started_at)
         reused_existing_connection = is_reusable and connection.last_used_monotonic > 0.0
         planner = connection.session_state.request_planner

@@ -890,14 +890,23 @@ def _validate_service_tier_constraints(
             )
         return
 
-    if service_tier != "flex":
+    if provider == Provider.CODEX_RESPONSES:
+        if service_tier == "flex":
+            raise ModelConfigError(
+                "Provider 'codexresponses' does not support service_tier=flex. "
+                "Allowed values are fast or unset (standard)."
+            )
+        if service_tier == "fast" and (
+            ModelDatabase.supports_response_service_tier(model_name, "fast") is not True
+        ):
+            raise ModelConfigError(
+                f"Model '{model_name}' does not support service_tier=fast "
+                "with provider 'codexresponses'."
+            )
         return
 
-    if provider == Provider.CODEX_RESPONSES:
-        raise ModelConfigError(
-            "Provider 'codexresponses' does not support service_tier=flex. "
-            "Allowed values are fast or unset (standard)."
-        )
+    if service_tier != "flex":
+        return
 
     if provider not in _FLEX_SERVICE_TIER_MODEL_CHECK_PROVIDERS:
         return

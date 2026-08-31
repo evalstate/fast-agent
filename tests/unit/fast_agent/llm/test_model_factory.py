@@ -550,6 +550,14 @@ def test_codexresponses_fast_service_tier_query() -> None:
     assert config.service_tier == "fast"
 
 
+@pytest.mark.parametrize("model_name", ["o3", "unknown-model"])
+def test_codexresponses_fast_service_tier_query_requires_model_support(
+    model_name: str,
+) -> None:
+    with pytest.raises(ModelConfigError, match="does not support service_tier=fast"):
+        ModelFactory.parse_model_string(f"codexresponses.{model_name}?service_tier=fast")
+
+
 def test_codexresponses_flex_service_tier_query_rejected() -> None:
     with pytest.raises(ModelConfigError, match="does not support service_tier=flex"):
         ModelFactory.parse_model_string("codexresponses.gpt-5.4?service_tier=flex")

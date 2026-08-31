@@ -39,7 +39,11 @@ from fast_agent.context import Context
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
-from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
+from fast_agent.llm.provider.openai.codex_responses import (
+    CODEX_RESPONSES_LITE_HEADER,
+    CODEX_ROUTING_HINT_HEADER,
+    CodexResponsesLLM,
+)
 from fast_agent.llm.provider.openai.openresponses import (
     OpenResponsesLLM,
     _OpenResponsesRawStream,
@@ -928,7 +932,10 @@ def test_codexresponses_lite_uses_internal_request_contract() -> None:
         [tool],
     )
 
-    assert args["extra_headers"] == {"x-openai-internal-codex-responses-lite": "true"}
+    assert args["extra_headers"] == {
+        CODEX_RESPONSES_LITE_HEADER: "true",
+        CODEX_ROUTING_HINT_HEADER: "model=gpt-5.6-luna",
+    }
     assert "instructions" not in args
     assert "tools" not in args
     assert args["parallel_tool_calls"] is False
@@ -940,6 +947,25 @@ def test_codexresponses_lite_uses_internal_request_contract() -> None:
     ]
     assert args["input"][0]["tools"][0]["name"] == "lookup"
     assert args["input"][1]["role"] == "developer"
+
+
+def test_codexresponses_lite_fast_preserves_both_routing_headers() -> None:
+    llm = _build_responses_family_llm(
+        Provider.CODEX_RESPONSES,
+        model_name="gpt-5.6-luna",
+    )
+
+    args = llm._build_response_args(
+        [],
+        RequestParams(model="gpt-5.6-luna", service_tier="fast"),
+        None,
+    )
+
+    assert args["service_tier"] == "priority"
+    assert args["extra_headers"] == {
+        CODEX_RESPONSES_LITE_HEADER: "true",
+        CODEX_ROUTING_HINT_HEADER: "model=gpt-5.6-luna;tier=priority",
+    }
 
 
 def test_codexresponses_lite_adds_per_request_websocket_metadata() -> None:
@@ -983,7 +1009,7 @@ def test_codexresponses_standard_model_omits_lite_contract(model_name: str) -> N
         None,
     )
 
-    assert "extra_headers" not in args
+    assert args["extra_headers"] == {CODEX_ROUTING_HINT_HEADER: f"model={model_name}"}
     assert args["instructions"] == "instructions"
     assert "client_metadata" not in args
 
@@ -2102,6 +2128,52 @@ def test_build_response_args_maps_service_tier_values(
     assert args["service_tier"] == wire_value
 
 
+@pytest.mark.parametrize(
+    ("service_tier", "expected_hint"),
+    [
+        (None, "model=gpt-5.3-codex"),
+        ("fast", "model=gpt-5.3-codex;tier=priority"),
+    ],
+)
+def test_codexresponses_request_adds_routing_hint(
+    service_tier: Literal["fast"] | None,
+    expected_hint: str,
+) -> None:
+    llm = _build_responses_family_llm(
+        Provider.CODEX_RESPONSES,
+        model_name="gpt-5.3-codex",
+    )
+    params = RequestParams(model="gpt-5.3-codex")
+    if service_tier is not None:
+        params.service_tier = service_tier
+
+    args = llm._build_response_args([], params, None)
+
+    assert args["extra_headers"][CODEX_ROUTING_HINT_HEADER] == expected_hint
+    if service_tier is None:
+        assert "service_tier" not in args
+    else:
+        assert args["service_tier"] == "priority"
+
+
+def test_codexresponses_routing_hint_overrides_configured_header_case_insensitively() -> None:
+    llm = _build_responses_family_llm(
+        Provider.CODEX_RESPONSES,
+        model_name="gpt-5.3-codex",
+    )
+
+    args = llm._build_response_args(
+        [],
+        RequestParams(
+            model="gpt-5.3-codex",
+            metadata={"extra_headers": {"X-Codex-Routing-Hint": "stale"}},
+        ),
+        None,
+    )
+
+    assert args["extra_headers"] == {CODEX_ROUTING_HINT_HEADER: "model=gpt-5.3-codex"}
+
+
 def test_build_response_args_omits_service_tier_when_unset() -> None:
     llm = _build_responses_family_llm(Provider.RESPONSES)
 
@@ -2169,6 +2241,19 @@ def test_codexresponses_set_service_tier_rejects_flex() -> None:
 
     with pytest.raises(ValueError, match="standard"):
         llm.set_service_tier("flex")
+
+
+def test_codexresponses_model_without_fast_metadata_hides_service_tier() -> None:
+    llm = CodexResponsesLLM(
+        provider=Provider.CODEX_RESPONSES,
+        model="o3",
+        transport="sse",
+    )
+
+    assert llm.available_service_tiers == ()
+    assert llm.service_tier_supported is False
+    with pytest.raises(ValueError, match="standard"):
+        llm.set_service_tier("fast")
 
 
 def test_responses_chatgpt_model_reports_fast_only_service_tier() -> None:
