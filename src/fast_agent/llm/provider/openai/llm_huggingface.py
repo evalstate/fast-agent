@@ -55,6 +55,9 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
         # Get base defaults from parent (includes ModelDatabase lookup)
         base_params = super()._initialize_default_params(kwargs)
+        profile = self._route_profile(base_model)
+        if profile and profile.omit_default_max_tokens:
+            base_params.max_tokens = None
 
         # Override with HuggingFace-specific settings
         base_params.model = base_model
