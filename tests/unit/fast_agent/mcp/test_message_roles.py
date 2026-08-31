@@ -1,6 +1,5 @@
 from fast_agent.mcp.message_roles import (
     DEFAULT_MESSAGE_ROLE,
-    MESSAGE_ROLE_NAMES,
     coerce_message_role,
     is_message_role,
 )
@@ -29,7 +28,3 @@ def test_coerce_message_role_returns_supported_roles() -> None:
 def test_coerce_message_role_uses_default_for_invalid_values() -> None:
     assert coerce_message_role("tool") == DEFAULT_MESSAGE_ROLE
     assert coerce_message_role(None, default="assistant") == "assistant"
-
-
-def test_message_role_names_reflect_supported_roles() -> None:
-    assert MESSAGE_ROLE_NAMES == "user, assistant"

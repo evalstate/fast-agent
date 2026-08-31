@@ -5,6 +5,8 @@ This class provides default implementations of the standard agent methods
 and delegates operations to an attached FastAgentLLMProtocol instance.
 """
 
+from __future__ import annotations
+
 import asyncio
 import fnmatch
 import os
@@ -54,7 +56,6 @@ from fast_agent.agents.mcp_tool_presentation import (
 )
 from fast_agent.agents.subagent_directive import resolve_subagent_directive
 from fast_agent.agents.tool_agent import ToolAgent
-from fast_agent.agents.tool_call_planning import PlannedToolCall
 from fast_agent.commands.model_capabilities import (
     resolve_model_name,
     resolve_model_params,
@@ -77,7 +78,6 @@ from fast_agent.llm.terminal_output_limits import (
     calculate_terminal_output_limit_for_model,
     calculate_terminal_output_limit_for_resolved_model,
 )
-from fast_agent.mcp.app_integrations import AppServerConfig
 from fast_agent.mcp.common import (
     create_namespaced_name,
     get_resource_name,
@@ -107,27 +107,16 @@ from fast_agent.paths import resolve_home_paths
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_TOOL_NAME
-from fast_agent.tools.composite_filesystem_runtime import CompositeFilesystemRuntime
 from fast_agent.tools.edit_file_tool import EDIT_FILE_TOOL_NAME
 from fast_agent.tools.elicitation import (
     get_elicitation_tool,
     run_elicitation_form,
     set_elicitation_input_callback,
 )
-from fast_agent.tools.environment_filesystem_runtime import EnvironmentFilesystemRuntime
-from fast_agent.tools.execution_environment import (
-    EnvironmentFilesystem,
-    EnvironmentTemporaryArtifacts,
-)
-from fast_agent.tools.external_runtime_protocol import ExternalRuntime
-from fast_agent.tools.filesystem_runtime_protocol import FilesystemRuntime
 from fast_agent.tools.filesystem_tool_definitions import (
     READ_TEXT_FILE_TOOL_NAME,
     WRITE_TEXT_FILE_TOOL_NAME,
 )
-from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
-from fast_agent.tools.shell_profiles import ResolvedShellToolProfile, ShellToolProfile
-from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME, SkillReader
 from fast_agent.types import (
     PromptMessageExtended,
@@ -197,9 +186,20 @@ if TYPE_CHECKING:
     from rich.text import Text
 
     from fast_agent.agents.llm_decorator import LlmDecorator
+    from fast_agent.agents.tool_call_planning import PlannedToolCall
     from fast_agent.context import Context
     from fast_agent.llm.usage_tracking import UsageAccumulator
-    from fast_agent.tools.execution_environment import ShellEnvironment
+    from fast_agent.mcp.app_integrations import AppServerConfig
+    from fast_agent.tools.environment_filesystem_runtime import EnvironmentFilesystemRuntime
+    from fast_agent.tools.execution_environment import (
+        EnvironmentTemporaryArtifacts,
+        ShellEnvironment,
+    )
+    from fast_agent.tools.external_runtime_protocol import ExternalRuntime
+    from fast_agent.tools.filesystem_runtime_protocol import FilesystemRuntime
+    from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
+    from fast_agent.tools.shell_profiles import ResolvedShellToolProfile, ShellToolProfile
+    from fast_agent.tools.shell_runtime import ShellRuntime
 
 
 def _effective_configured_servers(
@@ -642,6 +642,8 @@ class McpAgent(ABC, ToolAgent):
         return kwargs
 
     def _temporary_artifact_environment(self) -> EnvironmentTemporaryArtifacts | None:
+        from fast_agent.tools.execution_environment import EnvironmentTemporaryArtifacts
+
         environment = self._shell_environment
         if not isinstance(environment, EnvironmentTemporaryArtifacts):
             return None
@@ -674,6 +676,9 @@ class McpAgent(ABC, ToolAgent):
         return self._skill_manifests
 
     def _local_filesystem_runtime(self) -> LocalFilesystemRuntime | None:
+        from fast_agent.tools.composite_filesystem_runtime import CompositeFilesystemRuntime
+        from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
+
         runtime = self._filesystem_runtime
         if isinstance(runtime, LocalFilesystemRuntime):
             return runtime
@@ -687,6 +692,9 @@ class McpAgent(ABC, ToolAgent):
         return None
 
     def _environment_filesystem_runtime(self) -> EnvironmentFilesystemRuntime | None:
+        from fast_agent.tools.composite_filesystem_runtime import CompositeFilesystemRuntime
+        from fast_agent.tools.environment_filesystem_runtime import EnvironmentFilesystemRuntime
+
         runtime = self._filesystem_runtime
         if isinstance(runtime, EnvironmentFilesystemRuntime):
             return runtime
@@ -700,6 +708,8 @@ class McpAgent(ABC, ToolAgent):
         return None
 
     def _drop_local_filesystem_runtime(self) -> None:
+        from fast_agent.tools.composite_filesystem_runtime import CompositeFilesystemRuntime
+
         local_runtime = self._local_filesystem_runtime()
         if local_runtime is None:
             return
@@ -1056,6 +1066,11 @@ class McpAgent(ABC, ToolAgent):
         if not self._shell_runtime_enabled:
             return
 
+        from fast_agent.tools.composite_filesystem_runtime import CompositeFilesystemRuntime
+        from fast_agent.tools.environment_filesystem_runtime import EnvironmentFilesystemRuntime
+        from fast_agent.tools.execution_environment import EnvironmentFilesystem
+        from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
+
         enable_read = self._shell_read_text_file_enabled()
         enable_attach_media = self._shell_attach_media_mode()
         model_info = self.llm.model_info if self.llm else None
@@ -1303,6 +1318,8 @@ class McpAgent(ABC, ToolAgent):
     ) -> None:
         if activation_reason is not None and self._external_runtime is not None:
             return
+
+        from fast_agent.tools.shell_runtime import ShellRuntime
 
         self._warn_if_invalid_shell_working_directory(working_directory)
 
@@ -1558,6 +1575,9 @@ class McpAgent(ABC, ToolAgent):
         Args:
             runtime: Runtime instance with tools property and read_text_file/write_text_file methods
         """
+        from fast_agent.tools.composite_filesystem_runtime import CompositeFilesystemRuntime
+        from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
+
         local_runtime = self._local_filesystem_runtime()
         if isinstance(runtime, (LocalFilesystemRuntime, CompositeFilesystemRuntime)):
             self._filesystem_runtime = runtime

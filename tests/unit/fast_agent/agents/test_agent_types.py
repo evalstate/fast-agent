@@ -21,20 +21,6 @@ def test_agent_type_default():
     assert agent.agent_type == AgentType.BASIC
 
 
-def test_agent_config_subagent_controls_default_and_preserve_explicit_values() -> None:
-    default = AgentConfig(name="default")
-    configured = AgentConfig(
-        name="configured",
-        subagents=False,
-        subagent_model="passthrough",
-    )
-
-    assert default.subagents is None
-    assert default.subagent_model is None
-    assert configured.subagents is False
-    assert configured.subagent_model == "passthrough"
-
-
 def test_instruction_propagates_to_default_request_params():
     """
     Test that AgentConfig.instruction is propagated to

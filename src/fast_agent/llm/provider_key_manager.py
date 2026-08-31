@@ -11,7 +11,6 @@ from typing import Any, Final, NoReturn, Protocol, cast, runtime_checkable
 from pydantic import BaseModel
 
 from fast_agent.core.exceptions import ProviderKeyError
-from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
 from fast_agent.utils.text import strip_casefold
 
 PROVIDER_ENVIRONMENT_MAP: dict[str, str] = {
@@ -213,6 +212,8 @@ class ProviderKeyManager:
         if provider_name in {"hf", "huggingface"}:
             # HuggingFace also supports tokens managed by huggingface_hub
             # (e.g. `hf auth login`) when env/config keys are absent.
+            from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
+
             return get_huggingface_hub_token()
 
         if provider_name == "generic":

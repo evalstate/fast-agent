@@ -1682,11 +1682,11 @@ class BedrockSettings(BaseModel):
     )
     reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
         default=None,
-        description="Unified reasoning setting (effort level or budget)",
+        description="Unified reasoning setting (effort level or legacy mapped budget)",
     )
-    reasoning_effort: Literal["minimal", "low", "medium", "high"] = Field(
+    reasoning_effort: Literal["minimal", "low", "medium", "high", "xhigh", "max"] = Field(
         default="minimal",
-        description="Default reasoning effort: minimal, low, medium, high",
+        description="Default reasoning effort: minimal, low, medium, high, xhigh, max",
     )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)

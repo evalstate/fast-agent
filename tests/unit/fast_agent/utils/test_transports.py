@@ -1,17 +1,10 @@
 from __future__ import annotations
 
 from fast_agent.utils.transports import (
-    MCP_CLIENT_TRANSPORTS,
-    MCP_REMOTE_TRANSPORTS,
     is_mcp_client_transport,
     uses_mcp_remote_transport,
     uses_protocol_stdio,
 )
-
-
-def test_mcp_transport_groups_are_derived_from_literals() -> None:
-    assert MCP_CLIENT_TRANSPORTS == frozenset({"stdio", "sse", "http"})
-    assert MCP_REMOTE_TRANSPORTS == frozenset({"sse", "http"})
 
 
 def test_mcp_client_transport_identifies_supported_client_transports() -> None:

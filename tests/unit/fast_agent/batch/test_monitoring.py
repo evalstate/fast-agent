@@ -1,13 +1,24 @@
 from __future__ import annotations
 
-import json
-import os
-import subprocess
 import sys
-from pathlib import Path
+from types import ModuleType
+from typing import cast
 
-from fast_agent.batch.monitoring import BatchUsageTotals, payload_metrics
-from fast_agent.batch.structured import _add_usage_totals_delta, _UsageTotalsSnapshot
+import pytest
+
+from fast_agent.batch.monitoring import (
+    TRACKIO_MISSING_MESSAGE,
+    BatchTrackioOptions,
+    BatchUsageTotals,
+    create_batch_monitor,
+    payload_metrics,
+)
+from fast_agent.batch.structured import (
+    StructuredBatchOptions,
+    _add_usage_totals_delta,
+    _UsageTotalsSnapshot,
+)
+from fast_agent.batch.summary import BatchSummary
 
 
 def _usage(
@@ -241,143 +252,68 @@ def test_usage_totals_do_not_expose_row_content_in_metrics() -> None:
     assert "secret prompt" not in rendered
 
 
-def test_trackio_monitor_logs_with_real_fake_module(tmp_path) -> None:
-    module_dir = tmp_path / "modules"
-    calls_path = tmp_path / "trackio-calls.jsonl"
-    module_dir.mkdir()
-    (module_dir / "trackio.py").write_text(
-        """
-import json
-import os
+def test_trackio_monitor_logs_with_test_module(monkeypatch, tmp_path) -> None:
+    calls: list[dict[str, object]] = []
+    trackio = ModuleType("trackio")
 
-CALLS = os.environ["TRACKIO_CALLS"]
+    def init(**kwargs: object) -> None:
+        calls.append({"kind": "init", "kwargs": kwargs})
 
-def _write(payload):
-    with open(CALLS, "a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, sort_keys=True) + "\\n")
+    def log(metrics: dict[str, int | float], step: int | None = None) -> None:
+        calls.append({"kind": "log", "metrics": metrics, "step": step})
 
-def init(**kwargs):
-    _write({"kind": "init", "kwargs": kwargs})
+    def finish() -> None:
+        calls.append({"kind": "finish"})
 
-def log(metrics, step=None):
-    _write({"kind": "log", "metrics": metrics, "step": step})
+    trackio.__dict__.update({"init": init, "log": log, "finish": finish})
+    monkeypatch.setitem(sys.modules, "trackio", trackio)
 
-def finish():
-    _write({"kind": "finish"})
-""",
-        encoding="utf-8",
+    options = StructuredBatchOptions(
+        input_path=tmp_path / "rows.jsonl",
+        output_path=tmp_path / "out.jsonl",
+        model="passthrough",
+        trackio=BatchTrackioOptions(
+            project="demo",
+            name="run-1",
+            group="group-1",
+            log_every=1,
+            config={"dataset": "pilot"},
+        ),
     )
-
-    code = """
-from pathlib import Path
-from fast_agent.batch.monitoring import BatchTrackioOptions, create_batch_monitor
-from fast_agent.batch.structured import StructuredBatchOptions
-from fast_agent.batch.summary import BatchSummary
-
-options = StructuredBatchOptions(
-    input_path=Path("rows.jsonl"),
-    output_path=Path("out.jsonl"),
-    model="passthrough",
-    trackio=BatchTrackioOptions(
-        project="demo",
-        name="run-1",
-        group="group-1",
-        log_every=1,
-        config={"dataset": "pilot"},
-    ),
-)
-summary = BatchSummary(
-    input_rows=1,
-    selected_rows=1,
-    started_at="2026-06-11T00:00:00Z",
-    metadata={},
-)
-monitor = create_batch_monitor(options)
-monitor.start(options, 1)
-summary.processed_rows = 1
-summary.add_usage({
-    "schema": "fast-agent.usage/v2",
-    "provider_attempts": [{
-        "provider": "openai",
-        "usage_schema": "openai-chat",
-        "model": "test",
-        "prompt": {"total": 10},
-        "completion": {"total": 3},
-        "raw_usage": {},
-    }],
-})
-monitor.row(summary)
-monitor.complete(summary.to_dict("2026-06-11T00:00:01Z"))
-monitor.close()
-"""
-    env = _subprocess_env_with_module_dir(module_dir)
-    env["TRACKIO_CALLS"] = str(calls_path)
-    completed = subprocess.run(
-        [sys.executable, "-c", code],
-        cwd=Path(__file__).resolve().parents[4],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
+    summary = BatchSummary(
+        input_rows=1,
+        selected_rows=1,
+        started_at="2026-06-11T00:00:00Z",
+        metadata={},
     )
+    monitor = create_batch_monitor(options)
+    monitor.start(options, 1)
+    summary.processed_rows = 1
+    summary.add_usage(_usage(10, 3))
+    monitor.row(summary)
+    monitor.complete(summary.to_dict("2026-06-11T00:00:01Z"))
+    monitor.close()
 
-    assert completed.returncode == 0, completed.stderr
-    calls = [json.loads(line) for line in calls_path.read_text(encoding="utf-8").splitlines()]
     assert [call["kind"] for call in calls] == ["init", "log", "finish"]
-    assert calls[0]["kwargs"]["project"] == "demo"
-    assert calls[0]["kwargs"]["config"]["dataset"] == "pilot"
+    init_kwargs = cast("dict[str, object]", calls[0]["kwargs"])
+    assert init_kwargs["project"] == "demo"
+    config = cast("dict[str, object]", init_kwargs["config"])
+    assert config["dataset"] == "pilot"
     assert calls[1]["step"] == 1
-    assert calls[1]["metrics"]["batch/usage/prompt_tokens"] == 10
-    assert calls[1]["metrics"]["batch/usage/prompt_tokens_per_row"] == 10
+    metrics = cast("dict[str, int | float]", calls[1]["metrics"])
+    assert metrics["batch/usage/prompt_tokens"] == 10
+    assert metrics["batch/usage/prompt_tokens_per_row"] == 10
 
 
-def test_trackio_monitor_missing_dependency_uses_clear_error(tmp_path) -> None:
-    module_dir = tmp_path / "modules"
-    module_dir.mkdir()
-    (module_dir / "trackio.py").write_text(
-        'raise ImportError("trackio intentionally unavailable")\n',
-        encoding="utf-8",
+def test_trackio_monitor_missing_dependency_uses_clear_error(monkeypatch, tmp_path) -> None:
+    monkeypatch.setitem(sys.modules, "trackio", None)
+    options = StructuredBatchOptions(
+        input_path=tmp_path / "rows.jsonl",
+        output_path=tmp_path / "out.jsonl",
+        trackio=BatchTrackioOptions(project="demo"),
     )
 
-    code = """
-from pathlib import Path
-from fast_agent.batch.monitoring import (
-    BatchTrackioOptions,
-    TRACKIO_MISSING_MESSAGE,
-    create_batch_monitor,
-)
-from fast_agent.batch.structured import StructuredBatchOptions
+    with pytest.raises(RuntimeError) as exc_info:
+        create_batch_monitor(options).start(options, 0)
 
-options = StructuredBatchOptions(
-    input_path=Path("rows.jsonl"),
-    output_path=Path("out.jsonl"),
-    trackio=BatchTrackioOptions(project="demo"),
-)
-try:
-    create_batch_monitor(options).start(options, 0)
-except RuntimeError as exc:
-    assert str(exc) == TRACKIO_MISSING_MESSAGE
-else:
-    raise SystemExit("expected RuntimeError")
-"""
-    completed = subprocess.run(
-        [sys.executable, "-c", code],
-        cwd=Path(__file__).resolve().parents[4],
-        env=_subprocess_env_with_module_dir(module_dir),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert completed.returncode == 0, completed.stderr
-
-
-def _subprocess_env_with_module_dir(module_dir: Path) -> dict[str, str]:
-    env = os.environ.copy()
-    src_path = Path(__file__).resolve().parents[4] / "src"
-    existing = env.get("PYTHONPATH")
-    paths = [str(module_dir), str(src_path)]
-    if existing:
-        paths.append(existing)
-    env["PYTHONPATH"] = ":".join(paths)
-    return env
+    assert str(exc_info.value) == TRACKIO_MISSING_MESSAGE

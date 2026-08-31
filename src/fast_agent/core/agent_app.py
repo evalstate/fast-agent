@@ -6,13 +6,12 @@ from __future__ import annotations
 
 import re
 import time
+import warnings
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, TypeGuard, runtime_checkable
 
-from deprecated import deprecated
 from rich.markup import escape
 
-from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
 from fast_agent.core.logging.logger import get_logger
@@ -24,17 +23,6 @@ from fast_agent.llm.usage_tracking import (
     last_turn_usage,
 )
 from fast_agent.ui.display_suppression import display_usage_enabled
-from fast_agent.ui.turn_usage_display import (
-    CacheTTLDisplay,
-    CacheTTLExpiry,
-    CacheTTLMinimum,
-    NamedTurnUsageDisplay,
-    TurnUsageDisplay,
-    display_parallel_turn_usage,
-    display_plugin_post_user_turn,
-    display_regular_turn_usage,
-    display_regular_turn_usage_with_subagents,
-)
 from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
@@ -44,6 +32,7 @@ if TYPE_CHECKING:
     from mcp_types import GetPromptResult, PromptMessage
 
     from fast_agent.agents.agent_types import AgentType
+    from fast_agent.agents.workflow.parallel_agent import ParallelAgent
     from fast_agent.cli.runtime.shell_cwd_policy import MissingShellCwdPolicy
     from fast_agent.command_actions import PluginCommandActionSpec
     from fast_agent.config import MCPServerSettings
@@ -55,6 +44,11 @@ if TYPE_CHECKING:
     from fast_agent.session.session_manager import ResumeSessionAgentsResult, SessionManager
     from fast_agent.types import PromptMessageExtended, RequestParams
     from fast_agent.ui.interactive_prompt import PromptLoopResult
+    from fast_agent.ui.turn_usage_display import (
+        CacheTTLDisplay,
+        NamedTurnUsageDisplay,
+        TurnUsageDisplay,
+    )
 
 logger = get_logger(__name__)
 
@@ -70,6 +64,12 @@ _SUBAGENT_TURN_INDEX_SUFFIX = "::subagents"
 class _SubagentUsageAgent(Protocol):
     @property
     def subagent_usage_accumulator(self) -> "UsageAccumulator": ...
+
+
+def _is_parallel_agent(agent: "AgentProtocol") -> TypeGuard["ParallelAgent"]:
+    from fast_agent.agents.workflow.parallel_agent import ParallelAgent
+
+    return isinstance(agent, ParallelAgent)
 
 
 @dataclass(slots=True, frozen=True)
@@ -696,7 +696,6 @@ class AgentApp:
             return await self._refresh_callback()
         return AgentRefreshResult(changed=False)
 
-    @deprecated
     async def prompt(
         self,
         agent_name: str | None = None,
@@ -706,6 +705,11 @@ class AgentApp:
         """
         Deprecated - use interactive() instead.
         """
+        warnings.warn(
+            "AgentApp.prompt() is deprecated; use interactive() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return await self.interactive(
             agent_name=agent_name, default_prompt=default_prompt, request_params=request_params
         )
@@ -849,7 +853,7 @@ class AgentApp:
         if not agent:
             return
 
-        if isinstance(agent, ParallelAgent):
+        if _is_parallel_agent(agent):
             self._show_parallel_agent_usage(agent, turn_start_indices or {})
         else:
             self._show_regular_agent_usage(agent, turn_start_indices or {})
@@ -867,6 +871,7 @@ class AgentApp:
 
         from fast_agent.integrations.herdr_lifecycle import report_session_usage
         from fast_agent.plugins.post_user_turn import run_plugin_post_user_turn
+        from fast_agent.ui.turn_usage_display import display_plugin_post_user_turn
 
         turn_usage, session_usage = self._collect_plugin_usage(agent, turn_start_indices)
         await run_plugin_post_user_turn(
@@ -885,9 +890,7 @@ class AgentApp:
         turn_start_indices: Mapping[str, int],
     ) -> tuple[tuple[TurnUsage, ...], tuple[TurnUsage, ...]]:
         targets = (
-            [*agent.fan_out_agents, agent.fan_in_agent]
-            if isinstance(agent, ParallelAgent)
-            else [agent]
+            [*agent.fan_out_agents, agent.fan_in_agent] if _is_parallel_agent(agent) else [agent]
         )
         seen: set[int] = set()
         turn_usage: list[TurnUsage] = []
@@ -924,7 +927,7 @@ class AgentApp:
                     target.subagent_usage_accumulator.turns
                 )
 
-        if isinstance(agent, ParallelAgent):
+        if _is_parallel_agent(agent):
             for child_agent in agent.fan_out_agents:
                 record(child_agent)
             record(agent.fan_in_agent)
@@ -954,7 +957,7 @@ class AgentApp:
             return None
 
         ledgers: list[UsageLedger] = []
-        if isinstance(agent, ParallelAgent):
+        if _is_parallel_agent(agent):
             seen: set[int] = set()
             for target in [*agent.fan_out_agents, agent.fan_in_agent]:
                 accumulator = target.usage_accumulator
@@ -994,6 +997,11 @@ class AgentApp:
         turn_start_indices: dict[str, int],
     ) -> None:
         """Show usage for a regular (non-parallel) agent."""
+        from fast_agent.ui.turn_usage_display import (
+            display_regular_turn_usage,
+            display_regular_turn_usage_with_subagents,
+        )
+
         usage = self._collect_agent_turn_usage(agent, turn_start_indices.get(agent.name))
         if usage is None:
             return
@@ -1025,6 +1033,11 @@ class AgentApp:
         self, parallel_agent: ParallelAgent, turn_start_indices: dict[str, int]
     ) -> None:
         """Show usage for a parallel agent and its children."""
+        from fast_agent.ui.turn_usage_display import (
+            NamedTurnUsageDisplay,
+            display_parallel_turn_usage,
+        )
+
         children: list[NamedTurnUsageDisplay] = []
 
         for child_agent in parallel_agent.fan_out_agents:
@@ -1072,6 +1085,8 @@ class AgentApp:
         context_agent: AgentProtocol | None,
         fallback_to_last: bool,
     ) -> TurnUsageDisplay | None:
+        from fast_agent.ui.turn_usage_display import TurnUsageDisplay
+
         turns = accumulator.turns
         if not turns:
             return None
@@ -1143,6 +1158,8 @@ class AgentApp:
         turn_slice: list[TurnUsage],
         has_cache_activity: bool,
     ) -> CacheTTLDisplay | None:
+        from fast_agent.ui.turn_usage_display import CacheTTLExpiry, CacheTTLMinimum
+
         accumulator = agent.usage_accumulator
         if accumulator is None:
             return None

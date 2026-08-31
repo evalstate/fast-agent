@@ -4,6 +4,7 @@ import io
 import json
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 from rich.cells import cell_len
@@ -543,7 +544,18 @@ class TestAggregatorInitializedVisibility:
         fields = _task_fields(display, "test-agent::call-poll-blink")
         assert fields["process_poll_blink_next"] is False
 
-    def test_process_poll_completion_snaps_countdown_empty_before_drop(self) -> None:
+    def test_process_poll_completion_snaps_countdown_empty_before_drop(self, monkeypatch) -> None:
+        deferred_callbacks: list[Callable[[], None]] = []
+
+        class _DeferredTimer:
+            def __init__(self, _delay: float, callback: Callable[[], None]) -> None:
+                self._callback = callback
+                self.daemon = False
+
+            def start(self) -> None:
+                deferred_callbacks.append(self._callback)
+
+        monkeypatch.setattr("fast_agent.ui.progress.display.Timer", _DeferredTimer)
         display = RichProgressDisplay(
             console=Console(file=io.StringIO(), force_terminal=True),
             default_agent_name="test-agent",
@@ -586,7 +598,8 @@ class TestAggregatorInitializedVisibility:
         assert "Monitoring" in empty.plain
         assert empty.plain.endswith("   ")
         assert len(empty.plain) == len("▎◀ Monitoring ") + 3
-        time.sleep(0.85)
+        assert len(deferred_callbacks) == 1
+        deferred_callbacks[0]()
         assert "test-agent::call-poll-finish" not in display._taskmap
         display.stop()
 

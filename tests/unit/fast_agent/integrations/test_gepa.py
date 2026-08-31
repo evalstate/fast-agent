@@ -1,5 +1,4 @@
 import json
-import os
 import subprocess
 import sys
 import types
@@ -14,6 +13,7 @@ from fast_agent.integrations.gepa import (
     FastAgentReflectionLM,
     FastAgentRowWiseBatchAdapter,
     FastAgentSingleTaskAdapter,
+    GEPAIntegrationError,
     GEPATrackioDashboard,
     RowWiseEvaluationRun,
     RowWiseScore,
@@ -908,44 +908,20 @@ def test_evaluation_batch_falls_back_when_gepa_is_not_installed():
     assert batch.num_metric_calls == 1
 
 
-def test_evaluation_batch_rejects_incompatible_gepa_package(tmp_path):
-    package_root = tmp_path / "packages"
-    adapter_path = package_root / "gepa" / "core" / "adapter.py"
-    adapter_path.parent.mkdir(parents=True)
-    (package_root / "gepa" / "__init__.py").write_text("", encoding="utf-8")
-    (package_root / "gepa" / "core" / "__init__.py").write_text("", encoding="utf-8")
-    adapter_path.write_text("class NotEvaluationBatch:\n    pass\n", encoding="utf-8")
+def test_evaluation_batch_rejects_incompatible_gepa_package(monkeypatch):
+    adapter = types.ModuleType("gepa.core.adapter")
+    adapter.__dict__["NotEvaluationBatch"] = type("NotEvaluationBatch", (), {})
+    monkeypatch.setitem(sys.modules, "gepa.core.adapter", adapter)
 
-    code = """
-from fast_agent.integrations.gepa import GEPAIntegrationError, _evaluation_batch
-try:
-    _evaluation_batch(
-        outputs=[],
-        scores=[],
-        trajectories=None,
-        objective_scores=[],
-        num_metric_calls=0,
-    )
-except GEPAIntegrationError as exc:
-    print(str(exc))
-else:
-    raise SystemExit("expected GEPAIntegrationError")
-"""
-    completed = subprocess.run(
-        [sys.executable, "-c", code],
-        cwd=Path(__file__).parents[4],
-        env={
-            **os.environ,
-            "PYTHONPATH": (
-                f"{package_root}{os.pathsep}{os.environ['PYTHONPATH']}"
-                if "PYTHONPATH" in os.environ
-                else str(package_root)
-            ),
-        },
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-    assert completed.returncode == 0
-    assert "gepa.core.adapter.EvaluationBatch is unavailable" in completed.stdout
+    try:
+        _evaluation_batch(
+            outputs=[],
+            scores=[],
+            trajectories=None,
+            objective_scores=[],
+            num_metric_calls=0,
+        )
+    except GEPAIntegrationError as exc:
+        assert "gepa.core.adapter.EvaluationBatch is unavailable" in str(exc)
+    else:
+        raise AssertionError("expected GEPAIntegrationError")

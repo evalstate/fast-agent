@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 import pytest
 from mcp_types import TextContent
 
+import fast_agent.tools.shell_runtime as shell_runtime_module
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.constants import (
     DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES,
@@ -1129,13 +1130,17 @@ async def test_shell_runtime_disables_durability_when_store_is_unavailable(
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
-async def test_durable_poll_waits_for_unread_output_to_settle(tmp_path: Path) -> None:
+async def test_durable_poll_waits_for_unread_output_to_settle(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(shell_runtime_module, "_PROCESS_OUTPUT_DEBOUNCE_SECONDS", 0.1)
     root = tmp_path / "processes"
     script = tmp_path / "burst.py"
     script.write_text(
         "import time\n"
         "print('first', flush=True)\n"
-        "time.sleep(0.5)\n"
+        "time.sleep(0.03)\n"
         "print('second', flush=True)\n"
         "time.sleep(30)\n",
         encoding="utf-8",
@@ -1179,9 +1184,9 @@ async def test_durable_poll_waits_for_unread_output_to_settle(tmp_path: Path) ->
     poll_metadata = process_result_metadata(poll_result)
     assert poll_metadata is not None
     assert poll_metadata["process_yield_reason"] == "output"
-    assert 1.8 <= elapsed < 3.5
+    assert 0.08 <= elapsed < 1.0
     assert poll_metadata["output_bytes_since_last_poll"] > 0
-    assert poll_metadata["seconds_since_last_output"] >= 1.8
+    assert poll_metadata["seconds_since_last_output"] >= 0.08
     assert poll_result.content
     assert isinstance(poll_result.content[0], TextContent)
     assert "first" in poll_result.content[0].text
@@ -1190,7 +1195,11 @@ async def test_durable_poll_waits_for_unread_output_to_settle(tmp_path: Path) ->
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
-async def test_cancelled_durable_poll_preserves_output_debounce(tmp_path: Path) -> None:
+async def test_cancelled_durable_poll_preserves_output_debounce(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(shell_runtime_module, "_PROCESS_OUTPUT_DEBOUNCE_SECONDS", 0.2)
     root = tmp_path / "processes"
     runtime = ShellRuntime(
         activation_reason="test",
@@ -1223,7 +1232,7 @@ async def test_cancelled_durable_poll_preserves_output_debounce(tmp_path: Path) 
                 }
             )
         )
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.05)
         first_poll.cancel()
         with pytest.raises(asyncio.CancelledError):
             await first_poll
@@ -1245,7 +1254,7 @@ async def test_cancelled_durable_poll_preserves_output_debounce(tmp_path: Path) 
     poll_metadata = process_result_metadata(poll_result)
     assert poll_metadata is not None
     assert poll_metadata["process_yield_reason"] == "output"
-    assert 0.7 <= elapsed < 1.5
+    assert 0.08 <= elapsed < 0.5
 
 
 @pytest.mark.asyncio
@@ -1386,8 +1395,11 @@ async def test_durable_processes_use_independent_poll_locks(tmp_path: Path) -> N
         independent_metadata = process_result_metadata(independent_poll)
         assert independent_metadata is not None
         assert independent_metadata["process_status"] == "running"
-        await waiting_poll
+        assert not waiting_poll.done()
     finally:
+        if not waiting_poll.done():
+            waiting_poll.cancel()
+            await asyncio.gather(waiting_poll, return_exceptions=True)
         for process_id in process_ids:
             await runtime.terminate_process({"process_id": process_id})
             await asyncio.to_thread(store.wait, process_id, timeout_seconds=5)

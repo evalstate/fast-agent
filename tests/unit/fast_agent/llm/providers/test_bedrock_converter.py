@@ -1,19 +1,28 @@
+from copy import deepcopy
 from enum import Enum
 
 import pytest
+from botocore.exceptions import ParamValidationError
+from botocore.session import Session
+from botocore.validate import ParamValidator
 from mcp import Tool
 from mcp_types import CallToolRequest, CallToolRequestParams, ListToolsResult, TextContent
 from pydantic import BaseModel
 
 from fast_agent.config import BedrockSettings
 from fast_agent.llm.provider.bedrock.llm_bedrock import (
+    BEDROCK_REASONING_SPEC,
     BedrockLLM,
+    BedrockReasoningEffort,
     ModelCapabilities,
-    _is_reasoning_performance_error,
+    ToolNamePolicy,
+    ToolSchemaType,
+    _is_reasoning_effort_error,
     _mentions_system_message,
 )
 from fast_agent.llm.provider.bedrock.multipart_converter_bedrock import BedrockConverter
 from fast_agent.llm.provider.reasoning_config import reasoning_setting_from_config
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import PromptMessageExtended, RequestParams
 
@@ -67,11 +76,11 @@ def test_resolve_tool_use_name_uses_mapped_name():
     assert resolved == "my_tool"
 
 
-def test_reasoning_performance_error_detection_is_case_insensitive() -> None:
-    assert _is_reasoning_performance_error(
-        RuntimeError("PERFORMANCE config does not support REASONING")
-    )
-    assert not _is_reasoning_performance_error(RuntimeError("validation failed"))
+def test_reasoning_effort_error_detection_is_case_insensitive() -> None:
+    assert _is_reasoning_effort_error(RuntimeError("OUTPUTCONFIG does not support EFFORT"))
+    assert _is_reasoning_effort_error(RuntimeError("Reasoning is not supported"))
+    assert not _is_reasoning_effort_error(RuntimeError("performance latency is invalid"))
+    assert not _is_reasoning_effort_error(RuntimeError("validation failed"))
 
 
 def test_system_message_error_detection_is_case_insensitive() -> None:
@@ -171,13 +180,105 @@ def test_bedrock_reasoning_config_accepts_default_legacy_field_without_warning()
     assert should_warn is False
 
 
+def test_bedrock_reasoning_spec_uses_native_effort_levels() -> None:
+    assert BEDROCK_REASONING_SPEC.kind == "effort"
+    assert BEDROCK_REASONING_SPEC.allowed_efforts == [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    ]
+    assert BEDROCK_REASONING_SPEC.allow_toggle_disable is True
+    assert BEDROCK_REASONING_SPEC.allow_auto is True
+
+
+@pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh", "max"])
+def test_bedrock_inference_config_emits_native_reasoning_effort(
+    effort: BedrockReasoningEffort,
+) -> None:
+    llm = BedrockLLM(model="test.model")
+    llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value=effort))
+    converse_args: dict[str, object] = {}
+
+    applied_effort = llm._apply_bedrock_inference_config(
+        converse_args,
+        RequestParams(temperature=0.2),
+        "test.model",
+        ModelCapabilities(),
+    )
+
+    assert applied_effort == effort
+    assert converse_args == {"outputConfig": {"effort": effort}}
+
+
+@pytest.mark.parametrize(
+    ("setting", "expected_effort"),
+    [
+        (ReasoningEffortSetting(kind="toggle", value=True), "medium"),
+        (ReasoningEffortSetting(kind="budget", value=1), "low"),
+        (ReasoningEffortSetting(kind="budget", value=512), "low"),
+        (ReasoningEffortSetting(kind="budget", value=513), "medium"),
+        (ReasoningEffortSetting(kind="budget", value=1024), "medium"),
+        (ReasoningEffortSetting(kind="budget", value=1025), "high"),
+    ],
+)
+def test_bedrock_maps_legacy_reasoning_settings_to_effort(
+    setting: ReasoningEffortSetting,
+    expected_effort: BedrockReasoningEffort,
+) -> None:
+    llm = BedrockLLM(model="test.model")
+
+    llm.set_reasoning_effort(setting)
+
+    assert llm.reasoning_effort == ReasoningEffortSetting(
+        kind="effort",
+        value=expected_effort,
+    )
+
+
+@pytest.mark.parametrize(
+    "setting",
+    [
+        ReasoningEffortSetting(kind="effort", value="minimal"),
+        ReasoningEffortSetting(kind="effort", value="none"),
+        ReasoningEffortSetting(kind="effort", value="auto"),
+        ReasoningEffortSetting(kind="toggle", value=False),
+        ReasoningEffortSetting(kind="budget", value=0),
+    ],
+)
+def test_bedrock_disabled_or_auto_reasoning_omits_output_effort(
+    setting: ReasoningEffortSetting,
+) -> None:
+    llm = BedrockLLM(model="test.model")
+    llm.set_reasoning_effort(setting)
+    converse_args: dict[str, object] = {}
+
+    applied_effort = llm._apply_bedrock_inference_config(
+        converse_args,
+        RequestParams(temperature=0.2),
+        "test.model",
+        ModelCapabilities(),
+    )
+
+    assert applied_effort is None
+    assert converse_args == {"inferenceConfig": {"temperature": 0.2}}
+
+
+def test_bedrock_rejects_negative_legacy_reasoning_budget() -> None:
+    llm = BedrockLLM(model="test.model")
+
+    with pytest.raises(ValueError, match="Budget must be >= 0"):
+        llm.set_reasoning_effort(ReasoningEffortSetting(kind="budget", value=-1))
+
+
 def test_bedrock_nova_inference_config_normalizes_model_name() -> None:
     llm = object.__new__(BedrockLLM)
     llm._reasoning_effort = None
     llm._reasoning_effort_spec = None
     converse_args: dict[str, object] = {}
 
-    reasoning_budget = BedrockLLM._apply_bedrock_inference_config(
+    reasoning_effort = BedrockLLM._apply_bedrock_inference_config(
         llm,
         converse_args,
         RequestParams(temperature=0.2),
@@ -185,12 +286,91 @@ def test_bedrock_nova_inference_config_normalizes_model_name() -> None:
         ModelCapabilities(),
     )
 
-    assert reasoning_budget == 0
+    assert reasoning_effort is None
     assert converse_args["inferenceConfig"] == {
         "temperature": 0.2,
         "topP": 1.0,
     }
     assert converse_args["additionalModelRequestFields"] == {"inferenceConfig": {"topK": 1}}
+
+
+def test_bedrock_reasoning_request_matches_botocore_service_model() -> None:
+    llm = BedrockLLM(model="test.model")
+    llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value="max"))
+    converse_args: dict[str, object] = {
+        "modelId": "test.model",
+        "messages": [{"role": "user", "content": [{"text": "hello"}]}],
+    }
+    llm._apply_bedrock_inference_config(
+        converse_args,
+        RequestParams(),
+        "test.model",
+        ModelCapabilities(),
+    )
+    input_shape = (
+        Session().get_service_model("bedrock-runtime").operation_model("Converse").input_shape
+    )
+
+    report = ParamValidator().validate(converse_args, input_shape)
+
+    assert not report.has_errors(), report.generate_report()
+
+
+class _ReasoningFallbackClient:
+    def __init__(self) -> None:
+        self.requests: list[dict[str, object]] = []
+
+    def converse(self, **kwargs: object) -> dict[str, object]:
+        self.requests.append(deepcopy(kwargs))
+        if len(self.requests) == 1:
+            raise ParamValidationError(
+                report="Unknown parameter in outputConfig: effort is not supported"
+            )
+        return {
+            "output": {"message": {"role": "assistant", "content": [{"text": "ok"}]}},
+            "stopReason": "end_turn",
+            "usage": {"inputTokens": 1, "outputTokens": 0, "totalTokens": 1},
+        }
+
+
+@pytest.mark.asyncio
+async def test_bedrock_reasoning_fallback_keeps_capability_unsupported() -> None:
+    model = "test.model"
+    llm = BedrockLLM(model=model)
+    caps = ModelCapabilities()
+    client = _ReasoningFallbackClient()
+    converse_args: dict[str, object] = {
+        "modelId": model,
+        "messages": [{"role": "user", "content": [{"text": "hello"}]}],
+        "outputConfig": {"effort": "high"},
+    }
+
+    response, reasoning_applied = await llm._invoke_bedrock_with_reasoning_fallback(
+        client,
+        converse_args,
+        model,
+        ToolSchemaType.DEFAULT,
+        RequestParams(temperature=0.2),
+        caps,
+        reasoning_effort="high",
+        use_streaming=False,
+    )
+    llm._cache_successful_bedrock_attempt(
+        model,
+        caps,
+        ToolSchemaType.DEFAULT,
+        None,
+        ToolNamePolicy.PRESERVE,
+        has_tools=False,
+        attempted_streaming=False,
+        reasoning_applied=reasoning_applied,
+    )
+
+    assert response["content"] == [{"text": "ok"}]
+    assert client.requests[0]["outputConfig"] == {"effort": "high"}
+    assert "outputConfig" not in client.requests[1]
+    assert client.requests[1]["inferenceConfig"] == {"temperature": 0.2}
+    assert caps.reasoning_support is False
 
 
 @pytest.mark.asyncio

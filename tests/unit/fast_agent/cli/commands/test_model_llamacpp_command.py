@@ -148,7 +148,11 @@ def _start_llamacpp_server(
             self.wfile.write(body)
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever,
+        kwargs={"poll_interval": 0.01},
+        daemon=True,
+    )
     thread.start()
     return _LlamaCppServer(server=server, state=state, thread=thread)
 
