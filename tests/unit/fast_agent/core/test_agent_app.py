@@ -10,6 +10,8 @@ from fast_agent.core.agent_app import AgentApp, _format_interactive_final_error
 if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.session import SessionManager
+    from fast_agent.types import RequestParams
+    from fast_agent.ui.interactive_prompt import PromptLoopResult
 
 
 class _Agent:
@@ -17,6 +19,27 @@ class _Agent:
         self.name = name
         self.config = SimpleNamespace(default=default)
         self.agent_type = AgentType.BASIC
+
+
+class _PromptAgentApp(AgentApp):
+    async def interactive(
+        self,
+        agent_name: str | None = None,
+        default_prompt: str = "",
+        pretty_print_parallel: bool = False,
+        request_params: "RequestParams | None" = None,
+        session_manager: "SessionManager | None" = None,
+        harness_session=None,
+    ) -> "PromptLoopResult":
+        del (
+            agent_name,
+            default_prompt,
+            pretty_print_parallel,
+            request_params,
+            session_manager,
+            harness_session,
+        )
+        return cast("PromptLoopResult", "done")
 
 
 def test_format_interactive_final_error_uses_type_when_message_is_blank() -> None:
@@ -96,6 +119,19 @@ def test_no_home_mode_defaults_false_and_can_be_updated() -> None:
     app.no_home_mode = True
 
     assert app.no_home_mode is True
+
+
+@pytest.mark.asyncio
+async def test_prompt_warns_and_delegates_to_interactive() -> None:
+    app = _PromptAgentApp(agents={"main": cast("AgentProtocol", _Agent("main", default=True))})
+
+    with pytest.warns(
+        DeprecationWarning,
+        match=r"AgentApp\.prompt\(\) is deprecated; use interactive\(\) instead",
+    ):
+        result = await app.prompt(agent_name="main", default_prompt="hello")
+
+    assert result == "done"
 
 
 @pytest.mark.asyncio

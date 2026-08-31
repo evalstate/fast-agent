@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
 import json
 import time
 from collections.abc import Awaitable, Callable, Mapping
@@ -210,12 +211,42 @@ def build_ws_headers(
 ) -> dict[str, str]:
     """Build headers for Responses websocket requests."""
 
-    headers = dict(default_headers or {})
-    headers.setdefault("Authorization", f"Bearer {api_key}")
-    headers[RESPONSES_WEBSOCKET_BETA_HEADER_NAME] = RESPONSES_WEBSOCKET_BETA_HEADER
-    if extra_headers:
-        headers.update(extra_headers)
-    return headers
+    return merge_headers_case_insensitive(
+        {"Authorization": f"Bearer {api_key}"},
+        default_headers,
+        {
+            RESPONSES_WEBSOCKET_BETA_HEADER_NAME: RESPONSES_WEBSOCKET_BETA_HEADER,
+        },
+        extra_headers,
+    )
+
+
+def merge_headers_case_insensitive(
+    *header_groups: Mapping[str, str] | None,
+) -> dict[str, str]:
+    """Merge HTTP headers with later groups winning regardless of name casing."""
+
+    merged: dict[str, str] = {}
+    names: dict[str, str] = {}
+    for headers in header_groups:
+        for name, value in (headers or {}).items():
+            normalized = name.casefold()
+            if previous_name := names.get(normalized):
+                merged.pop(previous_name)
+            names[normalized] = name
+            merged[name] = value
+    return merged
+
+
+def header_value(headers: Mapping[str, str], name: str) -> str | None:
+    normalized = name.casefold()
+    return next((value for key, value in headers.items() if key.casefold() == normalized), None)
+
+
+def websocket_reuse_key(url: str, headers: Mapping[str, str]) -> str:
+    canonical_headers = sorted((name.casefold(), value) for name, value in headers.items())
+    payload = json.dumps([url, canonical_headers], separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 class WebSocketLike(Protocol):
@@ -485,6 +516,7 @@ class ManagedWebSocketConnection:
     busy: bool = False
     created_monotonic: float | None = None
     last_used_monotonic: float = 0.0
+    reuse_key: str | None = field(default=None, repr=False)
     session_state: WebSocketSessionState = field(default_factory=WebSocketSessionState)
 
 
@@ -549,6 +581,7 @@ async def connect_websocket(
     return ManagedWebSocketConnection(
         session=session,
         websocket=_SdkWebSocket(connection),
+        reuse_key=websocket_reuse_key(url, headers),
     )
 
 
@@ -612,7 +645,7 @@ def _responses_websocket_connection_parts(url: str) -> tuple[str, dict[str, obje
 
 
 def _authorization_token(headers: Mapping[str, str]) -> str | None:
-    authorization = headers.get("Authorization")
+    authorization = header_value(headers, "Authorization")
     if authorization is None:
         return None
     scheme, separator, token = authorization.partition(" ")
@@ -1077,17 +1110,24 @@ class WebSocketConnectionManager:
     async def acquire(
         self,
         create_connection: Callable[[], Awaitable[ManagedWebSocketConnection]],
+        *,
+        reuse_key: str | None = None,
     ) -> tuple[ManagedWebSocketConnection, bool]:
         async with self._mutex:
             await self._expire_idle_locked()
             reusable = self._reusable_connection
-            if reusable and self._is_open(reusable) and not reusable.busy:
+            if (
+                reusable
+                and self._is_open(reusable)
+                and not reusable.busy
+                and self._key_matches(reusable, reuse_key)
+            ):
                 reusable.busy = True
                 return reusable, True
 
             if reusable and reusable.busy and self._is_open(reusable):
                 temp = await create_connection()
-                self._mark_created(temp)
+                self._mark_created(temp, reuse_key)
                 temp.busy = True
                 return temp, False
 
@@ -1096,7 +1136,7 @@ class WebSocketConnectionManager:
                 self._reusable_connection = None
 
             fresh = await create_connection()
-            self._mark_created(fresh)
+            self._mark_created(fresh, reuse_key)
             fresh.busy = True
             self._reusable_connection = fresh
             return fresh, True
@@ -1142,9 +1182,15 @@ class WebSocketConnectionManager:
         await close_websocket_connection(reusable)
         self._reusable_connection = None
 
-    def _mark_created(self, connection: ManagedWebSocketConnection) -> None:
+    def _mark_created(
+        self,
+        connection: ManagedWebSocketConnection,
+        reuse_key: str | None = None,
+    ) -> None:
         if connection.created_monotonic is None:
             connection.created_monotonic = self._clock()
+        if connection.reuse_key is None:
+            connection.reuse_key = reuse_key
 
     def _is_too_old(self, connection: ManagedWebSocketConnection) -> bool:
         if self._max_age_seconds <= 0 or connection.created_monotonic is None:
@@ -1154,3 +1200,10 @@ class WebSocketConnectionManager:
     @staticmethod
     def _is_open(connection: ManagedWebSocketConnection) -> bool:
         return not connection.session.closed and not connection.websocket.closed
+
+    @staticmethod
+    def _key_matches(
+        connection: ManagedWebSocketConnection,
+        reuse_key: str | None,
+    ) -> bool:
+        return reuse_key is None or connection.reuse_key == reuse_key

@@ -71,13 +71,17 @@ async def _wait_for_file_growth(path: Path, *, initial_size: int = -1) -> int:
 
 
 @pytest.mark.asyncio
-async def test_persistent_background_output_reaches_poll_buffer(tmp_path: Path) -> None:
+async def test_persistent_background_output_reaches_poll_buffer(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(shell_runtime_module, "_PROCESS_OUTPUT_DEBOUNCE_SECONDS", 0.1)
     script = tmp_path / "ticker.py"
     script.write_text(
         "\n".join(
             [
                 "import sys, time",
-                "time.sleep(0.3)",
+                "time.sleep(0.03)",
                 "print('ticker stdout one\\nticker stdout two', flush=True)",
                 "print('ticker stderr', file=sys.stderr, flush=True)",
                 "time.sleep(30)",
@@ -137,13 +141,15 @@ async def test_persistent_background_output_reaches_poll_buffer(tmp_path: Path) 
 @pytest.mark.asyncio
 async def test_partial_spool_output_wakes_poll_without_counting_a_line(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
+    monkeypatch.setattr(shell_runtime_module, "_PROCESS_OUTPUT_DEBOUNCE_SECONDS", 0.1)
     script = tmp_path / "partial.py"
     script.write_text(
         "\n".join(
             [
                 "import sys, time",
-                "time.sleep(0.3)",
+                "time.sleep(0.03)",
                 "sys.stdout.write('partial output')",
                 "sys.stdout.flush()",
                 "time.sleep(30)",

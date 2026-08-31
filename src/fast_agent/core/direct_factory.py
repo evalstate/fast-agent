@@ -3,6 +3,8 @@ Direct factory functions for creating agent and workflow instances without proxi
 Implements type-safe factories with improved error handling.
 """
 
+from __future__ import annotations
+
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from functools import partial
@@ -16,21 +18,7 @@ from typing import (
     runtime_checkable,
 )
 
-from fastmcp.tools import FunctionTool
-
-from fast_agent.a2a.config import A2AAgentConfig
-from fast_agent.a2a.remote_agent import A2ARemoteAgent
-from fast_agent.agents import McpAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType, FunctionToolConfig
-from fast_agent.agents.llm_agent import LlmAgent
-from fast_agent.agents.workflow.evaluator_optimizer import (
-    EvaluatorOptimizerAgent,
-    QualityRating,
-)
-from fast_agent.agents.workflow.iterative_planner import IterativePlanner
-from fast_agent.agents.workflow.parallel_agent import ParallelAgent
-from fast_agent.agents.workflow.router_agent import RouterAgent
-from fast_agent.context import Context
 from fast_agent.core.agent_card_types import AgentCardData
 from fast_agent.core.exceptions import AgentConfigError, ModelConfigError
 from fast_agent.core.function_tool_support import custom_class_supports_function_tools
@@ -54,7 +42,11 @@ from fast_agent.tools.hook_loader import load_tool_runner_hooks
 from fast_agent.types import RequestParams
 
 if TYPE_CHECKING:
+    from fastmcp.tools import FunctionTool
+
+    from fast_agent.agents.llm_agent import LlmAgent
     from fast_agent.agents.workflow.agents_as_tools_agent import AgentsAsToolsOptions
+    from fast_agent.context import Context
     from fast_agent.hooks.hook_context import HookAgentProtocol
     from fast_agent.tools.execution_environment import ShellEnvironment
 
@@ -665,6 +657,8 @@ async def _create_basic_agent(
             shell_environment=build_ctx.shell_environment,
         )
     else:
+        from fast_agent.agents import McpAgent
+
         function_tools = _resolve_function_tools_with_globals(config, agent_data, build_ctx)
         agent = McpAgent(
             config=config,
@@ -742,6 +736,8 @@ async def _create_planner_agent(
     build_ctx: AgentBuildContext,
     result_agents: AgentDict,
 ) -> None:
+    from fast_agent.agents.workflow.iterative_planner import IterativePlanner
+
     config = cast("AgentConfig", agent_data["config"])
     child_names = cast("Sequence[str]", agent_data["child_agents"])
     child_agents = _resolve_child_agents(
@@ -768,6 +764,8 @@ async def _create_parallel_workflow_agent(
     build_ctx: AgentBuildContext,
     result_agents: AgentDict,
 ) -> None:
+    from fast_agent.agents.workflow.parallel_agent import ParallelAgent
+
     config = cast("AgentConfig", agent_data["config"])
     fan_in_name = agent_data.get("fan_in")
     fan_out_names = cast("Sequence[str]", agent_data["fan_out"])
@@ -809,6 +807,8 @@ async def _create_router_workflow_agent(
     build_ctx: AgentBuildContext,
     result_agents: AgentDict,
 ) -> None:
+    from fast_agent.agents.workflow.router_agent import RouterAgent
+
     config = cast("AgentConfig", agent_data["config"])
     router = RouterAgent(
         config=config,
@@ -865,6 +865,11 @@ async def _create_evaluator_optimizer_agent(
     build_ctx: AgentBuildContext,
     result_agents: AgentDict,
 ) -> None:
+    from fast_agent.agents.workflow.evaluator_optimizer import (
+        EvaluatorOptimizerAgent,
+        QualityRating,
+    )
+
     config = cast("AgentConfig", agent_data["config"])
     generator_name = cast("str", agent_data["generator"])
     evaluator_name = cast("str", agent_data["evaluator"])
@@ -949,6 +954,9 @@ async def _create_a2a_agent(
     build_ctx: AgentBuildContext,
     result_agents: AgentDict,
 ) -> None:
+    from fast_agent.a2a.config import A2AAgentConfig
+    from fast_agent.a2a.remote_agent import A2ARemoteAgent
+
     config = cast("AgentConfig", agent_data["config"])
     a2a_config = agent_data.get("a2a")
     if not isinstance(a2a_config, A2AAgentConfig):
@@ -1155,6 +1163,8 @@ async def _create_default_fan_in_agent(
     Returns:
         Initialized Agent instance for fan-in operations
     """
+    from fast_agent.agents.llm_agent import LlmAgent
+
     # Create a simple config for the fan-in agent with passthrough model
     default_config = AgentConfig(
         name=fan_in_name,

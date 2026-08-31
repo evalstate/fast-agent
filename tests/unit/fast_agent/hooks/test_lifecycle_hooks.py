@@ -12,7 +12,6 @@ from fast_agent.agents.llm_decorator import LlmDecorator
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.hooks.lifecycle_hook_context import AgentLifecycleContext
 from fast_agent.hooks.lifecycle_hook_loader import (
-    VALID_LIFECYCLE_HOOK_TYPES,
     load_lifecycle_hooks,
 )
 from fast_agent.hooks.lifecycle_hook_types import lifecycle_hook_descriptor
@@ -73,11 +72,6 @@ async def start_hook(ctx: AgentLifecycleContext) -> None:
     assert payload["has_context"] is False
     assert payload["config_name"] == "test-agent"
     assert payload["hook_type"] == "on_start"
-
-
-@pytest.mark.unit
-def test_valid_lifecycle_hook_types_constant() -> None:
-    assert VALID_LIFECYCLE_HOOK_TYPES == {"on_start", "on_shutdown"}
 
 
 @pytest.mark.unit

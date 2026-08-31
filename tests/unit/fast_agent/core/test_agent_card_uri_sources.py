@@ -72,7 +72,11 @@ def card_server() -> Iterator[_CardServer]:
             del format, args
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever,
+        kwargs={"poll_interval": 0.01},
+        daemon=True,
+    )
     thread.start()
     card_server = _CardServer(server=server, thread=thread, responses=responses)
     try:

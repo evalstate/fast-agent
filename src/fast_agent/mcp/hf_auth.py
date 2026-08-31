@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import urlparse
 
-from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
 from fast_agent.utils.text import strip_casefold
 
 # Type alias for token provider functions
@@ -18,6 +17,8 @@ _HF_AUTH_HEADER_NAMES = frozenset({"authorization", "x-hf-authorization"})
 
 def _default_hub_token_provider() -> str | None:
     """Default token provider that uses huggingface_hub.get_token()."""
+    from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
+
     return get_huggingface_hub_token()
 
 

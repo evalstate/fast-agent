@@ -10,14 +10,13 @@ from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.config import get_settings, update_global_settings
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
-from fast_agent.context import Context
+from fast_agent.context import Context, cleanup_context, initialize_context
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompts.prompt_load import load_prompt
-from fast_agent.session import SessionManager, reset_session_manager, set_session_manager
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 
@@ -462,9 +461,9 @@ class ContinuedToolResultLlm(PassthroughLLM):
 @pytest.mark.asyncio
 async def test_resume_preserves_completed_tool_result_after_followup_llm_failure(tmp_path):
     old_settings = get_settings()
+    await cleanup_context()
     override = old_settings.model_copy(update={"home": str(tmp_path / "env")})
     update_global_settings(override)
-    reset_session_manager()
 
     tool_runs = 0
 
@@ -475,11 +474,14 @@ async def test_resume_preserves_completed_tool_result_after_followup_llm_failure
         return f"ok {tool_runs}"
 
     try:
-        manager = SessionManager(home_override=tmp_path / "env")
-        set_session_manager(manager)
+        context = await initialize_context(override, store_globally=True)
+        manager = context.session_manager
+        assert manager is not None
         exploding_llm = ExplodingAfterToolResultLlm()
-        agent = ToolAgent(AgentConfig("tool-loop-resume"), [side_effect_tool])
+        exploding_llm.retry_backoff_seconds = 0
+        agent = ToolAgent(AgentConfig("tool-loop-resume"), [side_effect_tool], context=context)
         agent._llm = exploding_llm
+        manager.create_session("tool-loop-resume")
 
         with pytest.raises(RuntimeError, match="llm boom"):
             await agent.generate("trigger")
@@ -506,7 +508,9 @@ async def test_resume_preserves_completed_tool_result_after_followup_llm_failure
         assert saved_content.text == "ok 1"
 
         resumed_llm = ContinuedToolResultLlm()
-        resumed_agent = ToolAgent(AgentConfig("tool-loop-resume"), [side_effect_tool])
+        resumed_agent = ToolAgent(
+            AgentConfig("tool-loop-resume"), [side_effect_tool], context=context
+        )
         resumed_agent._llm = resumed_llm
 
         resumed = await manager.resume_session_agents_async(
@@ -528,5 +532,5 @@ async def test_resume_preserves_completed_tool_result_after_followup_llm_failure
         assert isinstance(resumed_content, TextContent)
         assert resumed_content.text == "ok 1"
     finally:
+        await cleanup_context()
         update_global_settings(old_settings)
-        reset_session_manager()

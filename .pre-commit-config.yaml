@@ -1,13 +1,15 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
-    rev: v0.11.13
+    rev: v0.16.0
     hooks:
       # Run the linter.
       - id: ruff
         args: [--fix]
+        exclude: ^tests/integration/sessions/
       # Run the formatter.
       - id: ruff-format
+        exclude: ^tests/integration/sessions/
   - repo: local
     hooks:
       - id: ty

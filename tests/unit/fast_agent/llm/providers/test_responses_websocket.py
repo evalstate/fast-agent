@@ -4,7 +4,7 @@ import asyncio
 import json
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pytest
 from aiohttp import WSMsgType
@@ -22,7 +22,11 @@ from fast_agent.constants import (
     FAST_AGENT_SAFETY_DETAILS,
 )
 from fast_agent.core.exceptions import ProviderSafetyBufferingError
-from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
+from fast_agent.llm.provider.openai.codex_responses import (
+    CODEX_RESPONSES_LITE_HEADER,
+    CODEX_ROUTING_HINT_HEADER,
+    CodexResponsesLLM,
+)
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_websocket import (
     RESPONSES_CREATE_EVENT_TYPE,
@@ -39,8 +43,10 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     _websocket_handshake_error_detail,
     build_ws_headers,
     connect_websocket,
+    merge_headers_case_insensitive,
     resolve_responses_ws_url,
     send_response_request,
+    websocket_reuse_key,
 )
 from fast_agent.llm.provider.openai.streaming_utils import (
     validate_incomplete_tool_entries,
@@ -214,8 +220,13 @@ class _ReleaseTrackingConnectionManager:
         self.connection = connection
         self.release_keep_values: list[bool] = []
 
-    async def acquire(self, create_connection: Any) -> tuple[ManagedWebSocketConnection, bool]:
-        del create_connection
+    async def acquire(
+        self,
+        create_connection: Any,
+        *,
+        reuse_key: str | None = None,
+    ) -> tuple[ManagedWebSocketConnection, bool]:
+        del create_connection, reuse_key
         self.connection.busy = True
         return self.connection, True
 
@@ -237,7 +248,13 @@ class _SequenceConnectionManager:
         self.acquire_calls = 0
         self.release_keep_values: list[bool] = []
 
-    async def acquire(self, create_connection: Any) -> tuple[ManagedWebSocketConnection, bool]:
+    async def acquire(
+        self,
+        create_connection: Any,
+        *,
+        reuse_key: str | None = None,
+    ) -> tuple[ManagedWebSocketConnection, bool]:
+        del reuse_key
         self.acquire_calls += 1
         if self._connections:
             connection = self._connections.pop(0)
@@ -676,6 +693,21 @@ def test_continuation_planner_signature_change_forces_create() -> None:
     assert "previous_response_id" not in planned.arguments
 
 
+def test_continuation_planner_service_tier_change_forces_create() -> None:
+    planner = StatefulContinuationResponsesWsPlanner()
+    baseline = _build_ws_arguments([_build_input_message("one")])
+    planner.commit(baseline, planner.plan(baseline), {"id": "resp_1"})
+
+    priority = _build_ws_arguments(
+        [_build_input_message("one"), _build_input_message("two")],
+    )
+    priority["service_tier"] = "priority"
+    planned = planner.plan(priority)
+
+    assert planned.event_type == RESPONSES_CREATE_EVENT_TYPE
+    assert "previous_response_id" not in planned.arguments
+
+
 def test_continuation_planner_missing_response_id_forces_fresh_create() -> None:
     planner = StatefulContinuationResponsesWsPlanner()
     baseline = _build_ws_arguments([_build_input_message("one")])
@@ -777,6 +809,53 @@ def test_build_ws_headers() -> None:
     assert headers["OpenAI-Beta"] == "responses_websockets=2026-02-06"
     assert headers["originator"] == "fast-agent"
     assert headers["chatgpt-account-id"] == "acct_abc"
+
+
+@pytest.mark.parametrize("header_name", ["Authorization", "authorization"])
+def test_build_ws_headers_preserves_configured_authorization(header_name: str) -> None:
+    headers = build_ws_headers(
+        api_key="api-key",
+        default_headers={header_name: "Bearer proxy-token"},
+    )
+
+    assert headers[header_name] == "Bearer proxy-token"
+    assert sum(name.casefold() == "authorization" for name in headers) == 1
+
+
+def test_websocket_reuse_key_normalizes_header_names() -> None:
+    first = websocket_reuse_key(
+        "wss://example.test/responses",
+        {"Authorization": "Bearer token", "X-Codex-Routing-Hint": "model=gpt-test"},
+    )
+    second = websocket_reuse_key(
+        "wss://example.test/responses",
+        {"authorization": "Bearer token", "x-codex-routing-hint": "model=gpt-test"},
+    )
+
+    assert first == second
+    assert first != websocket_reuse_key(
+        "wss://example.test/responses",
+        {"authorization": "Bearer new-token", "x-codex-routing-hint": "model=gpt-test"},
+    )
+    assert first != websocket_reuse_key(
+        "wss://example.test/responses",
+        {
+            "authorization": "Bearer token",
+            "x-codex-routing-hint": "model=gpt-test;tier=priority",
+        },
+    )
+
+
+def test_merge_headers_replaces_names_case_insensitively() -> None:
+    headers = merge_headers_case_insensitive(
+        {"Authorization": "Bearer old", "X-Codex-Routing-Hint": "stale"},
+        {"authorization": "Bearer new", "x-codex-routing-hint": "model=gpt-test"},
+    )
+
+    assert headers == {
+        "authorization": "Bearer new",
+        "x-codex-routing-hint": "model=gpt-test",
+    }
 
 
 @pytest.mark.asyncio
@@ -1106,14 +1185,65 @@ class _ConnectionFactory:
 async def test_websocket_connection_manager_reuses_idle_socket() -> None:
     manager = WebSocketConnectionManager(idle_timeout_seconds=60.0)
     factory = _ConnectionFactory(created=[])
+    reuse_key = websocket_reuse_key(
+        "wss://example.test/responses",
+        {"x-codex-routing-hint": "model=gpt-test"},
+    )
 
-    first, first_reusable = await manager.acquire(factory)
+    first, first_reusable = await manager.acquire(factory, reuse_key=reuse_key)
     assert first_reusable
     await manager.release(first, reusable=first_reusable, keep=True)
 
-    second, second_reusable = await manager.acquire(factory)
+    second, second_reusable = await manager.acquire(factory, reuse_key=reuse_key)
     assert second_reusable
     assert second is first
+
+
+@pytest.mark.asyncio
+async def test_websocket_connection_manager_replaces_socket_when_routing_changes() -> None:
+    manager = WebSocketConnectionManager(idle_timeout_seconds=60.0)
+    factory = _ConnectionFactory(created=[])
+    standard_key = websocket_reuse_key(
+        "wss://example.test/responses",
+        {"x-codex-routing-hint": "model=gpt-test"},
+    )
+    priority_key = websocket_reuse_key(
+        "wss://example.test/responses",
+        {"x-codex-routing-hint": "model=gpt-test;tier=priority"},
+    )
+
+    first, first_reusable = await manager.acquire(factory, reuse_key=standard_key)
+    await manager.release(first, reusable=first_reusable, keep=True)
+    replacement, replacement_reusable = await manager.acquire(
+        factory,
+        reuse_key=priority_key,
+    )
+
+    assert replacement_reusable
+    assert replacement is not first
+    assert first.websocket.closed
+    assert first.session.closed
+
+
+@pytest.mark.asyncio
+async def test_websocket_connection_manager_replaces_socket_when_url_changes() -> None:
+    manager = WebSocketConnectionManager(idle_timeout_seconds=60.0)
+    factory = _ConnectionFactory(created=[])
+    headers = {"x-codex-routing-hint": "model=gpt-test"}
+    first_key = websocket_reuse_key("wss://first.example/responses", headers)
+    second_key = websocket_reuse_key("wss://second.example/responses", headers)
+
+    first, first_reusable = await manager.acquire(factory, reuse_key=first_key)
+    await manager.release(first, reusable=first_reusable, keep=True)
+    replacement, replacement_reusable = await manager.acquire(
+        factory,
+        reuse_key=second_key,
+    )
+
+    assert replacement_reusable
+    assert replacement is not first
+    assert first.websocket.closed
+    assert first.session.closed
 
 
 @pytest.mark.asyncio
@@ -1461,6 +1591,24 @@ class _ContinuationConnectionLifecycleHarness(CodexResponsesLLM):
         return response, []
 
 
+class _CodexRoutingContextHarness(_ContinuationConnectionLifecycleHarness):
+    def _build_response_args(
+        self,
+        input_items: list[dict[str, Any]],
+        request_params: RequestParams,
+        tools: list[Tool] | None,
+    ) -> dict[str, Any]:
+        return CodexResponsesLLM._build_response_args(
+            self,
+            input_items,
+            request_params,
+            tools,
+        )
+
+    def _build_websocket_headers(self) -> dict[str, str]:
+        return {"Authorization": "Bearer token"}
+
+
 class _TimeoutContinuationConnectionLifecycleHarness(_ContinuationConnectionLifecycleHarness):
     def __init__(self) -> None:
         super().__init__()
@@ -1484,8 +1632,13 @@ class _PlannedAcquireConnectionManager:
         self._planned_connections = planned_connections
         self.release_keep_values: list[bool] = []
 
-    async def acquire(self, create_connection: Any) -> tuple[ManagedWebSocketConnection, bool]:
-        del create_connection
+    async def acquire(
+        self,
+        create_connection: Any,
+        *,
+        reuse_key: str | None = None,
+    ) -> tuple[ManagedWebSocketConnection, bool]:
+        del create_connection, reuse_key
         if not self._planned_connections:
             raise AssertionError("no planned connections left")
         connection, reusable = self._planned_connections.pop(0)
@@ -1528,6 +1681,36 @@ def test_responses_llm_uses_continuation_ws_planner() -> None:
     llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
     planner = llm._new_ws_request_planner()
     assert isinstance(planner, StatefulContinuationResponsesWsPlanner)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model", "service_tier", "expected_hint", "uses_lite"),
+    [
+        ("gpt-5.3-codex", None, "model=gpt-5.3-codex", False),
+        ("gpt-5.3-codex", "fast", "model=gpt-5.3-codex;tier=priority", False),
+        ("gpt-5.6-luna", "fast", "model=gpt-5.6-luna;tier=priority", True),
+    ],
+)
+async def test_codex_websocket_context_includes_per_request_routing_headers(
+    model: str,
+    service_tier: Literal["fast"] | None,
+    expected_hint: str,
+    uses_lite: bool,
+) -> None:
+    harness = _CodexRoutingContextHarness()
+
+    context = await harness._responses_ws_context(
+        input_items=_ws_input_items("hello"),
+        request_params=RequestParams(model=model, service_tier=service_tier),
+        tools=None,
+        model_name=model,
+    )
+
+    assert context.ws_headers["Authorization"] == "Bearer token"
+    assert context.ws_headers[CODEX_ROUTING_HINT_HEADER] == expected_hint
+    assert (context.ws_headers.get(CODEX_RESPONSES_LITE_HEADER) == "true") is uses_lite
+    assert ("service_tier" in context.arguments) is (service_tier == "fast")
 
 
 @pytest.mark.asyncio
