@@ -106,6 +106,7 @@ def test_muse_glimmer_together_applies_chat_template_contract(
     assert request["model"] == "meta-models/Muse-Glimmer-30B:together"
     assert request["temperature"] == 1.0
     assert request["top_p"] == 0.95
+    assert "max_tokens" not in request
     assert "reasoning_effort" not in request
     assert isinstance(extra_body, dict)
     assert extra_body == {
@@ -114,6 +115,26 @@ def test_muse_glimmer_together_applies_chat_template_contract(
             "reasoning_strength": reasoning_strength,
         },
     }
+
+
+@pytest.mark.parametrize(
+    "model",
+    (
+        "glimmer?max_tokens=4096",
+        "hf.meta-models/Muse-Glimmer-30B:novita?max_tokens=4096",
+    ),
+)
+def test_muse_glimmer_preserves_explicit_max_tokens(model: str) -> None:
+    request = _factory_request(model)
+
+    assert request["max_tokens"] == 4096
+
+
+def test_muse_glimmer_other_backend_omits_default_max_tokens() -> None:
+    request = _factory_request("hf.meta-models/Muse-Glimmer-30B:novita")
+
+    assert "max_tokens" not in request
+    assert "extra_body" not in request
 
 
 @pytest.mark.parametrize(

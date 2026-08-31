@@ -599,7 +599,7 @@ def test_model_database_muse_glimmer_huggingface_metadata() -> None:
     assert params is not None
     assert params.default_provider == Provider.HUGGINGFACE
     assert params.context_window == 131_072
-    assert params.max_output_tokens == 16_384
+    assert params.max_output_tokens == 128_000
     assert params.json_mode is None
     assert params.reasoning == "stream"
     assert params.stream_mode == "manual"

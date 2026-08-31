@@ -224,6 +224,7 @@ class GenericDisableReasoningToggle:
 class HuggingFaceRouteProfile:
     reasoning: HuggingFaceReasoningProfile | None = None
     structured_json_mode: Literal["schema", "object"] | None = None
+    omit_default_max_tokens: bool = False
 
 
 HUGGINGFACE_CUSTOM_ENDPOINT_BACKEND = "custom-endpoint"
@@ -305,7 +306,14 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
         RouterProfileRule(
             model=_MUSE_GLIMMER,
             backends=frozenset({"together"}),
-            profile=HuggingFaceRouteProfile(reasoning=_MUSE_GLIMMER_REASONING),
+            profile=HuggingFaceRouteProfile(
+                reasoning=_MUSE_GLIMMER_REASONING,
+                omit_default_max_tokens=True,
+            ),
+        ),
+        RouterProfileRule(
+            model=_MUSE_GLIMMER,
+            profile=HuggingFaceRouteProfile(omit_default_max_tokens=True),
         ),
         RouterProfileRule(
             model="moonshotai/kimi-k2.5",

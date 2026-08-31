@@ -934,8 +934,7 @@ class ModelDatabase:
 
     MUSE_GLIMMER_HF = ModelParameters(
         context_window=131_072,
-        # Together does not publish a separate output-token limit.
-        max_output_tokens=16_384,
+        max_output_tokens=128_000,
         tokenizes=OPENAI_VISION,
         json_mode=None,
         reasoning="stream",
