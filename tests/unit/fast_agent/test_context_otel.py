@@ -30,16 +30,15 @@ def test_configure_otel_samples_and_flushes_spans() -> None:
         from unittest.mock import patch
 
         from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+        from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
+        from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
+        from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 
         import fast_agent.context as context_module
         from fast_agent.config import OpenTelemetrySettings, Settings
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
-            from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
-            from opentelemetry.instrumentation.openai import OpenAIInstrumentor
-
             for sample_rate, span_exported in ((1.0, True), (0.0, False)):
                 exporter = InMemorySpanExporter()
                 settings = Settings(
