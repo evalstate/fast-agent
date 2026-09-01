@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from mcp_types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.config import CompactionSettings, Settings
@@ -42,6 +43,7 @@ class _Runner:
         self.agent = agent
         self.iteration = 0
         self.request_params = request_params
+        self.delta_messages: list[PromptMessageExtended] = []
 
 
 def _complete_message() -> PromptMessageExtended:
@@ -132,3 +134,49 @@ async def test_mid_turn_auto_compaction_preserves_active_turn(
 
     assert kwargs_seen
     assert kwargs_seen[0]["recent_tool_exchanges"] == MID_TURN_RECENT_TOOL_EXCHANGES
+    assert kwargs_seen[0]["pending_context_tokens"] == 0
+
+
+@pytest.mark.asyncio
+async def test_mid_turn_auto_compaction_accounts_for_pending_tool_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = _Agent("source")
+    agent.usage_accumulator.set_context_estimate(40)
+    runner = _Runner(agent)
+    runner.delta_messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="x" * 80)],
+        )
+    ]
+    compacted = False
+    pending_context_tokens: int | None = None
+
+    async def fake_compact(_agent: object, **kwargs: Any) -> object:
+        nonlocal compacted, pending_context_tokens
+        compacted = True
+        pending_context_tokens = kwargs["pending_context_tokens"]
+        return SimpleNamespace(
+            agent_name="source",
+            messages_before=4,
+            messages_after=2,
+            tokens_before=40,
+            tokens_after_estimate=10,
+            context_window=100,
+            archive_file=None,
+        )
+
+    monkeypatch.setattr("fast_agent.hooks.compaction.compact_conversation", fake_compact)
+
+    await auto_compact_history_mid_turn(
+        HookContext(
+            runner=runner,
+            agent=agent,
+            message=_tool_use_message(),
+            hook_type="before_followup_llm_call",
+        )
+    )
+
+    assert compacted
+    assert pending_context_tokens == 20

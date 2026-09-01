@@ -225,6 +225,7 @@ class HuggingFaceRouteProfile:
     reasoning: HuggingFaceReasoningProfile | None = None
     structured_json_mode: Literal["schema", "object"] | None = None
     omit_default_max_tokens: bool = False
+    prompt_context_window: int | None = None
 
 
 HUGGINGFACE_CUSTOM_ENDPOINT_BACKEND = "custom-endpoint"
@@ -235,6 +236,7 @@ _KIMI_K3 = "moonshotai/kimi-k3"
 _GEMMA_4 = "google/gemma-4-31b-it"
 _MUSE_GLIMMER = "meta-models/muse-glimmer-30b"
 _QWEN_38 = "qwen/qwen3.8-27b"
+_MUSE_GLIMMER_PROMPT_CONTEXT_WINDOW = 131_072 - 32_768
 
 _DEEPSEEK_REASONING = TopLevelReasoningEffort(default_effort="max")
 _KIMI_K3_REASONING = TopLevelReasoningEffort(
@@ -309,11 +311,16 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
             profile=HuggingFaceRouteProfile(
                 reasoning=_MUSE_GLIMMER_REASONING,
                 omit_default_max_tokens=True,
+                # Together reserves 32,768 output tokens when max_tokens is omitted.
+                prompt_context_window=_MUSE_GLIMMER_PROMPT_CONTEXT_WINDOW,
             ),
         ),
         RouterProfileRule(
             model=_MUSE_GLIMMER,
-            profile=HuggingFaceRouteProfile(omit_default_max_tokens=True),
+            profile=HuggingFaceRouteProfile(
+                omit_default_max_tokens=True,
+                prompt_context_window=_MUSE_GLIMMER_PROMPT_CONTEXT_WINDOW,
+            ),
         ),
         RouterProfileRule(
             model="moonshotai/kimi-k2.5",

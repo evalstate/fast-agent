@@ -117,6 +117,40 @@ def test_muse_glimmer_together_applies_chat_template_contract(
     }
 
 
+def test_muse_glimmer_together_uses_effective_prompt_context_window() -> None:
+    agent = LlmAgent(AgentConfig(name="router-profile-test"))
+    llm = ModelFactory.create_factory("glimmer")(agent=agent)
+
+    assert isinstance(llm, HuggingFaceLLM)
+    assert llm.usage_accumulator.context_window_size == 98_304
+
+
+def test_muse_glimmer_other_backend_uses_effective_prompt_context_window() -> None:
+    agent = LlmAgent(AgentConfig(name="router-profile-test"))
+    llm = ModelFactory.create_factory("hf.meta-models/Muse-Glimmer-30B:novita")(agent=agent)
+
+    assert isinstance(llm, HuggingFaceLLM)
+    assert llm.usage_accumulator.context_window_size == 98_304
+
+
+def test_muse_glimmer_explicit_output_cap_adjusts_prompt_context_window() -> None:
+    agent = LlmAgent(AgentConfig(name="router-profile-test"))
+    llm = ModelFactory.create_factory("glimmer?max_tokens=4096")(agent=agent)
+
+    assert isinstance(llm, HuggingFaceLLM)
+    assert llm.usage_accumulator.context_window_size == 126_976
+
+
+def test_muse_glimmer_other_backend_explicit_output_cap_adjusts_prompt_window() -> None:
+    agent = LlmAgent(AgentConfig(name="router-profile-test"))
+    llm = ModelFactory.create_factory("hf.meta-models/Muse-Glimmer-30B:novita?max_tokens=4096")(
+        agent=agent
+    )
+
+    assert isinstance(llm, HuggingFaceLLM)
+    assert llm.usage_accumulator.context_window_size == 126_976
+
+
 @pytest.mark.parametrize(
     "model",
     (
