@@ -294,9 +294,7 @@ async def test_cumulative_chain_generate_calls_all_agents() -> None:
     second = RecordingAgent("second", "second output")
     chain = ChainAgent(AgentConfig("chain"), [first, second], cumulative=True)
 
-    await chain.generate(
-        PromptMessageExtended(role="user", content=[text_content("start")])
-    )
+    await chain.generate(PromptMessageExtended(role="user", content=[text_content("start")]))
 
     assert len(first.generate_inputs) == 1, "first agent must be called exactly once"
     assert len(second.generate_inputs) == 1, "second agent must be called exactly once"
@@ -309,9 +307,7 @@ async def test_cumulative_chain_generate_passes_prior_outputs_as_context() -> No
     third = RecordingAgent("third", "third output")
     chain = ChainAgent(AgentConfig("chain"), [first, second, third], cumulative=True)
 
-    await chain.generate(
-        PromptMessageExtended(role="user", content=[text_content("start")])
-    )
+    await chain.generate(PromptMessageExtended(role="user", content=[text_content("start")]))
 
     assert len(first.generate_inputs) == 1
     assert len(second.generate_inputs) == 1
@@ -351,9 +347,7 @@ async def test_cumulative_chain_generate_preserves_prior_response_content_blocks
     second = RecordingAgent("second", "second output")
     chain = ChainAgent(AgentConfig("chain"), [first, second], cumulative=True)
 
-    await chain.generate(
-        PromptMessageExtended(role="user", content=[text_content("start")])
-    )
+    await chain.generate(PromptMessageExtended(role="user", content=[text_content("start")]))
 
     assert len(second.generate_inputs) == 1
     prior_response = second.generate_inputs[0][1]
@@ -370,9 +364,7 @@ async def test_chain_generate_propagates_child_execution_errors() -> None:
     chain = ChainAgent(AgentConfig("chain"), [first, final])
 
     with pytest.raises(RuntimeError, match="first failed"):
-        await chain.generate(
-            PromptMessageExtended(role="user", content=[text_content("start")])
-        )
+        await chain.generate(PromptMessageExtended(role="user", content=[text_content("start")]))
 
     assert final.generate_inputs == []
 
@@ -385,9 +377,7 @@ async def test_cumulative_chain_generate_propagates_child_execution_errors() -> 
     chain = ChainAgent(AgentConfig("chain"), [first, second, final], cumulative=True)
 
     with pytest.raises(RuntimeError, match="second failed"):
-        await chain.generate(
-            PromptMessageExtended(role="user", content=[text_content("start")])
-        )
+        await chain.generate(PromptMessageExtended(role="user", content=[text_content("start")]))
 
     assert len(first.generate_inputs) == 1
     assert final.generate_inputs == []
