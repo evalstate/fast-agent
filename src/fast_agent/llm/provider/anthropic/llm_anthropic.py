@@ -299,7 +299,7 @@ def _stream_capture_filename(turn: int) -> Path | None:
     if not STREAM_CAPTURE_ENABLED:
         return None
     STREAM_CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     return STREAM_CAPTURE_DIR / f"anthropic_{timestamp}_turn{turn}"
 
 
