@@ -95,12 +95,17 @@ def test_shell_tool_call_header_includes_timeout() -> None:
                 "shell_name": "bash",
                 "shell_path": "/bin/bash",
                 "timeout_seconds": 90,
+                "idle_yield_seconds": 10,
+                "foreground_yield_seconds": 30,
+                "foreground_auto_await_max_seconds": 240,
             },
             name="dev",
         )
 
     rendered = capture.get()
     assert "bash (/bin/bash) | timeout 90s" in rendered
+    assert "auto-await" not in rendered
+    assert "idle yield" not in rendered
 
 
 def test_background_shell_tool_call_header_shows_background() -> None:
@@ -118,6 +123,7 @@ def test_background_shell_tool_call_header_shows_background() -> None:
                 "background": True,
                 "idle_yield_seconds": 10,
                 "foreground_yield_seconds": 30,
+                "foreground_auto_await_max_seconds": 240,
             },
             name="dev",
         )
@@ -125,6 +131,32 @@ def test_background_shell_tool_call_header_shows_background() -> None:
     rendered = capture.get()
     assert "bash (/bin/bash) | background" in rendered
     assert "idle yield" not in rendered
+    assert "auto-await" not in rendered
+
+
+def test_foreground_shell_tool_call_header_shows_auto_await_policy() -> None:
+    display = ConsoleDisplay()
+
+    for max_seconds, expected in (
+        (240, "auto-await max 240s total"),
+        (0, "auto-await off"),
+    ):
+        with console.console.capture() as capture:
+            display.show_tool_call(
+                tool_name="execute",
+                tool_args={"command": "uv run pytest"},
+                metadata={
+                    "variant": "shell",
+                    "command": "uv run pytest",
+                    "shell_name": "bash",
+                    "idle_yield_seconds": 10,
+                    "foreground_yield_seconds": 30,
+                    "foreground_auto_await_max_seconds": max_seconds,
+                },
+                name="dev",
+            )
+
+        assert expected in capture.get()
 
 
 def test_process_lifecycle_tool_calls_use_compact_display() -> None:

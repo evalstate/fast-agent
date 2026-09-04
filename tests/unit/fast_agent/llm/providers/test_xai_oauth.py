@@ -5,13 +5,19 @@ import time
 from typing import TYPE_CHECKING
 
 import httpx
+import pytest
 
 from fast_agent.auth.credentials import OAuthCredential, save_oauth_credential
+from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.llm.provider.openai.xai_oauth import (
     XAI_DEVICE_CODE_URL,
     XAI_TOKEN_URL,
+    XaiDeviceCode,
     get_xai_access_token,
     login_xai_oauth,
+    poll_xai_device_code,
+    refresh_xai_credential,
+    request_xai_device_code,
 )
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 
@@ -63,6 +69,136 @@ class XaiOAuthSimulator:
                 "token_type": "Bearer",
             },
         )
+
+
+def test_device_authorization_includes_xai_json_error_detail() -> None:
+    def forbidden(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            json={"message": "Device authorization is unavailable for this account."},
+        )
+
+    with (
+        httpx.Client(transport=httpx.MockTransport(forbidden)) as client,
+        pytest.raises(ProviderKeyError) as exc_info,
+    ):
+        request_xai_device_code(client)
+
+    assert exc_info.value.details == (
+        "The xAI OAuth server returned HTTP 403: "
+        "Device authorization is unavailable for this account."
+    )
+
+
+def test_device_authorization_does_not_render_malformed_json() -> None:
+    def forbidden(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, text='{"access_token":"secret-access",')
+
+    with (
+        httpx.Client(transport=httpx.MockTransport(forbidden)) as client,
+        pytest.raises(ProviderKeyError) as exc_info,
+    ):
+        request_xai_device_code(client)
+
+    assert exc_info.value.details == "The xAI OAuth server returned HTTP 403."
+    assert "secret-access" not in str(exc_info.value)
+
+
+def test_device_authorization_does_not_render_unrecognized_json() -> None:
+    def forbidden(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            json={"access_token": "secret-access", "refresh_token": "secret-refresh"},
+        )
+
+    with (
+        httpx.Client(transport=httpx.MockTransport(forbidden)) as client,
+        pytest.raises(ProviderKeyError) as exc_info,
+    ):
+        request_xai_device_code(client)
+
+    assert exc_info.value.details == "The xAI OAuth server returned HTTP 403."
+    assert "secret" not in str(exc_info.value)
+
+
+def test_device_authorization_handles_pathologically_nested_json() -> None:
+    body = b"[" * 2000 + b"0" + b"]" * 2000
+
+    def forbidden(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, content=body)
+
+    with (
+        httpx.Client(transport=httpx.MockTransport(forbidden)) as client,
+        pytest.raises(ProviderKeyError) as exc_info,
+    ):
+        request_xai_device_code(client)
+
+    assert exc_info.value.details == "The xAI OAuth server returned HTTP 403."
+
+
+def test_device_token_polling_handles_pathologically_nested_json() -> None:
+    body = b"[" * 2000 + b"0" + b"]" * 2000
+
+    def rejected(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, content=body)
+
+    device = XaiDeviceCode(
+        device_code="device",
+        user_code="CODE",
+        verification_uri="https://accounts.x.ai/device",
+        expires_in=60,
+        interval=1,
+    )
+    with (
+        httpx.Client(transport=httpx.MockTransport(rejected)) as client,
+        pytest.raises(ProviderKeyError) as exc_info,
+    ):
+        poll_xai_device_code(client, device, sleep=lambda _: None, monotonic=lambda: 0)
+
+    assert exc_info.value.details == "The xAI OAuth server returned HTTP 400."
+
+
+def test_token_refresh_handles_pathologically_nested_json() -> None:
+    body = b"[" * 2000 + b"0" + b"]" * 2000
+
+    def rejected(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, content=body)
+
+    credential = OAuthCredential(access_token="expired", refresh_token="refresh")
+    with (
+        httpx.Client(transport=httpx.MockTransport(rejected)) as client,
+        pytest.raises(ProviderKeyError) as exc_info,
+    ):
+        refresh_xai_credential(credential, client=client)
+
+    assert exc_info.value.details == "The xAI OAuth server returned HTTP 400."
+
+
+def test_device_authorization_ignores_oversized_error_body() -> None:
+    def forbidden(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"message": "sensitive-" + "x" * 20_000})
+
+    with (
+        httpx.Client(transport=httpx.MockTransport(forbidden)) as client,
+        pytest.raises(ProviderKeyError) as exc_info,
+    ):
+        request_xai_device_code(client)
+
+    assert exc_info.value.details == "The xAI OAuth server returned HTTP 403."
+    assert "sensitive" not in str(exc_info.value)
+
+
+def test_device_authorization_ignores_whitespace_only_error_fields() -> None:
+    def forbidden(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"error": " \n\t", "message": "Denied"})
+
+    with (
+        httpx.Client(transport=httpx.MockTransport(forbidden)) as client,
+        pytest.raises(ProviderKeyError) as exc_info,
+    ):
+        request_xai_device_code(client)
+
+    assert exc_info.value.details == "The xAI OAuth server returned HTTP 403: Denied."
 
 
 def test_xai_device_login_persists_portable_credential(

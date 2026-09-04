@@ -96,6 +96,25 @@ def test_reasoning_content_injected_for_reasoning_content_models():
     assert message["reasoning_content"] == reasoning_text
 
 
+def test_reasoning_content_replay_preserves_generic_block_separators() -> None:
+    llm = OpenAILLM(context=Context(), model="zai-org/glm-5.1")
+    msg = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="answer")],
+        channels={
+            REASONING: [
+                TextContent(type="text", text="first."),
+                TextContent(type="text", text="Second"),
+            ]
+        },
+    )
+
+    converted = llm._convert_extended_messages_to_provider([msg])
+    message = _message_payload(converted[0])
+
+    assert message["reasoning_content"] == "first.\n\nSecond"
+
+
 def test_reasoning_content_preserved_with_tool_calls():
     """Reasoning content should ride along even when assistant is calling tools."""
     context = Context()

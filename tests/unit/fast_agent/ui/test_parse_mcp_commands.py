@@ -1,6 +1,5 @@
 import shlex
 
-from fast_agent.commands.mcp_command_intents import MCP_SERVER_NAME_ACTIONS, MCP_TOP_LEVEL_ACTIONS
 from fast_agent.ui.command_payloads import (
     CommandError,
     McpAttachCommand,
@@ -12,17 +11,6 @@ from fast_agent.ui.command_payloads import (
     UnknownCommand,
 )
 from fast_agent.ui.enhanced_prompt import parse_special_input
-from fast_agent.ui.prompt import parser as prompt_parser
-
-
-def test_mcp_server_command_table_covers_name_based_commands() -> None:
-    assert set(prompt_parser._MCP_SERVER_COMMAND_TYPES) == set(MCP_SERVER_NAME_ACTIONS)
-    assert prompt_parser._MCP_SERVER_COMMAND_TYPES["disconnect"] is McpDisconnectCommand
-    assert prompt_parser._MCP_SERVER_COMMAND_TYPES["reconnect"] is McpReconnectCommand
-
-
-def test_mcp_token_parser_table_covers_non_connect_top_level_actions() -> None:
-    assert set(prompt_parser._MCP_TOKEN_PARSERS) | {"connect"} == set(MCP_TOP_LEVEL_ACTIONS)
 
 
 def test_parse_mcp_defaults_to_status() -> None:

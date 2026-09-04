@@ -86,11 +86,12 @@ async def test_initialize_session_wires_session_mcp_listing_into_slash_handler(
         fake_list_detached,
     )
 
-    session_state, _ = await server._initialize_session_state(
+    initialization = await server._initialize_session_state(
         "s-1",
         cwd=str(Path.cwd()),
         mcp_servers=[],
     )
+    session_state = initialization.session_state
 
     assert session_state.slash_handler is not None
     listed = await session_state.slash_handler.execute_command("mcp", "list")

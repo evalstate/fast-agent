@@ -66,7 +66,7 @@ not need to inspect Fast-Agent session files or private message channels.
 - `--workspace <path>`: Override the workspace root; when `--home` is omitted, the home defaults to `<workspace>/.fast-agent`
 - `--home <path>`: Use `<path>` as the `.fast-agent` home itself (cards load from `<path>/agent-cards/`); relative paths resolve under the selected workspace
 - `--no-home`: Run in ephemeral mode (disable implicit home card loading, session persistence/resume, and permission-store side effects)
-- `--resume <id|latest>`: Resume the latest session (or a specific session id) and restore its saved model without opening the startup picker
+- `--resume <id|latest>`: Resume the latest session (or a specific session id) and restore its saved model, web-search/web-fetch state, and Delegate/Orchestrate/Harness capability mode without opening the startup picker. A session already active in another process is rejected; use `fast-agent session fork <id>` to branch its latest committed checkpoint.
 - `--subagents`: Enable the built-in `subagent` tool for the selected or generated agent
 - `--subagent-model <model_string>`: Enable built-in subagents and force every one to use this model
 - `--prompt-file`, `-p <path or uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to a prompt file to use (either text or JSON)

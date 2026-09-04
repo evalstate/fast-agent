@@ -12,6 +12,8 @@ Testing notes:
 
 import os
 
+import pytest
+
 from fast_agent.config import (
     AtlasCloudSettings,
     AzureSettings,
@@ -202,11 +204,15 @@ def test_deepseek_provider_defaults_to_v4_flash() -> None:
     assert llm.default_request_params.model == "deepseek-v4-flash"
 
 
-def test_deepseek_provider_config_default_model_used_when_model_missing() -> None:
-    settings = Settings(deepseek=DeepSeekSettings(default_model="deepseek-v4-flash"))
+@pytest.mark.parametrize(
+    "model",
+    ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "deepseek-v4-pro"],
+)
+def test_deepseek_provider_config_default_model_used_when_model_missing(model: str) -> None:
+    settings = Settings(deepseek=DeepSeekSettings(default_model=model))
     llm = DeepSeekResponsesLLM(context=Context(config=settings), model="")
 
-    assert llm.default_request_params.model == "deepseek-v4-flash"
+    assert llm.default_request_params.model == model
 
 
 def test_azure_uses_azure_deployment_when_default_model_unset() -> None:

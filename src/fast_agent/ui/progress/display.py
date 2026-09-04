@@ -78,6 +78,7 @@ _BRAILLE_SINE = {
 }
 
 _COMPACTING_FRAME_SECONDS = 0.18
+_PROCESS_POLL_BLINK_FRAME_SECONDS = 0.5
 _COMPACTING_FRAMES = (
     "⣿⣿⣿",
     "⣶⣶⣶",
@@ -147,6 +148,11 @@ def _ensure_spinners() -> None:
 def _format_compacting_track(elapsed_seconds: float) -> str:
     frame = int(max(elapsed_seconds, 0.0) / _COMPACTING_FRAME_SECONDS)
     return _COMPACTING_FRAMES[frame % len(_COMPACTING_FRAMES)]
+
+
+def _process_poll_blink_next(elapsed_seconds: float) -> bool:
+    frame = int(max(elapsed_seconds, 0.0) / _PROCESS_POLL_BLINK_FRAME_SECONDS)
+    return frame % 2 == 1
 
 
 _ACTION_DESCRIPTION_ICONS = {
@@ -226,10 +232,11 @@ class SpinnerDescriptionColumn(ProgressColumn):
 
         if bool(task.fields.get("is_process_poll")):
             wait_seconds = task.fields.get("process_wait_seconds")
+            elapsed_seconds = task.elapsed or 0.0
             countdown = format_process_poll_countdown_track(
                 wait_seconds=wait_seconds if type(wait_seconds) is int else None,
-                elapsed_seconds=task.elapsed or 0.0,
-                blink_next=bool(task.fields.get("process_poll_blink_next")),
+                elapsed_seconds=elapsed_seconds,
+                blink_next=_process_poll_blink_next(elapsed_seconds),
             )
             if countdown is not None:
                 return Text(countdown, style="magenta")
@@ -1088,7 +1095,6 @@ class RichProgressDisplay:
         ):
             self._subagent_row_by_agent[event.agent_name] = task_name
         should_drop_tool_task = is_correlated_tool_event and event.tool_terminal
-        had_existing_task = task_name in self._taskmap
         task_id = self._task_id_for_event(event, task_name)
 
         self._task_kind[task_name] = self._task_kind_for_event(
@@ -1114,11 +1120,6 @@ class RichProgressDisplay:
             task_name=task_name,
             is_correlated_tool_event=is_correlated_tool_event,
         )
-        if self._is_process_poll_event(event):
-            blink_next = False
-            if had_existing_task and existing is not None:
-                blink_next = not bool(existing.fields.get("process_poll_blink_next"))
-            update_kwargs["process_poll_blink_next"] = blink_next
         self._progress.update(task_id, **update_kwargs)
         if self._is_process_poll_event(event):
             task = next((item for item in self._progress.tasks if item.id == task_id), None)

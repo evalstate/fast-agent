@@ -1,5 +1,6 @@
-from typing import Any
+from typing import Any, cast
 
+from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
 
 from fast_agent.llm.provider.openai.llm_openai_compatible import OpenAICompatibleLLM
@@ -8,6 +9,7 @@ from fast_agent.types import RequestParams
 
 ZAI_BASE_URL = "https://api.z.ai/api/paas/v4/"
 DEFAULT_ZAI_MODEL = "glm-5.2"
+FORCED_REASONING_MODELS = frozenset({"glm-5.3", "glm-5.3-flash"})
 
 
 class ZaiLLM(OpenAICompatibleLLM):
@@ -44,6 +46,13 @@ class ZaiLLM(OpenAICompatibleLLM):
             return None
         return setting.value if isinstance(setting.value, str) else "max"
 
+    @staticmethod
+    def _uses_forced_reasoning(model: object) -> bool:
+        return isinstance(model, str) and model.casefold() in FORCED_REASONING_MODELS
+
+    def _preserves_raw_reasoning_history(self, model: str) -> bool:
+        return self._uses_forced_reasoning(model)
+
     def _prepare_api_request(
         self,
         messages: list[ChatCompletionMessageParam],
@@ -61,6 +70,20 @@ class ZaiLLM(OpenAICompatibleLLM):
             return arguments
 
         effort = self._resolve_reasoning_effort()
+        if self._uses_forced_reasoning(arguments.get("model")):
+            if effort not in {"low", "high", "max"}:
+                self.logger.warning(
+                    "GLM-5.3 models require low, high, or max reasoning; using max."
+                )
+                effort = "max"
+            extra_body["thinking"] = {
+                "type": "enabled",
+                "clear_thinking": False,
+            }
+            arguments["extra_body"] = extra_body
+            arguments["reasoning_effort"] = effort
+            return arguments
+
         extra_body["thinking"] = {"type": "enabled" if effort else "disabled"}
         arguments["extra_body"] = extra_body
         if effort:
@@ -68,6 +91,41 @@ class ZaiLLM(OpenAICompatibleLLM):
         else:
             arguments.pop("reasoning_effort", None)
         return arguments
+
+    async def _normalize_chat_completion_files(
+        self,
+        client: AsyncOpenAI,
+        messages: list[ChatCompletionMessageParam],
+    ) -> list[ChatCompletionMessageParam]:
+        del client
+        normalized: list[ChatCompletionMessageParam] = []
+        for message in messages:
+            content = message.get("content")
+            if not isinstance(content, list):
+                normalized.append(message)
+                continue
+
+            updated_content: list[Any] = []
+            for part in content:
+                if not isinstance(part, dict) or part.get("type") != "file":
+                    updated_content.append(part)
+                    continue
+                file = part.get("file")
+                file_url = file.get("file_url") if isinstance(file, dict) else None
+                if not isinstance(file_url, str) or not file_url:
+                    updated_content.append(part)
+                    continue
+                updated_content.append(
+                    {
+                        "type": "file_url",
+                        "file_url": {"url": file_url},
+                    }
+                )
+
+            updated_message = dict(message)
+            updated_message["content"] = updated_content
+            normalized.append(cast("ChatCompletionMessageParam", updated_message))
+        return normalized
 
     @staticmethod
     def _prepare_non_streaming_request(arguments: dict[str, Any]) -> dict[str, Any]:

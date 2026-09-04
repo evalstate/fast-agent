@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-import httpx
+import httpx2
 from openai import APIError
 from openai.types.responses import (
     ResponseReasoningSummaryTextDeltaEvent,
@@ -750,7 +750,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     body["code"] = code
                 raise APIError(
                     message,
-                    request=httpx.Request("POST", "https://responses.invalid/responses"),
+                    request=httpx2.Request("POST", "https://responses.invalid/responses"),
                     body={"error": body},
                 )
             if self._handle_responses_tool_stream_event(

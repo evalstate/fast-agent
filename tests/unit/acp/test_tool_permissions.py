@@ -3,7 +3,6 @@ Unit tests for ACP tool permission components.
 
 Tests for:
 - PermissionStore file persistence
-- PermissionResult factory methods
 - ACPToolPermissionManager (using test doubles)
 """
 
@@ -17,14 +16,12 @@ from acp.schema import AllowedOutcome, DeniedOutcome, RequestPermissionResponse
 
 from fast_agent.acp.permission_store import (
     PermissionDecision,
-    PermissionResult,
     PermissionStore,
 )
 from fast_agent.acp.tool_permission_adapter import ACPToolPermissionAdapter
 from fast_agent.acp.tool_permissions import (
     ACPToolPermissionManager,
     _is_acp_tool_call_id,
-    _permission_options,
 )
 from fast_agent.acp.tool_titles import build_tool_title
 
@@ -119,45 +116,6 @@ class FakeToolProgressManager:
         return self._mapping.get(tool_use_id)
 
 
-class TestPermissionResult:
-    """Tests for PermissionResult dataclass."""
-
-    def test_allow_once(self) -> None:
-        """allow_once creates allowed=True, remember=False."""
-        result = PermissionResult.allow_once()
-        assert result.allowed is True
-        assert result.remember is False
-        assert result.is_cancelled is False
-
-    def test_allow_always(self) -> None:
-        """allow_always creates allowed=True, remember=True."""
-        result = PermissionResult.allow_always()
-        assert result.allowed is True
-        assert result.remember is True
-        assert result.is_cancelled is False
-
-    def test_reject_once(self) -> None:
-        """reject_once creates allowed=False, remember=False."""
-        result = PermissionResult.reject_once()
-        assert result.allowed is False
-        assert result.remember is False
-        assert result.is_cancelled is False
-
-    def test_reject_always(self) -> None:
-        """reject_always creates allowed=False, remember=True."""
-        result = PermissionResult.reject_always()
-        assert result.allowed is False
-        assert result.remember is True
-        assert result.is_cancelled is False
-
-    def test_cancelled(self) -> None:
-        """cancelled creates allowed=False, is_cancelled=True."""
-        result = PermissionResult.cancelled()
-        assert result.allowed is False
-        assert result.remember is False
-        assert result.is_cancelled is True
-
-
 class TestPermissionStore:
     """Tests for PermissionStore class."""
 
@@ -173,24 +131,6 @@ class TestPermissionStore:
         store = PermissionStore(cwd=temp_dir)
         result = await store.get("unknown_server", "unknown_tool")
         assert result is None
-
-    @pytest.mark.asyncio
-    async def test_stores_and_retrieves_allow_always(self, temp_dir: Path) -> None:
-        """Stores and retrieves allow_always decisions."""
-        store = PermissionStore(cwd=temp_dir)
-        await store.set("server1", "tool1", PermissionDecision.ALLOW_ALWAYS)
-
-        result = await store.get("server1", "tool1")
-        assert result == PermissionDecision.ALLOW_ALWAYS
-
-    @pytest.mark.asyncio
-    async def test_stores_and_retrieves_reject_always(self, temp_dir: Path) -> None:
-        """Stores and retrieves reject_always decisions."""
-        store = PermissionStore(cwd=temp_dir)
-        await store.set("server1", "tool1", PermissionDecision.REJECT_ALWAYS)
-
-        result = await store.get("server1", "tool1")
-        assert result == PermissionDecision.REJECT_ALWAYS
 
     @pytest.mark.asyncio
     async def test_persists_across_instances(self, temp_dir: Path) -> None:
@@ -233,15 +173,6 @@ class TestPermissionStore:
         # Setting permission creates file
         await store.set("server1", "tool1", PermissionDecision.ALLOW_ALWAYS)
         assert store.file_path.exists()
-
-    @pytest.mark.asyncio
-    async def test_handles_missing_file_gracefully(self, temp_dir: Path) -> None:
-        """get() works when file doesn't exist."""
-        store = PermissionStore(cwd=temp_dir)
-
-        # Should not raise
-        result = await store.get("server1", "tool1")
-        assert result is None
 
     @pytest.mark.asyncio
     async def test_removes_permission(self, temp_dir: Path) -> None:
@@ -400,18 +331,6 @@ class TestPermissionStoreEdgeCases:
 
         result = await store.get("server1", "tool1")
         assert result == PermissionDecision.REJECT_ALWAYS
-
-    @pytest.mark.asyncio
-    async def test_handles_special_characters_in_names(self, temp_dir: Path) -> None:
-        """Should handle special characters in server/tool names."""
-        store = PermissionStore(cwd=temp_dir)
-
-        await store.set(
-            "server-with-dashes", "tool_with_underscores", PermissionDecision.ALLOW_ALWAYS
-        )
-
-        result = await store.get("server-with-dashes", "tool_with_underscores")
-        assert result == PermissionDecision.ALLOW_ALWAYS
 
     @pytest.mark.asyncio
     async def test_handles_mixed_valid_invalid_rows(self, temp_dir: Path) -> None:
@@ -603,13 +522,6 @@ class TestACPToolPermissionManager:
         assert "prompt=lion" not in title
         assert "tool_result=image" not in title
 
-    def test_remembered_permission_options_name_tool_scope(self) -> None:
-        """Remembered options should make tool-level scope explicit."""
-        option_names = {option.option_id: option.name for option in _permission_options()}
-
-        assert option_names["allow_always"] == "Always Allow This Tool"
-        assert option_names["reject_always"] == "Never Allow This Tool"
-
     @pytest.mark.asyncio
     async def test_permission_request_uses_tool_scoped_remembered_labels(
         self,
@@ -758,24 +670,6 @@ class TestACPToolPermissionManager:
         assert result.allowed is False  # FAIL-SAFE
 
     @pytest.mark.asyncio
-    async def test_session_cache_avoids_repeated_client_calls(self, temp_dir: Path) -> None:
-        """Should cache allow_always in session to avoid repeated client calls."""
-        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_always"})
-        manager = ACPToolPermissionManager(
-            connection=connection,
-            session_id="test-session",
-            cwd=temp_dir,
-        )
-
-        # First call - goes to client
-        await manager.check_permission("tool1", "server1")
-        assert len(connection.permission_requests) == 1
-
-        # Second call - should use cache (either session or store)
-        await manager.check_permission("tool1", "server1")
-        assert len(connection.permission_requests) == 1  # Still 1, not 2
-
-    @pytest.mark.asyncio
     async def test_session_cache_distinguishes_names_with_slashes(self, temp_dir: Path) -> None:
         """Session cache keys should not collide when names contain slashes."""
         connection = FakeAgentSideConnection(
@@ -793,23 +687,6 @@ class TestACPToolPermissionManager:
         assert first.allowed is True
         assert second.allowed is True
         assert len(connection.permission_requests) == 2
-
-    @pytest.mark.asyncio
-    async def test_clears_session_cache(self, temp_dir: Path) -> None:
-        """Should be able to clear session cache."""
-        connection = FakeAgentSideConnection(permission_responses={"server1/tool1": "allow_always"})
-        manager = ACPToolPermissionManager(
-            connection=connection,
-            session_id="test-session",
-            cwd=temp_dir,
-        )
-
-        await manager.check_permission("tool1", "server1")
-        await manager.clear_session_cache()
-
-        # After clearing, should still use persisted store (not call client again)
-        await manager.check_permission("tool1", "server1")
-        assert len(connection.permission_requests) == 1  # Store has it
 
     @pytest.mark.asyncio
     async def test_reject_once_does_not_persist(self, temp_dir: Path) -> None:

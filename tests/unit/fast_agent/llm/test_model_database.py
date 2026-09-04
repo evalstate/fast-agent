@@ -56,7 +56,7 @@ def test_gpt_56_context_windows_follow_provider_limits() -> None:
 
 
 def test_managed_process_poll_folding_is_enabled_for_validated_models() -> None:
-    for model in ("grok-4.3", "grok-4.5"):
+    for model in ("grok-4.3", "grok-4.5", "grok-4.6"):
         grok = ModelDatabase.get_model_params(
             model,
             provider=Provider.XAI,
@@ -224,6 +224,26 @@ def test_gemini35_flash_specs_match_api_guide() -> None:
     assert params.reasoning_effort_spec.default.value == "medium"
 
 
+def test_gemini37_flash_specs_match_api_guide() -> None:
+    params = ModelDatabase.get_model_params("gemini-3.7-flash")
+
+    assert params is not None
+    assert params.context_window == 1_048_576
+    assert params.max_output_tokens == 65_536
+    assert params.fast is True
+    assert params.structured_tool_policy is None
+    assert params.google_search_supported is True
+    assert params.reasoning == "google_thinking"
+    assert params.reasoning_effort_spec is not None
+    assert params.reasoning_effort_spec.allowed_efforts == ["low", "medium", "high"]
+    assert params.reasoning_effort_spec.default == ReasoningEffortSetting(
+        kind="effort",
+        value="medium",
+    )
+    assert params.google_service_tiers == ("flex",)
+    assert ModelDatabase.supports_google_service_tier("gemini-3.7-flash", "flex")
+
+
 def test_gemini31_pro_allows_tools_with_structured_output() -> None:
     params = ModelDatabase.get_model_params("gemini-3.1-pro-preview")
 
@@ -275,6 +295,41 @@ def test_huggingface_qwen36_structured_output_uses_prompt_only() -> None:
     prepared_text = prepared_messages[-1].last_text()
     assert prepared_text is not None
     assert "YOU MUST RESPOND WITH A JSON OBJECT" in prepared_text
+
+
+def test_qwen38_defers_json_object_until_after_tool_use() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
+    tool = Tool(
+        name="lookup",
+        description="Lookup data.",
+        input_schema={"type": "object", "properties": {}},
+    )
+    llm = _make_hf_llm("Qwen/Qwen3.8-27B")
+    messages = [Prompt.user("look up and return json")]
+    request_params = RequestParams(structured_schema=schema)
+
+    prepared_messages, prepared_params = llm._prepare_structured_request(
+        messages,
+        request_params,
+        [tool],
+    )
+
+    assert llm._should_defer_structured_schema_for_tools(
+        messages,
+        request_params,
+        [tool],
+    )
+    assert prepared_params.structured_schema is None
+    assert prepared_params.response_format is None
+    assert not llm._should_suppress_tools_for_structured_final(
+        prepared_messages,
+        prepared_params,
+        [tool],
+    )
 
 
 def test_huggingface_kimi25_uses_schema_mode() -> None:
@@ -450,6 +505,9 @@ def test_model_database_supports_mime_basic():
         "deepseek-v4-flash",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+    for mime_type in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+        assert ModelDatabase.supports_mime("deepseek-v4-flash-vision-exp", mime_type)
+    assert not ModelDatabase.supports_mime("deepseek-v4-flash-vision-exp", "application/pdf")
 
     # Wildcard checks
     assert ModelDatabase.supports_mime("gpt-4o", "image/*")
@@ -458,10 +516,15 @@ def test_model_database_supports_mime_basic():
 
 
 def test_deepseek_v4_flash_uses_learned_shell_contract() -> None:
-    for model_name in ("deepseek-v4-flash", "deepseek-ai/DeepSeek-V4-Flash-0731"):
+    for model_name in (
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+        "deepseek-ai/DeepSeek-V4-Flash-0731",
+    ):
         params = ModelDatabase.get_model_params(model_name)
 
         assert params is not None
+        assert params.managed_process_poll_folding is True
         assert params.shell_tool_name == "Shell"
         assert params.shell_tool_requires_description is False
         assert params.shell_edit_tool == "write_text_file"
@@ -469,19 +532,36 @@ def test_deepseek_v4_flash_uses_learned_shell_contract() -> None:
         assert "heredoc" not in params.model_specific.casefold()
 
 
+def test_gemini_37_flash_uses_validated_shell_contract() -> None:
+    params = ModelDatabase.get_model_params("gemini-3.7-flash")
+
+    assert params is not None
+    assert params.shell_tool_profile == "minimal_process"
+    assert params.shell_edit_tool == "write_text_file"
+
+
 def test_model_database_xai_grok_aliases_and_responses_transport():
     assert ModelDatabase.get_default_provider("grok") == Provider.XAI
     assert ModelDatabase.get_default_provider("grok-4.3") == Provider.XAI
     assert ModelDatabase.get_default_provider("grok-4.5") == Provider.XAI
+    assert ModelDatabase.get_default_provider("grok-4.6") == Provider.XAI
 
     assert ModelDatabase.get_context_window("grok") == 500_000
     assert ModelDatabase.get_context_window("grok-4.3") == 1_000_000
     assert ModelDatabase.get_context_window("grok-4.5") == 500_000
+    assert ModelDatabase.get_context_window("grok-4.6") == 500_000
     assert ModelDatabase.get_model_params("grok-4.3-latest") is None
     assert ModelDatabase.get_model_params("grok-4-fast-reasoning") is None
     assert ModelDatabase.get_model_params("grok-3") is None
     assert ModelDatabase.get_response_transports("grok-4.3") == ("sse", "websocket")
     assert ModelDatabase.supports_response_websocket_provider("grok-4.3", Provider.XAI)
+
+    openrouter = ModelDatabase.get_model_params(
+        "x-ai/grok-4.6",
+        provider=Provider.OPENROUTER,
+    )
+    assert openrouter is not None
+    assert openrouter.reasoning_effort_spec == ModelDatabase.XAI_GROK_46_REASONING_EFFORT_SPEC
 
 
 def test_model_database_xai_image_input_mime_types_match_docs():
@@ -510,6 +590,23 @@ def test_model_database_metaai_muse_spark_metadata():
         assert ModelDatabase.supports_mime(model, "image/png")
         assert ModelDatabase.supports_mime(model, "application/pdf")
         assert ModelDatabase.supports_mime(model, "video/mp4")
+
+
+def test_model_database_muse_glimmer_huggingface_metadata() -> None:
+    model = "meta-models/Muse-Glimmer-30B:together"
+    params = ModelDatabase.get_model_params(model, provider=Provider.HUGGINGFACE)
+
+    assert params is not None
+    assert params.default_provider == Provider.HUGGINGFACE
+    assert params.context_window == 131_072
+    assert params.max_output_tokens == 128_000
+    assert params.json_mode is None
+    assert params.reasoning == "stream"
+    assert params.stream_mode == "manual"
+    assert params.reasoning_effort_spec == ModelDatabase.MUSE_GLIMMER_REASONING_EFFORT_SPEC
+    assert ModelDatabase.supports_mime(model, "image/png")
+    assert not ModelDatabase.supports_mime(model, "application/pdf")
+    assert not ModelDatabase.supports_mime(model, "video/mp4")
 
 
 def test_model_database_google_video_audio_mime_types():
@@ -642,6 +739,11 @@ def test_model_database_grok_reasoning_spec() -> None:
         assert spec.default is not None
         assert spec.default.kind == "effort"
         assert spec.default.value == "high"
+
+    grok_46_spec = ModelDatabase.get_reasoning_effort_spec("grok-4.6")
+    assert grok_46_spec is not None
+    assert grok_46_spec.allowed_efforts == ["low", "medium", "high", "xhigh"]
+    assert grok_46_spec.default == ReasoningEffortSetting(kind="effort", value="high")
 
 
 def test_glm_51_matches_glm_5_capabilities() -> None:

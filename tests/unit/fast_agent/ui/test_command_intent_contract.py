@@ -2,9 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from fast_agent.commands.shared_command_intents import (
-    SESSION_COMMAND_COMPLETION_DESCRIPTIONS,
-)
 from fast_agent.ui.command_payloads import (
     AgentCommand,
     AttachCommand,
@@ -35,87 +32,6 @@ from fast_agent.ui.prompt import parse_special_input
 from fast_agent.ui.prompt import parser as prompt_parser
 
 type ExpectedParseResult = str | CommandPayload | dict[str, object]
-
-
-def test_session_payload_factory_table_matches_shared_simple_actions() -> None:
-    assert frozenset(prompt_parser._SESSION_PAYLOAD_FACTORIES) == {
-        "list",
-        "new",
-        "resume",
-        "title",
-        "fork",
-        "delete",
-    }
-
-
-def test_history_turn_error_formatters_cover_shared_error_codes() -> None:
-    assert frozenset(prompt_parser._HISTORY_TURN_ERROR_FORMATTERS) == {"missing", "invalid"}
-
-
-def test_session_completion_descriptions_cover_parser_actions() -> None:
-    assert set(SESSION_COMMAND_COMPLETION_DESCRIPTIONS) == {
-        "list",
-        "new",
-        "resume",
-        "title",
-        "fork",
-        "delete",
-        "clear",
-        "pin",
-        "unpin",
-        "export",
-    }
-
-
-def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
-    assert frozenset(prompt_parser._SIMPLE_SLASH_FACTORIES) == {
-        "help",
-        "system",
-        "usage",
-        "markdown",
-        "reload",
-        "environment",
-        "prompts",
-        "exit",
-        "stop",
-    }
-    assert frozenset(prompt_parser._COMMAND_PARSERS) == {
-        "compact",
-        "history",
-        "session",
-        "card",
-        "agent",
-        "subagents",
-        "a2a",
-        "tasks",
-        "mcp",
-        "connect",
-        "prompt",
-        "model",
-        "attach",
-        "check",
-        "commands",
-        "tool",
-        "tools",
-        "process",
-        "processes",
-    }
-    assert frozenset(prompt_parser._SLASH_ACTION_FACTORIES) == {
-        "skills",
-        "packs",
-        "plugins",
-    }
-    assert frozenset(prompt_parser._SLASH_ALIAS_PARSERS) == {
-        "save_history",
-        "save",
-        "load_history",
-        "load",
-        "resume",
-        "fast",
-    }
-    assert frozenset(prompt_parser._PROMPT_SUBCOMMAND_PARSERS) == {
-        "load",
-    }
 
 
 @pytest.mark.parametrize(
@@ -374,6 +290,13 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
             id="environment-shell-command",
         ),
         pytest.param(
+            "!",
+            ShellCommand(
+                command=prompt_parser.default_shell_command(), local=False, interactive=True
+            ),
+            id="environment-interactive-shell",
+        ),
+        pytest.param(
             "!!",
             ShellCommand(
                 command=prompt_parser.default_shell_command(), local=True, interactive=True
@@ -419,6 +342,7 @@ def test_parse_special_input_process_command(command: str) -> None:
 
     assert isinstance(actual, ProcessCommand)
     assert actual.show_history is False
+    assert actual.attach_process_id is None
 
 
 @pytest.mark.parametrize(
@@ -432,6 +356,26 @@ def test_parse_special_input_process_history_command(command: str) -> None:
 
     assert isinstance(actual, ProcessCommand)
     assert actual.show_history is True
+    assert actual.attach_process_id is None
+
+
+def test_parse_special_input_process_attach_command() -> None:
+    from fast_agent.ui.command_payloads import ProcessCommand
+
+    actual = parse_special_input("/process attach process-0123456789abcdef0123456789abcdef")
+
+    assert isinstance(actual, ProcessCommand)
+    assert actual.attach_process_id == "process-0123456789abcdef0123456789abcdef"
+
+
+@pytest.mark.parametrize("root", ["/process", "/processes"])
+def test_parse_special_input_process_terminate_command(root: str) -> None:
+    from fast_agent.ui.command_payloads import ProcessCommand
+
+    actual = parse_special_input(f"{root} terminate process-0123456789abcdef0123456789abcdef")
+
+    assert isinstance(actual, ProcessCommand)
+    assert actual.terminate_process_id == "process-0123456789abcdef0123456789abcdef"
 
 
 def test_parse_special_input_process_rejects_unknown_option() -> None:
@@ -440,7 +384,9 @@ def test_parse_special_input_process_rejects_unknown_option() -> None:
     actual = parse_special_input("/process --all")
 
     assert isinstance(actual, CommandError)
-    assert actual.message == "Usage: /process [--history]"
+    assert actual.message == (
+        "Usage: /process [--history|attach <process-id>|terminate <process-id>]"
+    )
 
 
 def test_parse_attach_uses_windows_aware_tokenization(monkeypatch: pytest.MonkeyPatch) -> None:

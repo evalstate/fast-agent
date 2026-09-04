@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
-    from fast_agent.acp.server.models import ACPSessionState
+    from fast_agent.acp.server.models import ACPSessionState, SessionStateInitialization
     from fast_agent.session.identity import SessionStoreScope
     from fast_agent.session.session_manager import SessionManager
     from fast_agent.types import PromptMessageExtended
@@ -37,8 +37,10 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.message_roles import is_message_role
 from fast_agent.session import (
     Session,
+    SessionBusyError,
     SessionHydrationResult,
     SessionHydrator,
+    SessionManager,
     extract_session_title,
     get_session_history_window,
 )
@@ -67,7 +69,9 @@ class SessionStoreHost(Protocol):
         *,
         cwd: str,
         mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio],
-    ) -> tuple[ACPSessionState, SessionModeState]: ...
+    ) -> SessionStateInitialization: ...
+
+    async def _rollback_session_initialization(self, session_id: str) -> None: ...
 
     def _resolve_session_fallback_agent_name(self, instance: Any) -> str | None: ...
 
@@ -426,33 +430,53 @@ class ACPServerSessionStore:
             break
         if persisted_session is None or persisted_manager is None:
             self._raise_session_not_found(session_id=session_id, request_cwd=request_cwd)
-        loaded_session = persisted_manager.load_session(session_id)
+        owned_before_load = (
+            persisted_manager.owns_session(session_id)
+            if isinstance(persisted_manager, SessionManager)
+            else False
+        )
+        try:
+            loaded_session = persisted_manager.load_session(session_id)
+        except SessionBusyError as exc:
+            self._raise_session_busy(exc)
         if loaded_session is None:
             self._raise_session_not_found(session_id=session_id, request_cwd=request_cwd)
         persisted_session = loaded_session
 
-        session_state, session_modes = await self._host._initialize_session_state(
-            session_id,
-            cwd=request_cwd,
-            mcp_servers=mcp_servers or [],
-        )
-        session_state.session_store_scope = manager_store_scope
-        session_state.session_store_cwd = manager_store_cwd
-        session_state.attach_session_manager(persisted_manager)
-        if session_state.acp_context:
-            session_state.acp_context.set_session_store(
-                manager_store_scope,
-                manager_store_cwd,
+        state_created = False
+        try:
+            initialization = await self._host._initialize_session_state(
+                session_id,
+                cwd=request_cwd,
+                mcp_servers=mcp_servers or [],
             )
+            session_state = initialization.session_state
+            session_modes = initialization.session_modes
+            state_created = initialization.created
+            session_state.session_store_scope = manager_store_scope
+            session_state.session_store_cwd = manager_store_cwd
+            session_state.persisted_session = persisted_session
+            session_state.attach_session_manager(persisted_manager)
+            if session_state.acp_context:
+                session_state.acp_context.set_session_store(
+                    manager_store_scope,
+                    manager_store_cwd,
+                )
 
-        hydrated_modes = await self.hydrate_session_state(
-            session_state,
-            persisted_session,
-            session_modes=session_modes,
-            send_history_updates=self._host._connection is not None,
-        )
-        if hydrated_modes is not None:
-            session_modes = hydrated_modes
+            hydrated_modes = await self.hydrate_session_state(
+                session_state,
+                persisted_session,
+                session_modes=session_modes,
+                send_history_updates=self._host._connection is not None,
+            )
+            if hydrated_modes is not None:
+                session_modes = hydrated_modes
+        except BaseException:
+            if state_created:
+                await self._host._rollback_session_initialization(session_id)
+            if not owned_before_load and isinstance(persisted_manager, SessionManager):
+                persisted_manager.release_session(session_id)
+            raise
 
         logger.info(
             "ACP session loaded",
@@ -543,5 +567,29 @@ class ACPServerSessionStore:
                 "uri": session_id,
                 "reason": "Session not found",
                 "details": (f"Session {session_id} could not be resolved from {request_cwd}"),
+            },
+        )
+
+    @staticmethod
+    def _raise_session_busy(error: SessionBusyError) -> NoReturn:
+        owner = error.owner
+        raise RequestError(
+            -32003,
+            f"Session is active: {error.session_id}",
+            {
+                "sessionId": error.session_id,
+                "reason": "Session is active",
+                "details": str(error),
+                "owner": (
+                    {
+                        "host": owner.host,
+                        "pid": owner.pid,
+                        "startedAt": owner.started_at,
+                        "acquiredAt": owner.acquired_at,
+                        "surface": owner.surface,
+                    }
+                    if owner is not None
+                    else None
+                ),
             },
         )

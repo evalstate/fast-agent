@@ -150,8 +150,8 @@ turn. It does not run for quiet nested sends, failed turns, programmatic
 workflows, tool loops, retries, and subagents contribute to one consolidated
 display.
 
-The handler may be synchronous or asynchronous and returns trusted Rich markup
-as `str`, or `None` to display nothing:
+The handler may be synchronous or asynchronous. Return trusted Rich markup as
+`str`, or `None` to display nothing:
 
 ```python
 from fast_agent.plugins import PluginPostUserTurnContext
@@ -164,6 +164,39 @@ def show_calls(ctx: PluginPostUserTurnContext) -> str | None:
         f"[dim]Provider calls:[/dim] {len(ctx.turn_usage)} last · {len(ctx.session_usage)} session"
     )
 ```
+
+Return `PluginPostUserTurnOutput` when terminal output and an external session
+usage projection need to be controlled independently:
+
+```python
+from fast_agent.plugins import (
+    PluginPostUserTurnContext,
+    PluginPostUserTurnOutput,
+)
+
+
+def show_cost(
+    ctx: PluginPostUserTurnContext,
+) -> PluginPostUserTurnOutput | None:
+    costs = [attempt.cost_usd for attempt in ctx.session_usage]
+    if not costs or any(cost is None for cost in costs):
+        return None
+    total = sum(cost for cost in costs if cost is not None)
+    return PluginPostUserTurnOutput(
+        display=f"[dim]Cost:[/dim] ${total:.4f} session",
+        session_usage=f"${total:.4f}",
+    )
+```
+
+`PluginPostUserTurnOutput` fields are:
+
+- `display` — trusted Rich markup rendered after the completed turn.
+- `session_usage` — a string projected to the active Herdr pane's usage field;
+  it is a no-op when fast-agent is not running inside Herdr.
+
+When multiple enabled plugins return `session_usage`, handlers run in enabled
+plugin order and the last reported value becomes the pane's displayed usage.
+Use one session-usage producer when the value should be authoritative.
 
 The context contains:
 
@@ -183,8 +216,9 @@ command-only plugins.
 
 The
 [card-packs registry](https://github.com/fast-agent-ai/card-packs/tree/main/plugins/price-calculator)
-includes a price calculator using hardcoded GPT-5.6, Kimi K3, and DeepSeek V4
-Flash rates. Install and enable it with:
+includes a price calculator with a versioned catalog covering GPT-5.6, Kimi K3,
+DeepSeek V4 Flash and Pro, Muse Spark, and Grok 4.3 through 4.6. Install and
+enable it with:
 
 ```bash
 fast-agent plugins add price-calculator
@@ -197,10 +231,17 @@ estimated cost.
 
 GPT-5.6 prompts above 272,000 tokens use the long-context table. Standard and
 Flex prices are supported; Fast-tier calls are shown as unpriced until a Fast
-price table is configured. Kimi K3 and DeepSeek V4 Flash cache writes are also
-shown as unpriced because their supplied tables do not specify a cache-write
-rate. Unknown calls never count as zero: the display labels partial totals with
-the number of unpriced model calls.
+price table is configured. Kimi K3, DeepSeek V4 Flash, and DeepSeek V4 Pro cache
+writes are also shown as unpriced because their supplied tables do not specify
+a cache-write rate. Unknown calls never count as zero: the display labels
+partial totals with the number of unpriced model calls.
+
+When running inside Herdr, fast-agent's standard pane metadata shows cumulative
+session cost when every provider attempt has a known `cost_usd`. If any attempt
+is unpriced, it falls back to cumulative input/output token counts rather than
+presenting a partial cost as complete. A post-user-turn plugin can replace that
+pane value for the current turn by returning
+`PluginPostUserTurnOutput(session_usage=...)`.
 
 ## Build a Plugin
 

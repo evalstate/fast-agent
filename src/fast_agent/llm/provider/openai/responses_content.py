@@ -10,8 +10,8 @@ from fast_agent.constants import (
     OPENAI_ASSISTANT_MESSAGE_ITEMS,
     OPENAI_MCP_LIST_TOOLS_ITEMS,
     OPENAI_REASONING_ENCRYPTED,
-    REASONING,
 )
+from fast_agent.llm.provider.openai.reasoning_replay import parse_reasoning_replay
 from fast_agent.llm.provider.openai.tool_event_helpers import first_nonempty_string
 from fast_agent.mcp.helpers.content_helpers import (
     canonicalize_tool_result_content_for_llm,
@@ -91,21 +91,24 @@ class ResponsesContentMixin:
         return self._dedupe_input_items(items)
 
     def _dedupe_input_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        seen_ids: set[str] = set()
+        seen_keys: set[tuple[str, ...]] = set()
         deduped: list[dict[str, Any]] = []
         for item in items:
-            item_id = item.get("id")
-            if item_id:
-                item_id_str = str(item_id)
-                if item_id_str in seen_ids:
+            key = self._input_item_dedupe_key(item)
+            if key is not None:
+                if key in seen_keys:
                     self.logger.debug(
                         "Dropping duplicate Responses item id",
-                        duplicate_id=item_id_str,
+                        duplicate_id=str(item.get("id")),
                     )
                     continue
-                seen_ids.add(item_id_str)
+                seen_keys.add(key)
             deduped.append(item)
         return deduped
+
+    def _input_item_dedupe_key(self, item: dict[str, Any]) -> tuple[str, ...] | None:
+        item_id = item.get("id")
+        return (str(item_id),) if item_id else None
 
     def _convert_message_to_items(self, msg: PromptMessageExtended) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
@@ -245,19 +248,15 @@ class ResponsesContentMixin:
         if not encrypted_blocks:
             return []
 
-        summary = self._build_reasoning_summary_payload(channels)
         items: list[dict[str, Any]] = []
         for data in self._json_channel_payloads(
             encrypted_blocks,
             malformed_log_message="Skipping malformed encrypted reasoning block",
         ):
-            if not data.get("encrypted_content"):
+            item = parse_reasoning_replay(data)
+            if item is None:
                 continue
-            item = dict(data)
-            item.setdefault("type", "reasoning")
-            if item.get("summary") is None:
-                item["summary"] = summary
-            items.append(item)
+            items.append(dict(item))
         return items
 
     def _json_channel_payloads(
@@ -279,22 +278,6 @@ class ResponsesContentMixin:
             if isinstance(payload, dict):
                 payloads.append(payload)
         return payloads
-
-    def _build_reasoning_summary_payload(
-        self, channels: Mapping[str, Iterable[ContentBlock]] | None
-    ) -> list[dict[str, str]]:
-        if not channels:
-            return []
-        reasoning_blocks = channels.get(REASONING) or []
-        summary_texts: list[str] = []
-        for block in reasoning_blocks:
-            text = get_text(block)
-            if text:
-                summary_texts.append(text)
-        summary_text = "\n".join(summary_texts).strip()
-        if not summary_text:
-            return []
-        return [{"type": "summary_text", "text": summary_text}]
 
     @staticmethod
     def _content_mime_type(content: ContentBlock) -> str | None:

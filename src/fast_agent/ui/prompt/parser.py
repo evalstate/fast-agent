@@ -96,7 +96,7 @@ type _ValueCommandFactory = Callable[[str | None], CommandPayload]
 type _ActionArgumentCommandFactory = Callable[[str, str | None], CommandPayload]
 type _HistoryTurnErrorFormatter = Callable[[str], str]
 type _NoArgumentCommandFactory = Callable[[], str | CommandPayload]
-type _RemainderCommandParser = Callable[[str], CommandPayload]
+type _RemainderCommandParser = Callable[[str], str | CommandPayload]
 type _PromptSubcommandParser = Callable[[str], CommandPayload]
 type _SlashAliasParser = Callable[[str], str | CommandPayload]
 
@@ -171,7 +171,6 @@ _SLASH_ACTION_FACTORIES: dict[str, _ActionArgumentCommandFactory] = {
 }
 
 _SIMPLE_SLASH_FACTORIES: dict[str, _NoArgumentCommandFactory] = {
-    "help": lambda: "HELP",
     "system": ShowSystemCommand,
     "usage": ShowUsageCommand,
     "markdown": ShowMarkdownCommand,
@@ -181,6 +180,15 @@ _SIMPLE_SLASH_FACTORIES: dict[str, _NoArgumentCommandFactory] = {
     "exit": lambda: "EXIT",
     "stop": lambda: "STOP",
 }
+
+
+def _parse_help_command(remainder: str) -> str | CommandPayload:
+    topic = strip_casefold(remainder)
+    if not topic:
+        return "HELP"
+    if topic == "status":
+        return "HELP:STATUS"
+    return CommandError(message=f"Unexpected arguments for /help: {remainder}")
 
 
 def _parse_quoted_history_target(text: str) -> str | None:
@@ -296,13 +304,24 @@ def _parse_compact_command(remainder: str) -> CommandPayload:
 
 
 def _parse_process_command(remainder: str) -> CommandPayload:
-    option = strip_casefold(remainder)
-    if not option:
+    stripped = remainder.strip()
+    if not stripped:
         return ProcessCommand()
+    option = strip_casefold(stripped)
     if option in {"history", "--history"}:
         return ProcessCommand(show_history=True)
+    try:
+        tokens = split_commandline(stripped, syntax="posix")
+    except ValueError:
+        tokens = []
+    if len(tokens) == 2:
+        action = strip_casefold(tokens[0])
+        if action == "attach":
+            return ProcessCommand(attach_process_id=tokens[1])
+        if action == "terminate":
+            return ProcessCommand(terminate_process_id=tokens[1])
     return CommandError(
-        message="Usage: /process [--history]",
+        message="Usage: /process [--history|attach <process-id>|terminate <process-id>]",
     )
 
 
@@ -743,6 +762,7 @@ def _parse_tool_command(remainder: str) -> CommandPayload:
 
 
 _COMMAND_PARSERS: dict[str, _RemainderCommandParser] = {
+    "help": _parse_help_command,
     "a2a": _parse_a2a_command,
     "tasks": lambda remainder: A2ACommand(action="tasks", argument=remainder or None),
     "compact": _parse_compact_command,

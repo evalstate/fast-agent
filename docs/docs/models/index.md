@@ -101,9 +101,9 @@ Start with the native providers for common use, or use additional providers for 
 | -------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | OpenAI Responses     | `gpt55`, `gpt54`, `gpt52`, `gpt-5-mini`, `codex`         | GPT-5 class models, reasoning, text verbosity, structured outputs, `web_search`, SSE/WebSocket transports, service tiers, connectors            |
 | Anthropic            | `fable`, `sonnet`, `opus`, `opus5`, `opus48`, `haiku`    | Claude 4.x/5, prompt caching, adaptive reasoning/effort, structured outputs, `web_search`, `web_fetch` where supported, long context, task budget |
-| Google               | `gemini`, `gemini35flash`                                | Gemini native API, structured outputs, thinking controls, text/image/PDF/audio/video input, YouTube links through media attachments             |
-| DeepSeek             | `deepseek`                                               | Native stateless Responses API, reasoning, function tools, JSON Schema structured output, and web search                                       |
-| xAI / Grok           | `grok43`, `grok45`, `grok-4.3`, `grok-4.5`               | Grok models, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports                                                             |
+| Google               | `gemini37flash`, `gemini`, `gemini35flash`               | Gemini native API, structured outputs, thinking controls, text/image/PDF/audio/video input, YouTube links through media attachments             |
+| DeepSeek             | `deepseek`, `deepseekpro`                                | Native stateless Responses API, reasoning, function tools, JSON Schema structured output, and web search                                       |
+| xAI / Grok           | `grok43`, `grok45`, `grok46`, `grok-4.3`, `grok-4.5`, `grok-4.6` | Grok models, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports                                                      |
 | Hugging Face         | `kimi`, `kimi26instant`, `deepseek-hf`, `glm`, `minimax` | Hugging Face Inference Providers routing, curated aliases, and HF MCP authentication                                                            |
 | Additional providers | `qwen-turbo`, `gpt-oss`                                  | Groq, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints                                                   |
 
@@ -193,12 +193,16 @@ stateless Responses API:
 
 ```bash
 fast-agent --model deepseek
+fast-agent --model deepseekpro
+fast-agent --model deepseekvision
 fast-agent --model "deepseek?reasoning=high"
 fast-agent --model "deepseek?web_search=true"
 ```
 
-The native route currently supports `deepseek-v4-flash`. It provides reasoning,
+The native route supports `deepseek-v4-flash`,
+`deepseek-v4-flash-vision-exp`, and `deepseek-v4-pro`. All provide reasoning,
 function tools, JSON Schema structured output, and provider-managed web search.
+The experimental vision variant also accepts JPEG, PNG, GIF, and WebP images.
 Hugging Face aliases such as `deepseek-hf` are separate routes.
 
 ### xAI

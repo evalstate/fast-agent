@@ -142,6 +142,8 @@ class LlmAgent(LlmDecorator):
         self._last_turn_cancelled = False
         self._last_turn_cancel_reason = "cancelled"
         self._last_turn_history_state: "HistoryRollbackState | None" = None
+        self._turn_indicator_scope_depth = 0
+        self._websocket_turn_indicators: set[str] = set()
 
     @property
     def display(self) -> ConsoleDisplay:
@@ -208,6 +210,16 @@ class LlmAgent(LlmDecorator):
     def clear_last_turn_cancellation(self) -> None:
         self._last_turn_cancelled = False
         self._last_turn_history_state = None
+
+    @contextmanager
+    def _turn_indicator_scope(self) -> Iterator[None]:
+        if self._turn_indicator_scope_depth == 0:
+            self._websocket_turn_indicators.clear()
+        self._turn_indicator_scope_depth += 1
+        try:
+            yield
+        finally:
+            self._turn_indicator_scope_depth -= 1
 
     @contextmanager
     def defer_hook_status_messages(self, bucket: str = "default") -> Iterator[None]:
@@ -512,10 +524,9 @@ class LlmAgent(LlmDecorator):
         if display_model is None:
             return None
 
-        if self.llm is not None:
-            websocket_indicator = getattr(self.llm, "websocket_turn_indicator", None)
-            if isinstance(websocket_indicator, str) and websocket_indicator:
-                display_model = f"{display_model} {websocket_indicator}"
+        websocket_indicator = self._resolve_websocket_turn_indicator(message)
+        if websocket_indicator is not None:
+            display_model = f"{display_model} {websocket_indicator}"
 
         if message.tool_calls:
             usage_accumulator = self.usage_accumulator
@@ -527,6 +538,27 @@ class LlmAgent(LlmDecorator):
                 display_model = f"{display_model} ({context_label})"
 
         return display_model
+
+    def _resolve_websocket_turn_indicator(
+        self,
+        message: PromptMessageExtended,
+    ) -> str | None:
+        if self.llm is None:
+            return None
+
+        current = self.llm.websocket_turn_indicator
+        if not current:
+            return None
+        if self._turn_indicator_scope_depth == 0:
+            return current
+
+        self._websocket_turn_indicators.add(current)
+        if message.stop_reason == LlmStopReason.TOOL_USE:
+            return current
+
+        return " ".join(
+            indicator for indicator in ("↔", "↗") if indicator in self._websocket_turn_indicators
+        )
 
     def _filter_bottom_metadata_for_tool_use(
         self,
@@ -825,6 +857,15 @@ class LlmAgent(LlmDecorator):
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
+        with self._turn_indicator_scope():
+            return await self._generate_impl(messages, request_params, tools)
+
+    async def _generate_impl(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> PromptMessageExtended:
         """
         Enhanced generate implementation that resets tool call tracking.
         Messages are already normalized to list[PromptMessageExtended].
@@ -880,6 +921,11 @@ class LlmAgent(LlmDecorator):
                     summary_text = self._summary_text_for_result(result, summary)
 
                     await stream_handle.wait_for_drain()
+                    completed_display_model = self._resolve_assistant_display_model(
+                        message=result,
+                        model=display_model,
+                    )
+                    stream_handle.update_model(completed_display_model)
                     self._maybe_close_streaming_for_tool_calls(result)
                     stream_scrolled = stream_handle.has_scrolled()
                     preserve_streamed_frame = (

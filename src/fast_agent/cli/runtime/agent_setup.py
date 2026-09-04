@@ -18,6 +18,7 @@ from fast_agent.commands.model_capabilities import resolve_reasoning_effort
 from fast_agent.core.card_tool_attachment import load_and_attach_card_tool_agents
 from fast_agent.core.exceptions import (
     AgentConfigError,
+    PromptExitError,
     ServerInitializationError,
     walk_exception_chain,
 )
@@ -25,6 +26,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.reasoning_effort import reasoning_setting_telemetry_value
 from fast_agent.mcp.connect_targets import redact_mcp_url
 from fast_agent.mcp.failures import MCPFailure, classify_mcp_failure, render_mcp_failure
+from fast_agent.session.locking import SessionCheckpointBusyError
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.utils.commandline import join_commandline
@@ -726,6 +728,7 @@ async def _run_cli_flow(
         await _resume_session_if_requested(agent_app, request)
     transient_messages_by_agent: dict[str, list[PromptMessageExtended]] | None = None
     one_shot_response: PromptMessageExtended | None = None
+    interactive_exit = False
     if request.execution_mode == "one_shot_message":
         assert request.message is not None
         agent_obj = agent_app._agent(request.target_agent_name)
@@ -788,6 +791,7 @@ async def _run_cli_flow(
             session_manager=session_manager,
             harness_session=harness_session,
         )
+        interactive_exit = True
 
     await _export_requested_outputs(
         agent_app,
@@ -798,6 +802,8 @@ async def _run_cli_flow(
     )
     if one_shot_response is not None and one_shot_response.stop_reason == LlmStopReason.ERROR:
         raise typer.Exit(1)
+    if interactive_exit:
+        raise PromptExitError("User requested to exit fast-agent session")
 
 
 async def _run_interactive_with_interrupt_recovery(
@@ -841,7 +847,7 @@ async def _run_interactive_with_interrupt_recovery(
             )
             if exiting:
                 typer.echo("Second Ctrl+C received; exiting fast-agent.", err=True)
-                raise
+                raise PromptExitError("User requested to exit fast-agent session") from None
 
             ctrl_c_deadline = now + ctrl_c_exit_window_seconds
             typer.echo(
@@ -1020,6 +1026,7 @@ def _apply_fast_args(
     _validate_resume_request(request)
     if request.model:
         fast.args.model = request.model
+    fast.args.model_base_url = request.model_base_url
     fast.args.resume_requested = request.resume is not None
     fast.args.resume_session_id = _resume_session_id(request)
     if model_source_override:
@@ -1525,7 +1532,11 @@ def _classify_cli_mcp_failure(
 
 async def run_agent_request(request: AgentRunRequest) -> None:
     """Run the normalized CLI request."""
-    startup_model_source_override = await _select_startup_model_if_needed(request)
+    try:
+        startup_model_source_override = await _select_startup_model_if_needed(request)
+    except SessionCheckpointBusyError as exc:
+        typer.echo(str(exc), err=True)
+        raise SystemExit(1) from exc
     serve_permissions_enabled = _serve_permissions_enabled(request)
     instruction = _request_instruction(request)
     _configure_stdio_server_console(request)

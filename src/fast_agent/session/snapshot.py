@@ -16,15 +16,21 @@ from pydantic import BaseModel, ConfigDict, Field
 from fast_agent.llm.usage_tracking import UsageAccumulator
 
 if TYPE_CHECKING:
-    from fast_agent.interfaces import AgentProtocol
+    from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol
     from fast_agent.llm.request_params import RequestParams
     from fast_agent.session.identity import SessionSaveIdentity
     from fast_agent.session.session_manager import Session, SessionInfo
 
-SESSION_SNAPSHOT_SCHEMA_VERSION = 4
+SESSION_SNAPSHOT_SCHEMA_VERSION = 5
 
 type JsonScalar = None | bool | int | float | str
 type JsonValue = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
+type SessionAgentCapabilityMode = Literal[
+    "standard",
+    "delegate",
+    "orchestrate",
+    "harness_only",
+]
 
 _LEGACY_METADATA_KEYS = frozenset(
     {
@@ -36,6 +42,7 @@ _LEGACY_METADATA_KEYS = frozenset(
         "git",
         "label",
         "last_history_by_agent",
+        "last_user_prompt",
         "pinned",
         "title",
     }
@@ -56,6 +63,7 @@ class SessionMetadataSnapshot(BaseModel):
     title: str | None = None
     label: str | None = None
     first_user_preview: str | None = None
+    last_user_prompt: str | None = None
     pinned: bool = False
     extras: dict[str, JsonValue] = Field(default_factory=dict)
 
@@ -148,6 +156,7 @@ class SessionAgentSnapshot(BaseModel):
     model: str | None = None
     model_spec: str | None = None
     provider: str | None = None
+    capability_mode: SessionAgentCapabilityMode | None = None
     request_settings: SessionRequestSettingsSnapshot | None = None
     card_provenance: list[SessionCardProvenanceRef] = Field(default_factory=list)
     attachment_refs: list[SessionAttachmentRef] = Field(default_factory=list)
@@ -239,7 +248,7 @@ class SessionSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[4] = SESSION_SNAPSHOT_SCHEMA_VERSION
+    schema_version: Literal[5] = SESSION_SNAPSHOT_SCHEMA_VERSION
     session_id: str
     created_at: datetime
     last_activity: datetime
@@ -286,6 +295,9 @@ def load_session_snapshot(payload: object) -> SessionSnapshot:
         raw_schema_version = 3
     if raw_schema_version == 3:
         payload_mapping = _migrate_v3_session_snapshot(payload_mapping)
+        raw_schema_version = 4
+    if raw_schema_version == 4:
+        payload_mapping = _migrate_v4_session_snapshot(payload_mapping)
         raw_schema_version = SESSION_SNAPSHOT_SCHEMA_VERSION
     if raw_schema_version != SESSION_SNAPSHOT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported session snapshot schema version: {raw_schema_version!r}")
@@ -326,6 +338,14 @@ def _migrate_v3_session_snapshot(payload: Mapping[str, object]) -> dict[str, obj
         "started_at": None,
         "completed_at": None,
     }
+    migrated["schema_version"] = 4
+    return migrated
+
+
+def _migrate_v4_session_snapshot(payload: Mapping[str, object]) -> dict[str, object]:
+    """Add per-agent capability mode introduced with the v5 snapshot."""
+
+    migrated = dict(payload)
     migrated["schema_version"] = SESSION_SNAPSHOT_SCHEMA_VERSION
     return migrated
 
@@ -347,6 +367,7 @@ def synthesize_legacy_session_snapshot(payload: Mapping[str, object]) -> Session
         title=_optional_str(metadata_mapping, "title", session_id),
         label=_optional_str(metadata_mapping, "label", session_id),
         first_user_preview=_optional_str(metadata_mapping, "first_user_preview", session_id),
+        last_user_prompt=_optional_str(metadata_mapping, "last_user_prompt", session_id),
         pinned=_optional_bool(metadata_mapping, "pinned", session_id, default=False),
         extras=_legacy_metadata_extras(metadata_mapping, session_id),
     )
@@ -380,6 +401,7 @@ def snapshot_from_session_info(info: "SessionInfo") -> SessionSnapshot:
         title=_typed_str(metadata_dict.get("title")),
         label=_typed_str(metadata_dict.get("label")),
         first_user_preview=_typed_str(metadata_dict.get("first_user_preview")),
+        last_user_prompt=_typed_str(metadata_dict.get("last_user_prompt")),
         pinned=metadata_dict.get("pinned") is True,
         extras=_session_info_metadata_extras(metadata_dict, info.name),
     )
@@ -484,6 +506,8 @@ def _metadata_fields_from_snapshot(snapshot: SessionSnapshot) -> dict[str, JsonV
         metadata["label"] = snapshot.metadata.label
     if snapshot.metadata.first_user_preview is not None:
         metadata["first_user_preview"] = snapshot.metadata.first_user_preview
+    if snapshot.metadata.last_user_prompt is not None:
+        metadata["last_user_prompt"] = snapshot.metadata.last_user_prompt
     if snapshot.metadata.pinned:
         metadata["pinned"] = True
     if snapshot.continuation.active_agent is not None:
@@ -938,6 +962,7 @@ def _capture_agent_snapshot(
             if llm is not None
             else (existing_snapshot.provider if existing_snapshot is not None else None)
         ),
+        capability_mode=_capture_agent_capability_mode(agent),
         request_settings=(
             request_settings
             if request_settings is not None
@@ -969,7 +994,20 @@ def _capture_model_spec(
         base_model_spec = agent.config.model
     if base_model_spec is None and existing_snapshot is not None:
         base_model_spec = existing_snapshot.model_spec or existing_snapshot.model
-    return _apply_request_settings_to_model_spec(base_model_spec, request_settings)
+    return _apply_request_settings_to_model_spec(base_model_spec, request_settings, llm)
+
+
+def _capture_agent_capability_mode(
+    agent: "AgentProtocol",
+) -> SessionAgentCapabilityMode | None:
+    from fast_agent.core.agent_capabilities import (
+        agent_capability_mode_supported,
+        resolve_agent_capability_mode,
+    )
+
+    if not agent_capability_mode_supported(agent):
+        return None
+    return resolve_agent_capability_mode(agent).value
 
 
 def _capture_history_file(
@@ -1029,6 +1067,7 @@ def _request_settings_snapshot_from_params(
 def _apply_request_settings_to_model_spec(
     model_spec: str | None,
     request_settings: SessionRequestSettingsSnapshot | None,
+    llm: "FastAgentLLMProtocol | None",
 ) -> str | None:
     if model_spec is None:
         return None
@@ -1037,12 +1076,17 @@ def _apply_request_settings_to_model_spec(
     if not normalized_model_spec:
         return None
 
-    if request_settings is None or request_settings.service_tier is None:
-        return normalized_model_spec
-
     base_model_spec, _, query = normalized_model_spec.partition("?")
     query_params = dict(parse_qsl(query, keep_blank_values=True))
-    query_params["service_tier"] = request_settings.service_tier
+    if request_settings is not None and request_settings.service_tier is not None:
+        query_params["service_tier"] = request_settings.service_tier
+    if llm is not None:
+        if llm.web_search_supported:
+            query_params["web_search"] = "on" if llm.web_search_enabled else "off"
+        if llm.x_search_supported:
+            query_params["x_search"] = "on" if llm.x_search_enabled else "off"
+        if llm.web_fetch_supported:
+            query_params["web_fetch"] = "on" if llm.web_fetch_enabled else "off"
     encoded_query = urlencode(query_params)
     if not encoded_query:
         return base_model_spec

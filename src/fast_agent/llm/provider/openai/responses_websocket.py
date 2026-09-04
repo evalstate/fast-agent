@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
 import json
 import time
 from collections.abc import Awaitable, Callable, Mapping
@@ -14,6 +15,7 @@ from aiohttp import WSMsgType
 from openai import AsyncOpenAI
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
+from fast_agent.core.shutdown import write_shutdown_trace
 from fast_agent.llm.provider.openai.responses_events import (
     is_responses_failure_event,
     is_responses_terminal_event,
@@ -22,7 +24,7 @@ from fast_agent.llm.provider.openai.tool_event_helpers import (
     item_type_is_responses_function_tool_call,
 )
 from fast_agent.utils.numeric import int_or_none
-from fast_agent.utils.text import strip_str_to_none
+from fast_agent.utils.text import collapse_whitespace, strip_str_to_none
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -33,6 +35,8 @@ RESPONSES_WEBSOCKET_BETA_HEADER = "responses_websockets=2026-02-06"
 RESPONSES_WEBSOCKET_BETA_HEADER_NAME = "OpenAI-Beta"
 RESPONSES_CREATE_EVENT_TYPE = "response.create"
 RESPONSES_WEBSOCKET_MAX_MESSAGE_BYTES = 4 * 1024 * 1024
+RESPONSES_WEBSOCKET_CLOSE_TIMEOUT_SECONDS = 0.25
+RESPONSES_WEBSOCKET_ERROR_DETAIL_LENGTH = 1000
 _STREAM_START_EVENT_TYPES = {
     "response.output_item.added",
     "response.function_call_arguments.delta",
@@ -53,6 +57,7 @@ class ResponsesWebSocketKeepaliveOptions(TypedDict, total=False):
 
 
 class _SdkWebSocketConnectionOptions(ResponsesWebSocketKeepaliveOptions, total=False):
+    close_timeout: float | None
     max_size: int | None
     open_timeout: float | None
 
@@ -72,12 +77,16 @@ class ResponsesWebSocketError(RuntimeError):
         error_code: str | None = None,
         status: int | None = None,
         error_param: str | None = None,
+        headers: dict[str, str] | None = None,
+        stream_id: str | None = None,
     ) -> None:
         super().__init__(message)
         self.stream_started = stream_started
         self.error_code = error_code
         self.status = status
         self.error_param = error_param
+        self.headers = headers
+        self.stream_id = stream_id
 
 
 class _AttrObjectView:
@@ -132,6 +141,38 @@ def _non_empty_string(value: Any) -> str | None:
     return strip_str_to_none(value)
 
 
+def _websocket_handshake_error_detail(body: bytes) -> str:
+    text = body.decode("utf-8", errors="replace")
+    try:
+        payload = json.loads(text)
+    except (json.JSONDecodeError, RecursionError):
+        payload = None
+
+    values: list[str] = []
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, str):
+            values.append(error)
+        elif isinstance(error, dict):
+            values.extend(
+                value
+                for key in ("code", "message", "detail")
+                if isinstance(value := error.get(key), str)
+            )
+        values.extend(
+            value
+            for key in ("error_description", "message", "detail")
+            if isinstance(value := payload.get(key), str)
+        )
+
+    normalized_values = (collapse_whitespace(value) for value in values)
+    detail = ": ".join(dict.fromkeys(value for value in normalized_values if value))
+
+    if len(detail) > RESPONSES_WEBSOCKET_ERROR_DETAIL_LENGTH:
+        return f"{detail[: RESPONSES_WEBSOCKET_ERROR_DETAIL_LENGTH - 1]}…"
+    return detail
+
+
 def resolve_responses_ws_url(base_url: str) -> str:
     """Build a WebSocket URL matching the Responses endpoint path."""
 
@@ -170,12 +211,42 @@ def build_ws_headers(
 ) -> dict[str, str]:
     """Build headers for Responses websocket requests."""
 
-    headers = dict(default_headers or {})
-    headers.setdefault("Authorization", f"Bearer {api_key}")
-    headers[RESPONSES_WEBSOCKET_BETA_HEADER_NAME] = RESPONSES_WEBSOCKET_BETA_HEADER
-    if extra_headers:
-        headers.update(extra_headers)
-    return headers
+    return merge_headers_case_insensitive(
+        {"Authorization": f"Bearer {api_key}"},
+        default_headers,
+        {
+            RESPONSES_WEBSOCKET_BETA_HEADER_NAME: RESPONSES_WEBSOCKET_BETA_HEADER,
+        },
+        extra_headers,
+    )
+
+
+def merge_headers_case_insensitive(
+    *header_groups: Mapping[str, str] | None,
+) -> dict[str, str]:
+    """Merge HTTP headers with later groups winning regardless of name casing."""
+
+    merged: dict[str, str] = {}
+    names: dict[str, str] = {}
+    for headers in header_groups:
+        for name, value in (headers or {}).items():
+            normalized = name.casefold()
+            if previous_name := names.get(normalized):
+                merged.pop(previous_name)
+            names[normalized] = name
+            merged[name] = value
+    return merged
+
+
+def header_value(headers: Mapping[str, str], name: str) -> str | None:
+    normalized = name.casefold()
+    return next((value for key, value in headers.items() if key.casefold() == normalized), None)
+
+
+def websocket_reuse_key(url: str, headers: Mapping[str, str]) -> str:
+    canonical_headers = sorted((name.casefold(), value) for name, value in headers.items())
+    payload = json.dumps([url, canonical_headers], separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 class WebSocketLike(Protocol):
@@ -445,6 +516,7 @@ class ManagedWebSocketConnection:
     busy: bool = False
     created_monotonic: float | None = None
     last_used_monotonic: float = 0.0
+    reuse_key: str | None = field(default=None, repr=False)
     session_state: WebSocketSessionState = field(default_factory=WebSocketSessionState)
 
 
@@ -466,6 +538,9 @@ async def connect_websocket(
         "max_size": RESPONSES_WEBSOCKET_MAX_MESSAGE_BYTES,
         # The outer fast-agent timeout remains authoritative.
         "open_timeout": None,
+        # Allow a graceful close without letting a peer consume the TUI's
+        # two-second total shutdown budget.
+        "close_timeout": RESPONSES_WEBSOCKET_CLOSE_TIMEOUT_SECONDS,
     }
     if keepalive_options is not None:
         if "ping_interval" in keepalive_options:
@@ -490,8 +565,12 @@ async def connect_websocket(
                 connection = await manager.enter()
     except InvalidStatus as exc:
         await asyncio.shield(_close_connection_attempt(client, manager))
+        message = str(exc)
+        detail = _websocket_handshake_error_detail(exc.response.body)
+        if detail:
+            message = f"{message}: {detail}"
         raise ResponsesWebSocketError(
-            str(exc),
+            message,
             status=exc.response.status_code,
         ) from exc
     except BaseException:
@@ -502,15 +581,34 @@ async def connect_websocket(
     return ManagedWebSocketConnection(
         session=session,
         websocket=_SdkWebSocket(connection),
+        reuse_key=websocket_reuse_key(url, headers),
     )
 
 
 async def close_websocket_connection(connection: ManagedWebSocketConnection) -> None:
-    if not connection.websocket.closed:
-        with suppress(Exception):
-            await connection.websocket.close()
-    if not connection.session.closed:
-        await connection.session.close()
+    started_at = time.monotonic()
+    websocket_outcome = "already_closed" if connection.websocket.closed else "completed"
+    session_outcome = "already_closed" if connection.session.closed else "completed"
+    write_shutdown_trace("shutdown.websocket.start")
+    try:
+        if not connection.websocket.closed:
+            try:
+                await connection.websocket.close()
+            except Exception:
+                websocket_outcome = "failed"
+        if not connection.session.closed:
+            try:
+                await connection.session.close()
+            except BaseException:
+                session_outcome = "failed"
+                raise
+    finally:
+        write_shutdown_trace(
+            "shutdown.websocket.end",
+            elapsed_ms=round((time.monotonic() - started_at) * 1000, 3),
+            websocket_outcome=websocket_outcome,
+            session_outcome=session_outcome,
+        )
 
 
 async def send_response_request(
@@ -547,7 +645,7 @@ def _responses_websocket_connection_parts(url: str) -> tuple[str, dict[str, obje
 
 
 def _authorization_token(headers: Mapping[str, str]) -> str | None:
-    authorization = headers.get("Authorization")
+    authorization = header_value(headers, "Authorization")
     if authorization is None:
         return None
     scheme, separator, token = authorization.partition(" ")
@@ -885,13 +983,22 @@ class WebSocketResponsesStream:
         self._raise_payload_error(payload)
 
     def _raise_payload_error(self, payload: Mapping[str, Any]) -> None:
-        error_message, error_code, error_status, error_param = self._extract_error_details(payload)
+        (
+            error_message,
+            error_code,
+            error_status,
+            error_param,
+            error_headers,
+            stream_id,
+        ) = self._extract_error_details(payload)
         raise ResponsesWebSocketError(
             error_message,
             stream_started=self._stream_started,
             error_code=error_code,
             status=error_status,
             error_param=error_param,
+            headers=error_headers,
+            stream_id=stream_id,
         )
 
     async def get_final_response(self) -> Any:
@@ -905,17 +1012,26 @@ class WebSocketResponsesStream:
     @staticmethod
     def _extract_error_details(
         payload: Mapping[str, Any],
-    ) -> tuple[str, str | None, int | None, str | None]:
+    ) -> tuple[
+        str,
+        str | None,
+        int | None,
+        str | None,
+        dict[str, str] | None,
+        str | None,
+    ]:
         error_status = int_or_none(payload.get("status"))
+        stream_id = _non_empty_string(payload.get("stream_id"))
         error_code: str | None = None
         error_param: str | None = None
+        error_headers: dict[str, str] | None = None
 
         message = payload.get("message")
         top_level_message = _non_empty_string(message)
 
         error = payload.get("error")
         if (error_text := _non_empty_string(error)) is not None:
-            return error_text, None, error_status, None
+            return error_text, None, error_status, None, None, stream_id
         if isinstance(error, Mapping):
             code_value = error.get("code")
             if (code_value := _non_empty_string(code_value)) is not None:
@@ -929,14 +1045,43 @@ class WebSocketResponsesStream:
             if (param_value := _non_empty_string(param_value)) is not None:
                 error_param = param_value
 
+            headers_value = error.get("headers")
+            if isinstance(headers_value, Mapping):
+                error_headers = {
+                    key: value
+                    for key, value in headers_value.items()
+                    if isinstance(key, str) and isinstance(value, str)
+                }
+
             error_message = error.get("message")
             if (error_message := _non_empty_string(error_message)) is not None:
-                return error_message, error_code, error_status, error_param
+                return (
+                    error_message,
+                    error_code,
+                    error_status,
+                    error_param,
+                    error_headers,
+                    stream_id,
+                )
 
         if top_level_message:
-            return top_level_message, error_code, error_status, error_param
+            return (
+                top_level_message,
+                error_code,
+                error_status,
+                error_param,
+                error_headers,
+                stream_id,
+            )
 
-        return "WebSocket Responses request failed.", error_code, error_status, error_param
+        return (
+            "WebSocket Responses request failed.",
+            error_code,
+            error_status,
+            error_param,
+            error_headers,
+            stream_id,
+        )
 
 
 def _preview_text(raw_data: str, *, limit: int = 240) -> str:
@@ -965,17 +1110,24 @@ class WebSocketConnectionManager:
     async def acquire(
         self,
         create_connection: Callable[[], Awaitable[ManagedWebSocketConnection]],
+        *,
+        reuse_key: str | None = None,
     ) -> tuple[ManagedWebSocketConnection, bool]:
         async with self._mutex:
             await self._expire_idle_locked()
             reusable = self._reusable_connection
-            if reusable and self._is_open(reusable) and not reusable.busy:
+            if (
+                reusable
+                and self._is_open(reusable)
+                and not reusable.busy
+                and self._key_matches(reusable, reuse_key)
+            ):
                 reusable.busy = True
                 return reusable, True
 
             if reusable and reusable.busy and self._is_open(reusable):
                 temp = await create_connection()
-                self._mark_created(temp)
+                self._mark_created(temp, reuse_key)
                 temp.busy = True
                 return temp, False
 
@@ -984,7 +1136,7 @@ class WebSocketConnectionManager:
                 self._reusable_connection = None
 
             fresh = await create_connection()
-            self._mark_created(fresh)
+            self._mark_created(fresh, reuse_key)
             fresh.busy = True
             self._reusable_connection = fresh
             return fresh, True
@@ -1030,9 +1182,15 @@ class WebSocketConnectionManager:
         await close_websocket_connection(reusable)
         self._reusable_connection = None
 
-    def _mark_created(self, connection: ManagedWebSocketConnection) -> None:
+    def _mark_created(
+        self,
+        connection: ManagedWebSocketConnection,
+        reuse_key: str | None = None,
+    ) -> None:
         if connection.created_monotonic is None:
             connection.created_monotonic = self._clock()
+        if connection.reuse_key is None:
+            connection.reuse_key = reuse_key
 
     def _is_too_old(self, connection: ManagedWebSocketConnection) -> bool:
         if self._max_age_seconds <= 0 or connection.created_monotonic is None:
@@ -1042,3 +1200,10 @@ class WebSocketConnectionManager:
     @staticmethod
     def _is_open(connection: ManagedWebSocketConnection) -> bool:
         return not connection.session.closed and not connection.websocket.closed
+
+    @staticmethod
+    def _key_matches(
+        connection: ManagedWebSocketConnection,
+        reuse_key: str | None,
+    ) -> bool:
+        return reuse_key is None or connection.reuse_key == reuse_key

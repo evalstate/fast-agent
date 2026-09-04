@@ -302,6 +302,15 @@ class ToolDisplay:
         return line
 
     @staticmethod
+    def _foreground_auto_await_label(metadata: Mapping[str, Any]) -> str | None:
+        value = metadata.get("foreground_auto_await_max_seconds")
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            return None
+        if value <= 0:
+            return "auto-await off"
+        return f"auto-await max {value:g}s total"
+
+    @staticmethod
     def _compact_tool_identity(
         *,
         tool_name: str,
@@ -322,12 +331,15 @@ class ToolDisplay:
             idle = metadata.get("idle_yield_seconds")
             total = metadata.get("foreground_yield_seconds")
             timeout = metadata.get("timeout_seconds")
-            if idle and total:
-                return f"{identity} | yield {idle}s idle / {total}s total"
-            if idle:
-                return f"{identity} | idle yield {idle}s"
             if timeout:
                 return f"{identity} | timeout {timeout}s"
+            if idle and total:
+                label = f"{identity} | yield {idle}s idle / {total}s total"
+                if auto_await := ToolDisplay._foreground_auto_await_label(metadata):
+                    label += f" + {auto_await}"
+                return label
+            if idle:
+                return f"{identity} | idle yield {idle}s"
             return identity
         if variant == "shell_process":
             action = str(metadata.get("action") or "process")
@@ -1256,7 +1268,9 @@ class ToolDisplay:
             }
             reason = lines[running_index]
             detail_parts = ["running"]
-            if "background" in reason:
+            if "auto-await" in reason:
+                detail_parts.append("auto-await cap")
+            elif "background" in reason:
                 detail_parts.append("background")
             elif "no-output" in reason:
                 detail_parts.append("idle yield")
@@ -1909,10 +1923,16 @@ class ToolDisplay:
 
         idle_yield_seconds = metadata.get("idle_yield_seconds")
         foreground_yield_seconds = metadata.get("foreground_yield_seconds")
-        if idle_yield_seconds and foreground_yield_seconds:
-            bottom_items.append(
-                f"yield: {idle_yield_seconds}s idle / {foreground_yield_seconds}s total"
-            )
+        if (
+            not metadata.get("background")
+            and not metadata.get("timeout_seconds")
+            and idle_yield_seconds
+            and foreground_yield_seconds
+        ):
+            label = f"yield: {idle_yield_seconds}s idle / {foreground_yield_seconds}s total"
+            if auto_await := ToolDisplay._foreground_auto_await_label(metadata):
+                label += f"; {auto_await}"
+            bottom_items.append(label)
         return bottom_items
 
     def _shell_tool_call_right_info(
@@ -1933,14 +1953,15 @@ class ToolDisplay:
         else:
             idle_yield_seconds = metadata.get("idle_yield_seconds")
             foreground_yield_seconds = metadata.get("foreground_yield_seconds")
-            if idle_yield_seconds and foreground_yield_seconds:
-                right_parts.append(
-                    f"yield {idle_yield_seconds}s idle / {foreground_yield_seconds}s total"
-                )
+            if timeout_seconds := metadata.get("timeout_seconds"):
+                right_parts.append(f"timeout {timeout_seconds}s")
+            elif idle_yield_seconds and foreground_yield_seconds:
+                label = f"yield {idle_yield_seconds}s idle / {foreground_yield_seconds}s total"
+                if auto_await := self._foreground_auto_await_label(metadata):
+                    label += f" + {auto_await}"
+                right_parts.append(label)
             elif idle_yield_seconds:
                 right_parts.append(f"idle yield {idle_yield_seconds}s")
-            elif timeout_seconds := metadata.get("timeout_seconds"):
-                right_parts.append(f"timeout {timeout_seconds}s")
 
         base_label = " | ".join(right_parts) if right_parts else None
         return self._build_tool_right_info(base_label, tool_call_id)

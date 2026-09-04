@@ -56,6 +56,8 @@ def test_nested_logger_model_explicit_default_path_keeps_existing_semantics() ->
 async def test_logger_writes_default_log_to_active_home(tmp_path: Path) -> None:
     home = tmp_path / "active-home"
     settings = get_settings(home=home)
+    await LoggingConfig.shutdown()
+    AsyncEventBus.reset()
 
     try:
         await configure_logger(settings)

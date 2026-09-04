@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
@@ -25,6 +25,12 @@ class HookRunner(Protocol):
 
     @property
     def request_params(self) -> "RequestParams | None": ...
+
+
+@runtime_checkable
+class DeltaMessageHookRunner(Protocol):
+    @property
+    def delta_messages(self) -> list["PromptMessageExtended"]: ...
 
 
 class HookAgentProtocol(Protocol):
@@ -108,6 +114,13 @@ class HookContext:
     def request_params(self) -> "RequestParams | None":
         """Return current turn request params when available."""
         return self.runner.request_params
+
+    @property
+    def delta_messages(self) -> list["PromptMessageExtended"]:
+        """Return messages staged for the next LLM call when available."""
+        if isinstance(self.runner, DeltaMessageHookRunner):
+            return self.runner.delta_messages
+        return []
 
     @property
     def agent_registry(self) -> "Mapping[str, AgentProtocol] | None":

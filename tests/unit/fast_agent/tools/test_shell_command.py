@@ -101,16 +101,35 @@ def test_shell_heredoc_bodies_can_include_incomplete_direct_interpreter_body() -
 
 
 @pytest.mark.parametrize(
-    "command",
+    ("command", "interpreter"),
     [
-        "uv run python - <<'PY'\nprint('hello')\nPY\n",
-        "uv run --no-sync python3.14 - <<'PY'\nprint('hello')\nPY\n",
+        ("uv run python - <<'PY'\nprint('hello')\nPY\n", "python"),
+        (
+            "uv run --no-sync python3.14 - <<'PY'\nprint('hello')\nPY\n",
+            "python3.14",
+        ),
+        (
+            "uv run --with pyarrow python - <<'PY'\nprint('hello')\nPY\n",
+            "python",
+        ),
+        (
+            "uv run -wpyarrow -qq python - <<'PY'\nprint('hello')\nPY\n",
+            "python",
+        ),
+        (
+            "uv run --with=pyarrow --python 3.14 python - <<'PY'\nprint('hello')\nPY\n",
+            "python",
+        ),
+        ("uv run --with pyarrow - <<'PY'\nprint('hello')\nPY\n", "python"),
     ],
 )
-def test_shell_heredoc_bodies_match_uv_run_stdin_interpreter(command: str) -> None:
+def test_shell_heredoc_bodies_match_uv_run_stdin_interpreter(
+    command: str,
+    interpreter: str,
+) -> None:
     body = shell_heredoc_bodies(command)[0]
 
-    assert body.stdin_interpreter in {"python", "python3.14"}
+    assert body.stdin_interpreter == interpreter
     assert command[body.start : body.end] == "print('hello')\n"
 
 
@@ -134,7 +153,8 @@ def test_shell_heredoc_bodies_match_pnpm_exec_stdin_interpreter(command: str) ->
     [
         "cat <<'PY'\nprint('hello')\nPY\n",
         "python -c 'print(1)' - <<'PY'\nprint('hello')\nPY\n",
-        "uv run --python 3.14 python - <<'PY'\nprint('hello')\nPY\n",
+        "uv run --module python - <<'PY'\nprint('hello')\nPY\n",
+        "uv run --unknown value python - <<'PY'\nprint('hello')\nPY\n",
         "uv run echo python - <<'PY'\nprint('hello')\nPY\n",
         "pnpm --filter app exec tsx - <<'TS'\nconst answer = 42;\nTS\n",
         "pnpm echo exec tsx - <<'TS'\nconst answer = 42;\nTS\n",
@@ -155,6 +175,12 @@ def test_shell_heredoc_bodies_do_not_guess_stdin_interpreter(command: str) -> No
         ("python -c '\r\nprint(1)\r\n'", "python", "print(1)\r\n"),
         ('node -e "console.log(1)"', "node", "console.log(1)"),
         ("uv run --quiet python -c 'print(2)'", "python", "print(2)"),
+        (
+            "uv run --with pyarrow --python=3.14 python -c 'print(3)'",
+            "python",
+            "print(3)",
+        ),
+        ("uv run -wpyarrow -Uq python -c 'print(4)'", "python", "print(4)"),
         (
             "env FOO=1 node -e 'console.log(process.env.FOO)'",
             "node",

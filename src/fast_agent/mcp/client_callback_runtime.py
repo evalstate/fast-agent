@@ -215,12 +215,10 @@ class MCPClientCallbackRuntime:
     def _app_context(self) -> Context | None:
         if self.context is not None:
             return self.context
-        try:
-            from fast_agent.context import get_current_context
 
-            return get_current_context()
-        except Exception:
-            return None
+        from fast_agent.context import get_initialized_context
+
+        return get_initialized_context()
 
     def queue_url_elicitation(
         self,

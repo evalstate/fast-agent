@@ -10,6 +10,8 @@
  * - Set `totalCost` when the authoritative run total should not be derived
  *   from the rounded per-task cost.
  * - Set `costBasis` when the displayed cost needs a short accounting label.
+ * - Repriced results retain `originalCost`, optional `originalTotalCost`, and
+ *   optional `sourceTotalCost`; reusable old/new token rates live in `pricing`.
  * - Labels are placed automatically; `labelPosition` can optionally force
  *   "top", "bottom", "left", or "right" for art-directed exceptions.
  * - Set a result's optional `disclaimer` to show a labelled qualification;
@@ -17,6 +19,132 @@
  * - Omit `axes` for an adaptive chart, or provide score/cost min, max, and
  *   optional ticks when a comparison needs a fixed domain.
  */
+var fastAgentSolPricing = {
+  unit: "USD per 1M tokens",
+  contextThreshold: 272000,
+  previous: {
+    short: {
+      input: 5,
+      cachedInput: 0.5,
+      cacheWrites: 6.25,
+      output: 25,
+    },
+    long: {
+      input: 10,
+      cachedInput: 1,
+      cacheWrites: 12.5,
+      output: 37.5,
+    },
+  },
+  current: {
+    asOf: "2026-08-24",
+    sourceUrl: "https://openai.com/api/pricing/",
+    short: {
+      input: 4,
+      cachedInput: 0.4,
+      cacheWrites: 5,
+      output: 20,
+    },
+    long: {
+      input: 8,
+      cachedInput: 0.8,
+      cacheWrites: 10,
+      output: 30,
+    },
+  },
+};
+
+function fastAgentSolPriceMultiplier(pricing) {
+  var bands = ["short", "long"];
+  var fields = ["input", "cachedInput", "cacheWrites", "output"];
+  var multiplier = pricing.current.short.input / pricing.previous.short.input;
+  bands.forEach(function (band) {
+    fields.forEach(function (field) {
+      var fieldMultiplier = pricing.current[band][field] / pricing.previous[band][field];
+      if (fieldMultiplier !== multiplier) {
+        throw new Error("GPT-5.6 Sol pricing change is not uniform");
+      }
+    });
+  });
+  return multiplier;
+}
+
+var fastAgentSolCurrentPriceMultiplier = fastAgentSolPriceMultiplier(fastAgentSolPricing);
+fastAgentSolPricing.reduction = Number((1 - fastAgentSolCurrentPriceMultiplier).toFixed(10));
+var fastAgentSolPriceReductionLabel =
+  Math.round(fastAgentSolPricing.reduction * 100) + "%";
+
+function fastAgentCurrentSolCost(originalCost) {
+  return originalCost * fastAgentSolCurrentPriceMultiplier;
+}
+
+var fastAgentSolPriceAnimation = {
+  id: "sol-price-animation",
+  title: "Sol: 20% Discount",
+  taskCount: 445,
+  axes: {
+    score: {
+      min: 78,
+      max: 90,
+      ticks: [80, 82, 84, 86, 88, 90],
+    },
+    cost: {
+      min: 0.3,
+      max: 0.65,
+      ticks: [0.35, 0.4, 0.45, 0.5, 0.55, 0.6],
+    },
+  },
+  results: [
+    {
+      id: "grok-4.5-high",
+      model: "Grok 4.5 · high",
+      score: 358 / 445 * 100,
+      cost: 159.832056 / 445,
+      totalCost: 159.832056,
+      date: "2026-07-27",
+      attempts: "445 trials · PR #180",
+      status: "Provisional source-job aggregate",
+      url: "https://github.com/harbor-framework/terminal-bench-2-1/pull/180",
+    },
+    {
+      id: "grok-4.6-high",
+      model: "Grok 4.6 · high",
+      score: 388 / 445 * 100,
+      cost: 238.316166 / 445,
+      totalCost: 238.316166,
+      date: "2026-08-16",
+      attempts: "445 trials · PR #212",
+      status: "Promoted result · provisional",
+      url: "https://github.com/harbor-framework/terminal-bench-2-1/pull/212",
+    },
+    {
+      id: "grok-4.6-medium",
+      model: "Grok 4.6 · medium",
+      score: 390 / 445 * 100,
+      cost: 193.4 / 445,
+      totalCost: 193.4,
+      date: "2026-08-24",
+      attempts: "445 trials · PR #221",
+      status: "Promoted result · provisional",
+      url: "https://github.com/harbor-framework/terminal-bench-2-1/pull/221",
+    },
+  ],
+  sol: {
+    id: "gpt-5.6-sol-high",
+    model: "GPT-5.6 Sol · high",
+    score: 393 / 445 * 100,
+    originalCost: 270.135260 / 445,
+    originalTotalCost: 270.135260,
+    currentCost: fastAgentCurrentSolCost(270.135260 / 445),
+    currentTotalCost: fastAgentCurrentSolCost(270.135260),
+    pricingAsOf: fastAgentSolPricing.current.asOf,
+    reduction: fastAgentSolPricing.reduction,
+    attempts: "445 trials · PR #174",
+    status: "Current-price estimate · provisional run",
+    url: "https://github.com/harbor-framework/terminal-bench-2-1/pull/174",
+  },
+};
+
 window.fastAgentBenchmark = {
   title: "Terminal-Bench 2.1",
   date: "August 2026",
@@ -25,17 +153,23 @@ window.fastAgentBenchmark = {
     "https://hub.harborframework.com/datasets/terminal-bench/terminal-bench-2-1/6?tab=leaderboard&leaderboard=main",
   methodologyUrl:
     "https://github.com/harbor-framework/terminal-bench-2-1/tree/main/leaderboard",
+  pricing: {
+    "gpt-5.6-sol": fastAgentSolPricing,
+  },
+  campaigns: {
+    solPriceAnimation: fastAgentSolPriceAnimation,
+  },
   comparisons: [
     {
       id: "frontier",
       label: "Frontier",
       order: 0,
       claim:
-        "fast-agent + GPT-5.6 Sol high scores 88.3%—4.5 points above Claude Code + Fable 5 at 51% lower API cost.",
+        "fast-agent + GPT-5.6 Sol high scores 88.3%—4.5 points above Claude Code + Fable 5 at 61% lower estimated API cost with current Sol pricing.",
       stats: [
         { value: "88.3%", label: "GPT-5.6 Sol high · fast-agent" },
         { value: "+4.5 pts", label: "vs Claude Code · Fable 5" },
-        { value: "51% less", label: "API cost/task vs Claude Code · Fable 5" },
+        { value: "61% less", label: "estimated cost/task vs Claude Code · Fable 5" },
       ],
       results: [
         {
@@ -45,13 +179,20 @@ window.fastAgentBenchmark = {
           label: "fast-agent / GPT-5.6",
           model: "GPT-5.6 Sol · high",
           score: 88.31,
-          cost: 0.607,
+          cost: fastAgentCurrentSolCost(270.135260 / 445),
+          totalCost: fastAgentCurrentSolCost(270.135260),
+          costBasis: "current Sol pricing",
+          costEstimate: true,
+          originalCost: 270.135260 / 445,
+          sourceTotalCost: 270.135260,
           tokensIn: "122.32M",
           tokensOut: "3.55M",
           date: "2026-07-26",
           attempts: "445 trials · PR #174",
           note:
-            "fast-agent 0.9.24. Accuracy from submission static analysis; cost and tokens totalled from the two linked Harbor source jobs.",
+            "fast-agent 0.9.24. Accuracy and tokens are from the submission. Estimated cost applies Sol's " +
+            fastAgentSolPriceReductionLabel +
+            " August 2026 price reduction to the original $270.14 source-job total, retained in this dataset.",
           disclaimer: "Provisional result pending Terminal-Bench leaderboard review.",
           disclaimerLabel: "Provisional",
           url: "https://github.com/harbor-framework/terminal-bench-2-1/pull/174",
@@ -59,19 +200,44 @@ window.fastAgentBenchmark = {
         {
           fastAgent: true,
           harness: "fast-agent",
-          label: "fast-agent / GPT-5.5",
-          model: "GPT-5.5 · xhigh",
-          score: 85.17,
-          cost: 0.9455,
-          tokensIn: "227.73M",
-          tokensOut: "6.31M",
-          date: "2026-07-25",
-          attempts: "445 trials · PR #173",
+          label: "fast-agent / Grok 4.6",
+          model: "Grok 4.6 · medium",
+          modelString: "xai/grok-4.6",
+          score: 390 / 445 * 100,
+          cost: 193.4 / 445,
+          totalCost: 193.4,
+          costBasis: "promoted submission",
+          tokensIn: "233.46M",
+          tokensOut: "6.25M",
+          date: "2026-08-24",
+          attempts: "445 trials · PR #221",
           note:
-            "fast-agent 0.9.24. Accuracy from submission static analysis; cost and tokens totalled from the two linked Harbor source jobs.",
-          disclaimer: "Provisional result pending Terminal-Bench leaderboard review.",
+            "fast-agent 0.10.10. Accuracy passed submission static analysis; cost and tokens aggregated from the six linked Harbor source jobs.",
+          disclaimer:
+            "Provisional promoted submission pending Terminal-Bench leaderboard review.",
           disclaimerLabel: "Provisional",
-          url: "https://github.com/harbor-framework/terminal-bench-2-1/pull/173",
+          url: "https://github.com/harbor-framework/terminal-bench-2-1/pull/221",
+        },
+        {
+          fastAgent: true,
+          harness: "fast-agent",
+          label: "fast-agent / Grok 4.6",
+          model: "Grok 4.6 · high",
+          modelString: "xai/grok-4.6",
+          score: 388 / 445 * 100,
+          cost: 238.316166 / 445,
+          totalCost: 238.316166,
+          costBasis: "source jobs",
+          tokensIn: "284.77M",
+          tokensOut: "8.38M",
+          date: "2026-08-16",
+          attempts: "445 trials · PR #212",
+          note:
+            "fast-agent 0.10.9. Accuracy passed submission static analysis; cost and tokens aggregated from the six linked Harbor source jobs.",
+          disclaimer:
+            "Provisional promoted submission pending Terminal-Bench leaderboard review.",
+          disclaimerLabel: "Provisional",
+          url: "https://github.com/harbor-framework/terminal-bench-2-1/pull/212",
         },
         {
           harness: "Claude Code",
@@ -87,34 +253,27 @@ window.fastAgentBenchmark = {
           url: "https://hub.harborframework.com/datasets/terminal-bench/terminal-bench-2-1/6/leaderboards/main/rows/40dbe33d-e8af-475b-8eba-7d5d8f70054c",
         },
         {
-          harness: "Codex",
-          label: "Codex",
-          model: "GPT-5.5 · xhigh",
-          score: 83.15,
-          cost: 4.627393,
-          tokensIn: "729.23M",
-          tokensOut: "5.97M",
-          date: "2026-05-01",
-          attempts: "445 trials · published",
-          note: "Same model and reasoning effort as the fast-agent GPT-5.5 submission.",
-          url: "https://hub.harborframework.com/datasets/terminal-bench/terminal-bench-2-1/6/leaderboards/main/rows/6d091468-3fda-4cbf-ba1c-645b0f522e97",
-        },
-        {
           fastAgent: true,
           harness: "fast-agent",
-          label: "fast-agent / Grok 4.5",
-          model: "Grok 4.5 · high",
-          score: 80.45,
-          cost: 0.359173,
-          tokensIn: "192.30M",
-          tokensOut: "5.88M",
-          date: "2026-07-27",
-          attempts: "445 trials · PR #180",
+          model: "GPT-5.6 Sol · medium",
+          score: 365 / 445 * 100,
+          cost: fastAgentCurrentSolCost(211.321445 / 445),
+          totalCost: fastAgentCurrentSolCost(211.321445),
+          costBasis: "current Sol pricing",
+          costEstimate: true,
+          originalCost: 211.321445 / 445,
+          originalTotalCost: 211.321445,
+          tokensIn: "101.95M",
+          tokensOut: "2.53M",
+          date: "2026-07-23",
+          attempts: "445 trials · PR #170",
           note:
-            "fast-agent 0.9.25. Accuracy, cost, and tokens aggregated from the seven linked Harbor source jobs.",
+            "fast-agent 0.9.21. Accuracy and tokens are from the submission. Estimated cost applies Sol's " +
+            fastAgentSolPriceReductionLabel +
+            " August 2026 price reduction to the original $211.32 source-job total, retained in this dataset.",
           disclaimer: "Provisional result pending Terminal-Bench leaderboard review.",
           disclaimerLabel: "Provisional",
-          url: "https://github.com/harbor-framework/terminal-bench-2-1/pull/180",
+          url: "https://github.com/harbor-framework/terminal-bench-2-1/pull/170",
         },
         {
           harness: "Claude Code",
@@ -135,7 +294,7 @@ window.fastAgentBenchmark = {
       label: "GPT-5.6",
       order: 2,
       claim:
-        "Across three matched GPT-5.6 settings, fast-agent beats OpenAI's launch announcement on both Terminal-Bench score and cost.",
+        "Across three matched GPT-5.6 settings, fast-agent beats OpenAI's published scores and costs less per task at like-for-like pricing.",
       stats: [
         { value: "3 / 3", label: "matched model + effort wins" },
         { value: "+0.2–3.6 pts", label: "higher score at every setting" },
@@ -149,13 +308,20 @@ window.fastAgentBenchmark = {
           label: "fast-agent / GPT-5.6",
           model: "GPT-5.6 Sol · high",
           score: 88.31,
-          cost: 0.607,
+          cost: fastAgentCurrentSolCost(270.135260 / 445),
+          totalCost: fastAgentCurrentSolCost(270.135260),
+          costBasis: "current Sol pricing",
+          costEstimate: true,
+          originalCost: 270.135260 / 445,
+          sourceTotalCost: 270.135260,
           tokensIn: "122.32M",
           tokensOut: "3.55M",
           date: "2026-07-26",
           attempts: "445 trials · PR #174",
           note:
-            "fast-agent 0.9.24. Accuracy from submission static analysis; cost and tokens totalled from the two linked Harbor source jobs.",
+            "fast-agent 0.9.24. Accuracy and tokens are from the submission. Estimated cost applies Sol's " +
+            fastAgentSolPriceReductionLabel +
+            " August 2026 price reduction to the original $270.14 source-job total, retained in this dataset.",
           disclaimer: "Provisional result pending Terminal-Bench leaderboard review.",
           disclaimerLabel: "Provisional",
           url: "https://github.com/harbor-framework/terminal-bench-2-1/pull/174",
@@ -164,14 +330,18 @@ window.fastAgentBenchmark = {
           harness: "OpenAI",
           model: "GPT-5.6 Sol · high",
           score: 84.7,
-          cost: 1.09,
-          costBasis: "OpenAI chart",
+          cost: fastAgentCurrentSolCost(1.09),
+          costBasis: "current Sol pricing",
+          costEstimate: true,
+          originalCost: 1.09,
           tokensIn: "—",
           tokensOut: "—",
           date: "2026-07-30",
-          attempts: "OpenAI published",
+          attempts: "OpenAI score · repriced cost",
           note:
-            "Score and API cost per task from OpenAI's interactive Terminal-Bench 2.1 cost chart.",
+            "Score and original $1.09 API cost per task are from OpenAI's launch chart. Estimated cost applies Sol's " +
+            fastAgentSolPriceReductionLabel +
+            " August 2026 price reduction; the original is retained in this dataset.",
           url: "https://openai.com/index/gpt-5-6/",
         },
         {
@@ -180,14 +350,20 @@ window.fastAgentBenchmark = {
           harness: "fast-agent",
           model: "GPT-5.6 Sol · medium",
           score: 365 / 445 * 100,
-          cost: 211.321445 / 445,
-          totalCost: 211.321445,
+          cost: fastAgentCurrentSolCost(211.321445 / 445),
+          totalCost: fastAgentCurrentSolCost(211.321445),
+          costBasis: "current Sol pricing",
+          costEstimate: true,
+          originalCost: 211.321445 / 445,
+          originalTotalCost: 211.321445,
           tokensIn: "101.95M",
           tokensOut: "2.53M",
           date: "2026-07-23",
           attempts: "445 trials · PR #170",
           note:
-            "fast-agent 0.9.21. Accuracy, cost, and tokens aggregated from the two linked public Harbor source jobs.",
+            "fast-agent 0.9.21. Accuracy and tokens are from the submission. Estimated cost applies Sol's " +
+            fastAgentSolPriceReductionLabel +
+            " August 2026 price reduction to the original $211.32 source-job total, retained in this dataset.",
           disclaimer: "Provisional result pending Terminal-Bench leaderboard review.",
           disclaimerLabel: "Provisional",
           url: "https://github.com/harbor-framework/terminal-bench-2-1/pull/170",
@@ -196,14 +372,18 @@ window.fastAgentBenchmark = {
           harness: "OpenAI",
           model: "GPT-5.6 Sol · medium",
           score: 81.8,
-          cost: 0.89,
-          costBasis: "OpenAI chart",
+          cost: fastAgentCurrentSolCost(0.89),
+          costBasis: "current Sol pricing",
+          costEstimate: true,
+          originalCost: 0.89,
           tokensIn: "—",
           tokensOut: "—",
           date: "2026-07-30",
-          attempts: "OpenAI published",
+          attempts: "OpenAI score · repriced cost",
           note:
-            "Score and API cost per task from OpenAI's interactive Terminal-Bench 2.1 cost chart.",
+            "Score and original $0.89 API cost per task are from OpenAI's launch chart. Estimated cost applies Sol's " +
+            fastAgentSolPriceReductionLabel +
+            " August 2026 price reduction; the original is retained in this dataset.",
           url: "https://openai.com/index/gpt-5-6/",
         },
         {

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import io
 import shlex
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from typer.testing import CliRunner
@@ -34,6 +35,31 @@ def test_setup_creates_preferred_config_and_secrets_filenames(tmp_path: Path) ->
     assert "Created config file:" in result.output
     assert "Created secrets file:" in result.output
     assert "fastagent.config.yaml" not in result.output
+
+
+def test_setup_create_file_writes_utf8_under_non_utf8_default_codec(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    real_open = io.open
+
+    def ascii_default_open(
+        file: Any,
+        mode: str = "r",
+        buffering: int = -1,
+        encoding: str | None = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        if "b" not in mode and encoding in (None, "locale"):
+            encoding = "ascii"
+        return real_open(file, mode, buffering, encoding, *args, **kwargs)
+
+    monkeypatch.setattr(io, "open", ascii_default_open)
+    target = tmp_path / "agent.py"
+
+    assert setup.create_file(target, "instruction = '你好，café'", force=True)
+    assert target.read_bytes().decode("utf-8") == "instruction = '你好，café'\n"
 
 
 def test_setup_template_resource_names_are_table_driven() -> None:

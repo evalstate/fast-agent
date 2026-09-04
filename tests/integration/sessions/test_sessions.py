@@ -99,7 +99,9 @@ async def test_session_history_autosave_default_on(tmp_path, monkeypatch):
     assert agent_name
 
     sessions_root = tmp_path / ".fast-agent" / "sessions"
-    session_dirs = [path for path in sessions_root.iterdir() if path.is_dir()]
+    session_dirs = [
+        path for path in sessions_root.iterdir() if (path / "session.json").is_file()
+    ]
     assert len(session_dirs) == 1
 
     session_id = session_dirs[0].name
@@ -253,7 +255,9 @@ async def test_session_title_override(tmp_path, monkeypatch):
     await agent_function()
 
     sessions_root = tmp_path / ".fast-agent" / "sessions"
-    session_dir = next(path for path in sessions_root.iterdir() if path.is_dir())
+    session_dir = next(
+        path for path in sessions_root.iterdir() if (path / "session.json").is_file()
+    )
     metadata = json.loads((session_dir / "session.json").read_text(encoding="utf-8"))
     assert metadata["metadata"]["title"] == "My Session Title"
 

@@ -105,8 +105,12 @@ def test_show_provider_model_catalog_zai_includes_curated_model(capsys) -> None:
 
     output = capsys.readouterr().out
     assert "Z.ai model catalog (curated)" in output
+    assert "zaiglm53" in output
+    assert "zaiglm53flash" in output
     assert "zaiglm" in output
-    assert "zai.glm-5.2" in _collapse(output)
+    collapsed = _collapse(output)
+    assert "zai.glm-5.3" in collapsed
+    assert "zai.glm-5.3-flash" in collapsed
 
 
 def test_show_provider_model_catalog_moonshot_includes_curated_model(capsys) -> None:

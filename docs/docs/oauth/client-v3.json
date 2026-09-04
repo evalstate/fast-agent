@@ -1,0 +1,9 @@
+{
+  "client_id": "https://fast-agent.ai/oauth/client-v3.json",
+  "client_name": "fast-agent",
+  "redirect_uris": [
+    "http://127.0.0.1/callback"
+  ],
+  "token_endpoint_auth_method": "none",
+  "application_type": "native"
+}

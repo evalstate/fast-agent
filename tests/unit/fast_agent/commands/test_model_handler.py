@@ -675,6 +675,35 @@ async def test_model_fast_codexresponses_omits_flex_value() -> None:
 
 
 @pytest.mark.asyncio
+async def test_model_fast_flex_only_model_uses_flex_for_toggle() -> None:
+    llm = _StubLLM(
+        "gemini-3.7-flash",
+        service_tier_supported=True,
+        available_service_tiers=("flex",),
+    )
+    llm.provider = Provider.GOOGLE
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    toggle_outcome = await handle_model_fast(ctx, agent_name="test", value=None)
+    toggle_text = [str(m.text) for m in toggle_outcome.messages]
+    assert "Service tier: set to flex." in toggle_text
+
+    status_outcome = await handle_model_fast(ctx, agent_name="test", value="status")
+    status_text = [str(m.text) for m in status_outcome.messages]
+    assert "Service tier: flex. Allowed values: off, flex, status." in status_text
+
+    on_outcome = await handle_model_fast(ctx, agent_name="test", value="on")
+    on_text = [str(m.text) for m in on_outcome.messages]
+    assert "Invalid service tier value 'on'. Allowed values: off, flex, status." in on_text
+
+
+@pytest.mark.asyncio
 async def test_model_fast_rejects_invalid_value() -> None:
     llm = _StubLLM("gpt-5", service_tier_supported=True)
     provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))

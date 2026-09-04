@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from mcp_types import ImageContent, TextContent
-from rich.console import Console
+from rich.console import Console, Group
 from rich.measure import Measurement
 from textual_image._terminal import CellSize
 from textual_image.renderable import sixel as textual_sixel_renderer
@@ -24,6 +24,7 @@ from fast_agent.ui.terminal_images import (
     render_plugin_command_images_for_settings,
     render_tool_result_images,
 )
+from fast_agent.ui.terminal_images import halfcell as halfcell_renderer
 from fast_agent.ui.terminal_images import renderer as terminal_image_renderer
 from fast_agent.ui.terminal_images import sixel as sixel_renderer
 
@@ -181,6 +182,8 @@ def test_plugin_command_images_do_not_load_sources_when_disabled(
 
 
 def test_textual_image_backend_missing_class_disables_rendering(monkeypatch) -> None:
+    monkeypatch.delenv("HERDR_ENV", raising=False)
+
     class DummyImage:
         pass
 
@@ -192,6 +195,8 @@ def test_textual_image_backend_missing_class_disables_rendering(monkeypatch) -> 
 
 
 def test_automatic_sixel_backend_uses_viewport_aware_renderer(monkeypatch) -> None:
+    monkeypatch.delenv("HERDR_ENV", raising=False)
+
     class SixelImage:
         pass
 
@@ -216,6 +221,63 @@ def test_automatic_sixel_backend_uses_viewport_aware_renderer(monkeypatch) -> No
         is ViewportAwareSixelImage
     )
     assert terminal_image_renderer._resolve_textual_image_class("sixel") is ViewportAwareSixelImage
+
+
+def test_herdr_auto_backend_uses_sanitized_halfcell_renderer(monkeypatch) -> None:
+    monkeypatch.setenv("HERDR_ENV", "1")
+
+    assert (
+        terminal_image_renderer._resolve_textual_image_class("auto")
+        is halfcell_renderer.HerdrAwareHalfcellImage
+    )
+    assert (
+        terminal_image_renderer._resolve_textual_image_class("halfcell")
+        is halfcell_renderer.HerdrAwareHalfcellImage
+    )
+
+
+def test_explicit_kitty_backend_is_unchanged_in_herdr(monkeypatch) -> None:
+    class TGPImage:
+        pass
+
+    monkeypatch.setenv("HERDR_ENV", "1")
+    monkeypatch.setattr(
+        terminal_image_renderer,
+        "import_module",
+        lambda name: SimpleNamespace(TGPImage=TGPImage),
+    )
+
+    assert terminal_image_renderer._resolve_textual_image_class("kitty") is TGPImage
+
+
+def test_herdr_auto_halfcell_warning_follows_image(monkeypatch) -> None:
+    monkeypatch.setenv("HERDR_ENV", "1")
+    settings = TerminalImageSettings(backend="auto", width=1, height=1)
+
+    renderable = terminal_image_renderer.render_image_items(
+        settings,
+        terminal_image_renderer.extract_image_render_items([_image_content()]),
+    )
+
+    assert isinstance(renderable, Group)
+    assert len(renderable.renderables) == 3
+    assert isinstance(renderable.renderables[2], terminal_image_renderer.Text)
+    assert renderable.renderables[2].plain == terminal_image_renderer.HERDR_HALFCELL_NOTICE
+
+
+def test_herdr_halfcell_replaces_implausible_cell_geometry(monkeypatch) -> None:
+    monkeypatch.setattr(halfcell_renderer, "get_cell_size", lambda: CellSize(2, 8))
+    image = halfcell_renderer.HerdrAwareHalfcellImage(
+        BytesIO(_PNG_BYTES),
+        width="80%",
+        height="auto",
+    )
+    console = Console(width=80, height=40, force_terminal=True)
+
+    segments = list(console.render(image, console.options))
+
+    assert sum(segment.text == "\n" for segment in segments) == 32
+    assert Measurement.get(console, console.options, image) == Measurement(64, 64)
 
 
 def test_sixel_image_height_stays_within_cursor_safe_viewport(monkeypatch) -> None:

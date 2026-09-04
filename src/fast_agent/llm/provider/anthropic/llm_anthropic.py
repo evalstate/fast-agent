@@ -803,23 +803,17 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         filename: str,
         mime_type: str,
     ) -> str | None:
-        files_api = getattr(getattr(anthropic, "beta", None), "files", None)
-        upload = getattr(files_api, "upload", None)
-        if not callable(upload):
-            return None
-
         cache_key = self._anthropic_file_cache_key(data, filename, mime_type)
         cached = self._file_id_cache.get(cache_key)
         if cached:
             return cached
 
-        file_metadata = await upload(file=(filename, data, mime_type))
-        file_id = getattr(file_metadata, "id", None)
-        if not isinstance(file_id, str) or not file_id:
+        file_metadata = await anthropic.files.upload(file=(filename, data, mime_type))
+        if not file_metadata.id:
             return None
 
-        self._file_id_cache[cache_key] = file_id
-        return file_id
+        self._file_id_cache[cache_key] = file_metadata.id
+        return file_metadata.id
 
     @staticmethod
     def _anthropic_document_mime_type(resource: BlobResourceContents) -> str | None:
@@ -2103,23 +2097,40 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         exclude_fields: set | None = None,
     ) -> dict:
         arguments = super().prepare_provider_arguments(base_args, request_params, exclude_fields)
-        if self._normalize_model_name(str(arguments.get("model", ""))) not in {
+        sampling_keys = ("temperature", "top_p", "top_k")
+        sampling = {
+            key: arguments.pop(key) for key in sampling_keys if arguments.get(key) is not None
+        }
+        extra_body_raw = arguments.get("extra_body")
+        extra_body = dict(cast("Mapping[str, Any]", extra_body_raw or {}))
+
+        if self._normalize_model_name(str(arguments.get("model", ""))) in {
             "claude-opus-4-7",
             "claude-opus-4-8",
             "claude-opus-5",
             "claude-fable-5",
             "claude-sonnet-5",
         }:
+            removed = list(sampling)
+            for key in sampling_keys:
+                value = extra_body.pop(key, None)
+                if value is not None and key not in removed:
+                    removed.append(key)
+            if removed:
+                self.logger.warning(
+                    "Anthropic model ignores unsupported sampling parameters; "
+                    f"removed {', '.join(removed)}."
+                )
+            if extra_body_raw is not None:
+                if extra_body:
+                    arguments["extra_body"] = extra_body
+                else:
+                    arguments.pop("extra_body", None)
             return arguments
 
-        removed_fields = [
-            key for key in ("temperature", "top_p", "top_k") if arguments.pop(key, None) is not None
-        ]
-        if removed_fields:
-            removed = ", ".join(removed_fields)
-            self.logger.warning(
-                f"Anthropic model ignores unsupported sampling parameters; removed {removed}."
-            )
+        if sampling:
+            sampling.update(extra_body)
+            arguments["extra_body"] = sampling
         return arguments
 
     def _resolve_anthropic_beta_flags(

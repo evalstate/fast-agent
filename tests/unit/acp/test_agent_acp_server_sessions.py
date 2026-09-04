@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from datetime import datetime
@@ -13,6 +14,7 @@ from acp.schema import AgentMessageChunk, SessionModeState, UserMessageChunk
 from mcp_types import TextContent
 
 from fast_agent.acp.server.agent_acp_server import ACPSessionState, AgentACPServer
+from fast_agent.acp.server.models import SessionStateInitialization
 from fast_agent.acp.server.session_store import ACPServerSessionStore, SessionStoreHost
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.fastagent import AgentInstance
@@ -177,9 +179,11 @@ async def test_load_session_falls_back_when_primary_agent_was_removed(
         *,
         cwd: str,
         mcp_servers: list[Any],
-    ) -> tuple[ACPSessionState, SessionModeState]:
+    ) -> SessionStateInitialization:
         del session_id, cwd, mcp_servers
-        return session_state, SessionModeState(available_modes=[], current_mode_id="main")
+        return SessionStateInitialization(
+            session_state, SessionModeState(available_modes=[], current_mode_id="main"), False
+        )
 
     hydrate_calls: list[str | None] = []
 
@@ -259,6 +263,157 @@ async def test_new_session_recomputes_primary_agent_for_new_instances(tmp_path: 
 
 
 @pytest.mark.asyncio
+async def test_initialize_session_state_reports_state_ownership_atomically(tmp_path: Path) -> None:
+    server = _build_server(_build_instance(["main"]))
+
+    first = await server._initialize_session_state(
+        "s-1",
+        cwd=str(tmp_path),
+        mcp_servers=[],
+    )
+    second = await server._initialize_session_state(
+        "s-1",
+        cwd=str(tmp_path),
+        mcp_servers=[],
+    )
+
+    assert first.created is True
+    assert second.created is False
+    assert first.session_state is second.session_state
+
+
+@pytest.mark.asyncio
+async def test_initialize_session_state_rolls_back_newly_published_state_on_setup_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    server = _build_server(_build_instance(["main"]))
+
+    async def fail_overlay(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise RuntimeError("MCP setup failed")
+
+    monkeypatch.setattr(server._session_runtime, "_apply_session_mcp_overlay", fail_overlay)
+
+    with pytest.raises(RuntimeError, match="MCP setup failed"):
+        await server._initialize_session_state("s-1", cwd=str(tmp_path), mcp_servers=[])
+
+    assert "s-1" not in server._session_state
+    assert "s-1" not in server.sessions
+
+
+@pytest.mark.asyncio
+async def test_initialize_session_state_keeps_reused_state_when_setup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    server = _build_server(_build_instance(["main"]))
+    first = await server._initialize_session_state("s-1", cwd=str(tmp_path), mcp_servers=[])
+
+    async def fail_overlay(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise RuntimeError("MCP setup failed")
+
+    monkeypatch.setattr(server._session_runtime, "_apply_session_mcp_overlay", fail_overlay)
+
+    with pytest.raises(RuntimeError, match="MCP setup failed"):
+        await server._initialize_session_state("s-1", cwd=str(tmp_path), mcp_servers=[])
+
+    assert server._session_state["s-1"] is first.session_state
+    assert server.sessions["s-1"] is first.session_state.instance
+
+
+@pytest.mark.asyncio
+async def test_initialize_session_state_serializes_setup_before_reuse(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    server = _build_server(_build_instance(["main"]))
+    setup_started = asyncio.Event()
+    allow_setup = asyncio.Event()
+
+    async def block_overlay(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        setup_started.set()
+        await allow_setup.wait()
+
+    monkeypatch.setattr(server._session_runtime, "_apply_session_mcp_overlay", block_overlay)
+
+    first_task = asyncio.create_task(
+        server._initialize_session_state("s-1", cwd=str(tmp_path), mcp_servers=[])
+    )
+    await setup_started.wait()
+    second_task = asyncio.create_task(
+        server._initialize_session_state("s-1", cwd=str(tmp_path), mcp_servers=[])
+    )
+    await asyncio.sleep(0)
+    assert not second_task.done()
+
+    allow_setup.set()
+    first, second = await asyncio.gather(first_task, second_task)
+
+    assert first.created is True
+    assert second.created is False
+
+
+@pytest.mark.asyncio
+async def test_load_session_does_not_rollback_state_reused_by_another_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    instance = _build_instance(["main"])
+    server = _build_server(instance)
+    session_state = ACPSessionState(session_id="s-1", instance=instance)
+    server._session_state["s-1"] = session_state
+    server.sessions["s-1"] = instance
+    persisted_session = SimpleNamespace(info=SimpleNamespace(metadata={}))
+
+    class _Manager:
+        workspace_dir = Path("/workspace")
+        base_dir = workspace_dir / ".fast-agent" / "sessions"
+
+        def get_session(self, name: str) -> Any:
+            assert name == "s-1"
+            return persisted_session
+
+        def load_session(self, name: str) -> Any:
+            return self.get_session(name)
+
+    async def reused_initialization(
+        session_id: str,
+        *,
+        cwd: str,
+        mcp_servers: list[Any],
+    ) -> SessionStateInitialization:
+        del session_id, cwd, mcp_servers
+        return SessionStateInitialization(
+            session_state=session_state,
+            session_modes=SessionModeState(available_modes=[], current_mode_id="main"),
+            created=False,
+        )
+
+    async def hydration_failure(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise RuntimeError("hydration failed")
+
+    rollback_calls: list[str] = []
+
+    async def rollback(session_id: str) -> None:
+        rollback_calls.append(session_id)
+
+    monkeypatch.setattr(server, "_get_session_manager", lambda *, cwd=None: _Manager())
+    monkeypatch.setattr(server, "_initialize_session_state", reused_initialization)
+    monkeypatch.setattr(server, "_rollback_session_initialization", rollback)
+    monkeypatch.setattr(server._session_store, "hydrate_session_state", hydration_failure)
+
+    with pytest.raises(RuntimeError, match="hydration failed"):
+        await server.load_session(cwd="/workspace", session_id="s-1", mcp_servers=[])
+
+    assert rollback_calls == []
+    assert server._session_state["s-1"] is session_state
+    assert server.sessions["s-1"] is instance
+
+
+@pytest.mark.asyncio
 async def test_load_session_uses_request_cwd_for_session_manager(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
@@ -278,10 +433,12 @@ async def test_load_session_uses_request_cwd_for_session_manager(
         *,
         cwd: str,
         mcp_servers: list[Any],
-    ) -> tuple[ACPSessionState, SessionModeState]:
+    ) -> SessionStateInitialization:
         del session_id, mcp_servers
         assert cwd == str(workspace.resolve())
-        return session_state, SessionModeState(available_modes=[], current_mode_id="main")
+        return SessionStateInitialization(
+            session_state, SessionModeState(available_modes=[], current_mode_id="main"), False
+        )
 
     def fake_get_session_manager(
         *,
@@ -358,9 +515,11 @@ async def test_load_session_applies_restored_prompt_cache(
         *,
         cwd: str,
         mcp_servers: list[Any],
-    ) -> tuple[ACPSessionState, SessionModeState]:
+    ) -> SessionStateInitialization:
         del session_id, cwd, mcp_servers
-        return session_state, SessionModeState(available_modes=[], current_mode_id="main")
+        return SessionStateInitialization(
+            session_state, SessionModeState(available_modes=[], current_mode_id="main"), False
+        )
 
     def fake_get_session_manager(
         *,
@@ -434,9 +593,11 @@ async def test_load_session_does_not_cache_prompt_when_hydrator_did_not_restore_
         *,
         cwd: str,
         mcp_servers: list[Any],
-    ) -> tuple[ACPSessionState, SessionModeState]:
+    ) -> SessionStateInitialization:
         del session_id, cwd, mcp_servers
-        return session_state, SessionModeState(available_modes=[], current_mode_id="main")
+        return SessionStateInitialization(
+            session_state, SessionModeState(available_modes=[], current_mode_id="main"), False
+        )
 
     def fake_get_session_manager(
         *,
@@ -642,10 +803,12 @@ async def test_load_session_prefers_workspace_duplicate_session_across_stores(
         *,
         cwd: str,
         mcp_servers: list[Any],
-    ) -> tuple[ACPSessionState, SessionModeState]:
+    ) -> SessionStateInitialization:
         del session_id, mcp_servers
         assert cwd == str(workspace.resolve())
-        return session_state, SessionModeState(available_modes=[], current_mode_id="main")
+        return SessionStateInitialization(
+            session_state, SessionModeState(available_modes=[], current_mode_id="main"), False
+        )
 
     class _Manager:
         def __init__(
@@ -756,9 +919,11 @@ async def test_load_session_marks_selected_manager_session_current(
         *,
         cwd: str,
         mcp_servers: list[Any],
-    ) -> tuple[ACPSessionState, SessionModeState]:
+    ) -> SessionStateInitialization:
         del session_id, cwd, mcp_servers
-        return session_state, SessionModeState(available_modes=[], current_mode_id="main")
+        return SessionStateInitialization(
+            session_state, SessionModeState(available_modes=[], current_mode_id="main"), False
+        )
 
     class _Manager:
         def __init__(self) -> None:
@@ -902,10 +1067,12 @@ async def test_load_session_falls_back_to_app_store_when_workspace_store_misses(
         *,
         cwd: str,
         mcp_servers: list[Any],
-    ) -> tuple[ACPSessionState, SessionModeState]:
+    ) -> SessionStateInitialization:
         del session_id, mcp_servers
         assert cwd == str(workspace.resolve())
-        return session_state, SessionModeState(available_modes=[], current_mode_id="main")
+        return SessionStateInitialization(
+            session_state, SessionModeState(available_modes=[], current_mode_id="main"), False
+        )
 
     class _WorkspaceManager:
         workspace_dir = workspace
@@ -1042,10 +1209,12 @@ async def test_load_session_skips_workspace_duplicate_when_cwd_mismatches(
         *,
         cwd: str,
         mcp_servers: list[Any],
-    ) -> tuple[ACPSessionState, SessionModeState]:
+    ) -> SessionStateInitialization:
         del session_id, mcp_servers
         assert cwd == str(workspace.resolve())
-        return session_state, SessionModeState(available_modes=[], current_mode_id="main")
+        return SessionStateInitialization(
+            session_state, SessionModeState(available_modes=[], current_mode_id="main"), False
+        )
 
     class _WorkspaceManager:
         workspace_dir = workspace

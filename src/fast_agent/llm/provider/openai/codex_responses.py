@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from openai import AsyncOpenAI, AuthenticationError, DefaultAioHttpClient
 
-from fast_agent.core.exceptions import ProviderKeyError
+from fast_agent.core.exceptions import ModelConfigError, ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.provider.openai.codex_oauth import parse_chatgpt_account_id
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
@@ -15,6 +15,8 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     ResponsesWebSocketError,
     ResponsesWsRequestPlanner,
     StatefulContinuationResponsesWsPlanner,
+    header_value,
+    merge_headers_case_insensitive,
 )
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.mime_utils import guess_mime_type
@@ -27,6 +29,7 @@ if TYPE_CHECKING:
 CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 CODEX_RESPONSES_LITE_HEADER = "x-openai-internal-codex-responses-lite"
 CODEX_RESPONSES_LITE_WS_METADATA_KEY = "ws_request_header_x_openai_internal_codex_responses_lite"
+CODEX_ROUTING_HINT_HEADER = "x-codex-routing-hint"
 CODEX_PROTOCOL_VERSION = "0.144.1"
 
 
@@ -39,6 +42,31 @@ class CodexResponsesLLM(ResponsesLLM):
         kwargs.pop("provider", None)
         super().__init__(provider=provider, **kwargs)
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
+        self._validate_codex_max_tokens(self.default_request_params)
+
+    def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
+        params = super()._initialize_default_params(kwargs)
+        params.max_tokens = None
+        return params
+
+    @staticmethod
+    def _validate_codex_max_tokens(request_params: RequestParams) -> None:
+        if request_params.max_tokens is not None:
+            raise ModelConfigError(
+                "Provider 'codexresponses' does not support max_tokens: "
+                "the Codex Responses endpoint does not accept max_output_tokens."
+            )
+        metadata = request_params.metadata or {}
+        unsupported_metadata = (
+            "max_tokens",
+            "maxTokens",
+            "max_output_tokens",
+            "maxOutputTokens",
+        )
+        if any(metadata.get(key) is not None for key in unsupported_metadata):
+            raise ModelConfigError(
+                "Provider 'codexresponses' does not support max token limits in request metadata."
+            )
 
     def _display_model(self, model: str | None) -> str | None:
         if not model:
@@ -74,8 +102,6 @@ class CodexResponsesLLM(ResponsesLLM):
             default_headers = dict(self._default_headers() or {})
             default_headers["chatgpt-account-id"] = account_id
             default_headers.setdefault("originator", "codex_cli_rs")
-            if self._uses_codex_responses_lite(self.default_request_params.model):
-                default_headers[CODEX_RESPONSES_LITE_HEADER] = "true"
             try:
                 app_version = version("fast-agent-mcp")
             except Exception:
@@ -162,8 +188,6 @@ class CodexResponsesLLM(ResponsesLLM):
         default_headers = dict(self._default_headers() or {})
         default_headers["chatgpt-account-id"] = account_id
         default_headers.setdefault("originator", "codex_cli_rs")
-        if self._uses_codex_responses_lite(self.default_request_params.model):
-            default_headers[CODEX_RESPONSES_LITE_HEADER] = "true"
         try:
             app_version = version("fast-agent-mcp")
         except Exception:
@@ -172,7 +196,10 @@ class CodexResponsesLLM(ResponsesLLM):
             "User-Agent",
             f"codex_cli_rs/{CODEX_PROTOCOL_VERSION} fast-agent/{app_version}",
         )
-        return default_headers | super()._build_websocket_headers()
+        return merge_headers_case_insensitive(
+            default_headers,
+            super()._build_websocket_headers(),
+        )
 
     async def _create_websocket_connection(
         self,
@@ -205,7 +232,13 @@ class CodexResponsesLLM(ResponsesLLM):
                 "Codex OAuth token rejected (401)",
                 "Run `fast-agent auth provider login codex` to reauthenticate.",
             )
-        fresh_headers = self._build_websocket_headers()
+        fresh_base_headers = self._build_websocket_headers()
+        fresh_auth_headers = {
+            name: value
+            for name in ("Authorization", "chatgpt-account-id")
+            if (value := header_value(fresh_base_headers, name)) is not None
+        }
+        fresh_headers = merge_headers_case_insensitive(headers, fresh_auth_headers)
         return await super()._create_websocket_connection(url, fresh_headers, timeout_seconds)
 
     def _build_response_args(
@@ -214,10 +247,15 @@ class CodexResponsesLLM(ResponsesLLM):
         request_params: RequestParams,
         tools: list[Tool] | None,
     ) -> dict[str, Any]:
+        self._validate_codex_max_tokens(request_params)
         args = super()._build_response_args(input_items, request_params, tools)
-        model = request_params.model or self.default_request_params.model
+        model = args["model"]
+        routing_hint = f"model={model}"
+        if args.get("service_tier") == "priority":
+            routing_hint = f"{routing_hint};tier=priority"
+        generated_headers = {CODEX_ROUTING_HINT_HEADER: routing_hint}
         if self._uses_codex_responses_lite(model):
-            args["extra_headers"] = {CODEX_RESPONSES_LITE_HEADER: "true"}
+            generated_headers[CODEX_RESPONSES_LITE_HEADER] = "true"
             lite_input: list[dict[str, Any]] = [
                 {
                     "type": "additional_tools",
@@ -239,10 +277,10 @@ class CodexResponsesLLM(ResponsesLLM):
             reasoning = args.get("reasoning")
             if isinstance(reasoning, dict):
                 reasoning["context"] = "all_turns"
-        if "max_output_tokens" in args:
-            args.pop("max_output_tokens", None)
-            self.logger.debug(
-                "Dropping max_output_tokens for Codex responses; parameter unsupported by API"
-            )
+        existing_headers = args.get("extra_headers")
+        args["extra_headers"] = merge_headers_case_insensitive(
+            existing_headers if isinstance(existing_headers, dict) else None,
+            generated_headers,
+        )
         args["tool_choice"] = request_params.sampling_tool_choice or "auto"
         return args

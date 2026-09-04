@@ -443,6 +443,15 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
+        with self._turn_indicator_scope():
+            return await self._generate_tool_turn_impl(messages, request_params, tools)
+
+    async def _generate_tool_turn_impl(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> PromptMessageExtended:
         """
         Generate a response using the LLM, and handle tool calls if necessary.
         Messages are already normalized to list[PromptMessageExtended].
@@ -679,14 +688,16 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         self,
         tool_call_items: list[tuple[str, Any]],
         *,
+        known_tool_names: Collection[str],
+        case_insensitive_tool_names: Collection[str],
         available_tools: Collection[str],
         should_parallel: bool,
         tool_results: dict[str, CallToolResult],
     ) -> list[PlannedToolCall]:
         plan = plan_tool_calls(
             tool_call_items,
-            available_tools=available_tools,
-            execution_tools=self._execution_tools,
+            known_tool_names=known_tool_names,
+            case_insensitive_tool_names=case_insensitive_tool_names,
         )
         available_tool_list = sorted(available_tools)
         available_summary = (
@@ -869,17 +880,33 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
     ) -> tuple[dict[str, CallToolResult], dict[str, ToolTimingInfo]]:
         async def run_one(
             planned_call: PlannedToolCall,
-        ) -> tuple[str, CallToolResult, float]:
+        ) -> tuple[
+            str,
+            CallToolResult,
+            float,
+            ToolResultDisplayRequest | None,
+            Exception | None,
+        ]:
             result, duration_ms = await self._execute_planned_tool_call(
                 planned_call,
                 request_params=request_params,
             )
-            return planned_call.correlation_id, result, duration_ms
+            try:
+                display_request = await self._tool_result_display_request(
+                    planned_call,
+                    result,
+                    duration_ms=duration_ms,
+                    tool_call_id=planned_call.correlation_id,
+                )
+            except Exception as exc:
+                return planned_call.correlation_id, result, duration_ms, None, exc
+            return planned_call.correlation_id, result, duration_ms, display_request, None
 
         results = await gather_with_cancel(run_one(call) for call in planned_calls)
         tool_results: dict[str, CallToolResult] = {}
         tool_timings: dict[str, ToolTimingInfo] = {}
         display_requests: list[ToolResultDisplayRequest] = []
+        presentation_errors: list[Exception] = []
         for planned_call, item in zip(planned_calls, results, strict=False):
             if isinstance(item, BaseException):
                 result = CallToolResult(
@@ -887,22 +914,26 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     is_error=True,
                 )
                 duration_ms = 0.0
+                display_request = await self._tool_result_display_request(
+                    planned_call,
+                    result,
+                    duration_ms=duration_ms,
+                    tool_call_id=planned_call.correlation_id,
+                )
             else:
-                _, result, duration_ms = item
+                _, result, duration_ms, display_request, presentation_error = item
+                if presentation_error is not None:
+                    presentation_errors.append(presentation_error)
 
             tool_results[planned_call.correlation_id] = result
             tool_timings[planned_call.correlation_id] = ToolTimingInfo(
                 timing_ms=duration_ms,
                 transport_channel=None,
             )
-            display_request = await self._tool_result_display_request(
-                planned_call,
-                result,
-                duration_ms=duration_ms,
-                tool_call_id=planned_call.correlation_id,
-            )
             if display_request is not None:
                 display_requests.append(display_request)
+        if presentation_errors:
+            raise presentation_errors[0]
         self.display.show_parallel_tool_results(display_requests)
         return tool_results, tool_timings
 
@@ -956,6 +987,8 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         )
         planned_calls = self._plan_tool_calls(
             tool_call_items,
+            known_tool_names={*available_tools, *self._execution_tools},
+            case_insensitive_tool_names={*available_tools, *self._execution_tools},
             available_tools=available_tools,
             should_parallel=should_parallel,
             tool_results=tool_results,
@@ -1026,22 +1059,6 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             tool_call_id=tool_call_id,
             show_hook_indicator=self.has_after_tool_call_hook,
         )
-
-    def _mark_tool_loop_error(
-        self,
-        *,
-        correlation_id: str,
-        error_message: str,
-        tool_results: dict[str, CallToolResult],
-        tool_call_id: str | None = None,
-    ) -> str:
-        self._record_tool_error_result(
-            correlation_id=correlation_id,
-            error_message=error_message,
-            tool_results=tool_results,
-            tool_call_id=tool_call_id,
-        )
-        return error_message
 
     def _finalize_tool_results(
         self,

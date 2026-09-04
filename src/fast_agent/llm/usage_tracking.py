@@ -455,6 +455,13 @@ def usage_from_google_generate_content(
     *,
     model: str,
 ) -> TurnUsage:
+    traffic_type = usage.traffic_type
+    traffic_value = traffic_type.value if traffic_type is not None else None
+    service_tier = {
+        "ON_DEMAND_FLEX": "flex",
+        "ON_DEMAND_PRIORITY": "priority",
+        "ON_DEMAND": "standard",
+    }.get(traffic_value or "")
     return _usage_from_google(
         prompt=usage.prompt_token_count,
         visible=usage.candidates_token_count,
@@ -462,7 +469,7 @@ def usage_from_google_generate_content(
         cached=usage.cached_content_token_count,
         tool_use=usage.tool_use_prompt_token_count,
         provider_total=usage.total_token_count,
-        service_tier=None,
+        service_tier=service_tier,
         model=model,
         raw_usage=usage,
     )

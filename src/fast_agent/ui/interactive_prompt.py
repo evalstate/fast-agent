@@ -1062,7 +1062,11 @@ class InteractivePrompt:
             raise RuntimeError("No shell command is pending.")
 
         if pending.shell_execute_local:
-            return self._execute_local_interactive_shell_command(command, display=display)
+            return self._execute_local_interactive_shell_command(
+                command,
+                display=display,
+                restore_scroll_region=pending.shell_execute_interactive,
+            )
 
         shell_runtime = self._active_prompt_shell_runtime(prompt_provider, agent_name)
         if shell_runtime is None:
@@ -1071,7 +1075,11 @@ class InteractivePrompt:
 
         runtime_info = shell_runtime.runtime_info()
         if runtime_info.kind == "local":
-            return self._execute_local_interactive_shell_command(command, display=display)
+            return self._execute_local_interactive_shell_command(
+                command,
+                display=display,
+                restore_scroll_region=pending.shell_execute_interactive,
+            )
 
         if pending.shell_execute_interactive:
             environment_label = (
@@ -1087,8 +1095,13 @@ class InteractivePrompt:
 
         print(f"$ {command}", flush=True)
         emit_prompt_mark("C")
-        result = await shell_runtime.execute_direct_shell(command)
-        emit_prompt_mark(f"D;{result.exit_code}")
+        result: ShellExecutionResult | None = None
+        try:
+            result = await shell_runtime.execute_direct_shell(command)
+        finally:
+            exit_code = result.exit_code if result is not None else None
+            emit_prompt_mark(f"D;{exit_code}" if exit_code is not None else "D")
+        assert result is not None
         self._record_shell_execution_result(result, display=display)
         return result
 
@@ -1097,11 +1110,21 @@ class InteractivePrompt:
         command: str,
         *,
         display: "ConsoleDisplay",
+        restore_scroll_region: bool,
     ) -> ShellExecutionResult:
         print(f"$ {command}", flush=True)
         emit_prompt_mark("C")
-        result = run_interactive_shell_command(command, echo_command=False)
-        emit_prompt_mark(f"D;{result.exit_code}")
+        result: ShellExecutionResult | None = None
+        try:
+            result = run_interactive_shell_command(
+                command,
+                echo_command=False,
+                restore_scroll_region=restore_scroll_region,
+            )
+        finally:
+            exit_code = result.exit_code if result is not None else None
+            emit_prompt_mark(f"D;{exit_code}" if exit_code is not None else "D")
+        assert result is not None
         self._record_shell_execution_result(result, display=display)
         return result
 

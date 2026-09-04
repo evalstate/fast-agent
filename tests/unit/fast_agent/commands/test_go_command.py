@@ -268,6 +268,46 @@ def test_go_accepts_timeout_flag(monkeypatch) -> None:
     assert captured_requests[0].timeout_seconds == 120
 
 
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    (
+        (
+            [
+                "--model",
+                "generic.one,generic.two",
+                "--base-url",
+                "https://gateway.example/v1",
+            ],
+            "Cannot be combined with multiple models",
+        ),
+        (
+            ["--model", "generic.one", "--base-url", "   "],
+            "Cannot be empty",
+        ),
+        (
+            [
+                "--model",
+                "generic.one",
+                "--base-url",
+                "https://gateway.example/v1",
+                "--resume",
+                "last",
+            ],
+            "Cannot be combined with --resume",
+        ),
+    ),
+)
+def test_go_rejects_invalid_model_base_url_combinations(
+    arguments: list[str],
+    message: str,
+) -> None:
+    result = CliRunner().invoke(go_command.app, arguments)
+
+    assert result.exit_code == 2
+    assert message in strip_ansi(result.output)
+    assert "Traceback" not in result.output
+
+
 def test_go_preserves_repeated_and_comma_separated_mcp_urls(monkeypatch) -> None:
     captured_requests = []
     monkeypatch.setattr(go_command, "run_request", captured_requests.append)

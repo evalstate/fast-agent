@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import pathlib
+import shutil
+import subprocess
+import sys
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -13,6 +16,8 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.config import get_settings, update_global_settings
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import (
+    SessionBusyError,
+    SessionCheckpointBusyError,
     SessionChildLinkSnapshot,
     SessionManager,
     apply_session_window,
@@ -111,6 +116,43 @@ def test_prune_sessions_skips_pinned(tmp_path) -> None:
         reset_session_manager()
 
 
+@pytest.mark.asyncio
+async def test_metadata_updates_preserve_persisted_runtime_state(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session(metadata={"custom": "value"})
+    agent = _Agent(
+        name="main",
+        instruction="Stored prompt",
+        history=[_message("user", "hello"), _message("assistant", "done")],
+    )
+    await session.save_history(cast("AgentProtocol", agent))
+    session.set_execution_status("running")
+    before = session.load_snapshot()
+    updated_cwd = tmp_path / "updated-workspace"
+    session.info.metadata["cwd"] = str(updated_cwd)
+    session.info.metadata["acp_session_id"] = "acp-updated"
+
+    session.set_title("Renamed")
+    session.set_pinned(True)
+
+    after = session.load_snapshot()
+    assert after.metadata.title == "Renamed"
+    assert after.metadata.pinned is True
+    assert after.metadata.extras == {"custom": "value"}
+    assert after.continuation.active_agent == before.continuation.active_agent
+    assert after.continuation.cwd == str(updated_cwd)
+    assert after.continuation.lineage.acp_session_id == "acp-updated"
+    assert after.continuation.agents == before.continuation.agents
+    assert after.analysis == before.analysis
+    assert after.execution == before.execution
+    assert after.created_at == before.created_at
+    assert after.last_activity >= before.last_activity
+
+
 def test_session_history_window_rejects_boolean_config(tmp_path) -> None:
     old_settings = get_settings()
     override = old_settings.model_copy(
@@ -190,6 +232,47 @@ async def test_save_history_preview_skips_empty_first_user_message(tmp_path) -> 
     await session.save_history(cast("AgentProtocol", agent))
 
     assert session.info.metadata["first_user_preview"] == "actual prompt"
+    assert session.info.metadata["last_user_prompt"] == "actual prompt"
+
+
+@pytest.mark.asyncio
+async def test_save_history_updates_and_persists_latest_user_prompt(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session()
+    agent = _Agent(
+        name="main",
+        instruction="Stored prompt",
+        history=[
+            _message("user", "first prompt"),
+            _message("assistant", "first answer"),
+            _message("user", "  latest\n\n" + ("prompt " * 40)),
+            _message("assistant", "latest answer"),
+        ],
+    )
+
+    await session.save_history(cast("AgentProtocol", agent))
+
+    expected = ("latest " + ("prompt " * 40)).strip()[:200]
+    assert session.info.metadata["first_user_preview"] == "first prompt"
+    assert session.info.metadata["last_user_prompt"] == expected
+    payload = json.loads((session.directory / "session.json").read_text(encoding="utf-8"))
+    snapshot = load_session_snapshot(payload)
+    assert snapshot.metadata.last_user_prompt == expected
+
+    agent.message_history.extend(
+        [
+            _message("user", "new intent"),
+            _message("assistant", "new answer"),
+        ]
+    )
+    await session.save_history(cast("AgentProtocol", agent))
+
+    assert session.info.metadata["first_user_preview"] == "first prompt"
+    assert session.info.metadata["last_user_prompt"] == "new intent"
 
 
 @pytest.mark.asyncio
@@ -360,6 +443,23 @@ def test_delete_session_rejects_path_like_name(tmp_path) -> None:
     assert (sibling_dir / "support.md").exists()
 
 
+def test_get_and_load_session_reject_path_like_name(tmp_path) -> None:
+    home = tmp_path / ".fast-agent"
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=home,
+        respect_env_override=False,
+    )
+    source = manager.create_session()
+    outside_dir = home / "outside-session"
+    outside_dir.mkdir()
+    shutil.copy2(source.directory / "session.json", outside_dir / "session.json")
+
+    assert manager.get_session("../outside-session") is None
+    assert manager.load_session("../outside-session") is None
+    assert outside_dir.is_dir()
+
+
 def test_create_and_delete_session_with_id_share_path_like_id_rules(tmp_path) -> None:
     home = tmp_path / ".fast-agent"
     manager = SessionManager(
@@ -376,7 +476,7 @@ def test_create_and_delete_session_with_id_share_path_like_id_rules(tmp_path) ->
     assert (home / "sessions" / session.info.name).is_dir()
 
 
-def test_load_session_marks_loaded_session_as_latest(tmp_path) -> None:
+def test_load_session_is_read_only_and_does_not_change_latest(tmp_path) -> None:
     old_settings = get_settings()
     home = tmp_path / "env"
     override = old_settings.model_copy(update={"home": str(home)})
@@ -399,11 +499,242 @@ def test_load_session_marks_loaded_session_as_latest(tmp_path) -> None:
 
         latest = manager.load_latest_session()
         assert latest is not None
-        assert latest.info.name == older.info.name
-        assert loaded.info.last_activity > newer.info.last_activity
+        assert latest.info.name == newer.info.name
+        assert loaded.info.last_activity == base_time
     finally:
         update_global_settings(old_settings)
         reset_session_manager()
+
+
+@pytest.mark.asyncio
+async def test_second_manager_resume_is_busy_until_owner_releases(tmp_path) -> None:
+    home = tmp_path / ".fast-agent"
+    owner = SessionManager(
+        cwd=tmp_path,
+        home_override=home,
+        respect_env_override=False,
+        surface="test-owner",
+    )
+    session = owner.create_session_with_id("shared-session")
+    saved = _Agent(
+        name="foo",
+        instruction="Stored prompt",
+        history=[_message("user", "hello"), _message("assistant", "done")],
+    )
+    await session.save_history(cast("AgentProtocol", saved))
+
+    contender = SessionManager(
+        cwd=tmp_path,
+        home_override=home,
+        respect_env_override=False,
+        surface="test-contender",
+    )
+    runtime = _Agent(name="foo", instruction="Runtime prompt")
+    with pytest.raises(SessionBusyError) as exc_info:
+        await contender.resume_session_agents_async(
+            {"foo": cast("AgentProtocol", runtime)},
+            session.info.name,
+            fallback_agent_name="foo",
+        )
+
+    error = exc_info.value
+    assert error.owner is not None
+    assert error.owner.pid > 0
+    assert error.owner.host
+    assert error.owner.surface == "test-owner"
+    assert "fast-agent session fork shared-session" in str(error)
+    assert not (session.directory / ".session.lock").exists()
+    assert list((home / "sessions" / ".locks").glob("*.owner.lock"))
+
+    owner.close()
+    resumed = await contender.resume_session_agents_async(
+        {"foo": cast("AgentProtocol", runtime)},
+        session.info.name,
+        fallback_agent_name="foo",
+    )
+    assert resumed is not None
+    assert _message_texts(runtime) == ["hello", "done"]
+    contender.close()
+
+
+def test_owner_lease_releases_when_process_exits(tmp_path) -> None:
+    home = tmp_path / ".fast-agent"
+    script = f"""
+import time
+from pathlib import Path
+from fast_agent.session import SessionManager
+
+manager = SessionManager(
+    cwd=Path({str(tmp_path)!r}),
+    home_override=Path({str(home)!r}),
+    respect_env_override=False,
+    surface="child-process",
+)
+manager.create_session_with_id("crash-owner")
+print("ready", flush=True)
+time.sleep(60)
+"""
+    process = subprocess.Popen(
+        [sys.executable, "-c", script],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert process.stdout is not None
+    assert process.stdout.readline().strip() == "ready"
+
+    contender = SessionManager(
+        cwd=tmp_path,
+        home_override=home,
+        respect_env_override=False,
+        surface="contender",
+    )
+    try:
+        with pytest.raises(SessionBusyError):
+            contender.load_session("crash-owner")
+        process.terminate()
+        process.wait(timeout=10)
+        assert contender.load_session("crash-owner") is not None
+    finally:
+        contender.close()
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=10)
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_contention_fails_without_blocking(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session_with_id("checkpoint-owner")
+    second_view = manager.get_session(session.info.name)
+    assert second_view is not None
+    agent = _Agent(
+        name="foo",
+        instruction="Stored prompt",
+        history=[_message("user", "hello")],
+    )
+
+    with manager._locks.checkpoint(session.info.name):
+        with pytest.raises(SessionCheckpointBusyError):
+            await second_view.save_history(cast("AgentProtocol", agent))
+
+    manager.close()
+
+
+@pytest.mark.asyncio
+async def test_fork_named_busy_session_uses_committed_checkpoint(tmp_path) -> None:
+    home = tmp_path / ".fast-agent"
+    owner = SessionManager(
+        cwd=tmp_path,
+        home_override=home,
+        respect_env_override=False,
+        surface="owner",
+    )
+    source = owner.create_session_with_id("busy-source")
+    saved = _Agent(
+        name="foo",
+        instruction="Stored prompt",
+        history=[_message("user", "checkpoint"), _message("assistant", "committed")],
+    )
+    await source.save_history(cast("AgentProtocol", saved))
+
+    forker = SessionManager(
+        cwd=tmp_path,
+        home_override=home,
+        respect_env_override=False,
+        surface="maintenance",
+    )
+    forked = forker.fork_session(source.info.name, title="Safe fork")
+
+    assert forked is not None
+    assert forker.owns_session(forked.info.name)
+    assert owner.owns_session(source.info.name)
+    snapshot = forked.load_snapshot()
+    assert snapshot.continuation.lineage.forked_from == source.info.name
+    assert snapshot.metadata.title == "Safe fork"
+    history_file = snapshot.continuation.agents["foo"].history_file
+    assert history_file is not None
+    assert json.loads((forked.directory / history_file).read_text(encoding="utf-8"))
+
+    owner.close()
+    forker.close()
+
+
+def test_delete_and_prune_skip_owner_busy_session(tmp_path) -> None:
+    home = tmp_path / ".fast-agent"
+    owner = SessionManager(
+        cwd=tmp_path,
+        home_override=home,
+        respect_env_override=False,
+        surface="owner",
+    )
+    session = owner.create_session_with_id("busy-empty")
+    maintenance = SessionManager(
+        cwd=tmp_path,
+        home_override=home,
+        respect_env_override=False,
+        surface="maintenance",
+    )
+
+    delete_result = maintenance.delete_session_result(session.info.name)
+    prune_result = maintenance.prune_empty_sessions_result()
+
+    assert delete_result.status == "busy"
+    assert delete_result.owner is not None
+    assert prune_result.removed == 0
+    assert [result.session_id for result in prune_result.busy] == [session.info.name]
+    assert session.directory.exists()
+
+    owner.close()
+    assert maintenance.delete_session(session.info.name)
+
+
+def test_owned_session_delete_removes_directory_and_releases_lease(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session_with_id("owned-delete")
+
+    session.delete()
+
+    assert not session.directory.exists()
+    assert not manager.owns_session(session.info.name)
+
+
+def test_multi_session_manager_retains_each_acp_owner(tmp_path) -> None:
+    home = tmp_path / ".fast-agent"
+    acp_manager = SessionManager(
+        cwd=tmp_path,
+        home_override=home,
+        respect_env_override=False,
+        surface="acp",
+        retain_multiple=True,
+    )
+    first = acp_manager.create_session_with_id("acp-one")
+    second = acp_manager.create_session_with_id("acp-two")
+    contender = SessionManager(
+        cwd=tmp_path,
+        home_override=home,
+        respect_env_override=False,
+        surface="contender",
+    )
+
+    assert acp_manager.owns_session(first.info.name)
+    assert acp_manager.owns_session(second.info.name)
+    with pytest.raises(SessionBusyError):
+        contender.load_session(first.info.name)
+    with pytest.raises(SessionBusyError):
+        contender.load_session(second.info.name)
+
+    acp_manager.close()
+    assert contender.load_session(first.info.name) is not None
+    assert contender.load_session(second.info.name) is not None
+    contender.close()
 
 
 def test_list_sessions_normalizes_timezone_aware_timestamps(tmp_path) -> None:

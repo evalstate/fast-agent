@@ -51,8 +51,20 @@
   }
 
   function formatRunCost(result, taskCount) {
-    if (result.totalCost !== undefined) return "$" + result.totalCost.toFixed(2);
-    return "$" + Math.round(result.cost * taskCount).toLocaleString("en-US");
+    var total = result.totalCost !== undefined ? result.totalCost : result.cost * taskCount;
+    return "$" + Math.round(total).toLocaleString("en-US");
+  }
+
+  function formatResultCost(result) {
+    return (result.costEstimate ? "est. " : "") + formatCost(result.cost);
+  }
+
+  function formatTableResultCost(result) {
+    return (result.costEstimate ? "~" : "") + formatCost(result.cost);
+  }
+
+  function formatTableResultRunCost(result, taskCount) {
+    return (result.costEstimate ? "~" : "") + formatRunCost(result, taskCount);
   }
 
   function overlapArea(first, second) {
@@ -243,7 +255,8 @@
         "class": "fa-benchmark__chart",
         "viewBox": "0 0 680 350",
         "role": "img",
-        "aria-label": comparison.label + ": cost per task versus Terminal-Bench score",
+        "aria-label": comparison.label +
+          ": Terminal-Bench score versus cost per task, with lower cost farther right",
       });
       var plot = { left: 72, right: 650, top: 22, bottom: 300 };
       var width = plot.right - plot.left;
@@ -251,7 +264,7 @@
       var x = function (value) {
         var ratio = (Math.log10(value) - Math.log10(cost.min)) /
           (Math.log10(cost.max) - Math.log10(cost.min));
-        return plot.left + ratio * width;
+        return plot.right - ratio * width;
       };
       var y = function (value) {
         var ratio = (value - score.min) / (score.max - score.min);
@@ -279,7 +292,7 @@
         y: 347,
         "class": "fa-benchmark__axis-label",
         "text-anchor": "middle",
-      }, "COST / TASK (USD)"));
+      }, "COST / TASK (USD) · CHEAPER →"));
 
       comparison.results.forEach(function (entry, index) {
         var pointX = x(entry.cost);
@@ -295,7 +308,7 @@
           "tabindex": "0",
           "data-result-index": index,
           "aria-label": entry.model + " on " + entry.harness + ", score " + entry.score +
-            " percent, " + formatCost(entry.cost) + " per task",
+            " percent, " + formatResultCost(entry) + " per task",
         });
         var activate = function () { selectResult(index); };
         var previewRow = function (active) {
@@ -368,7 +381,7 @@
             ? "fa-benchmark__tooltip-cost fa-benchmark__tooltip-cost--winner"
             : "fa-benchmark__tooltip-cost",
           "text-anchor": "end",
-        }, formatCost(entry.cost) + "/task"));
+        }, formatResultCost(entry) + "/task"));
         group.appendChild(tooltip);
         svg.appendChild(group);
       });
@@ -400,7 +413,7 @@
       metrics.appendChild(element(
         "span",
         result.winner ? "fa-benchmark__winning-cost" : "",
-        formatCost(result.cost) + "/task"
+        formatResultCost(result) + "/task"
       ));
       if (result.costBasis) {
         metrics.appendChild(document.createTextNode(" (" + result.costBasis + ")"));
@@ -435,9 +448,9 @@
           entry.winner
             ? "fa-benchmark__result-cost fa-benchmark__result-cost--winner"
             : "fa-benchmark__result-cost",
-          formatCost(entry.cost)
+          formatTableResultCost(entry)
         ));
-        row.appendChild(element("span", "", formatRunCost(entry, data.taskCount)));
+        row.appendChild(element("span", "", formatTableResultRunCost(entry, data.taskCount)));
         row.addEventListener("mouseenter", function () { previewResult(index, true); });
         row.addEventListener("mouseleave", function () { previewResult(index, false); });
         row.addEventListener("focus", function () { previewResult(index, true); });
@@ -445,19 +458,22 @@
         row.addEventListener("click", function () { selectResult(index); });
         results.appendChild(row);
       });
-      results.appendChild(element(
-        "p",
-        "fa-benchmark__run-total",
-        "Run total = submitted total when provided; otherwise cost/task × " +
-          data.taskCount + " tasks"
-      ));
+      var hasEstimatedCosts = comparison.results.some(function (entry) {
+        return entry.costEstimate;
+      });
+      var runTotalNote = hasEstimatedCosts
+        ? "~ marks Sol estimates at current pricing; other totals use submitted totals when " +
+          "provided or cost/task × " + data.taskCount + " tasks"
+        : "Run total = submitted total when provided; otherwise cost/task × " +
+          data.taskCount + " tasks";
+      results.appendChild(element("p", "fa-benchmark__run-total", runTotalNote));
       body.appendChild(results);
       root.appendChild(body);
 
       var footer = element("div", "fa-benchmark__footer");
       footer.appendChild(element("span", "fa-benchmark__legend fa-benchmark__legend--fast-agent", "fast-agent"));
       footer.appendChild(element("span", "fa-benchmark__legend", "other harnesses"));
-      footer.appendChild(element("span", "", "Higher and further left is better."));
+      footer.appendChild(element("span", "", "Higher and further right is better."));
       var methodology = element("a", "", "Methodology & disclaimers");
       methodology.href = data.methodologyUrl;
       methodology.target = "_blank";

@@ -490,6 +490,11 @@ class AsyncEventBus:
                 # TODO -- added _queue assertion; is that necessary?
                 self._mark_event_done(event)
                 raise
+            except RuntimeError as e:
+                rich_print(f"Event processing stopped: {e}")
+                self._mark_event_done(event)
+                self._running = False
+                break
             except Exception as e:
                 rich_print(f"Error in event processing loop: {e}")
                 # Mark task done for this event

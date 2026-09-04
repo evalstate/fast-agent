@@ -104,6 +104,22 @@ def test_read_text_source_delegates_hf_scheme(monkeypatch):
     assert calls == [("hf://buckets/evalstate/home/demo.md", "prompt file")]
 
 
+def test_read_text_source_decodes_http_content_as_utf8(monkeypatch):
+    response = requests.Response()
+    response.status_code = 200
+    response._content = "你好, café".encode("utf-8")
+    response.encoding = "ISO-8859-1"
+
+    def fake_get(source: str, *, timeout: int) -> requests.Response:
+        assert source == "https://example.com/prompt.md"
+        assert timeout == 30
+        return response
+
+    monkeypatch.setattr(source_resolver.requests, "get", fake_get)
+
+    assert read_text_source("https://example.com/prompt.md") == "你好, café"
+
+
 def test_read_text_source_wraps_http_request_errors(monkeypatch):
     def fake_get(source: str, *, timeout: int):
         assert source == "https://example.com/missing.md"

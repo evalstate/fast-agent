@@ -22,6 +22,7 @@ from fast_agent.config import LoggerSettings, Settings, ShellSettings, ToolDispl
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     FAST_AGENT_SHELL_PROCESS_METADATA,
+    MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
     MAX_PROCESS_POLL_WAIT_SECONDS,
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
 )
@@ -328,6 +329,39 @@ class _ActiveManagedShellEnvironment(_ManagedShellEnvironment):
         )
 
 
+class _ParallelManagedShellEnvironment(_ManagedShellEnvironment):
+    def __init__(self) -> None:
+        super().__init__()
+        self.all_started = asyncio.Event()
+        self.releases = {
+            "first-build": asyncio.Event(),
+            "second-build": asyncio.Event(),
+        }
+
+    async def execute(
+        self,
+        request: ShellExecutionRequest,
+        *,
+        callbacks: ShellExecutionCallbacks | None = None,
+    ) -> ShellExecution:
+        self.requests.append(request)
+        if callbacks is not None:
+            await callbacks.on_started(4320 + len(self.requests))
+        if len(self.requests) == len(self.releases):
+            self.all_started.set()
+        try:
+            await self.releases[request.command].wait()
+        except asyncio.CancelledError:
+            self.cancelled = request.terminate_on_cancel
+            raise
+        if callbacks is not None:
+            await callbacks.on_stdout(f"{request.command} complete\n")
+        return ShellExecution(
+            result=ShellExecutionResult(stdout="", stderr="", exit_code=0),
+            options=ShellExecutionOptions(timeout_seconds=request.timeout),
+        )
+
+
 class _BurstThenQuietShellEnvironment(_ManagedShellEnvironment):
     def __init__(self) -> None:
         super().__init__()
@@ -526,6 +560,7 @@ def test_shell_runtime_reads_typed_shell_settings() -> None:
             show_bash=False,
             prefer_local_shell=True,
             process_poll_max_wait_seconds=240,
+            foreground_auto_await_max_seconds=45,
             managed_process_poll_history_folding="on",
         )
     )
@@ -539,6 +574,25 @@ def test_shell_runtime_reads_typed_shell_settings() -> None:
     assert runtime._show_bash_output is False
     assert runtime.prefer_local_shell is True
     assert runtime._max_process_poll_seconds == 240
+    assert runtime._foreground_auto_await_max_seconds == 45
+
+
+@pytest.mark.parametrize(
+    "value",
+    [True, -1, float("nan"), float("inf"), MAX_FOREGROUND_AUTO_AWAIT_SECONDS + 1],
+)
+def test_shell_runtime_rejects_invalid_foreground_auto_await_override(
+    value: float,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="foreground_auto_await_max_seconds must be finite and between",
+    ):
+        ShellRuntime(
+            activation_reason="test",
+            logger=logging.getLogger("shell-runtime-test"),
+            foreground_auto_await_max_seconds=value,
+        )
 
 
 def test_execute_tool_schema_declares_per_call_options() -> None:
@@ -673,6 +727,7 @@ def test_shell_output_retention_product_defaults() -> None:
     assert settings.output_byte_limit == 16_000
     assert settings.retain_truncated_output is True
     assert settings.retained_output_max_bytes == 2 * 1024 * 1024
+    assert settings.durable_output_max_bytes == 2 * 1024 * 1024
     assert settings.retained_output_temp_directory is None
 
 
@@ -1506,7 +1561,12 @@ async def test_execute_rejects_unknown_arguments_without_running() -> None:
     assert environment.requests == []
     assert timeout_result.content is not None
     assert isinstance(timeout_result.content[0], TextContent)
-    assert "use 'yield_after_idle_sec'" in timeout_result.content[0].text
+    assert "omit it to use the bounded foreground total-runtime cap" in (
+        timeout_result.content[0].text
+    )
+    assert "background=true to return a live process ID promptly" in (
+        timeout_result.content[0].text
+    )
 
 
 @pytest.mark.asyncio
@@ -1536,6 +1596,7 @@ async def test_silent_command_yields_alive_then_poll_reports_completion() -> Non
         shell_environment=environment,
         idle_yield_seconds=0.05,
         foreground_yield_seconds=0.5,
+        foreground_auto_await_max_seconds=0,
     )
 
     result = await runtime.execute({"command": "slow-build"})
@@ -1550,6 +1611,13 @@ async def test_silent_command_yields_alive_then_poll_reports_completion() -> Non
     assert "process_id: process-1" in result.content[0].text
     assert environment.requests[0].terminate_after_idle is False
     assert environment.requests[0].retain_output is False
+    yielded_metadata = shell_runtime_module.process_result_metadata(result)
+    assert yielded_metadata is not None
+    assert yielded_metadata["process_yield_reason"] == "idle"
+    disabled_auto_await = yielded_metadata["foreground_auto_await"]
+    assert disabled_auto_await["max_total_seconds"] == 0
+    assert disabled_auto_await["awaited_seconds"] == 0
+    assert disabled_auto_await["outcome"] == "disabled"
 
     running_poll = await runtime.poll_process({"process_id": "process-1"})
     assert running_poll.content is not None
@@ -1565,6 +1633,7 @@ async def test_silent_command_yields_alive_then_poll_reports_completion() -> Non
     assert running_metadata["output_bytes_since_last_poll"] == 0
     assert running_metadata["seconds_since_last_output"] >= 0
     assert running_metadata["has_observed_output"] is False
+    assert running_metadata["foreground_auto_await"] == disabled_auto_await
 
     environment.release.set()
     poll_result = await runtime.poll_process({"process_id": "process-1", "wait_sec": 1})
@@ -1575,6 +1644,299 @@ async def test_silent_command_yields_alive_then_poll_reports_completion() -> Non
     assert "managed complete" in poll_result.content[0].text
     assert "process exit code was 0" in poll_result.content[0].text
     assert tool_result_display_metadata(poll_result).get("output_line_count") == 1
+
+
+@pytest.mark.asyncio
+async def test_foreground_auto_await_returns_completion_after_idle_yield() -> None:
+    environment = _ManagedShellEnvironment()
+    logger = RecordingFastLogger()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        shell_environment=environment,
+        idle_yield_seconds=0.01,
+        foreground_yield_seconds=1,
+    )
+
+    task = asyncio.create_task(
+        runtime.execute(
+            {"command": "slow-build"},
+            tool_use_id="call-build",
+        )
+    )
+    await environment.started.wait()
+    await asyncio.sleep(0.03)
+
+    assert task.done() is False
+    assert any(message == "Foreground process auto-await" for message, _ in logger.info_calls)
+
+    environment.release.set()
+    result = await asyncio.wait_for(task, timeout=0.5)
+
+    assert result.is_error is False
+    assert isinstance(result.content[0], TextContent)
+    assert "managed complete" in result.content[0].text
+    assert "still running" not in result.content[0].text
+    metadata = shell_runtime_module.process_result_metadata(result)
+    assert metadata is not None
+    assert metadata["process_status"] == "completed"
+    auto_await = metadata["foreground_auto_await"]
+    assert auto_await["initial_yield_reason"] == "idle"
+    assert auto_await["max_total_seconds"] == 30
+    assert auto_await["outcome"] == "process_finished"
+    assert auto_await["initial_yield_elapsed_seconds"] >= 0.01
+    assert auto_await["awaited_seconds"] >= 0
+    assert auto_await["total_elapsed_seconds"] >= (auto_await["initial_yield_elapsed_seconds"])
+
+
+@pytest.mark.asyncio
+async def test_foreground_auto_await_returns_failure_after_initial_yield() -> None:
+    environment = _ManagedShellEnvironment()
+    environment.exit_code = 7
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        idle_yield_seconds=0.01,
+        foreground_yield_seconds=1,
+        foreground_auto_await_max_seconds=0.5,
+    )
+
+    task = asyncio.create_task(runtime.execute({"command": "failing-build"}))
+    await environment.started.wait()
+    await asyncio.sleep(0.03)
+    environment.release.set()
+    result = await asyncio.wait_for(task, timeout=0.5)
+
+    metadata = shell_runtime_module.process_result_metadata(result)
+    assert result.is_error is True
+    assert metadata is not None
+    assert metadata["process_status"] == "failed"
+    assert metadata["exit_code"] == 7
+    assert metadata["foreground_auto_await"]["outcome"] == "process_finished"
+
+
+@pytest.mark.asyncio
+async def test_foreground_auto_await_returns_completion_after_total_runtime_yield() -> None:
+    environment = _ActiveManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        idle_yield_seconds=0.2,
+        foreground_yield_seconds=0.03,
+        foreground_auto_await_max_seconds=0.5,
+    )
+
+    task = asyncio.create_task(runtime.execute({"command": "chatty-build"}))
+    await environment.started.wait()
+    await asyncio.sleep(0.06)
+
+    assert task.done() is False
+    environment.release.set()
+    result = await asyncio.wait_for(task, timeout=0.5)
+
+    metadata = shell_runtime_module.process_result_metadata(result)
+    assert result.is_error is False
+    assert metadata is not None
+    assert metadata["process_status"] == "completed"
+    assert metadata["foreground_auto_await"]["initial_yield_reason"] == "foreground"
+    assert metadata["foreground_auto_await"]["outcome"] == "process_finished"
+
+
+@pytest.mark.asyncio
+async def test_foreground_auto_await_returns_live_process_at_cap_without_stopping() -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        idle_yield_seconds=0.01,
+        foreground_yield_seconds=1,
+        foreground_auto_await_max_seconds=0.04,
+    )
+
+    result = await runtime.execute({"command": "hung-build"})
+
+    assert result.is_error is False
+    assert isinstance(result.content[0], TextContent)
+    assert "foreground auto-await total-runtime cap was reached" in result.content[0].text
+    assert "The command was not stopped" in result.content[0].text
+    metadata = shell_runtime_module.process_result_metadata(result)
+    assert metadata is not None
+    assert metadata["process_status"] == "running"
+    assert metadata["process_yield_reason"] == "auto_await_cap"
+    assert metadata["lifecycle"] == "session"
+    auto_await = metadata["foreground_auto_await"]
+    assert auto_await["initial_yield_reason"] == "idle"
+    assert auto_await["max_total_seconds"] == 0.04
+    assert auto_await["outcome"] == "cap_reached"
+    assert auto_await["initial_yield_elapsed_seconds"] >= 0.01
+    assert auto_await["awaited_seconds"] < 0.04
+    assert auto_await["total_elapsed_seconds"] >= 0.035
+    assert environment.cancelled is False
+    assert runtime.active_process_count == 1
+
+    status = await runtime.poll_process({"process_id": "process-1"})
+    status_metadata = shell_runtime_module.process_result_metadata(status)
+    assert status_metadata is not None
+    assert status_metadata["foreground_auto_await"] == metadata["foreground_auto_await"]
+
+    environment.release.set()
+    completed = await runtime.poll_process({"process_id": "process-1", "wait_sec": 1})
+    completed_metadata = shell_runtime_module.process_result_metadata(completed)
+    assert completed_metadata is not None
+    assert completed_metadata["process_status"] == "completed"
+    assert completed_metadata["foreground_auto_await"] == metadata["foreground_auto_await"]
+    assert environment.cancelled is False
+
+
+@pytest.mark.asyncio
+async def test_foreground_auto_await_does_not_restart_budget_after_initial_yield() -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        idle_yield_seconds=0.02,
+        foreground_yield_seconds=1,
+        foreground_auto_await_max_seconds=0.01,
+    )
+
+    started_at = time.monotonic()
+    result = await runtime.execute({"command": "already-over-budget"})
+    elapsed = time.monotonic() - started_at
+
+    metadata = shell_runtime_module.process_result_metadata(result)
+    assert metadata is not None
+    assert metadata["process_status"] == "running"
+    auto_await = metadata["foreground_auto_await"]
+    assert auto_await["max_total_seconds"] == 0.01
+    assert auto_await["initial_yield_elapsed_seconds"] >= 0.02
+    assert auto_await["awaited_seconds"] < 0.01
+    assert auto_await["total_elapsed_seconds"] >= 0.02
+    assert elapsed < 0.1
+    assert environment.cancelled is False
+
+    await runtime.terminate_process({"process_id": "process-1"})
+
+
+@pytest.mark.asyncio
+async def test_foreground_auto_await_preserves_parallel_shell_execution() -> None:
+    environment = _ParallelManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        idle_yield_seconds=0.01,
+        foreground_yield_seconds=1,
+        foreground_auto_await_max_seconds=0.5,
+    )
+
+    tasks = [
+        asyncio.create_task(runtime.execute({"command": command}))
+        for command in ("first-build", "second-build")
+    ]
+    await asyncio.wait_for(environment.all_started.wait(), timeout=0.2)
+    await asyncio.sleep(0.03)
+
+    assert all(task.done() is False for task in tasks)
+    for release in environment.releases.values():
+        release.set()
+    results = await asyncio.wait_for(asyncio.gather(*tasks), timeout=0.5)
+
+    assert [request.command for request in environment.requests] == [
+        "first-build",
+        "second-build",
+    ]
+    for result in results:
+        metadata = shell_runtime_module.process_result_metadata(result)
+        assert metadata is not None
+        assert metadata["process_status"] == "completed"
+        assert metadata["foreground_auto_await"]["outcome"] == "process_finished"
+
+
+@pytest.mark.asyncio
+async def test_cancelling_foreground_auto_await_terminates_session_process() -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        idle_yield_seconds=0.01,
+        foreground_yield_seconds=1,
+        foreground_auto_await_max_seconds=1,
+    )
+
+    task = asyncio.create_task(
+        runtime.execute(
+            {"command": "cancelled-build"},
+            tool_use_id="call-build",
+        )
+    )
+    await environment.started.wait()
+    await asyncio.sleep(0.03)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert environment.cancelled is True
+    assert environment.requests[0].terminate_on_cancel is True
+    assert runtime.active_process_count == 0
+
+
+@pytest.mark.asyncio
+async def test_stopping_during_foreground_auto_await_records_termination() -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        idle_yield_seconds=0.01,
+        foreground_yield_seconds=1,
+        foreground_auto_await_max_seconds=1,
+    )
+
+    execute_task = asyncio.create_task(runtime.execute({"command": "stopped-build"}))
+    await environment.started.wait()
+    await asyncio.sleep(0.03)
+
+    stopped = await runtime.terminate_process({"process_id": "process-1"})
+    result = await execute_task
+
+    stopped_metadata = shell_runtime_module.process_result_metadata(stopped)
+    result_metadata = shell_runtime_module.process_result_metadata(result)
+    assert stopped_metadata is not None
+    assert stopped_metadata["process_status"] == "terminated"
+    assert result_metadata is not None
+    assert result_metadata["process_status"] == "terminated"
+    assert result_metadata["foreground_auto_await"]["outcome"] == "terminated"
+
+
+@pytest.mark.asyncio
+async def test_runtime_close_during_foreground_auto_await_records_termination() -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        idle_yield_seconds=0.01,
+        foreground_yield_seconds=1,
+        foreground_auto_await_max_seconds=1,
+    )
+
+    execute_task = asyncio.create_task(runtime.execute({"command": "shutdown-build"}))
+    await environment.started.wait()
+    await asyncio.sleep(0.03)
+
+    await runtime.close()
+    result = await execute_task
+
+    metadata = shell_runtime_module.process_result_metadata(result)
+    assert metadata is not None
+    assert metadata["process_status"] == "terminated"
+    assert metadata["foreground_auto_await"]["outcome"] == "terminated"
+    assert environment.cancelled is True
 
 
 @pytest.mark.asyncio
@@ -1662,6 +2024,7 @@ async def test_continuous_output_still_yields_at_foreground_ceiling() -> None:
         shell_environment=environment,
         idle_yield_seconds=0.2,
         foreground_yield_seconds=0.05,
+        foreground_auto_await_max_seconds=0,
     )
 
     result = await runtime.execute({"command": "chatty-build"})
@@ -1943,6 +2306,7 @@ async def test_background_command_returns_handle_and_terminate_cancels_job() -> 
     assert result_metadata is not None
     assert result_metadata["os_process_id"] == 4321
     assert result_metadata["process_status"] == "running"
+    assert "foreground_auto_await" not in result_metadata
     assert terminate_result.is_error is False
     terminate_metadata = shell_runtime_module.process_result_metadata(terminate_result)
     assert terminate_metadata == {
@@ -2282,6 +2646,7 @@ async def test_automatically_yielded_foreground_process_remains_session_scoped()
         config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
         idle_yield_seconds=0.05,
         foreground_yield_seconds=0.5,
+        foreground_auto_await_max_seconds=0,
     )
 
     result = await runtime.call_tool("Bash", {"command": "slow-build"})

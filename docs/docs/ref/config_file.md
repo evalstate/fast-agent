@@ -361,6 +361,8 @@ google:
 xai:
   api_key: "your_xai_key"  # Can also use XAI_API_KEY env var
   base_url: "https://api.x.ai/v1"  # Optional, defaults to this value
+  # image_upload_mode: inline  # Default: public_url
+  # image_upload_ttl_seconds: 86400  # 1 hour to 30 days
 ```
 
 ### MetaAI
@@ -806,8 +808,10 @@ shell_execution:
   output_byte_limit: 16000  # Explicit value; omit for catalog/default selection, null for auto
   retain_truncated_output: true
   retained_output_max_bytes: 2097152  # Per shell process
+  durable_output_max_bytes: 2097152  # Per persistent stdout/stderr/combined log
   retained_output_temp_directory: null  # Optional parent directory
   process_poll_max_wait_seconds: 3600  # Accepted range: 1–3600
+  foreground_auto_await_max_seconds: 30  # Total runtime; range: 0–3600; 0 disables
   managed_process_poll_history_folding: auto  # auto | on | off
 ```
 
@@ -836,10 +840,35 @@ temporary path so the model can inspect selected ranges or search the complete
 output. Each process is limited by `retained_output_max_bytes`; retained files
 are removed when the shell runtime closes.
 
+`durable_output_max_bytes` separately caps each persistent process
+`stdout.log`, `stderr.log`, and combined `output.log`. Fast-agent continues
+draining child pipes after a log reaches the cap and reports the excess as
+dropped output, preventing verbose persistent commands from filling the
+filesystem or blocking on full pipes.
+
+`foreground_auto_await_max_seconds` is the maximum total foreground runtime,
+measured from shell process start, during which a finite command remains in its
+original shell tool call. Commands retain the initial no-output and
+total-runtime yield checks (10 and 30 seconds by default); after either check,
+the runtime waits only for the remaining total budget. If the command finishes
+before the deadline, its final result is returned without a model turn spent
+scheduling a process wait. Reaching the deadline returns the live,
+session-scoped process to the model and does not stop it. Explicit background
+commands and explicit hard timeouts are unchanged. Set the value to `0` to
+return live foreground processes at the initial yield boundary.
+
+The 30-second default matches the initial total-runtime yield and keeps longer
+commands model-interruptible. It still lets shorter commands finish in their
+original shell call without a model turn spent scheduling a process wait.
+
 `process_poll_max_wait_seconds` caps a single model-initiated managed-process
 wait. Catalogue and overlay defaults are capped for compatibility. An explicit
 model-string `poll_period` above the configured maximum is rejected instead of
 being silently reduced.
+
+See [Foreground auto-await and outer-budget-aware process waits](shell_runtime_budgeting.md)
+for the model-interruptibility tradeoff, external-deadline integration gap,
+proposed budget-aware semantics, telemetry, and acceptance tests.
 
 `managed_process_poll_history_folding` controls whether repetitive quiet
 managed-process polling exchanges are collapsed before the next model call:

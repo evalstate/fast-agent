@@ -25,6 +25,7 @@ from fast_agent.commands.shared_command_intents import (
 )
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.mcp.connect_targets import mcp_connect_flag_descriptions
+from fast_agent.ui.prompt.command_help import HELP_TOPIC_DESCRIPTIONS
 from fast_agent.utils.commandline import join_commandline, split_commandline
 from fast_agent.utils.text import starts_with_casefold, strip_casefold
 
@@ -1425,6 +1426,44 @@ def _tools_command_completions(
     ]
 
 
+def _help_command_completions(
+    _completer: "AgentCompleter",
+    text: str,
+    text_lower: str,
+) -> list[Completion] | None:
+    if not text_lower.startswith("/help "):
+        return None
+    partial = text[len("/help ") :]
+    return _subcommand_completions(partial, HELP_TOPIC_DESCRIPTIONS)
+
+
+def _process_command_completions(
+    _completer: "AgentCompleter",
+    text: str,
+    text_lower: str,
+) -> list[Completion] | None:
+    prefix = next(
+        (
+            candidate
+            for candidate in ("/process ", "/processes ")
+            if text_lower.startswith(candidate)
+        ),
+        None,
+    )
+    if prefix is None:
+        return None
+    partial = text[len(prefix) :]
+    return _subcommand_completions(
+        partial,
+        {
+            "--history": "Show retained finished processes",
+            "history": "Show retained finished processes",
+            "attach": "Adopt durable process management and observation",
+            "terminate": "Terminate a managed or discoverable durable process",
+        },
+    )
+
+
 def command_completions(
     completer: "AgentCompleter",
     text: str,
@@ -1435,6 +1474,8 @@ def command_completions(
         "Callable[[AgentCompleter, str, str], list[Completion] | None]",
         ...,
     ] = (
+        _help_command_completions,
+        _process_command_completions,
         _tools_command_completions,
         _history_command_completions,
         _compact_command_completions,

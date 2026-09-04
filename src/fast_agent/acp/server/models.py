@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from acp.schema import SessionModeState
+
     from fast_agent.acp.acp_context import ACPContext
     from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
     from fast_agent.acp.slash_commands import SlashCommandHandler
@@ -13,7 +15,7 @@ if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.session.identity import SessionStoreScope
-    from fast_agent.session.session_manager import SessionManager
+    from fast_agent.session.session_manager import Session, SessionManager
 
 
 @dataclass
@@ -21,6 +23,19 @@ class SessionMCPServerState:
     server_name: str
     server_config: MCPServerSettings | None = None
     attached: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class SessionStateInitialization:
+    """The state returned when ACP initializes a session.
+
+    ``created`` is decided while holding the session lock, so callers can
+    safely clean up only the state they published themselves.
+    """
+
+    session_state: ACPSessionState
+    session_modes: SessionModeState
+    created: bool
 
 
 @dataclass
@@ -33,6 +48,7 @@ class ACPSessionState:
     session_store_scope: SessionStoreScope = "workspace"
     session_store_cwd: str | None = None
     session_manager: SessionManager | None = None
+    persisted_session: Session | None = None
     current_agent_name: str | None = None
     progress_manager: ACPToolProgressManager | None = None
     permission_handler: ACPToolPermissionAdapter | None = None

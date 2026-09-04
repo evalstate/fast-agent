@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import sys
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -16,6 +17,7 @@ from fast_agent.core.agent_instance_factory import (
     AgentInstanceFactory,
     CallableAgentInstanceFactory,
 )
+from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.harness_persistence import (
     CallbackHarnessSessionPersistence,
     FileHarnessSessionPersistence,
@@ -23,6 +25,7 @@ from fast_agent.core.harness_persistence import (
 )
 from fast_agent.core.live_session_registry import InMemoryLiveSessionRegistry
 from fast_agent.core.run_lifecycle import FastAgentRunLifecycle, FastAgentRunLifecycleState
+from fast_agent.core.shutdown import TUI_SHUTDOWN_TIMEOUT_SECONDS, ShutdownBudget
 from fast_agent.tools.environment_registry import environment_name
 from fast_agent.types import (
     AgentAuth,
@@ -269,6 +272,8 @@ class HarnessSession:
     async def _begin_session_operation(self, operation: str) -> None:
         async with self._manager._lock:
             self._raise_if_closed()
+            if self._manager._closing:
+                raise RuntimeError("Harness sessions are closing.")
             if self._record.active_operation is not None:
                 raise RuntimeError(
                     f"Session '{self.id}' is already running {self._record.active_operation}; "
@@ -364,11 +369,12 @@ class HarnessSessions:
             )
         )
         self._lock = self._registry.lock
+        self._closing = False
 
     async def get(self, session_id: str | None = None) -> HarnessSession:
         """Return an existing session."""
         normalized_id = _normalize_session_id(session_id)
-        record = await self._registry.get(normalized_id)
+        record = await self._registry.get(normalized_id, guard=self._raise_if_closing)
         return _session_from_record(record)
 
     async def create(
@@ -382,6 +388,7 @@ class HarnessSessions:
         record = await self._registry.create(
             normalized_id,
             context=agent_name,
+            guard=self._raise_if_closing,
         )
         return _session_from_record(record)
 
@@ -396,6 +403,7 @@ class HarnessSessions:
         record = await self._registry.get_or_create(
             normalized_id,
             context=agent_name,
+            guard=self._raise_if_closing,
         )
         return _session_from_record(record)
 
@@ -405,11 +413,18 @@ class HarnessSessions:
         record = await self._registry.delete(
             normalized_id,
             before_delete=self._raise_if_active,
+            after_dispose=self._delete_persisted_record,
         )
         if record is None:
             return
-        if self._persistence is not None:
-            await self._persistence.delete(normalized_id)
+
+    async def _delete_persisted_record(self, record: _HarnessSessionRecord) -> None:
+        if self._persistence is None:
+            return
+        deleted = await self._persistence.delete_owned(record.session_id, record.persistence_handle)
+        if not deleted:
+            raise RuntimeError(f"Persisted session '{record.session_id}' could not be deleted.")
+        record.persistence_handle = None
 
     async def _execute_shell(
         self,
@@ -432,11 +447,19 @@ class HarnessSessions:
         )
 
     async def _close_all(self) -> None:
+        async with self._lock:
+            self._closing = True
+        while any(record.active_operation is not None for record in await self._registry.records()):
+            await asyncio.sleep(0)
         await self._registry.close_all()
 
     async def close_all(self) -> None:
         """Close all live harness sessions and dispose their instances."""
         await self._close_all()
+
+    def _raise_if_closing(self) -> None:
+        if self._closing:
+            raise RuntimeError("Harness sessions are closing.")
 
     async def _create_record(
         self,
@@ -477,7 +500,10 @@ class HarnessSessions:
         from fast_agent.session.session_manager import Session
 
         if isinstance(persistence_handle, Session):
+            manager = persistence_handle.manager
             persistence_handle.delete_if_empty()
+            if manager is not None:
+                manager.release_session(persistence_handle.info.name)
 
     @staticmethod
     def _raise_if_active(record: _HarnessSessionRecord) -> None:
@@ -587,23 +613,45 @@ class AgentHarness:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
+        shutdown_budget = (
+            ShutdownBudget(TUI_SHUTDOWN_TIMEOUT_SECONDS, reason="interactive_exit")
+            if isinstance(exc, PromptExitError)
+            else None
+        )
+
         if self._sessions is not None:
-            await self._sessions._close_all()
+
+            async def close_sessions() -> None:
+                assert self._sessions is not None
+                await self._sessions._close_all()
+
+            if shutdown_budget is None:
+                await close_sessions()
+            else:
+                await shutdown_budget.run("harness.sessions", close_sessions)
             self._sessions = None
 
         if self._runtime is not None:
-            for instance in list(self._runtime.managed_instances):
-                with suppress(Exception):
-                    await self._dispose_instance(instance)
-            if (
-                self._shell_environment is not None
-                and environment_name(self._shell_environment) is not None
-            ):
-                with suppress(Exception):
-                    await self._shell_environment.close()
-            if self._local_environment is not None:
-                with suppress(Exception):
-                    await self._local_environment.close()
+
+            async def close_runtime() -> None:
+                assert self._runtime is not None
+                for instance in list(self._runtime.managed_instances):
+                    with suppress(Exception):
+                        await self._dispose_instance(instance)
+                if (
+                    self._shell_environment is not None
+                    and environment_name(self._shell_environment) is not None
+                ):
+                    with suppress(Exception):
+                        await self._shell_environment.close()
+                if self._local_environment is not None:
+                    with suppress(Exception):
+                        await self._local_environment.close()
+
+            if shutdown_budget is None:
+                await close_runtime()
+            else:
+                await shutdown_budget.run("harness.runtime", close_runtime)
             self._runtime = None
             self._shell_environment = None
             self._local_environment = None
@@ -614,6 +662,7 @@ class AgentHarness:
                 None,
                 {},
                 had_error=exc_type is not None,
+                shutdown_budget=shutdown_budget,
                 exc_type=exc_type,
                 exc=exc,
                 traceback=traceback,
@@ -621,6 +670,9 @@ class AgentHarness:
             self._lifecycle_state = None
             self._lifecycle = None
             self._settings = None
+
+        if shutdown_budget is not None:
+            shutdown_budget.complete()
 
     async def session(
         self,

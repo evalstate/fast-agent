@@ -11,6 +11,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.plugins.models import (
     PluginPostUserTurnContext,
     PluginPostUserTurnFunction,
+    PluginPostUserTurnOutput,
 )
 from fast_agent.tools.python_file_loader import (
     PythonCallableLoadMessages,
@@ -76,6 +77,7 @@ async def run_plugin_post_user_turn(
     session_usage: tuple[TurnUsage, ...],
     config: Mapping[str, Mapping[str, object]],
     display: Callable[[str], None],
+    report_session_usage: Callable[[str], None] | None = None,
 ) -> None:
     for loaded in handlers:
         ctx = PluginPostUserTurnContext(
@@ -89,12 +91,18 @@ async def run_plugin_post_user_turn(
             result = loaded.handler(ctx)
             if inspect.isawaitable(result):
                 result = await result
-            if result is not None and not isinstance(result, str):
+            if isinstance(result, PluginPostUserTurnOutput):
+                if result.display:
+                    display(result.display)
+                if result.session_usage and report_session_usage is not None:
+                    report_session_usage(result.session_usage)
+            elif result is not None and not isinstance(result, str):
                 raise AgentConfigError(
                     f"Post-user-turn plugin '{loaded.plugin_name}' returned "
-                    f"{type(result).__name__}; expected str or None"
+                    f"{type(result).__name__}; expected str, "
+                    "PluginPostUserTurnOutput, or None"
                 )
-            if result:
+            elif result:
                 display(result)
         except Exception as exc:
             logger.warning(

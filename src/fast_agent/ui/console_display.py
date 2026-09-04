@@ -402,6 +402,8 @@ class ConsoleDisplay:
             detail_parts.append("idle yield")
         elif reason == "foreground":
             detail_parts.append("foreground yield")
+        elif reason == "auto_await_cap":
+            detail_parts.append("auto-await cap")
         detail_parts.append(self._format_elapsed(elapsed_seconds))
         if os_process_id is not None:
             detail_parts.append(f"pid {os_process_id}")

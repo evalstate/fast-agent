@@ -131,6 +131,15 @@ def test_grok_catalog_entries_select_aligned_shell() -> None:
     assert grok_45.shell_tool_profile == "grok_shell"
 
 
+def test_qwen38_selects_aligned_shell() -> None:
+    params = ModelDatabase.get_model_params("Qwen/Qwen3.8-27B")
+
+    assert params is not None
+    assert params.shell_tool_profile == "grok_shell"
+    assert params.shell_edit_tool is None
+    assert resolve_shell_tool_profile("auto", params.shell_tool_profile) == "grok_shell"
+
+
 @pytest.mark.parametrize("profile", ["native", "minimal_process", "grok_shell"])
 def test_explicit_profile_overrides_grok_auto_selection(profile: ShellToolProfile) -> None:
     assert resolve_shell_tool_profile(profile, "grok_shell") == profile
@@ -147,6 +156,8 @@ def test_dedicated_grok_process_profile_is_rejected() -> None:
 async def test_grok_shell_explicit_timeout_suppresses_auto_yield() -> None:
     environment = _ManagedEnvironment()
     runtime = _runtime("grok_shell", environment)
+    metadata = runtime.metadata({"command": "build", "working_directory": "project", "timeout": 1})
+    assert metadata["timeout_seconds"] == 1
 
     task = asyncio.create_task(
         runtime.call_tool(
@@ -179,6 +190,7 @@ async def test_grok_shell_hard_timeout_uses_cross_platform_cancellation_contract
     assert result.is_error is True
     assert metadata is not None
     assert metadata["process_status"] == "timed_out"
+    assert "foreground_auto_await" not in metadata
     assert environment.cancelled is True
 
 

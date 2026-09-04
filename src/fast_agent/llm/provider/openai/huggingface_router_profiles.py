@@ -56,6 +56,7 @@ class TopLevelReasoningEffort:
     disabled_efforts: frozenset[str] = frozenset()
     effort_map: Mapping[str, str] | None = None
     toggle_disable: bool = True
+    chat_template_toggle_field: str | None = None
     cleanup_extra_body: frozenset[str] = frozenset()
 
     def apply(
@@ -66,6 +67,18 @@ class TopLevelReasoningEffort:
         spec: ReasoningEffortSpec | None,
     ) -> None:
         effective = _effective_setting(setting, spec)
+        if effective is not None and effective.kind == "toggle" and self.chat_template_toggle_field:
+            extra_body = _extra_body(arguments)
+            _set_chat_template_kwarg(
+                extra_body,
+                self.chat_template_toggle_field,
+                bool(effective.value),
+            )
+            _commit_extra_body(arguments, extra_body)
+            if effective.value is False:
+                arguments.pop("reasoning_effort", None)
+                return
+
         effort = self.default_effort
         disabled = False
         if effective is not None:
@@ -164,6 +177,31 @@ class ChatTemplateReasoningToggle:
 
 
 @dataclass(frozen=True, slots=True)
+class ChatTemplateReasoningStrength:
+    default_strength: str
+
+    def apply(
+        self,
+        arguments: dict[str, Any],
+        *,
+        setting: ReasoningEffortSetting | None,
+        spec: ReasoningEffortSpec | None,
+    ) -> None:
+        effective = _effective_setting(setting, spec)
+        strength = self.default_strength
+        if (
+            effective is not None
+            and effective.kind == "effort"
+            and isinstance(effective.value, str)
+        ):
+            strength = effective.value
+
+        extra_body = _extra_body(arguments)
+        _set_chat_template_kwarg(extra_body, "reasoning_strength", strength)
+        arguments["extra_body"] = extra_body
+
+
+@dataclass(frozen=True, slots=True)
 class GenericDisableReasoningToggle:
     def apply(
         self,
@@ -186,6 +224,8 @@ class GenericDisableReasoningToggle:
 class HuggingFaceRouteProfile:
     reasoning: HuggingFaceReasoningProfile | None = None
     structured_json_mode: Literal["schema", "object"] | None = None
+    omit_default_max_tokens: bool = False
+    prompt_context_window: int | None = None
 
 
 HUGGINGFACE_CUSTOM_ENDPOINT_BACKEND = "custom-endpoint"
@@ -194,6 +234,9 @@ _DEEPSEEK_V4_FLASH = "deepseek-ai/deepseek-v4-flash-0731"
 _GLM_52 = "zai-org/glm-5.2"
 _KIMI_K3 = "moonshotai/kimi-k3"
 _GEMMA_4 = "google/gemma-4-31b-it"
+_MUSE_GLIMMER = "meta-models/muse-glimmer-30b"
+_QWEN_38 = "qwen/qwen3.8-27b"
+_MUSE_GLIMMER_PROMPT_CONTEXT_WINDOW = 131_072 - 32_768
 
 _DEEPSEEK_REASONING = TopLevelReasoningEffort(default_effort="max")
 _KIMI_K3_REASONING = TopLevelReasoningEffort(
@@ -217,6 +260,13 @@ _GLM_52_FIREWORKS_REASONING = TopLevelReasoningEffort(
 _GEMMA_4_CEREBRAS_REASONING = TopLevelReasoningEffort(
     default_effort="none",
     cleanup_extra_body=frozenset({"chat_template_kwargs"}),
+)
+_MUSE_GLIMMER_REASONING = ChatTemplateReasoningStrength(default_strength="high")
+_QWEN_38_REASONING = TopLevelReasoningEffort(
+    default_effort="medium",
+    allowed_efforts=frozenset({"low", "medium", "xhigh"}),
+    toggle_disable=False,
+    chat_template_toggle_field="enable_thinking",
 )
 
 HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
@@ -256,6 +306,23 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
             profile=HuggingFaceRouteProfile(reasoning=_GEMMA_4_CEREBRAS_REASONING),
         ),
         RouterProfileRule(
+            model=_MUSE_GLIMMER,
+            backends=frozenset({"together"}),
+            profile=HuggingFaceRouteProfile(
+                reasoning=_MUSE_GLIMMER_REASONING,
+                omit_default_max_tokens=True,
+                # Together reserves 32,768 output tokens when max_tokens is omitted.
+                prompt_context_window=_MUSE_GLIMMER_PROMPT_CONTEXT_WINDOW,
+            ),
+        ),
+        RouterProfileRule(
+            model=_MUSE_GLIMMER,
+            profile=HuggingFaceRouteProfile(
+                omit_default_max_tokens=True,
+                prompt_context_window=_MUSE_GLIMMER_PROMPT_CONTEXT_WINDOW,
+            ),
+        ),
+        RouterProfileRule(
             model="moonshotai/kimi-k2.5",
             profile=HuggingFaceRouteProfile(reasoning=ProviderDefaultReasoningToggle("thinking")),
         ),
@@ -276,6 +343,10 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
             profile=HuggingFaceRouteProfile(
                 reasoning=ChatTemplateReasoningToggle("enable_thinking")
             ),
+        ),
+        RouterProfileRule(
+            model=_QWEN_38,
+            profile=HuggingFaceRouteProfile(reasoning=_QWEN_38_REASONING),
         ),
         RouterProfileRule(
             model=_GEMMA_4,

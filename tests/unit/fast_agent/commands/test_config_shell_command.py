@@ -8,7 +8,10 @@ from fast_agent.cli.commands.config import (
     _normalize_shell_updates,
 )
 from fast_agent.config import ShellSettings
-from fast_agent.constants import MAX_PROCESS_POLL_WAIT_SECONDS
+from fast_agent.constants import (
+    MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
+    MAX_PROCESS_POLL_WAIT_SECONDS,
+)
 from fast_agent.human_input.form_fields import FormSchema, IntegerField, StringField
 
 
@@ -38,15 +41,25 @@ def test_build_shell_form_includes_write_text_file_mode_field() -> None:
     assert "auto|on|off|apply_patch" in mode_field.description
 
 
-def test_build_shell_form_allows_default_retained_output_quota() -> None:
+@pytest.mark.parametrize(
+    ("field_name", "expected_default"),
+    [
+        ("retained_output_max_bytes", 2 * 1024 * 1024),
+        ("durable_output_max_bytes", 2 * 1024 * 1024),
+    ],
+)
+def test_build_shell_form_allows_default_retained_output_quota(
+    field_name: str,
+    expected_default: int,
+) -> None:
     current = ShellSettings()
     schema = _build_shell_form(current)
 
-    field = schema.fields["retained_output_max_bytes"]
+    field = schema.fields[field_name]
     assert isinstance(field, IntegerField)
-    assert field.default == current.retained_output_max_bytes
+    assert field.default == expected_default
     assert field.maximum is not None
-    assert field.maximum >= current.retained_output_max_bytes
+    assert field.maximum >= expected_default
 
 
 def test_build_shell_form_uses_managed_process_wait_ceiling() -> None:
@@ -57,6 +70,44 @@ def test_build_shell_form_uses_managed_process_wait_ceiling() -> None:
     assert isinstance(field, IntegerField)
     assert field.default == MAX_PROCESS_POLL_WAIT_SECONDS
     assert field.maximum == MAX_PROCESS_POLL_WAIT_SECONDS
+
+
+def test_foreground_auto_await_setting_has_bounded_zero_opt_out() -> None:
+    current = ShellSettings()
+    schema = _build_shell_form(current)
+
+    field = schema.fields["foreground_auto_await_max_seconds"]
+    assert isinstance(field, IntegerField)
+    assert field.default == 30
+    assert field.minimum == 0
+    assert field.maximum == MAX_FOREGROUND_AUTO_AWAIT_SECONDS
+
+    assert ShellSettings(foreground_auto_await_max_seconds=0).foreground_auto_await_max_seconds == 0
+    assert (
+        ShellSettings.model_validate(
+            {"foreground_auto_await_max_seconds": "4m"}
+        ).foreground_auto_await_max_seconds
+        == 240
+    )
+    assert (
+        ShellSettings(
+            foreground_auto_await_max_seconds=MAX_FOREGROUND_AUTO_AWAIT_SECONDS
+        ).foreground_auto_await_max_seconds
+        == MAX_FOREGROUND_AUTO_AWAIT_SECONDS
+    )
+    with pytest.raises(ValueError):
+        ShellSettings(foreground_auto_await_max_seconds=MAX_FOREGROUND_AUTO_AWAIT_SECONDS + 1)
+    with pytest.raises(
+        TypeError,
+        match="foreground_auto_await_max_seconds must be an integer",
+    ):
+        ShellSettings.model_validate({"foreground_auto_await_max_seconds": True})
+    for value in (-0.1, 0.9, 1.1):
+        with pytest.raises(
+            TypeError,
+            match="foreground_auto_await_max_seconds must be an integer",
+        ):
+            ShellSettings.model_validate({"foreground_auto_await_max_seconds": value})
 
 
 def test_shell_settings_rejects_managed_process_wait_above_ceiling() -> None:
@@ -116,6 +167,18 @@ def test_normalize_shell_updates_rejects_boolean_timeout_values() -> None:
     assert "warning_interval_seconds" not in updates
 
 
+def test_normalize_shell_updates_preserves_foreground_auto_await_opt_out() -> None:
+    updates = _normalize_shell_updates(
+        {
+            "output_display_lines": -1,
+            "output_byte_limit": 0,
+            "foreground_auto_await_max_seconds": 0,
+        }
+    )
+
+    assert updates["foreground_auto_await_max_seconds"] == 0
+
+
 def test_normalize_shell_updates_persists_filesystem_toggles() -> None:
     updates = _normalize_shell_updates(
         {
@@ -138,12 +201,14 @@ def test_normalize_shell_updates_persists_retained_output_settings() -> None:
             "output_byte_limit": 0,
             "retain_truncated_output": False,
             "retained_output_max_bytes": 4 * 1024 * 1024,
+            "durable_output_max_bytes": 8 * 1024 * 1024,
             "prefer_local_shell": True,
         }
     )
 
     assert updates["retain_truncated_output"] is False
     assert updates["retained_output_max_bytes"] == 4 * 1024 * 1024
+    assert updates["durable_output_max_bytes"] == 8 * 1024 * 1024
     assert updates["prefer_local_shell"] is True
 
 

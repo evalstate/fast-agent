@@ -10,7 +10,7 @@ social:
 # Z.ai
 
 Use the `zai` provider for Z.ai's native OpenAI-compatible Chat Completions API.
-The initial native model is GLM-5.2.
+The native catalog includes GLM-5.3, GLM-5.3-Flash, and GLM-5.2.
 
 ## Configure
 
@@ -38,57 +38,121 @@ zai:
   #   X-Custom-Header: value
 ```
 
-## Use GLM-5.2
+The default endpoint is Z.ai's standard API. GLM Coding Plan users can select
+its Chat Completions endpoint without changing providers:
 
-These model strings all select the native provider:
-
-```bash
-fast-agent --model zaiglm
-fast-agent --model glm-5.2
-fast-agent --model zai.glm-5.2
+```yaml
+zai:
+  api_key: "${ZAI_API_KEY}"
+  base_url: "https://api.z.ai/api/coding/paas/v4/"
 ```
 
-`zaiglm` is the explicit native-provider preset. The older `glm` and `glm52`
-presets continue to route through Hugging Face for compatibility:
+## Models
+
+| Model | Native alias | Input | Context | Maximum output |
+|---|---|---|---:|---:|
+| GLM-5.3 | `zaiglm53` | Text | 1,000,000 | 131,072 |
+| GLM-5.3-Flash | `zaiglm53flash` | Text, image, linked MOV/PDF | 1,000,000 | 131,072 |
+| GLM-5.2 | `zaiglm` | Text | 1,000,000 | 131,072 |
+
+Use either an alias, bare canonical model ID, or provider-qualified ID:
+
+```bash
+fast-agent go --model zaiglm53 --message "Review this code."
+fast-agent go --model glm-5.3 --message "Review this code."
+fast-agent go --model zai.glm-5.3 --message "Review this code."
+
+fast-agent go --model zaiglm53flash --message "Describe the attached image."
+fast-agent go --model glm-5.3-flash --message "Describe the attached image."
+fast-agent go --model zai.glm-5.3-flash --message "Describe the attached image."
+```
+
+For compatibility, the provider default and `zaiglm` alias remain GLM-5.2.
+The older `glm` and `glm52` aliases also retain their Hugging Face routes:
 
 ```text
-zaiglm  -> zai.glm-5.2
-glm     -> hf.zai-org/GLM-5.2:zai-org
-glm52   -> hf.zai-org/GLM-5.2:zai-org
+zaiglm53       -> zai.glm-5.3
+zaiglm53flash  -> zai.glm-5.3-flash
+zaiglm         -> zai.glm-5.2
+glm            -> hf.zai-org/GLM-5.2:zai-org
+glm52          -> hf.zai-org/GLM-5.2:zai-org
 ```
 
-## GLM-5.2 capabilities
+## GLM-5.3
 
-fast-agent configures GLM-5.2 with:
+GLM-5.3 is text-only. It supports streaming, function calling, context
+caching, separate `reasoning_content`, and JSON object structured output.
 
-- 1,000,000 input tokens;
-- up to 131,072 output tokens;
-- text input and text output;
-- streaming messages;
-- separate `reasoning_content` streaming;
-- function calling and streamed chat-completion tool calls;
-- JSON object structured output.
-
-The Z.ai Chat Completions endpoint also serves multimodal GLM models, but the
-official GLM-5.2 model guide identifies GLM-5.2 itself as text-only. Image,
-audio, video, and file attachment tests therefore belong to compatible vision
-models such as GLM-5V, not this model profile.
-
-## Reasoning
-
-Reasoning defaults to `max`. Select an effort in the model string:
+Reasoning is always enabled. Select one of the three documented efforts:
 
 ```bash
-fast-agent --model "zaiglm?reasoning=minimal"
-fast-agent --model "zaiglm?reasoning=medium"
-fast-agent --model "zaiglm?reasoning=high"
-fast-agent --model "zaiglm?reasoning=max"
-fast-agent --model "zaiglm?reasoning=none"
+fast-agent go --model "zaiglm53?reasoning=low" --message "Solve this."
+fast-agent go --model "zaiglm53?reasoning=high" --message "Solve this."
+fast-agent go --model "zaiglm53?reasoning=max" --message "Solve this."
 ```
 
-Supported values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and
-`max`. `none` sends disabled thinking; enabled reasoning is returned separately
-from visible assistant content in `reasoning_content`.
+`max` is the default. GLM-5.3 rejects disabled thinking and unsupported effort
+values such as `none` and `medium`.
+
+### Sampling
+
+Z.ai defaults GLM-5.3 sampling to `temperature=1.0` and `top_p=0.95`.
+fast-agent leaves both fields unset unless requested, allowing the provider
+defaults to apply. Z.ai recommends tuning only one sampling control at a time:
+
+```bash
+fast-agent go --model "zaiglm53?temperature=0.8" --message "Write an introduction."
+fast-agent go --model "zaiglm53?top_p=0.8" --message "Write stable technical documentation."
+```
+
+The same sampling defaults and recommendation apply to GLM-5.3-Flash.
+
+## GLM-5.3-Flash
+
+GLM-5.3-Flash uses the same forced-reasoning contract and adds native
+multimodal input. fast-agent supports the model guide's JPEG and PNG inputs as
+remote URLs or Base64 data URLs, including multiple images:
+
+```bash
+fast-agent go --model zaiglm53flash
+```
+
+Then attach the images in the interactive prompt:
+
+```text
+/attach https://example.test/first.png
+/attach https://example.test/second.jpg
+Compare these screenshots.
+```
+
+Z.ai limits images to JPG/JPEG/PNG, less than 5 MB each, and at most
+6000×6000 pixels. WebP and GIF are not advertised for this profile.
+
+The current Chat Completions API also accepts `video_url` and `file_url`
+content blocks for GLM-5.3-Flash. On August 26, 2026, fast-agent onboarding
+verified remote MOV (`video/quicktime`) and PDF links through the standard
+endpoint. These are therefore available as linked attachments. Embedded/Base64
+video and document input, other video formats, and Office document input are
+not advertised without an equally specific contract.
+
+## Reasoning and tool continuations
+
+Both GLM-5.3 models use preserved thinking:
+
+```json
+{
+  "thinking": {
+    "type": "enabled",
+    "clear_thinking": false
+  },
+  "reasoning_effort": "max"
+}
+```
+
+fast-agent keeps hidden reasoning separate from visible assistant content. For
+later turns—including tool-result continuations—it returns the complete
+assistant `reasoning_content` unchanged and in its original order, as required
+by Z.ai.
 
 ### Streaming channel normalization
 
@@ -105,24 +169,32 @@ same-chunk reasoning, content, and tool deltas. fast-agent does not merge hidden
 reasoning into visible assistant text or assume that the provider must finish
 all reasoning before emitting another delta type.
 
-
+For streamed requests containing tools, fast-agent sends `tool_stream: true`.
+The non-streaming fallback removes only that streaming extension.
 
 ## Structured output
 
-GLM-5.2 uses Z.ai's JSON object mode plus schema instructions and fast-agent
-validation:
+All three native profiles use Z.ai's JSON object mode plus schema instructions
+and fast-agent validation:
 
 ```bash
-fast-agent go --model zaiglm \
+fast-agent go --model zaiglm53 \
   --json-schema ./result.schema.json \
   --message "Return the requested result."
 ```
 
-This provider does not advertise strict OpenAI `json_schema` semantics for
-GLM-5.2.
+This is not strict OpenAI `json_schema` mode.
+
+## GLM-5.2 compatibility
+
+GLM-5.2 retains its existing reasoning controls: `none`, `minimal`, `low`,
+`medium`, `high`, `xhigh`, and `max`. Unlike the 5.3 models, `none` disables
+thinking. GLM-5.2 remains text-only through the native profile.
 
 ## Official documentation
 
+- [GLM-5.3](https://docs.z.ai/guides/llm/glm-5.3)
+- [GLM-5.3-Flash](https://docs.z.ai/guides/vlm/glm-5.3-flash)
 - [GLM-5.2](https://docs.z.ai/guides/llm/glm-5.2)
 - [Chat Completion API](https://docs.z.ai/api-reference/llm/chat-completion)
 - [Thinking Mode](https://docs.z.ai/guides/capabilities/thinking-mode)

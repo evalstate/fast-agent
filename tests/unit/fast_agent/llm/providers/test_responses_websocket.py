@@ -4,11 +4,15 @@ import asyncio
 import json
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pytest
 from aiohttp import WSMsgType
 from mcp_types import CallToolResult, TextContent
+from openai.types.beta.beta_responses_server_event import (
+    BetaResponseWsError,
+    BetaResponseWsErrorError,
+)
 from websockets.exceptions import ConnectionClosedError
 from websockets.frames import Close
 
@@ -18,10 +22,15 @@ from fast_agent.constants import (
     FAST_AGENT_SAFETY_DETAILS,
 )
 from fast_agent.core.exceptions import ProviderSafetyBufferingError
-from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
+from fast_agent.llm.provider.openai.codex_responses import (
+    CODEX_RESPONSES_LITE_HEADER,
+    CODEX_ROUTING_HINT_HEADER,
+    CodexResponsesLLM,
+)
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_websocket import (
     RESPONSES_CREATE_EVENT_TYPE,
+    RESPONSES_WEBSOCKET_CLOSE_TIMEOUT_SECONDS,
     ManagedWebSocketConnection,
     PlannedWsRequest,
     ResponsesWebSocketError,
@@ -31,9 +40,13 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     WebSocketResponsesStream,
     _AttrObjectView,
     _SdkWebSocket,
+    _websocket_handshake_error_detail,
     build_ws_headers,
+    connect_websocket,
+    merge_headers_case_insensitive,
     resolve_responses_ws_url,
     send_response_request,
+    websocket_reuse_key,
 )
 from fast_agent.llm.provider.openai.streaming_utils import (
     validate_incomplete_tool_entries,
@@ -105,6 +118,95 @@ class _HangingWebSocket(_FakeWebSocket):
         raise AssertionError("unreachable")
 
 
+def test_websocket_handshake_error_detail_is_bounded() -> None:
+    detail = _websocket_handshake_error_detail(
+        json.dumps({"message": "Access denied\n" + "x" * 1200}).encode()
+    )
+
+    assert detail.startswith("Access denied ")
+    assert detail.endswith("…")
+    assert len(detail) == 1000
+
+
+def test_websocket_handshake_error_detail_does_not_render_unrecognized_json() -> None:
+    detail = _websocket_handshake_error_detail(
+        b'{"access_token":"secret-access","refresh_token":"secret-refresh"}'
+    )
+
+    assert detail == ""
+
+
+def test_websocket_handshake_error_detail_does_not_render_malformed_json() -> None:
+    detail = _websocket_handshake_error_detail(b'{"access_token":"secret-access",')
+
+    assert detail == ""
+
+
+def test_websocket_handshake_error_detail_handles_pathologically_nested_json() -> None:
+    detail = _websocket_handshake_error_detail(b"[" * 2000 + b"0" + b"]" * 2000)
+
+    assert detail == ""
+
+
+def test_websocket_handshake_error_detail_ignores_whitespace_only_fields() -> None:
+    detail = _websocket_handshake_error_detail(
+        json.dumps({"error": " \n\t", "message": "Denied"}).encode()
+    )
+
+    assert detail == "Denied"
+
+
+@pytest.mark.asyncio
+async def test_connect_websocket_bounds_close_handshake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_options: dict[str, object] = {}
+
+    class _Connection:
+        async def recv_bytes(self) -> bytes:
+            return b""
+
+        async def send_raw(self, data: bytes | str) -> None:
+            del data
+
+        async def close(self, *, code: int = 1000, reason: str = "") -> None:
+            del code, reason
+
+    class _Manager:
+        async def enter(self) -> _Connection:
+            return _Connection()
+
+        async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+            del exc_type, exc, tb
+
+    class _Responses:
+        def connect(self, **kwargs: Any) -> _Manager:
+            captured_options.update(kwargs["websocket_connection_options"])
+            return _Manager()
+
+    class _Client:
+        def __init__(self, **kwargs: Any) -> None:
+            del kwargs
+            self.responses = _Responses()
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.openai.responses_websocket.AsyncOpenAI",
+        _Client,
+    )
+
+    connection = await connect_websocket(
+        url="wss://example.test/v1/responses",
+        headers={"Authorization": "Bearer test"},
+    )
+    await connection.session.close()
+
+    assert captured_options["close_timeout"] == RESPONSES_WEBSOCKET_CLOSE_TIMEOUT_SECONDS
+
+
 class _FakeResponsesClient:
     async def __aenter__(self) -> _FakeResponsesClient:
         return self
@@ -118,8 +220,13 @@ class _ReleaseTrackingConnectionManager:
         self.connection = connection
         self.release_keep_values: list[bool] = []
 
-    async def acquire(self, create_connection: Any) -> tuple[ManagedWebSocketConnection, bool]:
-        del create_connection
+    async def acquire(
+        self,
+        create_connection: Any,
+        *,
+        reuse_key: str | None = None,
+    ) -> tuple[ManagedWebSocketConnection, bool]:
+        del create_connection, reuse_key
         self.connection.busy = True
         return self.connection, True
 
@@ -141,7 +248,13 @@ class _SequenceConnectionManager:
         self.acquire_calls = 0
         self.release_keep_values: list[bool] = []
 
-    async def acquire(self, create_connection: Any) -> tuple[ManagedWebSocketConnection, bool]:
+    async def acquire(
+        self,
+        create_connection: Any,
+        *,
+        reuse_key: str | None = None,
+    ) -> tuple[ManagedWebSocketConnection, bool]:
+        del reuse_key
         self.acquire_calls += 1
         if self._connections:
             connection = self._connections.pop(0)
@@ -580,6 +693,21 @@ def test_continuation_planner_signature_change_forces_create() -> None:
     assert "previous_response_id" not in planned.arguments
 
 
+def test_continuation_planner_service_tier_change_forces_create() -> None:
+    planner = StatefulContinuationResponsesWsPlanner()
+    baseline = _build_ws_arguments([_build_input_message("one")])
+    planner.commit(baseline, planner.plan(baseline), {"id": "resp_1"})
+
+    priority = _build_ws_arguments(
+        [_build_input_message("one"), _build_input_message("two")],
+    )
+    priority["service_tier"] = "priority"
+    planned = planner.plan(priority)
+
+    assert planned.event_type == RESPONSES_CREATE_EVENT_TYPE
+    assert "previous_response_id" not in planned.arguments
+
+
 def test_continuation_planner_missing_response_id_forces_fresh_create() -> None:
     planner = StatefulContinuationResponsesWsPlanner()
     baseline = _build_ws_arguments([_build_input_message("one")])
@@ -681,6 +809,53 @@ def test_build_ws_headers() -> None:
     assert headers["OpenAI-Beta"] == "responses_websockets=2026-02-06"
     assert headers["originator"] == "fast-agent"
     assert headers["chatgpt-account-id"] == "acct_abc"
+
+
+@pytest.mark.parametrize("header_name", ["Authorization", "authorization"])
+def test_build_ws_headers_preserves_configured_authorization(header_name: str) -> None:
+    headers = build_ws_headers(
+        api_key="api-key",
+        default_headers={header_name: "Bearer proxy-token"},
+    )
+
+    assert headers[header_name] == "Bearer proxy-token"
+    assert sum(name.casefold() == "authorization" for name in headers) == 1
+
+
+def test_websocket_reuse_key_normalizes_header_names() -> None:
+    first = websocket_reuse_key(
+        "wss://example.test/responses",
+        {"Authorization": "Bearer token", "X-Codex-Routing-Hint": "model=gpt-test"},
+    )
+    second = websocket_reuse_key(
+        "wss://example.test/responses",
+        {"authorization": "Bearer token", "x-codex-routing-hint": "model=gpt-test"},
+    )
+
+    assert first == second
+    assert first != websocket_reuse_key(
+        "wss://example.test/responses",
+        {"authorization": "Bearer new-token", "x-codex-routing-hint": "model=gpt-test"},
+    )
+    assert first != websocket_reuse_key(
+        "wss://example.test/responses",
+        {
+            "authorization": "Bearer token",
+            "x-codex-routing-hint": "model=gpt-test;tier=priority",
+        },
+    )
+
+
+def test_merge_headers_replaces_names_case_insensitively() -> None:
+    headers = merge_headers_case_insensitive(
+        {"Authorization": "Bearer old", "X-Codex-Routing-Hint": "stale"},
+        {"authorization": "Bearer new", "x-codex-routing-hint": "model=gpt-test"},
+    )
+
+    assert headers == {
+        "authorization": "Bearer new",
+        "x-codex-routing-hint": "model=gpt-test",
+    }
 
 
 @pytest.mark.asyncio
@@ -904,21 +1079,26 @@ async def test_websocket_stream_close_reports_received_and_sent_frames() -> None
 
 @pytest.mark.asyncio
 async def test_websocket_stream_error_payload_exposes_error_details() -> None:
+    error_event = BetaResponseWsError(
+        type="error",
+        status=400,
+        stream_id="stream_abc",
+        error=BetaResponseWsErrorError(
+            type="invalid_request_error",
+            code=" previous_response_not_found ",
+            message=" Previous response with id 'resp_abc' not found. ",
+            param=" previous_response_id ",
+            headers={
+                "request-id": "req_abc",
+                "x-ratelimit-remaining-requests": "99",
+            },
+        ),
+    )
     websocket = _FakeWebSocket(
         [
             SimpleNamespace(
                 type=WSMsgType.TEXT,
-                data=json.dumps(
-                    {
-                        "type": "error",
-                        "status": 400,
-                        "error": {
-                            "code": " previous_response_not_found ",
-                            "message": " Previous response with id 'resp_abc' not found. ",
-                            "param": " previous_response_id ",
-                        },
-                    }
-                ),
+                data=error_event.model_dump_json(),
             )
         ]
     )
@@ -931,6 +1111,11 @@ async def test_websocket_stream_error_payload_exposes_error_details() -> None:
     assert excinfo.value.error_code == "previous_response_not_found"
     assert excinfo.value.status == 400
     assert excinfo.value.error_param == "previous_response_id"
+    assert excinfo.value.headers == {
+        "request-id": "req_abc",
+        "x-ratelimit-remaining-requests": "99",
+    }
+    assert excinfo.value.stream_id == "stream_abc"
 
 
 @pytest.mark.asyncio
@@ -1000,14 +1185,65 @@ class _ConnectionFactory:
 async def test_websocket_connection_manager_reuses_idle_socket() -> None:
     manager = WebSocketConnectionManager(idle_timeout_seconds=60.0)
     factory = _ConnectionFactory(created=[])
+    reuse_key = websocket_reuse_key(
+        "wss://example.test/responses",
+        {"x-codex-routing-hint": "model=gpt-test"},
+    )
 
-    first, first_reusable = await manager.acquire(factory)
+    first, first_reusable = await manager.acquire(factory, reuse_key=reuse_key)
     assert first_reusable
     await manager.release(first, reusable=first_reusable, keep=True)
 
-    second, second_reusable = await manager.acquire(factory)
+    second, second_reusable = await manager.acquire(factory, reuse_key=reuse_key)
     assert second_reusable
     assert second is first
+
+
+@pytest.mark.asyncio
+async def test_websocket_connection_manager_replaces_socket_when_routing_changes() -> None:
+    manager = WebSocketConnectionManager(idle_timeout_seconds=60.0)
+    factory = _ConnectionFactory(created=[])
+    standard_key = websocket_reuse_key(
+        "wss://example.test/responses",
+        {"x-codex-routing-hint": "model=gpt-test"},
+    )
+    priority_key = websocket_reuse_key(
+        "wss://example.test/responses",
+        {"x-codex-routing-hint": "model=gpt-test;tier=priority"},
+    )
+
+    first, first_reusable = await manager.acquire(factory, reuse_key=standard_key)
+    await manager.release(first, reusable=first_reusable, keep=True)
+    replacement, replacement_reusable = await manager.acquire(
+        factory,
+        reuse_key=priority_key,
+    )
+
+    assert replacement_reusable
+    assert replacement is not first
+    assert first.websocket.closed
+    assert first.session.closed
+
+
+@pytest.mark.asyncio
+async def test_websocket_connection_manager_replaces_socket_when_url_changes() -> None:
+    manager = WebSocketConnectionManager(idle_timeout_seconds=60.0)
+    factory = _ConnectionFactory(created=[])
+    headers = {"x-codex-routing-hint": "model=gpt-test"}
+    first_key = websocket_reuse_key("wss://first.example/responses", headers)
+    second_key = websocket_reuse_key("wss://second.example/responses", headers)
+
+    first, first_reusable = await manager.acquire(factory, reuse_key=first_key)
+    await manager.release(first, reusable=first_reusable, keep=True)
+    replacement, replacement_reusable = await manager.acquire(
+        factory,
+        reuse_key=second_key,
+    )
+
+    assert replacement_reusable
+    assert replacement is not first
+    assert first.websocket.closed
+    assert first.session.closed
 
 
 @pytest.mark.asyncio
@@ -1355,6 +1591,24 @@ class _ContinuationConnectionLifecycleHarness(CodexResponsesLLM):
         return response, []
 
 
+class _CodexRoutingContextHarness(_ContinuationConnectionLifecycleHarness):
+    def _build_response_args(
+        self,
+        input_items: list[dict[str, Any]],
+        request_params: RequestParams,
+        tools: list[Tool] | None,
+    ) -> dict[str, Any]:
+        return CodexResponsesLLM._build_response_args(
+            self,
+            input_items,
+            request_params,
+            tools,
+        )
+
+    def _build_websocket_headers(self) -> dict[str, str]:
+        return {"Authorization": "Bearer token"}
+
+
 class _TimeoutContinuationConnectionLifecycleHarness(_ContinuationConnectionLifecycleHarness):
     def __init__(self) -> None:
         super().__init__()
@@ -1378,8 +1632,13 @@ class _PlannedAcquireConnectionManager:
         self._planned_connections = planned_connections
         self.release_keep_values: list[bool] = []
 
-    async def acquire(self, create_connection: Any) -> tuple[ManagedWebSocketConnection, bool]:
-        del create_connection
+    async def acquire(
+        self,
+        create_connection: Any,
+        *,
+        reuse_key: str | None = None,
+    ) -> tuple[ManagedWebSocketConnection, bool]:
+        del create_connection, reuse_key
         if not self._planned_connections:
             raise AssertionError("no planned connections left")
         connection, reusable = self._planned_connections.pop(0)
@@ -1422,6 +1681,36 @@ def test_responses_llm_uses_continuation_ws_planner() -> None:
     llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
     planner = llm._new_ws_request_planner()
     assert isinstance(planner, StatefulContinuationResponsesWsPlanner)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model", "service_tier", "expected_hint", "uses_lite"),
+    [
+        ("gpt-5.3-codex", None, "model=gpt-5.3-codex", False),
+        ("gpt-5.3-codex", "fast", "model=gpt-5.3-codex;tier=priority", False),
+        ("gpt-5.6-luna", "fast", "model=gpt-5.6-luna;tier=priority", True),
+    ],
+)
+async def test_codex_websocket_context_includes_per_request_routing_headers(
+    model: str,
+    service_tier: Literal["fast"] | None,
+    expected_hint: str,
+    uses_lite: bool,
+) -> None:
+    harness = _CodexRoutingContextHarness()
+
+    context = await harness._responses_ws_context(
+        input_items=_ws_input_items("hello"),
+        request_params=RequestParams(model=model, service_tier=service_tier),
+        tools=None,
+        model_name=model,
+    )
+
+    assert context.ws_headers["Authorization"] == "Bearer token"
+    assert context.ws_headers[CODEX_ROUTING_HINT_HEADER] == expected_hint
+    assert (context.ws_headers.get(CODEX_RESPONSES_LITE_HEADER) == "true") is uses_lite
+    assert ("service_tier" in context.arguments) is (service_tier == "fast")
 
 
 @pytest.mark.asyncio

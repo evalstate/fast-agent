@@ -15,6 +15,7 @@ from fast_agent.auth.credentials import (
 )
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.ui import console
+from fast_agent.utils.text import collapse_whitespace
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -28,6 +29,8 @@ XAI_DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 REFRESH_SKEW_SECONDS = 300
 DEFAULT_TOKEN_LIFETIME_SECONDS = 3600
 DEFAULT_POLL_INTERVAL_SECONDS = 5
+MAX_OAUTH_ERROR_DETAIL_LENGTH = 1000
+MAX_OAUTH_ERROR_BODY_BYTES = 16 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,27 +46,59 @@ class _InvalidGrantError(ProviderKeyError):
     pass
 
 
-def _oauth_error(action: str, response: httpx.Response) -> ProviderKeyError:
+def _oauth_error_payload(response: httpx.Response) -> dict[str, Any] | None:
+    if len(response.content) > MAX_OAUTH_ERROR_BODY_BYTES:
+        return None
     try:
         payload = response.json()
-    except ValueError:
-        payload = {}
-    error = payload.get("error") if isinstance(payload, dict) else None
-    description = payload.get("error_description") if isinstance(payload, dict) else None
-    detail = ": ".join(value for value in (error, description) if isinstance(value, str))
+    except (ValueError, RecursionError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _oauth_error_detail(payload: dict[str, Any] | None) -> str:
+    values: list[str] = []
+    if payload is not None:
+        error = payload.get("error")
+        if isinstance(error, str):
+            values.append(error)
+        elif isinstance(error, dict):
+            values.extend(
+                value
+                for key in ("code", "message", "detail")
+                if isinstance(value := error.get(key), str)
+            )
+        values.extend(
+            value
+            for key in ("error_description", "message", "detail")
+            if isinstance(value := payload.get(key), str)
+        )
+
+    normalized_values = (
+        collapse_whitespace(value[:MAX_OAUTH_ERROR_DETAIL_LENGTH]) for value in values
+    )
+    detail = ": ".join(dict.fromkeys(value for value in normalized_values if value))
+    if len(detail) > MAX_OAUTH_ERROR_DETAIL_LENGTH:
+        return f"{detail[: MAX_OAUTH_ERROR_DETAIL_LENGTH - 1]}…"
+    return detail
+
+
+def _oauth_error(
+    action: str,
+    response: httpx.Response,
+    payload: dict[str, Any] | None,
+) -> ProviderKeyError:
+    detail = _oauth_error_detail(payload)
     suffix = f": {detail}" if detail else ""
+    punctuation = "" if detail.endswith((".", "!", "?")) else "."
     return ProviderKeyError(
         f"xAI OAuth {action} failed",
-        f"The xAI OAuth server returned HTTP {response.status_code}{suffix}.",
+        f"The xAI OAuth server returned HTTP {response.status_code}{suffix}{punctuation}",
     )
 
 
-def _oauth_error_code(response: httpx.Response) -> str | None:
-    try:
-        payload = response.json()
-    except ValueError:
-        return None
-    error = payload.get("error") if isinstance(payload, dict) else None
+def _oauth_error_code(payload: dict[str, Any] | None) -> str | None:
+    error = payload.get("error") if payload is not None else None
     return error if isinstance(error, str) else None
 
 
@@ -117,7 +152,11 @@ def request_xai_device_code(client: httpx.Client) -> XaiDeviceCode:
         data={"client_id": XAI_CLIENT_ID, "scope": XAI_SCOPE, "referrer": "fast-agent"},
     )
     if not response.is_success:
-        raise _oauth_error("device authorization", response)
+        raise _oauth_error(
+            "device authorization",
+            response,
+            _oauth_error_payload(response),
+        )
     payload = response.json()
     if not isinstance(payload, dict):
         raise ProviderKeyError("Invalid xAI OAuth response", "Expected a JSON object.")
@@ -160,11 +199,10 @@ def poll_xai_device_code(
             if not isinstance(payload, dict):
                 raise ProviderKeyError("Invalid xAI OAuth response", "Expected a JSON object.")
             return _credential_from_payload(payload)
-        try:
-            payload = response.json()
-        except ValueError:
-            raise _oauth_error("device token polling", response) from None
-        error = payload.get("error") if isinstance(payload, dict) else None
+        payload = _oauth_error_payload(response)
+        if payload is None:
+            raise _oauth_error("device token polling", response, payload)
+        error = _oauth_error_code(payload)
         if error == "authorization_pending":
             continue
         if error == "slow_down":
@@ -177,7 +215,7 @@ def poll_xai_device_code(
             )
         if error == "expired_token":
             break
-        raise _oauth_error("device token polling", response)
+        raise _oauth_error("device token polling", response, payload)
     raise ProviderKeyError("xAI OAuth login expired", "The xAI device code expired.")
 
 
@@ -203,8 +241,9 @@ def refresh_xai_credential(
             },
         )
         if not response.is_success:
-            error = _oauth_error("token refresh", response)
-            if _oauth_error_code(response) == "invalid_grant":
+            payload = _oauth_error_payload(response)
+            error = _oauth_error("token refresh", response, payload)
+            if _oauth_error_code(payload) == "invalid_grant":
                 raise _InvalidGrantError(error.message, error.details)
             raise error
         payload = response.json()

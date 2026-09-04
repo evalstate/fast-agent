@@ -15,6 +15,7 @@ from fast_agent.history.compaction import (
     MID_TURN_RECENT_TOOL_EXCHANGES,
     CompactionSkipped,
     compact_conversation,
+    estimate_tokens,
     should_auto_compact,
 )
 from fast_agent.hooks.hook_messages import show_hook_failure, show_hook_message
@@ -44,6 +45,20 @@ def _effective_use_history(ctx: "HookContext") -> bool:
     return ctx.agent.config.use_history
 
 
+def _projected_context_tokens(ctx: "HookContext", *, mid_turn: bool) -> int | None:
+    usage = ctx.usage
+    current = usage.current_context_tokens if usage else None
+    if not mid_turn or current is None or not ctx.delta_messages:
+        return current
+    return current + estimate_tokens(ctx.delta_messages)
+
+
+def _pending_context_tokens(ctx: "HookContext", *, mid_turn: bool) -> int:
+    if not mid_turn or not ctx.delta_messages:
+        return 0
+    return estimate_tokens(ctx.delta_messages)
+
+
 async def auto_compact_history(ctx: "HookContext") -> None:
     """Compact history after the turn when context usage crossed the threshold."""
     if not ctx.is_turn_complete:
@@ -69,11 +84,21 @@ async def _auto_compact_history(ctx: "HookContext", *, mid_turn: bool) -> None:
     if not _effective_use_history(ctx):
         return
 
-    if not should_auto_compact(ctx.usage, settings):
+    projected_context_tokens = _projected_context_tokens(ctx, mid_turn=mid_turn)
+    if not should_auto_compact(
+        ctx.usage,
+        settings,
+        projected_context_tokens=projected_context_tokens,
+    ):
         return
 
     usage = ctx.usage
-    percent = usage.context_usage_percentage if usage else None
+    window = usage.context_window_size if usage else None
+    percent = (
+        (projected_context_tokens / window) * 100
+        if projected_context_tokens is not None and window is not None and window > 0
+        else None
+    )
     suffix = " mid-turn" if mid_turn else ""
     show_hook_message(
         ctx,
@@ -89,6 +114,7 @@ async def _auto_compact_history(ctx: "HookContext", *, mid_turn: bool) -> None:
             cast("CompactableAgent", ctx.agent),
             settings=settings,
             recent_tool_exchanges=MID_TURN_RECENT_TOOL_EXCHANGES if mid_turn else None,
+            pending_context_tokens=_pending_context_tokens(ctx, mid_turn=mid_turn),
         )
     except CompactionSkipped as exc:
         logger.info("Auto-compaction skipped", data={"reason": str(exc)})

@@ -445,6 +445,21 @@ def test_synthetic_usage_is_character_telemetry_not_turn_usage() -> None:
         TurnUsage.model_validate(usage.model_dump())
 
 
+def test_google_generate_content_usage_tracks_flex_traffic_type() -> None:
+    usage = GenerateContentResponseUsageMetadata(
+        prompt_token_count=10,
+        candidates_token_count=4,
+        total_token_count=14,
+        traffic_type="ON_DEMAND_FLEX",
+    )
+
+    turn = usage_from_google_generate_content(usage, model="gemini-3.7-flash")
+
+    assert turn.service_tier == "flex"
+    assert isinstance(turn.raw_usage, dict)
+    assert turn.raw_usage["traffic_type"] == "ON_DEMAND_FLEX"
+
+
 def test_sanitized_live_usage_replay_matches_provider_contracts() -> None:
     fixture_path = (
         Path(__file__).resolve().parents[3]

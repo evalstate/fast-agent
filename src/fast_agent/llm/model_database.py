@@ -100,6 +100,9 @@ class ModelParameters(BaseModel):
     response_service_tiers: tuple[Literal["fast", "flex"], ...] | None = None
     """Supported service_tier values for Responses APIs, if explicitly defined."""
 
+    google_service_tiers: tuple[Literal["flex"], ...] = ()
+    """Supported service_tier values for the native Google API."""
+
     codex_responses_lite: bool = False
     """Whether Codex uses the internal Responses Lite request contract."""
 
@@ -240,6 +243,14 @@ class ModelDatabase:
         "video/webm",
     ]
     QWEN_MULTIMODAL: ClassVar[list[str]] = ["text/plain", "image/jpeg", "image/png", "image/webp"]
+    QWEN38_MULTIMODAL: ClassVar[list[str]] = [*QWEN_MULTIMODAL, "video/mp4"]
+    ZAI_GLM_53_FLASH_MULTIMODAL: ClassVar[list[str]] = [
+        "text/plain",
+        "image/jpeg",
+        "image/png",
+        "application/pdf",
+        "video/quicktime",
+    ]
     XAI_VISION: ClassVar[list[str]] = ["text/plain", "image/jpeg", "image/png"]
     TEXT_ONLY: ClassVar[list[str]] = ["text/plain"]
     # encourage commentary
@@ -297,6 +308,13 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value="medium"),
     )
 
+    QWEN38_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "xhigh"],
+        allow_toggle_disable=True,
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
     OPENAI_TEXT_VERBOSITY_SPEC = TextVerbositySpec()
 
     GLM_REASONING_TOGGLE_SPEC = ReasoningEffortSpec(
@@ -308,6 +326,12 @@ class ModelDatabase:
         kind="effort",
         allowed_efforts=["none", "minimal", "low", "medium", "high", "xhigh", "max"],
         allow_toggle_disable=True,
+        default=ReasoningEffortSetting(kind="effort", value="max"),
+    )
+
+    GLM_53_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "high", "max"],
         default=ReasoningEffortSetting(kind="effort", value="max"),
     )
 
@@ -388,9 +412,21 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value="medium"),
     )
 
+    GOOGLE_FLASH_37_THINKING_LEVEL_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
     XAI_GROK_43_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="high"),
+    )
+
+    XAI_GROK_46_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh"],
         default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
@@ -399,6 +435,12 @@ class ModelDatabase:
         kind="effort",
         allowed_efforts=["minimal", "low", "medium", "high", "xhigh"],
         default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    MUSE_GLIMMER_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
     ANTHROPIC_WEB_SEARCH_LEGACY = "web_search_20250305"
@@ -728,6 +770,7 @@ class ModelDatabase:
         reasoning="openai",
         reasoning_effort_spec=DEEPSEEK_REASONING_EFFORT_SPEC,
         default_provider=Provider.DEEPSEEK,
+        managed_process_poll_folding=True,
         # Matched full-precision probe data favored the combined writer/editor
         # contract over edit-only while reducing token usage.
         model_specific=MODEL_PREFERS_WRITER_EDITOR,
@@ -739,6 +782,10 @@ class ModelDatabase:
             "reasoning": "reasoning_content",
             "default_provider": Provider.HUGGINGFACE,
         }
+    )
+    DEEPSEEK_V4_PRO = DEEPSEEK_V4_FLASH
+    DEEPSEEK_V4_FLASH_VISION = DEEPSEEK_V4_FLASH.model_copy(
+        update={"tokenizes": [*OPENAI_VISION, "image/gif"]}
     )
 
     DEEPSEEK_V_32 = ModelParameters(
@@ -786,6 +833,15 @@ class ModelDatabase:
             "Gemini models are capable of handling YouTube video links when attached as video "
             "resource links."
         ),
+    )
+
+    GEMINI_37_FLASH = GEMINI_STANDARD_STRUCTURED.model_copy(
+        update={
+            "reasoning_effort_spec": GOOGLE_FLASH_37_THINKING_LEVEL_SPEC,
+            "google_service_tiers": ("flex",),
+            "shell_tool_profile": "minimal_process",
+            "shell_edit_tool": "write_text_file",
+        }
     )
 
     GEMINI_2_FLASH = ModelParameters(
@@ -876,6 +932,19 @@ class ModelDatabase:
         }
     )
 
+    MUSE_GLIMMER_HF = ModelParameters(
+        context_window=131_072,
+        max_output_tokens=128_000,
+        tokenizes=OPENAI_VISION,
+        json_mode=None,
+        reasoning="stream",
+        reasoning_effort_spec=MUSE_GLIMMER_REASONING_EFFORT_SPEC,
+        # Together emits null id/type/name continuation fragments for streamed tool calls.
+        stream_mode="manual",
+        default_provider=Provider.HUGGINGFACE,
+        model_specific="You have image understanding capabilities.",
+    )
+
     GROK_43 = ModelParameters(
         context_window=1_000_000,
         max_output_tokens=65535,
@@ -906,6 +975,10 @@ class ModelDatabase:
         process_poll_default_wait_seconds=240,
         shell_output_byte_limit=16_000,
         shell_tool_profile="grok_shell",
+    )
+
+    GROK_46 = GROK_45.model_copy(
+        update={"reasoning_effort_spec": XAI_GROK_46_REASONING_EFFORT_SPEC}
     )
 
     MUSE_SPARK = ModelParameters(
@@ -959,6 +1032,29 @@ class ModelDatabase:
         reasoning_effort_spec=GLM_52_REASONING_EFFORT_SPEC,
         stream_mode="manual",
         default_provider=Provider.HUGGINGFACE,
+    )
+
+    GLM_5_3 = ModelParameters(
+        context_window=1_000_000,
+        max_output_tokens=131072,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=GLM_53_REASONING_EFFORT_SPEC,
+        stream_mode="manual",
+        default_provider=Provider.ZAI,
+    )
+
+    GLM_5_3_FLASH = ModelParameters(
+        context_window=1_000_000,
+        max_output_tokens=131072,
+        tokenizes=ZAI_GLM_53_FLASH_MULTIMODAL,
+        json_mode="object",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=GLM_53_REASONING_EFFORT_SPEC,
+        stream_mode="manual",
+        default_provider=Provider.ZAI,
+        fast=True,
     )
 
     MINIMAX_21 = ModelParameters(
@@ -1050,6 +1146,19 @@ class ModelDatabase:
         reasoning="reasoning_content",
         reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
         default_provider=Provider.HUGGINGFACE,
+    )
+
+    HF_PROVIDER_QWEN38 = ModelParameters(
+        context_window=262_144,
+        max_output_tokens=131_072,
+        tokenizes=QWEN38_MULTIMODAL,
+        json_mode="object",
+        structured_tool_policy="defer",
+        shell_tool_profile="grok_shell",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=QWEN38_REASONING_EFFORT_SPEC,
+        default_provider=Provider.HUGGINGFACE,
+        default_temperature=1.0,
     )
 
     # Groq-hosted Qwen3.6-27B. Groq's OpenAI-compatible API returns reasoning in
@@ -1211,13 +1320,18 @@ class ModelDatabase:
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),
         # DeepSeek Models
         "deepseek-v4-flash": _with_fast(DEEPSEEK_V4_FLASH),
+        "deepseek-v4-flash-vision-exp": _with_fast(DEEPSEEK_V4_FLASH_VISION),
+        "deepseek-v4-pro": DEEPSEEK_V4_PRO,
         "deepseek-ai/deepseek-v4-flash-0731": _with_fast(DEEPSEEK_V4_FLASH_HF),
         # Z.ai models
         "glm-5.2": GLM_5_2.model_copy(update={"default_provider": Provider.ZAI}),
+        "glm-5.3": GLM_5_3,
+        "glm-5.3-flash": GLM_5_3_FLASH,
         # Google Gemini Models (vanilla aliases and versioned)
         "gemini-2.0-flash": _with_fast(GEMINI_2_FLASH),
         "gemini-2.5-pro": GEMINI_25_STANDARD,
         "gemini-2.5-flash": _with_fast(GEMINI_25_STANDARD),
+        "gemini-3.7-flash": _with_fast(GEMINI_37_FLASH),
         "gemini-3.5-flash": _with_fast(GEMINI_STANDARD_STRUCTURED),
         "gemini-3-pro-preview": GEMINI_STANDARD,
         "gemini-3-flash-preview": GEMINI_STANDARD_STRUCTURED,
@@ -1226,6 +1340,7 @@ class ModelDatabase:
         # xAI Grok Models
         "grok-4.3": GROK_43,
         "grok-4.5": GROK_45,
+        "grok-4.6": GROK_46,
         "muse-spark-1.2": MUSE_SPARK,
         "muse-spark-1.2-contributor": MUSE_SPARK,
         "muse-spark-1.1": MUSE_SPARK,
@@ -1236,6 +1351,7 @@ class ModelDatabase:
         "moonshotai/kimi-k2.6": KIMI_MOONSHOT_26,
         "moonshotai/kimi-k2.7-code": KIMI_MOONSHOT_27_CODE,
         "moonshotai/kimi-k3": KIMI_K3_HF,
+        "meta-models/muse-glimmer-30b": MUSE_GLIMMER_HF,
         "kimi-k3": KIMI_K3,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony
@@ -1258,6 +1374,7 @@ class ModelDatabase:
         "qwen/qwen3.5-397b-a17b": HF_PROVIDER_QWEN35,
         "qwen/qwen3.6-35b-a3b": HF_PROVIDER_QWEN36,
         "qwen/qwen3.6-27b": GROQ_QWEN36_27B,
+        "qwen/qwen3.8-27b": HF_PROVIDER_QWEN38,
         "google/gemma-4-31b-it": HF_PROVIDER_GEMMA4_31B,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
         "deepseek-ai/deepseek-v3.2": HF_PROVIDER_DEEPSEEK32,
@@ -1286,10 +1403,13 @@ class ModelDatabase:
             for model_name, params in (
                 ("grok-4.3", GROK_43),
                 ("grok-4.5", GROK_45),
+                ("grok-4.6", GROK_46),
             )
         }
     )
-    _PROVIDER_WIRE_MODEL_NAMES: ClassVar[dict[tuple[Provider, str], str]] = {}
+    _PROVIDER_WIRE_MODEL_NAMES: ClassVar[dict[tuple[Provider, str], str]] = {
+        (Provider.HUGGINGFACE, "qwen/qwen3.8-27b"): "Qwen/Qwen3.8-27B",
+    }
 
     @classmethod
     def get_model_params(
@@ -1591,6 +1711,12 @@ class ModelDatabase:
         return params.response_service_tiers if params else None
 
     @classmethod
+    def get_google_service_tiers(cls, model: str) -> tuple[Literal["flex"], ...]:
+        """Get supported native Google service tiers for a model."""
+        params = cls.get_model_params(model)
+        return params.google_service_tiers if params else ()
+
+    @classmethod
     def uses_codex_responses_lite(cls, model: str) -> bool:
         """Return whether Codex uses the Responses Lite contract for a model."""
         params = cls.get_model_params(model)
@@ -1607,6 +1733,15 @@ class ModelDatabase:
         if service_tiers is None:
             return None
         return service_tier in service_tiers
+
+    @classmethod
+    def supports_google_service_tier(
+        cls,
+        model: str,
+        service_tier: Literal["flex"],
+    ) -> bool:
+        """Return native Google service-tier support for a model."""
+        return service_tier in cls.get_google_service_tiers(model)
 
     @classmethod
     def supports_response_transport(
@@ -1676,8 +1811,17 @@ class ModelDatabase:
 
     @classmethod
     def resolve_wire_model_name(cls, *, provider: Provider, model_name: str) -> str:
-        normalized = cls.normalize_model_name(model_name)
-        return cls._PROVIDER_WIRE_MODEL_NAMES.get((provider, normalized), model_name.strip())
+        stripped = model_name.strip()
+        base_model = stripped
+        route_suffix = ""
+        if provider is Provider.HUGGINGFACE and ":" in stripped:
+            base_model, route = stripped.rsplit(":", 1)
+            if route:
+                route_suffix = f":{route}"
+
+        normalized = cls.normalize_model_name(base_model)
+        wire_model = cls._PROVIDER_WIRE_MODEL_NAMES.get((provider, normalized))
+        return f"{wire_model}{route_suffix}" if wire_model is not None else stripped
 
     @classmethod
     def list_long_context_models(cls) -> list[str]:

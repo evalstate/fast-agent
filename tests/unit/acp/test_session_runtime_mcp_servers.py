@@ -208,7 +208,7 @@ async def test_initialize_session_state_applies_session_mcp_overlay(
         fake_apply_session_mcp_overlay,
     )
 
-    session_state, _ = await server._initialize_session_state(
+    initialization = await server._initialize_session_state(
         "session-1",
         cwd=str(tmp_path),
         mcp_servers=[
@@ -220,6 +220,7 @@ async def test_initialize_session_state_applies_session_mcp_overlay(
             )
         ],
     )
+    session_state = initialization.session_state
 
     assert session_state.instance is session_instance
     assert server.sessions["session-1"] is session_instance
@@ -258,7 +259,7 @@ async def test_replace_instance_for_session_reapplies_session_mcp_overlay(
         fake_apply_session_mcp_overlay,
     )
 
-    session_state, _ = await server._initialize_session_state(
+    initialization = await server._initialize_session_state(
         "session-1",
         cwd=str(tmp_path),
         mcp_servers=[
@@ -270,6 +271,7 @@ async def test_replace_instance_for_session_reapplies_session_mcp_overlay(
             )
         ],
     )
+    session_state = initialization.session_state
 
     assert session_state.instance is first_session_instance
 
@@ -339,7 +341,7 @@ async def test_initialize_session_state_detaches_removed_session_mcp_servers(
         lambda instance: [("main", cast("AgentProtocol", instance.agents["main"]))],
     )
 
-    session_state, _ = await server._initialize_session_state(
+    initialization = await server._initialize_session_state(
         "session-1",
         cwd=str(tmp_path),
         mcp_servers=[
@@ -357,6 +359,7 @@ async def test_initialize_session_state_detaches_removed_session_mcp_servers(
             ),
         ],
     )
+    session_state = initialization.session_state
 
     session_state.agent_mcp_servers = {
         "main": {
@@ -372,7 +375,7 @@ async def test_initialize_session_state_detaches_removed_session_mcp_servers(
         }
     }
 
-    session_state, _ = await server._initialize_session_state(
+    initialization = await server._initialize_session_state(
         "session-1",
         cwd=str(tmp_path),
         mcp_servers=[
@@ -384,6 +387,7 @@ async def test_initialize_session_state_detaches_removed_session_mcp_servers(
             )
         ],
     )
+    session_state = initialization.session_state
 
     assert session_state.session_mcp_servers.keys() == {"keep-tools"}
     assert session_state.agent_mcp_servers == {
@@ -902,11 +906,12 @@ async def test_initialize_session_state_injects_terminal_runtime_via_public_shel
         server._session_runtime, "_apply_session_mcp_overlay", fake_apply_session_mcp_overlay
     )
 
-    session_state, _ = await server._initialize_session_state(
+    initialization = await server._initialize_session_state(
         "session-1",
         cwd=str(tmp_path),
         mcp_servers=[],
     )
+    session_state = initialization.session_state
 
     assert session_state.terminal_runtime is not None
     assert shell_agent.injected_runtime is session_state.terminal_runtime
@@ -943,11 +948,12 @@ async def test_initialize_session_state_skips_terminal_runtime_when_local_shell_
         server._session_runtime, "_apply_session_mcp_overlay", fake_apply_session_mcp_overlay
     )
 
-    session_state, _ = await server._initialize_session_state(
+    initialization = await server._initialize_session_state(
         "session-1",
         cwd=str(tmp_path),
         mcp_servers=[],
     )
+    session_state = initialization.session_state
 
     assert session_state.terminal_runtime is None
     assert shell_agent.injected_runtime is None

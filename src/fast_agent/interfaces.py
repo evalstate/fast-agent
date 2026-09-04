@@ -136,6 +136,7 @@ class FastAgentLLMProtocol(Protocol):
 
     default_request_params: RequestParams
     instruction: str | None
+    run_model_base_url: str | None
     verb: str | ProgressAction | None
 
     def add_stream_listener(
@@ -155,6 +156,9 @@ class FastAgentLLMProtocol(Protocol):
 
     @property
     def usage_accumulator(self) -> UsageAccumulator | None: ...
+
+    @property
+    def websocket_turn_indicator(self) -> str | None: ...
 
     @property
     def provider(self) -> Provider: ...

@@ -292,6 +292,11 @@ class TestShouldAutoCompact:
         settings = CompactionSettings(auto=True, threshold=0.85)
         assert should_auto_compact(self._usage(85_000, 100_000), settings)
         assert not should_auto_compact(self._usage(84_000, 100_000), settings)
+        assert should_auto_compact(
+            self._usage(84_000, 100_000),
+            settings,
+            projected_context_tokens=85_000,
+        )
 
     def test_disabled(self):
         settings = CompactionSettings(auto=False, threshold=0.85)
@@ -434,6 +439,25 @@ class TestCompactConversation:
         # Estimate override replaces the stale server-observed number
         assert agent.usage_accumulator.current_context_tokens == result.tokens_after_estimate
         assert result.tokens_after_estimate < 90_000
+
+    async def test_pending_context_is_reserved_in_compaction_budget(self):
+        history = (
+            [_user("template", template=True)]
+            + _turn("one", "x" * 20_000)
+            + _turn("two", "y" * 20_000)
+            + _turn("three", "z" * 20_000)
+        )
+        agent = _FakeAgent(history, summary="checkpoint summary")
+        agent.usage_accumulator.set_context_estimate(18_000)
+
+        result = await compact_conversation(
+            agent,
+            settings=CompactionSettings(keep_turns=2, threshold=0.85),
+            pending_context_tokens=4_000,
+        )
+
+        assert result.tokens_before == 22_000
+        assert result.tokens_after_estimate == estimate_tokens(agent.message_history) + 4_000
 
     def test_checkpoint_guidance_defers_to_current_runtime(self):
         message = build_summary_message(

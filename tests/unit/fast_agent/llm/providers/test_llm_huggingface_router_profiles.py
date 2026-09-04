@@ -1,11 +1,17 @@
+from collections.abc import AsyncIterator
+
 import pytest
+from mcp.types import TextContent
+from openai.types.chat import ChatCompletionChunk
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.config import HuggingFaceSettings, Settings
+from fast_agent.constants import REASONING
 from fast_agent.context import Context
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
 def _factory_request(model: str) -> dict[str, object]:
@@ -83,6 +89,242 @@ def test_deepseek_picker_aliases_apply_reasoning_override(alias: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("model", "reasoning_strength"),
+    (
+        ("glimmer", "high"),
+        ("glimmer?reasoning=low", "low"),
+        ("glimmer?reasoning=xhigh", "xhigh"),
+    ),
+)
+def test_muse_glimmer_together_applies_chat_template_contract(
+    model: str,
+    reasoning_strength: str,
+) -> None:
+    request = _factory_request(model)
+    extra_body = request.get("extra_body")
+
+    assert request["model"] == "meta-models/Muse-Glimmer-30B:together"
+    assert request["temperature"] == 1.0
+    assert request["top_p"] == 0.95
+    assert "max_tokens" not in request
+    assert "reasoning_effort" not in request
+    assert isinstance(extra_body, dict)
+    assert extra_body == {
+        "top_k": 64,
+        "chat_template_kwargs": {
+            "reasoning_strength": reasoning_strength,
+        },
+    }
+
+
+def test_muse_glimmer_together_uses_effective_prompt_context_window() -> None:
+    agent = LlmAgent(AgentConfig(name="router-profile-test"))
+    llm = ModelFactory.create_factory("glimmer")(agent=agent)
+
+    assert isinstance(llm, HuggingFaceLLM)
+    assert llm.usage_accumulator.context_window_size == 98_304
+
+
+def test_muse_glimmer_other_backend_uses_effective_prompt_context_window() -> None:
+    agent = LlmAgent(AgentConfig(name="router-profile-test"))
+    llm = ModelFactory.create_factory("hf.meta-models/Muse-Glimmer-30B:novita")(agent=agent)
+
+    assert isinstance(llm, HuggingFaceLLM)
+    assert llm.usage_accumulator.context_window_size == 98_304
+
+
+def test_muse_glimmer_explicit_output_cap_adjusts_prompt_context_window() -> None:
+    agent = LlmAgent(AgentConfig(name="router-profile-test"))
+    llm = ModelFactory.create_factory("glimmer?max_tokens=4096")(agent=agent)
+
+    assert isinstance(llm, HuggingFaceLLM)
+    assert llm.usage_accumulator.context_window_size == 126_976
+
+
+def test_muse_glimmer_other_backend_explicit_output_cap_adjusts_prompt_window() -> None:
+    agent = LlmAgent(AgentConfig(name="router-profile-test"))
+    llm = ModelFactory.create_factory("hf.meta-models/Muse-Glimmer-30B:novita?max_tokens=4096")(
+        agent=agent
+    )
+
+    assert isinstance(llm, HuggingFaceLLM)
+    assert llm.usage_accumulator.context_window_size == 126_976
+
+
+@pytest.mark.parametrize(
+    "model",
+    (
+        "glimmer?max_tokens=4096",
+        "hf.meta-models/Muse-Glimmer-30B:novita?max_tokens=4096",
+    ),
+)
+def test_muse_glimmer_preserves_explicit_max_tokens(model: str) -> None:
+    request = _factory_request(model)
+
+    assert request["max_tokens"] == 4096
+
+
+def test_muse_glimmer_other_backend_omits_default_max_tokens() -> None:
+    request = _factory_request("hf.meta-models/Muse-Glimmer-30B:novita")
+
+    assert "max_tokens" not in request
+    assert "extra_body" not in request
+
+
+@pytest.mark.parametrize(
+    ("model", "reasoning_effort"),
+    (
+        ("qwen/qwen3.8-27b", "medium"),
+        ("qwen/qwen3.8-27b?reasoning=low", "low"),
+        ("qwen/qwen3.8-27b?reasoning=xhigh", "xhigh"),
+    ),
+)
+def test_qwen38_applies_reasoning_effort_route_contract(
+    model: str,
+    reasoning_effort: str,
+) -> None:
+    request = _factory_request(model)
+
+    assert request["model"] == "Qwen/Qwen3.8-27B"
+    assert request["reasoning_effort"] == reasoning_effort
+
+
+def test_qwen38_disables_thinking_through_chat_template_contract() -> None:
+    request = _factory_request("qwen/qwen3.8-27b?reasoning=off")
+
+    assert request["model"] == "Qwen/Qwen3.8-27B"
+    assert "reasoning_effort" not in request
+    assert request["extra_body"] == {
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+
+
+def test_qwen38_replays_reasoning_as_reasoning_content() -> None:
+    llm = HuggingFaceLLM(
+        context=Context(config=Settings()),
+        model="Qwen/Qwen3.8-27B",
+    )
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="answer")],
+        channels={REASONING: [TextContent(type="text", text="private reasoning")]},
+    )
+
+    converted = llm._convert_extended_messages_to_provider([message])
+
+    assert converted == [
+        {
+            "role": "assistant",
+            "content": "answer",
+            "reasoning_content": "private reasoning",
+        }
+    ]
+
+
+async def _stream_chunks(
+    chunks: list[ChatCompletionChunk],
+) -> AsyncIterator[ChatCompletionChunk]:
+    for chunk in chunks:
+        yield chunk
+
+
+def _glimmer_chunk(
+    *,
+    delta: dict[str, object],
+    finish_reason: str | None = None,
+    usage: dict[str, int] | None = None,
+) -> ChatCompletionChunk:
+    return ChatCompletionChunk.model_validate(
+        {
+            "id": "glimmer-chunk",
+            "created": 0,
+            "model": "meta-models/Muse-Glimmer-30B",
+            "object": "chat.completion.chunk",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": delta,
+                    "finish_reason": finish_reason,
+                }
+            ],
+            "usage": usage,
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_muse_glimmer_manual_stream_reassembles_together_tool_fragments() -> None:
+    llm = HuggingFaceLLM(
+        context=Context(config=Settings()),
+        model="meta-models/Muse-Glimmer-30B:together",
+    )
+    chunks = [
+        _glimmer_chunk(delta={"role": "assistant"}),
+        _glimmer_chunk(delta={"reasoning": "Use the shell tool."}),
+        _glimmer_chunk(
+            delta={
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": "chatcmpl-tool-glimmer",
+                        "type": "function",
+                        "function": {"name": "bash", "arguments": "{"},
+                    }
+                ]
+            }
+        ),
+        _glimmer_chunk(
+            delta={
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": None,
+                        "type": None,
+                        "function": {
+                            "name": None,
+                            "arguments": '"command":"printf glimmer-tool-ok"',
+                        },
+                    }
+                ]
+            }
+        ),
+        _glimmer_chunk(
+            delta={
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": None,
+                        "type": None,
+                        "function": {"name": None, "arguments": "}"},
+                    }
+                ]
+            },
+            finish_reason="tool_calls",
+            usage={
+                "prompt_tokens": 100,
+                "completion_tokens": 20,
+                "total_tokens": 120,
+            },
+        ),
+    ]
+
+    completion, reasoning = await llm._process_stream_manual(
+        _stream_chunks(chunks),
+        "meta-models/Muse-Glimmer-30B",
+    )
+
+    message = completion.choices[0].message
+    assert reasoning == ["Use the shell tool."]
+    assert completion.choices[0].finish_reason == "tool_calls"
+    assert completion.usage.prompt_tokens == 100
+    assert message.tool_calls is not None
+    assert len(message.tool_calls) == 1
+    assert message.tool_calls[0].id == "chatcmpl-tool-glimmer"
+    assert message.tool_calls[0].function.name == "bash"
+    assert message.tool_calls[0].function.arguments == ('{"command":"printf glimmer-tool-ok"}')
+
+
+@pytest.mark.parametrize(
     "model",
     (
         "hf.deepseek-ai/DeepSeek-V4-Flash-0731",
@@ -141,6 +383,51 @@ def test_deepseek_custom_endpoint_uses_reasoning_without_wire_suffix(
     assert llm._provider_base_url() == "https://dedicated.example.test/v1"
     assert request["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731"
     assert request["reasoning_effort"] == expected_effort
+
+
+def test_deepseek_constructor_endpoint_uses_custom_route_profile() -> None:
+    llm = HuggingFaceLLM(
+        context=Context(config=Settings()),
+        model="deepseek-ai/DeepSeek-V4-Flash-0731",
+        base_url="https://dedicated.example.test/v1",
+    )
+
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert llm._base_url() == "https://dedicated.example.test/v1"
+    assert request["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731"
+    assert request["reasoning_effort"] == "max"
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    (
+        "https://router.huggingface.co/v1/",
+        "HTTPS://ROUTER.HUGGINGFACE.CO/v1",
+        "https://router.huggingface.co:443/v1",
+    ),
+)
+def test_equivalent_huggingface_router_urls_do_not_use_custom_profile(
+    base_url: str,
+) -> None:
+    llm = HuggingFaceLLM(
+        context=Context(config=Settings()),
+        model="deepseek-ai/DeepSeek-V4-Flash-0731",
+        base_url=base_url,
+    )
+
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert request["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731"
+    assert "reasoning_effort" not in request
 
 
 def test_deepseek_custom_endpoint_does_not_override_explicit_router_backend() -> None:

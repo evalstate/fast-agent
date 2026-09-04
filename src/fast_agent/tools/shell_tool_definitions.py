@@ -5,7 +5,7 @@ from typing import Any, Literal, TypeAlias, cast
 
 from mcp_types import Tool
 
-from fast_agent.constants import MAX_TERMINAL_OUTPUT_BYTE_LIMIT
+from fast_agent.constants import MAX_PROCESS_OUTPUT_QUERY_CHARS, MAX_TERMINAL_OUTPUT_BYTE_LIMIT
 from fast_agent.tools.filesystem_tool_args import (
     coerce_optional_string_argument,
     coerce_positive_int_argument,
@@ -25,7 +25,6 @@ from fast_agent.utils.tool_names import (
 
 MAX_IDLE_YIELD_SECONDS = 30
 MAX_ALIGNED_SHELL_TIMEOUT_SECONDS = 600
-MAX_PROCESS_OUTPUT_QUERY_CHARS = 512
 PROCESS_OUTPUT_DEBOUNCE_SECONDS = 2.0
 
 _EXECUTE_ARGUMENTS = frozenset(
@@ -106,8 +105,10 @@ def build_execute_tool(*, shell_name: str) -> Tool:
         name=EXECUTE_TOOL_NAME,
         description=(
             f"Run one shell command in {shell_name}. Most commands return when they "
-            "exit. If a foreground command remains active for 10 seconds without "
-            "output or 30 seconds total, it keeps running and returns a process ID; "
+            "exit. Foreground work remains in this call up to a bounded total-runtime "
+            "cap, while retaining the normal 10-second no-output and 30-second total "
+            "yield checks. If the command is still active at the cap, it keeps "
+            "running and returns a process ID; "
             "use poll_process to monitor it or terminate_process to stop it. Set "
             "`background=true` for known long-running commands. Explicit background "
             "commands default to `lifecycle='persistent'` and remain running after "
@@ -161,8 +162,10 @@ def build_execute_tool(*, shell_name: str) -> Tool:
                 "yield_after_idle_sec": {
                     "type": "integer",
                     "description": (
-                        "Optional seconds without output before returning a live "
-                        "process ID without stopping the command. Defaults to 10."
+                        "Optional seconds without output before entering bounded "
+                        "foreground auto-await. The total-runtime cap remains fixed "
+                        "from process start. If the command outlives it, a live process "
+                        "ID is returned without stopping. Defaults to 10."
                     ),
                     "minimum": 1,
                     "maximum": MAX_IDLE_YIELD_SECONDS,
@@ -267,7 +270,9 @@ def build_minimal_bash_tool(
     extended_guidance: bool = False,
 ) -> Tool:
     process_guidance = (
-        "Foreground commands that take time may yield a managed process ID. "
+        "Foreground commands are awaited across the initial runtime yield and may "
+        "return a managed process ID only if they outlive the bounded total-runtime "
+        "auto-await cap. "
         "Do not assume a yielded process completed: use process with `wait` or "
         "`status` before relying on its output or ending the task, unless it is "
         "an intentionally persistent service. If output is truncated and a "
@@ -276,7 +281,8 @@ def build_minimal_bash_tool(
         "ending, run a task-relevant verification and inspect its result."
         if extended_guidance
         else (
-            "Foreground commands that take time may yield a managed process ID; "
+            "Foreground commands are auto-awaited up to a bounded total-runtime cap "
+            "and may then yield a managed process ID; "
             "use process to inspect, wait for, or stop it."
         )
     )
@@ -404,8 +410,10 @@ def build_grok_shell_tool(*, shell_name: str) -> Tool:
     return Tool(
         name=GROK_SHELL_TOOL_NAME,
         description=(
-            f"Run one shell command in {shell_name}. Omit `timeout` to preserve normal "
-            "foreground auto-yield behavior. When `timeout` is present, wait "
+            f"Run one shell command in {shell_name}. Omit `timeout` to use normal "
+            "bounded foreground auto-await with a total-runtime cap; a managed process "
+            "ID is returned only if the command remains active at that cap. When "
+            "`timeout` is present, wait "
             "synchronously for completion and terminate the process group if the hard "
             "deadline expires. Set `background=true` only for a server, service, or "
             "other command that must remain running for later checks or the verifier. "
@@ -450,9 +458,10 @@ def build_luna_exec_tool(*, shell_name: str) -> Tool:
             f"Run one shell command in {shell_name}. Keep finite commands whose "
             "result or exit status matters in the foreground. Omit `timeout` for "
             "ordinary commands, including builds, tests, installs, downloads, "
-            "compilation, training, and scripts, even when they may be slow; long "
-            "foreground commands auto-yield a managed process ID for process "
-            "wait/status. Set `background=true` only for a server or service that "
+            "compilation, training, and scripts, even when they may be slow; the "
+            "runtime auto-awaits them up to a bounded total-runtime cap and returns a "
+            "managed process ID only if they remain active at that cap. Set "
+            "`background=true` only for a server or service that "
             "must remain running. Use `timeout` only when the user explicitly "
             "requests a hard deadline or when intentionally bounding disposable "
             "exploratory work whose termination is acceptable. Timeout expiry "
@@ -528,9 +537,9 @@ def parse_execute_arguments(
     if unknown:
         if unknown in (["timeout"], ["timeout_sec"]):
             raise ValueError(
-                f"Error: unknown argument {unknown[0]!r}; use "
-                "'yield_after_idle_sec' to return a live process ID without stopping "
-                "the command"
+                f"Error: unknown argument {unknown[0]!r}; omit it to use the bounded "
+                "foreground total-runtime cap, or set background=true to return a "
+                "live process ID promptly"
             )
         rendered = ", ".join(repr(name) for name in unknown)
         raise ValueError(f"Error: unknown execute argument(s): {rendered}")

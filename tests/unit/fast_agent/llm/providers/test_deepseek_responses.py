@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
-from mcp.types import TextContent
+from mcp.types import ImageContent, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
@@ -14,6 +14,7 @@ from fast_agent.llm.provider.openai.llm_deepseek import (
     DEEPSEEK_BASE_URL,
     DEFAULT_DEEPSEEK_MODEL,
     DEFAULT_DEEPSEEK_REASONING_EFFORT,
+    SUPPORTED_DEEPSEEK_MODELS,
     DeepSeekResponsesLLM,
 )
 from fast_agent.llm.provider_types import Provider
@@ -54,12 +55,16 @@ def test_deepseek_responses_uses_provider_configuration() -> None:
     assert llm._default_headers() == {"X-Test": "1"}
 
 
-@pytest.mark.parametrize(
-    "model",
-    ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro"],
-)
+@pytest.mark.parametrize("model", SUPPORTED_DEEPSEEK_MODELS)
+def test_deepseek_responses_accepts_native_models(model: str) -> None:
+    llm = DeepSeekResponsesLLM(context=Context(config=Settings()), model=model)
+
+    assert llm.default_request_params.model == model
+
+
+@pytest.mark.parametrize("model", ["deepseek-chat", "deepseek-reasoner"])
 def test_deepseek_responses_rejects_models_not_migrated_to_responses(model: str) -> None:
-    with pytest.raises(ModelConfigError, match="currently supports only 'deepseek-v4-flash'"):
+    with pytest.raises(ModelConfigError, match="DeepSeek Responses supports"):
         DeepSeekResponsesLLM(context=Context(config=Settings()), model=model)
 
 
@@ -69,6 +74,29 @@ def test_deepseek_factory_builds_sse_responses_adapter() -> None:
 
     assert isinstance(llm, DeepSeekResponsesLLM)
     assert llm.configured_transport == "sse"
+
+
+def test_deepseek_vision_model_serializes_inline_image_for_responses() -> None:
+    llm = DeepSeekResponsesLLM(
+        context=Context(config=Settings()),
+        model="deepseek-v4-flash-vision-exp",
+    )
+
+    parts = llm._convert_content_parts(
+        [
+            TextContent(type="text", text="What is in this image?"),
+            ImageContent(type="image", data="aW1hZ2U=", mime_type="image/png"),
+        ],
+        role="user",
+    )
+
+    assert parts == [
+        {"type": "input_text", "text": "What is in this image?"},
+        {
+            "type": "input_image",
+            "image_url": "data:image/png;base64,aW1hZ2U=",
+        },
+    ]
 
 
 def test_deepseek_factory_forwards_web_search_override() -> None:

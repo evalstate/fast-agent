@@ -1,5 +1,6 @@
 import os
 from typing import Any
+from urllib.parse import urlsplit
 
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.huggingface_router_profiles import (
@@ -30,12 +31,24 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         self._hf_provider_suffix: str | None = None
         kwargs.pop("provider", None)
         super().__init__(provider=Provider.HUGGINGFACE, **kwargs)
+        self._apply_prompt_context_window()
         if not explicit_reasoning_effort:
             # HuggingFace inherits the OpenAI-compatible transport, but not the
             # OpenAI provider's default reasoning_effort. When no HF model query
             # or preset supplied reasoning explicitly, use the model metadata
             # default during request shaping.
             self.set_reasoning_effort(None)
+
+    def _apply_prompt_context_window(self) -> None:
+        profile = self._route_profile(self.default_request_params.model)
+        if profile is None or profile.prompt_context_window is None:
+            return
+        prompt_context_window = profile.prompt_context_window
+        max_tokens = self.default_request_params.max_tokens
+        model_context_window = self._resolved_model_spec.context_window
+        if max_tokens is not None and model_context_window is not None:
+            prompt_context_window = max(model_context_window - max_tokens, 1)
+        self._usage_accumulator.set_context_window_size(prompt_context_window)
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize HuggingFace-specific default parameters"""
@@ -54,6 +67,9 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
         # Get base defaults from parent (includes ModelDatabase lookup)
         base_params = super()._initialize_default_params(kwargs)
+        profile = self._route_profile(base_model)
+        if profile and profile.omit_default_max_tokens:
+            base_params.max_tokens = None
 
         # Override with HuggingFace-specific settings
         base_params.model = base_model
@@ -108,7 +124,9 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
     def _move_hf_sampling_fields_to_extra_body(self, arguments: dict[str, Any]) -> None:
         extra_body_raw = arguments.get("extra_body", {})
-        extra_body: dict[str, Any] = extra_body_raw if isinstance(extra_body_raw, dict) else {}
+        extra_body: dict[str, Any] = (
+            dict(extra_body_raw) if isinstance(extra_body_raw, dict) else {}
+        )
 
         moved = False
         for key in self._HF_EXTRA_BODY_SAMPLING_KEYS:
@@ -177,7 +195,7 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         if not normalized_model:
             return None
         backend = explicit_provider or self._hf_provider_suffix
-        if backend is None and self._provider_base_url() != HUGGINGFACE_BASE_URL:
+        if backend is None and not self._uses_huggingface_router():
             # A dedicated HF endpoint does not use a router-provider suffix in
             # its wire model. Use an internal marker solely for route-profile
             # selection so known model contracts still apply.
@@ -185,6 +203,19 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         return RouterRoute(
             model=normalized_model,
             backend=backend,
+        )
+
+    def _uses_huggingface_router(self) -> bool:
+        effective = urlsplit(self._base_url() or "")
+        default = urlsplit(HUGGINGFACE_BASE_URL)
+        effective_port = effective.port or (443 if effective.scheme.casefold() == "https" else 80)
+        default_port = default.port or (443 if default.scheme.casefold() == "https" else 80)
+        return (
+            effective.scheme.casefold() == default.scheme.casefold()
+            and effective.hostname == default.hostname
+            and effective_port == default_port
+            and effective.path.rstrip("/") == default.path.rstrip("/")
+            and effective.query == default.query
         )
 
     def _resolve_default_provider(self) -> str | None:

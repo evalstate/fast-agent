@@ -247,6 +247,11 @@ class MCPToolCatalog:
             None,
         )
 
+    def routable_tool_names(self) -> frozenset[str]:
+        return frozenset(self._by_namespaced_name) | frozenset(
+            tool.tool.name for tool in self._by_namespaced_name.values()
+        )
+
     def server_tool_names(self, server_name: str) -> tuple[str, ...]:
         return tuple(
             namespaced_tool.tool.name for namespaced_tool in self._by_server.get(server_name, ())

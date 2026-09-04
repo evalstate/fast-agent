@@ -39,7 +39,11 @@ from fast_agent.context import Context
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
-from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
+from fast_agent.llm.provider.openai.codex_responses import (
+    CODEX_RESPONSES_LITE_HEADER,
+    CODEX_ROUTING_HINT_HEADER,
+    CodexResponsesLLM,
+)
 from fast_agent.llm.provider.openai.openresponses import (
     OpenResponsesLLM,
     _OpenResponsesRawStream,
@@ -758,6 +762,42 @@ def test_codex_responses_display_model_uses_infinity_marker() -> None:
     llm = CodexResponsesLLM(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex")
 
     assert llm._display_model("gpt-5.3-codex") == "∞gpt-5.3-codex"
+    assert llm.default_request_params.max_tokens is None
+
+
+def test_codex_responses_rejects_explicit_default_max_tokens() -> None:
+    with pytest.raises(ModelConfigError, match="does not support max_tokens"):
+        CodexResponsesLLM(
+            provider=Provider.CODEX_RESPONSES,
+            model="gpt-5.3-codex",
+            request_params=RequestParams(max_tokens=32_768),
+        )
+
+
+def test_codex_responses_rejects_per_request_max_tokens() -> None:
+    llm = CodexResponsesLLM(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex")
+
+    with pytest.raises(ModelConfigError, match="does not support max_tokens"):
+        llm._build_response_args(
+            [],
+            RequestParams(model="gpt-5.3-codex", max_tokens=32_768),
+            [],
+        )
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["max_tokens", "maxTokens", "max_output_tokens", "maxOutputTokens"],
+)
+def test_codex_responses_rejects_per_request_metadata_max_tokens(key: str) -> None:
+    llm = CodexResponsesLLM(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex")
+
+    with pytest.raises(ModelConfigError, match="request metadata"):
+        llm._build_response_args(
+            [],
+            RequestParams(model="gpt-5.3-codex", metadata={key: 32_768}),
+            [],
+        )
 
 
 class _FakeResponsesStream:
@@ -892,7 +932,10 @@ def test_codexresponses_lite_uses_internal_request_contract() -> None:
         [tool],
     )
 
-    assert args["extra_headers"] == {"x-openai-internal-codex-responses-lite": "true"}
+    assert args["extra_headers"] == {
+        CODEX_RESPONSES_LITE_HEADER: "true",
+        CODEX_ROUTING_HINT_HEADER: "model=gpt-5.6-luna",
+    }
     assert "instructions" not in args
     assert "tools" not in args
     assert args["parallel_tool_calls"] is False
@@ -904,6 +947,25 @@ def test_codexresponses_lite_uses_internal_request_contract() -> None:
     ]
     assert args["input"][0]["tools"][0]["name"] == "lookup"
     assert args["input"][1]["role"] == "developer"
+
+
+def test_codexresponses_lite_fast_preserves_both_routing_headers() -> None:
+    llm = _build_responses_family_llm(
+        Provider.CODEX_RESPONSES,
+        model_name="gpt-5.6-luna",
+    )
+
+    args = llm._build_response_args(
+        [],
+        RequestParams(model="gpt-5.6-luna", service_tier="fast"),
+        None,
+    )
+
+    assert args["service_tier"] == "priority"
+    assert args["extra_headers"] == {
+        CODEX_RESPONSES_LITE_HEADER: "true",
+        CODEX_ROUTING_HINT_HEADER: "model=gpt-5.6-luna;tier=priority",
+    }
 
 
 def test_codexresponses_lite_adds_per_request_websocket_metadata() -> None:
@@ -947,7 +1009,7 @@ def test_codexresponses_standard_model_omits_lite_contract(model_name: str) -> N
         None,
     )
 
-    assert "extra_headers" not in args
+    assert args["extra_headers"] == {CODEX_ROUTING_HINT_HEADER: f"model={model_name}"}
     assert args["instructions"] == "instructions"
     assert "client_metadata" not in args
 
@@ -1265,7 +1327,16 @@ def test_tool_fallback_notifications_for_custom_tool_call() -> None:
 
 def test_dedupes_duplicate_reasoning_ids():
     harness = _ContentHarness()
-    payload = {"type": "reasoning", "encrypted_content": "abc", "id": "rs_dup"}
+    payload = {
+        "schema": "fast-agent.openai-responses.reasoning-replay",
+        "version": 1,
+        "item": {
+            "type": "reasoning",
+            "id": "rs_dup",
+            "summary": [],
+            "encrypted_content": "abc",
+        },
+    }
     reasoning_block = TextContent(type="text", text=json.dumps(payload))
     channels = {OPENAI_REASONING_ENCRYPTED: [reasoning_block]}
 
@@ -1277,6 +1348,62 @@ def test_dedupes_duplicate_reasoning_ids():
     items = harness._convert_extended_messages_to_provider(messages)
     reasoning_items = [item for item in items if item.get("type") == "reasoning"]
     assert len(reasoning_items) == 1
+
+
+def test_encrypted_reasoning_replay_preserves_raw_summary_and_omits_status() -> None:
+    output_harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="reasoning",
+                id="rs_123",
+                status="completed",
+                summary=[SimpleNamespace(type="summary_text", text="Checked the arithmetic.")],
+                content=None,
+                encrypted_content="encrypted-reasoning",
+            )
+        ]
+    )
+
+    blocks = output_harness._extract_encrypted_reasoning(response)
+    assert len(blocks) == 1
+    assert isinstance(blocks[0], TextContent)
+    persisted = json.loads(blocks[0].text)
+    assert persisted == {
+        "schema": "fast-agent.openai-responses.reasoning-replay",
+        "version": 1,
+        "item": {
+            "type": "reasoning",
+            "id": "rs_123",
+            "summary": [
+                {
+                    "type": "summary_text",
+                    "text": "Checked the arithmetic.",
+                }
+            ],
+            "encrypted_content": "encrypted-reasoning",
+        },
+    }
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[],
+        channels={OPENAI_REASONING_ENCRYPTED: blocks},
+    )
+    items = _ContentHarness()._convert_extended_messages_to_provider([message])
+
+    assert items == [
+        {
+            "type": "reasoning",
+            "id": "rs_123",
+            "summary": [
+                {
+                    "type": "summary_text",
+                    "text": "Checked the arithmetic.",
+                }
+            ],
+            "encrypted_content": "encrypted-reasoning",
+        }
+    ]
 
 
 def test_extract_raw_assistant_message_items_preserves_phase_metadata() -> None:
@@ -1575,6 +1702,38 @@ def test_responses_tool_use_id_prefers_call_id_when_available():
     assert tool_calls is not None
     assert list(tool_calls.keys()) == ["call_123"]
     assert harness._tool_call_id_map["call_123"] == "call_123"
+
+
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        ('{"city":"London"', "incomplete or invalid JSON"),
+        ('{"city":"London"} trailing', "incomplete or invalid JSON"),
+        ('["London"]', "arguments must be a JSON object"),
+        ('"London"', "arguments must be a JSON object"),
+        ("", "did not return JSON arguments"),
+        (None, "did not return JSON arguments"),
+    ],
+)
+def test_responses_rejects_invalid_final_tool_arguments(
+    arguments: str | None,
+    message: str,
+) -> None:
+    harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                id="fc_123",
+                call_id="call_123",
+                name="weather",
+                arguments=arguments,
+            )
+        ]
+    )
+
+    with pytest.raises(RuntimeError, match=message):
+        harness._extract_tool_calls(response)
 
 
 def test_responses_tool_use_id_falls_back_to_item_id_when_call_id_missing():
@@ -1969,6 +2128,52 @@ def test_build_response_args_maps_service_tier_values(
     assert args["service_tier"] == wire_value
 
 
+@pytest.mark.parametrize(
+    ("service_tier", "expected_hint"),
+    [
+        (None, "model=gpt-5.3-codex"),
+        ("fast", "model=gpt-5.3-codex;tier=priority"),
+    ],
+)
+def test_codexresponses_request_adds_routing_hint(
+    service_tier: Literal["fast"] | None,
+    expected_hint: str,
+) -> None:
+    llm = _build_responses_family_llm(
+        Provider.CODEX_RESPONSES,
+        model_name="gpt-5.3-codex",
+    )
+    params = RequestParams(model="gpt-5.3-codex")
+    if service_tier is not None:
+        params.service_tier = service_tier
+
+    args = llm._build_response_args([], params, None)
+
+    assert args["extra_headers"][CODEX_ROUTING_HINT_HEADER] == expected_hint
+    if service_tier is None:
+        assert "service_tier" not in args
+    else:
+        assert args["service_tier"] == "priority"
+
+
+def test_codexresponses_routing_hint_overrides_configured_header_case_insensitively() -> None:
+    llm = _build_responses_family_llm(
+        Provider.CODEX_RESPONSES,
+        model_name="gpt-5.3-codex",
+    )
+
+    args = llm._build_response_args(
+        [],
+        RequestParams(
+            model="gpt-5.3-codex",
+            metadata={"extra_headers": {"X-Codex-Routing-Hint": "stale"}},
+        ),
+        None,
+    )
+
+    assert args["extra_headers"] == {CODEX_ROUTING_HINT_HEADER: "model=gpt-5.3-codex"}
+
+
 def test_build_response_args_omits_service_tier_when_unset() -> None:
     llm = _build_responses_family_llm(Provider.RESPONSES)
 
@@ -2036,6 +2241,19 @@ def test_codexresponses_set_service_tier_rejects_flex() -> None:
 
     with pytest.raises(ValueError, match="standard"):
         llm.set_service_tier("flex")
+
+
+def test_codexresponses_model_without_fast_metadata_hides_service_tier() -> None:
+    llm = CodexResponsesLLM(
+        provider=Provider.CODEX_RESPONSES,
+        model="o3",
+        transport="sse",
+    )
+
+    assert llm.available_service_tiers == ()
+    assert llm.service_tier_supported is False
+    with pytest.raises(ValueError, match="standard"):
+        llm.set_service_tier("fast")
 
 
 def test_responses_chatgpt_model_reports_fast_only_service_tier() -> None:
@@ -2112,7 +2330,7 @@ def test_request_service_tier_overrides_configured_default() -> None:
     assert args["service_tier"] == "flex"
 
 
-def test_request_service_tier_override_is_recorded_in_turn_usage() -> None:
+def test_requested_and_effective_service_tiers_are_recorded_in_turn_usage() -> None:
     llm = _build_responses_family_llm(
         Provider.RESPONSES,
         model_name="gpt-5.4",
@@ -2133,9 +2351,12 @@ def test_request_service_tier_override_is_recorded_in_turn_usage() -> None:
         usage,
         context.model_name,
         requested_service_tier=context.requested_service_tier,
+        service_tier="default",
     )
 
-    assert llm.usage_accumulator.turns[-1].requested_service_tier == "flex"
+    turn = llm.usage_accumulator.turns[-1]
+    assert turn.requested_service_tier == "flex"
+    assert turn.service_tier == "default"
 
 
 def test_codexresponses_request_service_tier_rejects_flex() -> None:

@@ -37,6 +37,7 @@ from fast_agent.cli.runtime.agent_setup import (
 from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.config import Settings
 from fast_agent.llm.provider_types import Provider
+from fast_agent.session import SessionCheckpointBusyError
 from fast_agent.ui.model_picker import ModelPickerResult
 from fast_agent.ui.model_picker_common import (
     LLAMACPP_PROVIDER_KEY,
@@ -200,6 +201,30 @@ async def test_startup_model_selection_skipped_when_resuming_named_session(
 
     assert await _select_startup_model_if_needed(request) == "session resumption"
     assert request.model == "anthropic.claude-sonnet-4-5"
+
+
+@pytest.mark.asyncio
+async def test_run_agent_request_reports_checkpoint_contention_as_busy(
+    monkeypatch,
+    capsys,
+) -> None:
+    request = _make_request(resume="session-123")
+
+    def _checkpoint_busy(_: AgentRunRequest) -> str | None:
+        raise SessionCheckpointBusyError("session-123")
+
+    monkeypatch.setattr(
+        "fast_agent.cli.runtime.agent_setup._resume_bootstrap_model",
+        _checkpoint_busy,
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        await run_agent_request(request)
+
+    assert exc_info.value.code == 1
+    assert capsys.readouterr().err == (
+        "Session 'session-123' checkpoint is busy; retry after the save completes.\n"
+    )
 
 
 def test_attach_cli_servers_prefers_typed_default_agent_config() -> None:

@@ -78,6 +78,7 @@ anthropic:
 # zai:
 #   api_key: "${ZAI_API_KEY}"
 #   # base_url: "https://api.z.ai/api/paas/v4/"
+#   # Coding Plan: "https://api.z.ai/api/coding/paas/v4/"
 #   # default_model: "glm-5.2"
 
 # Native Moonshot Chat Completions provider:
@@ -85,6 +86,15 @@ anthropic:
 #   api_key: "${MOONSHOT_API_KEY}"
 #   # base_url: "https://api.moonshot.ai/v1"
 #   # default_model: "kimi-k3"
+
+# Experimental Grok 4.5/4.6 Responses streaming:
+# xai:
+#   reasoning_summary: concise
+#   stream_tool_calls: true
+#   # JPEG/PNG images use temporary public xAI CDN URLs by default.
+#   # Set to inline to disable uploads and send base64 data in every request.
+#   image_upload_mode: inline
+#   image_upload_ttl_seconds: 86400 # 1 hour to 30 days
 
 # Atlas Cloud OpenAI-compatible Chat Completions provider:
 # atlascloud:
@@ -115,10 +125,15 @@ anthropic:
 #  retain_truncated_output: true
 # maximum retained bytes per shell process
 #  retained_output_max_bytes: 2097152
+# maximum retained bytes in each persistent stdout, stderr, and combined log
+#  durable_output_max_bytes: 2097152
 # optional parent directory for retained-output session directories
 #  retained_output_temp_directory: null
 # maximum duration of one model-initiated managed-process wait
 #  process_poll_max_wait_seconds: 3600
+# maximum total foreground runtime before returning a live process;
+# 0 returns it at the initial yield without stopping it
+#  foreground_auto_await_max_seconds: 30
 # fold repetitive quiet managed-process polling: auto, on, or off
 # auto enables folding for models with validated support
 #  managed_process_poll_history_folding: auto

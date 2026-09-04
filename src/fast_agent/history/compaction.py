@@ -163,14 +163,20 @@ def resolve_compaction_prompt(settings: "CompactionSettings | None") -> str:
 def should_auto_compact(
     usage: "UsageAccumulator | None",
     settings: "CompactionSettings",
+    *,
+    projected_context_tokens: int | None = None,
 ) -> bool:
-    """True when server-observed context usage has crossed the configured threshold."""
+    """True when observed or projected context usage crossed the configured threshold."""
     if not settings.auto or usage is None:
         return False
     window = usage.context_window_size
     if not window or window <= 0:
         return False
-    current = usage.current_context_tokens
+    current = (
+        projected_context_tokens
+        if projected_context_tokens is not None
+        else usage.current_context_tokens
+    )
     if current is None or current <= 0:
         return False
     return (current / window) >= settings.threshold
@@ -518,6 +524,7 @@ async def compact_conversation(
     settings: "CompactionSettings",
     instructions: str | None = None,
     recent_tool_exchanges: int | None = None,
+    pending_context_tokens: int = 0,
 ) -> CompactionResult:
     """
     Compact the agent's history into a checkpoint summary plus recent turns.
@@ -531,15 +538,18 @@ async def compact_conversation(
     if llm is None:
         raise CompactionError(f"Agent '{agent.name}' has no attached LLM.")
 
+    pending_context_tokens = max(pending_context_tokens, 0)
     usage = agent.usage_accumulator
     tokens_before = usage.current_context_tokens if usage else None
+    if tokens_before is not None:
+        tokens_before += pending_context_tokens
     context_window = usage.context_window_size if usage else None
     if tokens_before is not None and tokens_before <= 0:
         tokens_before = None
 
     history = list(agent.message_history)
     max_tokens_after = (
-        int(context_window * settings.threshold)
+        max(int(context_window * settings.threshold) - pending_context_tokens, 1)
         if context_window is not None and context_window > 0
         else None
     )
@@ -585,7 +595,7 @@ async def compact_conversation(
     new_history = plan.templates + [summary_message] + plan.retained_tail
     agent.load_message_history(new_history)
 
-    tokens_after_estimate = estimate_tokens(new_history)
+    tokens_after_estimate = estimate_tokens(new_history) + pending_context_tokens
     if usage is not None:
         usage.set_context_estimate(tokens_after_estimate)
 

@@ -17,7 +17,11 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
-from fast_agent.constants import MAX_PROCESS_POLL_WAIT_SECONDS
+from fast_agent.constants import (
+    DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES,
+    MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
+    MAX_PROCESS_POLL_WAIT_SECONDS,
+)
 from fast_agent.core.exceptions import ConfigFileError
 from fast_agent.home import (
     ConfigDiscoveryResult,
@@ -354,6 +358,11 @@ class ShellSettings(BaseModel):
         ge=1,
         description="Maximum bytes retained per shell process when retention is enabled",
     )
+    durable_output_max_bytes: int = Field(
+        default=DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES,
+        ge=1,
+        description="Maximum bytes retained in each durable process output log",
+    )
     retained_output_temp_directory: Path | None = Field(
         default=None,
         description=(
@@ -366,6 +375,15 @@ class ShellSettings(BaseModel):
         ge=1,
         le=MAX_PROCESS_POLL_WAIT_SECONDS,
         description="Maximum duration of one model-initiated managed-process wait",
+    )
+    foreground_auto_await_max_seconds: int = Field(
+        default=30,
+        ge=0,
+        le=MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
+        description=(
+            "Maximum total foreground runtime before returning a live process; "
+            "0 returns it at the initial idle or total-runtime yield"
+        ),
     )
     managed_process_poll_history_folding: Literal["auto", "on", "off"] = Field(
         default="auto",
@@ -479,11 +497,27 @@ class ShellSettings(BaseModel):
         _reject_bool_integer_field(value, field_name="retained_output_max_bytes")
         return int(value.strip()) if isinstance(value, str) else int(value)
 
+    @field_validator("durable_output_max_bytes", mode="before")
+    @classmethod
+    def _coerce_durable_output_max_bytes(cls, value: Any) -> int:
+        _reject_bool_integer_field(value, field_name="durable_output_max_bytes")
+        return int(value.strip()) if isinstance(value, str) else int(value)
+
     @field_validator("process_poll_max_wait_seconds", mode="before")
     @classmethod
     def _coerce_process_poll_max_wait_seconds(cls, value: Any) -> int:
         _reject_bool_integer_field(value, field_name="process_poll_max_wait_seconds")
         return int(value.strip()) if isinstance(value, str) else int(value)
+
+    @field_validator("foreground_auto_await_max_seconds", mode="before")
+    @classmethod
+    def _coerce_foreground_auto_await_max_seconds(cls, value: Any) -> int:
+        _reject_bool_integer_field(value, field_name="foreground_auto_await_max_seconds")
+        if isinstance(value, str):
+            return MCPTimelineSettings._parse_duration(value)
+        if type(value) is not int:
+            raise TypeError("foreground_auto_await_max_seconds must be an integer")
+        return value
 
     @field_validator("write_text_file_mode", mode="before")
     @classmethod
@@ -1414,6 +1448,10 @@ class GoogleSettings(BaseModel):
         default=None,
         description="Custom headers for all API requests",
     )
+    service_tier: Literal["flex"] | None = Field(
+        default=None,
+        description="Gemini service tier: flex or unset for standard.",
+    )
     transport: Literal["sse", "websocket", "auto"] | None = Field(
         default=None,
         description="Responses transport mode override: sse, websocket, or auto fallback.",
@@ -1440,6 +1478,27 @@ class XAISettings(BaseModel):
     )
     web_search: XAIWebSearchSettings = Field(default_factory=XAIWebSearchSettings)
     x_search: bool = Field(default=False, description="Enable xAI X Search remote tool.")
+    reasoning_summary: Literal["concise"] | None = Field(
+        default=None,
+        description="Request experimental concise reasoning summaries from Grok 4.5/4.6.",
+    )
+    stream_tool_calls: bool = Field(
+        default=False,
+        description="Stream experimental function-call argument deltas from Grok 4.5/4.6.",
+    )
+    image_upload_mode: Literal["inline", "public_url"] = Field(
+        default="public_url",
+        description=(
+            "Image transport (default: public_url): inline base64, or temporary xAI Files URLs. "
+            "Public URLs are accessible without authentication until they expire."
+        ),
+    )
+    image_upload_ttl_seconds: int = Field(
+        default=86_400,
+        ge=3_600,
+        le=2_592_000,
+        description="Lifetime for xAI image files and public URLs (1 hour to 30 days).",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -1643,11 +1702,11 @@ class BedrockSettings(BaseModel):
     )
     reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
         default=None,
-        description="Unified reasoning setting (effort level or budget)",
+        description="Unified reasoning setting (effort level or legacy mapped budget)",
     )
-    reasoning_effort: Literal["minimal", "low", "medium", "high"] = Field(
+    reasoning_effort: Literal["minimal", "low", "medium", "high", "xhigh", "max"] = Field(
         default="minimal",
-        description="Default reasoning effort: minimal, low, medium, high",
+        description="Default reasoning effort: minimal, low, medium, high, xhigh, max",
     )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)

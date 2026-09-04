@@ -6,7 +6,7 @@ import sys
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from types import UnionType
-from typing import TYPE_CHECKING, Any, ClassVar, cast, get_args, get_origin
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast, get_args, get_origin
 
 from mcp import Tool
 from mcp_types import (
@@ -77,14 +77,7 @@ def _require_boto3() -> Any:
     return _boto3
 
 
-# Reasoning effort to token budget mapping
-# Based on AWS recommendations: start with 1024 minimum, increment reasonably
-REASONING_EFFORT_BUDGETS = {
-    "minimal": 0,  # Disabled
-    "low": 512,  # Light reasoning
-    "medium": 1024,  # AWS minimum recommendation
-    "high": 2048,  # Higher reasoning
-}
+BedrockReasoningEffort = Literal["low", "medium", "high", "xhigh", "max"]
 
 _SIMPLIFIED_SCHEMA_SCALARS = {
     str: "string",
@@ -172,9 +165,9 @@ def _bedrock_structured_retry_prompt(schema_label: str, schema_text: str) -> str
     )
 
 
-def _is_reasoning_performance_error(error: Exception) -> bool:
+def _is_reasoning_effort_error(error: Exception) -> bool:
     detail = casefold_text(str(error))
-    return "reasoning" in detail or "performance" in detail
+    return "reasoning" in detail or "effort" in detail or "outputconfig" in detail
 
 
 def _mentions_system_message(error_message: str) -> bool:
@@ -183,10 +176,11 @@ def _mentions_system_message(error_message: str) -> bool:
 
 
 BEDROCK_REASONING_SPEC = ReasoningEffortSpec(
-    kind="budget",
-    min_budget_tokens=0,
-    max_budget_tokens=None,
-    default=ReasoningEffortSetting(kind="budget", value=REASONING_EFFORT_BUDGETS["medium"]),
+    kind="effort",
+    allowed_efforts=["low", "medium", "high", "xhigh", "max"],
+    allow_toggle_disable=True,
+    allow_auto=True,
+    default=ReasoningEffortSetting(kind="effort", value="medium"),
 )
 
 # Bedrock message format types
@@ -439,7 +433,7 @@ class BedrockAttemptConfig:
     system_mode: SystemMode
     has_tool_results: bool
     has_tool_use: bool
-    reasoning_budget: int
+    reasoning_effort: BedrockReasoningEffort | None
     sampling_tool_choice: SamplingToolChoicePolicy | None
 
 
@@ -528,9 +522,8 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                     "Bedrock config 'reasoning_effort' is deprecated; use 'reasoning'."
                 )
 
+        self._reasoning_effort_spec = BEDROCK_REASONING_SPEC
         self._apply_reasoning_setting(raw_setting)
-        if self._reasoning_effort_spec is None:
-            self._reasoning_effort_spec = BEDROCK_REASONING_SPEC
 
     def _apply_reasoning_setting(self, raw_setting: ReasoningEffortInput) -> None:
         setting = parse_reasoning_setting(raw_setting)
@@ -549,29 +542,50 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         """Get the model name, guaranteed to be set."""
         return self.default_request_params.model or DEFAULT_BEDROCK_MODEL
 
-    def _resolve_reasoning_budget(self) -> int:
+    def _resolve_reasoning_effort(self) -> BedrockReasoningEffort | None:
         setting = self.reasoning_effort
-        if setting is None:
-            return 0
+        if setting is None or setting.kind != "effort" or setting.value == "auto":
+            return None
+        return cast("BedrockReasoningEffort", setting.value)
+
+    def _normalize_reasoning_setting(
+        self,
+        setting: ReasoningEffortSetting,
+    ) -> ReasoningEffortSetting:
+        if setting.kind == "effort" and setting.value in ("minimal", "none"):
+            return ReasoningEffortSetting(kind="toggle", value=False)
         if setting.kind == "toggle":
-            return 0 if not setting.value else REASONING_EFFORT_BUDGETS["medium"]
-        if setting.kind == "effort":
-            return REASONING_EFFORT_BUDGETS.get(str(setting.value), 0)
-        if setting.kind == "budget":
-            return max(0, int(setting.value))
-        return 0
+            if setting.value is False:
+                return setting
+            return ReasoningEffortSetting(kind="effort", value="medium")
+        if setting.kind != "budget":
+            return setting
+
+        budget = int(setting.value)
+        if budget < 0:
+            raise ValueError("Budget must be >= 0 tokens.")
+        if budget == 0:
+            return ReasoningEffortSetting(kind="toggle", value=False)
+
+        effort: BedrockReasoningEffort
+        if budget <= 512:
+            effort = "low"
+        elif budget <= 1024:
+            effort = "medium"
+        else:
+            effort = "high"
+        self.logger.warning(
+            f"Bedrock token reasoning budgets are deprecated; using effort='{effort}'."
+        )
+        return ReasoningEffortSetting(kind="effort", value=effort)
 
     def set_reasoning_effort(self, setting: ReasoningEffortSetting | None) -> None:
         if setting is None:
             self._reasoning_effort = None
             return
 
-        spec = self._reasoning_effort_spec or BEDROCK_REASONING_SPEC
-        if setting.kind == "effort":
-            budget = REASONING_EFFORT_BUDGETS.get(str(setting.value), 0)
-            setting = ReasoningEffortSetting(kind="budget", value=budget)
-
-        self._reasoning_effort = validate_reasoning_setting(setting, spec)
+        setting = self._normalize_reasoning_setting(setting)
+        self._reasoning_effort = validate_reasoning_setting(setting, BEDROCK_REASONING_SPEC)
 
     def _get_bedrock_runtime_client(self):
         """Get or create Bedrock Runtime client."""
@@ -1861,27 +1875,27 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         params: RequestParams,
         model: str,
         caps: ModelCapabilities,
-    ) -> int:
+    ) -> BedrockReasoningEffort | None:
         inference_config: dict[str, Any] = {}
         if params.max_tokens is not None:
             inference_config["maxTokens"] = params.max_tokens
         if params.stop_sequences:
             inference_config["stopSequences"] = params.stop_sequences
 
-        reasoning_budget = self._resolve_reasoning_budget()
-        reasoning_enabled = False
-        if reasoning_budget > 0:
+        reasoning_effort = self._resolve_reasoning_effort()
+        reasoning_enabled = reasoning_effort is not None
+        if reasoning_enabled:
             cached_reasoning = caps.reasoning_support
             if cached_reasoning is not False:
-                converse_args["performanceConfig"] = {
-                    "reasoning": {"maxReasoningTokens": reasoning_budget}
-                }
-                reasoning_enabled = True
+                output_config = converse_args.setdefault("outputConfig", {})
+                output_config["effort"] = reasoning_effort
+            else:
+                reasoning_enabled = False
 
         if not reasoning_enabled and params.temperature is not None:
             inference_config["temperature"] = params.temperature
 
-        if model and "nova" in strip_casefold(model) and reasoning_budget == 0:
+        if model and "nova" in strip_casefold(model) and not reasoning_enabled:
             inference_config.setdefault("topP", 1.0)
             existing_amrf = converse_args.get("additionalModelRequestFields", {})
             converse_args["additionalModelRequestFields"] = {
@@ -1892,7 +1906,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         if inference_config:
             converse_args["inferenceConfig"] = inference_config
 
-        return reasoning_budget
+        return reasoning_effort if reasoning_enabled else None
 
     def _bedrock_use_streaming(
         self,
@@ -1943,25 +1957,32 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         params: RequestParams,
         caps: ModelCapabilities,
         *,
-        reasoning_budget: int,
+        reasoning_effort: BedrockReasoningEffort | None,
         use_streaming: bool,
-    ) -> BedrockMessage:
+    ) -> tuple[BedrockMessage, bool]:
         try:
-            return await self._invoke_bedrock_api(
-                client,
-                converse_args,
-                model,
-                schema_choice,
-                use_streaming=use_streaming,
+            return (
+                await self._invoke_bedrock_api(
+                    client,
+                    converse_args,
+                    model,
+                    schema_choice,
+                    use_streaming=use_streaming,
+                ),
+                reasoning_effort is not None,
             )
         except _BOTOCORE_ERRORS as exc:
-            if reasoning_budget <= 0 or not _is_reasoning_performance_error(exc):
+            if reasoning_effort is None or not _is_reasoning_effort_error(exc):
                 raise
 
             self.logger.debug(f"Model {model} doesn't support reasoning, retrying without: {exc}")
             caps.reasoning_support = False
             self.capabilities[model] = caps
-            converse_args.pop("performanceConfig", None)
+            output_config = converse_args.get("outputConfig")
+            if isinstance(output_config, dict):
+                output_config.pop("effort", None)
+                if not output_config:
+                    converse_args.pop("outputConfig", None)
 
             if params.temperature is not None:
                 retry_inference_config = converse_args.get("inferenceConfig")
@@ -1970,12 +1991,15 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                     converse_args["inferenceConfig"] = retry_inference_config
                 retry_inference_config["temperature"] = params.temperature
 
-            return await self._invoke_bedrock_api(
-                client,
-                converse_args,
-                model,
-                schema_choice,
-                use_streaming=use_streaming,
+            return (
+                await self._invoke_bedrock_api(
+                    client,
+                    converse_args,
+                    model,
+                    schema_choice,
+                    use_streaming=use_streaming,
+                ),
+                False,
             )
 
     def _cache_successful_bedrock_attempt(
@@ -1988,12 +2012,12 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         *,
         has_tools: bool,
         attempted_streaming: bool,
-        reasoning_budget: int,
+        reasoning_applied: bool,
     ) -> None:
         if not caps.schema and has_tools:
             caps.schema = schema_choice
 
-        if reasoning_budget > 0 and caps.reasoning_support is not True:
+        if reasoning_applied:
             caps.reasoning_support = True
 
         if schema_choice == ToolSchemaType.DEFAULT and name_policy == ToolNamePolicy.PRESERVE:
@@ -2071,7 +2095,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             has_tool_use=has_tool_use,
             sampling_tool_choice=params.sampling_tool_choice,
         )
-        reasoning_budget = self._apply_bedrock_inference_config(
+        reasoning_effort = self._apply_bedrock_inference_config(
             converse_args,
             params,
             model,
@@ -2086,7 +2110,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             system_mode=system_mode,
             has_tool_results=has_tool_results,
             has_tool_use=has_tool_use,
-            reasoning_budget=reasoning_budget,
+            reasoning_effort=reasoning_effort,
             sampling_tool_choice=params.sampling_tool_choice,
         )
 
@@ -2303,14 +2327,17 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 attempted_streaming = use_streaming
 
                 # Try API call with reasoning fallback
-                processed_response = await self._invoke_bedrock_with_reasoning_fallback(
+                (
+                    processed_response,
+                    reasoning_applied,
+                ) = await self._invoke_bedrock_with_reasoning_fallback(
                     client,
                     attempt.converse_args,
                     model,
                     schema_choice,
                     params,
                     caps,
-                    reasoning_budget=attempt.reasoning_budget,
+                    reasoning_effort=attempt.reasoning_effort,
                     use_streaming=use_streaming,
                 )
 
@@ -2323,7 +2350,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                     attempt.name_policy,
                     has_tools=has_tools,
                     attempted_streaming=attempted_streaming,
-                    reasoning_budget=attempt.reasoning_budget,
+                    reasoning_applied=reasoning_applied,
                 )
                 break
             except _BOTOCORE_ERRORS as e:

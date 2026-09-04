@@ -85,7 +85,7 @@ def test_shell_syntax_blocks_highlights_multiline_python_c_argument() -> None:
 
 def test_shell_syntax_blocks_highlights_uv_run_python_heredoc() -> None:
     command = (
-        "uv run python - <<'PY'\n"
+        "uv run --with pyarrow python - <<'PY'\n"
         "from importlib.metadata import metadata, version\n"
         "for name in ('mcp','mcp-types'):\n"
         " print(name, version(name))\n"

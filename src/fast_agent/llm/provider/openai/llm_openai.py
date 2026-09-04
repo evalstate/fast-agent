@@ -161,6 +161,7 @@ class _ManualOpenAIStreamState:
     reasoning_segments: ReasoningTextAccumulator = field(
         default_factory=lambda: ReasoningTextAccumulator(normalizer=normalize_reasoning_delta)
     )
+    raw_reasoning_segments: list[str] = field(default_factory=list)
     accumulated_content: str = ""
     cumulative_content: str = ""
     role: str = "assistant"
@@ -518,6 +519,11 @@ class OpenAILLM(
         """Allow subclasses to suppress streamed reasoning display."""
         return True
 
+    def _preserves_raw_reasoning_history(self, model: str) -> bool:
+        """Return whether provider history must replay raw reasoning deltas."""
+        del model
+        return False
+
     def _handle_tool_delta(
         self,
         *,
@@ -617,6 +623,7 @@ class OpenAILLM(
         reasoning_mode: Any,
         reasoning_active: bool,
         reasoning_segments: ReasoningTextAccumulator,
+        raw_reasoning_segments: list[str],
         tool_call_started: dict[int, dict[str, Any]],
         model: str,
         notified_tool_indices: set[int],
@@ -636,6 +643,8 @@ class OpenAILLM(
                 reasoning=getattr(delta, "reasoning", None),
                 reasoning_content=getattr(delta, "reasoning_content", None),
             )
+            if reasoning_text:
+                raw_reasoning_segments.append(reasoning_text)
             reasoning_active = self._handle_reasoning_delta(
                 reasoning_mode=reasoning_mode,
                 reasoning_text=reasoning_text,
@@ -778,6 +787,7 @@ class OpenAILLM(
         estimated_tokens = 0
         reasoning_active = False
         reasoning_segments = ReasoningTextAccumulator(normalizer=normalize_reasoning_delta)
+        raw_reasoning_segments: list[str] = []
         reasoning_mode = self._get_model_reasoning(model)
 
         # For providers/models that emit non-OpenAI deltas, fall back to manual accumulation
@@ -815,6 +825,7 @@ class OpenAILLM(
                     reasoning_mode=reasoning_mode,
                     reasoning_active=reasoning_active,
                     reasoning_segments=reasoning_segments,
+                    raw_reasoning_segments=raw_reasoning_segments,
                     tool_call_started=tool_call_started,
                     model=model,
                     notified_tool_indices=notified_tool_indices,
@@ -880,13 +891,18 @@ class OpenAILLM(
             notified_tool_indices,
             model=model,
         )
+        history_reasoning_segments = (
+            raw_reasoning_segments
+            if self._preserves_raw_reasoning_history(model)
+            else reasoning_segments.parts()
+        )
         self._raise_if_empty_completion(
             final_completion,
-            reasoning_segments.parts(),
+            history_reasoning_segments,
             source="OpenAI streaming response",
         )
 
-        return final_completion, reasoning_segments.parts()
+        return final_completion, history_reasoning_segments
 
     def _raise_stream_chunk_error(self, chunk: Any) -> None:
         if getattr(chunk, "choices", None):
@@ -991,6 +1007,7 @@ class OpenAILLM(
             reasoning_mode=reasoning_mode,
             reasoning_active=state.reasoning_active,
             reasoning_segments=state.reasoning_segments,
+            raw_reasoning_segments=state.raw_reasoning_segments,
             tool_call_started=state.tool_call_started,
             model=model,
             notified_tool_indices=state.notified_tool_indices,
@@ -1156,7 +1173,11 @@ class OpenAILLM(
 
         self._raise_for_incomplete_manual_tools(state)
         final_completion = self._manual_stream_completion(state)
-        reasoning_parts = state.reasoning_segments.parts()
+        reasoning_parts = (
+            state.raw_reasoning_segments
+            if self._preserves_raw_reasoning_history(model)
+            else state.reasoning_segments.parts()
+        )
         self._raise_if_empty_completion(
             final_completion,
             reasoning_parts,
@@ -1654,18 +1675,17 @@ class OpenAILLM(
         if combined.strip():
             return combined
         if reasoning_content:
-            combined = "".join(
+            reasoning_content_text = "".join(
                 text
                 for text in (_coerce_reasoning_text(item) for item in reasoning_content)
                 if text
             )
-            if combined.strip():
-                return combined
+            if reasoning_content_text:
+                return reasoning_content_text
 
-        return ""
+        return combined
 
-    @staticmethod
-    def _reasoning_channel_text(msg: PromptMessageExtended) -> str:
+    def _reasoning_channel_text(self, msg: PromptMessageExtended) -> str:
         if not msg.channels:
             return ""
 
@@ -1674,7 +1694,8 @@ class OpenAILLM(
             return ""
 
         reasoning_texts = [text for block in reasoning_blocks if (text := get_text(block))]
-        return "\n\n".join(reasoning_texts)
+        separator = "" if self._preserves_raw_reasoning_history(self._model_name or "") else "\n\n"
+        return separator.join(reasoning_texts)
 
     def _apply_reasoning_replay(
         self,

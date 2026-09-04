@@ -115,6 +115,39 @@ def test_running_process_result_uses_compact_lifecycle_line() -> None:
     assert "Use poll_process" not in rendered
 
 
+def test_auto_await_cap_result_uses_distinct_compact_lifecycle_line() -> None:
+    display = _full_display()
+    result = CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text="\n".join(
+                    [
+                        "building",
+                        (
+                            "Command is still running after the bounded foreground "
+                            "auto-await total-runtime cap was reached. "
+                            "The command was not stopped."
+                        ),
+                        "process_id: process-2",
+                        "elapsed_seconds: 240.0",
+                        "total_output_bytes: 9",
+                        "Use poll_process to monitor it or terminate_process to stop it.",
+                    ]
+                ),
+            )
+        ],
+        is_error=False,
+    )
+
+    with console.console.capture() as capture:
+        display.show_tool_result(result, name="dev", tool_name="execute")
+
+    rendered = capture.get()
+    assert "▶ process-2 running • auto-await cap • 240.0s" in rendered
+    assert "foreground yield" not in rendered
+
+
 def test_quiet_running_poll_result_is_not_rendered() -> None:
     display = _full_display()
     result = CallToolResult(

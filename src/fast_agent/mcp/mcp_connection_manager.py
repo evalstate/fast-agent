@@ -209,6 +209,11 @@ class ServerConnection:
             self.negotiation = "discover"
         else:
             self.negotiation = "initialize"
+        if self.transport_metrics is not None:
+            self.transport_metrics.resolve_negotiation(
+                protocol_mode=self.server_config.protocol_mode,
+                protocol_era=self.protocol_era,
+            )
         self.supported_protocol_versions = (
             tuple(discover_result.supported_versions) if discover_result is not None else ()
         )
@@ -1166,6 +1171,7 @@ class MCPConnectionManager(ContextDependent):
                 oauth_event_handler=self._build_oauth_event_handler(
                     server_conn, oauth_event_handler
                 ),
+                emit_oauth_console_output=oauth_event_handler is None,
                 oauth_abort_event=server_conn._oauth_abort_event,
                 allow_oauth_paste_fallback=allow_oauth_paste_fallback,
                 transport_metrics=transport_metrics,

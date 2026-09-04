@@ -93,6 +93,17 @@ class ModelSelectionCatalog:
         ),
         Provider.GOOGLE: (
             CatalogModelEntry(
+                alias="gemini37flash",
+                display_label="Gemini 3.7 Flash",
+                model="google.gemini-3.7-flash",
+                fast=True,
+                description=(
+                    "GA coding and agent model. Through Dec 31, 2026, Standard is "
+                    "$0.75/M input and $3.75/M output; Flex is $0.375/M input and "
+                    "$1.875/M output."
+                ),
+            ),
+            CatalogModelEntry(
                 alias="gemini35flash",
                 display_label="Gemini 3.5 Flash",
                 model="google.gemini-3.5-flash",
@@ -116,6 +127,8 @@ class ModelSelectionCatalog:
             ),
         ),
         Provider.XAI: (
+            _builtin_entry("Grok 4.6"),
+            _builtin_entry("Grok 4.6 (X Search)"),
             _builtin_entry("Grok 4.5"),
             _builtin_entry("Grok 4.5 (X Search)"),
             _builtin_entry("Grok 4.3"),
@@ -131,8 +144,21 @@ class ModelSelectionCatalog:
                 display_label="DeepSeek V4 Flash",
                 fast=True,
             ),
+            _builtin_entry(
+                "deepseekvision",
+                display_label="DeepSeek V4 Flash Vision (experimental)",
+                fast=True,
+            ),
+            _builtin_entry(
+                "DeepSeek V4 Pro",
+                display_label="DeepSeek V4 Pro",
+            ),
         ),
-        Provider.ZAI: (_builtin_entry("zaiglm", display_label="GLM 5.2"),),
+        Provider.ZAI: (
+            _builtin_entry("zaiglm53", display_label="GLM 5.3"),
+            _builtin_entry("zaiglm53flash", display_label="GLM 5.3 Flash", fast=True),
+            _builtin_entry("zaiglm", display_label="GLM 5.2", current=True),
+        ),
         Provider.MOONSHOT: (_builtin_entry("kimik3", display_label="Kimi K3"),),
         Provider.OPENROUTER: (),
         Provider.ATLASCLOUD: (
@@ -148,6 +174,10 @@ class ModelSelectionCatalog:
             _builtin_entry("qwen3-max"),
         ),
         Provider.HUGGINGFACE: (
+            _builtin_entry(
+                "glimmer",
+                display_label="Muse Glimmer 30B (together)",
+            ),
             _builtin_entry(
                 "Kimi K3 (fireworks-ai)",
                 display_label="Kimi K3 (fireworks-ai)",

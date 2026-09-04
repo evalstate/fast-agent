@@ -24,7 +24,10 @@ from fast_agent.config import (
     load_implicit_settings,
     normalize_shell_write_text_file_mode,
 )
-from fast_agent.constants import MAX_PROCESS_POLL_WAIT_SECONDS
+from fast_agent.constants import (
+    MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
+    MAX_PROCESS_POLL_WAIT_SECONDS,
+)
 from fast_agent.home import (
     PREFERRED_CONFIG_FILENAME,
     discover_config_files,
@@ -33,7 +36,7 @@ from fast_agent.home import (
 from fast_agent.human_input.form_fields import FormSchema, boolean, integer, string
 from fast_agent.human_input.simple_form import form_sync
 from fast_agent.types.streaming import STREAMING_MODE_HELP, normalize_streaming_mode
-from fast_agent.utils.numeric import positive_int_or_none
+from fast_agent.utils.numeric import nonnegative_int_or_none, positive_int_or_none
 from fast_agent.utils.text import strip_to_none
 
 app = typer.Typer(help="Configure fast-agent settings interactively.", add_completion=False)
@@ -59,8 +62,11 @@ SHELL_FORM_BOOL_DEFAULTS: dict[str, bool] = {
 
 SHELL_FORM_POSITIVE_INTEGER_FIELDS = (
     "retained_output_max_bytes",
+    "durable_output_max_bytes",
     "process_poll_max_wait_seconds",
 )
+
+SHELL_FORM_NONNEGATIVE_INTEGER_FIELDS = ("foreground_auto_await_max_seconds",)
 
 # Use round-trip mode to preserve comments and formatting
 _yaml = YAML()
@@ -102,7 +108,7 @@ def _load_config(config_path: Path | None = None) -> tuple[dict[str, Any], Path]
         # Use explicit path
         resolved_path = config_path.resolve()
         if resolved_path.exists():
-            with resolved_path.open() as f:
+            with resolved_path.open(encoding="utf-8") as f:
                 config = _yaml.load(f) or {}
             return config, resolved_path
         # File doesn't exist yet - will be created
@@ -111,7 +117,7 @@ def _load_config(config_path: Path | None = None) -> tuple[dict[str, Any], Path]
     found_path = _default_config_file().resolve()
 
     if found_path.exists():
-        with found_path.open() as f:
+        with found_path.open(encoding="utf-8") as f:
             config = _yaml.load(f) or {}
         return config, found_path
 
@@ -123,7 +129,7 @@ def _load_effective_config(config_path: Path | None = None) -> dict[str, Any]:
     if config_path is not None:
         resolved_path = config_path.resolve()
         if resolved_path.exists():
-            with resolved_path.open() as f:
+            with resolved_path.open(encoding="utf-8") as f:
                 return _yaml.load(f) or {}
         return {}
 
@@ -197,7 +203,7 @@ def _replace_config_section(
 def _save_config(config: dict[str, Any], config_path: Path) -> None:
     """Save config to file, preserving comments."""
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    with config_path.open("w") as f:
+    with config_path.open("w", encoding="utf-8") as f:
         _yaml.dump(config, f)
 
 
@@ -251,10 +257,12 @@ def _build_shell_form(current: ShellSettings) -> FormSchema:
                 default=current_value,
             )
         elif annotation is int:
-            if name == "retained_output_max_bytes":
+            if name in {"retained_output_max_bytes", "durable_output_max_bytes"}:
                 maximum = 1024 * 1024 * 1024
             elif name == "process_poll_max_wait_seconds":
                 maximum = MAX_PROCESS_POLL_WAIT_SECONDS
+            elif name == "foreground_auto_await_max_seconds":
+                maximum = MAX_FOREGROUND_AUTO_AWAIT_SECONDS
             elif "timeout" in name or "interval" in name:
                 maximum = 3600
             else:
@@ -263,7 +271,7 @@ def _build_shell_form(current: ShellSettings) -> FormSchema:
                 title=_field_title(name),
                 description=desc,
                 default=current_value,
-                minimum=1,
+                minimum=(0 if name in SHELL_FORM_NONNEGATIVE_INTEGER_FIELDS else 1),
                 maximum=maximum,
             )
         elif annotation == int | None:
@@ -418,6 +426,11 @@ def _normalize_shell_updates(result: dict[str, Any]) -> dict[str, Any]:
 
     for key in SHELL_FORM_POSITIVE_INTEGER_FIELDS:
         value = positive_int_or_none(result.get(key))
+        if value is not None:
+            shell_updates[key] = value
+
+    for key in SHELL_FORM_NONNEGATIVE_INTEGER_FIELDS:
+        value = nonnegative_int_or_none(result.get(key))
         if value is not None:
             shell_updates[key] = value
 
