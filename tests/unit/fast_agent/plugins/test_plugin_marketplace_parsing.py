@@ -45,6 +45,22 @@ def test_parse_plugin_marketplace_reads_command_plugins() -> None:
     assert [plugin.name for plugin in plugins] == ["finder"]
 
 
+def test_parse_plugin_marketplace_rejects_traversal_entry_name() -> None:
+    plugins = parse_marketplace_plugins(
+        {
+            "command_plugins": [
+                {
+                    "name": "../../outside",
+                    "repo_url": "https://github.com/example/card-packs",
+                    "repo_path": "plugin.yaml",
+                }
+            ]
+        }
+    )
+
+    assert plugins == []
+
+
 def test_parse_plugin_marketplace_reads_generic_plugin_entries() -> None:
     plugins = parse_marketplace_plugins(
         {

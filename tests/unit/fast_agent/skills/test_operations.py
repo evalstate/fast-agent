@@ -5,6 +5,8 @@ import json
 import subprocess
 from typing import TYPE_CHECKING
 
+import pytest
+
 from fast_agent.skills.models import MarketplaceSkill
 from fast_agent.skills.operations import (
     _has_skill_manifest,
@@ -67,6 +69,15 @@ def test_select_skill_by_name_or_index_accepts_lowercase_manifest_parent_alias()
 
     assert skill.install_dir_name == "app"
     assert select_skill_by_name_or_index([skill], "app") is skill
+
+
+def test_install_marketplace_skill_rejects_install_path_escape(tmp_path: Path) -> None:
+    skill = _marketplace_skill("outside", ".", install_dir_name_override="../outside")
+
+    with pytest.raises(ValueError, match="Invalid marketplace install directory"):
+        install_marketplace_skill_sync(skill, tmp_path / "managed")
+
+    assert not (tmp_path / "outside").exists()
 
 
 def test_manifest_path_checks_normalize_manifest_filename(tmp_path: Path) -> None:

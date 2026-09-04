@@ -511,6 +511,35 @@ def test_normalize_relative_repo_path(
 
 
 @pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("alpha", "alpha"),
+        ("Useful Skill", "Useful Skill"),
+        ("../alpha", None),
+        (r"..\alpha", None),
+        ("nested/alpha", None),
+        ("/alpha", None),
+        ("C:alpha", None),
+        (".", None),
+        ("", None),
+    ],
+)
+def test_normalize_install_dir_name(name: str, expected: str | None) -> None:
+    assert provenance_io.normalize_install_dir_name(name) == expected
+
+
+def test_resolve_managed_install_dir_rejects_symlink_escape(tmp_path: Path) -> None:
+    destination_root = tmp_path / "managed"
+    destination_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (destination_root / "escape").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="outside of the managed directory"):
+        provenance_io.resolve_managed_install_dir(destination_root, "escape")
+
+
+@pytest.mark.parametrize(
     ("repo_path", "manifest_filename", "expected"),
     [
         ("skills/alpha/SKILL.md", "SKILL.md", "skills/alpha"),

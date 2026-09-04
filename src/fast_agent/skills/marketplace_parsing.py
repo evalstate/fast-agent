@@ -193,8 +193,12 @@ def _skill_from_entry_model(model: MarketplaceEntryModel) -> MarketplaceSkill | 
     if not repo_path:
         return None
 
+    name = model.name or repo_path
+    if marketplace_provenance_io.normalize_install_dir_name(name) is None:
+        return None
+
     return MarketplaceSkill(
-        name=model.name or repo_path,
+        name=name,
         description=model.description,
         repo_url=model.repo_url,
         repo_ref=model.repo_ref,
