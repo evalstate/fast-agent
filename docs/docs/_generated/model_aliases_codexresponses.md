@@ -1,5 +1,6 @@
 | Model Alias | Maps to |
 | --- | --- |
+| `astra` | `codexresponses.gpt-6-astra?reasoning=low` |
 | `codexplan` | `codexresponses.gpt-5.6-sol?reasoning=high` |
 | `codexplan53` | `codexresponses.gpt-5.3-codex?reasoning=medium` |
 | `codexplan54` | `codexresponses.gpt-5.4?reasoning=high` |

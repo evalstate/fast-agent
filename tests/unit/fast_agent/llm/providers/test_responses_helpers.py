@@ -915,8 +915,9 @@ def test_codexresponses_provider_defaults_to_websocket_preferred_transport() -> 
     assert llm.configured_transport == "auto"
 
 
-def test_codexresponses_lite_uses_internal_request_contract() -> None:
-    llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name="gpt-5.6-luna")
+@pytest.mark.parametrize("model_name", ["gpt-5.6-luna", "gpt-6-astra"])
+def test_codexresponses_lite_uses_internal_request_contract(model_name: str) -> None:
+    llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name=model_name)
     input_items = [
         {
             "type": "message",
@@ -928,13 +929,13 @@ def test_codexresponses_lite_uses_internal_request_contract() -> None:
 
     args = llm._build_response_args(
         input_items,
-        RequestParams(model="gpt-5.6-luna", system_prompt="instructions"),
+        RequestParams(model=model_name, system_prompt="instructions"),
         [tool],
     )
 
     assert args["extra_headers"] == {
         CODEX_RESPONSES_LITE_HEADER: "true",
-        CODEX_ROUTING_HINT_HEADER: "model=gpt-5.6-luna",
+        CODEX_ROUTING_HINT_HEADER: f"model={model_name}",
     }
     assert "instructions" not in args
     assert "tools" not in args
@@ -966,6 +967,59 @@ def test_codexresponses_lite_fast_preserves_both_routing_headers() -> None:
         CODEX_RESPONSES_LITE_HEADER: "true",
         CODEX_ROUTING_HINT_HEADER: "model=gpt-5.6-luna;tier=priority",
     }
+
+
+def test_gpt_6_astra_sends_max_reasoning_to_codexresponses() -> None:
+    llm = _build_responses_family_llm(
+        Provider.CODEX_RESPONSES,
+        model_name="gpt-6-astra",
+    )
+    llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value="max"))
+
+    args = llm._build_response_args(
+        [],
+        RequestParams(model="gpt-6-astra"),
+        None,
+    )
+
+    assert args["reasoning"]["effort"] == "max"
+    assert args["reasoning"]["context"] == "all_turns"
+
+
+def test_gpt_6_astra_uses_standard_contract_through_responses_api() -> None:
+    llm = _build_responses_family_llm(
+        Provider.RESPONSES,
+        model_name="gpt-6-astra",
+    )
+    llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value="max"))
+
+    args = llm._build_response_args(
+        [],
+        RequestParams(model="gpt-6-astra"),
+        None,
+    )
+
+    assert args["model"] == "gpt-6-astra"
+    assert args["reasoning"]["effort"] == "max"
+    assert "extra_headers" not in args
+
+
+def test_gpt_6_astra_codex_client_meets_minimum_version() -> None:
+    payload = base64.urlsafe_b64encode(
+        json.dumps(
+            {
+                "https://api.openai.com/auth": {
+                    "chatgpt_account_id": "account-test",
+                }
+            }
+        ).encode()
+    ).decode()
+    token = f"header.{payload.rstrip('=')}.signature"
+    llm = CodexResponsesLLM(model="gpt-6-astra", api_key=token)
+
+    headers = llm._build_websocket_headers()
+
+    assert headers["User-Agent"].startswith("codex_cli_rs/0.153.0 ")
 
 
 def test_codexresponses_lite_adds_per_request_websocket_metadata() -> None:

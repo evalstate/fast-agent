@@ -30,7 +30,7 @@ CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 CODEX_RESPONSES_LITE_HEADER = "x-openai-internal-codex-responses-lite"
 CODEX_RESPONSES_LITE_WS_METADATA_KEY = "ws_request_header_x_openai_internal_codex_responses_lite"
 CODEX_ROUTING_HINT_HEADER = "x-codex-routing-hint"
-CODEX_PROTOCOL_VERSION = "0.144.1"
+CODEX_PROTOCOL_VERSION = "0.153.0"
 
 
 class CodexResponsesLLM(ResponsesLLM):

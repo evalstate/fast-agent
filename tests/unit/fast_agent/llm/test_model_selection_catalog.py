@@ -110,6 +110,7 @@ def test_metaai_muse_aliases_select_the_current_and_contributor_tiers() -> None:
 
 def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() -> None:
     expected = {
+        "astra": "codexresponses.gpt-6-astra?reasoning=low",
         "sol": "codexresponses.gpt-5.6-sol?reasoning=high",
         "terra": "codexresponses.gpt-5.6-terra?reasoning=high",
         "codexplan": "codexresponses.gpt-5.6-sol?reasoning=high",
@@ -127,6 +128,13 @@ def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() ->
             alias,
             presets=ModelFactory.MODEL_PRESETS,
         ) == ModelFactory.parse_model_string(model_spec)
+
+
+def test_gpt_6_astra_is_available_through_codex_and_api_routes() -> None:
+    assert BUILTIN_MODEL_ALIASES["astra"] == "codexresponses.gpt-6-astra?reasoning=low"
+    assert BUILTIN_MODEL_ALIASES["gpt-6-astra"] == "responses.gpt-6-astra?reasoning=low"
+    assert "astra" in ModelSelectionCatalog.list_current_aliases(Provider.CODEX_RESPONSES)
+    assert "gpt-6-astra" in ModelSelectionCatalog.list_current_aliases(Provider.RESPONSES)
 
 
 def test_deepseek_catalog_exposes_native_responses_models() -> None:

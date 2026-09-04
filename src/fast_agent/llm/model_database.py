@@ -296,6 +296,12 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
+    OPENAI_GPT_6_ASTRA_REASONING = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh", "max"],
+        default=ReasoningEffortSetting(kind="effort", value="low"),
+    )
+
     OPENAI_GPT_5_CODEX_CLASS_REASONING = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["low", "medium", "high", "xhigh"],
@@ -611,6 +617,23 @@ class ModelDatabase:
             "codex_responses_lite": True,
             "shell_tool_profile": "luna_exec",
         }
+    )
+
+    OPENAI_GPT_6_ASTRA = ModelParameters(
+        context_window=272_000,
+        max_output_tokens=128_000,
+        tokenizes=OPENAI_VISION,
+        reasoning="openai",
+        reasoning_effort_spec=OPENAI_GPT_6_ASTRA_REASONING,
+        text_verbosity_spec=TextVerbositySpec(default="low"),
+        response_transports=("sse", "websocket"),
+        response_websocket_providers=(Provider.RESPONSES, Provider.CODEX_RESPONSES),
+        response_service_tiers=("fast",),
+        codex_responses_lite=True,
+        default_provider=Provider.RESPONSES,
+        model_specific=GPT_53_PLUS_MODEL_SPECIFIC,
+        managed_process_poll_folding=True,
+        process_poll_default_wait_seconds=240,
     )
 
     OPENAI_GPT_CODEX_SPARK = ModelParameters(
@@ -1269,6 +1292,7 @@ class ModelDatabase:
         "gpt-5.6-sol": OPENAI_GPT_56,
         "gpt-5.6-terra": _with_fast(OPENAI_GPT_56),
         "gpt-5.6-luna": _with_fast(OPENAI_GPT_56_LUNA),
+        "gpt-6-astra": OPENAI_GPT_6_ASTRA,
         "gpt-5.4-mini": OPENAI_GPT_54_SMALL.model_copy(
             update={"model_specific": GPT_53_PLUS_MODEL_SPECIFIC}
         ),

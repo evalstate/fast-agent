@@ -56,6 +56,7 @@ class ModelSelectionCatalog:
 
     CATALOG_ENTRIES_BY_PROVIDER: ClassVar[dict[Provider, tuple[CatalogModelEntry, ...]]] = {
         Provider.RESPONSES: (
+            _builtin_entry("gpt-6-astra"),
             _builtin_entry("gpt-5.6-sol"),
             _builtin_entry("gpt-5.6-terra", fast=True),
             _builtin_entry("gpt-5.6-luna", fast=True),
@@ -267,6 +268,7 @@ class ModelSelectionCatalog:
             _builtin_entry("deepseek32", current=False),
         ),
         Provider.CODEX_RESPONSES: (
+            _builtin_entry("astra", display_label="GPT-6-Astra"),
             _builtin_entry("sol"),
             _builtin_entry("terra"),
             _builtin_entry("luna"),

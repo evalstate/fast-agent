@@ -97,6 +97,8 @@ Current Codex Responses models:
 
 Examples:
 
+- `astra`
+- `codexresponses.gpt-6-astra?reasoning=max`
 - `codexplan`
 - `codexresponses.gpt-5.5?reasoning=high`
 - `codexresponses.gpt-5.3-codex-spark?web_search=on`
@@ -214,7 +216,7 @@ for card-scoped runtime targets.
 ## Codex (OAuth Responses)
 
 **`fast-agent`** supports using your OpenAI Codex subscription. Run `fast-agent auth provider login codex`
-once, then use a Codex OAuth model alias such as `codexplan` (GPT-5.5 planning),
+once, then use a Codex OAuth model alias such as `astra` (GPT-6-Astra), `codexplan` (GPT-5.6 Sol),
 `codexplan54` (GPT-5.4 planning), `codexplan53` (GPT-5.3 Codex planning), or
 `codexspark` (GPT-5.3 Codex Spark).
 
@@ -224,8 +226,8 @@ once, then use a Codex OAuth model alias such as `codexplan` (GPT-5.5 planning),
 # Start OAuth login (stores tokens in your OS keyring)
 fast-agent auth provider login codex
 
-# Use the Codex planning model
-fast-agent --model codexplan
+# Use GPT-6-Astra through the Codex subscription
+fast-agent --model astra
 
 # Pin a previous planning model via OAuth
 fast-agent --model codexplan54
@@ -251,7 +253,9 @@ codexresponses:
 **Notes:**
 
 - Tokens are stored in your OS keyring, with a secure file fallback, via `fast-agent auth provider login codex`.
-- `codexplan` maps to `codexresponses.gpt-5.5?reasoning=medium`.
+- `astra` maps to `codexresponses.gpt-6-astra?reasoning=low`.
+- `gpt-6-astra` maps to the API-key-backed `responses.gpt-6-astra?reasoning=low` route; availability still depends on the OpenAI API account's model access.
+- `codexplan` maps to `codexresponses.gpt-5.6-sol?reasoning=high`.
 - `codexplan54` maps to `codexresponses.gpt-5.4?reasoning=high`.
 - `codexplan53` maps to `codexresponses.gpt-5.3-codex?reasoning=medium`.
 - `codexspark` maps to `codexresponses.gpt-5.3-codex-spark`.

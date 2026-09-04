@@ -55,6 +55,37 @@ def test_gpt_56_context_windows_follow_provider_limits() -> None:
     assert codex_window < responses_window
 
 
+def test_gpt_6_astra_matches_codex_catalog_capabilities() -> None:
+    params = ModelDatabase.get_model_params("gpt-6-astra")
+
+    assert params is not None
+    assert params.context_window == 272_000
+    assert params.max_output_tokens == 128_000
+    assert params.tokenizes == ModelDatabase.OPENAI_VISION
+    assert params.codex_responses_lite is True
+    assert params.response_transports == ("sse", "websocket")
+    assert params.response_websocket_providers == (
+        Provider.RESPONSES,
+        Provider.CODEX_RESPONSES,
+    )
+    assert params.response_service_tiers == ("fast",)
+    assert params.reasoning_effort_spec == ModelDatabase.OPENAI_GPT_6_ASTRA_REASONING
+    assert params.reasoning_effort_spec.default == ReasoningEffortSetting(
+        kind="effort",
+        value="low",
+    )
+    assert params.reasoning_effort_spec.allowed_efforts == [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    ]
+    assert params.text_verbosity_spec is not None
+    assert params.text_verbosity_spec.default == "low"
+    assert ModelDatabase.get_default_provider("gpt-6-astra") == Provider.RESPONSES
+
+
 def test_managed_process_poll_folding_is_enabled_for_validated_models() -> None:
     for model in ("grok-4.3", "grok-4.5", "grok-4.6"):
         grok = ModelDatabase.get_model_params(

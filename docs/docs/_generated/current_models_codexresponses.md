@@ -1,5 +1,6 @@
 | Model string or alias | Resolves to / equivalent | Notes |
 | --- | --- | --- |
+| `astra` | `codexresponses.gpt-6-astra?reasoning=low` | — |
 | `sol` | `codexresponses.gpt-5.6-sol?reasoning=high` | — |
 | `terra` | `codexresponses.gpt-5.6-terra?reasoning=high` | — |
 | `luna` | `codexresponses.gpt-5.6-luna?reasoning=medium` | — |

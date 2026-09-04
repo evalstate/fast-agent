@@ -1,5 +1,6 @@
 | Model string or alias | Resolves to / equivalent | Notes |
 | --- | --- | --- |
+| `gpt-6-astra` | `responses.gpt-6-astra?reasoning=low` | — |
 | `gpt-5.6-sol` | `responses.gpt-5.6-sol?reasoning=medium` | — |
 | `gpt-5.6-terra` | `responses.gpt-5.6-terra?reasoning=medium` | Fast |
 | `gpt-5.6-luna` | `responses.gpt-5.6-luna?reasoning=medium` | Fast |
