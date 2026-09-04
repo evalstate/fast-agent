@@ -184,6 +184,23 @@ Version policy is model-aware:
 - Other supported Anthropic models use legacy versions
   (`web_search_20250305`, `web_fetch_20250910`).
 
+**Tool search (deferred tool definitions):**
+
+With many MCP tools, sending every definition on each request costs tokens and
+degrades selection accuracy. Anthropic models support deferring tool
+definitions: regular tools are marked `defer_loading: true` and a server-side
+BM25 `tool_search` tool is added, so the model retrieves relevant definitions
+on demand. Tool search is controlled per agent/request with
+`RequestParams(tool_search=...)`:
+
+- `off` (default): always send full tool definitions.
+- `auto`: defer definitions when more than 16 tools are available.
+- `always`: defer definitions on every request.
+
+Tool search is not available on `anthropic-vertex`, is suppressed for
+structured `tool_use` requests, and is disabled when a sampling
+`tool_choice` pins specific tools.
+
 **Provider-managed remote MCP:**
 
 The direct `anthropic` provider supports provider-managed remote MCP servers
