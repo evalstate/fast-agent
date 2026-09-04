@@ -78,8 +78,8 @@ def test_list_current_aliases_for_provider() -> None:
 
 def test_metaai_picker_lists_muse_tiers_in_release_order() -> None:
     assert ModelSelectionCatalog.list_current_aliases(Provider.META_AI) == [
-        "Muse Spark 1.2",
-        "Muse Spark 1.2 (Contributor)",
+        "Muse Spark 1.3",
+        "Muse Spark 1.3 (Contributor)",
         "Muse Spark 1.1",
     ]
 
@@ -102,9 +102,9 @@ def test_metaai_muse_aliases_select_the_current_and_contributor_tiers() -> None:
     assert {
         alias: BUILTIN_MODEL_ALIASES[alias] for alias in ("muse", "muse-spark", "musecontrib")
     } == {
-        "muse": "metaai.muse-spark-1.2",
-        "muse-spark": "metaai.muse-spark-1.2",
-        "musecontrib": "metaai.muse-spark-1.2-contributor",
+        "muse": "metaai.muse-spark-1.3",
+        "muse-spark": "metaai.muse-spark-1.3",
+        "musecontrib": "metaai.muse-spark-1.3-contributor",
     }
 
 

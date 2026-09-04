@@ -40,6 +40,21 @@ TEST_ALIASES = {
 }
 
 
+@pytest.mark.parametrize(
+    ("model", "expected"),
+    [
+        ("muse-spark-1.2", "muse-spark-1.2"),
+        ("muse-spark-1.2-contributor", "muse-spark-1.2-contributor"),
+        ("Muse Spark 1.2", "muse-spark-1.2"),
+        ("Muse Spark 1.2 (Contributor)", "muse-spark-1.2-contributor"),
+    ],
+)
+def test_metaai_legacy_models_still_resolve(model: str, expected: str) -> None:
+    config = ModelFactory.parse_model_string(model)
+    assert config.provider == Provider.META_AI
+    assert config.model_name == expected
+
+
 def test_simple_model_names():
     """Test parsing of simple model names"""
     cases = [

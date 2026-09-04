@@ -1367,6 +1367,8 @@ class ModelDatabase:
         "grok-4.6": GROK_46,
         "muse-spark-1.2": MUSE_SPARK,
         "muse-spark-1.2-contributor": MUSE_SPARK,
+        "muse-spark-1.3": MUSE_SPARK,
+        "muse-spark-1.3-contributor": MUSE_SPARK,
         "muse-spark-1.1": MUSE_SPARK,
         "moonshotai/kimi-k2": _with_fast(KIMI_MOONSHOT_INSTRUCT),
         "moonshotai/kimi-k2-instruct-0905": _with_fast(KIMI_MOONSHOT_INSTRUCT),

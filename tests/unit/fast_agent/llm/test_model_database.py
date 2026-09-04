@@ -610,6 +610,8 @@ def test_model_database_metaai_muse_spark_metadata():
     models = (
         "muse-spark-1.2",
         "muse-spark-1.2-contributor",
+        "muse-spark-1.3",
+        "muse-spark-1.3-contributor",
         "muse-spark-1.1",
     )
 
