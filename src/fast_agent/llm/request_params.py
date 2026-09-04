@@ -19,6 +19,7 @@ ResponseMode: TypeAlias = Literal["inherit", "postprocess", "passthrough"]
 ToolResultMode: TypeAlias = Literal["postprocess", "passthrough", "selectable"]
 StructuredToolPolicy: TypeAlias = Literal["auto", "always", "defer", "no_tools"]
 SamplingToolChoicePolicy: TypeAlias = Literal["auto", "required", "none"]
+ToolSearchPolicy: TypeAlias = Literal["off", "auto", "always"]
 _RESPONSE_MODE_TOOL_RESULT_MODES: dict[ResponseMode, ToolResultMode | None] = {
     "inherit": None,
     "postprocess": "postprocess",
@@ -128,6 +129,20 @@ class RequestParams(CreateMessageRequestParams):
 
     The inherited MCP ``tools`` and ``tool_choice`` fields remain transport
     inputs only and must not be forwarded as provider arguments.
+    """
+
+    tool_search: ToolSearchPolicy = "off"
+    """
+    Policy for deferring tool definitions when many tools are available.
+
+    Providers with a native tool-search mechanism (Anthropic ``tool_search``
+    with ``defer_loading``) mark regular tool definitions as deferred and
+    expose a search tool so the model retrieves definitions on demand.
+
+    - ``off``: send full tool definitions on every request (default).
+    - ``auto``: defer definitions when the provider supports tool search and
+      the toolset is large enough to benefit from it.
+    - ``always``: defer definitions whenever the provider supports tool search.
     """
 
     template_vars: dict[str, Any] = Field(default_factory=dict)

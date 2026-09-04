@@ -37,6 +37,7 @@ from anthropic.types.beta import (
     BetaThinkingBlock,
     BetaThinkingDelta,
     BetaToolParam,
+    BetaToolSearchToolBm25_20251119Param,
     BetaToolUseBlock,
     BetaToolUseBlockParam,
 )
@@ -141,6 +142,11 @@ LONG_CONTEXT_BETA = "context-1m-2025-08-07"
 # https://docs.anthropic.com/en/docs/build-with-claude/tool-use#streaming-tool-inputs
 FINE_GRAINED_TOOL_STREAMING_BETA = "fine-grained-tool-streaming-2025-05-14"
 MCP_CLIENT_BETA = "mcp-client-2025-11-20"
+
+# Tool search defers tool definitions from the initial prompt; the model
+# retrieves relevant definitions on demand via a server-side BM25 search tool.
+ANTHROPIC_TOOL_SEARCH_TYPE = "tool_search_tool_bm25_20251119"
+TOOL_SEARCH_AUTO_TOOL_THRESHOLD = 16
 
 # Stream capture mode - when enabled, saves all streaming chunks to files for debugging
 # Set FAST_AGENT_LLM_TRACE=1 (or any non-empty value) to enable
@@ -1114,6 +1120,40 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             schema = _transform_anthropic_schema({"type": "object"})
         return {"type": "json_schema", "schema": schema}
 
+    @staticmethod
+    def _defer_tool_definitions(tools: list[BetaToolParam]) -> list[BetaToolParam]:
+        """Mark tool definitions as deferred and expose the server-side search tool."""
+        deferred_tools: list[BetaToolParam] = [{**tool, "defer_loading": True} for tool in tools]
+        deferred_tools.append(
+            cast(
+                "BetaToolParam",
+                BetaToolSearchToolBm25_20251119Param(
+                    type=ANTHROPIC_TOOL_SEARCH_TYPE,
+                    name="tool_search_tool_bm25",
+                ),
+            )
+        )
+        return deferred_tools
+
+    def _resolve_tool_search_active(
+        self,
+        request_params: RequestParams | None,
+        tool_count: int,
+    ) -> bool:
+        params = request_params or self.default_request_params
+        policy = params.tool_search
+        if policy == "off":
+            return False
+        if not self.supports_direct_anthropic_beta("tool_search"):
+            self.logger.warning(
+                "Anthropic tool_search was requested but is unsupported on this "
+                "provider; sending full tool definitions instead."
+            )
+            return False
+        if policy == "always":
+            return True
+        return tool_count > TOOL_SEARCH_AUTO_TOOL_THRESHOLD
+
     async def _prepare_tools(
         self,
         model: str,
@@ -1122,6 +1162,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         tools: list[Tool] | None = None,
         structured_mode: StructuredOutputMode | None = None,
         auto_tool_use_fallback: bool = False,
+        tool_search_active: bool = False,
     ) -> list[BetaToolParam]:
         """Prepare tools based on whether we're in structured output mode."""
         regular_tools = [
@@ -1159,6 +1200,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                     strict=True,
                 )
             ]
+        if tool_search_active and regular_tools:
+            regular_tools = self._defer_tool_definitions(regular_tools)
         if structured_model or structured_schema:
             return regular_tools
         return regular_tools
@@ -2789,6 +2832,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         tools: list[Tool] | None,
         *,
         include_provider_tools: bool,
+        tool_search_active: bool = False,
     ) -> tuple[list[BetaToolParam], list[str], Any]:
         available_tools = await self._prepare_tools(
             model,
@@ -2797,6 +2841,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             tools,
             structured_mode=structured.mode,
             auto_tool_use_fallback=structured.auto_tool_use_fallback,
+            tool_search_active=tool_search_active,
         )
         if include_provider_tools:
             web_tools, web_tool_betas = self._prepare_web_tools(model)
@@ -2871,12 +2916,18 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             structured_model,
             structured_schema,
         )
+        # Sampling tool-choice pins specific tools; deferred definitions would
+        # conflict with a forced choice, so tool search is disabled there.
+        tool_search_active = request.params.sampling_tool_choice is None and (
+            self._resolve_tool_search_active(request.params, len(tools or []))
+        )
         request_tools, web_tool_betas, provider_mcp_payload = await self._anthropic_request_tools(
             model,
             structured_model,
             structured,
             tools,
             include_provider_tools=request.params.sampling_tool_choice is None,
+            tool_search_active=tool_search_active,
         )
 
         base_args, thinking_enabled = self._build_anthropic_base_args(
