@@ -56,7 +56,7 @@
   }
 
   function formatResultCost(result) {
-    return (result.costEstimate ? "est. " : "") + formatCost(result.cost);
+    return (result.costEstimate ? "~" : "") + formatCost(result.cost);
   }
 
   function formatTableResultCost(result) {
@@ -198,11 +198,6 @@
       var nextPreview = active ? index : -1;
       if (tablePreviewResult === nextPreview) return;
       tablePreviewResult = nextPreview;
-      if (active && selectedResult !== index) {
-        selectedResult = index;
-        draw();
-        return;
-      }
       root.querySelectorAll(".fa-benchmark__point[data-result-index]").forEach(function (point) {
         point.classList.toggle(
           "is-table-preview",
@@ -461,11 +456,11 @@
       var hasEstimatedCosts = comparison.results.some(function (entry) {
         return entry.costEstimate;
       });
-      var runTotalNote = hasEstimatedCosts
+      var runTotalNote = comparison.runTotalNote || (hasEstimatedCosts
         ? "~ marks Sol estimates at current pricing; other totals use submitted totals when " +
           "provided or cost/task × " + data.taskCount + " tasks"
         : "Run total = submitted total when provided; otherwise cost/task × " +
-          data.taskCount + " tasks";
+          data.taskCount + " tasks");
       results.appendChild(element("p", "fa-benchmark__run-total", runTotalNote));
       body.appendChild(results);
       root.appendChild(body);

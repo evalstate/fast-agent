@@ -976,7 +976,16 @@ async def test_local_read_text_file_option_is_enabled_by_default() -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "model_name",
-    ["codexplan", "gpt-5.2", "gpt-5.4", "responses.gpt-5.4"],
+    [
+        "codexplan",
+        "astra",
+        "gpt-6-astra",
+        "codexresponses.gpt-6-astra",
+        "responses.gpt-6-astra",
+        "gpt-5.2",
+        "gpt-5.4",
+        "responses.gpt-5.4",
+    ],
 )
 async def test_write_text_file_auto_mode_prefers_apply_patch_for_codex_family_models(
     model_name: str,

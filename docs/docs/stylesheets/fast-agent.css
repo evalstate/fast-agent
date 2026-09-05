@@ -1582,8 +1582,8 @@ table.fa-table {
 .fa-benchmark__tooltip-cost--winner { fill: var(--a-hi); }
 .fa-benchmark__detail {
   display: grid;
-  grid-template-rows: 24px 24px;
-  height: 57px;
+  grid-template-rows: auto auto;
+  min-height: 57px;
   margin-left: 72px;
   padding-top: var(--sp-2);
   border-top: var(--bw) solid var(--b-1);
@@ -1597,7 +1597,7 @@ table.fa-table {
 }
 .fa-benchmark__detail-main strong { color: var(--fg-0); }
 .fa-benchmark__detail-main span { color: var(--fg-2); }
-.fa-benchmark__detail-main a { margin-left: auto; font-weight: 600; }
+.fa-benchmark__detail-main a { margin-left: auto; font-weight: 600; white-space: nowrap; }
 .fa-benchmark__status-badge {
   flex: none;
   padding: 1px 5px;
@@ -1811,7 +1811,7 @@ table.fa-table {
   .fa-benchmark__chart-area { padding-left: 0; }
   .fa-benchmark__detail {
     grid-template-rows: auto auto;
-    height: 88px;
+    min-height: 88px;
     margin-left: 58px;
   }
   .fa-benchmark-stats { grid-template-columns: 1fr; }

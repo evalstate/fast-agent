@@ -107,6 +107,7 @@ from fast_agent.paths import resolve_home_paths
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_TOOL_NAME
+from fast_agent.tools.codex_web_search import CodexWebSearchAdapter
 from fast_agent.tools.edit_file_tool import EDIT_FILE_TOOL_NAME
 from fast_agent.tools.elicitation import (
     get_elicitation_tool,
@@ -283,6 +284,7 @@ class McpAgent(ABC, ToolAgent):
 
         # set with the "attach" method
         self._llm: FastAgentLLMProtocol | None = None
+        self._codex_web_search = CodexWebSearchAdapter(self)
 
         # Instantiate human input tool once if enabled in config
         self._human_input_tool = self._initial_human_input_tool()
@@ -659,6 +661,8 @@ class McpAgent(ABC, ToolAgent):
     async def _configure_cloned_instance(self, clone: "LlmDecorator") -> None:
         await super()._configure_cloned_instance(clone)
         mcp_clone = cast("McpAgent", clone)
+        # Tool invocations can share names and context, but not search references.
+        mcp_clone._codex_web_search.detached = True
         attached = set(mcp_clone.list_attached_mcp_servers())
         for server_name in self.list_attached_mcp_servers():
             if server_name not in attached:
@@ -1604,12 +1608,17 @@ class McpAgent(ABC, ToolAgent):
         Returns:
             Result of the tool call
         """
-        local_result = await self._call_local_tool(
-            name,
-            arguments,
-            tool_use_id,
-            request_params=request_params,
-        )
+        with self._codex_web_search.turn(request_params):
+            self._codex_web_search.sync()
+            denial = await self._codex_web_search.permission_error(name, arguments, tool_use_id)
+            if denial is not None:
+                return denial
+            local_result = await self._call_local_tool(
+                name,
+                arguments,
+                tool_use_id,
+                request_params=request_params,
+            )
         if local_result is not None:
             return local_result
 
@@ -1926,6 +1935,14 @@ class McpAgent(ABC, ToolAgent):
         return response.first_text()
 
     async def run_tools(
+        self,
+        request: PromptMessageExtended,
+        request_params: RequestParams | None = None,
+    ) -> PromptMessageExtended:
+        with self._codex_web_search.turn(request_params):
+            return await self._run_mcp_tools(request, request_params)
+
+    async def _run_mcp_tools(
         self,
         request: PromptMessageExtended,
         request_params: RequestParams | None = None,
@@ -2540,6 +2557,28 @@ class McpAgent(ABC, ToolAgent):
 
         return filtered_result
 
+    async def _generate_tool_turn_impl(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> PromptMessageExtended:
+        with self._codex_web_search.turn(request_params):
+            return await super()._generate_tool_turn_impl(messages, request_params, tools)
+
+    def clear(self, *, clear_prompts: bool = False) -> None:
+        super().clear(clear_prompts=clear_prompts)
+        self._codex_web_search.history_loaded(None)
+
+    def load_message_history(
+        self, messages: list[PromptMessageExtended] | None, *, clear_state: bool = False
+    ) -> None:
+        if clear_state:
+            # Reset provider/agent state without overwriting persisted search identity.
+            super().clear(clear_prompts=True)
+        super().load_message_history(messages)
+        self._codex_web_search.history_loaded(messages)
+
     async def list_tools(self) -> ListToolsResult:
         """
         List all tools available to this agent, filtered by configuration.
@@ -2547,6 +2586,7 @@ class McpAgent(ABC, ToolAgent):
         Returns:
             ListToolsResult with available tools
         """
+        self._codex_web_search.sync()
         # Start with filtered aggregator tools and merge in subclass/local tools
         merged_tools: list[Tool] = await self._get_filtered_mcp_tools()
         existing_names = {tool.name for tool in merged_tools}

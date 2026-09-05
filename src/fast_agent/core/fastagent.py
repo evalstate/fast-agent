@@ -1011,8 +1011,13 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
             messages: list[PromptMessageExtended] = []
             for history_file in history_files:
                 messages.extend(load_prompt(history_file))
-            agent.clear(clear_prompts=True)
-            agent.message_history.extend(messages)
+            from fast_agent.agents.llm_decorator import LlmDecorator
+
+            if isinstance(agent, LlmDecorator):
+                agent.load_message_history(messages, clear_state=True)
+            else:
+                agent.clear(clear_prompts=True)
+                agent.message_history.extend(messages)
             mtime = self._get_history_files_mtime(history_files)
             self._record_history_snapshot(name, len(messages), mtime)
 

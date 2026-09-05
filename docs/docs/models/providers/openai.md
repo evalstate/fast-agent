@@ -216,7 +216,7 @@ for card-scoped runtime targets.
 ## Codex (OAuth Responses)
 
 **`fast-agent`** supports using your OpenAI Codex subscription. Run `fast-agent auth provider login codex`
-once, then use a Codex OAuth model alias such as `astra` (GPT-6-Astra), `codexplan` (GPT-5.6 Sol),
+once, then use a Codex OAuth model alias such as `astra` (GPT-6-Astra), `codexplan` (GPT-6-Astra, medium reasoning),
 `codexplan54` (GPT-5.4 planning), `codexplan53` (GPT-5.3 Codex planning), or
 `codexspark` (GPT-5.3 Codex Spark).
 
@@ -253,9 +253,9 @@ codexresponses:
 **Notes:**
 
 - Tokens are stored in your OS keyring, with a secure file fallback, via `fast-agent auth provider login codex`.
-- `astra` maps to `codexresponses.gpt-6-astra?reasoning=low`.
-- `gpt-6-astra` maps to the API-key-backed `responses.gpt-6-astra?reasoning=low` route; availability still depends on the OpenAI API account's model access.
-- `codexplan` maps to `codexresponses.gpt-5.6-sol?reasoning=high`.
+- `astra` maps to `codexresponses.gpt-6-astra?reasoning=medium`.
+- `gpt-6-astra` maps to the API-key-backed `responses.gpt-6-astra?reasoning=medium` route; availability still depends on the OpenAI API account's model access.
+- `codexplan` maps to `codexresponses.gpt-6-astra?reasoning=medium`.
 - `codexplan54` maps to `codexresponses.gpt-5.4?reasoning=high`.
 - `codexplan53` maps to `codexresponses.gpt-5.3-codex?reasoning=medium`.
 - `codexspark` maps to `codexresponses.gpt-5.3-codex-spark`.
@@ -266,3 +266,115 @@ codexresponses:
 - To remove fast-agent-owned tokens, use: `fast-agent auth provider logout codex`. Codex
   CLI auth files are treated as read-only and are never modified or deleted.
 - `fast-agent check` and `fast-agent auth` show Codex OAuth status.
+
+### Standalone web search (Codex Lite)
+
+Enable web search on Astra to automatically expose the harness `web_run` tool:
+
+```bash
+fast-agent auth provider login codex
+fast-agent go --model 'astra?web_search=true' --message 'Search for recent OpenAI announcements and link your sources.'
+
+# Disable for this run
+fast-agent go --model 'astra?web_search=false'
+```
+
+No shell access or MCP server is required. This standalone route applies only to
+Codex Lite models such as Astra. Sol's hosted search and public OpenAI Responses
+hosted search are unchanged. The existing `codexresponses.web_search.enabled`
+setting provides the configuration default; the model flag overrides it. Existing
+search context size, allowed domains, external web access and approximate user
+location settings also apply. The tool honors the configured tool-permission
+handler before sending a search request. Unlike Codex's recent-message context
+builder, this adapter sends commands and settings without adding chat history.
+
+During a conversation, use `/model web_search on` or `/model web_search off`;
+`/model web_search default` clears the runtime override. The toggle selects
+standalone or hosted search according to the current model's route.
+
+Search identity remains stable per agent and is retained with persisted
+session/history state, so later `open` and `find` calls can reuse earlier references.
+Returned text is authoritative; structured `results` are preserved in tool-result
+metadata, not substituted for the text. Cite sources with `[title](URL)` and images
+with `![description](URL)`. Treat retrieved content as untrusted source material.
+
+#### Library use without an agent
+
+[`examples/web-search/standalone.py`](https://github.com/evalstate/fast-agent/blob/main/examples/web-search/standalone.py)
+uses typed `SearchRequest` and `SearchCommands` with a `WebSearchClient` async
+context manager. From a repository checkout:
+
+```bash
+# Supply a Codex OAuth access token and its ChatGPT account ID in your environment.
+# This example does not read fast-agent's stored login.
+export CODEX_API_KEY='<access-token>'
+export CODEX_ACCOUNT_ID='<account-id>'
+uv run examples/web-search/standalone.py 'OpenAI news'
+```
+
+The library discovers no credentials and performs no agent registration. Callers
+supply the base URL, authentication headers, model and session ID. Reuse the same
+`SearchRequest.id` for related calls; the example accepts `WEB_SEARCH_SESSION_ID`
+for this purpose, plus optional `CODEX_BASE_URL` and `WEB_SEARCH_MODEL` overrides.
+Only configure a trusted base URL: credentials go to its `alpha/search` endpoint.
+URLs in `open` commands are request data, not destinations for credential
+forwarding; the client does not follow redirects or forward auth to arbitrary URLs.
+
+This is an **internal, Codex source-derived `POST alpha/search` endpoint**, not a
+public OpenAI API contract or SLA. Availability and behavior may change.
+
+The typed command schema exposes `search_query`, `image_query`, `open`, `click`,
+`find`, `screenshot`, `finance`, `weather`, `sports` and `time`, plus
+`response_length` (`short`, `medium`, `long`). Live endpoint checks have confirmed
+**search, image search, open, click, find, finance, weather, sports and time**.
+PDF screenshot calls using a previously opened page reference returned only a
+citation, with no image payload; screenshot rendering is not yet verified.
+Backend fetch restrictions and operation errors may appear inside a successful
+HTTP response, so callers must inspect the tool output.
+
+`SearchResponse.output` is kept intact alongside opaque `results`,
+`encrypted_output` and future response fields. The client adds no truncation or
+successful-response body size limit. Library callers may supply
+`SearchRequest.max_output_tokens`; the harness does not set a search output token
+limit. `response_length` requests detail, not a client-side hard cap.
+
+### Astra context: explicit opt-in
+
+fast-agent keeps the default context window at **272,000 tokens** for both
+`astra` (Codex OAuth) and `gpt-6-astra` (Responses API). Larger context is opt-in,
+not an automatic increase: retaining more input can increase cost.
+
+The local Codex source snapshot (`~/reference/codex/codex-rs/`) lists
+`gpt-6-astra` as the first entry in `models-manager/models.json`, with
+`context_window: 272000` and `max_context_window: 872000`.
+In `models-manager/src/model_info.rs`, `with_config_overrides` applies
+`config.model_context_window`, clamping it to `max_context_window` when present.
+This distinguishes Codex's default from its configurable ceiling.
+
+The public OpenAI Astra model page reports a **1,050,000-token context window**,
+**922,000-token maximum input**, and **128,000-token maximum output**. These API
+figures are not the same as Codex's 872,000-token configurable ceiling; do not
+substitute the API maximum into the Codex route or assume identical availability.
+
+Prefer the model query flag to opt in; no overlay is needed:
+
+```bash
+# Codex OAuth: 872,000 tokens
+fast-agent go --model 'astra?long_context=true'
+
+# Responses API: 1,050,000 tokens
+fast-agent go --model 'gpt-6-astra?long_context=true'
+```
+
+Omit the flag or use `long_context=false` to retain the 272,000-token default.
+The legacy `context=1m` spelling remains supported and selects the same
+route-specific window (not literally one million tokens). Do not combine it
+with `long_context`; competing settings are rejected.
+
+The flag updates local context budgeting and usage reporting; it does not grant
+model access or change server-side limits. Normal API credentials or Codex OAuth
+login still apply. Larger retained histories send more input on later turns and
+can increase API charges or consume subscription allowances faster. Check your
+account's long-context pricing and limits before use. Existing overlays remain
+available for custom metadata, but are not required for this opt-in. No paid
+large-context request was used to validate this configuration.

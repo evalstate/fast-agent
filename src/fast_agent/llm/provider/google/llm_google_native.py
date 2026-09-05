@@ -1509,13 +1509,15 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             turn_messages.extend(self._converter.convert_to_google_content([last_message]))
         if not turn_messages:
             raise ValueError("Google generateContent requires a non-empty final user turn.")
-        if self._is_gemini_37(model) and not self._has_google_final_turn_input(turn_messages):
-            raise ValueError("Gemini 3.7 Flash requires non-empty text in the final user turn.")
+        if self._requires_final_turn_text(model) and not self._has_google_final_turn_input(
+            turn_messages
+        ):
+            raise ValueError(f"{model.strip()} requires non-empty text in the final user turn.")
         return turn_messages
 
     @staticmethod
-    def _is_gemini_37(model: str) -> bool:
-        return strip_casefold(model).endswith("gemini-3.7-flash")
+    def _requires_final_turn_text(model: str) -> bool:
+        return strip_casefold(model).endswith(("gemini-3.7-flash", "gemini-3.8-flash"))
 
     @staticmethod
     def _has_google_final_turn_input(turn_messages: list[types.Content]) -> bool:

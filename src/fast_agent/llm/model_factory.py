@@ -98,6 +98,7 @@ _SINGLE_VALUE_MODEL_QUERY_KEYS = (
     "structured",
     "instant",
     "context",
+    "long_context",
     "transport",
     "service_tier",
     "streaming_timeout",
@@ -220,7 +221,7 @@ class ModelQueryOverrides:
     text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
     structured_tool_policy: StructuredToolPolicy | None = None
-    long_context: bool = False
+    long_context: bool | None = None
     transport: TransportSetting | None = None
     service_tier: ServiceTierSetting | None = None
     web_search: bool | None = None
@@ -255,7 +256,7 @@ class ModelQueryOverrides:
             structured_tool_policy=coalesce(
                 self.structured_tool_policy, defaults.structured_tool_policy
             ),
-            long_context=self.long_context or defaults.long_context,
+            long_context=coalesce(self.long_context, defaults.long_context),
             transport=coalesce(self.transport, defaults.transport),
             service_tier=coalesce(self.service_tier, defaults.service_tier),
             web_search=coalesce(self.web_search, defaults.web_search),
@@ -309,7 +310,7 @@ class ParsedModelSpec:
             text_verbosity=self.query_overrides.text_verbosity,
             structured_output_mode=self.query_overrides.structured_output_mode,
             structured_tool_policy=self.query_overrides.structured_tool_policy,
-            long_context=self.query_overrides.long_context,
+            long_context=self.query_overrides.long_context or False,
             transport=self.query_overrides.transport,
             service_tier=self.query_overrides.service_tier,
             web_search=self.query_overrides.web_search,
@@ -564,7 +565,12 @@ def _parse_web_tool_queries(
     }
 
 
-def _parse_context_query(query_params: ModelQueryPairs, model_spec: str) -> bool:
+def _parse_context_query(query_params: ModelQueryPairs, model_spec: str) -> bool | None:
+    if _has_query_key(query_params, "long_context"):
+        if _has_query_key(query_params, "context"):
+            raise ModelConfigError(f"Multiple long context settings provided for '{model_spec}'.")
+        raw_value = _collect_query_values(query_params, ("long_context",))[-1]
+        return _parse_bool_query(raw_value, "long_context", model_spec)
     if _has_query_key(query_params, "context"):
         normalized_value = strip_casefold(_collect_query_values(query_params, ("context",))[-1])
         if normalized_value == "1m":
@@ -572,7 +578,7 @@ def _parse_context_query(query_params: ModelQueryPairs, model_spec: str) -> bool
         raise ModelConfigError(
             f"Invalid context query value: '{normalized_value}' — only '1m' is supported"
         )
-    return False
+    return None
 
 
 def _parse_transport_query(

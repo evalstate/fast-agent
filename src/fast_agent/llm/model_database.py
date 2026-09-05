@@ -299,7 +299,7 @@ class ModelDatabase:
     OPENAI_GPT_6_ASTRA_REASONING = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["low", "medium", "high", "xhigh", "max"],
-        default=ReasoningEffortSetting(kind="effort", value="low"),
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
     )
 
     OPENAI_GPT_5_CODEX_CLASS_REASONING = ReasoningEffortSpec(
@@ -622,9 +622,10 @@ class ModelDatabase:
     OPENAI_GPT_6_ASTRA = ModelParameters(
         context_window=272_000,
         max_output_tokens=128_000,
-        tokenizes=OPENAI_VISION,
+        tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
         reasoning_effort_spec=OPENAI_GPT_6_ASTRA_REASONING,
+        shell_edit_tool="apply_patch",
         text_verbosity_spec=TextVerbositySpec(default="low"),
         response_transports=("sse", "websocket"),
         response_websocket_providers=(Provider.RESPONSES, Provider.CODEX_RESPONSES),
@@ -712,6 +713,17 @@ class ModelDatabase:
         update={
             "reasoning_effort_spec": ANTHROPIC_ALWAYS_ON_ADAPTIVE_THINKING_EFFORT_SPEC,
             "anthropic_thinking_field_required": False,
+        }
+    )
+
+    ANTHROPIC_FABLE_51 = ANTHROPIC_FABLE_5.model_copy(
+        update={
+            "reasoning_effort_spec": ReasoningEffortSpec(
+                kind="effort",
+                allowed_efforts=["low", "medium", "high", "xhigh", "max"],
+                allow_auto=True,
+                default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
+            ),
         }
     )
 
@@ -867,6 +879,9 @@ class ModelDatabase:
         }
     )
 
+    # Gemini 3.8 retains the documented 3.7 limits, thinking levels, and Flex support.
+    GEMINI_38_FLASH = GEMINI_37_FLASH.model_copy()
+
     GEMINI_2_FLASH = ModelParameters(
         context_window=1_048_576,
         max_output_tokens=8192,
@@ -1014,6 +1029,7 @@ class ModelDatabase:
         reasoning_effort_spec=MUSE_SPARK_REASONING_EFFORT_SPEC,
         default_provider=Provider.META_AI,
         response_transports=("sse",),
+        model_specific="You have vision capabilities.",
     )
 
     # H U G G I N G F A C E - max output tokens are not documented, using 16k as a reasonable default
@@ -1339,6 +1355,7 @@ class ModelDatabase:
         "claude-opus-4-8": ANTHROPIC_OPUS_48,
         "claude-opus-5": ANTHROPIC_OPUS_5,
         "claude-fable-5": ANTHROPIC_FABLE_5,
+        "claude-fable-5-1": ANTHROPIC_FABLE_51,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),
@@ -1355,6 +1372,7 @@ class ModelDatabase:
         "gemini-2.0-flash": _with_fast(GEMINI_2_FLASH),
         "gemini-2.5-pro": GEMINI_25_STANDARD,
         "gemini-2.5-flash": _with_fast(GEMINI_25_STANDARD),
+        "gemini-3.8-flash": _with_fast(GEMINI_38_FLASH),
         "gemini-3.7-flash": _with_fast(GEMINI_37_FLASH),
         "gemini-3.5-flash": _with_fast(GEMINI_STANDARD_STRUCTURED),
         "gemini-3-pro-preview": GEMINI_STANDARD,
@@ -1417,6 +1435,15 @@ class ModelDatabase:
             ("gpt-5.6-luna", _with_fast(OPENAI_GPT_56_LUNA)),
         )
     }
+    # Astra's extended window is opt-in and specific to the Responses route.
+    _PROVIDER_MODEL_OVERRIDES.update(
+        {
+            (Provider.RESPONSES, "gpt-6-astra"): _with_long_context(OPENAI_GPT_6_ASTRA, 1_050_000),
+            (Provider.CODEX_RESPONSES, "gpt-6-astra"): _with_long_context(
+                OPENAI_GPT_6_ASTRA, 872_000
+            ),
+        }
+    )
     _PROVIDER_MODEL_OVERRIDES[(Provider.ZAI, "glm-5.2")] = GLM_5_2.model_copy(
         update={
             "default_provider": Provider.ZAI,

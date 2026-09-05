@@ -94,9 +94,9 @@ class ModelSelectionCatalog:
         ),
         Provider.GOOGLE: (
             CatalogModelEntry(
-                alias="gemini37flash",
-                display_label="Gemini 3.7 Flash",
-                model="google.gemini-3.7-flash",
+                alias="gemini38flash",
+                display_label="Gemini 3.8 Flash",
+                model="google.gemini-3.8-flash",
                 fast=True,
                 description=(
                     "GA coding and agent model. Through Dec 31, 2026, Standard is "

@@ -13,6 +13,7 @@
 | `claude-3-5-haiku-20241022` | `anthropic` | Text, Vision, Document | `tool_use` | — | — | `web_search` (web_search_20250305)<br>`web_fetch` (web_fetch_20250910) |
 | `claude-3-5-haiku-latest` | `anthropic` | Text, Vision, Document | `tool_use` | — | — | `web_search` (web_search_20250305)<br>`web_fetch` (web_fetch_20250910) |
 | `claude-3-5-haiku` | `anthropic` | Text, Vision, Document | `tool_use` | — | — | `web_search` (web_search_20250305)<br>`web_fetch` (web_fetch_20250910) |
+| `claude-fable-5-1` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `xhigh`, `max`<br>Example: `claude-fable-5-1?reasoning=auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
 | `claude-haiku-4-5-20251001` | `anthropic` | Text, Vision, Document | `json` (schema) | budget: `low`, `medium`, `high`, `max`, `0`, `1024`, `16000`, `32000`, `off`<br>Example: `claude-haiku-4-5-20251001?reasoning=1024` | — | `web_search` (web_search_20250305)<br>`web_fetch` (web_fetch_20250910) |
 | `claude-opus-4-0` | `anthropic` | Text, Vision, Document | `tool_use` | budget: `low`, `medium`, `high`, `max`, `0`, `1024`, `16000`, `32000`, `off`<br>Example: `claude-opus-4-0?reasoning=1024` | — | `web_search` (web_search_20250305)<br>`web_fetch` (web_fetch_20250910) |
 | `claude-opus-4-1` | `anthropic` | Text, Vision, Document | `json` (schema) | budget: `low`, `medium`, `high`, `max`, `0`, `1024`, `16000`, `32000`, `off`<br>Example: `claude-opus-4-1?reasoning=1024` | — | `web_search` (web_search_20250305)<br>`web_fetch` (web_fetch_20250910) |
@@ -30,7 +31,7 @@
 | `opus4` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `opus4?reasoning=auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
 | `opus` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `opus?reasoning=auto` | — | `web_search` (web_search_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
 | `sonnet4` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `max`, `off`<br>Example: `sonnet4?reasoning=auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
-| `astra` | `codexresponses` | Text, Vision | `json` (schema) | effort: `low`, `medium`, `high`, `xhigh`, `max`<br>Example: `astra?reasoning=low` | `low`, `medium`, `high`<br>Example: `astra?verbosity=low` | — |
+| `astra` | `codexresponses` | Text, Vision, Document | `json` (schema) | effort: `low`, `medium`, `high`, `xhigh`, `max`<br>Example: `astra?reasoning=medium` | `low`, `medium`, `high`<br>Example: `astra?verbosity=low` | — |
 | `codexspark` | `codexresponses` | Text | `json` (schema) | — | — | — |
 | `luna` | `codexresponses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `luna?reasoning=high` | `low`, `medium`, `high`<br>Example: `luna?verbosity=low` | — |
 | `sol` | `codexresponses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `sol?reasoning=high` | `low`, `medium`, `high`<br>Example: `sol?verbosity=low` | — |
@@ -48,6 +49,7 @@
 | `gemini3.1` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini3.1?reasoning=medium` | — | — |
 | `gemini3.1flashlite` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini3.1flashlite?reasoning=medium` | — | — |
 | `gemini35` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini35?reasoning=medium` | — | — |
+| `gemini37` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `gemini37?reasoning=medium` | — | — |
 | `gemini3` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini3?reasoning=medium` | — | — |
 | `gemini3flash` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini3flash?reasoning=medium` | — | — |
 | `gemini` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `gemini?reasoning=medium` | — | — |
@@ -83,6 +85,8 @@
 | `qwen35` | `hf` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen35?reasoning=off` | — | — |
 | `qwen36` | `hf` | Text | — | toggle: `on`, `off`<br>Example: `qwen36?reasoning=off` | — | — |
 | `Muse Spark 1.1` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `Muse Spark 1.1?reasoning=medium` | — | — |
+| `Muse Spark 1.2 (Contributor)` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `Muse Spark 1.2 (Contributor)?reasoning=medium` | — | — |
+| `Muse Spark 1.2` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `Muse Spark 1.2?reasoning=medium` | — | — |
 | `muse` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `muse?reasoning=medium` | — | — |
 | `musecontrib` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `musecontrib?reasoning=medium` | — | — |
 | `kimik3` | `moonshot` | Text, Vision, Video | `json` (schema) | effort: `low`, `high`, `max`<br>Example: `kimik3?reasoning=max` | — | — |

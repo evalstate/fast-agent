@@ -1,10 +1,10 @@
 | Model string or alias | Resolves to / equivalent | Notes |
 | --- | --- | --- |
-| `astra` | `codexresponses.gpt-6-astra?reasoning=low` | — |
+| `astra` | `codexresponses.gpt-6-astra?reasoning=medium` | — |
 | `sol` | `codexresponses.gpt-5.6-sol?reasoning=high` | — |
 | `terra` | `codexresponses.gpt-5.6-terra?reasoning=high` | — |
 | `luna` | `codexresponses.gpt-5.6-luna?reasoning=medium` | — |
-| `codexplan` | `codexresponses.gpt-5.6-sol?reasoning=high` | — |
+| `codexplan` | `codexresponses.gpt-6-astra?reasoning=medium` | — |
 | `codexplan55` | `codexresponses.gpt-5.5?reasoning=medium` | — |
 | `codexplan54` | `codexresponses.gpt-5.4?reasoning=high` | — |
 | `codexplan53` | `codexresponses.gpt-5.3-codex?reasoning=medium` | — |

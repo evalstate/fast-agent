@@ -65,18 +65,20 @@ def test_gemini35_flash_defaults_to_medium_thinking_level() -> None:
 
 
 @pytest.mark.unit
-def test_gemini37_flash_supports_only_level_based_thinking() -> None:
-    spec = ModelDatabase.get_reasoning_effort_spec("gemini-3.7-flash")
+@pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.8-flash"])
+def test_current_flash_supports_only_level_based_thinking(model: str) -> None:
+    spec = ModelDatabase.get_reasoning_effort_spec(model)
 
     assert spec is not None
     assert spec.allowed_efforts == ["low", "medium", "high"]
-    llm = _build_llm(model="gemini-3.7-flash")
+    llm = _build_llm(model=model)
     assert llm._resolve_thinking_config() == (None, "MEDIUM")
 
 
 @pytest.mark.unit
-def test_gemini37_numeric_budget_falls_back_to_medium_level() -> None:
-    llm = _build_llm(model="gemini-3.7-flash", reasoning_effort=8192)
+@pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.8-flash"])
+def test_current_flash_numeric_budget_falls_back_to_medium_level(model: str) -> None:
+    llm = _build_llm(model=model, reasoning_effort=8192)
 
     assert llm._resolve_thinking_config() == (None, "MEDIUM")
 

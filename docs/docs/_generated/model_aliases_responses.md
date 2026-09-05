@@ -18,7 +18,7 @@
 | `gpt-5.6-luna` | `responses.gpt-5.6-luna?reasoning=medium` |
 | `gpt-5.6-sol` | `responses.gpt-5.6-sol?reasoning=medium` |
 | `gpt-5.6-terra` | `responses.gpt-5.6-terra?reasoning=medium` |
-| `gpt-6-astra` | `responses.gpt-6-astra?reasoning=low` |
+| `gpt-6-astra` | `responses.gpt-6-astra?reasoning=medium` |
 | `gpt51` | `responses.gpt-5.1` |
 | `gpt52` | `responses.gpt-5.2` |
 | `gpt54` | `responses.gpt-5.4` |
@@ -29,7 +29,7 @@
 | `gpt56-luna` | `responses.gpt-5.6-luna` |
 | `gpt56-sol` | `responses.gpt-5.6-sol` |
 | `gpt56-terra` | `responses.gpt-5.6-terra` |
-| `gpt6astra` | `responses.gpt-6-astra?reasoning=low` |
+| `gpt6astra` | `responses.gpt-6-astra?reasoning=medium` |
 | `o1` | `o1` |
 | `o1-mini` | `o1-mini` |
 | `o1-preview` | `o1-preview` |

@@ -149,6 +149,15 @@ def test_huggingface_provider_is_inactive_without_hub_login_or_token(
     assert _provider_option(snapshot, Provider.HUGGINGFACE).active is False
 
 
+def test_astra_picker_defaults_to_medium_reasoning() -> None:
+    for model in ("astra", "codexplan", "gpt-6-astra"):
+        capabilities = model_capabilities(model)
+
+        assert capabilities.model_name == "gpt-6-astra"
+        assert capabilities.default_reasoning == "effort=medium"
+        assert "low" in capabilities.reasoning_values
+
+
 def test_openresponses_models_do_not_report_web_search_support() -> None:
     capabilities = model_capabilities("openresponses.gpt-5-mini")
 
