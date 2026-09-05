@@ -61,7 +61,6 @@ GENERIC_CUSTOM_MODEL_SENTINEL = "generic.__custom__"
 LLAMACPP_PROVIDER_KEY = "llamacpp"
 LLAMACPP_IMPORT_SENTINEL = "llamacpp.__import__"
 PROVIDER_PREFIX_DELIMITERS = ("/", ".")
-ProviderActiveCheck = Callable[[dict[str, Any]], bool]
 ModelSpecTransform = Callable[[str], str]
 
 
@@ -120,10 +119,6 @@ class ModelPickerSnapshot:
     config_payload: dict[str, Any]
 
 
-def _provider_is_active(provider: Provider, config_payload: dict[str, Any]) -> bool:
-    return provider_credential_summary(provider, config_payload).active
-
-
 def _google_vertex_is_active(config_payload: dict[str, Any]) -> bool:
     google_cfg = config_payload.get("google")
     if not isinstance(google_cfg, dict):
@@ -144,13 +139,6 @@ def _azure_default_credential_is_active(config_payload: dict[str, Any]) -> bool:
 
 def _huggingface_hub_is_active(_config_payload: dict[str, Any]) -> bool:
     return is_huggingface_hub_logged_in()
-
-
-_PROVIDER_ACTIVE_CHECKS: dict[Provider, ProviderActiveCheck] = {
-    Provider.GOOGLE: _google_vertex_is_active,
-    Provider.AZURE: _azure_default_credential_is_active,
-    Provider.HUGGINGFACE: _huggingface_hub_is_active,
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,10 +200,6 @@ def provider_credential_summary(
 
     if provider in {Provider.FAST_AGENT, Provider.GENERIC}:
         return ProviderCredentialSummary(active=True, label="local")
-
-    if active_check := _PROVIDER_ACTIVE_CHECKS.get(provider):
-        if active_check(config_payload):
-            return ProviderCredentialSummary(active=True)
 
     return ProviderCredentialSummary(active=False)
 

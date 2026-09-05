@@ -49,7 +49,6 @@ from fast_agent.llm.provider.openai._stream_capture import (
 from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
 from fast_agent.llm.provider.openai.schema_sanitizer import (
-    sanitize_response_format_schema,
     sanitize_tool_input_schema,
     should_strip_tool_schema_defaults,
 )
@@ -194,6 +193,7 @@ class _OpenAIStopResult:
 
 
 class OpenAILLM(
+    OpenAIStructuredOutputMixin,
     OpenAIToolNotificationMixin,
     ResponsesFileMixin,
     FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage],
@@ -213,24 +213,6 @@ class OpenAILLM(
         FastAgentLLM.PARAM_MCP_METADATA,
         FastAgentLLM.PARAM_STOP_SEQUENCES,
     }
-
-    _prepare_structured_request = OpenAIStructuredOutputMixin._prepare_structured_request
-    _apply_prompt_provider_specific_structured_schema = (
-        OpenAIStructuredOutputMixin._apply_prompt_provider_specific_structured_schema
-    )
-
-    @staticmethod
-    def schema_to_response_format(
-        schema: dict[str, Any],
-        *,
-        name: str = "structured_output",
-        strict: bool = True,
-    ) -> dict[str, Any]:
-        return FastAgentLLM.schema_to_response_format(
-            sanitize_response_format_schema(schema) if strict else schema,
-            name=name,
-            strict=strict,
-        )
 
     def __init__(self, provider: Provider = Provider.OPENAI, **kwargs) -> None:
         self._reasoning_field: str | None = kwargs.pop("reasoning_field", None)

@@ -101,3 +101,46 @@ def test_tool_activities_include_standard_tool_calls_and_results() -> None:
     assert [(item.kind, item.tool_name, item.is_remote) for item in user_activities] == [
         ("result", "lookup", False)
     ]
+
+
+def test_mixed_tool_activities_have_contiguous_order_without_mutating_message() -> None:
+    message = PromptMessageExtended(
+        role="assistant",
+        tool_calls={
+            "local": CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(name="lookup"),
+            )
+        },
+        tool_results={"local": CallToolResult(content=[], is_error=True)},
+        channels={
+            ANTHROPIC_SERVER_TOOLS_CHANNEL: [
+                TextContent(type="text", text='{"type":"mcp_tool_use"}'),
+                TextContent(
+                    type="text",
+                    text='{"type":"mcp_tool_use","id":"remote","name":"search","input":{"q":"hello"}}',
+                ),
+                TextContent(
+                    type="text",
+                    text='{"type":"mcp_tool_result","tool_use_id":"remote","is_error":true}',
+                ),
+            ]
+        },
+    )
+    original = message.model_dump()
+
+    activities = tool_activities_for_message(message, tool_name_lookup={"local": "lookup"})
+
+    assert [activity.order for activity in activities] == [0, 1, 2, 3]
+    assert [activity.tool_name for activity in activities] == [
+        "lookup",
+        "lookup",
+        "search",
+        "search",
+    ]
+    assert activities[0].arguments == {}
+    assert activities[2].arguments == {"q": "hello"}
+    assert activities[3].is_remote and activities[3].is_error
+    assert message.model_dump() == original
+    assert tool_activities_for_message(message, tool_name_lookup={"local": "lookup"}) == activities
+    assert [activity.order for activity in remote_tool_activities(message)] == [1, 2]

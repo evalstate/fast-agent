@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock
@@ -8,6 +9,7 @@ from unittest.mock import Mock
 import pytest
 from acp.helpers import text_block, update_agent_thought_text
 
+from fast_agent.acp.server import prompt_flow as prompt_flow_module
 from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
 from fast_agent.acp.server.prompt_flow import ACPPromptFlow
 from fast_agent.acp.server.prompt_flow import PromptFlowHost as ACPPromptFlowHost
@@ -58,6 +60,22 @@ class EmptyStructuredAgent:
                 stop_reason=LlmStopReason.END_TURN,
             ),
         )
+
+
+class BlockingAgent(EmptyStructuredAgent):
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def generate(
+        self,
+        _message: PromptMessageExtended,
+        *,
+        request_params: Any = None,
+    ) -> PromptMessageExtended:
+        self.started.set()
+        await self.release.wait()
+        return PromptMessageExtended(role="assistant", content=[])
 
 
 class FakePromptFlowHost(ACPPromptFlowHost):
@@ -126,6 +144,39 @@ class DummyStructuredStreamResult:
 
     def last_text(self) -> str:
         return '{"answer":"ok"}'
+
+
+@pytest.mark.asyncio
+async def test_acp_prompt_holds_herdr_working_scope_until_agent_completes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = BlockingAgent()
+    flow = ACPPromptFlow(FakePromptFlowHost(agent))
+    active_depth = 0
+
+    @contextmanager
+    def tracked_working_scope():
+        nonlocal active_depth
+        active_depth += 1
+        try:
+            yield
+        finally:
+            active_depth -= 1
+
+    monkeypatch.setattr(prompt_flow_module, "herdr_working", tracked_working_scope)
+
+    prompt_task = asyncio.create_task(
+        flow.prompt_locked(
+            prompt=[text_block("delegate this")],
+            session_id="session-1",
+        )
+    )
+    await agent.started.wait()
+    assert active_depth == 1
+
+    agent.release.set()
+    await prompt_task
+    assert active_depth == 0
 
 
 @pytest.mark.asyncio

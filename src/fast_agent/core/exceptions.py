@@ -45,15 +45,9 @@ class ServerConfigError(FastAgentError):
     Example: Server name referenced in agent.servers[] but not defined in config
     """
 
-    def __init__(self, message: str, details: str = "") -> None:
-        super().__init__(message, details)
-
 
 class ConfigFileError(FastAgentError):
     """Raised when a YAML-backed config file cannot be loaded or parsed."""
-
-    def __init__(self, message: str, details: str = "") -> None:
-        super().__init__(message, details)
 
 
 class AgentConfigError(FastAgentError):
@@ -61,17 +55,11 @@ class AgentConfigError(FastAgentError):
     Example: Parallel fan-in references unknown agent
     """
 
-    def __init__(self, message: str, details: str = "") -> None:
-        super().__init__(message, details)
-
 
 class ProviderKeyError(FastAgentError):
     """Raised when there are issues with LLM provider API keys
     Example: OpenAI/Anthropic key not configured but model requires it
     """
-
-    def __init__(self, message: str, details: str = "") -> None:
-        super().__init__(message, details)
 
 
 class ProviderSafetyBufferingError(FastAgentError):
@@ -114,32 +102,21 @@ class ServerInitializationError(FastAgentError):
 class EnvironmentStartupError(FastAgentError):
     """Raised when an execution environment fails to start or attach."""
 
-    def __init__(self, message: str, details: str = "") -> None:
-        super().__init__(message, details)
-
 
 class ModelConfigError(FastAgentError):
     """Raised when there are issues with LLM model configuration
     Example: Unknown model name in model specification string
     """
 
-    def __init__(self, message: str, details: str = "") -> None:
-        super().__init__(message, details)
-
 
 class CircularDependencyError(FastAgentError):
     """Raised when we detect a Circular Dependency in the workflow"""
-
-    def __init__(self, message: str, details: str = "") -> None:
-        super().__init__(message, details)
 
 
 class PromptExitError(FastAgentError):
     """Raised from enhanced_prompt when the user requests hard exits"""
 
     # TODO an exception for flow control :(
-    def __init__(self, message: str, details: str = "") -> None:
-        super().__init__(message, details)
 
 
 class ServerSessionTerminatedError(FastAgentError):

@@ -13,7 +13,7 @@ from fast_agent.history.tool_activities import message_tool_call_count, message_
 from fast_agent.llm.usage_tracking import UsageReport
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types.conversation_summary import ConversationSummary
-from fast_agent.utils.numeric import nonnegative_int_or_none, nonnegative_number_or_none
+from fast_agent.utils.numeric import nonnegative_number_or_none
 from fast_agent.utils.text import collapse_whitespace
 
 if TYPE_CHECKING:
@@ -135,10 +135,6 @@ class _ReportMetricAccumulator:
     known_tps: list[float] = field(default_factory=list)
 
 
-def _extract_message_text(message: "PromptMessageExtended") -> str:
-    return message.all_text()
-
-
 def _preview_text(value: str | None, *, limit: int = 60) -> str:
     normalized = collapse_whitespace(value)
     if not normalized:
@@ -151,10 +147,6 @@ def _preview_text(value: str | None, *, limit: int = 60) -> str:
 def _coerce_float(value: object) -> float | None:
     numeric_value = nonnegative_number_or_none(value)
     return float(numeric_value) if numeric_value is not None else None
-
-
-def _coerce_int(value: object) -> int | None:
-    return nonnegative_int_or_none(value)
 
 
 def _json_object_or_none(value: object) -> JsonObject | None:
@@ -346,7 +338,7 @@ def _summarize_turn_messages(
     assistant_parts: list[str] = []
 
     for message in turn:
-        text = _extract_message_text(message)
+        text = message.all_text()
         if message.role == "user" and not message.tool_results:
             normalized = collapse_whitespace(text)
             if normalized:
@@ -576,7 +568,7 @@ def build_history_overview(
         recent_messages.extend(
             HistoryMessageSnippet(
                 role=str(message.role),
-                snippet=_preview_text(_extract_message_text(message)),
+                snippet=_preview_text(message.all_text()),
             )
             for message in messages[-recent_count:]
         )

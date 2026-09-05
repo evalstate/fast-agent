@@ -745,19 +745,6 @@ def _string_field(mapping: dict[str, object] | None, key: str) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _int_field(mapping: dict[str, object] | None, key: str) -> int | None:
-    if mapping is None:
-        return None
-    value = mapping.get(key)
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    return None
-
-
 def _float_field(mapping: dict[str, object] | None, key: str) -> float | None:
     if mapping is None:
         return None

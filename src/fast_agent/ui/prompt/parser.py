@@ -11,6 +11,7 @@ from fast_agent.commands.mcp_command_intents import (
     parse_mcp_no_args_tokens,
     parse_mcp_server_name_tokens,
 )
+from fast_agent.commands.option_parsing import first_shell_token_end
 from fast_agent.commands.shared_command_intents import (
     MODEL_MANAGER_COMMAND_ACTIONS,
     HistoryActionIntent,
@@ -662,30 +663,8 @@ def _parse_action_argument_command(
         return CommandError(message=f"Invalid /{command_name} arguments: {exc}")
     if not tokens:
         return factory("list", None)
-    action_end = _first_shell_token_end(stripped)
+    action_end = first_shell_token_end(stripped)
     return factory(strip_casefold(tokens[0]), strip_to_none(stripped[action_end:]))
-
-
-def _first_shell_token_end(text: str) -> int:
-    quote: str | None = None
-    escaped = False
-    for index, char in enumerate(text):
-        if escaped:
-            escaped = False
-            continue
-        if char == "\\" and quote != "'":
-            escaped = True
-            continue
-        if quote is not None:
-            if char == quote:
-                quote = None
-            continue
-        if char in {"'", '"'}:
-            quote = char
-            continue
-        if char.isspace():
-            return index
-    return len(text)
 
 
 def _parse_history_alias_filename(remainder: str) -> str | None:

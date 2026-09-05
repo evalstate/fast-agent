@@ -431,10 +431,3 @@ class CommandContext:
         if self.session_runtime is not None:
             return self.session_runtime.resolve_manager()
         raise RuntimeError("Sessions are not enabled for this command context.")
-
-    def _session_manager_cwd(self) -> "Path | None":
-        if self.session_store_scope == "app":
-            return None
-        if self.session_store_cwd is not None:
-            return self.session_store_cwd
-        return self.session_cwd

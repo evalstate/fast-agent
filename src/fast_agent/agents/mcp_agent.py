@@ -188,7 +188,6 @@ if TYPE_CHECKING:
     from fast_agent.agents.llm_decorator import LlmDecorator
     from fast_agent.agents.tool_call_planning import PlannedToolCall
     from fast_agent.context import Context
-    from fast_agent.llm.usage_tracking import UsageAccumulator
     from fast_agent.mcp.app_integrations import AppServerConfig
     from fast_agent.tools.environment_filesystem_runtime import EnvironmentFilesystemRuntime
     from fast_agent.tools.execution_environment import (
@@ -1434,15 +1433,6 @@ class McpAgent(ABC, ToolAgent):
         """
         self._instruction_context.update(context)
         self.logger.debug(f"Set instruction context for agent {self._name}: {list(context.keys())}")
-
-    async def __call__(
-        self,
-        message: str
-        | PromptMessage
-        | PromptMessageExtended
-        | Sequence[str | PromptMessage | PromptMessageExtended],
-    ) -> str:
-        return await self.send(message)
 
     def _matches_pattern(self, name: str, pattern: str) -> bool:
         """
@@ -2834,29 +2824,3 @@ class McpAgent(ABC, ToolAgent):
             # https://github.com/modelcontextprotocol/modelcontextprotocol/pull/93
             output_modes=None,  # ,["text/plain", "image/*"],
         )
-
-    @property
-    def message_history(self) -> list[PromptMessageExtended]:
-        """
-        Return the agent's message history as PromptMessageExtended objects.
-
-        This history can be used to transfer state between agents or for
-        analysis and debugging purposes.
-
-        Returns:
-            List of PromptMessageExtended objects representing the conversation history
-        """
-        # Conversation history is maintained at the agent layer; LLM history is diagnostic only.
-        return super().message_history
-
-    @property
-    def usage_accumulator(self) -> "UsageAccumulator | None":
-        """
-        Return the usage accumulator for tracking token usage across turns.
-
-        Returns:
-            UsageAccumulator object if LLM is attached, None otherwise
-        """
-        if self.llm:
-            return self.llm.usage_accumulator
-        return None

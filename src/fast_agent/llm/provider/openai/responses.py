@@ -52,7 +52,6 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     websocket_reuse_key,
 )
 from fast_agent.llm.provider.openai.schema_sanitizer import (
-    sanitize_response_format_schema,
     sanitize_tool_input_schema,
     should_strip_tool_schema_defaults,
 )
@@ -158,6 +157,7 @@ class _ResponsesWsAttemptState:
 
 
 class ResponsesLLM(
+    OpenAIStructuredOutputMixin,
     ResponsesContentMixin,
     ResponsesFileMixin,
     ResponsesOutputMixin,
@@ -181,24 +181,6 @@ class ResponsesLLM(
         FastAgentLLM.PARAM_PARALLEL_TOOL_CALLS,
         "response_format",
     }
-
-    _prepare_structured_request = OpenAIStructuredOutputMixin._prepare_structured_request
-    _apply_prompt_provider_specific_structured_schema = (
-        OpenAIStructuredOutputMixin._apply_prompt_provider_specific_structured_schema
-    )
-
-    @staticmethod
-    def schema_to_response_format(
-        schema: dict[str, Any],
-        *,
-        name: str = "structured_output",
-        strict: bool = True,
-    ) -> dict[str, Any]:
-        return FastAgentLLM.schema_to_response_format(
-            sanitize_response_format_schema(schema) if strict else schema,
-            name=name,
-            strict=strict,
-        )
 
     def _finalize_turn_usage(
         self,

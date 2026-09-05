@@ -86,6 +86,9 @@ class CPDFinding:
 
 def parse_cpd_findings(xml_output: str, src_dir: Path) -> frozenset[CPDFinding]:
     root = ElementTree.fromstring(xml_output)
+    expected_root = f"{{{CPD_XML_NAMESPACE['cpd']}}}pmd-cpd"
+    if root.tag != expected_root:
+        raise ValueError(f"Expected CPD report root {expected_root!r}, got {root.tag!r}")
     findings: set[CPDFinding] = set()
     for duplication in root.findall("cpd:duplication", CPD_XML_NAMESPACE):
         paths = tuple(
