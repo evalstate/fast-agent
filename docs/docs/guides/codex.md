@@ -11,6 +11,8 @@ social:
 
 # Code with Codex
 
+Codex Responses includes [stable prompt-cache keys and cache-preserving Astra effort changes](responses-caching.md).
+
 Use the `codex` pack to start **fast-agent** with a coding agent, a
 Codex-optimised filesystem search sub-agent, Responses-family transport, and an
 `apply_patch` tool that matches the Codex CLI patch format.

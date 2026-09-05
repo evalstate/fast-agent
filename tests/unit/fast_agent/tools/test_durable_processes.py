@@ -1312,6 +1312,108 @@ async def test_continuous_durable_output_waits_until_poll_deadline(tmp_path: Pat
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+@pytest.mark.parametrize("action", ["wait", "status"])
+@pytest.mark.parametrize("limit", [1, 999, 1000])
+async def test_unified_durable_preview_limit(tmp_path: Path, action: str, limit: int) -> None:
+    root = tmp_path / "processes"
+    gate = tmp_path / "finish"
+    exit_gate = tmp_path / "exit"
+    script = tmp_path / "preview.py"
+    script.write_text(
+        "import pathlib,sys,time\n"
+        f"gate = pathlib.Path({str(gate)!r})\n"
+        "print('é' * 1000, flush=True)\n"
+        "while not gate.exists(): time.sleep(0.01)\n"
+        "print('z' * 1500, flush=True)\n"
+        f"while not pathlib.Path({str(exit_gate)!r}).exists(): time.sleep(0.01)\n"
+        "print('y' * 1500, flush=True)\n"
+        "sys.exit(7)\n"
+    )
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger(__name__),
+        working_directory=tmp_path,
+        durable_process_root=root,
+        output_byte_limit=4096,
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+    )
+    launch = await runtime.call_tool(
+        "bash", {"command": f'"{sys.executable}" "{script}"', "run_in_background": True}
+    )
+    metadata = process_result_metadata(launch)
+    assert metadata is not None
+    process_id = metadata["process_id"]
+    store = DurableProcessStore(root)
+    try:
+        async with asyncio.timeout(10):
+            while store.get(process_id).output_bytes < 2001:
+                await asyncio.sleep(0.02)
+        status = await runtime.call_tool(
+            "process", {"process_id": process_id, "action": "status", "limit": limit}
+        )
+        status_metadata = process_result_metadata(status)
+        assert status_metadata is not None
+        assert status_metadata["process_status"] == "running"
+        assert isinstance(status.content[0], TextContent)
+        preview = status.content[0].text.split("[Output truncated:", 1)[0].rstrip("\n")
+        assert preview == "é" * (limit // 2)
+        assert "[Output truncated:" in status.content[0].text
+
+        retained = await runtime.call_tool(
+            "process", {"process_id": process_id, "action": "read_output", "limit": 3000}
+        )
+        assert isinstance(retained.content[0], TextContent)
+        assert json.loads(retained.content[0].text)["content"] == "é" * 1000 + "\n"
+
+        gate.touch()
+        async with asyncio.timeout(10):
+            while store.get(process_id).output_bytes < 3502:
+                await asyncio.sleep(0.02)
+        if action == "wait":
+            exit_gate.touch()
+            await asyncio.to_thread(store.wait, process_id, timeout_seconds=10)
+        # Concurrent polls consume each batch once, without sharing a mutable limit.
+        async with asyncio.TaskGroup() as group:
+            limited = group.create_task(
+                runtime.call_tool(
+                    "process", {"process_id": process_id, "action": action, "limit": limit}
+                )
+            )
+            default = group.create_task(
+                runtime.call_tool("process", {"process_id": process_id, "action": "status"})
+            )
+        limited_result = limited.result()
+        assert isinstance(limited_result.content[0], TextContent)
+        assert "z" * limit + "\n[Output truncated:" in limited_result.content[0].text
+        for result in (limited_result, default.result()):
+            result_metadata = process_result_metadata(result)
+            assert result_metadata is not None
+            if action == "wait":
+                assert result_metadata["exit_code"] == 7
+            else:
+                assert result_metadata["process_status"] == "running"
+        assert store.get(process_id).spec.output_byte_limit == 4096
+        exit_gate.touch()
+        await asyncio.to_thread(store.wait, process_id, timeout_seconds=10)
+        default_output = await runtime.call_tool(
+            "process", {"process_id": process_id, "action": "status"}
+        )
+        assert isinstance(default_output.content[0], TextContent)
+        if action == "status":
+            assert "y" * 1500 in default_output.content[0].text
+        assert "[Output truncated:" not in default_output.content[0].text
+        final_metadata = process_result_metadata(default_output)
+        assert final_metadata is not None
+        assert final_metadata["exit_code"] == 7
+    finally:
+        gate.touch()
+        exit_gate.touch()
+        await runtime.terminate_process({"process_id": process_id})
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
 async def test_durable_poll_preserves_per_command_output_limit(tmp_path: Path) -> None:
     root = tmp_path / "processes"
     script = tmp_path / "output_limit.py"

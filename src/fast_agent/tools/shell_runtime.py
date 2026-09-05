@@ -67,7 +67,7 @@ from fast_agent.tools.shell_command import (
 from fast_agent.tools.shell_command import (
     classify_shell_detachment as classify_shell_detachment,
 )
-from fast_agent.tools.shell_output import ShellOutputBuffer
+from fast_agent.tools.shell_output import ShellOutputBuffer, process_output_preview
 from fast_agent.tools.shell_process import (
     ActiveProcessPoll,
     ForegroundAutoAwaitMetadata,
@@ -952,6 +952,7 @@ class ShellRuntime:
         self,
         process_id: str,
         snapshot: DurableProcessSnapshot,
+        output_preview_limit: int | None = None,
     ) -> tuple[str, int]:
         store = self._durable_process_store
         if store is None:
@@ -966,7 +967,21 @@ class ShellRuntime:
             snapshot.spec.output_byte_limit,
             MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
         )
-        if unread_bytes <= output_limit:
+        if output_preview_limit is not None:
+            output = await asyncio.to_thread(
+                store.read_output,
+                process_id,
+                stream=DurableProcessStream.COMBINED,
+                offset=offset,
+                # Read through a possible UTF-8 boundary before capping the preview.
+                limit=min(unread_bytes, min(output_preview_limit, output_limit) + 3),
+            )
+            text = process_output_preview(
+                output.text.encode("utf-8"),
+                limit=min(output_preview_limit, output_limit),
+                total_bytes=unread_bytes,
+            )
+        elif unread_bytes <= output_limit:
             output = await asyncio.to_thread(
                 store.read_output,
                 process_id,
@@ -1019,6 +1034,7 @@ class ShellRuntime:
         *,
         wait_sec: int,
         wake_on_output: bool,
+        output_preview_limit: int | None = None,
     ) -> CallToolResult:
         store = self._durable_process_store
         if store is None or process_id not in self._attached_durable_processes:
@@ -1058,6 +1074,7 @@ class ShellRuntime:
             output, _ = await self._read_durable_output_delta(
                 process_id,
                 snapshot,
+                output_preview_limit,
             )
         except (DurableProcessRecordError, OSError) as exc:
             return _text_result(
@@ -2156,6 +2173,7 @@ class ShellRuntime:
         process: ManagedShellProcess,
         *,
         yielded_reason: str | None = None,
+        output_preview_limit: int | None = None,
     ) -> CallToolResult:
         self._record_buffered_process_result(process)
         result = build_managed_process_result(
@@ -2170,6 +2188,7 @@ class ShellRuntime:
                 else None
             ),
             io_drain_timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
+            output_preview_limit=output_preview_limit,
         )
         metadata = process_result_metadata(result)
         if metadata is not None and process.foreground_auto_await is not None:
@@ -2181,6 +2200,7 @@ class ShellRuntime:
         arguments: dict[str, Any] | None = None,
         *,
         progress_tool_use_id: str | None = None,
+        output_preview_limit: int | None = None,
     ) -> CallToolResult:
         """Return incremental output and status for a managed process."""
         poll_started_at = time.monotonic()
@@ -2203,6 +2223,7 @@ class ShellRuntime:
                         parsed.process_id,
                         wait_sec=parsed.wait_sec,
                         wake_on_output=parsed.wake_on_output,
+                        output_preview_limit=output_preview_limit,
                     )
             return _text_result(
                 f"Error: managed shell process {parsed.process_id!r} was not found",
@@ -2272,7 +2293,9 @@ class ShellRuntime:
                     0.0,
                 )
                 output_observed = process.output_state.had_stream_output
-                result = self._managed_process_result(process)
+                result = self._managed_process_result(
+                    process, output_preview_limit=output_preview_limit
+                )
                 metadata = cast("ProcessResultMetadata", process_result_metadata(result))
                 metadata["process_yield_reason"] = poll_yield_reason
                 metadata["output_bytes_since_last_poll"] = output_bytes_since_last_poll
@@ -2566,6 +2589,7 @@ class ShellRuntime:
                     "wait_sec": wait_sec,
                 },
                 tool_use_id=tool_use_id,
+                output_preview_limit=parsed_process.limit,
             )
         if name == GROK_SHELL_TOOL_NAME and self._grok_shell_profile:
             try:
@@ -2616,6 +2640,7 @@ class ShellRuntime:
         arguments: dict[str, Any] | None,
         *,
         tool_use_id: str | None,
+        output_preview_limit: int | None = None,
     ) -> CallToolResult:
         process_id = (arguments or {}).get("process_id")
         payload = arguments or {}
@@ -2625,6 +2650,7 @@ class ShellRuntime:
             operation = self.poll_process(
                 arguments,
                 progress_tool_use_id=tool_use_id,
+                output_preview_limit=output_preview_limit,
             )
         else:
             operation = self.terminate_process(arguments)
