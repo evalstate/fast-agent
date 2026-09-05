@@ -161,6 +161,20 @@ class ModelSelectionCatalog:
         ),
         Provider.MOONSHOT: (_builtin_entry("kimik3", display_label="Kimi K3"),),
         Provider.OPENROUTER: (),
+        Provider.ORCAROUTER: (
+            CatalogModelEntry(
+                alias="orcarouter-gpt4o-mini",
+                display_label="GPT-4o Mini (OrcaRouter)",
+                model="orcarouter.openai/gpt-4o-mini",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="orcarouter-auto",
+                display_label="OrcaRouter Auto",
+                model="orcarouter.orcarouter/auto",
+                description="smart routing (best model per request)",
+            ),
+        ),
         Provider.ALIYUN: (
             _builtin_entry("qwen-turbo", fast=True),
             _builtin_entry("qwen3-max"),

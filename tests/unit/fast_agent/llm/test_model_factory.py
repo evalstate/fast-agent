@@ -88,6 +88,27 @@ def test_full_model_strings():
         assert config.reasoning_effort == exp_effort
 
 
+def test_orcarouter_dotted_model_string_parses_to_namespaced_model() -> None:
+    config = ModelFactory.parse_model_string("orcarouter.openai/gpt-4o-mini")
+
+    assert config.provider == Provider.ORCAROUTER
+    assert config.model_name == "openai/gpt-4o-mini"
+
+
+def test_orcarouter_auto_dotted_model_string_parses_to_auto_router() -> None:
+    config = ModelFactory.parse_model_string("orcarouter.orcarouter/auto")
+
+    assert config.provider == Provider.ORCAROUTER
+    assert config.model_name == "orcarouter/auto"
+
+
+def test_orcarouter_slash_model_string_parses_to_bare_auto_router() -> None:
+    config = ModelFactory.parse_model_string("orcarouter/auto")
+
+    assert config.provider == Provider.ORCAROUTER
+    assert config.model_name == "auto"
+
+
 def test_deprecated_reasoning_suffix_is_rejected() -> None:
     with pytest.raises(ModelConfigError, match=r"Use '\?reasoning=<value>' instead"):
         ModelFactory.parse_model_string("openai.o1.high")
