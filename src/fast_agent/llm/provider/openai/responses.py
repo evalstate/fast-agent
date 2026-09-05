@@ -4,6 +4,7 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
+from uuid import uuid4
 
 from mcp import Tool
 from mcp_types import ContentBlock, TextContent
@@ -32,6 +33,7 @@ from fast_agent.llm.provider.openai._stream_capture import (
 from fast_agent.llm.provider.openai._stream_capture import (
     stream_capture_filename as _stream_capture_filename,
 )
+from fast_agent.llm.provider.openai.responses_cache import prepare_cached_request
 from fast_agent.llm.provider.openai.responses_content import ResponsesContentMixin
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
 from fast_agent.llm.provider.openai.responses_output import ResponsesOutputMixin
@@ -225,6 +227,7 @@ class ResponsesLLM(
             )
 
     def _initialize_response_state(self, web_search_override: Any) -> None:
+        self._responses_prompt_cache_key = uuid4().hex
         self._tool_call_id_map: dict[str, str] = {}
         self._tool_name_map: dict[str, str] = {}
         self._tool_kind_map: dict[str, Literal["function", "custom"]] = {}
@@ -800,7 +803,18 @@ class ResponsesLLM(
         if last_message.role == "assistant":
             return last_message
 
-        input_items = self._convert_to_provider_format(multipart_messages)
+        cache_state = None
+        if self.provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES}:
+            input_items, cache_state, req_params = prepare_cached_request(
+                multipart_messages,
+                req_params,
+                key=self._responses_prompt_cache_key,
+                default_effort=self._resolve_reasoning_effort(),
+                convert=self._convert_message_to_items,
+            )
+            input_items = self._dedupe_input_items(input_items)
+        else:
+            input_items = self._convert_to_provider_format(multipart_messages)
         if not input_items:
             input_items = [
                 {
@@ -810,7 +824,10 @@ class ResponsesLLM(
                 }
             ]
 
-        return await self._responses_completion(input_items, req_params, tools)
+        response = await self._responses_completion(input_items, req_params, tools)
+        if cache_state is not None:
+            cache_state.attach(response)
+        return response
 
     def _build_web_search_tool(
         self,
@@ -968,6 +985,8 @@ class ResponsesLLM(
             "include": [RESPONSE_INCLUDE_REASONING],
             "parallel_tool_calls": request_params.parallel_tool_calls,
         }
+        if self.provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES}:
+            base_args["prompt_cache_key"] = self._responses_prompt_cache_key
 
         system_prompt = self.instruction or request_params.system_prompt
         if system_prompt:
@@ -1774,6 +1793,7 @@ class ResponsesLLM(
 
     def clear(self, *, clear_prompts: bool = False) -> None:
         super().clear(clear_prompts=clear_prompts)
+        self._responses_prompt_cache_key = uuid4().hex
         self._tool_call_id_map.clear()
         self._tool_kind_map.clear()
         self._seen_tool_call_ids.clear()

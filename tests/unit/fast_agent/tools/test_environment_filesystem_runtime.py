@@ -514,6 +514,106 @@ async def test_environment_patch_allows_repeated_path_spelling() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("initial", "operations", "expected"),
+    [
+        (
+            {"a": "before\n"},
+            "*** Delete File: a\n*** Add File: a\n+after\n",
+            {"a": "after\n"},
+        ),
+        ({}, "*** Add File: a\n+before\n*** Delete File: a\n", {}),
+        (
+            {},
+            "*** Add File: a\n+before\n*** Update File: a\n@@\n-before\n+after\n",
+            {"a": "after\n"},
+        ),
+        (
+            {"a": "before\n"},
+            (
+                "*** Update File: a\n*** Move to: b\n@@\n-before\n+after\n"
+                "*** Add File: a\n+recreated\n"
+            ),
+            {"a": "recreated\n", "b": "after\n"},
+        ),
+        (
+            {"a": "before\n"},
+            (
+                "*** Update File: a\n*** Move to: b\n@@\n-before\n+middle\n"
+                "*** Update File: b\n*** Move to: c\n@@\n-middle\n+after\n"
+            ),
+            {"c": "after\n"},
+        ),
+        (
+            {"a": "before\n", "b": "old destination\n"},
+            (
+                "*** Update File: a\n*** Move to: b\n@@\n-before\n+middle\n"
+                "*** Update File: b\n*** Move to: a\n@@\n-middle\n+after\n"
+            ),
+            {"a": "after\n"},
+        ),
+        (
+            {},
+            (
+                "*** Add File: a\n+before\n"
+                "*** Update File: a\n*** Move to: b\n@@\n-before\n+after\n"
+                "*** Delete File: b\n"
+            ),
+            {},
+        ),
+    ],
+    ids=[
+        "delete-add",
+        "add-delete",
+        "add-update",
+        "move-recreate",
+        "move-chain",
+        "move-back",
+        "add-move-delete",
+    ],
+)
+async def test_environment_patch_syncs_ordered_final_state(
+    initial: dict[str, str], operations: str, expected: dict[str, str]
+) -> None:
+    class StrictRemoveEnvironment(FakeEnvironment):
+        async def remove(self, path: str) -> None:
+            if not await self.exists(path):
+                raise FileNotFoundError(path)
+            await super().remove(path)
+
+    env = StrictRemoveEnvironment()
+    env.files = {f"/workspace/{path}": content for path, content in initial.items()}
+    runtime = EnvironmentFilesystemRuntime(env, enable_read=True, enable_apply_patch=True)
+
+    result = await runtime.call_tool(
+        "apply_patch", {"input": f"*** Begin Patch\n{operations}*** End Patch\n"}
+    )
+
+    assert result.is_error is False
+    assert env.files == {f"/workspace/{path}": content for path, content in expected.items()}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "operation",
+    ["*** Delete File: a\n", "*** Update File: a\n@@\n-before\n+after\n"],
+)
+async def test_environment_patch_does_not_reload_deleted_input(operation: str) -> None:
+    env = FakeEnvironment()
+    env.files["/workspace/a"] = "before\n"
+    runtime = EnvironmentFilesystemRuntime(env, enable_read=True, enable_apply_patch=True)
+
+    result = await runtime.call_tool(
+        "apply_patch",
+        {"input": f"*** Begin Patch\n*** Delete File: a\n{operation}*** End Patch\n"},
+    )
+
+    assert result.is_error is True
+    assert env.files == {"/workspace/a": "before\n"}
+    assert env.removed == []
+
+
+@pytest.mark.asyncio
 async def test_environment_patch_staging_confines_paths_and_preserves_path_identity() -> None:
     with tempfile.NamedTemporaryFile() as canary_file:
         canary = Path(canary_file.name)

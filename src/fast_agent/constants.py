@@ -45,6 +45,8 @@ FAST_AGENT_RETRY = "fast-agent-retry"
 FAST_AGENT_SYNTHETIC_FINAL_CHANNEL = "fast-agent-synthetic-final"
 FAST_AGENT_PENDING_MEDIA_ATTACHMENTS = "fast-agent-pending-media-attachments"
 """Content blocks staged by attach_media for injection as user input on the next LLM call."""
+# Persisted provenance for user-role media staged from tool results, not a new turn.
+FAST_AGENT_TOOL_MEDIA_MESSAGE = "fast-agent-tool-media-message"
 FAST_AGENT_COMPACTION_CHANNEL = "fast-agent-compaction"
 """Metadata channel marking a compaction summary message (prompt used, counts, timestamps)."""
 

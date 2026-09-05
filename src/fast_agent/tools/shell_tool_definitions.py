@@ -82,6 +82,7 @@ class MinimalProcessLifecycleArguments:
     process_id: str
     action: Literal["status", "wait", "stop"]
     wait_sec: int | None
+    limit: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -386,8 +387,9 @@ def build_minimal_process_tool(
                     "minimum": 1,
                     "maximum": MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
                     "description": (
-                        "Optional maximum bytes returned by action='read_output'. "
-                        "Defaults to the configured shell preview limit and is capped "
+                        "Optional output preview byte cap for wait/status, or read_output "
+                        "byte limit. Does not limit execution or retained output. "
+                        "Omit for the default preview; capped "
                         f"at {MAX_TERMINAL_OUTPUT_BYTE_LIMIT}."
                     ),
                 },
@@ -782,20 +784,20 @@ def parse_minimal_process_arguments(
         "process_id",
         strip=True,
     )
+    limit = payload.get("limit")
+    if limit is not None:
+        if type(limit) is not int or limit <= 0:
+            raise ValueError("Error: 'limit' argument must be a positive integer")
+        if limit > MAX_TERMINAL_OUTPUT_BYTE_LIMIT:
+            raise ValueError(
+                f"Error: 'limit' argument must be at most {MAX_TERMINAL_OUTPUT_BYTE_LIMIT}"
+            )
     if action == "read_output":
         if "wait_sec" in payload:
             raise ValueError("Error: 'wait_sec' must be omitted for action='read_output'")
         offset = payload.get("offset", 0)
         if type(offset) is not int or offset < 0:
             raise ValueError("Error: 'offset' argument must be a non-negative integer")
-        limit = payload.get("limit")
-        if limit is not None:
-            if type(limit) is not int or limit <= 0:
-                raise ValueError("Error: 'limit' argument must be a positive integer")
-            if limit > MAX_TERMINAL_OUTPUT_BYTE_LIMIT:
-                raise ValueError(
-                    f"Error: 'limit' argument must be at most {MAX_TERMINAL_OUTPUT_BYTE_LIMIT}"
-                )
         query = (
             coerce_required_string_argument(
                 payload.get("query"),
@@ -818,8 +820,10 @@ def parse_minimal_process_arguments(
             query=query,
         )
 
-    if {"offset", "limit", "query"} & payload.keys():
-        raise ValueError("Error: 'offset', 'limit', and 'query' require action='read_output'")
+    if {"offset", "query"} & payload.keys():
+        raise ValueError("Error: 'offset' and 'query' require action='read_output'")
+    if action == "stop" and "limit" in payload:
+        raise ValueError("Error: 'limit' must be omitted for action='stop'")
     wait_sec = payload.get("wait_sec")
     if action == "wait" and wait_sec is not None:
         if type(wait_sec) is not int or wait_sec < 0:
@@ -833,6 +837,7 @@ def parse_minimal_process_arguments(
         process_id=process_id,
         action=cast("Literal['status', 'wait', 'stop']", action),
         wait_sec=wait_sec,
+        limit=limit,
     )
 
 

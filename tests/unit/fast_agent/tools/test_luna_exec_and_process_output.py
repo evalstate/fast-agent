@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shlex
 import sys
 from typing import TYPE_CHECKING
 
@@ -20,6 +21,7 @@ from fast_agent.tools.execution_environment import (
     ShellExecutionRequest,
     ShellRuntimeInfo,
 )
+from fast_agent.tools.shell_output import ShellOutputBuffer
 from fast_agent.tools.shell_process import process_result_metadata
 from fast_agent.tools.shell_profiles import resolve_shell_tool_profile
 from fast_agent.tools.shell_runtime import ShellRuntime
@@ -102,6 +104,181 @@ def test_luna_exec_profile_exposes_exec_and_unified_process() -> None:
     assert "read_output" in properties["action"]["enum"]
     assert set(properties) >= {"process_id", "action", "offset", "limit", "query"}
     assert "path" not in properties
+
+
+@pytest.mark.parametrize("suffix", ["é", "€", "😀"])
+@pytest.mark.parametrize("limit", [2048, 3000])
+def test_preview_preserves_buffer_truncation_at_utf8_boundary(suffix: str, limit: int) -> None:
+    buffer = ShellOutputBuffer(output_byte_limit=2048)
+    output = "a" * 2047 + suffix
+    buffer.append(output)
+
+    preview = buffer.consume(limit)
+
+    assert preview.split("\n[Output truncated:", 1)[0] == "a" * 2047
+    assert f"showing 2047 of {len(output.encode('utf-8'))} bytes" in preview
+    assert "\ufffd" not in preview
+    assert buffer.consume() == ""
+
+
+def test_preview_limit_does_not_change_subsequent_default_or_retention(tmp_path: Path) -> None:
+    retained = tmp_path / "output"
+    buffer = ShellOutputBuffer(
+        output_byte_limit=2048,
+        retained_output_path=retained,
+        retained_output_max_bytes=8192,
+    )
+    buffer.append("é" * 800)
+    assert "[Output truncated:" in buffer.consume(1000)
+    buffer.append("z" * 1500)
+    assert buffer.consume() == "z" * 1500
+    assert buffer.output_byte_limit == 2048
+    assert retained.read_text() == "é" * 800 + "z" * 1500
+
+
+@pytest.mark.parametrize("profile", ["minimal_process", "grok_shell", "luna_exec"])
+def test_process_guidance_distinguishes_preview_from_retained_reads(
+    profile: ShellToolProfile,
+) -> None:
+    process = next(tool for tool in _runtime(profile).tools if tool.name == "process")
+
+    guidance = process.input_schema["properties"]["limit"]["description"]
+    assert "wait/status" in guidance
+    assert "read_output" in guidance
+    assert "Does not limit execution or retained output" in guidance
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("profile", ["minimal_process", "luna_exec"])
+@pytest.mark.parametrize("action", ["wait", "status"])
+@pytest.mark.parametrize("limit", [1, 20, 999, 1000])
+@pytest.mark.parametrize("retain_output", [True, False])
+async def test_wait_status_limit_preserves_process_and_allows_retained_read(
+    tmp_path: Path,
+    profile: ShellToolProfile,
+    action: str,
+    limit: int,
+    retain_output: bool,
+) -> None:
+    gate = tmp_path / "finish"
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("process-output-test"),
+        output_byte_limit=4096,
+        config=Settings(
+            shell_execution=ShellSettings(
+                tool_profile=profile,
+                show_bash=False,
+                retain_truncated_output=retain_output,
+                retained_output_max_bytes=4096,
+                retained_output_temp_directory=tmp_path,
+            )
+        ),
+    )
+    script = (
+        f"import pathlib,time; gate=pathlib.Path({str(gate)!r}); "
+        "exec('while not gate.exists(): time.sleep(0.01)'); "
+        "print('é' * 1000, flush=True); raise SystemExit(7)"
+    )
+    try:
+        started = await runtime.call_tool(
+            "exec" if profile == "luna_exec" else "bash",
+            {
+                "command": f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}",
+                "background" if profile == "luna_exec" else "run_in_background": True,
+            },
+        )
+        assert started.is_error is False
+        metadata = process_result_metadata(started)
+        assert metadata is not None
+        process_id = metadata["process_id"]
+
+        status = await runtime.call_tool(
+            "process", {"process_id": process_id, "action": "status", "limit": limit}
+        )
+        status_metadata = process_result_metadata(status)
+        assert status.is_error is False
+        assert status_metadata is not None
+        assert status_metadata["process_status"] == "running"
+
+        gate.touch()
+        if action == "status":
+            # Wait for completion without consuming the process output.
+            process = await runtime._get_managed_process(process_id)
+            assert process is not None
+            await asyncio.wait_for(asyncio.shield(process.task), timeout=10)
+        waited = await runtime.call_tool(
+            "process",
+            {"process_id": process_id, "action": action, "wait_sec": 10, "limit": limit},
+        )
+        waited_metadata = process_result_metadata(waited)
+        assert waited_metadata is not None
+        assert waited_metadata["exit_code"] == 7
+        assert "process exit code was 7" in _text(waited)
+        preview = _text(waited).split("[Output truncated:", 1)[0].rstrip("\n")
+        assert preview == "é" * (limit // 2)
+        assert len(preview.encode("utf-8")) <= limit
+        assert "[Output truncated:" in _text(waited)
+        assert "\ufffd" not in preview
+        if retain_output:
+            assert "action='read_output'" in _text(waited)
+        else:
+            assert "action='read_output'" not in _text(waited)
+            assert "Increase shell_execution.output_byte_limit" in _text(waited)
+        again = await runtime.call_tool("process", {"process_id": process_id, "action": "status"})
+        assert "[Output truncated:" not in _text(again)
+        assert runtime.output_byte_limit == 4096
+
+        output = await runtime.call_tool(
+            "process", {"process_id": process_id, "action": "read_output", "limit": 20}
+        )
+        if not retain_output:
+            assert output.is_error is True
+            assert "retained_output: unavailable" in _text(output)
+            return
+        assert output.is_error is False
+        payload = json.loads(_text(output))
+        assert payload["content"] == "é" * 10
+        assert payload["next_offset"] == 20
+        assert payload["has_more"] is True
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["wait", "status", "stop"])
+@pytest.mark.parametrize(("field", "value"), [("offset", 0), ("query", "error")])
+async def test_process_lifecycle_rejects_read_only_arguments(
+    action: str, field: str, value: object
+) -> None:
+    result = await _runtime("minimal_process").call_tool(
+        "process", {"process_id": "process-1", "action": action, field: value}
+    )
+
+    assert result.is_error is True
+    assert "require action='read_output'" in _text(result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["wait", "status", "read_output"])
+@pytest.mark.parametrize("limit", [True, False, 0, -1, 33001])
+async def test_process_rejects_invalid_limit(action: str, limit: object) -> None:
+    result = await _runtime("minimal_process").call_tool(
+        "process", {"process_id": "process-1", "action": action, "limit": limit}
+    )
+    assert result.is_error is True
+    assert "'limit' argument must be" in _text(result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["list", "stop"])
+async def test_process_rejects_unused_limit(action: str) -> None:
+    arguments: dict[str, object] = {"action": action, "limit": 1000}
+    if action == "stop":
+        arguments["process_id"] = "process-1"
+    result = await _runtime("minimal_process").call_tool("process", arguments)
+    assert result.is_error is True
+    assert "must be omitted" in _text(result)
 
 
 @pytest.mark.parametrize(

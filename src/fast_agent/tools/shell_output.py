@@ -15,6 +15,21 @@ from fast_agent.tools.transient_artifacts import format_retained_artifact_notice
 _OUTPUT_LIMIT_GUIDANCE = "Increase shell_execution.output_byte_limit to retain more."
 
 
+def process_output_preview(
+    blob: bytes,
+    *,
+    limit: int,
+    total_bytes: int,
+    guidance: str = "Use action='read_output' for retained output.",
+) -> str:
+    """Cap output content at a UTF-8 boundary; the notice is outside the budget."""
+    text = blob[:limit].decode("utf-8", errors="ignore")
+    shown = len(text.encode("utf-8"))
+    if shown < total_bytes:
+        text += f"\n[Output truncated: showing {shown} of {total_bytes} bytes. {guidance}]\n"
+    return text
+
+
 @dataclass(slots=True)
 class ShellOutputBuffer:
     output_byte_limit: int
@@ -120,8 +135,25 @@ class ShellOutputBuffer:
 
         return "".join(parts)
 
-    def consume(self) -> str:
-        combined_output = self.combined()
+    def consume(self, limit: int | None = None) -> str:
+        if limit is None:
+            combined_output = self.combined()
+        else:
+            blob = "".join(self.output_segments).encode("utf-8")
+            if self.total_output_bytes > limit and (
+                self.retained_output_path is not None and not self.retained_output_path.exists()
+            ):
+                self._start_retained(b"")
+            combined_output = process_output_preview(
+                blob,
+                limit=min(limit, self.output_bytes),
+                total_bytes=self.total_output_bytes,
+                guidance=(
+                    "Use action='read_output' for retained output."
+                    if self.retained_output_path is not None and self.retained_output_path.exists()
+                    else self._truncation_guidance()
+                ),
+            )
         self.output_segments.clear()
         self.output_tail_bytes.clear()
         self.output_bytes = 0

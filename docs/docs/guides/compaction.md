@@ -19,6 +19,10 @@ handoff; the tokens it used are freed.
 Compaction is built in. It runs automatically when context fills up, and you can
 also trigger it on demand from the TUI or the [Harness API](../agents/defining/harness-api.md).
 
+For OpenAI and Codex Responses, see [prompt caching and Astra effort changes](responses-caching.md)
+for cache behavior across compaction. Fast-agent's summary compaction is distinct
+from OpenAI's native compaction endpoints.
+
 ## How it works
 
 A compaction does three things:

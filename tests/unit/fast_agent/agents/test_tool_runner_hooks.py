@@ -6,7 +6,7 @@ from rich.text import Text
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.agents.tool_runner import ToolRunnerHooks
-from fast_agent.constants import FAST_AGENT_PENDING_MEDIA_ATTACHMENTS
+from fast_agent.constants import FAST_AGENT_PENDING_MEDIA_ATTACHMENTS, FAST_AGENT_TOOL_MEDIA_MESSAGE
 from fast_agent.hooks import show_hook_message
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.model_info import ModelInfo
@@ -199,6 +199,7 @@ async def test_tool_runner_stages_pending_media_as_followup_user_message():
     )
     assert second_call[-1][0] == "user"
     assert second_call[-1][1] == ["image"]
+    assert FAST_AGENT_TOOL_MEDIA_MESSAGE in second_call[-1][2]
 
 
 @pytest.mark.unit
@@ -220,6 +221,8 @@ async def test_iteration_limit_preserves_pending_media_for_next_turn():
     )
     assert second_call[-2][0] == "user"
     assert second_call[-2][1] == ["image"]
+    assert FAST_AGENT_TOOL_MEDIA_MESSAGE in second_call[-2][2]
+    assert FAST_AGENT_TOOL_MEDIA_MESSAGE not in second_call[-1][2]
 
 
 # Track tool invocations globally for the regression test
