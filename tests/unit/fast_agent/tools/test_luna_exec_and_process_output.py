@@ -106,6 +106,21 @@ def test_luna_exec_profile_exposes_exec_and_unified_process() -> None:
     assert "path" not in properties
 
 
+@pytest.mark.parametrize("suffix", ["é", "€", "😀"])
+@pytest.mark.parametrize("limit", [2048, 3000])
+def test_preview_preserves_buffer_truncation_at_utf8_boundary(suffix: str, limit: int) -> None:
+    buffer = ShellOutputBuffer(output_byte_limit=2048)
+    output = "a" * 2047 + suffix
+    buffer.append(output)
+
+    preview = buffer.consume(limit)
+
+    assert preview.split("\n[Output truncated:", 1)[0] == "a" * 2047
+    assert f"showing 2047 of {len(output.encode('utf-8'))} bytes" in preview
+    assert "\ufffd" not in preview
+    assert buffer.consume() == ""
+
+
 def test_preview_limit_does_not_change_subsequent_default_or_retention(tmp_path: Path) -> None:
     retained = tmp_path / "output"
     buffer = ShellOutputBuffer(
@@ -137,11 +152,13 @@ def test_process_guidance_distinguishes_preview_from_retained_reads(
 @pytest.mark.parametrize("profile", ["minimal_process", "luna_exec"])
 @pytest.mark.parametrize("action", ["wait", "status"])
 @pytest.mark.parametrize("limit", [1, 20, 999, 1000])
+@pytest.mark.parametrize("retain_output", [True, False])
 async def test_wait_status_limit_preserves_process_and_allows_retained_read(
     tmp_path: Path,
     profile: ShellToolProfile,
     action: str,
     limit: int,
+    retain_output: bool,
 ) -> None:
     gate = tmp_path / "finish"
     runtime = ShellRuntime(
@@ -152,7 +169,7 @@ async def test_wait_status_limit_preserves_process_and_allows_retained_read(
             shell_execution=ShellSettings(
                 tool_profile=profile,
                 show_bash=False,
-                retain_truncated_output=True,
+                retain_truncated_output=retain_output,
                 retained_output_max_bytes=4096,
                 retained_output_temp_directory=tmp_path,
             )
@@ -203,6 +220,11 @@ async def test_wait_status_limit_preserves_process_and_allows_retained_read(
         assert len(preview.encode("utf-8")) <= limit
         assert "[Output truncated:" in _text(waited)
         assert "\ufffd" not in preview
+        if retain_output:
+            assert "action='read_output'" in _text(waited)
+        else:
+            assert "action='read_output'" not in _text(waited)
+            assert "Increase shell_execution.output_byte_limit" in _text(waited)
         again = await runtime.call_tool("process", {"process_id": process_id, "action": "status"})
         assert "[Output truncated:" not in _text(again)
         assert runtime.output_byte_limit == 4096
@@ -210,6 +232,10 @@ async def test_wait_status_limit_preserves_process_and_allows_retained_read(
         output = await runtime.call_tool(
             "process", {"process_id": process_id, "action": "read_output", "limit": 20}
         )
+        if not retain_output:
+            assert output.is_error is True
+            assert "retained_output: unavailable" in _text(output)
+            return
         assert output.is_error is False
         payload = json.loads(_text(output))
         assert payload["content"] == "é" * 10
