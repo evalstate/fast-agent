@@ -16,8 +16,10 @@ class DummyChild(LlmAgent):
         self.history_loads: list[list[PromptMessageExtended] | None] = []
         self.generated: list[list[PromptMessageExtended]] = []
 
-    def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None:
-        super().load_message_history(messages)
+    def load_message_history(
+        self, messages: list[PromptMessageExtended] | None, *, clear_state: bool = False
+    ) -> None:
+        super().load_message_history(messages, clear_state=clear_state)
         self.history_loads.append(messages)
 
     async def spawn_detached_instance(self, *, name: str | None = None) -> "DummyChild":

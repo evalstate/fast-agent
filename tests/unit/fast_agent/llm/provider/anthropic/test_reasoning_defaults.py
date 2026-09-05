@@ -149,11 +149,12 @@ def test_opus_47_supports_xhigh_effort():
     assert args["output_config"] == {"effort": "xhigh"}
 
 
-def test_fable_5_omits_thinking_field_and_uses_provider_default_effort():
-    llm = _make_llm("claude-fable-5")
+@pytest.mark.parametrize("model", ["claude-fable-5", "claude-fable-5-1"])
+def test_fable_5_omits_thinking_field_and_uses_provider_default_effort(model: str):
+    llm = _make_llm(model)
 
     args, thinking_enabled = llm._resolve_thinking_arguments(
-        model="claude-fable-5",
+        model=model,
         max_tokens=16000,
         structured_mode=None,
     )
@@ -164,11 +165,12 @@ def test_fable_5_omits_thinking_field_and_uses_provider_default_effort():
     assert args["max_tokens"] == 16000
 
 
-def test_fable_5_does_not_allow_reasoning_disable():
-    llm = _make_llm("claude-fable-5", reasoning=False)
+@pytest.mark.parametrize("model", ["claude-fable-5", "claude-fable-5-1"])
+def test_fable_5_does_not_allow_reasoning_disable(model: str):
+    llm = _make_llm(model, reasoning=False)
 
     args, thinking_enabled = llm._resolve_thinking_arguments(
-        model="claude-fable-5",
+        model=model,
         max_tokens=16000,
         structured_mode=None,
     )
@@ -178,11 +180,12 @@ def test_fable_5_does_not_allow_reasoning_disable():
     assert "output_config" not in args
 
 
-def test_fable_5_supports_xhigh_effort_without_thinking_field():
-    llm = _make_llm("claude-fable-5", reasoning="xhigh")
+@pytest.mark.parametrize("model", ["claude-fable-5", "claude-fable-5-1"])
+def test_fable_5_supports_xhigh_effort_without_thinking_field(model: str):
+    llm = _make_llm(model, reasoning="xhigh")
 
     args, thinking_enabled = llm._resolve_thinking_arguments(
-        model="claude-fable-5",
+        model=model,
         max_tokens=16000,
         structured_mode=None,
     )
@@ -698,12 +701,13 @@ def test_opus_5_drops_sampling_parameters_from_extra_body() -> None:
     assert result["extra_body"] == {"custom": True}
 
 
-def test_fable_5_drops_sampling_parameters_from_request_payload() -> None:
-    llm = _make_llm("claude-fable-5")
+@pytest.mark.parametrize("model", ["claude-fable-5", "claude-fable-5-1"])
+def test_fable_5_drops_sampling_parameters_from_request_payload(model: str) -> None:
+    llm = _make_llm(model)
 
     result = llm.prepare_provider_arguments(
         {
-            "model": "claude-fable-5",
+            "model": model,
             "messages": [],
             "max_tokens": 1000,
         },
@@ -1121,3 +1125,42 @@ def test_structured_output_modes_still_preserve_other_beta_flags() -> None:
     assert FINE_GRAINED_TOOL_STREAMING_BETA in beta_flags
     assert STRUCTURED_OUTPUT_BETA in beta_flags
     assert "web-beta" in beta_flags
+
+
+@pytest.mark.parametrize("choice", ["auto", "none", "any", "tool"])
+@pytest.mark.parametrize("in_extra_body", [False, True])
+def test_fable_51_tool_choice_contract(choice: str, in_extra_body: bool) -> None:
+    llm = _make_llm("claude-fable-5-1")
+    tool_args = {"tool_choice": {"type": choice}}
+    base_args = {"model": "claude-fable-5-1", "messages": [], "max_tokens": 1000}
+    base_args.update({"extra_body": tool_args} if in_extra_body else tool_args)
+    if choice in {"any", "tool"}:
+        with pytest.raises(ValueError, match="does not support forced tool use"):
+            llm.prepare_provider_arguments(base_args, RequestParams())
+    else:
+        result = llm.prepare_provider_arguments(base_args, RequestParams())
+        payload = result["extra_body"] if in_extra_body else result
+        assert payload["tool_choice"] == {"type": choice}
+
+
+def test_fable_51_max_effort_and_native_structured_output() -> None:
+    llm = _make_llm("claude-fable-5-1", reasoning="max")
+    assert llm._resolve_structured_output_mode("claude-fable-5-1", _StructuredResponse) == "json"
+    args, enabled = llm._resolve_thinking_arguments(
+        model="claude-fable-5-1", max_tokens=128000, structured_mode="json"
+    )
+    assert enabled
+    assert "thinking" not in args
+    assert args["output_config"] == {"effort": "max"}
+
+
+def test_fable_51_drops_extra_body_sampling() -> None:
+    llm = _make_llm("claude-fable-5-1")
+    result = llm.prepare_provider_arguments(
+        {
+            "model": "claude-fable-5-1",
+            "extra_body": {"temperature": 0.5, "top_p": 0.8, "top_k": 10},
+        },
+        RequestParams(),
+    )
+    assert "extra_body" not in result

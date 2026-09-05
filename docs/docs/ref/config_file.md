@@ -257,7 +257,7 @@ Responses-family providers can also be toggled per run in the model string:
 - `responses.gpt-5?web_search=on`
 - `openresponses.openai/gpt-oss-120b:groq?web_search=on`
 - `codexresponses.gpt-5.3-codex?web_search=off`
-- `metaai.muse-spark-1.2?web_search=on`
+- `metaai.muse-spark-1.3?web_search=on`
 
 Allowed values: `on`/`off` (also accepts `true`/`false`, `1`/`0`).
 
@@ -371,7 +371,7 @@ xai:
 metaai:
   api_key: "${META_AI_API_KEY}"
   base_url: "https://api.meta.ai/v1"  # Optional, defaults to this value
-  default_model: "muse-spark-1.2"
+  default_model: "muse-spark-1.3"
   web_search:
     enabled: false
     search_context_size: medium  # Optional: low | medium | high
@@ -381,7 +381,7 @@ metaai:
 ```
 
 MetaAI search grounding can also be toggled per run with
-`metaai.muse-spark-1.2?web_search=on`. See the
+`metaai.muse-spark-1.3?web_search=on`. See the
 [MetaAI provider guide](../models/providers/metaai/) for supported media,
 interactive toggles, and search-result behavior.
 

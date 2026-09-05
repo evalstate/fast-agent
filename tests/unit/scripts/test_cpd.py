@@ -88,3 +88,22 @@ def test_cpd_baseline_delta_reports_new_and_stale_findings() -> None:
 
     assert unapproved == frozenset({new})
     assert stale_findings == frozenset({stale})
+
+
+@pytest.mark.parametrize(
+    "xml",
+    [
+        '<error xmlns="https://pmd-code.org/schema/cpd-report"/>',
+        '<pmd-cpd xmlns="urn:unexpected-schema"/>',
+        '<pmd-cpd><duplication tokens="120"/></pmd-cpd>',
+    ],
+)
+def test_parse_cpd_findings_rejects_unexpected_report_root(xml: str, tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="Expected CPD report root"):
+        parse_cpd_findings(xml, tmp_path)
+
+
+def test_parse_cpd_findings_accepts_empty_report(tmp_path: Path) -> None:
+    xml = '<pmd-cpd xmlns="https://pmd-code.org/schema/cpd-report"/>'
+
+    assert parse_cpd_findings(xml, tmp_path) == frozenset()

@@ -52,13 +52,23 @@ fast-agent auth provider login codex
 This stores the token in your OS keyring. After that you can use Codex OAuth
 model aliases such as:
 
-- `codexplan` — GPT-5.5
+- `codexplan` — GPT-6-Astra with medium reasoning
 
 If you prefer, you can also run model setup explicitly:
 
 ```bash
 uvx fast-agent-mcp@latest model setup
 ```
+
+## Web search
+
+Use `fast-agent go --model 'astra?web_search=true'` to enable automatic `web_run`
+on Codex Lite without shell access; use `web_search=false` to disable it.
+In a running conversation, `/model web_search on` and `/model web_search off`
+control the same feature. Sol and public Responses keep their hosted search route.
+See [standalone web search](../models/providers/openai.md#standalone-web-search-codex-lite)
+for configuration, the internal endpoint caveat, and a runnable library example
+with caller-supplied authentication.
 
 ## Installation
 

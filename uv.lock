@@ -213,7 +213,7 @@ wheels = [
 
 [[package]]
 name = "anthropic"
-version = "1.0.0"
+version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -224,9 +224,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/25/aa/4978e58035bd6c638c7b483450a68b7ef2d732ab78885e27bb9db0cff1a2/anthropic-1.0.0.tar.gz", hash = "sha256:42be3c97604af7252c5898413aee076ace6c46e9bca0d0d90ceb77c7d3719027", size = 1077769, upload-time = "2026-08-20T19:59:00.565Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/75/6d/793f5cfe2cd444c43b4eeb4cb7c3cc55ebcb38929fdfe81aa1f2fced7326/anthropic-1.4.0.tar.gz", hash = "sha256:f0d017e901e48b343520b5d458f8240c283c8d850bf6d119834c622207e0a74c", size = 1150831, upload-time = "2026-09-04T22:20:31.355Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ad/5b/db4a854aebf5d33a5ab714c46af6eb85ee44f390ed29b7b325c00b9f11ed/anthropic-1.0.0-py3-none-any.whl", hash = "sha256:32dd52e9e1d774393b27182f451398ba4262287a4d0eab30887f89f1481b3ae4", size = 1171725, upload-time = "2026-08-20T19:58:58.725Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/e3/34a88f0e1e854022a352d67f72ca9baa8b952d4541315088411ba2bfbc2a/anthropic-1.4.0-py3-none-any.whl", hash = "sha256:590e85bff75b713a123b03f586d68f02266b5fdc49f70dd75f721ced93a4716c", size = 1300390, upload-time = "2026-09-04T22:20:33.078Z" },
 ]
 
 [package.optional-dependencies]
@@ -903,7 +903,7 @@ requires-dist = [{ name = "fast-agent-mcp", editable = "." }]
 
 [[package]]
 name = "fast-agent-mcp"
-version = "0.10.16"
+version = "0.10.17"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk" },
@@ -1005,7 +1005,7 @@ requires-dist = [
     { name = "a2a-sdk", specifier = "==1.1.0" },
     { name = "agent-client-protocol", specifier = "==0.10.1" },
     { name = "aiohttp", specifier = "==3.14.3" },
-    { name = "anthropic", extras = ["vertex"], specifier = "==1.0.0" },
+    { name = "anthropic", extras = ["vertex"], specifier = "==1.4.0" },
     { name = "azure-identity", marker = "extra == 'all-providers'", specifier = ">=1.14.0" },
     { name = "azure-identity", marker = "extra == 'azure'", specifier = ">=1.14.0" },
     { name = "boto3", marker = "extra == 'all-providers'", specifier = ">=1.43.83" },
@@ -1013,22 +1013,22 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'batch-parquet'", specifier = ">=1.4" },
     { name = "email-validator", specifier = "==2.3.0" },
     { name = "fastapi", specifier = "==0.136.3" },
-    { name = "fastmcp-slim", extras = ["server"], specifier = ">=4.0.0b5" },
+    { name = "fastmcp-slim", extras = ["server"], specifier = "==4.0.3" },
     { name = "filelock", specifier = "==3.29.1" },
     { name = "gepa", marker = "extra == 'gepa'", specifier = ">=0.1.1" },
-    { name = "google-genai", specifier = "==2.19.0" },
+    { name = "google-genai", specifier = "==2.22.0" },
     { name = "huggingface-hub", specifier = "==1.29.0" },
     { name = "jsonschema", specifier = "==4.26.0" },
     { name = "keyring", specifier = "==25.7.0" },
-    { name = "mcp", specifier = "==2.0.0" },
-    { name = "mcp-types", specifier = "==2.0.0" },
+    { name = "mcp", specifier = "==2.1.1" },
+    { name = "mcp-types", specifier = "==2.1.1" },
     { name = "mslex", specifier = "==1.3.0" },
     { name = "numpy", marker = "extra == 'privacy'", specifier = ">=2" },
     { name = "numpy", marker = "extra == 'privacy-gpu'", specifier = ">=2" },
     { name = "nvidia-cudnn-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'privacy-gpu'", specifier = ">=9" },
     { name = "onnxruntime", marker = "extra == 'privacy'", specifier = ">=1.25" },
     { name = "onnxruntime-gpu", marker = "extra == 'privacy-gpu'", specifier = ">=1.25" },
-    { name = "openai", extras = ["aiohttp", "realtime"], specifier = "==3.5.0" },
+    { name = "openai", extras = ["aiohttp", "realtime"], specifier = "==3.8.0" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = "==1.43.0" },
     { name = "opentelemetry-instrumentation-anthropic", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = "==0.62.1" },
     { name = "opentelemetry-instrumentation-google-genai", specifier = "==1.0b1" },
@@ -1093,7 +1093,7 @@ wheels = [
 
 [[package]]
 name = "fastmcp-slim"
-version = "4.0.0b5"
+version = "4.0.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "mcp-types" },
@@ -1104,9 +1104,9 @@ dependencies = [
     { name = "rich" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2f/0e/93a8e2e20071ae9c5b5dc0cdd59fffabb0a78c9c25412854459605de19c1/fastmcp_slim-4.0.0b5.tar.gz", hash = "sha256:548677ab0859a0e2dc6fe78602ac6d235d3dce2355d885933cdfd4268f9f429e", size = 682434, upload-time = "2026-08-28T02:57:49.134Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b0/a9/b7b796b0d4a5e095dadef233833c82ac1136f5c110dd9947b2e9a4988518/fastmcp_slim-4.0.3.tar.gz", hash = "sha256:3ce04a82b82cc41ccb12bb3bb366cfd65b52bc797b8fee332a75da9d480f9b74", size = 685704, upload-time = "2026-09-05T00:31:12.346Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2e/a7/a34e1ce3a6ae3b22bc8a9d1ea6b6cc9c0c6f4d2693b13cd4884c2fe83896/fastmcp_slim-4.0.0b5-py3-none-any.whl", hash = "sha256:4c47372fab61cbdcedc4c8f726e29229d37b03e60044a0288111aa19d0709690", size = 856273, upload-time = "2026-08-28T02:57:47.623Z" },
+    { url = "https://files.pythonhosted.org/packages/43/4b/6b31820d87f56d5773538860878c8634b618cd1e9044b3bfbd8a78380a0f/fastmcp_slim-4.0.3-py3-none-any.whl", hash = "sha256:3756ed4bd9f82f40adaf51974b7cdd1463ab6b9f479cf69b69b2692969312b87", size = 859717, upload-time = "2026-09-05T00:31:10.93Z" },
 ]
 
 [package.optional-dependencies]
@@ -1294,7 +1294,7 @@ requests = [
 
 [[package]]
 name = "google-genai"
-version = "2.19.0"
+version = "2.22.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1308,9 +1308,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/37/1a/a834dfed90cf32dba900b533a1d14dcdefbda398bda5661d2a5a60fdc9fc/google_genai-2.19.0.tar.gz", hash = "sha256:d8f4126643793a7de230c396bcd142d21c948c8bb57507580e152549a7a41d9d", size = 659496, upload-time = "2026-08-19T23:05:43.276Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/37/f1/f2f31b2a6bd826bc2cb73068df880954a026474c03a4315637d20cc13965/google_genai-2.22.0.tar.gz", hash = "sha256:9fa3b5d9ddb635005d8ab2d6206fb2b3d7204b66965bbce7de13ecd1a866ebcd", size = 684719, upload-time = "2026-09-02T18:06:02.906Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/01/e8/de0accd8cd004cf11252ca53fc5c3dda59bcf1856abfc7609842ceba7363/google_genai-2.19.0-py3-none-any.whl", hash = "sha256:36e0326dd886b52ef765be4c46042732b46b21f637abbe060e3db7c3de23974c", size = 1051056, upload-time = "2026-08-19T23:05:41.462Z" },
+    { url = "https://files.pythonhosted.org/packages/de/96/0120d214958cb54f2b9c48da9f564a0e6eae269e9dd702415fb1d0551cc7/google_genai-2.22.0-py3-none-any.whl", hash = "sha256:c514001c45470cc0a942440ae1b8215445d12bfb6c373aac94637127e1f74ec6", size = 1088792, upload-time = "2026-09-02T18:06:00.629Z" },
 ]
 
 [[package]]
@@ -1947,7 +1947,7 @@ wheels = [
 
 [[package]]
 name = "mcp"
-version = "2.0.0"
+version = "2.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1965,22 +1965,22 @@ dependencies = [
     { name = "typing-inspection" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/74/33/32d4dff2c95bb5d897c3ef4c83649a08996b17b58f0a326d2495d4c81179/mcp-2.0.0.tar.gz", hash = "sha256:0f440e735c13ece8bb19bc62cf0b86f4313448432fbb77d35e14034f4e050728", size = 1662284, upload-time = "2026-07-28T13:45:32.346Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d4/6e/21fb8e5d579dbe21d96ea4d5034200d46d8bdf2261053b5bd041f3c2f612/mcp-2.1.1.tar.gz", hash = "sha256:50b7ba1ebbe117008ea7bdd288234043e69c20b403d6851d19661e6d431a75ef", size = 3984589, upload-time = "2026-08-25T16:14:02.376Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/67/72/7d7897418912c1d12e87556630dfb7bf0eac71160e9bef8b447960804ee3/mcp-2.0.0-py3-none-any.whl", hash = "sha256:1cb4c75d2d2c7b8c1d756355e5d82a39f2822cc7f13e22a2051d7ca3592349d6", size = 349980, upload-time = "2026-07-28T13:45:28.853Z" },
+    { url = "https://files.pythonhosted.org/packages/50/af/8644cc5fa26a59afd2df2e98eeb19e72926887fa4b7441aba4ff661140db/mcp-2.1.1-py3-none-any.whl", hash = "sha256:1c6c31c5d6471c58db76af3af8af67f46d11d01f0a59077d0a308cbdb3d3e915", size = 357912, upload-time = "2026-08-25T16:13:59.024Z" },
 ]
 
 [[package]]
 name = "mcp-types"
-version = "2.0.0"
+version = "2.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bb/56/9b8e1c152f61f6c6b07c4b5896c88c7d0ae90bac6ee6306f852fcc5c1eb0/mcp_types-2.0.0.tar.gz", hash = "sha256:d7d939b9285c9961ae8866ba75ef85da34d12bafe276efbf4eb6a131786d8379", size = 66632, upload-time = "2026-07-28T13:45:33.804Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/dd/1c4417dc0b722c23a1669032d5f044e41170fe5d4773b488a50fcce98c32/mcp_types-2.1.1.tar.gz", hash = "sha256:77dcbe48fba73cca71a673f2646a5f037a017b7a0a07ac89cec1113028890eda", size = 66674, upload-time = "2026-08-25T16:14:03.861Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f5/4c/c78d78c3d52b0ac594ad7cc8ef5972adfe070e3597a8a4c6ce0cd39196ea/mcp_types-2.0.0-py3-none-any.whl", hash = "sha256:6b2de797ca2797f568b79529e1b25948e34de511bcc0bd82fef1039a6d1b8eb0", size = 69649, upload-time = "2026-07-28T13:45:30.713Z" },
+    { url = "https://files.pythonhosted.org/packages/71/d0/242e63c510f4a17381f55b1549a3f94f5687a0595984febd2b6f87a687a0/mcp_types-2.1.1-py3-none-any.whl", hash = "sha256:26f9f7f03f2a5730717a5b98e2ab7eb640ac352d05a00cdc725c311864778295", size = 69656, upload-time = "2026-08-25T16:14:00.667Z" },
 ]
 
 [[package]]
@@ -2297,7 +2297,7 @@ wheels = [
 
 [[package]]
 name = "openai"
-version = "3.5.0"
+version = "3.8.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -2307,9 +2307,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3e/d3/50ffb9a7bce5097ffeb476905c0661f4468a3ca7bb489b152542f14fdd8e/openai-3.5.0.tar.gz", hash = "sha256:743738bb458a586d0d02d173bf398d29d7d7a80d182d167aa74f1c08814ecc78", size = 1355486, upload-time = "2026-08-27T01:00:49.113Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f2/b0/1100c93f93e1c174205ce8d15a049a446f0dc88e9262c1f1f223fe6b9493/openai-3.8.0.tar.gz", hash = "sha256:6138a5a1333a1be9e4d1edea2d160b311542787b029543f87de4961c66358d16", size = 1473819, upload-time = "2026-09-03T19:51:10.495Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9d/9f/03bba05ade050f306c9b9e8b99e3681791dbb30148cd76a793c277fed494/openai-3.5.0-py3-none-any.whl", hash = "sha256:7c0873d379655f65fa515c5692c8620e73bf6a6dce3e63f37589bc99bda3fdfd", size = 1697968, upload-time = "2026-08-27T01:00:47.131Z" },
+    { url = "https://files.pythonhosted.org/packages/24/a4/c7e89d3bfb8b7c7ffa38ec9fe527bccf4df723f752fb11bdb3da6c750b76/openai-3.8.0-py3-none-any.whl", hash = "sha256:514736aa1e4ef1033c1209ad53897392845ccd4f2c4fae6413b2cf5f91c2c926", size = 1740349, upload-time = "2026-09-03T19:51:08.596Z" },
 ]
 
 [package.optional-dependencies]

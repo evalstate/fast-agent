@@ -277,29 +277,3 @@ class AsyncioExecutor(Executor):
                     await asyncio.gather(*pending, return_exceptions=True)
 
         return stream()
-
-    async def signal(
-        self,
-        signal_name: str,
-        payload: SignalValueT | None = None,
-        signal_description: str | None = None,
-    ) -> None:
-        await super().signal(signal_name, payload, signal_description)
-
-    async def wait_for_signal(
-        self,
-        signal_name: str,
-        request_id: str | None = None,
-        workflow_id: str | None = None,
-        signal_description: str | None = None,
-        timeout_seconds: int | None = None,
-        signal_type: type[Any] | None = None,
-    ) -> Any:
-        return await super().wait_for_signal(
-            signal_name,
-            request_id,
-            workflow_id,
-            signal_description,
-            timeout_seconds,
-            signal_type,
-        )

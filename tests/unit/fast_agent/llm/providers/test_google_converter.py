@@ -496,10 +496,11 @@ def test_gemini3_removes_sampling_parameters_and_budget():
     assert config.thinking_config.thinking_budget is None
 
 
-def test_gemini37_uses_level_only_config_and_omits_candidate_count() -> None:
+@pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.8-flash"])
+def test_current_flash_uses_level_only_config_and_omits_candidate_count(model: str) -> None:
     converter = GoogleConverter()
     params = RequestParams(
-        model="gemini-3.7-flash",
+        model=model,
         temperature=0.7,
         top_k=40,
         top_p=0.9,

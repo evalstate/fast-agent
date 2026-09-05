@@ -1,4 +1,4 @@
-"""Native Herdr lifecycle reporting for interactive fast-agent sessions."""
+"""Native Herdr lifecycle reporting for fast-agent sessions."""
 
 from __future__ import annotations
 
@@ -94,6 +94,8 @@ class _HerdrLifecycleReporter:
         self._lock = threading.Lock()
         self._sequence = time.time_ns()
         self._base_state: HerdrBaseState = "unknown"
+        self._working_scope_depth = 0
+        self._prompt_working = False
         self._blocked_depth = 0
         self._session_metadata: _SessionMetadata | None = None
         self._pending_session_metadata: _SessionMetadata | None = None
@@ -119,8 +121,58 @@ class _HerdrLifecycleReporter:
             if self._closing:
                 return
             self._base_state = state
-            if self._blocked_depth == 0:
+            if (
+                self._blocked_depth == 0
+                and self._working_scope_depth == 0
+                and not self._prompt_working
+            ):
                 self._enqueue_locked("pane.report_agent", state=state)
+
+    def enter_working(self) -> None:
+        if os.getpid() != self._creator_pid:
+            return
+        with self._lock:
+            if self._closing:
+                return
+            self._base_state = "idle"
+            self._working_scope_depth += 1
+            if (
+                self._working_scope_depth == 1
+                and not self._prompt_working
+                and self._blocked_depth == 0
+            ):
+                self._enqueue_locked("pane.report_agent", state="working")
+
+    def exit_working(self) -> None:
+        if os.getpid() != self._creator_pid:
+            return
+        with self._lock:
+            if self._closing:
+                return
+            self._base_state = "idle"
+            if self._working_scope_depth > 0:
+                self._working_scope_depth -= 1
+            if (
+                self._working_scope_depth == 0
+                and not self._prompt_working
+                and self._blocked_depth == 0
+            ):
+                self._enqueue_locked("pane.report_agent", state="idle")
+
+    def report_prompt_working(self, working: bool) -> None:
+        if os.getpid() != self._creator_pid:
+            return
+        with self._lock:
+            if self._closing:
+                return
+            self._base_state = "idle"
+            self._prompt_working = working
+            if self._blocked_depth > 0 or self._working_scope_depth > 0:
+                return
+            self._enqueue_locked(
+                "pane.report_agent",
+                state="working" if working else "idle",
+            )
 
     def enter_blocked(self) -> None:
         if os.getpid() != self._creator_pid:
@@ -138,7 +190,14 @@ class _HerdrLifecycleReporter:
                 return
             self._blocked_depth -= 1
             if self._blocked_depth == 0:
-                self._enqueue_locked("pane.report_agent", state=self._base_state)
+                self._enqueue_locked(
+                    "pane.report_agent",
+                    state=(
+                        "working"
+                        if self._working_scope_depth > 0 or self._prompt_working
+                        else self._base_state
+                    ),
+                )
 
     def report_session_metadata(
         self,
@@ -526,12 +585,40 @@ def report_session_usage(usage: str) -> None:
 def report_prompt_mark(code: str) -> None:
     """Map OSC 133 semantic prompt marks to Herdr lifecycle states."""
     command = code.partition(";")[0]
-    if command == "A":
-        report_agent_state("idle")
-    elif command == "C":
-        report_agent_state("working")
-    elif command == "D":
-        report_agent_state("idle")
+    if command not in ("A", "C", "D"):
+        return
+    try:
+        reporter = _active_reporter()
+        if reporter is None:
+            return
+        if command == "A":
+            reporter.report_prompt_working(False)
+        elif command == "C":
+            reporter.report_prompt_working(True)
+        elif command == "D":
+            reporter.report_prompt_working(False)
+    except Exception:
+        pass
+
+
+@contextmanager
+def herdr_working():
+    """Keep Herdr working until all nested or concurrent work completes."""
+    reporter: _HerdrLifecycleReporter | None = None
+    try:
+        try:
+            reporter = _active_reporter()
+            if reporter is not None:
+                reporter.enter_working()
+        except Exception:
+            reporter = None
+        yield
+    finally:
+        if reporter is not None:
+            try:
+                reporter.exit_working()
+            except Exception:
+                pass
 
 
 @contextmanager

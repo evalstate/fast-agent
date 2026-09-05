@@ -9,6 +9,31 @@ social:
 
 Anthropic models support Text, Vision and PDF content. Caching is enabled by default, and Remote MCP is supported.
 
+## Claude Fable 5.1
+
+Use `claude-fable-5-1` (for example, `fast-agent go --model "claude-fable-5-1?reasoning=max"`).
+Existing `fable` and `fable5` aliases still select Fable 5.
+
+- 1M-token context; up to 128K output tokens, including thinking.
+- Adaptive thinking is always on. `auto` leaves effort at the API default (`high`);
+  supported levels are `low`, `medium`, `high`, `xhigh`, and `max`. Thinking cannot
+  be disabled or configured with a manual token budget.
+- Sampling controls (`temperature`, `top_p`, `top_k`) are removed before sending.
+- Tool choice supports `auto` and `none`, not forced/required tools. Use native
+  JSON structured output rather than `tool_use` mode; unsupported forcing fails locally.
+- Preserve thinking blocks unchanged, including empty signed blocks, and keep
+  history append-only. Editing earlier turns invalidates thinking; earlier models
+  cannot read Fable 5.1 thinking blocks. Assistant prefill is unsupported.
+- Requires 30-day data retention unless Anthropic expressly authorizes otherwise.
+  Input/output pricing is $10/$50 per million tokens; cache reads are $0.25/MTok.
+
+Per-message effort, turn-scoped system messages, and progress-update betas are
+not enabled automatically by this integration.
+
+See the official [overview](https://platform.claude.com/docs/en/models/fable-5-1/overview),
+[migration guide](https://platform.claude.com/docs/en/models/fable-5-1/migration-guide),
+and [thinking constraints](https://platform.claude.com/docs/en/build-with-claude/thinking).
+
 **YAML Configuration:**
 
 ```yaml

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from fast_agent.llm.provider.openai.responses import ResponsesTransport
     from fast_agent.types import RequestParams
 
-DEFAULT_META_AI_MODEL = "muse-spark-1.2"
+DEFAULT_META_AI_MODEL = "muse-spark-1.3"
 META_AI_BASE_URL = "https://api.meta.ai/v1"
 RESPONSE_INCLUDE_WEB_SEARCH_RESULTS = "web_search_call.results"
 

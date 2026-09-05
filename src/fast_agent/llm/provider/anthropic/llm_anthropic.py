@@ -2097,6 +2097,14 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         exclude_fields: set | None = None,
     ) -> dict:
         arguments = super().prepare_provider_arguments(base_args, request_params, exclude_fields)
+        if self._normalize_model_name(str(arguments.get("model", ""))) == "claude-fable-5-1":
+            extra_body = arguments.get("extra_body") or {}
+            tool_choice = extra_body.get("tool_choice", arguments.get("tool_choice"))
+            if isinstance(tool_choice, dict) and tool_choice.get("type") in {"any", "tool"}:
+                raise ValueError(
+                    "Claude Fable 5.1 does not support forced tool use; use auto or none, "
+                    "and JSON mode for structured output."
+                )
         sampling_keys = ("temperature", "top_p", "top_k")
         sampling = {
             key: arguments.pop(key) for key in sampling_keys if arguments.get(key) is not None
@@ -2109,6 +2117,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             "claude-opus-4-8",
             "claude-opus-5",
             "claude-fable-5",
+            "claude-fable-5-1",
             "claude-sonnet-5",
         }:
             removed = list(sampling)

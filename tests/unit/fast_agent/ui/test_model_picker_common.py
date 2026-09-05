@@ -24,7 +24,6 @@ from fast_agent.ui.model_picker_common import (
     ModelOption,
     ModelPickerSnapshot,
     ProviderOption,
-    _provider_is_active,
     build_snapshot,
     format_catalog_model_entry_label,
     has_explicit_provider_prefix,
@@ -33,6 +32,7 @@ from fast_agent.ui.model_picker_common import (
     model_options_for_option,
     model_options_for_provider,
     provider_activation_action,
+    provider_credential_summary,
     provider_option_count_label,
 )
 
@@ -149,6 +149,15 @@ def test_huggingface_provider_is_inactive_without_hub_login_or_token(
     assert _provider_option(snapshot, Provider.HUGGINGFACE).active is False
 
 
+def test_astra_picker_defaults_to_medium_reasoning() -> None:
+    for model in ("astra", "codexplan", "gpt-6-astra"):
+        capabilities = model_capabilities(model)
+
+        assert capabilities.model_name == "gpt-6-astra"
+        assert capabilities.default_reasoning == "effort=medium"
+        assert "low" in capabilities.reasoning_values
+
+
 def test_openresponses_models_do_not_report_web_search_support() -> None:
     capabilities = model_capabilities("openresponses.gpt-5-mini")
 
@@ -216,12 +225,12 @@ def test_provider_option_count_label_names_llamacpp_import_flow() -> None:
     assert provider_option_count_label(option) == "import flow"
 
 
-def test_provider_is_active_accepts_provider_specific_fallbacks() -> None:
-    assert _provider_is_active(
+def test_provider_credential_summary_accepts_provider_specific_fallbacks() -> None:
+    assert provider_credential_summary(
         Provider.GOOGLE,
         {"google": {"vertex_ai": {"enabled": True}}},
-    )
-    assert _provider_is_active(
+    ).active
+    assert provider_credential_summary(
         Provider.AZURE,
         {
             "azure": {
@@ -229,8 +238,8 @@ def test_provider_is_active_accepts_provider_specific_fallbacks() -> None:
                 "base_url": "https://example.openai.azure.com",
             }
         },
-    )
-    assert _provider_is_active(
+    ).active
+    assert provider_credential_summary(
         Provider.AZURE,
         {
             "azure": {
@@ -238,8 +247,8 @@ def test_provider_is_active_accepts_provider_specific_fallbacks() -> None:
                 "base_url": " https://example.openai.azure.com ",
             }
         },
-    )
-    assert not _provider_is_active(
+    ).active
+    assert not provider_credential_summary(
         Provider.AZURE,
         {
             "azure": {
@@ -247,7 +256,7 @@ def test_provider_is_active_accepts_provider_specific_fallbacks() -> None:
                 "base_url": "   ",
             }
         },
-    )
+    ).active
 
 
 def test_provider_is_active_for_codex_auth_json(
@@ -262,10 +271,6 @@ def test_provider_is_active_for_codex_auth_json(
             "expires_at": 1_900_000_000,
         },
     )
-
-    assert _provider_is_active(Provider.CODEX_RESPONSES, {})
-
-    from fast_agent.ui.model_picker_common import provider_credential_summary
 
     summary = provider_credential_summary(Provider.CODEX_RESPONSES, {})
     assert summary.active is True
@@ -284,10 +289,6 @@ def test_provider_is_active_for_xai_oauth(
             "expires_at": 1_900_000_000,
         },
     )
-
-    assert _provider_is_active(Provider.XAI, {})
-
-    from fast_agent.ui.model_picker_common import provider_credential_summary
 
     summary = provider_credential_summary(Provider.XAI, {})
     assert summary.active is True

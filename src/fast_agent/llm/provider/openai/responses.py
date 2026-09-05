@@ -52,7 +52,6 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     websocket_reuse_key,
 )
 from fast_agent.llm.provider.openai.schema_sanitizer import (
-    sanitize_response_format_schema,
     sanitize_tool_input_schema,
     should_strip_tool_schema_defaults,
 )
@@ -158,6 +157,7 @@ class _ResponsesWsAttemptState:
 
 
 class ResponsesLLM(
+    OpenAIStructuredOutputMixin,
     ResponsesContentMixin,
     ResponsesFileMixin,
     ResponsesOutputMixin,
@@ -182,24 +182,6 @@ class ResponsesLLM(
         "response_format",
     }
 
-    _prepare_structured_request = OpenAIStructuredOutputMixin._prepare_structured_request
-    _apply_prompt_provider_specific_structured_schema = (
-        OpenAIStructuredOutputMixin._apply_prompt_provider_specific_structured_schema
-    )
-
-    @staticmethod
-    def schema_to_response_format(
-        schema: dict[str, Any],
-        *,
-        name: str = "structured_output",
-        strict: bool = True,
-    ) -> dict[str, Any]:
-        return FastAgentLLM.schema_to_response_format(
-            sanitize_response_format_schema(schema) if strict else schema,
-            name=name,
-            strict=strict,
-        )
-
     def _finalize_turn_usage(
         self,
         usage: TurnUsage | None = None,
@@ -215,6 +197,7 @@ class ResponsesLLM(
         )
 
     def __init__(self, provider: Provider = Provider.RESPONSES, **kwargs) -> None:
+        long_context_requested = kwargs.pop("long_context", False)
         web_search_override = kwargs.pop("web_search", None)
         kwargs.pop("provider", None)
         super().__init__(provider=provider, **kwargs)
@@ -227,6 +210,19 @@ class ResponsesLLM(
         self._configure_service_tier(settings)
         chosen_model = self._configure_reasoning_mode()
         self._configure_transport(kwargs, settings, chosen_model)
+        if long_context_requested:
+            self._configure_long_context(chosen_model)
+
+    def _configure_long_context(self, model_name: str | None) -> None:
+        window = self._get_model_long_context_window(model_name)
+        if self.provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES} and window is not None:
+            self._context_window_override = window
+            self._usage_accumulator.set_context_window_size(window)
+        else:
+            self.logger.warning(
+                f"Long context is not supported for model '{model_name}' "
+                f"on provider '{self.provider.value}'. Ignoring."
+            )
 
     def _initialize_response_state(self, web_search_override: Any) -> None:
         self._tool_call_id_map: dict[str, str] = {}

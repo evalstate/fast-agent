@@ -1308,3 +1308,42 @@ metadata:
     assert by_name["valid-numeric-strings"].manifest.defaults.temperature == 0.4
     assert by_name["valid-numeric-strings"].manifest.defaults.top_k == 20
     assert by_name["valid-numeric-strings"].manifest.metadata.context_window == 8192
+
+
+def test_astra_long_overlay_inherits_document_mime_without_changing_defaults(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "astra-long.yaml",
+        """
+name: astra-long
+provider: codexresponses
+model: gpt-6-astra
+defaults:
+  reasoning: low
+metadata:
+  context_window: 872000
+""".strip(),
+    )
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        resolved = ModelFactory.resolve_model_spec("astra-long")
+        assert resolved.source == "overlay"
+        assert resolved.provider is Provider.CODEX_RESPONSES
+        assert resolved.wire_model_name == "gpt-6-astra"
+        assert resolved.model_config.reasoning_effort is not None
+        assert resolved.model_config.reasoning_effort.value == "low"
+        assert resolved.context_window == 872_000
+        info = resolved.build_model_info()
+        assert info is not None
+        assert info.context_window == 872_000
+        assert resolved.model_params is not None
+        assert "application/pdf" in resolved.model_params.tokenizes
+
+        for alias in ("astra", "gpt-6-astra"):
+            builtin = ModelFactory.resolve_model_spec(alias)
+            assert builtin.context_window == 272_000
+            assert builtin.model_params is not None
+            assert resolved.model_params.tokenizes == builtin.model_params.tokenizes

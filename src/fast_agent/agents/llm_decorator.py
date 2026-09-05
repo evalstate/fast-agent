@@ -1437,10 +1437,14 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
                 break
         return prefix
 
-    def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None:
-        """Replace message history with a deep copy of supplied messages (or empty list)."""
+    def load_message_history(
+        self, messages: list[PromptMessageExtended] | None, *, clear_state: bool = False
+    ) -> None:
+        """Replace history, optionally resetting underlying conversation state first."""
         from fast_agent.history.compaction import normalize_compaction_notice
 
+        if clear_state:
+            self.clear(clear_prompts=True)
         msgs = messages or []
         self._message_history = [msg.model_copy(deep=True) for msg in msgs]
         for message in self._message_history:

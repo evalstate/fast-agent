@@ -12,6 +12,7 @@ Testing notes:
   test_max_tokens_acp_regression.py.
 """
 
+import pytest
 from mcp import Tool
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -27,6 +28,7 @@ from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
+from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import RequestParams
 from fast_agent.utils.reasoning_chunk_join import ReasoningTextAccumulator
@@ -53,6 +55,50 @@ def test_gpt_56_context_windows_follow_provider_limits() -> None:
     assert isinstance(responses_window, int)
     assert isinstance(codex_window, int)
     assert codex_window < responses_window
+
+
+def test_gpt_6_astra_matches_codex_catalog_capabilities() -> None:
+    params = ModelDatabase.get_model_params("gpt-6-astra")
+
+    assert params is not None
+    assert params.context_window == 272_000
+    assert params.max_output_tokens == 128_000
+    assert params.codex_responses_lite is True
+    assert params.response_transports == ("sse", "websocket")
+    assert params.response_websocket_providers == (
+        Provider.RESPONSES,
+        Provider.CODEX_RESPONSES,
+    )
+    assert params.response_service_tiers == ("fast",)
+    assert params.reasoning_effort_spec == ModelDatabase.OPENAI_GPT_6_ASTRA_REASONING
+    assert params.reasoning_effort_spec.default == ReasoningEffortSetting(
+        kind="effort",
+        value="medium",
+    )
+    assert params.reasoning_effort_spec.allowed_efforts == [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    ]
+    assert params.text_verbosity_spec is not None
+    assert params.text_verbosity_spec.default == "low"
+    assert ModelDatabase.get_default_provider("gpt-6-astra") == Provider.RESPONSES
+
+
+@pytest.mark.parametrize("provider", [Provider.RESPONSES, Provider.CODEX_RESPONSES])
+@pytest.mark.parametrize("mime_type", [*DOCUMENT_MIME_TYPES, "image/png", "text/plain"])
+def test_astra_supports_documents_and_existing_modalities(
+    provider: Provider, mime_type: str
+) -> None:
+    assert ModelDatabase.supports_mime("gpt-6-astra", mime_type, provider=provider)
+
+
+@pytest.mark.parametrize("provider", [Provider.RESPONSES, Provider.CODEX_RESPONSES])
+@pytest.mark.parametrize("mime_type", ["audio/mpeg", "video/mp4", "application/zip"])
+def test_astra_rejects_unsupported_modalities(provider: Provider, mime_type: str) -> None:
+    assert not ModelDatabase.supports_mime("gpt-6-astra", mime_type, provider=provider)
 
 
 def test_managed_process_poll_folding_is_enabled_for_validated_models() -> None:
@@ -224,8 +270,9 @@ def test_gemini35_flash_specs_match_api_guide() -> None:
     assert params.reasoning_effort_spec.default.value == "medium"
 
 
-def test_gemini37_flash_specs_match_api_guide() -> None:
-    params = ModelDatabase.get_model_params("gemini-3.7-flash")
+@pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.8-flash"])
+def test_current_gemini_flash_specs_match_api_guide(model: str) -> None:
+    params = ModelDatabase.get_model_params(model)
 
     assert params is not None
     assert params.context_window == 1_048_576
@@ -241,7 +288,13 @@ def test_gemini37_flash_specs_match_api_guide() -> None:
         value="medium",
     )
     assert params.google_service_tiers == ("flex",)
-    assert ModelDatabase.supports_google_service_tier("gemini-3.7-flash", "flex")
+    assert ModelDatabase.supports_google_service_tier(model, "flex")
+
+
+@pytest.mark.parametrize("mime", ["image/png", "application/pdf", "audio/mpeg", "video/mp4"])
+def test_gemini38_supports_documented_inputs_and_structured_output(mime: str) -> None:
+    assert ModelDatabase.supports_mime("gemini-3.8-flash", mime)
+    assert ModelDatabase.get_json_mode("gemini-3.8-flash") == "schema"
 
 
 def test_gemini31_pro_allows_tools_with_structured_output() -> None:
@@ -579,6 +632,8 @@ def test_model_database_metaai_muse_spark_metadata():
     models = (
         "muse-spark-1.2",
         "muse-spark-1.2-contributor",
+        "muse-spark-1.3",
+        "muse-spark-1.3-contributor",
         "muse-spark-1.1",
     )
 
@@ -1282,3 +1337,16 @@ def test_gemini_model_specific_mentions_youtube_capability():
         assert "capable" in model_specific
         assert "free" not in model_specific.lower()
         assert ModelDatabase.supports_mime(model_name, "video/mp4")
+
+
+def test_fable_51_limits_and_always_on_effort():
+    params = ModelDatabase.get_model_params("claude-fable-5-1")
+    assert params is not None
+    assert params.context_window == 1_000_000
+    assert params.max_output_tokens == 128_000
+    spec = params.reasoning_effort_spec
+    assert spec is not None
+    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh", "max"]
+    assert not spec.allow_toggle_disable
+    assert not params.anthropic_thinking_field_required
+    assert not params.anthropic_thinking_disable_supported

@@ -78,8 +78,8 @@ def test_list_current_aliases_for_provider() -> None:
 
 def test_metaai_picker_lists_muse_tiers_in_release_order() -> None:
     assert ModelSelectionCatalog.list_current_aliases(Provider.META_AI) == [
-        "Muse Spark 1.2",
-        "Muse Spark 1.2 (Contributor)",
+        "Muse Spark 1.3",
+        "Muse Spark 1.3 (Contributor)",
         "Muse Spark 1.1",
     ]
 
@@ -102,17 +102,18 @@ def test_metaai_muse_aliases_select_the_current_and_contributor_tiers() -> None:
     assert {
         alias: BUILTIN_MODEL_ALIASES[alias] for alias in ("muse", "muse-spark", "musecontrib")
     } == {
-        "muse": "metaai.muse-spark-1.2",
-        "muse-spark": "metaai.muse-spark-1.2",
-        "musecontrib": "metaai.muse-spark-1.2-contributor",
+        "muse": "metaai.muse-spark-1.3",
+        "muse-spark": "metaai.muse-spark-1.3",
+        "musecontrib": "metaai.muse-spark-1.3-contributor",
     }
 
 
 def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() -> None:
     expected = {
+        "astra": "codexresponses.gpt-6-astra?reasoning=medium",
         "sol": "codexresponses.gpt-5.6-sol?reasoning=high",
         "terra": "codexresponses.gpt-5.6-terra?reasoning=high",
-        "codexplan": "codexresponses.gpt-5.6-sol?reasoning=high",
+        "codexplan": "codexresponses.gpt-6-astra?reasoning=medium",
     }
     entries = {
         entry.alias: entry.model
@@ -127,6 +128,13 @@ def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() ->
             alias,
             presets=ModelFactory.MODEL_PRESETS,
         ) == ModelFactory.parse_model_string(model_spec)
+
+
+def test_gpt_6_astra_is_available_through_codex_and_api_routes() -> None:
+    assert BUILTIN_MODEL_ALIASES["astra"] == "codexresponses.gpt-6-astra?reasoning=medium"
+    assert BUILTIN_MODEL_ALIASES["gpt-6-astra"] == "responses.gpt-6-astra?reasoning=medium"
+    assert "astra" in ModelSelectionCatalog.list_current_aliases(Provider.CODEX_RESPONSES)
+    assert "gpt-6-astra" in ModelSelectionCatalog.list_current_aliases(Provider.RESPONSES)
 
 
 def test_deepseek_catalog_exposes_native_responses_models() -> None:
@@ -320,14 +328,14 @@ def test_google_catalog_exposes_curated_and_fast_models() -> None:
     assert ModelSelectionCatalog.list_all_models(Provider.GOOGLE)
 
 
-def test_google_picker_lists_gemini37_flash_first() -> None:
+def test_google_picker_lists_gemini38_flash_first() -> None:
     entries = ModelSelectionCatalog.list_entries(Provider.GOOGLE)
     current_entries = [entry for entry in entries if entry.current]
 
     assert current_entries
     first = current_entries[0]
-    assert first.alias == "gemini37flash"
-    assert first.model == "google.gemini-3.7-flash"
+    assert first.alias == "gemini38flash"
+    assert first.model == "google.gemini-3.8-flash"
     assert first.fast is True
     assert "$0.75/M input" in (first.description or "")
     assert "$0.375/M input" in (first.description or "")
