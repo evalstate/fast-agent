@@ -131,9 +131,12 @@ def parse_marketplace_plugins(
         repo_path = normalize_repo_path(entry.repo_path)
         if not repo_path:
             continue
+        name = entry.name or repo_path
+        if marketplace_provenance_io.normalize_install_dir_name(name) is None:
+            continue
         plugins.append(
             MarketplacePlugin(
-                name=entry.name or repo_path,
+                name=name,
                 description=entry.description,
                 repo_url=entry.repo_url,
                 repo_ref=entry.repo_ref,

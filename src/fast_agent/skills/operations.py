@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from fast_agent.marketplace import fetch as marketplace_fetch
 from fast_agent.marketplace import git_sources as marketplace_git_sources
+from fast_agent.marketplace import provenance_io as marketplace_provenance_io
 from fast_agent.marketplace import source_models as marketplace_source_models
 from fast_agent.marketplace import source_urls as marketplace_source_urls
 from fast_agent.marketplace import update_status as marketplace_update_status
@@ -131,7 +132,10 @@ def install_marketplace_skill_sync(skill: MarketplaceSkill, destination_root: Pa
     destination_root = destination_root.resolve()
     destination_root.mkdir(parents=True, exist_ok=True)
 
-    install_dir = destination_root / skill.install_dir_name
+    install_dir = marketplace_provenance_io.resolve_managed_install_dir(
+        destination_root,
+        skill.install_dir_name,
+    )
     if install_dir.exists():
         raise FileExistsError(f"Skill already exists: {install_dir}")
 

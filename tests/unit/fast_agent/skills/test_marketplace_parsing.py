@@ -25,6 +25,20 @@ def test_parse_marketplace_payload_returns_empty_for_invalid_payload_shape() -> 
     assert parse_marketplace_payload("not a marketplace") == []
 
 
+def test_parse_marketplace_payload_rejects_traversal_entry_name() -> None:
+    payload = {
+        "entries": [
+            {
+                "name": "../../outside",
+                "repo_url": "https://github.com/example/skills",
+                "repo_path": ".",
+            }
+        ]
+    }
+
+    assert parse_marketplace_payload(payload) == []
+
+
 def test_parse_marketplace_payload_does_not_hide_entry_conversion_failures(
     monkeypatch,
 ) -> None:
