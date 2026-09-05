@@ -201,6 +201,27 @@ async def test_tool_runner_stages_pending_media_as_followup_user_message():
     assert second_call[-1][1] == ["image"]
 
 
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_iteration_limit_preserves_pending_media_for_next_turn():
+    llm = MediaStagingLlm()
+    agent = MediaStagingToolAgent(AgentConfig("media"), [stage_media])
+    agent._llm = llm
+
+    result = await agent.generate("hi", RequestParams(max_iterations=0))
+    assert result.stop_reason == LlmStopReason.MAX_ITERATIONS
+
+    await agent.generate("continue")
+
+    assert len(llm.calls) == 2
+    second_call = llm.calls[1]
+    assert all(
+        FAST_AGENT_PENDING_MEDIA_ATTACHMENTS not in channels for _, _, channels in second_call
+    )
+    assert second_call[-2][0] == "user"
+    assert second_call[-2][1] == ["image"]
+
+
 # Track tool invocations globally for the regression test
 _tool_invocations: list[str] = []
 

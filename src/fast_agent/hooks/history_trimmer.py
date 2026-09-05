@@ -65,6 +65,10 @@ def _trim_turn_messages(
         # Not enough messages to trim (need at least: user, assistant, user, assistant)
         return turn_messages
 
+    if turn_messages[-1].role != "assistant":
+        # An interrupted tool loop has no final assistant response to retain.
+        return turn_messages
+
     # Find all assistant messages with tool calls
     tool_call_indices: list[int] = []
     for i, msg in enumerate(turn_messages):

@@ -885,6 +885,9 @@ class ToolRunner:
             )
             if self._last_message is not None:
                 self._last_message.stop_reason = LlmStopReason.MAX_ITERATIONS
+            if self._use_history_enabled():
+                self._stage_tool_response(tool_message)
+                self._append_history_messages(*self._delta_messages)
             self._done = True
             return
 
