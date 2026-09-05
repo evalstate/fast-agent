@@ -243,6 +243,9 @@ class ResolvedModelSpec:
         """Return effective model info for UI/reporting."""
         from fast_agent.llm.model_info import ModelInfo
 
+        if context_window_override is None and self.model_config.long_context:
+            context_window_override = self.long_context_window
+
         model_params = self.model_params
         if model_params is None:
             info = ModelInfo.from_name(self.wire_model_name, self.provider)

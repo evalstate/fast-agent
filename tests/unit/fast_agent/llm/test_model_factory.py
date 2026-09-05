@@ -1687,6 +1687,7 @@ def test_astra_reasoning_default_and_override(model: str, query: str, expected: 
 @pytest.mark.parametrize(("model", "window"), [("astra", 872_000), ("gpt-6-astra", 1_050_000)])
 @pytest.mark.parametrize("query", ["", "?long_context=false", "?long_context=true", "?context=1m"])
 def test_astra_long_context_real_llm(model: str, window: int, query: str) -> None:
+    from fast_agent.commands.model_details import _iter_model_identity_lines
     from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
 
     llm = ModelFactory.create_factory(f"{model}{query}")(LlmAgent(AgentConfig(name="test")))
@@ -1697,10 +1698,26 @@ def test_astra_long_context_real_llm(model: str, window: int, query: str) -> Non
     assert llm._usage_accumulator.context_window_size == expected
     assert llm.model_info is not None
     assert llm.model_info.context_window == expected
+    assert llm.resolved_model.context_window == expected
+    resolved_info = llm.resolved_model.build_model_info()
+    assert resolved_info is not None
+    assert resolved_info.context_window == expected
+    assert ("Context window", str(expected), False) in _iter_model_identity_lines(llm)
+
+
+def test_long_context_preserves_explicit_context_window_override() -> None:
+    resolved = ModelFactory.resolve_model_spec("astra?long_context=true")
+
+    info = resolved.build_model_info(context_window_override=8192)
+
+    assert info is not None
+    assert info.context_window == 8192
 
 
 @pytest.mark.parametrize("model", ["openai.gpt-6-astra", "responses.gpt-5"])
 def test_long_context_does_not_enable_unsupported_models_or_routes(model: str) -> None:
+    from fast_agent.commands.model_details import _iter_model_identity_lines
+
     llm = ModelFactory.create_factory(f"{model}?long_context=true")(
         LlmAgent(AgentConfig(name="test"))
     )
@@ -1708,6 +1725,12 @@ def test_long_context_does_not_enable_unsupported_models_or_routes(model: str) -
     assert llm._context_window_override is None
     assert llm.model_info is not None
     assert llm._usage_accumulator.context_window_size == llm.model_info.context_window
+    assert llm.resolved_model.context_window == llm.model_info.context_window
+    assert (
+        "Context window",
+        str(llm.model_info.context_window),
+        False,
+    ) in _iter_model_identity_lines(llm)
 
 
 def test_anthropic_does_not_advertise_astra_long_context() -> None:
