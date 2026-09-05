@@ -1,3 +1,7 @@
+---
+description: "Six-hour agent runs: results, source jobs and cost accounting. Not standard leaderboard submissions."
+---
+
 # Six-hour Terminal-Bench 2.1 experiments
 
 Snapshot: September 5, 2026. These fast-agent experiments use a **21,600-second
