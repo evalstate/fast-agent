@@ -47,6 +47,7 @@ The `default_headers` option is available for OpenAI-compatible providers (inclu
 | Moonshot | `moonshot` | `MOONSHOT_API_KEY` | Native Kimi Chat Completions API |
 | Aliyun | `aliyun` | `ALIYUN_API_KEY` | Additional provider; DashScope compatible-mode endpoint |
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` | Additional provider; routed upstream models |
+| OrcaRouter | `orcarouter` | `ORCAROUTER_API_KEY` | Additional provider; OpenAI-compatible model routing gateway |
 | Hugging Face | `hf` or `huggingface` | `HF_TOKEN` | Inference Providers router and HF MCP auth |
 | Open Responses | `openresponses` | `OPENRESPONSES_API_KEY` | Additional provider; interoperable Open Responses endpoints |
 | Generic | `generic` | `GENERIC_API_KEY` | Additional provider; local/self-hosted OpenAI-compatible endpoints |
@@ -67,4 +68,4 @@ See [Additional Providers](providers/additional/) for the long-tail reference wi
 - [Z.ai](providers/zai/) for native GLM models, reasoning streams, tools, and structured output.
 - [Moonshot](providers/moonshot/) for native Kimi K3 reasoning, streaming, tools, structured output, and vision.
 - [Hugging Face](providers/huggingface/) for Inference Providers routing, curated aliases, and HF MCP authentication.
-- [Additional Providers](providers/additional/) for Groq, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints.
+- [Additional Providers](providers/additional/) for Groq, Aliyun, OpenRouter, OrcaRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints.

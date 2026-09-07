@@ -1572,6 +1572,28 @@ class OpenRouterSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class OrcaRouterSettings(BaseModel):
+    """Settings for using OrcaRouter models via its OpenAI-compatible API."""
+
+    api_key: str | None = Field(default=None, description="OrcaRouter API key")
+    base_url: str | None = Field(
+        default=None,
+        description="Override API endpoint (default: https://api.orcarouter.ai/v1)",
+    )
+    default_model: str | None = Field(
+        default=None,
+        description=(
+            "Default model when OrcaRouter provider is selected without an explicit model"
+        ),
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class AzureSettings(BaseModel):
     """Settings for using Azure OpenAI Service in the fast-agent application."""
 
@@ -2372,6 +2394,9 @@ class Settings(BaseSettings):
 
     openrouter: OpenRouterSettings | None = None
     """Settings for using OpenRouter models in the fast-agent application"""
+
+    orcarouter: OrcaRouterSettings | None = None
+    """Settings for using OrcaRouter models in the fast-agent application"""
 
     generic: GenericSettings | None = None
     """Settings for using Generic models in the fast-agent application"""
