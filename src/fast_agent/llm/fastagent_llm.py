@@ -129,6 +129,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     PARAM_STRUCTURED_SCHEMA = "structured_schema"
     PARAM_STRUCTURED_TOOL_POLICY = "structured_tool_policy"
     PARAM_SAMPLING_TOOL_CHOICE = "sampling_tool_choice"
+    PARAM_TOOL_SEARCH = "tool_search"
     PARAM_MCP_TOOLS = "tools"
     PARAM_MCP_TOOL_CHOICE = "tool_choice"
 
@@ -144,6 +145,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         PARAM_STRUCTURED_SCHEMA,
         PARAM_STRUCTURED_TOOL_POLICY,
         PARAM_SAMPLING_TOOL_CHOICE,
+        PARAM_TOOL_SEARCH,
         PARAM_MCP_TOOLS,
         PARAM_MCP_TOOL_CHOICE,
     }
