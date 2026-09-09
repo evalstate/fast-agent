@@ -273,13 +273,6 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
     (
         RouterProfileRule(
             model=_DEEPSEEK_V4_FLASH,
-            backends=frozenset(
-                {
-                    "baseten",
-                    "deepinfra",
-                    HUGGINGFACE_CUSTOM_ENDPOINT_BACKEND,
-                }
-            ),
             profile=HuggingFaceRouteProfile(reasoning=_DEEPSEEK_REASONING),
         ),
         RouterProfileRule(
@@ -295,6 +288,14 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
         RouterProfileRule(
             model=_GLM_52,
             profile=HuggingFaceRouteProfile(reasoning=_GLM_52_REASONING),
+        ),
+        RouterProfileRule(
+            model="zai-org/glm-5.3",
+            profile=HuggingFaceRouteProfile(reasoning=ThinkingWithReasoningEffort()),
+        ),
+        RouterProfileRule(
+            model="zai-org/glm-5.3-flash",
+            profile=HuggingFaceRouteProfile(reasoning=ThinkingWithReasoningEffort()),
         ),
         RouterProfileRule(
             model=_KIMI_K3,

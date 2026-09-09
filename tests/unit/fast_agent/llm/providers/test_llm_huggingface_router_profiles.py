@@ -331,10 +331,10 @@ async def test_muse_glimmer_manual_stream_reassembles_together_tool_fragments() 
         "hf.deepseek-ai/DeepSeek-V4-Flash-0731:together",
     ),
 )
-def test_deepseek_unprofiled_route_does_not_invent_wire_contract(model: str) -> None:
+def test_deepseek_routes_fall_back_to_model_profile(model: str) -> None:
     request = _factory_request(model)
 
-    assert "reasoning_effort" not in request
+    assert request["reasoning_effort"] == "max"
 
 
 def test_deepseek_profile_uses_configured_hf_backend() -> None:
@@ -411,7 +411,7 @@ def test_deepseek_constructor_endpoint_uses_custom_route_profile() -> None:
         "https://router.huggingface.co:443/v1",
     ),
 )
-def test_equivalent_huggingface_router_urls_do_not_use_custom_profile(
+def test_equivalent_huggingface_router_urls_use_model_profile(
     base_url: str,
 ) -> None:
     llm = HuggingFaceLLM(
@@ -427,7 +427,7 @@ def test_equivalent_huggingface_router_urls_do_not_use_custom_profile(
     )
 
     assert request["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731"
-    assert "reasoning_effort" not in request
+    assert request["reasoning_effort"] == "max"
 
 
 def test_deepseek_custom_endpoint_does_not_override_explicit_router_backend() -> None:
@@ -444,7 +444,7 @@ def test_deepseek_custom_endpoint_does_not_override_explicit_router_backend() ->
     )
 
     assert request["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731:together"
-    assert "reasoning_effort" not in request
+    assert request["reasoning_effort"] == "max"
 
 
 def test_deepseek_custom_endpoint_uses_nested_hf_base_url_environment(
@@ -500,3 +500,26 @@ def test_hf_route_profiles_preserve_route_specific_cleanup(
     assert isinstance(extra_body, dict)
     assert set(extra_body) == expected_extra_body_keys
     assert extra_body.get("preserved") is True
+
+
+@pytest.mark.parametrize("model", ("GLM-5.3", "GLM-5.3-Flash"))
+@pytest.mark.parametrize("backend", ("", ":together", ":deepinfra"))
+@pytest.mark.parametrize(
+    "query, effort", (("", "max"), ("?reasoning=low", "low"), ("?reasoning=high", "high"))
+)
+def test_glm_53_routes_fall_back_to_model_profile(
+    model: str, backend: str, query: str, effort: str
+) -> None:
+    wire_model = f"zai-org/{model}{backend}"
+    request = _factory_request(f"hf.{wire_model}{query}")
+
+    assert request["model"] == wire_model
+    assert request["reasoning_effort"] == effort
+    assert request["extra_body"] == {"thinking": {"type": "enabled", "clear_thinking": False}}
+
+
+@pytest.mark.parametrize("model", ("GLM-5.3", "GLM-5.3-Flash"))
+def test_glm_53_hf_keeps_required_reasoning_enabled(model: str) -> None:
+    request = _factory_request(f"hf.zai-org/{model}:together?reasoning=none")
+
+    assert request["reasoning_effort"] == "max"
