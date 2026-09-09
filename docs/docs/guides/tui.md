@@ -39,6 +39,36 @@ of the stdin interpreter. This includes direct interpreters such as
 TypeScript executed with `pnpm exec tsx -` (including `pnpm -C <dir> exec`).
 Highlighting is applied while the heredoc is still streaming.
 
+## Terminal images
+
+Image rendering automatically uses reported terminal graphics support, including
+Kitty graphics inside Herdr. Herdr can report Kitty support even when the outer
+terminal cannot display it. For Herdr inside Foot or Windows Terminal, select
+half-cell rendering:
+
+```yaml
+logger:
+  terminal_images:
+    backend: halfcell
+```
+
+Alternatively, select it for a terminal environment:
+
+```bash
+export LOGGER__TERMINAL_IMAGES__BACKEND=halfcell
+```
+
+In PowerShell:
+
+```powershell
+$env:LOGGER__TERMINAL_IMAGES__BACKEND = "halfcell"
+```
+
+Explicit configuration takes precedence over this environment variable; leave
+`backend` unset in YAML to select it via the environment. Restart fast-agent
+after changing these settings. With Herdr inside Ghostty or Kitty, leave the
+backend at its automatic default or explicitly select `kitty`.
+
 ## Shell Integration
 
 You can run a shell command with `!` - for example `! git status`. When the active agent uses a local shell environment, commands run attached to your terminal, so interactive programs such as `! nano` work as expected. If the active agent uses a remote or sandbox environment, `!` runs in that environment; use `!!` to force a local shell command instead.

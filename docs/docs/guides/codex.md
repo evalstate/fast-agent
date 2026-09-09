@@ -61,8 +61,20 @@ If you want to use the Codex OAuth models directly, authenticate once first:
 fast-agent auth provider login codex
 ```
 
-This stores the token in your OS keyring. After that you can use Codex OAuth
-model aliases such as:
+Login uses device auth by default: open the displayed URL in a browser and enter
+the one-time code. No local callback server is required. Only enter a code from
+a login you started yourself.
+
+If device auth is unavailable for your account, use the existing browser callback
+flow instead:
+
+```bash
+fast-agent auth provider login codex --method browser
+```
+
+Device login failures do not automatically switch to browser login. Credentials
+are stored in your OS keyring, with a secure file fallback. After that you can use
+Codex OAuth model aliases such as:
 
 - `codexplan` — GPT-6-Astra with medium reasoning
 

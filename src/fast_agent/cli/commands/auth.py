@@ -7,6 +7,7 @@ import json
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 from urllib.parse import urlparse
@@ -488,17 +489,35 @@ def provider_show(
     _print_provider_views([view])
 
 
+class ProviderLoginMethod(str, Enum):
+    DEVICE = "device"
+    BROWSER = "browser"
+
+
 @provider_app.command("login")
 def provider_login(
     provider: str = typer.Argument(..., help="Provider name: xai or codex"),
+    method: ProviderLoginMethod = typer.Option(
+        ProviderLoginMethod.DEVICE,
+        "--method",
+        help="Login method. Browser login is available for Codex accounts without device auth.",
+    ),
 ) -> None:
-    """Authenticate with a model provider."""
+    """Authenticate with a model provider using device auth by default."""
     from fast_agent.auth.providers import get_oauth_provider
     from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
 
     try:
         handler = get_oauth_provider(provider)
-        handler.login()
+        login = handler.login
+        if method == ProviderLoginMethod.BROWSER:
+            if handler.browser_login is None:
+                raise ProviderKeyError(
+                    "Unsupported login method",
+                    f"{handler.display_name} does not support browser login. Use --method device.",
+                )
+            login = handler.browser_login
+        login()
         typer.echo(f"{handler.display_name} OAuth login complete.")
     except ProviderKeyError as exc:
         typer.echo(format_fast_agent_error(exc), err=True)

@@ -770,3 +770,80 @@ def test_auth_mcp_list_reports_invalid_settings_yaml_without_traceback(tmp_path:
     assert result.exit_code == 1, result.output
     assert "Error loading fast-agent settings:" in result.output
     assert "Traceback" not in result.output
+
+
+@pytest.mark.parametrize("provider", ["codex", "codexplan", "codexresponses"])
+@pytest.mark.parametrize("method", [None, "device", "browser"])
+def test_codex_login_method_selection(
+    monkeypatch: pytest.MonkeyPatch, provider: str, method: str | None
+) -> None:
+    from fast_agent.llm.provider.openai import codex_oauth
+
+    calls: list[str] = []
+
+    def device_login(timeout_seconds: int = 900) -> codex_oauth.CodexOAuthTokens:
+        calls.append("device")
+        return codex_oauth.CodexOAuthTokens(access_token="test-token")
+
+    def browser_login(timeout_seconds: int = 300) -> codex_oauth.CodexOAuthTokens:
+        calls.append("browser")
+        return codex_oauth.CodexOAuthTokens(access_token="test-token")
+
+    monkeypatch.setattr(codex_oauth, "login_codex_device_oauth", device_login)
+    monkeypatch.setattr(codex_oauth, "login_codex_browser_oauth", browser_login)
+    args = ["provider", "login", provider]
+    if method:
+        args.extend(["--method", method])
+
+    result = CliRunner().invoke(auth_command.app, args)
+
+    assert result.exit_code == 0, result.output
+    assert calls == [method or "device"]
+    assert "Codex OAuth login complete." in result.output
+    assert "test-token" not in result.output
+
+
+def test_xai_browser_login_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fast_agent.llm.provider.openai import xai_oauth
+
+    def unexpected_login() -> OAuthCredential:
+        pytest.fail("unsupported browser login must not start device login")
+
+    monkeypatch.setattr(xai_oauth, "login_xai_oauth", unexpected_login)
+
+    result = CliRunner().invoke(
+        auth_command.app, ["provider", "login", "xai", "--method", "browser"]
+    )
+
+    assert result.exit_code == 1
+    assert "does not support browser login" in result.output
+
+
+def test_provider_login_rejects_unknown_method() -> None:
+    result = CliRunner().invoke(
+        auth_command.app, ["provider", "login", "codex", "--method", "unknown"]
+    )
+
+    assert result.exit_code == 2
+
+
+def test_codex_device_login_failure_does_not_switch_to_browser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.core.exceptions import ProviderKeyError
+    from fast_agent.llm.provider.openai import codex_oauth
+
+    def device_login(timeout_seconds: int = 900) -> codex_oauth.CodexOAuthTokens:
+        raise ProviderKeyError("Device login unavailable", "Use --method browser.")
+
+    def unexpected_login(timeout_seconds: int = 300) -> codex_oauth.CodexOAuthTokens:
+        pytest.fail("failed device login must not switch to browser automatically")
+
+    monkeypatch.setattr(codex_oauth, "login_codex_device_oauth", device_login)
+    monkeypatch.setattr(codex_oauth, "login_codex_browser_oauth", unexpected_login)
+
+    result = CliRunner().invoke(auth_command.app, ["provider", "login", "codex"])
+
+    assert result.exit_code == 1
+    assert "--method browser" in result.output
+    assert "login complete" not in result.output

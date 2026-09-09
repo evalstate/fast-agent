@@ -187,6 +187,7 @@ def resolve_active_llm(
 def render_input_toolbar(
     *,
     agent_name: str,
+    show_agent_name: bool,
     toolbar_color: str,
     agent_provider: "AgentApp | None",
     multiline_mode: bool,
@@ -203,10 +204,14 @@ def render_input_toolbar(
     resolved_agent_state = _resolve_toolbar_agent_state_cached(
         agent_name, agent_provider, cache=cache
     )
-    agent_identity_segment = _format_toolbar_agent_identity(
-        agent_name,
-        toolbar_color,
-        resolved_agent_state.state.agent,
+    agent_identity_segment = (
+        _format_toolbar_agent_identity(
+            agent_name,
+            toolbar_color,
+            resolved_agent_state.state.agent,
+        )
+        if show_agent_name
+        else ""
     )
     attachment_summary = _resolve_attachment_summary(
         current_input_text=current_input_text,

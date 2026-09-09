@@ -223,8 +223,11 @@ once, then use a Codex OAuth model alias such as `astra` (GPT-6-Astra), `codexpl
 **Quick Start:**
 
 ```bash
-# Start OAuth login (stores tokens in your OS keyring)
+# Start device auth (stores tokens in your OS keyring, with a secure file fallback)
 fast-agent auth provider login codex
+
+# Alternatively, use browser callback login if device auth is unavailable
+fast-agent auth provider login codex --method browser
 
 # Use GPT-6-Astra through the Codex subscription
 fast-agent --model astra

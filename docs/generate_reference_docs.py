@@ -931,7 +931,8 @@ def generate_tui_runtime_reference() -> str:
         ),
         "logger.terminal_images.enabled": "Render image content in capable terminals.",
         "logger.terminal_images.backend": (
-            "Terminal image backend; automatic Sixel rendering is fitted to the viewport."
+            "Auto uses reported terminal support, including Kitty in Herdr; "
+            "use halfcell to opt out. Automatic Sixel rendering is fitted to the viewport."
         ),
         "logger.terminal_images.width": "Image render width.",
         "logger.terminal_images.height": "Image render height.",

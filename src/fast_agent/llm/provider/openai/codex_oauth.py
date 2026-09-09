@@ -1,8 +1,8 @@
 """Codex OAuth helpers for ChatGPT/Codex tokens.
 
-Implements the OAuth PKCE flow used by the Codex CLI, including keyring
-storage and refresh. Access tokens are used as API keys when calling the
-Codex responses endpoint.
+Implements device authorization and browser OAuth PKCE login, including
+keyring storage and refresh. Access tokens are used as API keys when calling
+the Codex responses endpoint.
 """
 
 from __future__ import annotations
@@ -17,11 +17,11 @@ from contextlib import suppress
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field, ValidationError
 
 from fast_agent.auth.credentials import (
     OAuthCredential,
@@ -393,13 +393,15 @@ def build_authorization_url(code_challenge: str, state: str) -> str:
     return f"{CODEX_AUTHORIZE_URL}?{urlencode(params)}"
 
 
-def exchange_code_for_tokens(code: str, code_verifier: str) -> CodexOAuthTokens:
+def exchange_code_for_tokens(
+    code: str, code_verifier: str, *, redirect_uri: str = CODEX_REDIRECT_URI
+) -> CodexOAuthTokens:
     payload = {
         "grant_type": "authorization_code",
         "client_id": CODEX_CLIENT_ID,
         "code": code,
         "code_verifier": code_verifier,
-        "redirect_uri": CODEX_REDIRECT_URI,
+        "redirect_uri": redirect_uri,
     }
     return _token_request(payload)
 
@@ -465,7 +467,7 @@ def parse_chatgpt_account_id(access_token: str) -> str | None:
         return None
 
 
-def login_codex_oauth(timeout_seconds: int = 300) -> CodexOAuthTokens:
+def login_codex_browser_oauth(timeout_seconds: int = 300) -> CodexOAuthTokens:
     verifier = _pkce_verifier()
     challenge = _pkce_challenge(verifier)
     state = secrets.token_urlsafe(16)
@@ -519,3 +521,103 @@ def login_codex_oauth(timeout_seconds: int = 300) -> CodexOAuthTokens:
     tokens = exchange_code_for_tokens(code, verifier)
     save_codex_tokens(tokens)
     return tokens
+
+
+class _DeviceUserCode(BaseModel):
+    device_auth_id: Annotated[str, Field(min_length=1)]
+    user_code: Annotated[
+        str, Field(min_length=1, validation_alias=AliasChoices("user_code", "usercode"))
+    ]
+    interval: Annotated[str, Field(pattern=r"^\s*[0-9]+\s*$")] = "5"
+
+
+class _DeviceAuthorization(BaseModel):
+    authorization_code: Annotated[str, Field(min_length=1)]
+    code_verifier: Annotated[str, Field(min_length=1)]
+
+
+def _device_login_error(detail: str) -> ProviderKeyError:
+    return ProviderKeyError(
+        "Codex device login failed",
+        f"{detail} Retry login or use `fast-agent auth provider login codex --method browser`.",
+    )
+
+
+def login_codex_device_oauth(timeout_seconds: int = 900) -> CodexOAuthTokens:
+    """Authorize with a user-entered device code; never fall back automatically."""
+    deadline = time.monotonic() + min(timeout_seconds, 900)
+
+    def remaining() -> float:
+        seconds = deadline - time.monotonic()
+        if seconds <= 0:
+            raise _device_login_error("Device authorization timed out.")
+        return seconds
+
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(
+                "https://auth.openai.com/api/accounts/deviceauth/usercode",
+                json={"client_id": CODEX_CLIENT_ID},
+                timeout=min(30.0, remaining()),
+            )
+            if not response.is_success:
+                raise _device_login_error(
+                    f"Unable to request a device code (HTTP {response.status_code}). "
+                    "Ensure device code login is enabled for your account."
+                )
+            device = _DeviceUserCode.model_validate_json(response.content)
+            interval = max(1, int(device.interval))
+            console.ensure_blocking_console()
+            console.console.print(
+                "Open https://auth.openai.com/codex/device and enter this one-time code:",
+                markup=False,
+            )
+            console.console.print(device.user_code, markup=False)
+            console.console.print(
+                "Continue only if you started this login. If a website or another person "
+                "gave you this code, cancel.",
+                markup=False,
+            )
+            while True:
+                response = client.post(
+                    "https://auth.openai.com/api/accounts/deviceauth/token",
+                    json={"device_auth_id": device.device_auth_id, "user_code": device.user_code},
+                    timeout=min(30.0, remaining()),
+                )
+                remaining()
+                if response.is_success:
+                    authorization = _DeviceAuthorization.model_validate_json(response.content)
+                    break
+                if response.status_code not in (403, 404):
+                    raise _device_login_error(
+                        f"Device authorization failed (HTTP {response.status_code})."
+                    )
+                time.sleep(min(interval, remaining()))
+        try:
+            tokens = exchange_code_for_tokens(
+                authorization.authorization_code,
+                authorization.code_verifier,
+                redirect_uri="https://auth.openai.com/deviceauth/callback",
+            )
+        except ProviderKeyError:
+            raise _device_login_error("Device authorization token exchange failed.") from None
+    except (httpx.HTTPError, ValidationError, ValueError):
+        # Do not expose response bodies, validation inputs, or token exchange errors.
+        raise _device_login_error(
+            "Device authorization could not be completed (request failed, invalid response, "
+            "or authorization timed out)."
+        ) from None
+    save_codex_tokens(tokens)
+    return tokens
+
+
+def login_codex_oauth(
+    timeout_seconds: int | None = None, *, method: Literal["device", "browser"] = "device"
+) -> CodexOAuthTokens:
+    if method == "device":
+        return login_codex_device_oauth(900 if timeout_seconds is None else timeout_seconds)
+    if method == "browser":
+        return login_codex_browser_oauth(300 if timeout_seconds is None else timeout_seconds)
+    raise ProviderKeyError(
+        "Codex OAuth login failed", "Unknown login method. Use device or browser."
+    )

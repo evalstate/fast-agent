@@ -1,6 +1,9 @@
 import json
 from pathlib import Path
+from unittest.mock import Mock
+from urllib.parse import parse_qs
 
+import httpx
 import pytest
 
 from fast_agent.auth.credentials import OAuthCredential, StoredCredential, save_oauth_credential
@@ -290,4 +293,216 @@ def test_login_rejects_callback_without_oauth_state(monkeypatch) -> None:
     )
 
     with pytest.raises(codex_oauth.ProviderKeyError, match="State parameter mismatch"):
-        codex_oauth.login_codex_oauth()
+        codex_oauth.login_codex_browser_oauth()
+
+
+@pytest.fixture
+def device_login(monkeypatch):
+
+    clock = [0.0]
+    requests: list[httpx.Request] = []
+    responses: list[httpx.Response | Exception] = []
+    sleeps: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        assert seconds > 0
+        sleeps.append(seconds)
+        clock[0] += seconds
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        response = responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    client_type = httpx.Client
+    monkeypatch.setattr(
+        codex_oauth.httpx,
+        "Client",
+        lambda **kwargs: client_type(transport=httpx.MockTransport(handle)),
+    )
+    monkeypatch.setattr(codex_oauth.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(codex_oauth.time, "sleep", sleep)
+    monkeypatch.setattr(codex_oauth.console, "ensure_blocking_console", lambda: None)
+    display = Mock()
+    save = Mock()
+    monkeypatch.setattr(codex_oauth.console.console, "print", display)
+    monkeypatch.setattr(codex_oauth, "save_codex_tokens", save)
+    monkeypatch.setattr(
+        codex_oauth, "login_codex_browser_oauth", Mock(side_effect=AssertionError("no fallback"))
+    )
+    return responses, requests, sleeps, save, display
+
+
+@pytest.mark.parametrize("alias", ["user_code", "usercode"])
+def test_device_login_protocol(device_login, alias: str) -> None:
+
+    responses, requests, sleeps, save, display = device_login
+    responses.extend(
+        [
+            httpx.Response(
+                200, json={"device_auth_id": "id", alias: "[bold]code", "interval": "2"}
+            ),
+            httpx.Response(403),
+            httpx.Response(404),
+            httpx.Response(
+                200, json={"authorization_code": "auth-code", "code_verifier": "verifier"}
+            ),
+            httpx.Response(200, json={"access_token": "access", "refresh_token": "refresh"}),
+        ]
+    )
+    tokens = codex_oauth.login_codex_oauth()
+    assert tokens.access_token == "access"
+    save.assert_called_once_with(tokens)
+    assert sleeps == [2, 2]
+    assert str(requests[0].url) == "https://auth.openai.com/api/accounts/deviceauth/usercode"
+    assert json.loads(requests[0].content) == {"client_id": codex_oauth.CODEX_CLIENT_ID}
+    for request in requests[1:4]:
+        assert str(request.url) == "https://auth.openai.com/api/accounts/deviceauth/token"
+        assert json.loads(request.content) == {"device_auth_id": "id", "user_code": "[bold]code"}
+
+    exchange = parse_qs(requests[-1].content.decode())
+    assert exchange["redirect_uri"] == ["https://auth.openai.com/deviceauth/callback"]
+    assert exchange["code"] == ["auth-code"]
+    assert exchange["code_verifier"] == ["verifier"]
+    display.assert_any_call("[bold]code", markup=False)
+    assert any("only if you started" in call.args[0] for call in display.call_args_list)
+
+
+@pytest.mark.parametrize("interval,expected", [(None, [5, 1]), ("0", [1] * 6), ("999", [6])])
+def test_device_timeout_has_bounded_nonzero_sleeps(device_login, interval, expected) -> None:
+
+    responses, requests, sleeps, save, _ = device_login
+    payload = {"device_auth_id": "id", "user_code": "code"}
+    if interval is not None:
+        payload["interval"] = interval
+    responses.append(httpx.Response(200, json=payload))
+    responses.extend(httpx.Response(403) for _ in expected)
+    with pytest.raises(codex_oauth.ProviderKeyError, match="timed out"):
+        codex_oauth.login_codex_device_oauth(6)
+    assert sleeps == expected
+    assert len(requests) == len(expected) + 1
+    save.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "stage,status,payload",
+    [
+        ("request", 404, {}),
+        ("request", 500, {}),
+        ("request", 200, {"device_auth_id": "id"}),
+        ("request", 200, {"device_auth_id": 123, "user_code": "code"}),
+        ("request", 200, {"device_auth_id": "id", "user_code": "code", "interval": "bad"}),
+        ("poll", 401, {"secret": "sensitive"}),
+        ("poll", 429, {}),
+        ("poll", 200, {"authorization_code": "sensitive"}),
+        ("poll", 200, {"authorization_code": "sensitive", "code_verifier": ""}),
+    ],
+)
+def test_device_failures_do_not_store(device_login, stage, status, payload) -> None:
+
+    responses, _, _, save, _ = device_login
+    if stage == "poll":
+        responses.append(httpx.Response(200, json={"device_auth_id": "id", "user_code": "code"}))
+    responses.append(httpx.Response(status, json=payload))
+    with pytest.raises(codex_oauth.ProviderKeyError) as error:
+        codex_oauth.login_codex_device_oauth()
+    assert "fast-agent auth provider login codex --method browser" in str(error.value)
+    assert "sensitive" not in str(error.value)
+    save.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", ["network", "json", "exchange"])
+def test_device_transport_and_exchange_failures(device_login, monkeypatch, failure) -> None:
+
+    responses, _, _, save, _ = device_login
+    if failure == "network":
+        responses.append(httpx.ConnectError("sensitive"))
+    elif failure == "json":
+        responses.append(httpx.Response(200, content=b"not json sensitive"))
+    else:
+        responses.extend(
+            [
+                httpx.Response(200, json={"device_auth_id": "id", "user_code": "code"}),
+                httpx.Response(
+                    200, json={"authorization_code": "code", "code_verifier": "verifier"}
+                ),
+            ]
+        )
+        monkeypatch.setattr(
+            codex_oauth,
+            "exchange_code_for_tokens",
+            Mock(side_effect=codex_oauth.ProviderKeyError("sensitive", "sensitive")),
+        )
+    with pytest.raises(codex_oauth.ProviderKeyError) as error:
+        codex_oauth.login_codex_device_oauth()
+    assert "--method browser" in str(error.value)
+    assert "sensitive" not in str(error.value)
+    save.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "method,timeout,expected",
+    [("device", None, 900), ("browser", None, 300), ("device", 7, 7), ("browser", 8, 8)],
+)
+def test_login_dispatch(monkeypatch, method, timeout, expected) -> None:
+
+    device = Mock()
+    browser = Mock()
+    monkeypatch.setattr(codex_oauth, "login_codex_device_oauth", device)
+    monkeypatch.setattr(codex_oauth, "login_codex_browser_oauth", browser)
+    result = codex_oauth.login_codex_oauth(timeout, method=method)
+    selected, unused = (device, browser) if method == "device" else (browser, device)
+    selected.assert_called_once_with(expected)
+    assert result is selected.return_value
+    unused.assert_not_called()
+
+
+def test_browser_login_preserves_callback_and_redirect(monkeypatch) -> None:
+
+    server = Mock()
+    server.serve_once.return_value = ("code", "state")
+    monkeypatch.setattr(codex_oauth, "_CallbackServer", Mock(return_value=server))
+    monkeypatch.setattr(codex_oauth.secrets, "token_urlsafe", lambda size: "state")
+    monkeypatch.setattr(codex_oauth.console, "ensure_blocking_console", lambda: None)
+    monkeypatch.setattr(codex_oauth.console.console, "print", Mock())
+    request = Mock(return_value=CodexOAuthTokens(access_token="token"))
+    save = Mock()
+    monkeypatch.setattr(codex_oauth, "_token_request", request)
+    monkeypatch.setattr(codex_oauth, "save_codex_tokens", save)
+
+    tokens = codex_oauth.login_codex_oauth(method="browser")
+
+    server.start.assert_called_once()
+    server.serve_once.assert_called_once_with(timeout_seconds=300)
+    server.close.assert_called_once()
+    assert request.call_args.args[0]["redirect_uri"] == codex_oauth.CODEX_REDIRECT_URI
+    save.assert_called_once_with(tokens)
+
+
+def test_device_deadline_is_capped_at_fifteen_minutes(device_login) -> None:
+
+    responses, requests, sleeps, save, _ = device_login
+    responses.extend(
+        [
+            httpx.Response(
+                200, json={"device_auth_id": "id", "user_code": "code", "interval": "1000"}
+            ),
+            httpx.Response(404),
+        ]
+    )
+    with pytest.raises(codex_oauth.ProviderKeyError, match="timed out"):
+        codex_oauth.login_codex_device_oauth(1800)
+    assert sleeps == [900]
+    assert len(requests) == 2
+    save.assert_not_called()
+
+
+def test_device_expired_deadline_makes_no_requests(device_login) -> None:
+    _, requests, sleeps, save, _ = device_login
+    with pytest.raises(codex_oauth.ProviderKeyError, match="timed out"):
+        codex_oauth.login_codex_device_oauth(0)
+    assert requests == []
+    assert sleeps == []
+    save.assert_not_called()

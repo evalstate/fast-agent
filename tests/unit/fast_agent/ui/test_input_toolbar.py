@@ -274,16 +274,16 @@ def test_build_middle_segment_renders_muted_process_indicator_when_idle() -> Non
 
 def test_agent_capability_indicator_styles_each_capability_independently() -> None:
     assert render_agent_capability_indicator(AgentCapabilityMode.STANDARD) == (
-        "<style bg='ansibrightblack'>↳</style><style bg='ansibrightblack'>⌘ </style>"
+        "<style fg='ansiblack' bg='ansiwhite'>↳</style><style fg='ansiblack' bg='ansiwhite'>⌘ </style>"
     )
     assert render_agent_capability_indicator(AgentCapabilityMode.DELEGATE) == (
-        "<style bg='ansigreen'>↳</style><style bg='ansibrightblack'>⌘ </style>"
+        "<style fg='ansigreen' bg='ansiblack'>↳</style><style fg='ansiblack' bg='ansiwhite'>⌘ </style>"
     )
     assert render_agent_capability_indicator(AgentCapabilityMode.HARNESS_ONLY) == (
-        "<style bg='ansibrightblack'>↳</style><style bg='ansigreen'>⌘ </style>"
+        "<style fg='ansiblack' bg='ansiwhite'>↳</style><style fg='ansigreen' bg='ansiblack'>⌘ </style>"
     )
     assert render_agent_capability_indicator(AgentCapabilityMode.ORCHESTRATE) == (
-        "<style bg='ansigreen'>↳</style><style bg='ansigreen'>⌘ </style>"
+        "<style fg='ansigreen' bg='ansiblack'>↳</style><style fg='ansigreen' bg='ansiblack'>⌘ </style>"
     )
 
 

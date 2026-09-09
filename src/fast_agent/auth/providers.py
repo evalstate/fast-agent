@@ -29,6 +29,7 @@ class OAuthProvider:
     access_token: Callable[[], str | None]
     status: Callable[[], dict[str, object]]
     logout: Callable[[], bool]
+    browser_login: Callable[[], OAuthCredential] | None = None
 
 
 def _xai_provider() -> OAuthProvider:
@@ -68,6 +69,9 @@ def _codex_provider() -> OAuthProvider:
     def login() -> OAuthCredential:
         return _codex_credential(login_codex_oauth())
 
+    def browser_login() -> OAuthCredential:
+        return _codex_credential(login_codex_oauth(method="browser"))
+
     def credential() -> OAuthCredential | None:
         tokens = load_codex_tokens()
         return _codex_credential(tokens) if tokens else None
@@ -89,6 +93,7 @@ def _codex_provider() -> OAuthProvider:
         access_token=get_codex_access_token,
         status=get_codex_token_status,
         logout=clear_codex_tokens,
+        browser_login=browser_login,
     )
 
 

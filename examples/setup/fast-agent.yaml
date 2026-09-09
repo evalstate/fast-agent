@@ -159,6 +159,11 @@ logger:
     show_successful_file_reads: false
     stream_edit_previews: primary # off | primary | all
     aggregate_parallel: true
+  # Images auto-detect reported terminal support, including Kitty in Herdr.
+  # For Herdr inside Foot/Windows Terminal, use halfcell here or set
+  # LOGGER__TERMINAL_IMAGES__BACKEND=halfcell (leave backend unset for env selection).
+  # terminal_images:
+  #   backend: halfcell
   # Streaming renderer for assistant responses: "markdown", "plain", or "none"
   streaming: markdown
   # Render markdown code fences with Rich Syntax instead of markdown fence blocks

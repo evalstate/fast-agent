@@ -1733,7 +1733,10 @@ class TerminalImageSettings(BaseModel):
         "unicode",
         "none",
     ] = "auto"
-    """Terminal image backend; automatic Sixel rendering is fitted to the viewport."""
+    """Auto uses reported terminal support, including Kitty in Herdr; use halfcell to opt out.
+
+    Automatic Sixel rendering is fitted to the viewport.
+    """
 
     width: TerminalImageSize = "80%"
     """Image render width: cells, percentage (e.g. '80%'), 'auto', or null."""

@@ -223,36 +223,25 @@ def test_automatic_sixel_backend_uses_viewport_aware_renderer(monkeypatch) -> No
     assert terminal_image_renderer._resolve_textual_image_class("sixel") is ViewportAwareSixelImage
 
 
-def test_herdr_auto_backend_uses_sanitized_halfcell_renderer(monkeypatch) -> None:
-    monkeypatch.setenv("HERDR_ENV", "1")
-
-    assert (
-        terminal_image_renderer._resolve_textual_image_class("auto")
-        is halfcell_renderer.HerdrAwareHalfcellImage
-    )
-    assert (
-        terminal_image_renderer._resolve_textual_image_class("halfcell")
-        is halfcell_renderer.HerdrAwareHalfcellImage
-    )
-
-
-def test_explicit_kitty_backend_is_unchanged_in_herdr(monkeypatch) -> None:
+@pytest.mark.parametrize("herdr", [False, True])
+def test_auto_backend_honors_reported_kitty_support(monkeypatch, herdr: bool) -> None:
     class TGPImage:
         pass
 
-    monkeypatch.setenv("HERDR_ENV", "1")
+    monkeypatch.setenv("HERDR_ENV", "1" if herdr else "0")
     monkeypatch.setattr(
         terminal_image_renderer,
         "import_module",
-        lambda name: SimpleNamespace(TGPImage=TGPImage),
+        lambda name: SimpleNamespace(Image=TGPImage, TGPImage=TGPImage),
     )
 
+    assert terminal_image_renderer._resolve_textual_image_class("auto") is TGPImage
     assert terminal_image_renderer._resolve_textual_image_class("kitty") is TGPImage
 
 
-def test_herdr_auto_halfcell_warning_follows_image(monkeypatch) -> None:
+def test_explicit_halfcell_backend_in_herdr_has_no_fallback_warning(monkeypatch) -> None:
     monkeypatch.setenv("HERDR_ENV", "1")
-    settings = TerminalImageSettings(backend="auto", width=1, height=1)
+    settings = TerminalImageSettings(backend="halfcell", width=1, height=1)
 
     renderable = terminal_image_renderer.render_image_items(
         settings,
@@ -260,9 +249,8 @@ def test_herdr_auto_halfcell_warning_follows_image(monkeypatch) -> None:
     )
 
     assert isinstance(renderable, Group)
-    assert len(renderable.renderables) == 3
-    assert isinstance(renderable.renderables[2], terminal_image_renderer.Text)
-    assert renderable.renderables[2].plain == terminal_image_renderer.HERDR_HALFCELL_NOTICE
+    assert len(renderable.renderables) == 2
+    assert isinstance(renderable.renderables[1], halfcell_renderer.HerdrAwareHalfcellImage)
 
 
 def test_herdr_halfcell_replaces_implausible_cell_geometry(monkeypatch) -> None:

@@ -26,7 +26,6 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 MAX_TERMINAL_IMAGE_SOURCE_BYTES = 25 * 1024 * 1024
 TERMINAL_IMAGE_FETCH_TIMEOUT_SECONDS = 10.0
-HERDR_HALFCELL_NOTICE = "Warning: Herdr active; using half-cell image rendering."
 
 _TEXTUAL_IMAGE_CLASS_BY_BACKEND: dict[str, str] = {
     "auto": "Image",
@@ -153,8 +152,6 @@ def render_image_items(
             continue
         renderables.append(Text(item.artifact.label, style="dim"))
         renderables.append(renderable)
-        if _uses_herdr_auto_halfcell(settings.backend):
-            renderables.append(Text(HERDR_HALFCELL_NOTICE, style="dim yellow"))
         renderables.extend(Text(metadata, style="dim") for metadata in item.metadata)
 
     if not renderables:
@@ -350,7 +347,7 @@ def _resolve_textual_image_class(backend: str) -> Any | None:
     if class_name is None:
         return None
 
-    if backend in {"auto", "halfcell"} and _herdr_active():
+    if backend == "halfcell" and _herdr_active():
         try:
             module = import_module("fast_agent.ui.terminal_images.halfcell")
         except ImportError:
@@ -384,7 +381,3 @@ def _resolve_textual_image_class(backend: str) -> Any | None:
 
 def _herdr_active() -> bool:
     return os.environ.get("HERDR_ENV") == "1"
-
-
-def _uses_herdr_auto_halfcell(backend: str) -> bool:
-    return backend == "auto" and _herdr_active()
