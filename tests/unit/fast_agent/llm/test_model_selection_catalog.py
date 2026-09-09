@@ -385,7 +385,7 @@ def test_huggingface_curated_catalog_includes_deepseek_v4_flash_0731_routes() ->
     assert [(entry.display_label, entry.model) for entry in deepseek_entries] == [
         (
             "DeepSeek V4 Flash 0731 (baseten)",
-            "hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten?max_tokens=384000",
+            "hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten",
         ),
         (
             "DeepSeek V4 Flash 0731 (deepinfra)",

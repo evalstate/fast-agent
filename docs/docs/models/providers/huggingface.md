@@ -151,3 +151,16 @@ fast-agent --model "gemma4?reasoning=none"   # sends reasoning_effort=none
 ## Model aliases
 
 --8<-- "_generated/model_aliases_hf.md"
+
+
+## DeepSeek V4 Flash 0731 route limits
+
+`hf.deepseek-ai/DeepSeek-V4-Flash-0731:<provider>` uses the model's default
+reasoning profile unless a backend-specific profile applies. Baseten caps output
+at 384,000 tokens; Scaleway caps output at 32,768 tokens. Fast-agent applies these
+route limits to defaults and clamps larger explicit `max_tokens` values before
+sending a request. Smaller explicit budgets are preserved. Other routes retain
+the model-wide output budget.
+
+These limits apply to raw model strings, picker aliases, and routes selected with
+`hf.default_provider`; no `?max_tokens=...` workaround is needed for Baseten.

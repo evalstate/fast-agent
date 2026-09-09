@@ -523,3 +523,44 @@ def test_glm_53_hf_keeps_required_reasoning_enabled(model: str) -> None:
     request = _factory_request(f"hf.zai-org/{model}:together?reasoning=none")
 
     assert request["reasoning_effort"] == "max"
+
+
+@pytest.mark.parametrize(
+    "backend, limit",
+    (("baseten", 384_000), ("scaleway", 32_768), ("deepinfra", 393_216), ("together", 393_216)),
+)
+@pytest.mark.parametrize("query", ("", "?max_tokens=393216"))
+def test_deepseek_route_output_limit(backend: str, limit: int, query: str) -> None:
+    request = _factory_request(f"hf.deepseek-ai/DeepSeek-V4-Flash-0731:{backend}{query}")
+
+    assert request["max_tokens"] == limit
+    assert request["reasoning_effort"] == "max"
+
+
+@pytest.mark.parametrize("max_tokens, expected", ((128, 128), (393_216, 384_000)))
+def test_baseten_output_limit_applies_to_per_request_overrides(
+    max_tokens: int, expected: int
+) -> None:
+    llm = HuggingFaceLLM(
+        context=Context(config=Settings()),
+        model="deepseek-ai/DeepSeek-V4-Flash-0731:baseten",
+    )
+    assert llm.default_request_params.max_tokens == 384_000
+    params = llm.default_request_params.model_copy(update={"max_tokens": max_tokens})
+    request = llm._prepare_api_request([{"role": "user", "content": "hello"}], None, params)
+
+    assert request["max_tokens"] == expected
+    assert params.max_tokens == max_tokens
+
+
+def test_configured_baseten_backend_uses_route_output_limit() -> None:
+    llm = HuggingFaceLLM(
+        context=Context(config=Settings(hf=HuggingFaceSettings(default_provider="baseten"))),
+        model="deepseek-ai/DeepSeek-V4-Flash-0731",
+    )
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}], None, llm.default_request_params
+    )
+
+    assert request["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731:baseten"
+    assert request["max_tokens"] == 384_000

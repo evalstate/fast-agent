@@ -70,6 +70,9 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         profile = self._route_profile(base_model)
         if profile and profile.omit_default_max_tokens:
             base_params.max_tokens = None
+        elif profile and profile.max_output_tokens is not None:
+            if base_params.max_tokens is not None:
+                base_params.max_tokens = min(base_params.max_tokens, profile.max_output_tokens)
 
         # Override with HuggingFace-specific settings
         base_params.model = base_model
@@ -91,6 +94,11 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         self._omit_empty_tools(arguments)
         self._move_hf_sampling_fields_to_extra_body(arguments)
         self._apply_reasoning_toggle(arguments)
+        profile = self._route_profile(arguments.get("model"))
+        if profile and profile.max_output_tokens is not None:
+            max_tokens = arguments.get("max_tokens")
+            if isinstance(max_tokens, int):
+                arguments["max_tokens"] = min(max_tokens, profile.max_output_tokens)
         model_name = arguments.get("model")
         base_model, explicit_provider = self._split_provider_suffix(model_name)
         base_model = base_model or model_name

@@ -616,6 +616,7 @@ class ModelDatabase:
             "context_window": 400_000,
             "codex_responses_lite": True,
             "shell_tool_profile": "luna_exec",
+            "shell_edit_tool": "write_text_file",
         }
     )
 

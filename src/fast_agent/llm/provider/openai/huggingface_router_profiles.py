@@ -225,6 +225,7 @@ class HuggingFaceRouteProfile:
     reasoning: HuggingFaceReasoningProfile | None = None
     structured_json_mode: Literal["schema", "object"] | None = None
     omit_default_max_tokens: bool = False
+    max_output_tokens: int | None = None
     prompt_context_window: int | None = None
 
 
@@ -271,6 +272,22 @@ _QWEN_38_REASONING = TopLevelReasoningEffort(
 
 HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
     (
+        RouterProfileRule(
+            model=_DEEPSEEK_V4_FLASH,
+            backends=frozenset({"baseten"}),
+            profile=HuggingFaceRouteProfile(
+                reasoning=_DEEPSEEK_REASONING,
+                max_output_tokens=384_000,
+            ),
+        ),
+        RouterProfileRule(
+            model=_DEEPSEEK_V4_FLASH,
+            backends=frozenset({"scaleway"}),
+            profile=HuggingFaceRouteProfile(
+                reasoning=_DEEPSEEK_REASONING,
+                max_output_tokens=32_768,
+            ),
+        ),
         RouterProfileRule(
             model=_DEEPSEEK_V4_FLASH,
             profile=HuggingFaceRouteProfile(reasoning=_DEEPSEEK_REASONING),
