@@ -1778,6 +1778,8 @@ class ShellRuntime:
                 output_state=output_state,
                 display_state=display_state,
             )
+            # Setup and capacity checks must not consume the process's initial idle window.
+            callbacks.last_output_time = process.started_at
             callbacks.process = process
             task.add_done_callback(
                 lambda completed_task: self._record_managed_process_completion(
