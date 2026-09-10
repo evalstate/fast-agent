@@ -114,7 +114,7 @@ override only its destination:
 
 ```bash
 OPENRESPONSES_API_KEY=... fast-agent go \
-  --model openresponses.deepseek-v4-flash \
+  --model openresponses.deepseek-flash \
   --base-url https://responses.example/v1
 ```
 
@@ -168,7 +168,7 @@ configured generic provider:
 
 ```bash
 GENERIC_API_KEY=... fast-agent go \
-  --model generic.deepseek-v4-flash \
+  --model generic.deepseek-flash \
   --base-url https://gateway.example/v1
 ```
 

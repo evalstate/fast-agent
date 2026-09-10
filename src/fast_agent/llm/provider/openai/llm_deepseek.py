@@ -23,10 +23,12 @@ if TYPE_CHECKING:
     from fast_agent.types import RequestParams
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
+DEFAULT_DEEPSEEK_MODEL = "deepseek-flash"
+# Intentionally stronger than the provider default of high.
 DEFAULT_DEEPSEEK_REASONING_EFFORT = "max"
 SUPPORTED_DEEPSEEK_MODELS: Final = (
     DEFAULT_DEEPSEEK_MODEL,
+    "deepseek-v4-flash",
     "deepseek-v4-flash-vision-exp",
     "deepseek-v4-pro",
 )

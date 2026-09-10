@@ -552,7 +552,7 @@ def test_model_database_supports_mime_basic():
     )
 
     # Text-only models should not support images
-    assert not ModelDatabase.supports_mime("deepseek-v4-flash", "image/png")
+    assert not ModelDatabase.supports_mime("deepseek-v4-pro", "image/png")
     assert not ModelDatabase.supports_mime("deepseek-v4-flash", "pdf")
     assert not ModelDatabase.supports_mime(
         "deepseek-v4-flash",
@@ -568,8 +568,26 @@ def test_model_database_supports_mime_basic():
     assert ModelDatabase.supports_mime("gpt-4o", "png")
 
 
+@pytest.mark.parametrize(
+    "model", ["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"]
+)
+def test_deepseek_flash_capabilities(model: str) -> None:
+    params = ModelDatabase.get_model_params(model)
+    assert params is not None
+    assert params.context_window == 1_048_576
+    assert params.max_output_tokens == 393_216
+    for mime in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+        assert ModelDatabase.supports_mime(model, mime)
+    assert not ModelDatabase.supports_mime(model, "application/pdf")
+
+
+def test_deepseek_hf_flash_remains_text_only() -> None:
+    assert not ModelDatabase.supports_mime("deepseek-ai/DeepSeek-V4-Flash-0731", "image/png")
+
+
 def test_deepseek_v4_flash_uses_learned_shell_contract() -> None:
     for model_name in (
+        "deepseek-flash",
         "deepseek-v4-flash",
         "deepseek-v4-pro",
         "deepseek-ai/DeepSeek-V4-Flash-0731",

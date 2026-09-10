@@ -141,13 +141,8 @@ class ModelSelectionCatalog:
         ),
         Provider.DEEPSEEK: (
             _builtin_entry(
-                "deepseek",
-                display_label="DeepSeek V4 Flash",
-                fast=True,
-            ),
-            _builtin_entry(
-                "deepseekvision",
-                display_label="DeepSeek V4 Flash Vision (experimental)",
+                "DeepSeek V4.1 Flash",
+                display_label="DeepSeek V4.1 Flash",
                 fast=True,
             ),
             _builtin_entry(

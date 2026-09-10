@@ -356,12 +356,12 @@ The model string still selects the provider adapter and protocol:
 ```bash
 # OpenAI-compatible Chat Completions
 fast-agent go \
-  --model generic.deepseek-v4-flash \
+  --model generic.deepseek-flash \
   --base-url https://gateway.example/v1
 
 # Open Responses-compatible Responses API
 fast-agent go \
-  --model openresponses.deepseek-v4-flash \
+  --model openresponses.deepseek-flash \
   --base-url https://responses.example/v1
 ```
 

@@ -199,10 +199,12 @@ fast-agent --model "deepseek?reasoning=high"
 fast-agent --model "deepseek?web_search=true"
 ```
 
-The native route supports `deepseek-v4-flash`,
-`deepseek-v4-flash-vision-exp`, and `deepseek-v4-pro`. All provide reasoning,
+The native route supports `deepseek-flash` (V4.1 Flash) and `deepseek-v4-pro`.
+Both provide reasoning,
 function tools, JSON Schema structured output, and provider-managed web search.
-The experimental vision variant also accepts JPEG, PNG, GIF, and WebP images.
+Flash accepts JPEG, PNG, GIF, and WebP images, with 1M context and up to 384K
+output tokens. Both `deepseek` and `deepseekvision` select V4.1 Flash. Retired
+Flash API IDs remain accepted and redirect to V4.1 Flash.
 Hugging Face aliases such as `deepseek-hf` are separate routes.
 
 ### xAI

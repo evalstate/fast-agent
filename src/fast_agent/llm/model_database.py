@@ -820,7 +820,7 @@ class ModelDatabase:
         }
     )
     DEEPSEEK_V4_PRO = DEEPSEEK_V4_FLASH
-    DEEPSEEK_V4_FLASH_VISION = DEEPSEEK_V4_FLASH.model_copy(
+    DEEPSEEK_V41_FLASH = DEEPSEEK_V4_FLASH.model_copy(
         update={"tokenizes": [*OPENAI_VISION, "image/gif"]}
     )
 
@@ -1361,8 +1361,10 @@ class ModelDatabase:
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),
         # DeepSeek Models
-        "deepseek-v4-flash": _with_fast(DEEPSEEK_V4_FLASH),
-        "deepseek-v4-flash-vision-exp": _with_fast(DEEPSEEK_V4_FLASH_VISION),
+        "deepseek-flash": _with_fast(DEEPSEEK_V41_FLASH),
+        # Retired native IDs redirect to V4.1 Flash; HF snapshots above stay historical.
+        "deepseek-v4-flash": _with_fast(DEEPSEEK_V41_FLASH),
+        "deepseek-v4-flash-vision-exp": _with_fast(DEEPSEEK_V41_FLASH),
         "deepseek-v4-pro": DEEPSEEK_V4_PRO,
         "deepseek-ai/deepseek-v4-flash-0731": _with_fast(DEEPSEEK_V4_FLASH_HF),
         # Z.ai models

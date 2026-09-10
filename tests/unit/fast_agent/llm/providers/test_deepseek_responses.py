@@ -13,7 +13,6 @@ from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider.openai.llm_deepseek import (
     DEEPSEEK_BASE_URL,
     DEFAULT_DEEPSEEK_MODEL,
-    DEFAULT_DEEPSEEK_REASONING_EFFORT,
     SUPPORTED_DEEPSEEK_MODELS,
     DeepSeekResponsesLLM,
 )
@@ -76,16 +75,20 @@ def test_deepseek_factory_builds_sse_responses_adapter() -> None:
     assert llm.configured_transport == "sse"
 
 
-def test_deepseek_vision_model_serializes_inline_image_for_responses() -> None:
+@pytest.mark.parametrize(
+    "model", ["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"]
+)
+@pytest.mark.parametrize("mime", ["image/jpeg", "image/png", "image/gif", "image/webp"])
+def test_deepseek_vision_model_serializes_inline_image_for_responses(model: str, mime: str) -> None:
     llm = DeepSeekResponsesLLM(
         context=Context(config=Settings()),
-        model="deepseek-v4-flash-vision-exp",
+        model=model,
     )
 
     parts = llm._convert_content_parts(
         [
             TextContent(type="text", text="What is in this image?"),
-            ImageContent(type="image", data="aW1hZ2U=", mime_type="image/png"),
+            ImageContent(type="image", data="aW1hZ2U=", mime_type=mime),
         ],
         role="user",
     )
@@ -94,7 +97,7 @@ def test_deepseek_vision_model_serializes_inline_image_for_responses() -> None:
         {"type": "input_text", "text": "What is in this image?"},
         {
             "type": "input_image",
-            "image_url": "data:image/png;base64,aW1hZ2U=",
+            "image_url": f"data:{mime};base64,aW1hZ2U=",
         },
     ]
 
@@ -122,8 +125,8 @@ def test_deepseek_rejects_websocket_transport() -> None:
 @pytest.mark.parametrize(
     ("reasoning", "wire_effort"),
     [
-        (None, DEFAULT_DEEPSEEK_REASONING_EFFORT),
-        (True, DEFAULT_DEEPSEEK_REASONING_EFFORT),
+        (None, "max"),
+        (True, "max"),
         ("low", "low"),
         ("high", "high"),
         ("max", "max"),

@@ -176,15 +176,15 @@ def test_huggingface_provider_default_model_used_with_provider_suffix() -> None:
     assert request["model"] == "moonshotai/kimi-k2-instruct:fireworks-ai"
 
 
-def test_deepseek_provider_defaults_to_v4_flash() -> None:
+def test_deepseek_provider_defaults_to_v41_flash() -> None:
     llm = DeepSeekResponsesLLM(context=Context(config=Settings()), model="")
 
-    assert llm.default_request_params.model == "deepseek-v4-flash"
+    assert llm.default_request_params.model == "deepseek-flash"
 
 
 @pytest.mark.parametrize(
     "model",
-    ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "deepseek-v4-pro"],
+    ["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "deepseek-v4-pro"],
 )
 def test_deepseek_provider_config_default_model_used_when_model_missing(model: str) -> None:
     settings = Settings(deepseek=DeepSeekSettings(default_model=model))

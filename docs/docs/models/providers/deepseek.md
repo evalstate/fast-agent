@@ -10,8 +10,13 @@ social:
 # DeepSeek
 
 Use the `deepseek` provider for fast-agent's native DeepSeek Responses route.
-It uses a stateless Responses API over SSE and supports `deepseek-v4-flash`,
-`deepseek-v4-flash-vision-exp`, and `deepseek-v4-pro`.
+It uses a stateless Responses API over SSE and supports `deepseek-flash`
+(DeepSeek V4.1 Flash) and `deepseek-v4-pro`. Flash supports vision, a 1M-token
+context window, and up to 384K output tokens.
+
+The retired API IDs `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp`
+remain accepted: DeepSeek redirects them to V4.1 Flash. They are no longer
+listed in the model picker.
 
 ## Setup
 
@@ -31,7 +36,7 @@ fast-agent go --model deepseek \
 The explicit model string is:
 
 ```text
-deepseek.deepseek-v4-flash
+deepseek.deepseek-flash
 ```
 
 Select V4 Pro with:
@@ -46,7 +51,7 @@ or its explicit model string:
 deepseek.deepseek-v4-pro
 ```
 
-Select the experimental vision model with:
+The `deepseekvision` alias also selects V4.1 Flash:
 
 ```bash
 fast-agent go --model deepseekvision --message "Describe this image."
@@ -55,10 +60,10 @@ fast-agent go --model deepseekvision --message "Describe this image."
 or its explicit model string:
 
 ```text
-deepseek.deepseek-v4-flash-vision-exp
+deepseek.deepseek-flash
 ```
 
-The vision model accepts JPEG, PNG, GIF, and WebP images from inline data or
+V4.1 Flash accepts JPEG, PNG, GIF, and WebP images from inline data or
 public URLs. Attach images through the TUI or other fast-agent input surfaces;
 the native adapter sends them as Responses API `input_image` parts.
 
@@ -80,7 +85,7 @@ The complete provider shape is:
 deepseek:
   api_key: "${DEEPSEEK_API_KEY}"
   base_url: "https://api.deepseek.com"
-  default_model: "deepseek-v4-flash"
+  default_model: "deepseek-flash"
   reasoning: "max"
   web_search:
     enabled: false
@@ -89,15 +94,17 @@ deepseek:
 ```
 
 `base_url`, `default_model`, and `default_headers` are optional. A configured
-`default_model` must be `deepseek-v4-flash`,
-`deepseek-v4-flash-vision-exp`, or `deepseek-v4-pro`. Flash remains the default
-when this setting is omitted.
+`default_model` accepts `deepseek-flash`, `deepseek-v4-pro`, and the two
+retired Flash IDs above. `deepseek-flash` is the default when omitted.
 
 Run `fast-agent check` after configuring credentials.
 
 ## Reasoning
 
-Reasoning defaults to `max`. Select an effort in the model string:
+fast-agent intentionally defaults reasoning to `max`; DeepSeek itself defaults
+to `high` when effort is omitted. The native Responses payload uses
+`reasoning: {"effort": "none|low|high|max"}`, with `none` disabling thinking.
+Select an effort in the model string:
 
 ```bash
 fast-agent go --model "deepseek?reasoning=none" --message "Answer directly."
@@ -150,7 +157,7 @@ DeepSeek's route differs from OpenAI's stateful Responses API:
 - requests use SSE; WebSocket transport is not supported;
 - server-side response storage and continuation are not used;
 - service tiers are not supported;
-- image input is supported only by `deepseek-v4-flash-vision-exp`;
+- image input is supported by V4.1 Flash, including the retired Flash IDs;
 - PDF, audio, video, and general file inputs are not supported;
 - OpenAI-only request fields such as `include`, `parallel_tool_calls`,
   `service_tier`, and `store` are omitted.
@@ -177,6 +184,7 @@ route.
 
 - [DeepSeek platform](https://platform.deepseek.com/)
 - [DeepSeek API documentation](https://api-docs.deepseek.com/)
+- [DeepSeek thinking mode](https://api-docs.deepseek.com/guides/thinking_mode)
 - [DeepSeek vision guide](https://api-docs.deepseek.com/guides/vision)
 - [DeepSeek models and pricing](https://api-docs.deepseek.com/quick_start/pricing)
 

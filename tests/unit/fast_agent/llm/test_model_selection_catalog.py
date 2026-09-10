@@ -139,7 +139,7 @@ def test_gpt_6_astra_is_available_through_codex_and_api_routes() -> None:
 
 def test_deepseek_catalog_exposes_native_responses_models() -> None:
     aliases = ModelSelectionCatalog.list_current_aliases(Provider.DEEPSEEK)
-    assert aliases == ["deepseek", "deepseekvision", "DeepSeek V4 Pro"]
+    assert aliases == ["DeepSeek V4.1 Flash", "DeepSeek V4 Pro"]
 
 
 def test_non_current_aliases_are_listed_but_not_current() -> None:
