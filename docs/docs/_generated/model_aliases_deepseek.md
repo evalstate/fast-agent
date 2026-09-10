@@ -7,5 +7,7 @@
 | `deepseek-v4-flash` | `deepseek-v4-flash` |
 | `deepseek-v4-flash-vision-exp` | `deepseek-v4-flash-vision-exp` |
 | `deepseek-v4-pro` | `deepseek-v4-pro` |
+| `DeepSeek-V4.1-Flash` | `deepseek.deepseek-flash` |
+| `deepseek-v41` | `deepseek.deepseek-flash` |
 | `deepseekpro` | `deepseek.deepseek-v4-pro` |
 | `deepseekvision` | `deepseek.deepseek-flash` |

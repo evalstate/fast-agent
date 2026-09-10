@@ -39,6 +39,15 @@ The explicit model string is:
 deepseek.deepseek-flash
 ```
 
+The aliases `deepseek-v41` and `DeepSeek-V4.1-Flash` also select
+`deepseek.deepseek-flash`. These are explicit V4.1 selection names, not
+immutable snapshot pins: the upstream API ID is still `deepseek-flash`.
+
+Periods in model names are preserved after the provider prefix. However,
+`deepseek.DeepSeek-V4.1-Flash` is not an accepted native API ID; use the bare
+alias `DeepSeek-V4.1-Flash` or `deepseek-v41` instead. Hugging Face repository
+names belong under the separate `hf.` provider prefix.
+
 Select V4 Pro with:
 
 ```bash

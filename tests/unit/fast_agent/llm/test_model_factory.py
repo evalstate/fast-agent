@@ -1122,7 +1122,10 @@ def test_gemini38_flash_aliases_resolve_to_current_google_flash(alias: str) -> N
     assert config.model_name == "gemini-3.8-flash"
 
 
-@pytest.mark.parametrize("alias", ["deepseek", "deepseekvision", "DeepSeek V4.1 Flash"])
+@pytest.mark.parametrize(
+    "alias",
+    ["deepseek", "deepseek-v41", "DeepSeek-V4.1-Flash", "deepseekvision", "DeepSeek V4.1 Flash"],
+)
 def test_deepseek_alias_resolves_to_deepseek_responses_model(alias: str) -> None:
     config = ModelFactory.parse_model_string(alias)
     assert config.provider == Provider.DEEPSEEK
@@ -1744,3 +1747,22 @@ def test_fable_51_resolves_to_anthropic():
     config = ModelFactory.parse_model_string("claude-fable-5-1?reasoning=max")
     assert config.provider == Provider.ANTHROPIC
     assert config.model_name == "claude-fable-5-1"
+
+
+@pytest.mark.parametrize(
+    ("model", "provider", "expected"),
+    [
+        ("deepseek.DeepSeek-V4.1-Flash", Provider.DEEPSEEK, "DeepSeek-V4.1-Flash"),
+        (
+            "hf.deepseek-ai/DeepSeek-V4.1-Flash",
+            Provider.HUGGINGFACE,
+            "deepseek-ai/DeepSeek-V4.1-Flash",
+        ),
+    ],
+)
+def test_deepseek_version_period_is_preserved(
+    model: str, provider: Provider, expected: str
+) -> None:
+    config = ModelFactory.parse_model_string(model)
+    assert config.provider == provider
+    assert config.model_name == expected
