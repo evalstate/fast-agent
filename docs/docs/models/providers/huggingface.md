@@ -29,6 +29,42 @@ fast-agent --model "hf.moonshotai/Kimi-K2.6:novita?reasoning=on"
 
 Curated aliases such as `kimi`, `deepseek-hf`, `glm`, and `minimax` include provider choices and request defaults tested with fast-agent features such as structured outputs and tool use. Capability can still vary by backing provider.
 
+## DeepSeek V4.1 Flash
+
+```bash
+fast-agent --model deepseek41-hf
+fast-agent --model "hf.deepseek-ai/DeepSeek-V4.1-Flash:novita?reasoning=off"
+fast-agent --model "hf.deepseek-ai/DeepSeek-V4.1-Flash:fireworks-ai"
+```
+
+`deepseek41-hf`, `deepseek-v41-hf`, and `DeepSeek V4.1 Flash (novita)` select
+Novita. Native DeepSeek aliases are unchanged. Omitting the backend uses the
+configured HF default provider or HF auto-routing; other backends fall back to
+the same model-level request profile, not automatic retry/failover.
+
+The HF profile inherits V4.1's vision support, 1,048,576-token context,
+393,216-token output limit, and JSON Schema mode. Backend limits and capabilities
+may differ. Reasoning history is replayed as `reasoning_content`.
+
+For compatibility with the existing HF DeepSeek profile, requests send top-level
+`reasoning_effort`: `max` by default, `low`/`high`/`max` when selected, and `none`
+for `reasoning=off` or `reasoning=none`. No numeric effort conversion is made:
+the model README's raw-weights range of 1–100 does not establish API semantics.
+HF's maintained [Novita adapter](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/inference/_providers/novita.py)
+uses the [shared chat parameter passthrough](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/inference/_providers/_common.py)
+without an effort mapping. Other backends may differ in which effort values they honor.
+
+As of September 11, 2026, HF lists Novita and Fireworks as live routes. Local
+request-shaping tests cover default/max/off and backend profile fallback. Live
+FastAgent harness tests on Novita passed default/max/off reasoning, a tool-call
+roundtrip, and synthetic image recognition. Reasoning appeared for default/max
+and was absent for off. Low/high effort and other backends remain unverified live.
+
+For a credential-free, explicitly opt-in synthetic harness smoke script, run
+`uv run examples/huggingface-novita-smoke.py --live` from the repository with
+`HF_TOKEN` configured (or an HF cached login). It isolates workspace configuration
+and caps each request at 2,048 output tokens; it does not test the default output limit.
+
 ## Qwen3.8 27B
 
 Use the canonical [Qwen3.8 27B](https://huggingface.co/Qwen/Qwen3.8-27B)

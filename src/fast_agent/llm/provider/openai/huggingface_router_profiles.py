@@ -292,6 +292,12 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
             model=_DEEPSEEK_V4_FLASH,
             profile=HuggingFaceRouteProfile(reasoning=_DEEPSEEK_REASONING),
         ),
+        # Keep the existing DeepSeek chat API contract across HF backends.
+        # V4.1's raw-weights numeric effort is not an API effort mapping.
+        RouterProfileRule(
+            model="deepseek-ai/deepseek-v4.1-flash",
+            profile=HuggingFaceRouteProfile(reasoning=_DEEPSEEK_REASONING),
+        ),
         RouterProfileRule(
             model=_GLM_52,
             backends=frozenset({"deepinfra"}),

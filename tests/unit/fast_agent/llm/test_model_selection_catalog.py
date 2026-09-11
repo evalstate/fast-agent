@@ -528,3 +528,11 @@ def test_overlay_catalog_uses_explicit_environment_context(
     assert "openresponses.overlay-tests/ambient" not in models
     assert "projectoverlay" in current_aliases
     assert "ambientoverlay" not in current_aliases
+
+
+def test_huggingface_catalog_includes_deepseek_v41_novita() -> None:
+    entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.HUGGINGFACE]
+    entry = next(entry for entry in entries if entry.alias == "DeepSeek V4.1 Flash (novita)")
+
+    assert entry.model == "hf.deepseek-ai/DeepSeek-V4.1-Flash:novita"
+    assert entry.current
