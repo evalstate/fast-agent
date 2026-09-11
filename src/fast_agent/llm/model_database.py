@@ -824,6 +824,13 @@ class ModelDatabase:
         update={"tokenizes": [*OPENAI_VISION, "image/gif"]}
     )
 
+    DEEPSEEK_V41_FLASH_HF = DEEPSEEK_V41_FLASH.model_copy(
+        update={
+            "reasoning": "reasoning_content",
+            "default_provider": Provider.HUGGINGFACE,
+        }
+    )
+
     DEEPSEEK_V_32 = ModelParameters(
         context_window=65536,
         max_output_tokens=32768,
@@ -1367,6 +1374,7 @@ class ModelDatabase:
         "deepseek-v4-flash-vision-exp": _with_fast(DEEPSEEK_V41_FLASH),
         "deepseek-v4-pro": DEEPSEEK_V4_PRO,
         "deepseek-ai/deepseek-v4-flash-0731": _with_fast(DEEPSEEK_V4_FLASH_HF),
+        "deepseek-ai/deepseek-v4.1-flash": _with_fast(DEEPSEEK_V41_FLASH_HF),
         # Z.ai models
         "glm-5.2": GLM_5_2.model_copy(update={"default_provider": Provider.ZAI}),
         "glm-5.3": GLM_5_3,

@@ -1368,3 +1368,23 @@ def test_fable_51_limits_and_always_on_effort():
     assert not spec.allow_toggle_disable
     assert not params.anthropic_thinking_field_required
     assert not params.anthropic_thinking_disable_supported
+
+
+@pytest.mark.parametrize("backend", ("", ":novita", ":fireworks-ai", ":other-backend"))
+def test_deepseek_v41_hf_capabilities(backend: str) -> None:
+    model = f"deepseek-ai/DeepSeek-V4.1-Flash{backend}"
+    params = ModelDatabase.get_model_params(model)
+    assert params is not None
+    assert params.default_provider == Provider.HUGGINGFACE
+    assert params.context_window == 1_048_576
+    assert params.max_output_tokens == 393_216
+    assert params.fast
+    assert params.json_mode == "schema"
+    assert params.reasoning == "reasoning_content"
+    for mime in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+        assert ModelDatabase.supports_mime(model, mime)
+    assert not ModelDatabase.supports_mime(model, "application/pdf")
+    native = ModelDatabase.get_model_params("deepseek-flash")
+    assert native is not None
+    assert native.default_provider == Provider.DEEPSEEK
+    assert native.reasoning == "openai"

@@ -204,6 +204,10 @@ class ModelSelectionCatalog:
                 "DeepSeek V4 Flash 0731 (deepinfra)",
                 display_label="DeepSeek V4 Flash 0731 (deepinfra)",
             ),
+            _builtin_entry(
+                "DeepSeek V4.1 Flash (novita)",
+                display_label="DeepSeek V4.1 Flash (novita)",
+            ),
             _builtin_entry("deepseek-hf", display_label="DeepSeek V4 Pro (HF)"),
             _builtin_entry(
                 "kimi26",

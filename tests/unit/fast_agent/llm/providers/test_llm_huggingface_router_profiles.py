@@ -199,10 +199,18 @@ def test_qwen38_disables_thinking_through_chat_template_contract() -> None:
     }
 
 
-def test_qwen38_replays_reasoning_as_reasoning_content() -> None:
+@pytest.mark.parametrize(
+    "model",
+    (
+        "Qwen/Qwen3.8-27B",
+        "deepseek-ai/DeepSeek-V4.1-Flash:novita",
+        "deepseek-ai/DeepSeek-V4.1-Flash:fireworks-ai",
+    ),
+)
+def test_hf_replays_reasoning_as_reasoning_content(model: str) -> None:
     llm = HuggingFaceLLM(
         context=Context(config=Settings()),
-        model="Qwen/Qwen3.8-27B",
+        model=model,
     )
     message = PromptMessageExtended(
         role="assistant",
@@ -564,3 +572,51 @@ def test_configured_baseten_backend_uses_route_output_limit() -> None:
 
     assert request["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731:baseten"
     assert request["max_tokens"] == 384_000
+
+
+@pytest.mark.parametrize("backend", ("", ":novita", ":fireworks-ai", ":other-backend"))
+@pytest.mark.parametrize(
+    "query, effort",
+    (
+        ("", "max"),
+        ("?reasoning=max", "max"),
+        ("?reasoning=off", "none"),
+        ("?reasoning=none", "none"),
+        ("?reasoning=low", "low"),
+        ("?reasoning=high", "high"),
+    ),
+)
+def test_deepseek_v41_hf_model_profile_fallback(backend: str, query: str, effort: str) -> None:
+    wire_model = f"deepseek-ai/DeepSeek-V4.1-Flash{backend}"
+    request = _factory_request(f"hf.{wire_model}{query}")
+
+    assert request["model"] == wire_model
+    assert request["max_tokens"] == 393_216
+    assert request["reasoning_effort"] == effort
+    assert "extra_body" not in request
+
+
+@pytest.mark.parametrize(
+    "alias", ("deepseek41-hf", "deepseek-v41-hf", "DeepSeek V4.1 Flash (novita)")
+)
+def test_deepseek_v41_hf_alias_request(alias: str) -> None:
+    request = _factory_request(f"{alias}?reasoning=off&max_tokens=128")
+
+    assert request["model"] == "deepseek-ai/DeepSeek-V4.1-Flash:novita"
+    assert request["reasoning_effort"] == "none"
+    assert request["max_tokens"] == 128
+
+
+@pytest.mark.parametrize("backend", ("novita", "fireworks-ai"))
+def test_deepseek_v41_configured_backend_uses_model_profile(backend: str) -> None:
+    llm = HuggingFaceLLM(
+        context=Context(config=Settings(hf=HuggingFaceSettings(default_provider=backend))),
+        model="deepseek-ai/DeepSeek-V4.1-Flash",
+    )
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}], None, llm.default_request_params
+    )
+
+    assert request["model"] == f"deepseek-ai/DeepSeek-V4.1-Flash:{backend}"
+    assert request["reasoning_effort"] == "max"
+    assert llm._structured_json_mode(llm.default_request_params) == "schema"
