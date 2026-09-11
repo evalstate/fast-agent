@@ -16,9 +16,9 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Final, Protocol, cast
 
-from mcp_types import TextContent
+from mcp_types import ContentBlock, EmbeddedResource, ImageContent, ResourceLink, TextContent
 
 from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL
 from fast_agent.core.logging.logger import get_logger
@@ -66,6 +66,7 @@ SUMMARY_NOTICE = (
 )
 
 _CHARS_PER_TOKEN = 4
+_IMAGE_TOKENS: Final = 2000
 _MIN_COMPACTABLE_MESSAGES = 2
 _SUMMARY_TOKEN_ALLOWANCE = 2048
 MID_TURN_RECENT_TOOL_EXCHANGES = 3
@@ -199,26 +200,41 @@ def _turn_start_indices(messages: list[PromptMessageExtended]) -> list[int]:
     ]
 
 
-def estimate_tokens(messages: list[PromptMessageExtended]) -> int:
-    """Rough token estimate for a message list.
+def _is_image(content: ContentBlock) -> bool:
+    if isinstance(content, ImageContent):
+        return True
+    if isinstance(content, ResourceLink):
+        return bool(content.mime_type and content.mime_type.startswith("image/"))
+    if isinstance(content, EmbeddedResource):
+        mime_type = content.resource.mime_type
+        return bool(mime_type and mime_type.startswith("image/"))
+    return False
 
-    Count text plus serialized non-text payloads. Compaction relies on this
-    estimate after replacing history; ignoring image/data blocks or diagnostic
-    channels can make a compacted history look small while still replaying a
-    provider-sized payload.
+
+def estimate_tokens(messages: list[PromptMessageExtended]) -> int:
+    """Estimate text and serialized non-image payloads, plus 2000 tokens per image.
+
+    Image cost is a provider-independent placeholder, not a tokenizer estimate.
+    Never count image base64 or image resource URLs as text, including in tool
+    results and channels.
     """
     chars = 0
+    images = 0
     for message in messages:
-        chars += len(message.all_text())
+        texts: list[str] = []
         for content in message.content:
-            if get_text(content) is not None:
-                # Text is already counted via all_text() above; only serialize
-                # non-text payloads here (matches the "non-text" docstring).
+            if _is_image(content):
+                images += 1
+                continue
+            text = get_text(content)
+            if text is not None:
+                texts.append(text)
                 continue
             try:
                 chars += len(content.model_dump_json())
             except Exception:
                 chars += 64
+        chars += len("\n".join(texts))
         if message.tool_calls:
             for call in message.tool_calls.values():
                 try:
@@ -227,18 +243,25 @@ def estimate_tokens(messages: list[PromptMessageExtended]) -> int:
                     chars += 64
         if message.tool_results:
             for result in message.tool_results.values():
+                image_indices = {
+                    index for index, content in enumerate(result.content) if _is_image(content)
+                }
+                images += len(image_indices)
                 try:
-                    chars += len(result.model_dump_json())
+                    chars += len(result.model_dump_json(exclude={"content": image_indices}))
                 except Exception:
                     chars += 64
         if message.channels:
             for blocks in message.channels.values():
                 for block in blocks:
+                    if _is_image(block):
+                        images += 1
+                        continue
                     try:
                         chars += len(block.model_dump_json())
                     except Exception:
                         chars += 64
-    return max(1, chars // _CHARS_PER_TOKEN)
+    return max(1, chars // _CHARS_PER_TOKEN + images * _IMAGE_TOKENS)
 
 
 def _plan_compaction_with_budget(
