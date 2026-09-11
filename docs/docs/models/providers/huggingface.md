@@ -52,15 +52,13 @@ for `reasoning=off` or `reasoning=none`. No numeric effort conversion is made:
 the model README's raw-weights range of 1–100 does not establish API semantics.
 HF's maintained [Novita adapter](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/inference/_providers/novita.py)
 uses the [shared chat parameter passthrough](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/inference/_providers/_common.py)
-without an effort mapping. This reuse is a compatibility assumption, not confirmation that V4.1
-backends honor every effort value.
+without an effort mapping. Other backends may differ in which effort values they honor.
 
 As of September 11, 2026, HF lists Novita and Fireworks as live routes. Local
-request-shaping tests cover default/max/off and backend profile fallback; live
-effort probes returned HTTP 401. A subsequent actual-harness retry using the configured
-HF credential also returned HTTP 401 for default/max/off reasoning, tool calling
-(zero tool executions), and a synthetic image. Effort behavior, tool continuation,
-and vision inference remain unverified live.
+request-shaping tests cover default/max/off and backend profile fallback. Live
+FastAgent harness tests on Novita passed default/max/off reasoning, a tool-call
+roundtrip, and synthetic image recognition. Reasoning appeared for default/max
+and was absent for off. Low/high effort and other backends remain unverified live.
 
 For a credential-free, explicitly opt-in synthetic harness smoke script, run
 `uv run examples/huggingface-novita-smoke.py --live` from the repository with
