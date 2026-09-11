@@ -180,3 +180,91 @@ async def test_mid_turn_auto_compaction_accounts_for_pending_tool_result(
 
     assert compacted
     assert pending_context_tokens == 20
+
+
+class _SummaryLLM:
+    verb: str | None = None
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def generate(self, messages, request_params=None, tools=None):
+        self.calls += 1
+        return PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="checkpoint")],
+            stop_reason=LlmStopReason.END_TURN,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("size", [4, 200_000])
+@pytest.mark.parametrize("current, compacted", [(2000, False), (4000, True)])
+async def test_pending_image_compaction_uses_fixed_estimate(
+    size: int,
+    current: int,
+    compacted: bool,
+) -> None:
+    from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, ImageContent
+
+    from fast_agent.history.compaction import estimate_tokens, is_compaction_message
+
+    class SummaryAgent(_Agent):
+        def __init__(self) -> None:
+            super().__init__("images")
+            self.llm = _SummaryLLM()
+            self.context = Context(
+                config=Settings(
+                    session_history=False,
+                    compaction=CompactionSettings(threshold=0.5),
+                )
+            )
+
+    agent = SummaryAgent()
+    agent.usage_accumulator.set_context_window_size(10_000)
+    agent.usage_accumulator.set_context_estimate(current)
+    history = [
+        PromptMessageExtended(role=role, content=[TextContent(type="text", text="old turn")])
+        for _ in range(6)
+        for role in ("user", "assistant")
+    ]
+    pending_call = _tool_use_message()
+    pending_call.tool_calls = {
+        "image": CallToolRequest(
+            method="tools/call",
+            params=CallToolRequestParams(name="image", arguments={}),
+        )
+    }
+    history.append(pending_call)
+    agent.load_message_history(history)
+    runner = _Runner(agent)
+    runner.delta_messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[],
+            tool_results={
+                "image": CallToolResult(
+                    content=[ImageContent(type="image", data="AAAA" * size, mime_type="image/png")]
+                )
+            },
+        )
+    ]
+
+    await auto_compact_history_mid_turn(
+        HookContext(
+            runner=runner,
+            agent=agent,
+            message=_tool_use_message(),
+            hook_type="before_followup_llm_call",
+        )
+    )
+
+    assert agent.llm.calls == int(compacted)
+    assert any(is_compaction_message(msg) for msg in agent.message_history) == compacted
+    if compacted:
+        assert agent.usage_accumulator.current_context_tokens == (
+            estimate_tokens(agent.message_history) + estimate_tokens(runner.delta_messages)
+        )
+    else:
+        assert agent.message_history == history
+        assert agent.usage_accumulator.current_context_tokens == current

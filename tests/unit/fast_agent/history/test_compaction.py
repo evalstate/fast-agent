@@ -6,10 +6,14 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from mcp_types import (
+    AudioContent,
+    BlobResourceContents,
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
+    EmbeddedResource,
     ImageContent,
+    ResourceLink,
     TextContent,
 )
 
@@ -370,6 +374,60 @@ class TestEstimateTokens:
 
         assert estimate_tokens([msg]) > plain + 5_000
 
+    @pytest.mark.parametrize("size", [4, 200_000])
+    @pytest.mark.parametrize("location", ["content", "tool_results", "channels"])
+    @pytest.mark.parametrize("kind", ["image", "link", "embedded"])
+    def test_fixed_image_cost(self, size: int, location: str, kind: str):
+        image = ImageContent(type="image", data="AAAA" * size, mime_type="image/png")
+        if kind == "link":
+            block = ResourceLink(
+                type="resource_link",
+                name="image",
+                mime_type="image/png",
+                uri="data:image/png;base64," + image.data,
+            )
+        elif kind == "embedded":
+            block = EmbeddedResource(
+                type="resource",
+                resource=BlobResourceContents(
+                    uri="file:///image.png",
+                    mime_type="image/png",
+                    blob=image.data,
+                ),
+            )
+        else:
+            block = image
+        msg = _user("describe this image")
+        text = TextContent(type="text", text="diagnostic text")
+        if location == "tool_results":
+            msg.tool_results = {"call_1": CallToolResult(content=[text])}
+        elif location == "channels":
+            msg.channels = {"diagnostics": [text]}
+        baseline = estimate_tokens([msg])
+        if location == "content":
+            msg.content.extend([block, block])
+        elif location == "tool_results":
+            assert msg.tool_results is not None
+            msg.tool_results["call_1"].content.extend([block, block])
+        else:
+            msg.channels = {"diagnostics": [text, block, block]}
+        assert estimate_tokens([msg]) == baseline + 4000
+
+    def test_retains_non_image_accounting(self):
+        msg = _user("first")
+        msg.content.append(TextContent(type="text", text="second"))
+        audio = AudioContent(type="audio", data="AAAA" * 100, mime_type="audio/wav")
+        link = ResourceLink(
+            type="resource_link", name="document", uri="file:///notes.txt", mime_type="text/plain"
+        )
+        msg.content.extend([audio, link])
+        result = CallToolResult(content=[audio], structured_content={"value": "x" * 100})
+        msg.tool_results = {"call_1": result}
+        msg.channels = {"diagnostics": [audio]}
+        expected_chars = len(msg.all_text()) + 2 * len(audio.model_dump_json())
+        expected_chars += len(result.model_dump_json())
+        assert estimate_tokens([msg]) == expected_chars // _CHARS_PER_TOKEN
+
     def test_does_not_double_count_text(self):
         # Text is counted once via all_text(); the per-content loop must skip it
         # (docstring: "Count text plus serialized non-text payloads").
@@ -535,10 +593,14 @@ class TestCompactConversation:
         assert DEFAULT_COMPACTION_PROMPT in final
         assert "focus on X" in final
 
-    async def test_reduces_retained_tail_when_tail_exceeds_budget(self):
+    @pytest.mark.parametrize("image_count, messages_after", [(1, 5), (10, 1)])
+    async def test_image_tail_retention_uses_fixed_cost(
+        self, image_count: int, messages_after: int
+    ):
         huge_tail = _user("latest huge artifact")
-        huge_tail.content.append(
+        huge_tail.content.extend(
             ImageContent(type="image", data="x" * 300_000, mime_type="image/png")
+            for _ in range(image_count)
         )
         history = _turn("one", "1") + _turn("two", "2") + [huge_tail, _assistant("after huge")]
         agent = _FakeAgent(history, summary="summary including huge artifact")
@@ -547,10 +609,9 @@ class TestCompactConversation:
 
         await compact_conversation(agent, settings=settings)
 
-        assert len(agent.message_history) == 1
+        assert len(agent.message_history) == messages_after
         assert is_compaction_message(agent.message_history[0])
-        request = agent.llm.requests[0]
-        assert any(message.first_text() == "latest huge artifact" for message in request)
+        assert (huge_tail in agent.message_history) == (image_count == 1)
 
     async def test_empty_summary_leaves_history_unchanged(self):
         from fast_agent.history.compaction import CompactionError
