@@ -57,8 +57,15 @@ backends honor every effort value.
 
 As of September 11, 2026, HF lists Novita and Fireworks as live routes. Local
 request-shaping tests cover default/max/off and backend profile fallback; live
-effort probes returned HTTP 401, so effort behavior, tool execution, and vision
-inference have not been verified live.
+effort probes returned HTTP 401. A subsequent actual-harness retry using the configured
+HF credential also returned HTTP 401 for default/max/off reasoning, tool calling
+(zero tool executions), and a synthetic image. Effort behavior, tool continuation,
+and vision inference remain unverified live.
+
+For a credential-free, explicitly opt-in synthetic harness smoke script, run
+`uv run examples/huggingface-novita-smoke.py --live` from the repository with
+`HF_TOKEN` configured (or an HF cached login). It isolates workspace configuration
+and caps each request at 2,048 output tokens; it does not test the default output limit.
 
 ## Qwen3.8 27B
 
