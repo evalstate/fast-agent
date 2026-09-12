@@ -17,6 +17,7 @@ from fast_agent.llm.provider.openai.llm_deepseek import (
     DeepSeekResponsesLLM,
 )
 from fast_agent.llm.provider_types import Provider
+from fast_agent.types import RequestParams
 
 
 def _input_items() -> list[dict[str, object]]:
@@ -36,6 +37,31 @@ def test_deepseek_responses_defaults_to_sse_and_official_endpoint() -> None:
     assert llm.configured_transport == "sse"
     assert llm.default_request_params.model == DEFAULT_DEEPSEEK_MODEL
     assert llm._base_url() == DEEPSEEK_BASE_URL
+
+
+@pytest.mark.parametrize("model", SUPPORTED_DEEPSEEK_MODELS)
+def test_deepseek_omits_default_output_limit_without_reducing_context(model: str) -> None:
+    llm = DeepSeekResponsesLLM(context=Context(config=Settings()), model=model)
+
+    args = llm._build_response_args(_input_items(), llm.get_request_params(), tools=None)
+
+    assert "max_output_tokens" not in args
+    assert llm.default_request_params.max_tokens is None
+    assert llm.usage_accumulator.context_window_size == 1_048_576
+
+
+@pytest.mark.parametrize("at_initialization", [True, False])
+def test_deepseek_preserves_explicit_output_limit(at_initialization: bool) -> None:
+    override = RequestParams(max_tokens=4096)
+    llm = DeepSeekResponsesLLM(
+        context=Context(config=Settings()),
+        request_params=override if at_initialization else None,
+    )
+    params = llm.get_request_params(None if at_initialization else override)
+
+    args = llm._build_response_args(_input_items(), params, tools=None)
+
+    assert args["max_output_tokens"] == 4096
 
 
 def test_deepseek_responses_uses_provider_configuration() -> None:
@@ -67,12 +93,21 @@ def test_deepseek_responses_rejects_models_not_migrated_to_responses(model: str)
         DeepSeekResponsesLLM(context=Context(config=Settings()), model=model)
 
 
-def test_deepseek_factory_builds_sse_responses_adapter() -> None:
-    factory = ModelFactory.create_factory("deepseek?reasoning=low")
+@pytest.mark.parametrize("max_tokens", [None, 8192])
+def test_deepseek_factory_builds_sse_responses_adapter(max_tokens: int | None) -> None:
+    model = "deepseek?reasoning=low"
+    if max_tokens is not None:
+        model += f"&max_tokens={max_tokens}"
+    factory = ModelFactory.create_factory(model)
     llm = factory(LlmAgent(AgentConfig(name="test")))
 
     assert isinstance(llm, DeepSeekResponsesLLM)
     assert llm.configured_transport == "sse"
+    args = llm._build_response_args(_input_items(), llm.get_request_params(), tools=None)
+    if max_tokens is None:
+        assert "max_output_tokens" not in args
+    else:
+        assert args["max_output_tokens"] == max_tokens
 
 
 @pytest.mark.parametrize(

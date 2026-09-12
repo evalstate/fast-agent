@@ -41,11 +41,15 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
     def _apply_prompt_context_window(self) -> None:
         profile = self._route_profile(self.default_request_params.model)
-        if profile is None or profile.prompt_context_window is None:
+        if profile is None:
+            return
+        if profile.context_window is not None:
+            self._usage_accumulator.set_context_window_size(profile.context_window)
+        if profile.prompt_context_window is None:
             return
         prompt_context_window = profile.prompt_context_window
         max_tokens = self.default_request_params.max_tokens
-        model_context_window = self._resolved_model_spec.context_window
+        model_context_window = profile.context_window or self._resolved_model_spec.context_window
         if max_tokens is not None and model_context_window is not None:
             prompt_context_window = max(model_context_window - max_tokens, 1)
         self._usage_accumulator.set_context_window_size(prompt_context_window)
@@ -70,6 +74,8 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         profile = self._route_profile(base_model)
         if profile and profile.omit_default_max_tokens:
             base_params.max_tokens = None
+        elif profile and profile.default_max_tokens is not None:
+            base_params.max_tokens = profile.default_max_tokens
         elif profile and profile.max_output_tokens is not None:
             if base_params.max_tokens is not None:
                 base_params.max_tokens = min(base_params.max_tokens, profile.max_output_tokens)
