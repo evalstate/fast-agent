@@ -120,6 +120,7 @@ class PendingCommandExecution:
     shell_execute_cmd: str | None = None
     shell_execute_local: bool = False
     shell_execute_interactive: bool = False
+    shell_output_to_prompt: bool = False
 
     def has_pending_execution(self) -> bool:
         return (
@@ -724,6 +725,7 @@ class InteractivePrompt:
             shell_execute_cmd=dispatch_result.shell_execute_cmd,
             shell_execute_local=dispatch_result.shell_execute_local,
             shell_execute_interactive=dispatch_result.shell_execute_interactive,
+            shell_output_to_prompt=dispatch_result.shell_output_to_prompt,
         )
         next_buffer_prefill = (
             dispatch_result.buffer_prefill
@@ -1045,7 +1047,14 @@ class InteractivePrompt:
                 agent_name=agent_name,
                 display=display,
             )
-            return PendingExecutionResult(result=result, handled=True)
+            buffer_prefill = None
+            if pending.shell_output_to_prompt:
+                buffer_prefill = result.stdout.rstrip() or result.stderr.rstrip()
+            return PendingExecutionResult(
+                result=result,
+                buffer_prefill=buffer_prefill,
+                handled=True,
+            )
 
         return PendingExecutionResult(result=current_result)
 
@@ -1250,7 +1259,9 @@ class InteractivePrompt:
             return pending_result.result, buffer_prefill, False
         return (
             pending_result.result,
-            pending_result.buffer_prefill or buffer_prefill,
+            pending_result.buffer_prefill
+            if pending_result.buffer_prefill is not None
+            else buffer_prefill,
             True,
         )
 

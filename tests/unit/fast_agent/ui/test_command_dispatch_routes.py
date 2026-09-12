@@ -78,6 +78,14 @@ async def _dispatch_raw(
     )
 
 
+@pytest.mark.asyncio
+async def test_shell_output_to_prompt_intent_survives_dispatch() -> None:
+    result = await _dispatch_raw("!!! pwd", _Provider())
+
+    assert result.shell_execute_cmd == "pwd"
+    assert result.shell_output_to_prompt
+
+
 @pytest.fixture
 def patched_context(monkeypatch: pytest.MonkeyPatch) -> list[CommandOutcome]:
     emitted: list[CommandOutcome] = []

@@ -5,7 +5,12 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from fast_agent.tools.execution_environment import ShellExecutionResult, ShellRuntimeInfo
-from fast_agent.ui.interactive_prompt import InteractivePrompt, PendingCommandExecution
+from fast_agent.ui.interactive_prompt import (
+    InteractivePrompt,
+    PendingCommandExecution,
+    PendingExecutionResult,
+    PromptLoopRuntimeState,
+)
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -13,9 +18,18 @@ if TYPE_CHECKING:
 
 
 class _ShellRuntime:
-    def __init__(self, *, kind: str = "remote", fail_direct: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        kind: str = "remote",
+        fail_direct: bool = False,
+        stdout: str = "remote output\n",
+        stderr: str = "",
+    ) -> None:
         self.kind = kind
         self.fail_direct = fail_direct
+        self.stdout = stdout
+        self.stderr = stderr
         self.commands: list[str] = []
         self.direct_commands: list[str] = []
 
@@ -31,14 +45,14 @@ class _ShellRuntime:
 
     async def execute_shell(self, command: str) -> ShellExecutionResult:
         self.commands.append(command)
-        return ShellExecutionResult(stdout="remote output\n", stderr="", exit_code=0)
+        return ShellExecutionResult(stdout=self.stdout, stderr=self.stderr, exit_code=0)
 
     async def execute_direct_shell(self, command: str) -> ShellExecutionResult:
         self.direct_commands.append(command)
         if self.fail_direct:
             raise RuntimeError("shell failed")
-        print("remote output")
-        return ShellExecutionResult(stdout="remote output\n", stderr="", exit_code=0)
+        print(self.stdout, end="")
+        return ShellExecutionResult(stdout=self.stdout, stderr=self.stderr, exit_code=0)
 
 
 class _Agent:
@@ -82,6 +96,58 @@ async def test_environment_shell_command_uses_active_shell_runtime(
     assert result.exit_code == 0
     assert "remote output" in captured.out
     assert display.exit_codes == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("stdout", "stderr", "expected"),
+    [
+        ("remote output\n", "", "remote output"),
+        ("", "command failed\n", "command failed"),
+        ("", "", ""),
+    ],
+)
+async def test_environment_shell_output_can_prefill_next_prompt(
+    stdout: str,
+    stderr: str,
+    expected: str,
+) -> None:
+    runtime = _ShellRuntime(stdout=stdout, stderr=stderr)
+    display = _Display()
+
+    async def unused_send(_message: object, _agent: str) -> str:
+        raise AssertionError("shell commands must not invoke the agent")
+
+    result = await InteractivePrompt()._handle_pending_execution(
+        pending=PendingCommandExecution(
+            shell_execute_cmd="pwd",
+            shell_output_to_prompt=True,
+        ),
+        send_func=unused_send,
+        quiet_send_func=None,
+        prompt_provider=cast("AgentApp", _Provider(runtime)),
+        agent_name="agent",
+        display=cast("ConsoleDisplay", display),
+        current_result="",
+        runtime_state=PromptLoopRuntimeState(),
+    )
+
+    assert result.handled
+    assert result.buffer_prefill == expected
+
+
+def test_empty_shell_output_clears_prompt_prefill() -> None:
+    _, buffer_prefill, handled = InteractivePrompt._apply_pending_execution_result(
+        pending_result=PendingExecutionResult(
+            result=ShellExecutionResult(stdout="", stderr="", exit_code=0),
+            buffer_prefill="",
+            handled=True,
+        ),
+        buffer_prefill="stale",
+    )
+
+    assert handled
+    assert buffer_prefill == ""
 
 
 @pytest.mark.asyncio
