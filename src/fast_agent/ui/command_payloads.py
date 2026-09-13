@@ -391,6 +391,7 @@ class ShellCommand(CommandBase):
     command: str
     local: bool = False
     interactive: bool = False
+    output_to_prompt: bool = False
     kind: Literal["shell_command"] = "shell_command"
 
 

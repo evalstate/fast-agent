@@ -797,6 +797,13 @@ def _parse_slash_input(cmd_line: str) -> str | CommandPayload:
 
 
 def _parse_shell_input(cmd_line: str) -> ShellCommand:
+    if cmd_line.startswith("!!!"):
+        command = cmd_line[3:].strip()
+        return ShellCommand(
+            command=command or default_shell_command(),
+            interactive=not command,
+            output_to_prompt=True,
+        )
     if cmd_line.startswith("!!"):
         command = cmd_line[2:].strip()
         return ShellCommand(

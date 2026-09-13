@@ -321,7 +321,7 @@ def show_input_help_banner(
         """CTRL+Space[dim] or [/dim]Tab[dim] for path completion.[/dim]\n"""
         """F5[dim] to cycle subagents and harness tools.[/dim]\n"""
         f"""{attachment_hint} F10[dim] to clear.[/dim]\n"""
-        """[dim]Use '[/dim][bold]/[/bold][dim]' for commands, '[/dim][bold]![/bold][dim]' for shell. '[/dim][bold]#[/bold][dim]' to query, '[/dim][bold]@[/bold][dim]' to switch agents[/dim]\n"""
+        """[dim]Use '[/dim][bold]/[/bold][dim]' for commands, '[/dim][bold]![/bold][dim]' for shell, '[/dim][bold]!!![/bold][dim]' to insert shell output. '[/dim][bold]#[/bold][dim]' to query, '[/dim][bold]@[/bold][dim]' to switch agents[/dim]\n"""
     )
 
 

@@ -308,6 +308,11 @@ type ExpectedParseResult = str | CommandPayload | dict[str, object]
             ShellCommand(command="pwd", local=True, interactive=False),
             id="local-shell-command",
         ),
+        pytest.param(
+            "!!! pwd",
+            ShellCommand(command="pwd", output_to_prompt=True),
+            id="shell-output-to-prompt",
+        ),
     ],
 )
 def test_parse_special_input_intent_contract(

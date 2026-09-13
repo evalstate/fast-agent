@@ -157,6 +157,7 @@ class DispatchResult:
     shell_execute_cmd: str | None = None
     shell_execute_local: bool = False
     shell_execute_interactive: bool = False
+    shell_output_to_prompt: bool = False
     should_return: bool = False
     available_agents: list[str] | None = None
     available_agents_set: set[str] | None = None
@@ -622,10 +623,16 @@ async def _dispatch_local_ui_payload(
 def _dispatch_simple_local_ui_payload(payload: CommandPayload) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
-        case ShellCommand(command=shell_cmd, local=local, interactive=interactive):
+        case ShellCommand(
+            command=shell_cmd,
+            local=local,
+            interactive=interactive,
+            output_to_prompt=output_to_prompt,
+        ):
             result.shell_execute_cmd = shell_cmd
             result.shell_execute_local = local
             result.shell_execute_interactive = interactive
+            result.shell_output_to_prompt = output_to_prompt
         case UnknownCommand(command=command):
             _print_styled(f"Command not found: {command}", "red")
         case CommandError(message=message):
