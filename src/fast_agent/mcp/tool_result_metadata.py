@@ -110,6 +110,11 @@ def set_tool_result_media_preview(
     _metadata(result)[_MEDIA_PREVIEW_META_KEY] = list(content)
 
 
+def tool_result_media_preview_exclusion() -> dict[str, set[str]]:
+    """Pydantic serialization exclusion for display-only media preview payloads."""
+    return {"meta": {_MEDIA_PREVIEW_META_KEY}}
+
+
 def get_tool_result_media_preview(
     result: CallToolResult,
 ) -> Sequence["ContentBlock"] | None:

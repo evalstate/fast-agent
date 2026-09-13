@@ -1,6 +1,7 @@
 import base64
 import logging
 from pathlib import Path
+from random import Random
 
 import pytest
 from mcp_types import (
@@ -10,7 +11,9 @@ from mcp_types import (
     ResourceLink,
     TextContent,
 )
+from PIL import Image
 
+from fast_agent.history.compaction import estimate_tokens
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.tool_result_metadata import get_tool_result_media_preview
@@ -18,6 +21,7 @@ from fast_agent.tools import attach_media
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_TOOL_NAME
 from fast_agent.tools.attach_media import _classify_source
 from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
+from fast_agent.types import PromptMessageExtended
 
 _PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
@@ -218,6 +222,46 @@ async def test_attach_media_local_png_stages_image_content(tmp_path: Path) -> No
     assert isinstance(pending[0], ImageContent)
     assert pending[0].mime_type == "image/png"
     assert runtime.consume_pending_media_attachments() == []
+
+
+@pytest.mark.asyncio
+async def test_attachment_preview_does_not_inflate_history_estimate(tmp_path: Path) -> None:
+    runtime = LocalFilesystemRuntime(
+        logging.getLogger("attachment-estimate-test"),
+        enable_attach_media="on",
+        working_directory=tmp_path,
+        model_info=_model_info("image/png"),
+    )
+    # Preparation re-encodes PNGs, so vary pixel compressibility, not encoder settings.
+    images = [
+        Image.frombytes("RGB", (512, 512), Random(0).randbytes(512 * 512 * 3)),
+        Image.new("RGB", (512, 512), color="blue"),
+    ]
+    estimates: list[int] = []
+    preview_sizes: list[int] = []
+    for image in images:
+        image.save(tmp_path / "pixel.png")
+        result = await runtime.attach_media({"source": "pixel.png"})
+        assert not result.is_error
+        preview = get_tool_result_media_preview(result)
+        assert preview is not None
+        assert isinstance(preview[0], ImageContent)
+        preview_sizes.append(len(preview[0].data))
+        serialized = result.model_dump_json()
+        message = PromptMessageExtended(role="user", content=[], tool_results={"call": result})
+        estimate = estimate_tokens([message])
+        estimates.append(estimate)
+        pending = runtime.consume_pending_media_attachments()
+        assert pending == preview
+        message.content.extend(pending)
+        assert estimate_tokens([message]) == estimate + 2000
+        assert result.model_dump_json() == serialized
+        assert get_tool_result_media_preview(result) == preview
+        assert runtime.consume_pending_media_attachments() == []
+
+    assert preview_sizes[0] > preview_sizes[1] * 100
+    assert estimates[0] == estimates[1]
+    assert estimates[0] < 1000
 
 
 @pytest.mark.asyncio
