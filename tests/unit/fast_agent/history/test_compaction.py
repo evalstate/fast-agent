@@ -41,6 +41,7 @@ from fast_agent.history.compaction import (
     should_auto_compact,
 )
 from fast_agent.llm.usage_tracking import UsageAccumulator
+from fast_agent.mcp.tool_result_metadata import set_tool_result_media_preview
 from fast_agent.session import SessionManager, reset_session_manager
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -421,11 +422,20 @@ class TestEstimateTokens:
             type="resource_link", name="document", uri="file:///notes.txt", mime_type="text/plain"
         )
         msg.content.extend([audio, link])
-        result = CallToolResult(content=[audio], structured_content={"value": "x" * 100})
+        result = CallToolResult(
+            content=[audio],
+            structured_content={"value": "x" * 100},
+            meta={"custom": "m" * 400, "fast_agent/display": {"exit_code": 1}},
+            is_error=True,
+        )
         msg.tool_results = {"call_1": result}
         msg.channels = {"diagnostics": [audio]}
         expected_chars = len(msg.all_text()) + 2 * len(audio.model_dump_json())
         expected_chars += len(result.model_dump_json())
+        assert estimate_tokens([msg]) == expected_chars // _CHARS_PER_TOKEN
+        set_tool_result_media_preview(
+            result, [ImageContent(type="image", data="AAAA" * 100_000, mime_type="image/png")]
+        )
         assert estimate_tokens([msg]) == expected_chars // _CHARS_PER_TOKEN
 
     def test_does_not_double_count_text(self):

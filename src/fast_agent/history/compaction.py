@@ -25,6 +25,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt import Prompt
+from fast_agent.mcp.tool_result_metadata import tool_result_media_preview_exclusion
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 if TYPE_CHECKING:
@@ -216,7 +217,7 @@ def estimate_tokens(messages: list[PromptMessageExtended]) -> int:
 
     Image cost is a provider-independent placeholder, not a tokenizer estimate.
     Never count image base64 or image resource URLs as text, including in tool
-    results and channels.
+    results and channels. Display-only tool result media previews are excluded.
     """
     chars = 0
     images = 0
@@ -248,7 +249,14 @@ def estimate_tokens(messages: list[PromptMessageExtended]) -> int:
                 }
                 images += len(image_indices)
                 try:
-                    chars += len(result.model_dump_json(exclude={"content": image_indices}))
+                    chars += len(
+                        result.model_dump_json(
+                            exclude={
+                                "content": image_indices,
+                                **tool_result_media_preview_exclusion(),
+                            }
+                        )
+                    )
                 except Exception:
                     chars += 64
         if message.channels:
