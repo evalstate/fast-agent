@@ -195,8 +195,16 @@ fast-agent --model "gemma4?reasoning=none"   # sends reasoning_effort=none
 reasoning profile unless a backend-specific profile applies. Baseten caps output
 at 384,000 tokens; Scaleway caps output at 32,768 tokens. Fast-agent applies these
 route limits to defaults and clamps larger explicit `max_tokens` values before
-sending a request. Smaller explicit budgets are preserved. Other routes retain
-the model-wide output budget.
+sending a request. Smaller explicit budgets are preserved.
+
+Scaleway exposes a 262,144-token context window; context display and automatic
+compaction use this route-specific window, not the model-wide 1M window.
+Together omits the default output limit. DeepInfra defaults to 131,072 output
+tokens because omission still reserves 384,000 tokens on that backend. Explicit
+`max_tokens` overrides are preserved on Together and DeepInfra.
+
+The V4.1 Flash Novita route also omits the default output limit while preserving
+explicit overrides. Other routes retain the model-wide output budget.
 
 These limits apply to raw model strings, picker aliases, and routes selected with
 `hf.default_provider`; no `?max_tokens=...` workaround is needed for Baseten.

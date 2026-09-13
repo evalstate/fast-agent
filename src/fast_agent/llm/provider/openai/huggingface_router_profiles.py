@@ -226,6 +226,8 @@ class HuggingFaceRouteProfile:
     structured_json_mode: Literal["schema", "object"] | None = None
     omit_default_max_tokens: bool = False
     max_output_tokens: int | None = None
+    default_max_tokens: int | None = None
+    context_window: int | None = None
     prompt_context_window: int | None = None
 
 
@@ -286,6 +288,31 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
             profile=HuggingFaceRouteProfile(
                 reasoning=_DEEPSEEK_REASONING,
                 max_output_tokens=32_768,
+                context_window=262_144,
+            ),
+        ),
+        RouterProfileRule(
+            model=_DEEPSEEK_V4_FLASH,
+            backends=frozenset({"together"}),
+            profile=HuggingFaceRouteProfile(
+                reasoning=_DEEPSEEK_REASONING,
+                omit_default_max_tokens=True,
+            ),
+        ),
+        RouterProfileRule(
+            model=_DEEPSEEK_V4_FLASH,
+            backends=frozenset({"deepinfra"}),
+            profile=HuggingFaceRouteProfile(
+                reasoning=_DEEPSEEK_REASONING,
+                default_max_tokens=131_072,
+            ),
+        ),
+        RouterProfileRule(
+            model="deepseek-ai/deepseek-v4.1-flash",
+            backends=frozenset({"novita"}),
+            profile=HuggingFaceRouteProfile(
+                reasoning=_DEEPSEEK_REASONING,
+                omit_default_max_tokens=True,
             ),
         ),
         RouterProfileRule(

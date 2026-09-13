@@ -53,10 +53,14 @@ class DeepSeekResponsesLLM(ResponsesLLM):
             )
 
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
-        return self._initialize_default_params_with_model_fallback(
+        params = self._initialize_default_params_with_model_fallback(
             kwargs,
             DEFAULT_DEEPSEEK_MODEL,
         )
+        # Let the provider choose its output allowance rather than reserving the
+        # model's maximum output capacity against every request's context.
+        params.max_tokens = None
+        return params
 
     def _provider_config_fallback_sections(self) -> tuple[str, ...]:
         return ()

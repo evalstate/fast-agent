@@ -126,6 +126,12 @@ Supported values are `none`, `low`, `high`, and `max`. DeepSeek returns
 reasoning separately from visible assistant text; fast-agent preserves it in
 the reasoning channel and replays it when continuing a tool-use turn.
 
+By default, fast-agent omits `max_output_tokens` on the native DeepSeek route,
+letting the provider choose its output allowance instead of reserving the model's
+maximum output capacity on every request. Explicit `max_tokens` request parameters
+are still forwarded as `max_output_tokens`. Automatic compaction continues to use
+the full context window and the configured threshold.
+
 `max_output_tokens` includes hidden reasoning. Leave enough output headroom
 when reasoning is enabled rather than treating the setting as a visible-text
 budget.
