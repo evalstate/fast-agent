@@ -903,7 +903,7 @@ requires-dist = [{ name = "fast-agent-mcp", editable = "." }]
 
 [[package]]
 name = "fast-agent-mcp"
-version = "0.10.24"
+version = "0.10.25"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk" },
