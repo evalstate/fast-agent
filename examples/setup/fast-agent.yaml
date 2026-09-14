@@ -96,6 +96,12 @@ anthropic:
 #   image_upload_mode: inline
 #   image_upload_ttl_seconds: 86400 # 1 hour to 30 days
 
+# Atlas Cloud OpenAI-compatible Chat Completions provider:
+# atlascloud:
+#   api_key: "${ATLASCLOUD_API_KEY}"
+#   # base_url: "https://api.atlascloud.ai/v1"
+#   # default_model: "qwen/qwen3.8-max"
+
 #shell_execution:
 # model-facing shell tools: auto (Grok shell/Process; others Bash/Process),
 # minimal_process, grok_shell, or native

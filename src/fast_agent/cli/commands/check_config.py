@@ -126,6 +126,10 @@ _PROVIDER_CATALOG_SCOPES_BY_KEY: dict[str, ProviderCatalogScope] = {
         display_name="OpenRouter",
         providers=(Provider.OPENROUTER,),
     ),
+    "atlascloud": ProviderCatalogScope(
+        display_name="Atlas Cloud",
+        providers=(Provider.ATLASCLOUD,),
+    ),
 }
 
 _PROVIDER_CATALOG_SCOPE_ALIASES: dict[str, str] = {
@@ -147,6 +151,7 @@ _PROVIDER_CATALOG_VISIBLE_CHOICES: tuple[str, ...] = (
     "xai",
     "metaai",
     "openrouter",
+    "atlascloud",
     "responses",
     "codexresponses",
 )
