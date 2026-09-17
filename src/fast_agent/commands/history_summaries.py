@@ -115,6 +115,8 @@ class _TurnMetricAccumulator:
     saw_tool_time: bool = False
     output_tokens: int = 0
     saw_output_tokens: bool = False
+    timed_output_tokens: int = 0
+    generation_time_ms: float = 0.0
     ttft_ms: float | None = None
     response_ms: float | None = None
     first_start: float | None = None
@@ -360,17 +362,11 @@ def _calculate_tokens_per_second(
     *,
     output_tokens: int | None,
     llm_time_ms: float | None,
-    response_ms: float | None,
 ) -> float | None:
     if output_tokens is None or output_tokens <= 0 or llm_time_ms is None or llm_time_ms <= 0:
         return None
 
-    effective_ms = llm_time_ms
-    if response_ms is not None and 0 < response_ms < llm_time_ms:
-        effective_ms = llm_time_ms - response_ms
-    if effective_ms <= 0:
-        return None
-    return output_tokens / (effective_ms / 1000.0)
+    return output_tokens / (llm_time_ms / 1000.0)
 
 
 def _record_message_tool_metrics(
@@ -423,8 +419,18 @@ def _record_message_assistant_metrics(
         metrics.output_tokens += output_tokens
         metrics.saw_output_tokens = True
 
+    ttft_ms = extract_message_ttft_ms(message)
+    if output_tokens is not None and duration_ms is not None and duration_ms > 0:
+        # Completion totals include reasoning: subtract first activity, not the
+        # first visible response. Match tokens and timing per call before summing.
+        generation_ms = duration_ms
+        if ttft_ms is not None and 0 < ttft_ms < duration_ms:
+            generation_ms -= ttft_ms
+        metrics.timed_output_tokens += output_tokens
+        metrics.generation_time_ms += generation_ms
+
     if metrics.ttft_ms is None:
-        metrics.ttft_ms = extract_message_ttft_ms(message)
+        metrics.ttft_ms = ttft_ms
     if metrics.response_ms is None:
         metrics.response_ms = extract_message_response_ms(message)
 
@@ -476,9 +482,8 @@ def _build_turn_summary(
         tool_time_ms=tool_time_value,
     )
     tps = _calculate_tokens_per_second(
-        output_tokens=output_tokens_value,
-        llm_time_ms=llm_time_value,
-        response_ms=metrics.response_ms,
+        output_tokens=metrics.timed_output_tokens,
+        llm_time_ms=metrics.generation_time_ms,
     )
 
     return (

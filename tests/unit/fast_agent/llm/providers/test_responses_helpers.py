@@ -2384,6 +2384,30 @@ def test_request_service_tier_overrides_configured_default() -> None:
     assert args["service_tier"] == "flex"
 
 
+@pytest.mark.parametrize("include_null_details", [False, True])
+def test_openresponses_records_usage_without_token_details(include_null_details: bool) -> None:
+    llm = OpenResponsesLLM(context=Context(config=Settings()), model="local-model")
+    payload: dict[str, object] = {
+        "input_tokens": 12,
+        "output_tokens": 8,
+        "total_tokens": 20,
+    }
+    if include_null_details:
+        payload.update(input_tokens_details=None, output_tokens_details=None)
+    # The SDK constructs compatible server responses without enforcing its required details.
+    usage = ResponseUsage.model_construct(_fields_set=None, **payload)
+
+    llm._record_usage(usage, "local-model")
+
+    assert len(llm.usage_accumulator.turns) == 1
+    turn = llm.usage_accumulator.turns[0]
+    assert turn.prompt.total == 12
+    assert turn.completion.total == 8
+    assert turn.prompt.cache_read is None
+    assert turn.prompt.cache_write is None
+    assert turn.completion.reasoning is None
+
+
 def test_requested_and_effective_service_tiers_are_recorded_in_turn_usage() -> None:
     llm = _build_responses_family_llm(
         Provider.RESPONSES,

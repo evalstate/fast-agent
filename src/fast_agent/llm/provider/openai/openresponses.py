@@ -9,9 +9,11 @@ from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_events import is_responses_terminal_event
 from fast_agent.llm.provider.streaming_timeouts import await_stream_start
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.usage_tracking import TurnUsage, usage_from_responses_compatible
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
+    from openai.types.responses import ResponseUsage
 
     from fast_agent.types import RequestParams
 
@@ -77,6 +79,19 @@ class OpenResponsesLLM(OpenResponsesStreamingMixin, ResponsesLLM):
     def __init__(self, provider: Provider = Provider.OPENRESPONSES, **kwargs: Any) -> None:
         kwargs.pop("provider", None)
         super().__init__(provider=provider, **kwargs)
+
+    def _translate_responses_usage(
+        self,
+        usage: ResponseUsage,
+        *,
+        provider: Provider,
+        model: str,
+    ) -> TurnUsage:
+        return usage_from_responses_compatible(
+            usage.model_dump(mode="json"),
+            provider=provider,
+            model=model,
+        )
 
     def _provider_api_key(self) -> str:
         from fast_agent.llm.provider_key_manager import ProviderKeyManager
