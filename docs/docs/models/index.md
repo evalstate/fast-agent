@@ -231,6 +231,10 @@ fast-agent --model "hf.moonshotai/Kimi-K2.6:novita?reasoning=on"
 
 Use [Additional Providers](providers/additional/) for hosted OpenAI-compatible APIs, routers, and local endpoints such as Groq, Aliyun, OpenRouter, Open Responses, TensorZero, and generic endpoints.
 
+Neuralwatt, DeepInfra, SiliconFlow, and OrcaRouter can use the `generic` Chat
+Completions route. See [Hosted provider setup](providers/additional.md#hosted-provider-setup)
+for their endpoints, credentials, and complete configuration examples.
+
 ```bash
 fast-agent --model qwen-turbo
 fast-agent --model groq.openai/gpt-oss-120b
