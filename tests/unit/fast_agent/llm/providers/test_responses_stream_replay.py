@@ -12,8 +12,11 @@ import pytest
 from openai import APIError
 from openai.types.responses import ResponseErrorEvent
 
+from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider.openai.openresponses_streaming import OpenResponsesStreamingMixin
+from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_streaming import ResponsesStreamingMixin
 
 REPO_ROOT = next(
@@ -795,12 +798,8 @@ async def test_failed_responses_raise_provider_error_details() -> None:
             capture_filename=None,
         )
 
-    assert exc_info.value.body == {
-        "error": {
-            "message": "DeepSeek generation failed",
-            "code": "server_error",
-        }
-    }
+    assert exc_info.value.code == "server_error"
+    assert FastAgentLLM._is_fatal_retry_error(exc_info.value) is False
     assert isinstance(exc_info.value.request, httpx2.Request)
     assert str(exc_info.value.request.url) == "https://responses.invalid/responses"
 
@@ -812,7 +811,7 @@ async def test_error_event_raises_provider_error_details() -> None:
     error_event = ResponseErrorEvent(
         code="rate_limit_exceeded",
         message="Too many requests",
-        param=None,
+        param="input",
         sequence_number=1,
         type="error",
     )
@@ -828,11 +827,56 @@ async def test_error_event_raises_provider_error_details() -> None:
             capture_filename=None,
         )
 
-    assert exc_info.value.body == {
-        "error": {
-            "message": "Too many requests",
-            "code": "rate_limit_exceeded",
-        }
-    }
+    assert exc_info.value.code == "rate_limit_exceeded"
+    assert exc_info.value.param == "input"
+    assert exc_info.value.type is None
+    assert FastAgentLLM._is_fatal_retry_error(exc_info.value) is False
     assert isinstance(exc_info.value.request, httpx2.Request)
     assert str(exc_info.value.request.url) == "https://responses.invalid/responses"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("event_type", ["response.failed", "error"])
+async def test_context_limit_stream_error_is_not_retried(event_type: str) -> None:
+    llm = ResponsesLLM(context=Context(), model="gpt-test")
+    llm.retry_count = 2
+    llm.retry_backoff_seconds = 0.0
+    attempts = 0
+    error = SimpleNamespace(
+        code="context_length_exceeded",
+        message="Input is too large.",
+        param="input",
+        type="invalid_request_error",
+    )
+    final_response = SimpleNamespace(status="failed", error=error, output=[], usage=None)
+    event = (
+        SimpleNamespace(type=event_type, response=final_response)
+        if event_type == "response.failed"
+        else ResponseErrorEvent(
+            type="error",
+            code=error.code,
+            message=error.message,
+            param=error.param,
+            sequence_number=1,
+        )
+    )
+
+    async def attempt() -> tuple[Any, list[str]]:
+        nonlocal attempts
+        attempts += 1
+        return await llm._process_stream(
+            _FakeResponsesStream(events=[event], final_response=final_response),
+            model="gpt-test",
+            capture_filename=None,
+        )
+
+    with pytest.raises(APIError, match="Input is too large") as caught:
+        await llm._execute_with_retry(attempt)
+
+    assert attempts == 1
+    assert caught.value.code == "context_length_exceeded"
+    assert caught.value.param == "input"
+    assert caught.value.type == (
+        "invalid_request_error" if event_type == "response.failed" else None
+    )

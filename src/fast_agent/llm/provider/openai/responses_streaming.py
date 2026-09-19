@@ -737,13 +737,21 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 code = getattr(error, "code", None)
                 if not isinstance(message, str) or not message:
                     message = "Responses stream failed."
-                body: dict[str, Any] = {"message": message}
+                body: dict[str, object] = {"message": message}
                 if isinstance(code, str) and code:
                     body["code"] = code
+                param = getattr(error, "param", None)
+                if isinstance(param, str):
+                    body["param"] = param
+                # A flat event's type is the event discriminator, not an API error type.
+                if response is not None:
+                    error_type = getattr(error, "type", None)
+                    if isinstance(error_type, str):
+                        body["type"] = error_type
                 raise APIError(
                     message,
                     request=httpx2.Request("POST", "https://responses.invalid/responses"),
-                    body={"error": body},
+                    body=body,
                 )
             if self._handle_responses_tool_stream_event(
                 event=event,

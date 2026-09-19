@@ -30,7 +30,7 @@ async def test_get_agent_card_and_tools(fast_agent):
             skill: AgentSkill = card.skills[0]
             assert f"card_test{SEP}check_weather" == skill.id
             assert "check_weather" == skill.name
-            assert "Returns the weather for a specified location."
+            assert skill.description == "Returns the weather for a specified location."
             assert skill.tags
             assert "tool" == skill.tags[0]
 

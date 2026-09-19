@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from click.utils import strip_ansi
+from typer._click.utils import strip_ansi
 
 ROOT = Path(__file__).resolve().parents[2]
 DOCS_ASSETS_PATH = ROOT / "scripts" / "docs_assets.py"

@@ -4,7 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from click.utils import strip_ansi
+from typer._click.utils import strip_ansi
 from typer.testing import CliRunner
 
 import fast_agent.cli.commands.skills as skills_command

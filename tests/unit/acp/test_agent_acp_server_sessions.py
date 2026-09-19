@@ -1452,3 +1452,48 @@ async def test_load_session_rejects_relative_cwd() -> None:
         )
 
     assert exc_info.value.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_sdk_positional_session_arguments_are_forwarded() -> None:
+    from unittest.mock import AsyncMock, patch
+
+    from acp.schema import ListSessionsResponse, LoadSessionResponse, ResumeSessionResponse
+
+    server = _build_server(_build_instance(["main"]))
+    with patch.object(
+        server._session_store,
+        "list_sessions",
+        AsyncMock(return_value=ListSessionsResponse(sessions=[])),
+    ) as list_sessions:
+        await server.list_sessions("/workspace", "next")
+        list_sessions.assert_awaited_once_with(cwd="/workspace", cursor="next")
+
+    with patch.object(
+        server._session_store, "load_session", AsyncMock(return_value=LoadSessionResponse())
+    ) as load_session:
+        await server.load_session("/workspace", "saved", [], ["/extra"])
+        load_session.assert_awaited_once_with(cwd="/workspace", session_id="saved", mcp_servers=[])
+
+    with patch.object(
+        server._session_store, "resume_session", AsyncMock(return_value=ResumeSessionResponse())
+    ) as resume_session:
+        await server.resume_session("saved", "/workspace", ["/extra"], [])
+        resume_session.assert_awaited_once_with(
+            cwd="/workspace", session_id="saved", mcp_servers=[]
+        )
+
+
+@pytest.mark.asyncio
+async def test_unadvertised_sdk_methods_return_method_not_found() -> None:
+    server = _build_server(_build_instance(["main"]))
+    for request in (
+        server.set_config_option("model", "saved", "test"),
+        server.fork_session("saved", "/workspace"),
+        server.close_session("saved"),
+        server.ext_method("example.com/unknown", {}),
+    ):
+        with pytest.raises(RequestError) as exc_info:
+            await request
+        assert exc_info.value.code == -32601
+    await server.ext_notification("example.com/unknown", {})

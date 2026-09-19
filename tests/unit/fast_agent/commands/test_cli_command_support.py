@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import click
 import typer
+from typer.core import TyperCommand
 
 from fast_agent.cli.command_support import (
     ensure_context_object,
@@ -13,7 +13,7 @@ from fast_agent.cli.command_support import (
 
 
 def _context(obj: object | None = None) -> typer.Context:
-    ctx = typer.Context(click.Command("test"))
+    ctx = typer.Context(TyperCommand("test"))
     ctx.obj = obj
     return ctx
 

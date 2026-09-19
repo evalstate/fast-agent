@@ -1,7 +1,6 @@
 import io
 
 import pytest
-from click.utils import strip_ansi
 from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
@@ -10,6 +9,7 @@ from mcp_types import (
 )
 from rich.console import Console, Group
 from rich.syntax import Syntax
+from typer._click.utils import strip_ansi
 
 from fast_agent.config import LoggerSettings, Settings, ShellSettings, ToolDisplaySettings
 from fast_agent.constants import FAST_AGENT_SHELL_PROCESS_METADATA

@@ -296,8 +296,7 @@ def show_stop_hint_message(*, default: str, show_stop_hint: bool) -> None:
         return
     if default == "STOP":
         rich_print("Enter a prompt, [red]STOP[/red] or [red]Ctrl+D[/red] to finish")
-        if default:
-            rich_print(f"Press <ENTER> to use the default prompt:\n[cyan]{default}[/cyan]")
+        rich_print(f"Press <ENTER> to use the default prompt:\n[cyan]{default}[/cyan]")
 
 
 def show_input_help_banner(

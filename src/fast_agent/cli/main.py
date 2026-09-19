@@ -7,10 +7,11 @@ from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import ClassVar
 
-import click
 import typer
 import typer.main
-from typer.core import TyperGroup
+from typer._click.core import Command, Context
+from typer._click.formatting import HelpFormatter
+from typer.core import TyperCommand, TyperGroup
 
 from fast_agent.cli.command_support import ensure_context_object
 from fast_agent.cli.constants import normalize_convenience_flag_args, normalize_resume_flag_args
@@ -82,24 +83,25 @@ def _installed_package_version(package_name: str) -> str:
         return "unknown"
 
 
+# TyperGroup overrides require vendored base types, not standalone Click types.
 class LazyGroup(TyperGroup):
     lazy_subcommands: ClassVar[dict[str, str]] = {}
     lazy_subcommand_help: ClassVar[dict[str, str]] = {}
 
-    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+    def parse_args(self, ctx: Context, args: list[str]) -> list[str]:
         normalize_convenience_flag_args(args)
         if _first_root_command(args) == "go":
             normalize_resume_flag_args(args)
         return super().parse_args(ctx, args)
 
-    def list_commands(self, ctx: click.Context) -> list[str]:
+    def list_commands(self, ctx: Context) -> list[str]:
         del ctx
         return sorted(self.lazy_subcommands)
 
-    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+    def get_command(self, ctx: Context, cmd_name: str) -> Command | None:
         if ctx.meta.get(_ROOT_HELP_CONTEXT_KEY) is True:
             short_help = self.lazy_subcommand_help.get(cmd_name)
-            return click.Command(name=cmd_name, help=short_help) if short_help is not None else None
+            return TyperCommand(name=cmd_name, help=short_help) if short_help is not None else None
         target = self.lazy_subcommands.get(cmd_name)
         if not target:
             return None
@@ -110,7 +112,7 @@ class LazyGroup(TyperGroup):
         command.name = cmd_name
         return command
 
-    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+    def format_commands(self, ctx: Context, formatter: HelpFormatter) -> None:
         rows = [
             (command_name, self.lazy_subcommand_help[command_name])
             for command_name in self.list_commands(ctx)
@@ -119,7 +121,7 @@ class LazyGroup(TyperGroup):
             with formatter.section("Commands"):
                 formatter.write_dl(rows)
 
-    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+    def format_help(self, ctx: Context, formatter: HelpFormatter) -> None:
         ctx.meta[_ROOT_HELP_CONTEXT_KEY] = True
         try:
             super().format_help(ctx, formatter)

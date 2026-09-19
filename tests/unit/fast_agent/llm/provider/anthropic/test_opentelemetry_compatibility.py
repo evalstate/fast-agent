@@ -191,3 +191,99 @@ class TestOpenTelemetryCompatibility:
         assert asyncio.iscoroutine(coroutine_obj)
         # Clean up the coroutine
         await coroutine_obj
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_span", [False, True])
+@pytest.mark.parametrize("outcome", ["success", "error", "api_error", "cancel", "idle_timeout"])
+async def test_stream_execution_contract(with_span: bool, outcome: str):
+    from contextlib import nullcontext
+
+    import httpx2
+    from anthropic import APIError
+
+    from fast_agent.llm.provider.anthropic import llm_anthropic as provider
+    from fast_agent.llm.provider.streaming_timeouts import StreamIdleTimeoutError
+
+    fixtures = TestOpenTelemetryCompatibility()
+    llm = fixtures._create_llm()
+    message = fixtures._create_mock_message()
+    failure = (
+        APIError("failed", httpx2.Request("POST", "https://example.com"), body=None)
+        if outcome == "api_error"
+        else RuntimeError("failed")
+    )
+    waiting = asyncio.Event()
+    iterator_closed = asyncio.Event()
+
+    class Stream(MockStreamManager):
+        async def __aiter__(self):
+            try:
+                if outcome in {"error", "api_error"}:
+                    raise failure
+                if outcome in {"cancel", "idle_timeout"}:
+                    waiting.set()
+                    await asyncio.Event().wait()
+                async for event in super().__aiter__():
+                    yield event
+            finally:
+                iterator_closed.set()
+
+    stream = Stream(message)
+    client = MagicMock()
+    stream_method = client.beta.messages.stream
+    stream_method.return_value = stream
+    span = MagicMock()
+    span.is_recording.return_value = True
+    # A distinct method triggers the fallback span, as an unwrapped OTel method does.
+    selected_method = MagicMock(return_value=stream) if with_span else stream_method
+    with (
+        patch.object(provider, "_maybe_unwrap_otel_beta_stream", return_value=selected_method),
+        patch.object(provider, "_start_fallback_stream_span", return_value=span),
+        patch.object(provider.trace, "use_span", return_value=nullcontext()) as use_span,
+        patch.object(provider.logger, "error") as log_error,
+    ):
+        task = asyncio.create_task(
+            llm._execute_anthropic_stream(
+                anthropic=client,
+                arguments={},
+                model=message.model,
+                capture_filename=None,
+                timeout_seconds=0.01 if outcome == "idle_timeout" else None,
+            )
+        )
+        if outcome == "cancel":
+            await asyncio.wait_for(waiting.wait(), timeout=1)
+            task.cancel()
+        if outcome == "success":
+            result = await task
+            assert result == (message, [], [])
+        elif outcome in {"error", "api_error"}:
+            with pytest.raises(type(failure)) as caught:
+                await task
+            assert caught.value is failure
+        elif outcome == "cancel":
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            with pytest.raises(StreamIdleTimeoutError):
+                await task
+
+        assert stream._entered and stream._exited
+        assert iterator_closed.is_set()
+        if with_span:
+            use_span.assert_called_once_with(span, end_on_exit=False)
+            span.end.assert_called_once()
+            if outcome in {"error", "api_error", "idle_timeout"}:
+                span.record_exception.assert_called_once()
+            else:
+                span.record_exception.assert_not_called()
+        else:
+            use_span.assert_not_called()
+            span.end.assert_not_called()
+        if outcome == "api_error":
+            assert any(
+                call.args == ("Streaming APIError during Anthropic completion",)
+                and call.kwargs.get("exc_info") is failure
+                for call in log_error.call_args_list
+            )

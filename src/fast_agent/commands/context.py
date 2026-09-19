@@ -228,7 +228,10 @@ async def noninteractive_prompt_argument(
 
 
 class NonInteractiveCommandIOBase(CommandIO):
-    """Shared no-op prompt/display behavior for non-interactive command IO."""
+    """Shared no-op IO behavior; subclasses override emission when needed."""
+
+    async def emit(self, message: CommandMessage) -> None:
+        del message
 
     async def prompt_text(
         self,

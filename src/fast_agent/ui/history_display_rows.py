@@ -72,11 +72,7 @@ def _preview_text(value: str | None, limit: int = 80) -> str:
 
 
 def _has_non_text_content(message: "PromptMessageExtended") -> bool:
-    for block in message.content:
-        block_type = block.type
-        if block_type and block_type != "text":
-            return True
-    return False
+    return any(block.type != "text" for block in message.content)
 
 
 def _extract_tool_result_summary(result: "CallToolResult", *, limit: int = 80) -> ToolResultSummary:
@@ -194,7 +190,7 @@ def _history_row(
 
 
 def _message_role(message: "PromptMessageExtended") -> str:
-    return strip_casefold(str(message.role)) if message.role else "assistant"
+    return strip_casefold(message.role)
 
 
 def _message_text_summary(message: "PromptMessageExtended") -> _TextSummary:

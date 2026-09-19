@@ -5,7 +5,11 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from mcp_types import TextContent
 
-from fast_agent.workflow_telemetry import ToolHandlerWorkflowTelemetry
+from fast_agent.workflow_telemetry import (
+    NullWorkflowTelemetry,
+    ToolHandlerWorkflowTelemetry,
+    WorkflowTelemetry,
+)
 
 if TYPE_CHECKING:
     from mcp_types import ContentBlock
@@ -101,3 +105,15 @@ async def test_tool_handler_workflow_step_auto_finishes_on_exception() -> None:
             raise RuntimeError("boom")
 
     assert handler.completions == [("call-1", False, None, "boom")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("telemetry_type", [WorkflowTelemetry, NullWorkflowTelemetry])
+async def test_no_op_telemetry_preserves_workflow_exceptions(
+    telemetry_type: type[WorkflowTelemetry],
+) -> None:
+    error = RuntimeError("workflow failed")
+    with pytest.raises(RuntimeError) as raised:
+        async with telemetry_type():
+            raise error
+    assert raised.value is error

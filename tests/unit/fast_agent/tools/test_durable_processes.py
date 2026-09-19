@@ -264,17 +264,27 @@ def test_durable_process_stop_is_file_backed_and_idempotent(tmp_path: Path) -> N
         cwd=tmp_path,
     )
     store.launch(created.spec.process_id, environment=dict(os.environ))
-    changed = store.wait_for_change(
-        created.spec.process_id,
-        previous=created,
-        timeout_seconds=5,
-    )
+    try:
+        # A launch/status change does not guarantee the child has printed its readiness marker.
+        deadline = time.monotonic() + 5
+        while True:
+            ready_output = store.read_output(
+                created.spec.process_id,
+                stream=DurableProcessStream.STDOUT,
+                offset=0,
+                limit=1024,
+            )
+            if "ready" in ready_output.text:
+                break
+            assert time.monotonic() < deadline, "Process did not publish ready stdout"
+            time.sleep(0.02)
 
-    assert changed.status.state in {"starting", "running"}
-    assert store.request_stop(created.spec.process_id)
-    assert not store.request_stop(created.spec.process_id)
-
-    stopped = store.wait(created.spec.process_id, timeout_seconds=5)
+        assert store.get(created.spec.process_id).status.state == "running"
+        assert store.request_stop(created.spec.process_id)
+        assert not store.request_stop(created.spec.process_id)
+    finally:
+        store.request_stop(created.spec.process_id)
+        stopped = store.wait(created.spec.process_id, timeout_seconds=5)
     output = store.read_output(
         created.spec.process_id,
         stream=DurableProcessStream.STDOUT,

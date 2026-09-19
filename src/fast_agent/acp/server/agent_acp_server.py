@@ -9,7 +9,7 @@ import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 from importlib.metadata import version as get_version
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Never, cast
 
 from acp import (
     Agent as ACPAgent,
@@ -27,6 +27,7 @@ from acp import (
 from acp.exceptions import RequestError
 from acp.helpers import ContentBlock as ACPContentBlock
 from acp.schema import (
+    AcpMcpServer,
     AgentCapabilities,
     AuthenticateResponse,
     AuthMethodAgent,
@@ -586,7 +587,7 @@ class AgentACPServer(ACPAgent):
         session_id: str,
         *,
         cwd: str,
-        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio],
+        mcp_servers: list[HttpMcpServer | SseMcpServer | AcpMcpServer | McpServerStdio],
     ) -> SessionStateInitialization:
         return await self._session_runtime.initialize_session_state(
             session_id,
@@ -594,11 +595,36 @@ class AgentACPServer(ACPAgent):
             mcp_servers=mcp_servers,
         )
 
+    async def set_config_option(
+        self, config_id: str, session_id: str, value: str | bool, **kwargs: Any
+    ) -> Never:
+        raise RequestError.method_not_found("session/set_config_option")
+
+    async def fork_session(
+        self,
+        session_id: str,
+        cwd: str,
+        additional_directories: list[str] | None = None,
+        mcp_servers: list[HttpMcpServer | SseMcpServer | AcpMcpServer | McpServerStdio]
+        | None = None,
+        **kwargs: Any,
+    ) -> Never:
+        raise RequestError.method_not_found("session/fork")
+
+    async def close_session(self, session_id: str, **kwargs: Any) -> Never:
+        raise RequestError.method_not_found("session/close")
+
+    async def ext_method(self, method: str, params: dict[str, Any]) -> Never:
+        raise RequestError.method_not_found(method)
+
+    async def ext_notification(self, method: str, params: dict[str, Any]) -> None:
+        """Ignore unknown extension notifications, which have no response."""
+
     async def list_sessions(
         self,
-        additional_directories: list[str] | None = None,
-        cursor: str | None = None,
         cwd: str | None = None,
+        cursor: str | None = None,
+        additional_directories: list[str] | None = None,
         **kwargs: Any,
     ) -> ListSessionsResponse:
         _ = additional_directories
@@ -608,8 +634,9 @@ class AgentACPServer(ACPAgent):
         self,
         cwd: str,
         session_id: str,
+        mcp_servers: list[HttpMcpServer | SseMcpServer | AcpMcpServer | McpServerStdio]
+        | None = None,
         additional_directories: list[str] | None = None,
-        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio] | None = None,
         **kwargs: Any,
     ) -> LoadSessionResponse | None:
         _ = additional_directories
@@ -622,10 +649,11 @@ class AgentACPServer(ACPAgent):
 
     async def resume_session(
         self,
-        cwd: str,
         session_id: str,
+        cwd: str,
         additional_directories: list[str] | None = None,
-        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio] | None = None,
+        mcp_servers: list[HttpMcpServer | SseMcpServer | AcpMcpServer | McpServerStdio]
+        | None = None,
         **kwargs: Any,
     ) -> ResumeSessionResponse:
         _ = additional_directories
@@ -640,7 +668,8 @@ class AgentACPServer(ACPAgent):
         self,
         cwd: str,
         additional_directories: list[str] | None = None,
-        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio] | None = None,
+        mcp_servers: list[HttpMcpServer | SseMcpServer | AcpMcpServer | McpServerStdio]
+        | None = None,
         **kwargs: Any,
     ) -> NewSessionResponse:
         """
@@ -690,8 +719,8 @@ class AgentACPServer(ACPAgent):
 
     async def set_session_mode(
         self,
-        mode_id: str,
         session_id: str,
+        mode_id: str,
         **kwargs: Any,
     ) -> SetSessionModeResponse | None:
         """
@@ -800,8 +829,8 @@ class AgentACPServer(ACPAgent):
 
     async def prompt(
         self,
-        prompt: list[ACPContentBlock],
         session_id: str,
+        prompt: list[ACPContentBlock],
         message_id: str | None = None,
         **kwargs: Any,
     ) -> PromptResponse:

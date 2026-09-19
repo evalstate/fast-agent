@@ -17,6 +17,8 @@ from prompt_toolkit.widgets import Frame
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from prompt_toolkit.formatted_text import StyleAndTextTuples
+
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.model_picker_common import (
     GENERIC_CUSTOM_MODEL_SENTINEL,
@@ -38,8 +40,6 @@ from fast_agent.ui.model_picker_common import (
 )
 from fast_agent.ui.picker_theme import build_picker_style
 from fast_agent.utils.text import strip_to_none
-
-StyleFragments = list[tuple[str, str]]
 
 
 @dataclass(frozen=True)
@@ -414,8 +414,8 @@ class _SplitListPicker:
             f"  {cls._truncate_picker_text(right.strip(), detail_width)}"
         )
 
-    def _render_provider_panel(self) -> StyleFragments:
-        fragments: StyleFragments = []
+    def _render_provider_panel(self) -> StyleAndTextTuples:
+        fragments: StyleAndTextTuples = []
         for index, option in enumerate(self.snapshot.providers):
             selected = index == self.state.provider_index
             cursor = "❯ " if self._providers_focused() and selected else "  "
@@ -430,8 +430,8 @@ class _SplitListPicker:
             fragments.append((line_style, text))
         return fragments
 
-    def _render_model_panel(self) -> StyleFragments:
-        fragments: StyleFragments = []
+    def _render_model_panel(self) -> StyleAndTextTuples:
+        fragments: StyleAndTextTuples = []
         models = self.current_models
         self._clamp_model_index()
 
@@ -468,7 +468,7 @@ class _SplitListPicker:
 
         return fragments
 
-    def _render_status_bar(self) -> StyleFragments:
+    def _render_status_bar(self) -> StyleAndTextTuples:
         provider = self.current_provider
         provider_name = self._provider_display_name_for_option(provider)
         scope = "curated" if self.state.source == "curated" else "all catalog"

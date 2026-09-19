@@ -2,17 +2,28 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from acp.schema import EnvVariable, HttpHeader, HttpMcpServer, McpServerStdio, SseMcpServer
+from acp.exceptions import RequestError
+from acp.schema import (
+    AcpMcpServer,
+    EnvVariable,
+    HttpHeader,
+    HttpMcpServer,
+    McpServerStdio,
+    SseMcpServer,
+)
 
 from fast_agent.config import MCPServerSettings
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-ACPConfiguredMCPServer = HttpMcpServer | SseMcpServer | McpServerStdio
+ACPConfiguredMCPServer = HttpMcpServer | SseMcpServer | AcpMcpServer | McpServerStdio
 
 
 def convert_acp_mcp_server(server: ACPConfiguredMCPServer) -> MCPServerSettings:
+    if isinstance(server, AcpMcpServer):
+        raise RequestError.invalid_params({"reason": "ACP-proxied MCP servers are not supported"})
+
     if isinstance(server, McpServerStdio):
         return MCPServerSettings(
             name=server.name,

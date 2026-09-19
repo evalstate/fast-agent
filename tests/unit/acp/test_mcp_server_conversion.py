@@ -59,3 +59,13 @@ def test_convert_sse_session_mcp_server() -> None:
     assert settings.transport == "sse"
     assert settings.url == "https://example.com/sse"
     assert settings.headers == {"X-API-Key": "secret"}
+
+
+def test_acp_proxy_transport_is_explicitly_rejected() -> None:
+    import pytest
+    from acp.exceptions import RequestError
+    from acp.schema import AcpMcpServer
+
+    with pytest.raises(RequestError) as exc_info:
+        convert_acp_mcp_server(AcpMcpServer(name="proxy", server_id="client-server", type="acp"))
+    assert exc_info.value.code == -32602

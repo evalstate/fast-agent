@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 from mcp_types import ContentBlock, TextContent
 
 if TYPE_CHECKING:
+    from types import TracebackType
+
     from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 
 
@@ -72,17 +74,25 @@ class WorkflowStepHandle(Protocol):
         """Complete the workflow step with optional success text/content."""
 
 
-class WorkflowTelemetry(AbstractAsyncContextManager, WorkflowStepHandle):
+class WorkflowTelemetry(
+    AbstractAsyncContextManager[WorkflowStepHandle, Literal[False]], WorkflowStepHandle
+):
     """
     Base async context manager returned by telemetry providers.
 
     Implementations should override __aenter__/__aexit__ along with update/finish.
+    Telemetry must never suppress workflow exceptions.
     """
 
     async def __aenter__(self) -> WorkflowStepHandle:
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> bool:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> Literal[False]:
         # Default no-op exit (override in subclasses to auto-complete)
         del exc_type, exc, tb
         return False
@@ -110,7 +120,12 @@ class WorkflowTelemetry(AbstractAsyncContextManager, WorkflowStepHandle):
 class NullWorkflowTelemetry(WorkflowTelemetry):
     """No-op telemetry implementation used when no transport wants workflow updates."""
 
-    async def __aexit__(self, exc_type, exc, tb) -> bool:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> Literal[False]:
         del exc_type, exc, tb
         return False
 
@@ -157,7 +172,12 @@ class _ToolHandlerWorkflowStep(WorkflowTelemetry):
         )
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> bool:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> Literal[False]:
         if not self._finished:
             success = exc_type is None
             error_message = str(exc) if exc else None

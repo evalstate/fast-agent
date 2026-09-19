@@ -184,12 +184,14 @@ class ResponsesLLM(
 
     def _finalize_turn_usage(
         self,
-        usage: TurnUsage | None = None,
+        turn_usage: TurnUsage | None = None,
         *,
         requested_service_tier: Literal["fast", "flex"] | None = None,
-        **kwargs: TurnUsage,
+        usage: TurnUsage | None = None,
     ) -> None:
-        turn_usage = usage if usage is not None else kwargs["turn_usage"]
+        turn_usage = usage if usage is not None else turn_usage
+        if turn_usage is None:
+            raise TypeError("_finalize_turn_usage requires usage or turn_usage")
         FastAgentLLM._finalize_turn_usage(
             self,
             turn_usage,

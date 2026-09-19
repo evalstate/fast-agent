@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from io import BytesIO
 from typing import Any
 
-from click.utils import strip_ansi
+from typer._click.utils import strip_ansi
 from typer.testing import CliRunner
 
 import fast_agent.io.source_resolver as source_resolver

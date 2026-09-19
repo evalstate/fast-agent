@@ -18,7 +18,7 @@ from fast_agent.constants import (
     FAST_AGENT_ERROR_CHANNEL,
     FAST_AGENT_REMOVED_METADATA_CHANNEL,
 )
-from fast_agent.interfaces import FastAgentLLMProtocol
+from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.model_factory import ModelConfig
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
@@ -26,10 +26,11 @@ from fast_agent.llm.resolved_model import ResolvedModelSpec
 from fast_agent.types import PromptMessageExtended, text_content
 
 
-class RecordingStubLLM(FastAgentLLMProtocol):
-    """Minimal FastAgentLLMProtocol implementation for testing."""
+class RecordingStubLLM(PassthroughLLM):
+    """Concrete local LLM that records the sanitized request."""
 
     def __init__(self, model_name: str = "passthrough") -> None:
+        super().__init__(model=model_name)
         self._model_name = model_name
         self._provider = Provider.FAST_AGENT
         self._resolved_model = ResolvedModelSpec(
@@ -42,8 +43,6 @@ class RecordingStubLLM(FastAgentLLMProtocol):
         )
         self.generated_messages: list[PromptMessageExtended] | None = None
         self._message_history: list[PromptMessageExtended] = []
-
-    #        self.usage_accumulator = None
 
     @property
     def model_name(self) -> str | None:

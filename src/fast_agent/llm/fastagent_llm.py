@@ -1669,7 +1669,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _provider_api_key(self):
         from fast_agent.llm.provider_key_manager import ProviderKeyManager
 
-        assert self.provider
         return ProviderKeyManager.get_api_key(self.provider.config_name, self.context.config)
 
     def _base_url(self) -> str | None:

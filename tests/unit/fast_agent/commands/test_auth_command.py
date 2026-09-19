@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 
 import keyring
 import pytest
-from click.utils import strip_ansi
 from keyring.backend import KeyringBackend
 from keyring.errors import PasswordDeleteError
+from typer._click.utils import strip_ansi
 from typer.testing import CliRunner
 
 from fast_agent.auth.credentials import OAuthCredential, save_oauth_credential
