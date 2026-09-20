@@ -59,6 +59,7 @@ from opentelemetry.semconv_ai import LLMRequestTypeValues, SpanAttributes
 from opentelemetry.trace import Span, Status, StatusCode
 from pydantic import BaseModel
 
+from fast_agent.config import AnthropicSettings
 from fast_agent.constants import (
     ANTHROPIC_ASSISTANT_RAW_CONTENT,
     ANTHROPIC_CITATIONS_CHANNEL,
@@ -517,7 +518,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         self._cache_diagnostics_previous_message_id: str | None = None
 
         raw_setting = kwargs.get("reasoning_effort")
-        config = self.context.config.anthropic if self.context and self.context.config else None
+        config = self._anthropic_settings()
         model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
         reasoning_source = self._configure_anthropic_reasoning(
             raw_setting,
@@ -713,6 +714,12 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
         return ModelDatabase.list_long_context_models()
 
+    def _anthropic_settings(self) -> AnthropicSettings | None:
+        return self.context.config.anthropic if self.context.config else None
+
+    async def _prepare_anthropic_client(self, model: str) -> None:
+        """Resolve request-scoped provider routing before constructing a client."""
+
     def _provider_base_url(self) -> str | None:
         assert self.context.config
         return self.context.config.anthropic.base_url if self.context.config.anthropic else None
@@ -792,7 +799,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         return cache_mode
 
     def _cache_diagnostics_enabled(self) -> bool:
-        config = self.context.config.anthropic if self.context and self.context.config else None
+        config = self._anthropic_settings()
         return bool(
             config
             and config.cache_diagnostics
@@ -1062,7 +1069,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             return None
         if self._structured_output_mode_override is not None:
             return self._structured_output_mode_override
-        config = self.context.config.anthropic if self.context and self.context.config else None
+        config = self._anthropic_settings()
         if config and config.structured_output_mode != "auto":
             return config.structured_output_mode
 
@@ -1105,7 +1112,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             return False
         if self._structured_output_mode_override is not None:
             return False
-        config = self.context.config.anthropic if self.context and self.context.config else None
+        config = self._anthropic_settings()
         if config and config.structured_output_mode != "auto":
             return False
         return self._get_model_json_mode(model) != "schema"
@@ -2842,6 +2849,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         """
 
         try:
+            await self._prepare_anthropic_client(
+                self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
+            )
             anthropic = self._initialize_anthropic_client()
             request = await self._prepare_anthropic_completion_request(
                 anthropic,

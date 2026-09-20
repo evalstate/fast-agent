@@ -68,6 +68,29 @@ compaction:
 # otel:
 #   enabled: true
 
+# GitHub Copilot: experimental native compatibility profile, not GitHub endorsement.
+# Uses fast-agent's own OAuth app/token and User-Agent; no Copilot SDK/CLI required.
+# Included in the base installation; native GitHub device login:
+#   fast-agent auth provider login copilot
+#   fast-agent --model copilot.claude-sonnet-5
+# Credentials use shared provider-auth storage (keyring or ~/.fast-agent/auth.json).
+# Headless: stage an exported provider file via FAST_AGENT_AUTH_FILE, or supply
+# COPILOT_GITHUB_TOKEN via a secret environment (never chat/YAML). That dedicated
+# token overrides stored credentials; GH_TOKEN and GITHUB_TOKEN are ignored.
+# Optional copilot settings (omit to use CopilotSettings defaults):
+#   base_url: HTTPS origin only; no path/query/credentials/fragment
+#   integration_id: configurable routing identity; custom ID requires explicit config
+#     Safe HTTP header value; incidental request headers cannot override it.
+#     Custom IDs do not imply GitHub registration; see guide for generated defaults.
+#   runtime_timeout_seconds: positive timeout for runtime operations
+#   cache_mode: Claude prompt caching (auto, prompt, or off)
+#   cache_ttl: optional Claude TTL override (null inherits the model default)
+# Copilot GPT defaults to WebSockets with no SSE fallback; uses curated support,
+# not /models. Use ?transport=sse for HTTP/SSE, or ?transport=auto for WebSocket-first
+# with early-error SSE fallback. Ordinary OpenAI/Codex Responses defaults to auto.
+# Claude is SSE-only. See the provider guide for the controlled diagnostic record.
+# See https://fast-agent.ai/models/providers/copilot/ for generated defaults.
+
 anthropic:
   reasoning: null # Optional: auto/low/medium/high/max, an integer token budget, or off
 #  cache_mode: "auto" # Options: off, prompt, auto (default: auto)

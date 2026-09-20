@@ -32,6 +32,7 @@ from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_info import ModelInfo
+from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.terminal_output_limits import (
     calculate_terminal_output_limit_for_model,
@@ -163,6 +164,7 @@ def _create_skill(directory, name: str, description: str = "desc") -> None:
 class StubLLM:
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
+        self.provider = ModelDatabase.get_default_provider(model_name) or Provider.GENERIC
         self.resolved_model = SimpleNamespace(
             max_output_tokens=ModelDatabase.get_max_output_tokens(model_name),
             model_params=ModelDatabase.get_model_params(model_name),
@@ -178,6 +180,7 @@ class StubLLM:
 class StubLLMWithoutResolvedModel:
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
+        self.provider = ModelDatabase.get_default_provider(model_name) or Provider.GENERIC
         self.instruction = ""
         self.default_request_params = RequestParams()
 

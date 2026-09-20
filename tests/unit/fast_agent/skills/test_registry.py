@@ -3,6 +3,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from xml.etree import ElementTree
 
+import pytest
+
 from fast_agent.constants import FAST_AGENT_RUNTIME_HOME
 from fast_agent.paths import default_skill_paths
 from fast_agent.skills.registry import SkillManifest, SkillRegistry, format_skills_for_prompt
@@ -272,3 +274,26 @@ def test_cli_override_propagates_to_global_settings(tmp_path: Path, monkeypatch)
     directory_strs = [str(d) for d in directories]
 
     assert str(custom_skills) in directory_strs, f"Expected {custom_skills} in {directory_strs}"
+
+
+def test_registry_resolves_default_paths_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import fast_agent.skills.registry as registry_module
+
+    skill_dir = tmp_path / "skills"
+    write_skill(skill_dir, "alpha")
+    calls = 0
+
+    def resolve_defaults(*, cwd: Path) -> list[Path]:
+        nonlocal calls
+        calls += 1
+        assert cwd == tmp_path
+        return [skill_dir]
+
+    monkeypatch.setattr(registry_module, "default_skill_paths", resolve_defaults)
+    registry = SkillRegistry(base_dir=tmp_path)
+
+    assert calls == 1
+    assert [manifest.name for manifest in registry.load_manifests()] == ["alpha"]
+    assert not registry.warnings

@@ -148,7 +148,8 @@ picker:
 
 ### Connection settings
 
-Use `connection` when the overlay needs endpoint-specific transport details:
+Use `connection` for endpoint and authentication settings (the streaming
+`transport` is a request default, not a connection setting):
 
 - `base_url`: custom API base URL
 - `auth`: one of `none`, `env`, or `secret_ref`
@@ -210,6 +211,9 @@ Common fields:
   `shell_execution.process_poll_max_wait_seconds`. An explicit model-string
   `poll_period` takes precedence over this metadata and is rejected if it
   exceeds the configured maximum.
+- `model_specific`: system-prompt text substituted for `{{model_specific}}` in
+  the default instruction. Set it to an empty string to suppress the catalog
+  text for the base model.
 - `fast`
 
 ## Authentication options

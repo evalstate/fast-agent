@@ -204,9 +204,8 @@ def _provider_view(status: ProviderAuthStatus) -> ProviderAuthView:
 
 def _provider_views() -> list[ProviderAuthView]:
     from fast_agent.auth.providers import provider_ids
-    from fast_agent.auth.providers import provider_status as get_status
 
-    return [_provider_view(get_status(provider)) for provider in provider_ids()]
+    return [_provider_view_for(provider) for provider in provider_ids()]
 
 
 def _provider_view_for(provider: str) -> ProviderAuthView:
@@ -478,7 +477,7 @@ def provider_list(
 
 @provider_app.command("show")
 def provider_show(
-    provider: str = typer.Argument(..., help="Provider name: xai or codex"),
+    provider: str = typer.Argument(..., help="Provider name: xai, codex, or copilot"),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
 ) -> None:
     """Show one model-provider credential."""
@@ -496,7 +495,7 @@ class ProviderLoginMethod(str, Enum):
 
 @provider_app.command("login")
 def provider_login(
-    provider: str = typer.Argument(..., help="Provider name: xai or codex"),
+    provider: str = typer.Argument(..., help="Provider name: xai, codex, or copilot"),
     method: ProviderLoginMethod = typer.Option(
         ProviderLoginMethod.DEVICE,
         "--method",
@@ -526,7 +525,7 @@ def provider_login(
 
 @provider_app.command("logout")
 def provider_logout(
-    provider: str = typer.Argument(..., help="Provider name: xai or codex"),
+    provider: str = typer.Argument(..., help="Provider name: xai, codex, or copilot"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Do not prompt for confirmation"),
 ) -> None:
     """Remove a stored provider credential."""
@@ -553,7 +552,7 @@ def provider_logout(
 
 @provider_app.command("token")
 def provider_token(
-    provider: str = typer.Argument(..., help="Provider name: xai or codex"),
+    provider: str = typer.Argument(..., help="Provider name: xai, codex, or copilot"),
 ) -> None:
     """Print a current provider access token."""
     from fast_agent.auth.providers import get_oauth_provider
@@ -575,11 +574,11 @@ def provider_token(
 
 @provider_app.command("export")
 def provider_export(
-    provider: str = typer.Argument(..., help="Provider name: xai or codex"),
+    provider: str = typer.Argument(..., help="Provider name: xai, codex, or copilot"),
     output: str = typer.Argument(..., help="Destination provider auth JSON file"),
     force: bool = typer.Option(False, "--force", help="Replace an existing file"),
 ) -> None:
-    """Export one refreshable provider credential."""
+    """Export one provider credential."""
     from fast_agent.auth.providers import export_provider_credential
     from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
 

@@ -10,7 +10,11 @@ from typing import Any
 import httpx2
 import pytest
 from openai import APIError
-from openai.types.responses import ResponseErrorEvent
+from openai.types.responses import (
+    ResponseErrorEvent,
+    ResponseReasoningSummaryTextDeltaEvent,
+    ResponseReasoningTextDeltaEvent,
+)
 
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
@@ -370,6 +374,122 @@ async def test_responses_stream_uses_summary_index_for_split_heading_boundary() 
     )
     assert reasoning_text == ("**Planning server initialization**\n\n**Reducing endpoint calls**")
     assert reasoning_parts == ["**Planning server initialization**\n\n**Reducing endpoint calls**"]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("event_shape", ["sdk", "untyped", "legacy"])
+@pytest.mark.parametrize("rotating_ids", [False, True])
+async def test_responses_stream_groups_summary_by_stream_indexes(
+    event_shape: str, rotating_ids: bool
+) -> None:
+    harness = _ResponsesHarness()
+    final_response = SimpleNamespace(output=[], usage=None)
+    events: list[Any] = []
+    # Token splits and explicit newlines are not summary boundaries. Both a new
+    # summary index and a new output index are, even if item IDs are reused.
+    for sequence, (output_index, summary_index, delta) in enumerate(
+        [
+            (0, 0, "Coun"),
+            (0, 0, "ting"),
+            (0, 0, "\n"),
+            (0, 0, "items:\n\n"),
+            (0, 0, "12."),
+            (0, 1, "**"),
+            (0, 1, "Check**\n\n"),
+            (0, 1, "done."),
+            (1, 0, "next "),
+            (1, 0, "item."),
+        ]
+    ):
+        event = ResponseReasoningSummaryTextDeltaEvent(
+            type="response.reasoning_summary_text.delta",
+            item_id=f"rs_{sequence}" if rotating_ids else "rs_shared",
+            output_index=output_index,
+            summary_index=summary_index,
+            sequence_number=sequence,
+            delta=delta,
+        )
+        if event_shape == "sdk":
+            events.append(event)
+        else:
+            payload = event.model_dump()
+            if event_shape == "legacy":
+                payload["type"] = "response.reasoning_summary.delta"
+            events.append(SimpleNamespace(**payload))
+
+    _response, reasoning_parts = await harness._process_stream(
+        _FakeResponsesStream(events, final_response), model="gpt-test", capture_filename=None
+    )
+
+    expected = "Counting\nitems:\n\n12.\n\n**Check**\n\ndone.\n\nnext item."
+    assert reasoning_parts == [expected]
+    assert "".join(e["text"] for e in harness.stream_events if e["is_reasoning"]) == expected
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("output_metadata", [{}, {"output_index": None}])
+async def test_responses_stream_summary_falls_back_to_item_id_without_output_index(
+    output_metadata: dict[str, None],
+) -> None:
+    harness = _ResponsesHarness()
+    events = [
+        SimpleNamespace(
+            type="response.reasoning_summary_text.delta",
+            item_id=item_id,
+            summary_index=summary_index,
+            delta=delta,
+            **output_metadata,
+        )
+        for item_id, summary_index, delta in [
+            ("rs_1", 0, "Coun"),
+            ("rs_1", 0, "ting\n\n12."),
+            ("rs_1", 1, "checking "),
+            ("rs_1", 1, "sum."),
+            ("rs_2", 0, "next item."),
+        ]
+    ]
+    _response, reasoning_parts = await harness._process_stream(
+        _FakeResponsesStream(events, SimpleNamespace(output=[], usage=None)),
+        model="gpt-test",
+        capture_filename=None,
+    )
+
+    expected = "Counting\n\n12.\n\nchecking sum.\n\nnext item."
+    assert reasoning_parts == [expected]
+    assert "".join(e["text"] for e in harness.stream_events if e["is_reasoning"]) == expected
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("event_shape", ["sdk_text", "untyped_summary"])
+async def test_responses_stream_without_summary_index_preserves_deltas(event_shape: str) -> None:
+    harness = _ResponsesHarness()
+    deltas = ["Coun", "ting", "\n\n", "12."]
+    events: list[Any] = []
+    for sequence, delta in enumerate(deltas):
+        if event_shape == "sdk_text":
+            events.append(
+                ResponseReasoningTextDeltaEvent(
+                    type="response.reasoning_text.delta",
+                    item_id=f"rs_{sequence}",
+                    output_index=0,
+                    content_index=0,
+                    sequence_number=sequence,
+                    delta=delta,
+                )
+            )
+        else:
+            events.append(SimpleNamespace(type="response.reasoning_summary.delta", delta=delta))
+    _response, reasoning_parts = await harness._process_stream(
+        _FakeResponsesStream(events, SimpleNamespace(output=[], usage=None)),
+        model="gpt-test",
+        capture_filename=None,
+    )
+
+    assert "".join(reasoning_parts) == "".join(deltas)
+    assert [e["text"] for e in harness.stream_events if e["is_reasoning"]] == deltas
 
 
 @pytest.mark.unit

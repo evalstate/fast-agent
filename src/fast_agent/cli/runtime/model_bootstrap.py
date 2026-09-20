@@ -484,7 +484,20 @@ async def select_model_from_picker(
         initial_provider = picker_result.provider
 
         if picker_result.activation_action is not None:
-            if activate_model_picker_provider(picker_result.activation_action):
+            if picker_result.activation_action.provider == Provider.COPILOT:
+                from fast_agent.cli.runtime.copilot_activation import activate_copilot
+                from fast_agent.config import CopilotSettings
+
+                settings = load_request_settings(request)
+                copilot_settings = (
+                    CopilotSettings.model_validate(config_payload.get("copilot") or {})
+                    if config_payload is not None
+                    else settings.copilot
+                )
+                activated = await activate_copilot(copilot_settings)
+            else:
+                activated = activate_model_picker_provider(picker_result.activation_action)
+            if activated:
                 if picker_result.selected_model:
                     return picker_result.selected_model
             continue

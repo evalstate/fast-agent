@@ -115,7 +115,7 @@ def test_read_text_source_decodes_http_content_as_utf8(monkeypatch):
         assert timeout == 30
         return response
 
-    monkeypatch.setattr(source_resolver.requests, "get", fake_get)
+    monkeypatch.setattr(requests, "get", fake_get)
 
     assert read_text_source("https://example.com/prompt.md") == "你好, café"
 
@@ -126,7 +126,7 @@ def test_read_text_source_wraps_http_request_errors(monkeypatch):
         assert timeout == 30
         raise requests.ConnectionError("connection failed")
 
-    monkeypatch.setattr(source_resolver.requests, "get", fake_get)
+    monkeypatch.setattr(requests, "get", fake_get)
 
     with pytest.raises(
         ValueError,
@@ -145,7 +145,7 @@ def test_read_text_source_wraps_http_status_errors(monkeypatch):
         assert timeout == 30
         return FakeResponse()
 
-    monkeypatch.setattr(source_resolver.requests, "get", fake_get)
+    monkeypatch.setattr(requests, "get", fake_get)
 
     with pytest.raises(
         ValueError,

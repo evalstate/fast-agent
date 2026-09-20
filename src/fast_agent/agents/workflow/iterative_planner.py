@@ -3,9 +3,11 @@ Iterative Planner Agent - works towards an objective using sub-agents
 """
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from a2a.types import AgentCard
+if TYPE_CHECKING:
+    from a2a.types import AgentCard
+
 from mcp import Tool
 from mcp_types import TextContent
 
@@ -19,6 +21,9 @@ from fast_agent.agents.workflow.orchestrator_models import (
     TaskWithResult,
     format_plan_result,
     format_step_result_text,
+)
+from fast_agent.agents.workflow.prompts import (
+    ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE as ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE,
 )
 from fast_agent.agents.workflow.request_params import child_request_params
 from fast_agent.core.exceptions import AgentConfigError
@@ -34,29 +39,6 @@ from fast_agent.workflow_telemetry import (
 )
 
 logger = get_logger(__name__)
-
-
-ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE = """
-You are an expert planner, able to Orchestrate complex tasks by breaking them down in to
-manageable steps, and delegating tasks to Agents.
-
-You work iteratively - given an Objective, you consider the current state of the plan,
-decide the next step towards the goal. You document those steps and create clear instructions
-for execution by the Agents, being specific about what you need to know to assess task completion. 
-
-NOTE: A 'Planning Step' has a description, and a list of tasks that can be delegated 
-and executed in parallel.
-
-Agents have a 'description' describing their primary function, and a set of 'skills' that
-represent Tools they can use in completing their function.
-
-The following Agents are available to you:
-
-{{agents}}
-
-You must specify the Agent name precisely when generating a Planning Step. 
-
-"""
 
 
 ITERATIVE_PLAN_PROMPT_TEMPLATE2 = """
@@ -575,7 +557,7 @@ class IterativePlanner(LlmAgent):
         ]
 
     @staticmethod
-    def _format_agent_card_as_xml(agent_card: AgentCard) -> str:
+    def _format_agent_card_as_xml(agent_card: "AgentCard") -> str:
         """
         Format an agent card as XML for display in prompts.
 

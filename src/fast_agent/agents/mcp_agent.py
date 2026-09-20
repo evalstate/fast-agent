@@ -27,7 +27,6 @@ from typing import (
 )
 
 import mcp_types
-from a2a.types import AgentCard, AgentSkill
 from mcp_types import (
     CallToolResult,
     ContentBlock,
@@ -41,7 +40,6 @@ from mcp_types import (
 )
 from pydantic import BaseModel
 
-from fast_agent.agents.agent_card import build_fast_agent_card
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.mcp_tool_planning import (
     PlannedMcpToolCall,
@@ -184,6 +182,7 @@ class _ManagedMcpSetup:
 
 
 if TYPE_CHECKING:
+    from a2a.types import AgentCard, AgentSkill
     from rich.text import Text
 
     from fast_agent.agents.llm_decorator import LlmDecorator
@@ -2661,6 +2660,8 @@ class McpAgent(ABC, ToolAgent):
         Return an A2A card describing this Agent
         """
 
+        from fast_agent.agents.agent_card import build_fast_agent_card
+
         tools: ListToolsResult = await self.list_tools()
         skills = [await self.convert(tool) for tool in tools.tools]
 
@@ -2838,6 +2839,8 @@ class McpAgent(ABC, ToolAgent):
         """
         Convert a Tool to an AgentSkill.
         """
+
+        from a2a.types import AgentSkill
 
         if tool.name in self._skill_map:
             manifest = self._skill_map[tool.name]

@@ -1,4 +1,5 @@
 import httpx2
+import pytest
 from anthropic import BadRequestError as AnthropicBadRequestError
 from anthropic import RequestTooLargeError as AnthropicRequestTooLargeError
 from openai import APIError as OpenAIAPIError
@@ -6,6 +7,7 @@ from openai import BadRequestError as OpenAIBadRequestError
 
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.llm.fastagent_llm import FastAgentLLM
+from fast_agent.llm.provider.openai.responses_websocket import ResponsesWebSocketError
 
 
 def test_provider_key_errors_with_retryable_terms_are_not_fatal() -> None:
@@ -92,6 +94,33 @@ def test_openai_api_error_subclass_outside_sdk_module_is_classified() -> None:
         "Your input exceeds the context window.",
         httpx2.Request("POST", "https://api.openai.com/v1/responses"),
         body={"code": "context_length_exceeded"},
+    )
+
+    assert FastAgentLLM._is_fatal_retry_error(error) is True
+
+
+@pytest.mark.parametrize(
+    ("code", "status"),
+    [("model_not_supported", None), ("context_length_exceeded", None), (None, 400)],
+)
+def test_websocket_request_errors_are_fatal(code: str | None, status: int | None) -> None:
+    error = ResponsesWebSocketError("Request rejected", error_code=code, status=status)
+
+    assert FastAgentLLM._is_fatal_retry_error(error) is True
+
+
+@pytest.mark.parametrize("status", [None, 429, 500, 503])
+def test_websocket_transient_errors_remain_retryable(status: int | None) -> None:
+    error = ResponsesWebSocketError("Temporarily unavailable", status=status)
+
+    assert FastAgentLLM._is_fatal_retry_error(error) is False
+
+
+def test_openai_unsupported_model_is_fatal() -> None:
+    error = OpenAIAPIError(
+        "The requested model is not supported.",
+        httpx2.Request("POST", "https://api.openai.com/v1/responses"),
+        body={"code": "model_not_supported"},
     )
 
     assert FastAgentLLM._is_fatal_retry_error(error) is True

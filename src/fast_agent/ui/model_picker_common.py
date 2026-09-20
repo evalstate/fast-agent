@@ -18,7 +18,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import available_reasoning_values, format_reasoning_setting
 from fast_agent.utils.collections import unique_preserve_order
 from fast_agent.utils.count_display import format_count
-from fast_agent.utils.huggingface_hub import is_huggingface_hub_logged_in
+from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
 from fast_agent.utils.text import strip_str_to_none
 
 if TYPE_CHECKING:
@@ -32,6 +32,7 @@ PICKER_PROVIDER_ORDER: tuple[Provider, ...] = (
     Provider.RESPONSES,
     Provider.OPENRESPONSES,
     Provider.CODEX_RESPONSES,
+    Provider.COPILOT,
     Provider.ANTHROPIC,
     Provider.HUGGINGFACE,
     Provider.GOOGLE,
@@ -138,7 +139,9 @@ def _azure_default_credential_is_active(config_payload: dict[str, Any]) -> bool:
 
 
 def _huggingface_hub_is_active(_config_payload: dict[str, Any]) -> bool:
-    return is_huggingface_hub_logged_in()
+    # Local token presence only (matches ProviderKeyManager); the picker must not
+    # make a network round-trip to the Hub on every open.
+    return get_huggingface_hub_token() is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,8 +153,19 @@ class ProviderCredentialSummary:
 def provider_credential_summary(
     provider: Provider,
     config_payload: dict[str, Any],
+    *,
+    copilot_authenticated: bool = False,
 ) -> ProviderCredentialSummary:
     """Return whether a provider is usable and a short credential source label."""
+    if provider == Provider.COPILOT:
+        # Rendering uses only the async preflight result, never stored credentials.
+        return ProviderCredentialSummary(
+            active=copilot_authenticated,
+            label=("env" if "COPILOT_GITHUB_TOKEN" in os.environ else "OAuth")
+            if copilot_authenticated
+            else None,
+        )
+
     if provider == Provider.ANTHROPIC_VERTEX:
         ready, _ = anthropic_vertex_ready(config_payload)
         return ProviderCredentialSummary(active=ready, label="ADC" if ready else None)
@@ -349,13 +363,16 @@ def build_snapshot(
     *,
     config_payload: dict[str, Any] | None = None,
     start_path: Path | None = None,
+    copilot_authenticated: bool = False,
 ) -> ModelPickerSnapshot:
     if config_payload is None:
         settings = get_settings(str(config_path) if config_path else None)
         config_payload = settings.model_dump()
 
     credential_by_provider = {
-        provider: provider_credential_summary(provider, config_payload)
+        provider: provider_credential_summary(
+            provider, config_payload, copilot_authenticated=copilot_authenticated
+        )
         for provider in PICKER_PROVIDER_ORDER
     }
     active_providers = {
@@ -647,7 +664,7 @@ def provider_activation_action(
     provider: Provider,
 ) -> ProviderActivation | None:
     option = find_provider(snapshot, provider.config_name)
-    if provider in {Provider.CODEX_RESPONSES, Provider.XAI} and not option.active:
+    if provider in {Provider.CODEX_RESPONSES, Provider.XAI, Provider.COPILOT} and not option.active:
         return ProviderActivation(provider)
     return None
 

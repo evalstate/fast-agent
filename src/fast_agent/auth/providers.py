@@ -56,6 +56,26 @@ def _xai_provider() -> OAuthProvider:
     )
 
 
+def _copilot_provider() -> OAuthProvider:
+    from fast_agent.llm.provider.copilot.oauth import (
+        clear_copilot_tokens,
+        get_copilot_access_token,
+        get_copilot_credential,
+        get_copilot_token_status,
+        login_copilot_oauth,
+    )
+
+    return OAuthProvider(
+        id="copilot",
+        display_name="GitHub Copilot",
+        login=login_copilot_oauth,
+        credential=get_copilot_credential,
+        access_token=get_copilot_access_token,
+        status=get_copilot_token_status,
+        logout=clear_copilot_tokens,
+    )
+
+
 def _codex_provider() -> OAuthProvider:
     from fast_agent.llm.provider.openai.codex_oauth import (
         CodexOAuthTokens,
@@ -98,13 +118,15 @@ def _codex_provider() -> OAuthProvider:
 
 
 def provider_ids() -> tuple[str, ...]:
-    return ("xai", "codex")
+    return ("xai", "codex", "copilot")
 
 
 def get_oauth_provider(provider: str) -> OAuthProvider:
     normalized = provider.strip().casefold()
     if normalized == "xai":
         return _xai_provider()
+    if normalized == "copilot":
+        return _copilot_provider()
     if normalized in {"codex", "codexplan", "codexresponses"}:
         return _codex_provider()
     raise ProviderKeyError(

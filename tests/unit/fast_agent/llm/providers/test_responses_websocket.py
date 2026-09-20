@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 import pytest
 from aiohttp import WSMsgType
 from mcp_types import CallToolResult, TextContent
+from openai import omit
 from openai.types.beta.beta_responses_server_event import (
     BetaResponseWsError,
     BetaResponseWsErrorError,
@@ -22,6 +23,7 @@ from fast_agent.constants import (
 )
 from fast_agent.llm.provider.openai.codex_responses import (
     CODEX_RESPONSES_LITE_HEADER,
+    CODEX_RESPONSES_LITE_WS_METADATA_KEY,
     CODEX_ROUTING_HINT_HEADER,
     CodexResponsesLLM,
 )
@@ -1744,6 +1746,35 @@ async def test_codex_websocket_context_includes_per_request_routing_headers(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "extra_body", [None, {"client_metadata": {"custom": "value"}, "temperature": omit}]
+)
+async def test_websocket_normalizes_sdk_body_before_provider_metadata(
+    extra_body: dict[str, Any] | None,
+) -> None:
+    harness = _CodexRoutingContextHarness()
+    context = await harness._responses_ws_context(
+        input_items=_ws_input_items("hello"),
+        request_params=RequestParams(
+            model="gpt-5.6-luna",
+            metadata={"temperature": 0.2, "extra_body": extra_body},
+        ),
+        tools=None,
+        model_name="gpt-5.6-luna",
+    )
+    socket = _FakeWebSocket()
+    await send_response_request(socket, harness._new_ws_request_planner().plan(context.arguments))
+    body = json.loads(socket.sent_payloads[0])
+    assert "extra_body" not in body
+    assert body["client_metadata"][CODEX_RESPONSES_LITE_WS_METADATA_KEY] == "true"
+    if extra_body is None:
+        assert body["temperature"] == 0.2
+    else:
+        assert "temperature" not in body
+        assert body["client_metadata"]["custom"] == "value"
+
+
+@pytest.mark.asyncio
 async def test_websocket_completion_ws_uses_create_on_first_turn() -> None:
     harness = _ContinuationConnectionLifecycleHarness()
     params = RequestParams(model="gpt-5.3-codex")
@@ -2610,3 +2641,35 @@ async def test_websocket_retries_on_recoverable_server_error_codes(error_code: s
     assert not any(
         "WebSocket reconnected" in message for message in harness._capturing_display.status_messages
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [False, True])
+async def test_connect_websocket_owns_supplied_client(
+    monkeypatch: pytest.MonkeyPatch, failure: bool
+) -> None:
+    from unittest.mock import AsyncMock, Mock
+
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(api_key="isolated", organization="", project="")
+    manager = Mock()
+    manager.enter = AsyncMock(side_effect=RuntimeError("dial failed") if failure else None)
+    manager.__aexit__ = AsyncMock()
+    connect = Mock(return_value=manager)
+    monkeypatch.setattr(client.responses, "connect", connect)
+    if failure:
+        with pytest.raises(RuntimeError, match="dial failed"):
+            await connect_websocket(
+                url="wss://example.test/v1/responses?q=1", headers={}, client=client
+            )
+    else:
+        connection = await connect_websocket(
+            url="wss://example.test/v1/responses?q=1", headers={}, client=client
+        )
+        assert not client.is_closed()
+        await connection.session.close()
+    assert client.is_closed()
+    manager.__aexit__.assert_awaited_once()
+    assert str(client.websocket_base_url).startswith("wss://example.test")
+    assert connect.call_args.kwargs["extra_query"] == {"q": "1"}

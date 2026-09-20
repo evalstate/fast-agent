@@ -358,3 +358,36 @@ async def test_history_loader_resets_state_without_rotating_session_identity(
     assert identity in persisted.info.metadata.values()
     await agent.call_tool("web_run", {"time": [{"utc_offset": "+00:00"}]})
     assert llm.search_ids[-1] == identity
+
+
+@pytest.mark.asyncio
+async def test_provider_switch_removes_owned_tool_and_rejects_stale_run() -> None:
+    from fast_agent.llm.internal.passthrough import PassthroughLLM
+    from fast_agent.tools.codex_web_search import CodexWebSearchAdapter
+
+    llm = SearchSimulator()
+    agent = agent_with(llm)
+    adapter = CodexWebSearchAdapter(agent)
+    for replacement in (PassthroughLLM(), None):
+        agent._llm = llm
+        adapter.sync()
+        assert "web_run" in agent._execution_tools
+        agent._llm = replacement
+        result = await adapter.run()
+        assert result.is_error
+        assert not llm.search_ids
+        adapter.sync()
+        assert "web_run" not in agent._execution_tools
+        assert adapter.tool is None
+
+
+@pytest.mark.asyncio
+async def test_provider_discriminant_still_requires_codex_implementation() -> None:
+    from fast_agent.llm.internal.passthrough import PassthroughLLM
+    from fast_agent.llm.provider_types import Provider
+    from fast_agent.tools.codex_web_search import CodexWebSearchAdapter
+
+    agent = agent_with(SearchSimulator())
+    agent._llm = PassthroughLLM(provider=Provider.CODEX_RESPONSES)
+    assert "web_run" not in {tool.name for tool in (await agent.list_tools()).tools}
+    assert (await CodexWebSearchAdapter(agent).run()).is_error

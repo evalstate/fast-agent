@@ -6,8 +6,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, Protocol
 from urllib.parse import ParseResult, urlparse
 
-import requests
-
 from fast_agent.io.path_uri import file_uri_to_path
 
 if TYPE_CHECKING:
@@ -26,6 +24,8 @@ def read_text_source(source: str | Path, *, label: str = "source") -> str:
     parsed = urlparse(source_text)
 
     if parsed.scheme in {"http", "https"}:
+        import requests
+
         try:
             response = requests.get(source_text, timeout=30)
             response.raise_for_status()

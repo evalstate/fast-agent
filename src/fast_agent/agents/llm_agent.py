@@ -14,7 +14,6 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
-from a2a.types import AgentCapabilities
 from mcp import Tool
 from mcp_types import ContentBlock
 from rich.text import Text
@@ -74,7 +73,6 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-DEFAULT_CAPABILITIES = AgentCapabilities(streaming=False, push_notifications=False)
 STOP_REASON_ADDITIONAL_MESSAGES: tuple[tuple[LlmStopReason, str, str], ...] = (
     (
         LlmStopReason.MAX_TOKENS,

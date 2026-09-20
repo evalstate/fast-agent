@@ -11,7 +11,6 @@ from rich.text import Text
 
 from fast_agent.a2a.config import A2AAgentConfig
 from fast_agent.a2a.connect import parse_a2a_connect_arguments
-from fast_agent.a2a.remote_agent import A2ARemoteAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.command_actions import (
     PluginCommandActionContext,
@@ -126,6 +125,7 @@ from .mcp_connect_flow import handle_mcp_connect
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fast_agent.a2a.remote_agent import A2ARemoteAgent
     from fast_agent.command_actions.models import PluginCommandAgentProtocol
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.session.session_manager import SessionManager
@@ -794,6 +794,8 @@ async def _dispatch_a2a_payload(
         )
 
     if payload.action in {"status", "tasks", "card", "reset", "transport"}:
+        from fast_agent.a2a.remote_agent import A2ARemoteAgent
+
         target = payload.argument or agent
         remote_agent = owner._get_agent_or_warn(prompt_provider, target)
         if remote_agent is None:
@@ -828,6 +830,8 @@ async def _dispatch_a2a_connect_payload(
     if name in available_agents_set:
         rich_print(f"[red]Agent '{name}' already exists. Choose --name NAME.[/red]")
         return result
+
+    from fast_agent.a2a.remote_agent import A2ARemoteAgent
 
     remote_agent = A2ARemoteAgent(
         config=AgentConfig(name=name, agent_type=AgentType.A2A, use_history=True),

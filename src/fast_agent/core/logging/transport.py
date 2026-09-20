@@ -11,9 +11,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Mapping
 from contextlib import suppress
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
-import aiohttp
 from opentelemetry import trace
 from rich.json import JSON
 from rich.text import Text
@@ -24,6 +23,9 @@ from fast_agent.core.logging.json_serializer import JSONSerializer
 from fast_agent.core.logging.listeners import EventListener, LifecycleAwareListener
 from fast_agent.ui.console import console, rich_print
 from fast_agent.utils.async_utils import ensure_event_loop, gather_with_cancel
+
+if TYPE_CHECKING:
+    import aiohttp
 
 
 def flatten_event_data(data: dict[str, Any]) -> dict[str, Any]:
@@ -214,11 +216,13 @@ class HTTPTransport(FilteredEventTransport):
 
         self.batch: list[Event] = []
         self.lock = asyncio.Lock()
-        self._session: aiohttp.ClientSession | None = None
+        self._session: "aiohttp.ClientSession | None" = None
         self._serializer = JSONSerializer()
 
     async def start(self) -> None:
         """Initialize HTTP session."""
+        import aiohttp
+
         if not self._session:
             self._session = aiohttp.ClientSession(
                 headers=self.headers, timeout=aiohttp.ClientTimeout(total=self.timeout)

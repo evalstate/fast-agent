@@ -115,6 +115,7 @@ class ToolbarAgentState:
     tdv_segment: str | None = None
     turn_count: int = 0
     context_pct: float | None = None
+    is_copilot_model: bool = False
     is_codex_responses_model: bool = False
     is_overlay_model: bool = False
     model_gauges: str = ""
@@ -127,6 +128,7 @@ class ToolbarAgentState:
 
 @dataclass(slots=True)
 class ModelVisualState:
+    is_copilot_model: bool = False
     is_codex_responses_model: bool = False
     is_overlay_model: bool = False
     model_gauges: str = ""
@@ -406,6 +408,7 @@ def _build_toolbar_agent_state(
         tdv_segment=tdv_segment,
         turn_count=turn_count,
         context_pct=context_pct,
+        is_copilot_model=model_visuals.is_copilot_model,
         is_codex_responses_model=model_visuals.is_codex_responses_model,
         is_overlay_model=model_visuals.is_overlay_model,
         model_gauges=model_visuals.model_gauges,
@@ -584,7 +587,13 @@ def _resolve_model_visuals(
     model_name: str | None,
     llm: "FastAgentLLMProtocol | None",
 ) -> ModelVisualState:
-    visuals = ModelVisualState()
+    # Runtime provider wins: Copilot adapters expose native wire model names.
+    is_copilot_model = (
+        llm.provider == Provider.COPILOT
+        if llm is not None
+        else bool(model_name and model_name.strip().startswith(("copilot.", "copilot/")))
+    )
+    visuals = ModelVisualState(is_copilot_model=is_copilot_model)
     if model_name is None or llm is None:
         return visuals
 
@@ -712,6 +721,8 @@ def _build_middle_segment(
             model_prefix = "∞"
         elif agent_state.is_overlay_model:
             model_prefix = "▼"
+        if agent_state.is_copilot_model:
+            model_prefix = f"(cp) {model_prefix}"
         model_label = f"{model_prefix}{agent_state.model_display}"
         attachment_indicator = render_attachment_indicator(attachment_summary)
         process_indicator = render_managed_process_indicator(agent_state.active_process_count)

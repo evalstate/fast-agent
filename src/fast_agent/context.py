@@ -9,13 +9,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.propagate import set_global_textmap
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
-from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from pydantic import BaseModel, ConfigDict, Field
 
 from fast_agent.config import Settings, get_settings
@@ -29,6 +22,8 @@ from fast_agent.skills import SkillRegistry
 from fast_agent.utils.async_utils import run_sync
 
 if TYPE_CHECKING:
+    from opentelemetry.sdk.trace import TracerProvider
+
     from fast_agent.acp.acp_context import ACPContext
     from fast_agent.core.executor.workflow_signal import SignalWaitCallback
     from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
@@ -90,6 +85,13 @@ async def configure_otel(config: "Settings") -> None:
     if _otel_tracer_provider is not None:
         return
 
+    from opentelemetry.propagate import set_global_textmap
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+    from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
+    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+
     # Set up global textmap propagator first
     set_global_textmap(TraceContextTextMapPropagator())
 
@@ -120,6 +122,8 @@ async def configure_otel(config: "Settings") -> None:
     # Add exporters based on config
     otlp_endpoint = config.otel.otlp_endpoint
     if otlp_endpoint:
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
         exporter = OTLPSpanExporter(endpoint=otlp_endpoint)
         tracer_provider.add_span_processor(BatchSpanProcessor(exporter))
 

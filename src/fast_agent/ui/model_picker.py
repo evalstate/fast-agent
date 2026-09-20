@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import shutil
+from contextlib import suppress
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app_or_none
@@ -15,6 +17,7 @@ from prompt_toolkit.layout.margins import ScrollbarMargin
 from prompt_toolkit.widgets import Frame
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
     from pathlib import Path
 
     from prompt_toolkit.formatted_text import StyleAndTextTuples
@@ -117,11 +120,16 @@ class _SplitListPicker:
         start_path: Path | None = None,
         initial_provider: str | None = None,
         initial_model_spec: str | None = None,
+        copilot_authenticated: bool = False,
     ) -> None:
+        self._config_path = config_path
+        self._start_path = start_path
+        self._copilot_preflight: asyncio.Task[bool] | None = None
         self.snapshot = build_snapshot(
             config_path,
             config_payload=config_payload,
             start_path=start_path,
+            copilot_authenticated=copilot_authenticated,
         )
         if not self.snapshot.providers:
             raise ValueError("No providers found in model catalog.")
@@ -689,12 +697,55 @@ class _SplitListPicker:
         return None
 
     async def run_async(self) -> ModelPickerResult | None:
-        result = await self.app.run_async()
+        try:
+            result = await self.app.run_async()
+        finally:
+            preflight = self._copilot_preflight
+            if preflight is not None and not preflight.done():
+                preflight.cancel()
+                with suppress(asyncio.CancelledError):
+                    await preflight
         if result is None:
             return None
         if isinstance(result, ModelPickerResult):
             return result
         return None
+
+    def schedule_copilot_preflight(self, check: Coroutine[Any, Any, bool]) -> None:
+        """Run the Copilot auth probe in the background so the picker draws immediately."""
+        task = asyncio.ensure_future(check)
+        task.add_done_callback(self._on_copilot_preflight_done)
+        self._copilot_preflight = task
+
+    def _on_copilot_preflight_done(self, task: asyncio.Task[bool]) -> None:
+        if task.cancelled() or not task.result():
+            return
+        current_key = self.current_provider.option_key
+        self.snapshot = build_snapshot(
+            self._config_path,
+            config_payload=self.snapshot.config_payload,
+            start_path=self._start_path,
+            copilot_authenticated=True,
+        )
+        for index, option in enumerate(self.snapshot.providers):
+            if option.option_key == current_key:
+                self.state.provider_index = index
+                break
+        self._clamp_model_index()
+        self.app.invalidate()
+
+
+async def _preflight_copilot_auth(config_payload: dict[str, object]) -> bool:
+    """Check local Copilot credentials only; no network, login, or inference."""
+    from fast_agent.config import CopilotSettings
+    from fast_agent.llm.provider.copilot.broker import CopilotBroker
+
+    try:
+        settings = CopilotSettings.model_validate(config_payload.get("copilot") or {})
+        return await CopilotBroker(settings).has_credentials(timeout=2.0)
+    except Exception:
+        # Selection retains the activation flow and its actionable setup/auth errors.
+        return False
 
 
 async def run_model_picker_async(
@@ -706,6 +757,10 @@ async def run_model_picker_async(
     initial_model_spec: str | None = None,
 ) -> ModelPickerResult | None:
     """Run the interactive model picker from within an active asyncio event loop."""
+    if config_payload is None:
+        from fast_agent.config import get_settings
+
+        config_payload = get_settings(str(config_path) if config_path else None).model_dump()
     picker = _SplitListPicker(
         config_path=config_path,
         config_payload=config_payload,
@@ -713,6 +768,9 @@ async def run_model_picker_async(
         initial_provider=initial_provider,
         initial_model_spec=initial_model_spec,
     )
+    # Probe native auth alongside the picker so it draws immediately. Until the
+    # check resolves, Copilot shows "auth on select" and uses the activation flow.
+    picker.schedule_copilot_preflight(_preflight_copilot_auth(config_payload))
     return await picker.run_async()
 
 

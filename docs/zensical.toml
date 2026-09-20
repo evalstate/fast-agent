@@ -57,6 +57,7 @@ nav = [
       { "Provider Configuration" = "models/llm_providers.md" },
       { "OpenAI" = "models/providers/openai.md" },
       { "Anthropic" = "models/providers/anthropic.md" },
+      { "GitHub Copilot" = "models/providers/copilot.md" },
       { "xAI" = "models/providers/xai.md" },
       { "MetaAI" = "models/providers/metaai.md" },
       { "DeepSeek" = "models/providers/deepseek.md" },

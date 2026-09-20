@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from mcp import Tool
 from mcp_types import ContentBlock, TextContent
-from openai import APIError, AsyncOpenAI, AuthenticationError, DefaultAioHttpClient
+from openai import APIError, AsyncOpenAI, AuthenticationError, DefaultAioHttpClient, Omit
 
 from fast_agent.constants import (
     ANTHROPIC_CITATIONS_CHANNEL,
@@ -760,6 +760,11 @@ class ResponsesLLM(
         settings = self._openai_settings()
         return settings.default_headers if settings else None
 
+    async def _prepare_responses_client(
+        self, model: str, transport: ResponsesActiveTransport
+    ) -> None:
+        """Resolve request-scoped provider routing before constructing a client."""
+
     def _responses_client(self) -> AsyncOpenAI:
         try:
             kwargs: dict[str, Any] = {
@@ -1359,6 +1364,7 @@ class ResponsesLLM(
         model_name: str,
     ) -> tuple[Any, list[str], list[dict[str, Any]]]:
         try:
+            await self._prepare_responses_client(model_name, "sse")
             async with self._responses_client() as client:
                 normalized_input = await self._normalize_input_files(client, input_items)
                 arguments = self._build_response_args(normalized_input, request_params, tools)
@@ -1448,6 +1454,7 @@ class ResponsesLLM(
         phase_timings: dict[str, float] = {}
         self._last_ws_phase_timings_ms = phase_timings
 
+        await self._prepare_responses_client(model_name, "websocket")
         async with self._responses_client() as client:
             phase_started_at = time.perf_counter()
             normalized_input = await self._normalize_input_files(client, input_items)
@@ -1456,6 +1463,13 @@ class ResponsesLLM(
         phase_started_at = time.perf_counter()
         arguments = self._build_response_args(normalized_input, request_params, tools)
         request_headers = arguments.pop("extra_headers", None)
+        # HTTP SDKs merge extra_body into the JSON body. WebSockets bypass that
+        # serialization, so apply the same shallow override/omission semantics
+        # before provider metadata hooks and request planning see the wire body.
+        extra_body = arguments.pop("extra_body", None)
+        if extra_body is not None:
+            arguments.update(extra_body)
+        arguments = {key: value for key, value in arguments.items() if not isinstance(value, Omit)}
         self._prepare_websocket_arguments(arguments)
         ws_headers = merge_headers_case_insensitive(
             self._build_websocket_headers(),

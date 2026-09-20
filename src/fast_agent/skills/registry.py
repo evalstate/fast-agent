@@ -118,9 +118,10 @@ class SkillRegistry:
         self._warnings = []
         self._missing_directories = []
         self._directories = []
-        default_entries = {path.resolve() for path in default_skill_paths(cwd=self._base_dir)}
+        default_paths = default_skill_paths(cwd=self._base_dir)
+        default_entries = {path.resolve() for path in default_paths}
         if directories is None:
-            entries = default_skill_paths(cwd=self._base_dir)
+            entries = default_paths
         else:
             entries = list(directories)
 

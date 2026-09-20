@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_overlays import ModelOverlayRegistry, load_model_overlay_registry
+from fast_agent.llm.provider.copilot.models import COPILOT_MODELS
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_model_catalog import ProviderModelCatalogRegistry
 from fast_agent.llm.provider_types import Provider
@@ -126,6 +127,10 @@ class ModelSelectionCatalog:
                 display_label="Gemini 3 Flash",
                 model="google.gemini-3-flash-preview",
             ),
+        ),
+        Provider.COPILOT: tuple(
+            CatalogModelEntry(alias=model_id, model=f"copilot.{model_id}")
+            for model_id in COPILOT_MODELS
         ),
         Provider.XAI: (
             _builtin_entry("Grok 4.6"),

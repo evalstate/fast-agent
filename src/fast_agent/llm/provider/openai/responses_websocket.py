@@ -526,13 +526,22 @@ async def connect_websocket(
     headers: Mapping[str, str],
     timeout_seconds: float | None = None,
     keepalive_options: ResponsesWebSocketKeepaliveOptions | None = None,
+    client: AsyncOpenAI | None = None,
 ) -> ManagedWebSocketConnection:
+    """Dial with an optional dedicated client, transferring ownership to this helper.
+
+    The client is closed on connection failure or when the returned managed
+    connection closes. Its websocket_base_url is set from url; callers must not
+    share the supplied client. Omission preserves the default OpenAI client.
+    """
     websocket_base_url, extra_query = _responses_websocket_connection_parts(url)
-    api_key = _authorization_token(headers) or "unused"
-    client = AsyncOpenAI(
-        api_key=api_key,
-        websocket_base_url=websocket_base_url,
-    )
+    if client is None:
+        client = AsyncOpenAI(
+            api_key=_authorization_token(headers) or "unused",
+            websocket_base_url=websocket_base_url,
+        )
+    else:
+        client.websocket_base_url = websocket_base_url
     websocket_options: _SdkWebSocketConnectionOptions = {
         # Preserve aiohttp's previous 4 MiB incoming-message limit.
         "max_size": RESPONSES_WEBSOCKET_MAX_MESSAGE_BYTES,

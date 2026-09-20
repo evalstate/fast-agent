@@ -35,6 +35,7 @@ The `default_headers` option is available for OpenAI-compatible providers (inclu
 | OpenAI Responses | `responses` | `OPENAI_API_KEY` | Native Responses API, reasoning, web search, connectors, remote MCP |
 | OpenAI Chat Completions | `openai` | `OPENAI_API_KEY` | OpenAI-compatible Chat Completions models |
 | Codex Responses | `codexresponses` | `fast-agent auth provider login codex` or `CODEX_API_KEY` | Codex subscription-backed Responses models; no provider-managed MCP/connectors |
+| [GitHub Copilot](providers/copilot/) | `copilot` | Native device login via `fast-agent auth provider login copilot` | Included in base install; stored provider credentials or `COPILOT_GITHUB_TOKEN`; direct Messages/Responses inference |
 | Anthropic | `anthropic` | `ANTHROPIC_API_KEY` or Anthropic SDK credentials | Claude Messages API, prompt caching, web tools |
 | Google | `google` | `GOOGLE_API_KEY` | Native Gemini API |
 | Azure OpenAI | `azure` | `AZURE_OPENAI_API_KEY` | Azure deployments and optional DefaultAzureCredential |
@@ -55,6 +56,8 @@ The `default_headers` option is available for OpenAI-compatible providers (inclu
 See [Additional Providers](providers/additional/) for the long-tail reference with config keys, API key names, default endpoints, model string examples, and provider-specific notes.
 
 ## Detailed provider guides
+
+- [GitHub Copilot](providers/copilot/) for native device login, headless credentials, exact model IDs, and WebSockets.
 
 - [OpenAI](providers/openai/) for Responses, Chat Completions, Codex Responses, web tools, connectors, and transport options.
 - [Anthropic](providers/anthropic/) for Claude, prompt caching, reasoning, structured outputs, and Anthropic web tools.

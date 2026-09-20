@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.exceptions import ModelConfigError
+from fast_agent.core.instruction_utils import build_agent_instruction_context
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import (
@@ -648,6 +649,31 @@ def test_overlay_serialization_preserves_reasoning_field() -> None:
 
     assert "reasoning_field: reasoning_effort" in serialized
     assert "reasoning_api" not in serialized
+
+
+def test_overlay_empty_model_specific_suppresses_catalog_prompt_text(tmp_path: Path) -> None:
+    """An explicit empty metadata.model_specific wins over the attached model's catalog text."""
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "quiet-opus.yaml",
+        """
+name: quiet-opus
+provider: copilot
+model: claude-opus-5
+metadata:
+  model_specific: ""
+""".strip(),
+    )
+    assert ModelDatabase.get_model_specific("copilot.claude-opus-5")
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        # The agent config names the catalog model; only the attached LLM carries the overlay.
+        agent = LlmAgent(AgentConfig(name="quiet", model="copilot.claude-opus-5"))
+        agent._llm = ModelFactory.create_factory("quiet-opus")(agent)
+        context = build_agent_instruction_context(agent)
+
+    assert context["model_specific"] == ""
 
 
 def test_overlay_presets_resolve_overlay_metadata_and_picker_entries(tmp_path: Path) -> None:

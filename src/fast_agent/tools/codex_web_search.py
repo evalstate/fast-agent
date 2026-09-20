@@ -12,12 +12,14 @@ from mcp.types import CallToolResult, TextContent
 from pydantic import ValidationError
 
 from fast_agent.core.exceptions import ModelConfigError, ProviderKeyError
+from fast_agent.llm.provider_types import Provider
 from fast_agent.tools.web_search import SearchCommands, WebSearchError
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
     from fast_agent.agents.mcp_agent import McpAgent
+    from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
     from fast_agent.llm.request_params import RequestParams
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.session.session_manager import Session
@@ -145,13 +147,24 @@ class CodexWebSearchAdapter:
             session.info.metadata[self.metadata_key] = self.identity
             session._save_metadata()
 
-    def sync(self) -> None:
+    def _enabled_llm(self) -> CodexResponsesLLM | None:
+        llm = self.agent.llm
+        if llm is None or llm.provider != Provider.CODEX_RESPONSES:
+            return None
+
+        # Only load the provider implementation after the cheap provider check.
         from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
+
+        if isinstance(llm, CodexResponsesLLM) and llm.standalone_web_search_enabled(
+            self.model.get()
+        ):
+            return llm
+        return None
+
+    def sync(self) -> None:
         from fast_agent.tools.web_search import WEB_SEARCH_DESCRIPTION, commands_schema
 
-        enabled = isinstance(
-            self.agent.llm, CodexResponsesLLM
-        ) and self.agent.llm.standalone_web_search_enabled(self.model.get())
+        enabled = self._enabled_llm() is not None
         if enabled and self.tool is None:
             # Never replace a user-supplied function with the built-in.
             if WEB_RUN_TOOL_NAME in self.agent._execution_tools:
@@ -199,12 +212,8 @@ class CodexWebSearchAdapter:
         return CallToolResult(content=[TextContent(type="text", text=message)], is_error=True)
 
     async def run(self, **arguments: Any) -> ToolResult:
-        from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
-
-        llm = self.agent.llm
-        if not isinstance(llm, CodexResponsesLLM) or not llm.standalone_web_search_enabled(
-            self.model.get()
-        ):
+        llm = self._enabled_llm()
+        if llm is None:
             return ToolResult(
                 content=[TextContent(type="text", text="Web search is disabled.")], is_error=True
             )
