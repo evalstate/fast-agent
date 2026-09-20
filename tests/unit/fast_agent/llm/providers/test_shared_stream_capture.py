@@ -1,19 +1,20 @@
 from __future__ import annotations
 
-from datetime import datetime
+from typing import TYPE_CHECKING
 
 from fast_agent.llm.provider import stream_capture
 
+if TYPE_CHECKING:
+    from datetime import datetime
 
-class _FixedDatetime(datetime):
-    @classmethod
-    def now(cls, tz=None):
-        return cls(2026, 9, 1, 12, 34, 56, 789012, tzinfo=tz)
+    import pytest
 
 
-def test_stream_capture_filename_includes_microseconds(monkeypatch) -> None:
+def test_stream_capture_filename_includes_microseconds(
+    monkeypatch: pytest.MonkeyPatch, fixed_datetime: type[datetime]
+) -> None:
     monkeypatch.setattr(stream_capture, "STREAM_CAPTURE_ENABLED", True)
-    monkeypatch.setattr(stream_capture, "datetime", _FixedDatetime)
+    monkeypatch.setattr(stream_capture, "datetime", fixed_datetime)
 
     filename = stream_capture.stream_capture_filename(3, label="google_")
 

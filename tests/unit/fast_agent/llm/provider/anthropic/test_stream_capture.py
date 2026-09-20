@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime
+from typing import TYPE_CHECKING
 
 from fast_agent.llm.provider.anthropic import llm_anthropic
 from fast_agent.llm.provider.anthropic.llm_anthropic import (
     _serialize_for_trace,
     _stream_capture_filename,
 )
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    import pytest
 
 
 class _Dumpable:
@@ -27,15 +32,11 @@ class _BrokenDumpable:
         raise RuntimeError("boom")
 
 
-class _FixedDatetime(datetime):
-    @classmethod
-    def now(cls, tz=None):
-        return cls(2026, 9, 1, 12, 34, 56, 789012, tzinfo=tz)
-
-
-def test_stream_capture_filename_includes_microseconds(monkeypatch) -> None:
+def test_stream_capture_filename_includes_microseconds(
+    monkeypatch: pytest.MonkeyPatch, fixed_datetime: type[datetime]
+) -> None:
     monkeypatch.setattr(llm_anthropic, "STREAM_CAPTURE_ENABLED", True)
-    monkeypatch.setattr(llm_anthropic, "datetime", _FixedDatetime)
+    monkeypatch.setattr(llm_anthropic, "datetime", fixed_datetime)
 
     filename = _stream_capture_filename(3)
 
