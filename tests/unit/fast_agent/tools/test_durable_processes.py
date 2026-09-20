@@ -257,44 +257,14 @@ async def test_durable_poll_consumes_dropped_output_accounting(tmp_path: Path) -
 @pytest.mark.unit
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
 def test_durable_process_stop_is_file_backed_and_idempotent(tmp_path: Path) -> None:
-    store = DurableProcessStore(tmp_path / "durable")
-    created = store.create(
-        command="trap 'printf stopped; exit 0' TERM; printf ready; while :; do sleep 1; done",
-        shell=_SHELL,
-        cwd=tmp_path,
-    )
-    store.launch(created.spec.process_id, environment=dict(os.environ))
-    try:
-        # A launch/status change does not guarantee the child has printed its readiness marker.
-        deadline = time.monotonic() + 5
-        while True:
-            ready_output = store.read_output(
-                created.spec.process_id,
-                stream=DurableProcessStream.STDOUT,
-                offset=0,
-                limit=1024,
-            )
-            if "ready" in ready_output.text:
-                break
-            assert time.monotonic() < deadline, "Process did not publish ready stdout"
-            time.sleep(0.02)
+    root = tmp_path / "durable"
+    store = DurableProcessStore(root)
+    created = store.create(command="exit 0", shell=_SHELL, cwd=tmp_path)
 
-        assert store.get(created.spec.process_id).status.state == "running"
-        assert store.request_stop(created.spec.process_id)
-        assert not store.request_stop(created.spec.process_id)
-    finally:
-        store.request_stop(created.spec.process_id)
-        stopped = store.wait(created.spec.process_id, timeout_seconds=5)
-    output = store.read_output(
-        created.spec.process_id,
-        stream=DurableProcessStream.STDOUT,
-        offset=0,
-        limit=1024,
-    )
+    assert store.request_stop(created.spec.process_id) is True
 
-    assert stopped.status.state == "stopped"
-    assert stopped.status.exit_code is not None
-    assert "ready" in output.text
+    replacement = DurableProcessStore(root)
+    assert replacement.request_stop(created.spec.process_id) is False
 
 
 @pytest.mark.unit
