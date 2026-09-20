@@ -317,4 +317,3 @@ async def test_failed_activation_can_retry(auth):
     assert not await activation.activate_copilot(CopilotSettings())
     assert await activation.activate_copilot(CopilotSettings())
     assert login.await_count == 2
-
