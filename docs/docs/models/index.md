@@ -19,6 +19,8 @@ Local models with [**llama.cpp**](providers/llamacpp.md) are directly supported,
 
 #### Model Picker and Defaults
 
+Use `fast-agent go --model-picker` (or `fa go -mp`) to always open the startup selector, even with a configured model. This requires a terminal REPL and cannot be combined with `--model`, `--resume`, `--message`, or `--prompt-file`. See [go options](../ref/go_command.md#options).
+
 In an interactive, non-resumed run, **`fast-agent`** opens the model picker
 when no model resolves from an AgentCard, `--model`, `default_model`, or
 `FAST_AGENT_MODEL`. The picker is not used for `--resume`; the saved session

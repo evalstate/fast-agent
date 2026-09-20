@@ -5,13 +5,15 @@ from __future__ import annotations
 import asyncio
 import re
 import shlex
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Literal
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx2
 from mcp.client.auth import OAuthFlowError, OAuthRegistrationError
 from mcp.shared.exceptions import MCPError
+from pydantic import ValidationError
 
 from fast_agent.core.exceptions import (
     FastAgentError,
@@ -57,13 +59,23 @@ type MCPFailureRetry = Literal["never", "user_action", "safe_once"]
 type MCPFailureFormat = Literal["terminal", "markdown", "cli"]
 
 _GITHUB_COPILOT_HOST = "githubcopilot.com"
-_URL_RE = re.compile(r"https?://[^\s<>\"'`]+", re.IGNORECASE)
+_URL_RE = re.compile(r"https?://[^\s<>`]+", re.IGNORECASE)
+_QUOTED_OR_TOKEN = r"(?:\"[^\"]*\"|'[^']*'|[^\s,;}\"']+)"
+# Header-style credentials keyed by a well-known name. Bare words such as "code",
+# "token" or "secret" are deliberately excluded: they destroy useful diagnostics
+# (HTTP status codes, exit codes) for little gain.
 _SECRET_RE = re.compile(
-    r"(?i)\b(authorization|x-api-key|api[_-]?key|cookie|client[_-]?secret|"
-    r"access[_-]?token|password)\s*[\"']?\s*[:=]\s*[\"']?"
-    r"(?:bearer\s+)?[^\s,;}\"']+"
+    r"(?i)\b(authorization|x-api-key|api[_-]?key|client[_-]?secret|"
+    r"(?:access|refresh|id)[_-]?token|password)\s*[\"']?\s*[:=]\s*"
+    r"(?:(?:bearer|basic)\s+)?" + _QUOTED_OR_TOKEN
 )
-_AUTH_OPTION_RE = re.compile(r"(?i)(--auth(?:=|\s+))[^\s]+")
+# Cookie values are opaque and multi-part; redact the rest of the line.
+_COOKIE_RE = re.compile(r"(?i)\b((?:set-)?cookie)\s*[\"']?\s*[:=][^\n]*")
+_SCHEME_RE = re.compile(r"(?i)\b(Bearer|Basic)\s+" + _QUOTED_OR_TOKEN)
+_AUTH_OPTION_RE = re.compile(r"(?i)(--auth(?:=|\s+))" + _QUOTED_OR_TOKEN)
+# Terminal escape sequences: OSC (title/hyperlink) and CSI (colour/cursor) forms.
+_OSC_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+_CSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,17 +93,71 @@ class MCPFailure:
     cause: BaseException = field(repr=False, compare=False)
 
 
-def redact_mcp_failure_text(value: str) -> str:
-    """Redact URLs and common credential forms in diagnostic text."""
+def redact_mcp_failure_text(value: str, *, keep_url_path: bool = True) -> str:
+    """Redact URLs and common credential forms in diagnostic text.
+
+    Pass ``keep_url_path=False`` for untrusted text: hosted MCP endpoints often
+    embed API keys in the URL path, so only the scheme and host are retained.
+    """
 
     def redact_url(match: re.Match[str]) -> str:
         value = match.group(0)
-        trimmed = value.rstrip(".,);]")
-        return f"{redact_mcp_url(trimmed)}{value[len(trimmed) :]}"
+        url = value.rstrip(".,);]\"'")
+        trailing = value[len(url) :]
+        if not keep_url_path:
+            with suppress(ValueError):  # malformed URLs are fully redacted by redact_mcp_url
+                parsed = urlsplit(url)
+                path = "/[REDACTED]" if parsed.path.strip("/") else parsed.path
+                url = urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+        return f"{redact_mcp_url(url)}{trailing}"
 
     redacted = _URL_RE.sub(redact_url, value)
-    redacted = _SECRET_RE.sub(lambda match: f"{match.group(1)}: [REDACTED]", redacted)
+    redacted = _COOKIE_RE.sub(r"\1: [REDACTED]", redacted)
+    redacted = _SECRET_RE.sub(r"\1: [REDACTED]", redacted)
+    redacted = _SCHEME_RE.sub(r"\1 [REDACTED]", redacted)
     return _AUTH_OPTION_RE.sub(r"\1[REDACTED]", redacted)
+
+
+def safe_mcp_diagnostic_text(value: str) -> str:
+    """Make untrusted diagnostic text safe to render in a terminal.
+
+    This is primarily about terminal safety (escape sequences, Rich markup, size),
+    plus the same targeted credential redaction used for structured failures.
+    Secret-bearing values should be removed at the source by type (see
+    ``safe_mcp_exception_text``) rather than by guessing at free-text patterns.
+    """
+    value = _OSC_RE.sub("", value)
+    value = _CSI_RE.sub("", value)
+    value = "".join(c for c in value if c.isprintable() or c == "\n")
+    value = redact_mcp_failure_text(value, keep_url_path=False)
+    # Neutralize Rich/terminal markup even when a caller does not quote the text.
+    value = value.replace("[", "［").replace("]", "］")
+    return value if len(value) <= 2000 else value[:1997] + "..."
+
+
+def safe_mcp_exception_text(error: BaseException) -> str:
+    """Summarize a cycle-safe exception chain, redacting by exception type where possible."""
+    parts: list[str] = []
+    for index, cause in enumerate(walk_exception_chain(error)):
+        if index == 8:
+            parts.append("Further causes omitted.")
+            break
+        # SDK MCPError carries the protocol message/code as typed fields.
+        if isinstance(cause, MCPError):
+            detail = f"{cause.message} (MCP error {cause.code})"
+        elif isinstance(cause, ValidationError):
+            # Pydantic's default string includes raw configuration input values.
+            detail = "; ".join(
+                f"{item['type']}: {item['msg']}"
+                for item in cause.errors(
+                    include_input=False, include_context=False, include_url=False
+                )
+            )
+        else:
+            detail = str(cause)
+        parts.append(safe_mcp_diagnostic_text(f"{type(cause).__name__}: {detail}"))
+    text = "\nCaused by: ".join(parts)
+    return text if len(text) <= 4000 else text[:3997] + "..."
 
 
 def classify_mcp_failure(

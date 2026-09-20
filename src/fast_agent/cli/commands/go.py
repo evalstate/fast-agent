@@ -256,6 +256,7 @@ def go(
     client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
     mcp_protocol: McpProtocolOption | None = CommonAgentOptions.mcp_protocol(),
     model: str | None = CommonAgentOptions.model(),
+    model_picker: bool = CommonAgentOptions.model_picker(),
     base_url: str | None = typer.Option(
         None,
         "--base-url",
@@ -357,6 +358,18 @@ def go(
     ),
 ) -> None:
     """Run an interactive agent directly from the command line."""
+    from fast_agent.cli.runtime.run_request import validate_model_picker_options
+
+    try:
+        validate_model_picker_options(
+            model_picker=model_picker,
+            model=model,
+            resume=resume,
+            is_repl=message is None and prompt_file is None,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--model-picker") from exc
+
     if os.getenv(FAST_AGENT_SHELL_CHILD_ENV):
         typer.echo(
             "fast-agent is already running inside a fast-agent shell command. "
@@ -465,6 +478,7 @@ def go(
         card_tools=card_tools,
         model=model,
         model_base_url=base_url,
+        model_picker=model_picker,
         message=message,
         prompt_file=prompt_file,
         attachments=attach,

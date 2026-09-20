@@ -34,6 +34,7 @@ LAZY_SUBCOMMANDS: dict[str, str] = {
     "config": "fast_agent.cli.commands.config:app",
     "model": "fast_agent.cli.commands.model:app",
     "auth": "fast_agent.cli.commands.auth:app",
+    "mcp": "fast_agent.cli.commands.mcp:app",
     "session": "fast_agent.cli.commands.session:app",
     "batch": "fast_agent.cli.commands.batch:app",
     "quickstart": "fast_agent.cli.commands.quickstart:app",
@@ -45,6 +46,7 @@ LAZY_SUBCOMMANDS: dict[str, str] = {
 LAZY_SUBCOMMAND_HELP: dict[str, str] = {
     "acp": "Start fast-agent as an ACP stdio server (convenience wrapper for 'serve --transport acp').",
     "auth": "Inspect and manage provider and MCP credentials.",
+    "mcp": "Diagnose configured MCP servers without an LLM.",
     "batch": "Run batch processing jobs.",
     "bootstrap": "Create fast-agent quickstarts",
     "cards": "Manage card packs (list/add/remove/update/publish).",

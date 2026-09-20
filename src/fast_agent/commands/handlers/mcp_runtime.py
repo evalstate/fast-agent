@@ -27,6 +27,7 @@ from fast_agent.mcp.failures import (
     MCPFailureSurface,
     classify_mcp_failure,
     render_mcp_failure,
+    safe_mcp_diagnostic_text,
 )
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
 from fast_agent.skills.source_resolver import mcp_registry_source
@@ -832,4 +833,47 @@ async def handle_mcp_reconnect(
     for warning in result.warnings:
         outcome.add_message(warning, channel="warning", right_info="mcp", agent_name=agent_name)
 
+    return outcome
+
+
+async def handle_mcp_cache(ctx: CommandContext, *, agent_name: str, value: str) -> CommandOutcome:
+    from fast_agent.agents.mcp_agent import McpAgent
+    from fast_agent.commands.mcp_command_intents import parse_mcp_cache_tokens
+    from fast_agent.ui.mcp_display import format_tool_cache
+    from fast_agent.utils.commandline import split_commandline
+
+    outcome = CommandOutcome()
+    try:
+        intent = parse_mcp_cache_tokens(split_commandline(value, syntax="posix"))
+        if intent.error:
+            outcome.add_message(intent.error, channel="error")
+            return outcome
+        agent = ctx.agent_provider._agent(agent_name)
+        if not isinstance(agent, McpAgent):
+            outcome.add_message("MCP tool cache is not available for this agent.", channel="error")
+            return outcome
+        aggregator = agent.aggregator
+        if intent.action == "summary":
+            statuses = await aggregator.collect_server_status()
+            outcome.add_message(
+                "\n".join(
+                    f"{name}: {format_tool_cache(status.tool_cache)}"
+                    for name, status in statuses.items()
+                )
+                or "No MCP servers attached."
+            )
+        else:
+            if intent.action == "clear":
+                await aggregator.clear_tool_cache(intent.server_name)
+            else:
+                await aggregator.refresh_tool_cache(intent.server_name)
+            outcome.add_message(
+                f"Tool cache {'cleared' if intent.action == 'clear' else 'refreshed'}: "
+                f"{intent.server_name or 'all servers'}."
+            )
+    except Exception as exc:
+        outcome.add_message(
+            f"MCP tool cache operation failed: {safe_mcp_diagnostic_text(str(exc))}",
+            channel="error",
+        )
     return outcome

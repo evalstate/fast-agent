@@ -217,17 +217,24 @@ class _DummyFastRuntime:
         self.session_manager = object()
         self.harness_session = _DummyHarness(self.harness_app, self.session_manager)
         self.args = SimpleNamespace()
+        self.background_startup: bool | None = None
         self.run_calls = 0
         self.harness_calls = 0
         self.run_environments: list[str | None] = []
         self.harness_environments: list[str | None] = []
 
-    def run(self, *, environment: str | None = None) -> _AsyncContext:
+    def run(
+        self, *, environment: str | None = None, background_mcp_startup: bool | None = None
+    ) -> _AsyncContext:
+        self.background_startup = background_mcp_startup
         self.run_calls += 1
         self.run_environments.append(environment)
         return _AsyncContext(self.direct_app)
 
-    def harness(self, *, environment: str | None = None) -> _AsyncContext:
+    def harness(
+        self, *, environment: str | None = None, background_mcp_startup: bool | None = None
+    ) -> _AsyncContext:
+        self.background_startup = background_mcp_startup
         self.harness_calls += 1
         self.harness_environments.append(environment)
         return _AsyncContext(self.harness_session)
@@ -239,7 +246,10 @@ class _FailingHarnessRuntime(_DummyFastRuntime):
         self.exc = exc
         self.handled_errors: list[Exception] = []
 
-    def harness(self, *, environment: str | None = None) -> _FailingAsyncContext:
+    def harness(
+        self, *, environment: str | None = None, background_mcp_startup: bool | None = None
+    ) -> _FailingAsyncContext:
+        self.background_startup = background_mcp_startup
         self.harness_calls += 1
         self.harness_environments.append(environment)
         return _FailingAsyncContext(self.exc)
@@ -2103,3 +2113,27 @@ def test_apply_shell_cwd_policy_preflight_interactive_create_errors_on_remaining
 
     assert exc_info.value.exit_code == 1
     assert "Shell cwd policy (error):" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("no_home", [True, False])
+@pytest.mark.parametrize("message", [None, "hello"])
+async def test_cli_background_startup_is_only_enabled_for_repl(
+    no_home: bool,
+    message: str | None,
+) -> None:
+    request = _make_request(result_file=None, message=message)
+    request.no_home = no_home
+    fast = _DummyFastRuntime()
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        pass
+
+    await run_cli_flow(cast("Any", fast), request, flow=flow)
+    assert fast.background_startup is (message is None)

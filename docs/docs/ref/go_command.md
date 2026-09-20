@@ -30,6 +30,7 @@ fast-agent go [OPTIONS]
 - `--url TEXT`: Comma-separated list of HTTP/SSE URLs to connect to directly
 - `--auth TEXT`: Bearer token for authorization with URL-based servers
 - `--client-metadata-url TEXT`: OAuth Client ID Metadata Document URL for URL-based servers when dynamic client registration is not available
+- `--model-picker`, `-mp`: Always open the startup model selector, even when config, `FAST_AGENT_MODEL`, or an AgentCard defines a model. Requires an interactive REPL with TTY stdin and stdout; cannot be combined with `--model`/`--models`, `--resume`, `--message`, or `--prompt-file`. The selection applies to this run like `--model` and updates the picker’s last-used selection; it does not rewrite your configured default. Canceling exits without starting the agent.
 - `--model`, `--models <model_string>`: Select a model for this run (e.g., haiku, sonnet, gpt-4)
 - `--model`, `--models <model1>,<model2>,...`: Run one agent per model in parallel and print a side-by-side comparison of responses
 - `--environment`, `-E <name>`: Select a named execution environment from config
@@ -108,6 +109,11 @@ fast-agent --model haiku
 
 # Use shell access and built-in subagents (go omitted)
 fast-agent -xx --subagent-model haiku
+
+# Choose a model interactively, ignoring configured startup model selection
+fast-agent go --model-picker
+# Short form
+fa go -mp
 
 # Compare responses across multiple models (comparison mode)
 fast-agent --models "kimi,gpt-5-mini?reasoning=low"

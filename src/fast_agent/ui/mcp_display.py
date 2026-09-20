@@ -18,6 +18,7 @@ from fast_agent.utils.time import format_compact_duration, format_two_unit_durat
 
 if TYPE_CHECKING:
     from fast_agent.mcp.mcp_aggregator import ServerStatus
+    from fast_agent.mcp.tool_catalog_cache import ToolCacheInfo
 
 
 @runtime_checkable
@@ -1186,6 +1187,7 @@ def _render_server_status_block(
 ) -> None:
     primary_caps, secondary_caps = _format_capability_shorthand(status, template_expected)
     _render_server_header(server, index, indent=indent, total_width=total_width)
+    _status_console().print(Text(indent + format_tool_cache(status.tool_cache)))
     _render_server_metadata(status, indent=indent)
     _render_server_state(status, indent=indent, template_expected=template_expected)
     _render_server_calls(status, indent=indent)
@@ -1245,3 +1247,19 @@ async def render_mcp_status_text(agent, *, width: int = 100) -> str:
     )
     await render_mcp_status(agent, output_console=output_console)
     return buffer.getvalue().strip()
+
+
+def format_tool_cache(info: ToolCacheInfo | None) -> str:
+    """Describe recorded catalog provenance, not inferred cache configuration."""
+    if info is None:
+        return "tool cache: absent (no recorded provenance)"
+    now = datetime.now(timezone.utc).timestamp()
+    age = format_compact_duration(max(0, now - info.fetched_at))
+    remaining = format_compact_duration(abs(info.expires_at - now))
+    expiry = f"expires in {remaining}" if info.expires_at > now else f"expired {remaining} ago"
+    fetched = datetime.fromtimestamp(info.fetched_at, timezone.utc).isoformat()
+    expires = datetime.fromtimestamp(info.expires_at, timezone.utc).isoformat()
+    return (
+        f"tool cache: {info.source}, {info.tool_count} tools; "
+        f"fetched {fetched} (age {age}); {expiry} ({expires})"
+    )

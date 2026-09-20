@@ -914,6 +914,7 @@ class MCPConnectionManager(ContextDependent):
         self._mcp_streamable_http_filter_added = False
         self._mcp_oauth_cancel_filter_added = False
         self._oauth_required_servers: set[str] = set()
+        self._startup_locks: dict[str, asyncio.Lock] = {}
         self._server_oauth_mode: dict[str, OAuthMode] = {}
         self._server_oauth_active: dict[str, bool] = {}
 
@@ -1304,29 +1305,36 @@ class MCPConnectionManager(ContextDependent):
         """
         Get a running server instance, launching it if needed.
         """
-        if running_server := await self._healthy_running_server(server_name, server_config):
-            return running_server
+        async with self._startup_lock_for(server_name):
+            if running_server := await self._healthy_running_server(server_name, server_config):
+                return running_server
 
-        server_conn = await self._launch_and_wait_for_server(
-            server_name=server_name,
-            server_config=server_config,
-            callback_runtime=callback_runtime,
-            startup_timeout_seconds=startup_timeout_seconds,
-            trigger_oauth=trigger_oauth,
-            oauth_event_handler=oauth_event_handler,
-            allow_oauth_paste_fallback=allow_oauth_paste_fallback,
-            timeout_action="Startup",
-        )
+            server_conn = await self._launch_and_wait_for_server(
+                server_name=server_name,
+                server_config=server_config,
+                callback_runtime=callback_runtime,
+                startup_timeout_seconds=startup_timeout_seconds,
+                trigger_oauth=trigger_oauth,
+                oauth_event_handler=oauth_event_handler,
+                allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+                timeout_action="Startup",
+            )
 
-        return await self._healthy_or_retry_server(
-            server_name=server_name,
-            server_conn=server_conn,
-            server_config=server_config,
-            callback_runtime=callback_runtime,
-            startup_timeout_seconds=startup_timeout_seconds,
-            oauth_event_handler=oauth_event_handler,
-            allow_oauth_paste_fallback=allow_oauth_paste_fallback,
-        )
+            return await self._healthy_or_retry_server(
+                server_name=server_name,
+                server_conn=server_conn,
+                server_config=server_config,
+                callback_runtime=callback_runtime,
+                startup_timeout_seconds=startup_timeout_seconds,
+                oauth_event_handler=oauth_event_handler,
+                allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+            )
+
+    def _startup_lock_for(self, server_name: str) -> asyncio.Lock:
+        lock = self._startup_locks.get(server_name)
+        if lock is None:
+            lock = self._startup_locks[server_name] = asyncio.Lock()
+        return lock
 
     async def _healthy_running_server(
         self,
@@ -1489,85 +1497,88 @@ class MCPConnectionManager(ContextDependent):
         Returns:
             The new ServerConnection instance
         """
-        logger.info(f"{server_name}: Initiating reconnection...")
+        async with self._startup_lock_for(server_name):
+            logger.info(f"{server_name}: Initiating reconnection...")
 
-        # First, disconnect the existing connection
-        await self.disconnect_server(server_name)
+            # First, disconnect the existing connection
+            await self.disconnect_server(server_name)
 
-        server_conn = await self._launch_and_wait_for_server(
-            server_name=server_name,
-            server_config=server_config,
-            callback_runtime=callback_runtime,
-            startup_timeout_seconds=startup_timeout_seconds,
-            trigger_oauth=trigger_oauth,
-            oauth_event_handler=oauth_event_handler,
-            allow_oauth_paste_fallback=allow_oauth_paste_fallback,
-            timeout_action="Reconnect",
-        )
+            server_conn = await self._launch_and_wait_for_server(
+                server_name=server_name,
+                server_config=server_config,
+                callback_runtime=callback_runtime,
+                startup_timeout_seconds=startup_timeout_seconds,
+                trigger_oauth=trigger_oauth,
+                oauth_event_handler=oauth_event_handler,
+                allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+                timeout_action="Reconnect",
+            )
 
-        # Check if the reconnection was successful
-        if not server_conn.is_healthy():
-            if self.should_retry_server_with_oauth(
-                server_name,
-                server_conn._lifecycle_error or server_conn._error_message,
-            ):
-                server_conn = await self._retry_server_with_oauth(
-                    server_name=server_name,
-                    server_conn=server_conn,
-                    server_config=server_config,
-                    callback_runtime=callback_runtime,
-                    startup_timeout_seconds=startup_timeout_seconds,
-                    oauth_event_handler=oauth_event_handler,
-                    allow_oauth_paste_fallback=allow_oauth_paste_fallback,
-                    timeout_action="Reconnect",
-                )
-                if server_conn.is_healthy():
-                    logger.info(f"{server_name}: Reconnection successful")
-                    return server_conn
+            # Check if the reconnection was successful
+            if not server_conn.is_healthy():
+                if self.should_retry_server_with_oauth(
+                    server_name,
+                    server_conn._lifecycle_error or server_conn._error_message,
+                ):
+                    server_conn = await self._retry_server_with_oauth(
+                        server_name=server_name,
+                        server_conn=server_conn,
+                        server_config=server_config,
+                        callback_runtime=callback_runtime,
+                        startup_timeout_seconds=startup_timeout_seconds,
+                        oauth_event_handler=oauth_event_handler,
+                        allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+                        timeout_action="Reconnect",
+                    )
+                    if server_conn.is_healthy():
+                        logger.info(f"{server_name}: Reconnection successful")
+                        return server_conn
 
-            await self._clear_running_server_state(server_name, server_conn)
-            error_msg = server_conn._error_message or "Unknown error during reconnection"
+                await self._clear_running_server_state(server_name, server_conn)
+                error_msg = server_conn._error_message or "Unknown error during reconnection"
 
-            if isinstance(error_msg, list):
-                oauth_error_text = "\n".join(str(line) for line in error_msg)
-            else:
-                oauth_error_text = str(error_msg)
+                if isinstance(error_msg, list):
+                    oauth_error_text = "\n".join(str(line) for line in error_msg)
+                else:
+                    oauth_error_text = str(error_msg)
 
-            if server_conn._oauth_callback_timed_out or _is_oauth_timeout_message(oauth_error_text):
+                if server_conn._oauth_callback_timed_out or _is_oauth_timeout_message(
+                    oauth_error_text
+                ):
+                    raise ServerInitializationError(
+                        f"MCP Server: '{server_name}': OAuth authorization timed out during reconnect.",
+                        "Authorization was not completed in time; retry /mcp connect.",
+                        server_name=server_name,
+                    ) from server_conn._lifecycle_error
+                if isinstance(error_msg, list):
+                    formatted_error = "\n".join(error_msg)
+                else:
+                    formatted_error = str(error_msg)
+
+                if _is_oauth_registration_404_message(formatted_error):
+                    raise ServerInitializationError(
+                        f"MCP Server: '{server_name}': OAuth client registration failed during reconnect.",
+                        _format_oauth_registration_404_details(
+                            formatted_error, server_conn.server_config.url
+                        ),
+                        server_name=server_name,
+                    ) from server_conn._lifecycle_error
+
+                if _is_stdio_startup_error(server_conn, formatted_error):
+                    raise ServerInitializationError(
+                        f"MCP Server: '{server_name}': Failed to start stdio server during reconnect.",
+                        _append_stdio_stderr_details(server_conn, formatted_error),
+                        server_name=server_name,
+                    ) from server_conn._lifecycle_error
+
                 raise ServerInitializationError(
-                    f"MCP Server: '{server_name}': OAuth authorization timed out during reconnect.",
-                    "Authorization was not completed in time; retry /mcp connect.",
-                    server_name=server_name,
-                ) from server_conn._lifecycle_error
-            if isinstance(error_msg, list):
-                formatted_error = "\n".join(error_msg)
-            else:
-                formatted_error = str(error_msg)
-
-            if _is_oauth_registration_404_message(formatted_error):
-                raise ServerInitializationError(
-                    f"MCP Server: '{server_name}': OAuth client registration failed during reconnect.",
-                    _format_oauth_registration_404_details(
-                        formatted_error, server_conn.server_config.url
-                    ),
-                    server_name=server_name,
-                ) from server_conn._lifecycle_error
-
-            if _is_stdio_startup_error(server_conn, formatted_error):
-                raise ServerInitializationError(
-                    f"MCP Server: '{server_name}': Failed to start stdio server during reconnect.",
+                    f"MCP Server: '{server_name}': Failed to reconnect - see details.",
                     _append_stdio_stderr_details(server_conn, formatted_error),
                     server_name=server_name,
                 ) from server_conn._lifecycle_error
 
-            raise ServerInitializationError(
-                f"MCP Server: '{server_name}': Failed to reconnect - see details.",
-                _append_stdio_stderr_details(server_conn, formatted_error),
-                server_name=server_name,
-            ) from server_conn._lifecycle_error
-
-        logger.info(f"{server_name}: Reconnection successful")
-        return server_conn
+            logger.info(f"{server_name}: Reconnection successful")
+            return server_conn
 
     async def disconnect_all(self) -> bool:
         """Disconnect all servers that are running under this connection manager."""

@@ -458,6 +458,14 @@ class ShellRuntime:
             )
 
     @property
+    def has_process_activity(self) -> bool:
+        """Whether this runtime retains managed or attached durable process records.
+
+        This indicates activity, not successful completion.
+        """
+        return bool(self._managed_processes or self._attached_durable_processes)
+
+    @property
     def active_process_count(self) -> int:
         """Return the number of managed processes that are currently alive."""
         return (

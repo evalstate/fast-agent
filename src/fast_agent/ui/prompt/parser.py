@@ -54,7 +54,9 @@ from fast_agent.ui.command_payloads import (
     LoadHistoryCommand,
     LoadPromptCommand,
     McpAttachCommand,
+    McpCacheCommand,
     McpConnectCommand,
+    McpDiagnosticsCommand,
     McpDisconnectCommand,
     McpListCommand,
     McpReconnectCommand,
@@ -156,7 +158,32 @@ def _parse_mcp_status_command(tokens: list[str], _remainder: str) -> CommandPayl
     return ShowMcpStatusCommand()
 
 
+def _parse_mcp_cache_command(tokens: list[str], _remainder: str) -> CommandPayload:
+    import shlex
+
+    from fast_agent.commands.mcp_command_intents import parse_mcp_cache_tokens
+
+    intent = parse_mcp_cache_tokens(tokens)
+    if intent.error:
+        return CommandError(intent.error)
+    return McpCacheCommand(value=shlex.join(tokens))
+
+
+def _parse_mcp_diagnostics_command(tokens: list[str], _remainder: str) -> CommandPayload:
+    import shlex
+
+    from fast_agent.commands.mcp_diagnostics import diagnostics_usage_error
+
+    if error := diagnostics_usage_error(tokens):
+        return CommandError(error)
+    return McpDiagnosticsCommand(value=shlex.join(tokens))
+
+
 _MCP_TOKEN_PARSERS: dict[str, _McpTokenParser] = {
+    "cache": _parse_mcp_cache_command,
+    "refresh": _parse_mcp_cache_command,
+    "error": _parse_mcp_diagnostics_command,
+    "auth": _parse_mcp_diagnostics_command,
     "list": _parse_mcp_list_command,
     "status": _parse_mcp_status_command,
     **dict.fromkeys(_MCP_SERVER_COMMAND_TYPES, _parse_mcp_server_name_command),

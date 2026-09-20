@@ -506,6 +506,7 @@ def build_agent_run_request(
     subagents: bool | None = None,
     subagent_model: str | None = None,
     model_base_url: str | None = None,
+    model_picker: bool = False,
 ) -> AgentRunRequest:
     """Build a normalized runtime request from legacy CLI kwargs."""
     validate_no_home_conflicts(
@@ -569,6 +570,7 @@ def build_agent_run_request(
         agent_cards=merged_agent_cards,
         card_tools=merged_card_tools,
         model=model,
+        model_picker=model_picker,
         message=message,
         prompt_file=prompt_file,
         attachments=attachments,
@@ -676,6 +678,7 @@ def build_command_run_request(
     subagents: bool | None = None,
     subagent_model: str | None = None,
     model_base_url: str | None = None,
+    model_picker: bool = False,
 ) -> AgentRunRequest:
     """Build a normalized request directly from command option values."""
     validate_no_home_conflicts(
@@ -705,6 +708,7 @@ def build_command_run_request(
         agent_cards=agent_cards,
         card_tools=card_tools,
         model=model,
+        model_picker=model_picker,
         message=message,
         prompt_file=prompt_file,
         attachments=attachments,

@@ -28,6 +28,18 @@ class ShowMarkdownCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class McpCacheCommand(CommandBase):
+    value: str
+    kind: Literal["mcp_cache"] = "mcp_cache"
+
+
+@dataclass(frozen=True, slots=True)
+class McpDiagnosticsCommand(CommandBase):
+    value: str
+    kind: Literal["mcp_diagnostics"] = "mcp_diagnostics"
+
+
+@dataclass(frozen=True, slots=True)
 class ShowMcpStatusCommand(CommandBase):
     kind: Literal["show_mcp_status"] = "show_mcp_status"
 
@@ -487,6 +499,8 @@ CommandPayload = (
     ShowUsageCommand
     | ShowSystemCommand
     | ShowMarkdownCommand
+    | McpCacheCommand
+    | McpDiagnosticsCommand
     | ShowMcpStatusCommand
     | EnvironmentCommand
     | ProcessCommand

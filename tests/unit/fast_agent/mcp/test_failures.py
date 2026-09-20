@@ -154,3 +154,98 @@ def test_failure_text_redacts_serialized_headers() -> None:
     assert "top-secret" not in redacted
     assert "also-secret" not in redacted
     assert redacted.count("[REDACTED]") == 2
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        "https://user:sensitive@[broken/mcp?token=sensitive#sensitive",
+        "https://user:sensitive@host:invalid/private/sensitive?flag#sensitive",
+        'Authorization: "Basic sensitive value"',
+        "Authorization: Bearer sensitive",
+        "Set-Cookie: session=sensitive; extra=sensitive",
+        'access_token="sensitive value"',
+        "refresh-token='sensitive value'",
+        "--auth 'sensitive value'",
+        '--auth="sensitive value"',
+        "Basic sensitive",
+        "Bearer 'sensitive value'",
+        "https://user:'sensitive'@[broken",
+        "api_key=sen\x1b[31msitive",
+    ],
+)
+def test_shared_diagnostic_redaction(detail: str) -> None:
+    from fast_agent.mcp.failures import safe_mcp_diagnostic_text
+
+    text = safe_mcp_diagnostic_text("Launch failed: missing module\n" + detail)
+    assert "missing module" in text
+    assert "sensitive" not in text
+    assert "value" not in text
+
+
+def test_diagnostic_chain_is_bounded_cycle_safe_and_terminal_safe() -> None:
+    from fast_agent.mcp.failures import safe_mcp_exception_text
+
+    cause = ValueError("missing module\x1b[31m[bold]\r\x00\u202e")
+    outer = ServerInitializationError(
+        "Launch failed", "Recent stderr from stdio server:\nmodule unavailable", server_name="test"
+    )
+    outer.__cause__ = cause
+    cause.__context__ = outer
+    text = safe_mcp_exception_text(outer)
+    assert "ServerInitializationError" in text
+    assert "ValueError: missing module" in text
+    assert "Recent stderr" in text
+    assert "module unavailable" in text
+    assert "[bold]" not in text
+    assert all(c.isprintable() or c == "\n" for c in text)
+    group = ExceptionGroup("many", [ValueError("x" * 10000) for _ in range(20)])
+    assert len(safe_mcp_exception_text(group)) <= 4000
+
+
+def test_sdk_error_retains_code_not_untrusted_data() -> None:
+    from mcp.shared.exceptions import MCPError
+
+    from fast_agent.mcp.failures import safe_mcp_exception_text
+
+    error = MCPError(
+        code=-32602, message="Invalid discovery response", data={"private": "sensitive"}
+    )
+    text = safe_mcp_exception_text(error)
+    assert "Invalid discovery response" in text
+    assert "-32602" in text
+    assert "sensitive" not in text
+
+
+def test_validation_error_omits_configuration_input() -> None:
+    from pydantic import TypeAdapter, ValidationError
+
+    from fast_agent.mcp.failures import safe_mcp_exception_text
+
+    with pytest.raises(ValidationError) as raised:
+        TypeAdapter(int).validate_python({"environment": "unlabeled-sensitive-value"})
+    text = safe_mcp_exception_text(raised.value)
+    assert "ValidationError" in text
+    assert "int_type" in text
+    assert "unlabeled-sensitive-value" not in text
+
+
+def test_safe_diagnostic_text_preserves_status_and_exit_codes() -> None:
+    from fast_agent.mcp.failures import safe_mcp_diagnostic_text
+
+    assert "404" in safe_mcp_diagnostic_text("Server returned status code: 404")
+    assert "exit code: 1" in safe_mcp_diagnostic_text("exit code: 1 while spawning npx")
+
+
+def test_safe_diagnostic_text_redacts_credentials_and_neutralizes_terminal_output() -> None:
+    from fast_agent.mcp.failures import safe_mcp_diagnostic_text
+
+    text = safe_mcp_diagnostic_text(
+        "\x1b[31mAuthorization: Bearer abc123\x1b[0m [bold]https://user:pw@h.example/p?tok=x"
+    )
+    assert "abc123" not in text
+    assert "pw" not in text
+    assert "tok=x" not in text
+    assert "h.example" in text
+    assert "\x1b" not in text
+    assert "[bold]" not in text

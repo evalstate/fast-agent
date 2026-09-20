@@ -298,7 +298,7 @@ class AgentCompleter(Completer):
         self.session_manager = session_manager
         # Map commands to their descriptions for better completion hints
         self.commands = {
-            "mcp": "Manage MCP runtime servers (/mcp list|connect|disconnect|reconnect)",
+            "mcp": "Manage MCP runtime servers (/mcp list|status|cache|refresh|error|auth|connect|disconnect|reconnect)",
             "connect": "Alias for /mcp connect with target auto-detection",
             "history": (
                 "Show conversation history overview "

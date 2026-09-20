@@ -896,12 +896,30 @@ async def _select_startup_model_if_needed(request: AgentRunRequest) -> str | Non
         # mirroring the notices shown for other model sources.
         return "session resumption"
 
-    settings = _load_request_settings(request)
     can_prompt_for_model = _should_prompt_for_model_picker(
         request,
         stdin_is_tty=sys.stdin.isatty(),
         stdout_is_tty=sys.stdout.isatty(),
     )
+    if request.model_picker and not can_prompt_for_model:
+        raise typer.BadParameter(
+            "--model-picker requires an interactive terminal (TTY stdin and stdout).",
+            param_hint="--model-picker",
+        )
+    settings = _load_request_settings(request)
+    if request.model_picker:
+        initial_selection = _resolve_model_picker_initial_selection(settings=settings)
+        request.model = await _select_model_from_picker(
+            request,
+            config_payload=settings.model_dump(),
+            initial_provider=initial_selection.provider,
+            initial_model_spec=initial_selection.model_spec,
+        )
+        _persist_model_picker_last_used_selection(
+            request, settings=settings, model_spec=request.model
+        )
+        return "model picker"
+
     startup_model_defined_by_card = _explicit_agent_cards_define_startup_model(
         request,
         model_references=settings.model_references,

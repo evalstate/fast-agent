@@ -59,10 +59,16 @@ class _FakeShellEnvironment:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("background_startup", [None, True, False])
 async def test_run_lifecycle_enter_performs_shared_setup_in_order(
     monkeypatch: pytest.MonkeyPatch,
+    background_startup: bool | None,
 ) -> None:
     fast = FastAgent("test", parse_cli_args=False)
+    from fast_agent.context import Context
+
+    context = Context()
+    fast.app._context = context
     calls: list[str] = []
 
     async def initialize() -> None:
@@ -131,8 +137,11 @@ async def test_run_lifecycle_enter_performs_shared_setup_in_order(
         model_override="sonnet",
         force_headless=True,
         before_apply_skills=before_apply,
+        background_mcp_startup=background_startup,
     )
+    assert context.background_mcp_startup is bool(background_startup)
     await lifecycle.exit(state, None, {}, had_error=False)
+    assert context.background_mcp_startup is False
 
     assert calls == [
         "initialize",

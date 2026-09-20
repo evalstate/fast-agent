@@ -954,11 +954,17 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         *,
         model: str | None = None,
         environment: "EnvironmentSelection" = None,
+        background_mcp_startup: bool | None = None,
     ) -> "AgentHarness":
         """Create a headless session harness for this fast-agent app."""
         from fast_agent.core.harness import AgentHarness
 
-        return AgentHarness(self, model=model, environment=environment)
+        return AgentHarness(
+            self,
+            model=model,
+            environment=environment,
+            background_mcp_startup=background_mcp_startup,
+        )
 
     @property
     def environments(self) -> "EnvironmentRegistry":

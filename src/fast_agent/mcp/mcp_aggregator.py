@@ -1,9 +1,11 @@
+import asyncio
 import sys
+import time
 from asyncio import Lock
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Mapping
-from contextlib import suppress
-from dataclasses import dataclass, field
+from contextlib import AsyncExitStack, suppress
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import (
@@ -70,6 +72,8 @@ from fast_agent.mcp.interfaces import ServerRegistryProtocol
 from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager, ServerConnection
 from fast_agent.mcp.prompt_metadata import with_prompt_metadata
 from fast_agent.mcp.skills_extension import GetSkillResult, ListSkillsResult
+from fast_agent.mcp.startup import MCPStartup, ServerStartupStatus
+from fast_agent.mcp.tool_catalog_cache import ToolCacheInfo, ToolCatalogCache, ToolSnapshot
 from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler, ToolExecutionHandler
 from fast_agent.mcp.tool_permission_handler import (
     NoOpToolPermissionHandler,
@@ -303,6 +307,8 @@ class ServerStats:
 
 class ServerStatus(BaseModel):
     server_name: str
+    connection_policy: Literal["eager", "deferred"] = "eager"
+    tool_cache: ToolCacheInfo | None = None
     protocol_mode: Literal["auto", "modern", "legacy"] = "auto"
     implementation_name: str | None = None
     implementation_version: str | None = None
@@ -398,7 +404,7 @@ class MCPAggregator(ContextDependent):
     """
 
     initialized: bool = False
-    """Whether the aggregator has been initialized with tools and resources from all servers."""
+    """Whether startup was scheduled (background) or completed (eager)."""
 
     connection_persistence: bool = False
     """Whether to retain an attached local client runtime for the server."""
@@ -413,29 +419,53 @@ class MCPAggregator(ContextDependent):
         return unique_preserve_order(items)
 
     async def __aenter__(self):
-        if self.initialized:
+        async with self._entry_lock:
+            if self.initialized:
+                return self
+            if self._closed:
+                raise RuntimeError("MCP aggregator is closed")
+            self._startup = self.context.mcp_startup
+
+            # Keep a runtime manager for attached clients owned by this aggregator.
+            if self.connection_persistence:
+                context = self._require_context()
+                server_registry = cast("ServerRegistry", self._require_server_registry())
+                manager = MCPConnectionManager(server_registry, context=context)
+                await manager.__aenter__()
+                self._persistent_connection_manager = manager
+                self._owns_connection_manager = True
+            else:
+                self._persistent_connection_manager = None
+
+            # Import the display component here to avoid circular imports
+            from fast_agent.ui.console_display import ConsoleDisplay
+
+            # Initialize the display component
+            self.display = ConsoleDisplay(config=self.context.config)
+
+            if self.context.background_mcp_startup:
+                self.initialized = True
+                for name in self._startup_server_names(force_connect=False):
+                    self._startup.set_status(self._attachment_owner, name, "pending")
+                self._startup_task = asyncio.create_task(self._load_background_servers())
+                self._startup_task.add_done_callback(self._on_background_startup_done)
+            else:
+                await self.load_servers()
+
             return self
 
-        # Keep a runtime manager for attached clients owned by this aggregator.
-        if self.connection_persistence:
-            context = self._require_context()
-            server_registry = cast("ServerRegistry", self._require_server_registry())
-            manager = MCPConnectionManager(server_registry, context=context)
-            await manager.__aenter__()
-            self._persistent_connection_manager = manager
-            self._owns_connection_manager = True
-        else:
-            self._persistent_connection_manager = None
-
-        # Import the display component here to avoid circular imports
-        from fast_agent.ui.console_display import ConsoleDisplay
-
-        # Initialize the display component
-        self.display = ConsoleDisplay(config=self.context.config)
-
-        await self.load_servers()
-
-        return self
+    def _on_background_startup_done(self, task: asyncio.Task[None]) -> None:
+        # Per-server failures are recorded as statuses; this only catches startup itself failing.
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            logger.error(f"Background MCP startup failed: {error}")
+            for status in self.startup_status:
+                if status.state == "pending":
+                    self._startup.set_status(
+                        self._attachment_owner, status.server_name, "error", str(error)
+                    )
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.close()
@@ -475,6 +505,10 @@ class MCPAggregator(ContextDependent):
         self._owns_connection_manager = False
         self._lifecycle_lock = Lock()
         self._closed = False
+        self._startup_task: asyncio.Task[None] | None = None
+        self._startup = context.mcp_startup if context is not None else MCPStartup()
+        self._startup_lock = Lock()
+        self._entry_lock = Lock()
 
         # Store tool execution handler for integration with ACP or other protocols.
         #
@@ -532,6 +566,10 @@ class MCPAggregator(ContextDependent):
         self._capabilities_cache_lock = Lock()
         self._attachment_configs: dict[str, MCPServerSettings] = {}
         self._attachment_locks: dict[str, Lock] = {}
+        self._tool_cache_info: dict[str, ToolCacheInfo] = {}
+        self._deferred_servers: set[str] = set()
+        self._changed_deferred_tools: set[tuple[str, str]] = set()
+        self._deferred_tool_definitions: dict[str, dict[str, Tool]] = {}
         self._staged_discovery_tools: dict[str, list[NamespacedTool]] = {}
         self._attachment_owner = f"aggregator:{id(self)}"
         self._runtime_definition_owner = self._attachment_owner
@@ -632,26 +670,43 @@ class MCPAggregator(ContextDependent):
         """
         Close all attached MCP client runtimes when the aggregator is deleted.
         """
+        if self._startup_task is not None:
+            self._startup_task.cancel()
+            # The task may already have finished with an error; shutdown must not re-raise it.
+            with suppress(asyncio.CancelledError, Exception):
+                await self._startup_task
+            for status in self.startup_status:
+                if status.state in {"pending", "auth"}:
+                    self._startup.set_status(
+                        self._attachment_owner, status.server_name, "error", "Startup cancelled"
+                    )
         async with self._lifecycle_lock:
             if self._closed:
                 return
             self._closed = True
-            try:
-                if (
-                    self.connection_persistence
-                    and self._persistent_connection_manager
-                    and self._owns_connection_manager
-                ):
-                    logger.info("Shutting down attached MCP client runtimes...")
-                    await self._persistent_connection_manager.disconnect_all()
-                    await self._persistent_connection_manager.__aexit__(None, None, None)
-                self.initialized = False
-            except Exception as e:
-                logger.error(f"Error during connection manager cleanup: {e}")
-            finally:
-                await self._release_owned_runtime_definitions(disconnect=False)
-                self._attachment_configs.clear()
-                await self._clear_runtime_indexes()
+            self._startup.deactivate(self._attachment_owner)
+            async with AsyncExitStack() as attachments:
+                for lock in list(self._attachment_locks.values()):
+                    await attachments.enter_async_context(lock)
+                await self._close_connections()
+
+    async def _close_connections(self) -> None:
+        try:
+            if (
+                self.connection_persistence
+                and self._persistent_connection_manager
+                and self._owns_connection_manager
+            ):
+                logger.info("Shutting down attached MCP client runtimes...")
+                await self._persistent_connection_manager.disconnect_all()
+                await self._persistent_connection_manager.__aexit__(None, None, None)
+            self.initialized = False
+        except Exception as e:
+            logger.error(f"Error during connection manager cleanup: {e}")
+        finally:
+            await self._release_owned_runtime_definitions(disconnect=False)
+            self._attachment_configs.clear()
+            await self._clear_runtime_indexes()
 
     @classmethod
     async def create(
@@ -731,67 +786,86 @@ class MCPAggregator(ContextDependent):
         config = self._attachment_configs.get(server_name)
         return {"server_config": config} if config is not None else {}
 
-    async def load_servers(self, *, force_connect: bool = False) -> None:
+    async def _load_background_servers(self) -> None:
+        await self.load_servers(_background=True)
+
+    def _startup_server_names(self, *, force_connect: bool) -> list[str]:
+        if not self._configured_server_names:
+            return []
+        registry = self._require_server_registry()
+        return [
+            name
+            for name in self._configured_server_names
+            if force_connect
+            or (config := registry.get_server_config(name)) is None
+            or config.load_on_start
+        ]
+
+    async def load_servers(
+        self,
+        *,
+        force_connect: bool = False,
+        _background: bool = False,
+    ) -> None:
         """
         Discover tools from each server in parallel and build an index of namespaced tool names.
         Also populate the prompt cache.
 
         Set force_connect=True to override load_on_start guards (e.g., when a user issues /connect).
         """
-        if self.initialized and not force_connect:
-            logger.debug("MCPAggregator already initialized.")
-            return
-
-        await self._reset_runtime_indexes()
-
-        skipped_servers: list[str] = []
-        attached_results: list[MCPAttachResult] = []
-
-        servers_to_load = list(self._configured_server_names)
-
-        try:
-            for server_name in servers_to_load:
-                # Check if server should be loaded on start
-                server_registry = self.context.server_registry if self.context else None
-                if server_registry is not None:
-                    server_config = server_registry.get_server_config(server_name)
-                    if server_config and not server_config.load_on_start and not force_connect:
-                        logger.debug(f"Skipping server '{server_name}' - load_on_start=False")
-                        skipped_servers.append(server_name)
-                        continue
-
-                attached_results.append(
-                    await self.attach_server(
-                        server_name=server_name,
-                        options=MCPAttachOptions(),
-                    )
-                )
-        except BaseException:
-            for result in reversed(attached_results):
-                with suppress(Exception):
-                    await self.detach_server(result.server_name)
-            registry = self._require_server_registry()
-            for server_name in servers_to_load:
-                if "cli-startup" in registry.get_runtime_owners(server_name):
-                    registry.remove_runtime(server_name, owner="cli-startup")
-            raise
-
-        if skipped_servers:
-            logger.debug(
-                "Deferred MCP servers due to load_on_start=False",
-                data={
-                    "agent_name": self.agent_name,
-                    "servers": skipped_servers,
-                },
-            )
-
-        if not attached_results:
+        async with self._startup_lock:
+            if self.initialized and not force_connect and not _background:
+                return
+            if not _background:
+                # A first background load has nothing to reset; __aenter__ already marked
+                # servers pending and clearing here would restart their startup clocks.
+                await self._reset_runtime_indexes()
+                self._startup.clear(self._attachment_owner)
+            names = self._startup_server_names(force_connect=force_connect)
+            if not force_connect:
+                live_names = []
+                for name in names:
+                    if not await self._restore_tool_catalog(name):
+                        live_names.append(name)
+                names = live_names
+            for name in names:
+                self._startup.set_status(self._attachment_owner, name, "pending")
+            # TaskGroup cancels on shutdown, but ordinary server failures are contained.
+            async with asyncio.TaskGroup() as group:
+                for name in names:
+                    group.create_task(self._start_server(name))
+            self._display_startup_state()
             self.initialized = True
-            return
 
-        self._display_startup_state()
+    @property
+    def startup_status(self) -> tuple[ServerStartupStatus, ...]:
+        return self._startup.snapshot(self._attachment_owner)
 
-        self.initialized = True
+    def get_startup_errors(
+        self,
+        server_name: str | None = None,
+    ) -> tuple[ServerStartupStatus, ...]:
+        return self._startup.get_startup_errors(server_name, owner=self._attachment_owner)
+
+    @property
+    def startup_history(self) -> tuple[ServerStartupStatus, ...]:
+        return self._startup.history(self._attachment_owner)
+
+    async def wait_for_startup(self) -> None:
+        """Wait without transferring cancellation ownership to a tool/UI caller."""
+        if self._startup_task is not None:
+            await asyncio.shield(self._startup_task)
+
+    async def _start_server(self, server_name: str) -> None:
+        # Status transitions are owned by _attach_server_with_status_locked; this only
+        # contains failures so sibling servers keep starting.
+        with suppress(Exception):
+            await self.attach_server(
+                server_name=server_name,
+                options=MCPAttachOptions(
+                    allow_oauth_paste_fallback=not self.context.background_mcp_startup
+                ),
+            )
 
     async def _reset_runtime_indexes(self) -> None:
         async with self._lifecycle_lock:
@@ -800,6 +874,10 @@ class MCPAggregator(ContextDependent):
             await self._clear_runtime_indexes()
 
     async def _clear_runtime_indexes(self) -> None:
+        self._deferred_servers.clear()
+        self._deferred_tool_definitions.clear()
+        self._changed_deferred_tools.clear()
+        self._tool_cache_info.clear()
         async with self._tool_map_lock:
             self._namespaced_tool_map.clear()
             self._server_to_tool_map.clear()
@@ -836,6 +914,113 @@ class MCPAggregator(ContextDependent):
             if attachment_owned and disconnect and self._persistent_connection_manager is not None:
                 await self._persistent_connection_manager.disconnect_server(server_name)
 
+    def _catalog_cache(self, server_name: str) -> ToolCatalogCache | None:
+        config = self._server_config(server_name)
+        if config is None or not config.tool_cache.enabled or request_bearer_token.get():
+            return None
+        # OAuth/session credentials are not necessarily represented in server settings.
+        if config.transport != "stdio" and not config.tool_cache.auth_identity:
+            return None
+        settings = self.context.config
+        if (
+            config.tool_cache.directory is None
+            and settings is not None
+            and settings._fast_agent_no_home
+        ):
+            return None
+        return ToolCatalogCache(config, settings=settings)
+
+    async def _restore_tool_catalog(self, server_name: str) -> bool:
+        config = self._server_config(server_name)
+        cache = self._catalog_cache(server_name)
+        if config is None or config.connection_policy != "deferred" or cache is None:
+            return False
+        snapshot = cache.load()
+        # App tools require live resource/visibility validation, not only a tool snapshot.
+        if (
+            snapshot is None
+            or config.include_instructions
+            or any(
+                {"ui", "ui/resourceUri", "openai/outputTemplate"}.intersection(tool.meta or {})
+                for tool in snapshot.tools
+            )
+        ):
+            return False
+        async with self._tool_map_lock:
+            tools = [
+                NamespacedTool(
+                    tool=tool,
+                    server_name=server_name,
+                    namespaced_tool_name=create_namespaced_name(
+                        self.server_display_name(server_name), tool.name
+                    ),
+                )
+                for tool in snapshot.tools
+            ]
+            for old in self._server_to_tool_map.get(server_name, []):
+                self._namespaced_tool_map.pop(old.namespaced_tool_name, None)
+            self._app_integration_configs.pop(server_name, None)
+            self._server_to_tool_map[server_name] = tools
+            for tool in tools:
+                self._namespaced_tool_map[tool.namespaced_tool_name] = tool
+            self._deferred_tool_definitions[server_name] = {
+                tool.name: tool.model_copy(deep=True) for tool in snapshot.tools
+            }
+            self._deferred_servers.add(server_name)
+            self._tool_cache_info[server_name] = ToolCacheInfo(
+                source="disk",
+                fetched_at=snapshot.fetched_at,
+                expires_at=snapshot.fetched_at + config.tool_cache.ttl_seconds,
+                tool_count=len(tools),
+            )
+        return True
+
+    def _cache_targets(self, server_name: str | None) -> list[str]:
+        if server_name is None:
+            return list(self.server_names)
+        key = self._resolve_server_key(server_name)
+        if key not in self.server_names:
+            raise ValueError(f"Unknown MCP server: {server_name}")
+        return [key]
+
+    async def clear_tool_cache(self, server_name: str | None = None) -> None:
+        """Clear reusable snapshots, retaining connected live tools and app metadata."""
+        for key in self._cache_targets(server_name):
+            async with self._attachment_locks.setdefault(key, Lock()):
+                cache = self._catalog_cache(key)
+                if cache is not None:
+                    cache.clear()
+                async with self._tool_map_lock:
+                    if key in self._deferred_servers:
+                        for tool in self._server_to_tool_map.pop(key, []):
+                            self._namespaced_tool_map.pop(tool.namespaced_tool_name, None)
+                        self._app_integration_configs.pop(key, None)
+                        self._deferred_servers.discard(key)
+                        self._deferred_tool_definitions.pop(key, None)
+                    if key not in self._attached_server_names:
+                        self._tool_cache_info.pop(key, None)
+
+    async def refresh_tool_cache(self, server_name: str | None = None) -> None:
+        """Connect if needed and replace catalogs from authoritative, paginated discovery."""
+        if self._closed:
+            raise RuntimeError("MCP aggregator is closed")
+        for key in self._cache_targets(server_name):
+            async with self._attachment_locks.setdefault(key, Lock()):
+                previous = (
+                    self._deferred_tool_definitions.get(key, {})
+                    if key in self._deferred_servers
+                    else {}
+                )
+                await self._attach_server_with_status_locked(
+                    server_name=key, server_config=None, options=None, refresh=True
+                )
+                current = {t.tool.name: t.tool for t in self._server_to_tool_map.get(key, [])}
+                self._changed_deferred_tools.update(
+                    (key, name) for name, tool in previous.items() if current.get(name) != tool
+                )
+                self._deferred_servers.discard(key)
+                self._deferred_tool_definitions.pop(key, None)
+
     async def _fetch_server_tools(
         self,
         server_name: str,
@@ -849,14 +1034,42 @@ class MCPAggregator(ContextDependent):
             )
 
         try:
-            result: ListToolsResult = await self._execute_on_server(
-                server_name=server_name,
-                operation_type="tools/list",
-                operation_name="",
-                method_name="list_tools",
-                method_args={"cache_mode": cache_mode} if cache_mode != "use" else {},
+            tools: list[Tool] = []
+            cursor: str | None = None
+            seen: set[str] = set()
+            while True:
+                # A durable snapshot must represent a fresh fetch, not extend SDK TTL.
+                args: dict[str, Any] = {
+                    "cache_mode": "refresh" if cache_mode == "use" else cache_mode
+                }
+                if cursor is not None:
+                    args["cursor"] = cursor
+                result: ListToolsResult = await self._execute_on_server(
+                    server_name=server_name,
+                    operation_type="tools/list",
+                    operation_name="",
+                    method_name="list_tools",
+                    method_args=args,
+                )
+                tools.extend(result.tools or [])
+                cursor = result.next_cursor
+                if cursor is None:
+                    break
+                if cursor in seen:
+                    raise ValueError("Repeated tools pagination cursor")
+                seen.add(cursor)
+                if len(seen) >= 1000:
+                    raise ValueError("Exceeded tools pagination page limit")
+            cache = self._catalog_cache(server_name)
+            now = time.time()
+            config = self._server_config(server_name)
+            ttl = config.tool_cache.ttl_seconds if config else 3600
+            self._tool_cache_info[server_name] = ToolCacheInfo(
+                source="live", fetched_at=now, expires_at=now + ttl, tool_count=len(tools)
             )
-            return result.tools or []
+            if cache is not None:
+                cache.save(ToolSnapshot(key=cache.key, fetched_at=now, tools=tools))
+            return tools
         except Exception as e:
             if supports_tools:
                 raise
@@ -899,15 +1112,71 @@ class MCPAggregator(ContextDependent):
         options: MCPAttachOptions | None = None,
     ) -> MCPAttachResult:
         server_name = self._resolve_server_key(server_name)
-        async with self._lifecycle_lock:
-            if self._closed:
-                raise RuntimeError("MCP aggregator is closed")
-            async with self._attachment_locks.setdefault(server_name, Lock()):
-                return await self._attach_server_locked(
-                    server_name=server_name,
-                    server_config=server_config,
-                    options=options,
+        async with self._attachment_locks.setdefault(server_name, Lock()):
+            return await self._attach_server_with_status_locked(
+                server_name=server_name, server_config=server_config, options=options
+            )
+
+    async def _attach_server_with_status_locked(
+        self,
+        *,
+        server_name: str,
+        server_config: MCPServerSettings | None,
+        options: MCPAttachOptions | None,
+        refresh: bool = False,
+    ) -> MCPAttachResult:
+        if self._closed:
+            raise RuntimeError("MCP aggregator is closed")
+        config = server_config or self._require_server_registry().get_server_config(server_name)
+        self._startup.set_status(
+            self._attachment_owner,
+            server_name,
+            "pending",
+            transport=config.transport if config else None,
+        )
+        attach_options = options or MCPAttachOptions(
+            allow_oauth_paste_fallback=not self.context.background_mcp_startup
+        )
+
+        async def oauth_event(event: "OAuthEvent") -> None:
+            if event.event_type == "wait_start":
+                self._startup.set_status(self._attachment_owner, server_name, "auth", event.message)
+            elif event.event_type == "wait_end":
+                self._startup.set_status(self._attachment_owner, server_name, "pending")
+            if attach_options.oauth_event_handler is not None:
+                await attach_options.oauth_event_handler(event)
+
+        already_attached = server_name in self._attached_server_names
+        try:
+            result = await self._attach_server_locked(
+                server_name=server_name,
+                server_config=server_config,
+                options=replace(attach_options, oauth_event_handler=oauth_event),
+            )
+            if refresh and already_attached and not attach_options.force_reconnect:
+                self._startup.set_status(
+                    self._attachment_owner, server_name, "pending", phase="discovery"
                 )
+                await self._refresh_attached_server_cache(server_name, cache_mode="refresh")
+        except asyncio.CancelledError:
+            self._startup.set_status(
+                self._attachment_owner,
+                server_name,
+                "error",
+                "Startup cancelled",
+                phase="cancelled",
+            )
+            raise
+        except Exception as exc:
+            self._startup.set_status(
+                self._attachment_owner,
+                server_name,
+                "auth" if is_http_auth_challenge(exc) else "error",
+                str(exc),
+            )
+            raise
+        self._startup.set_status(self._attachment_owner, server_name, "ready")
+        return result
 
     async def _attach_server_locked(
         self,
@@ -916,6 +1185,8 @@ class MCPAggregator(ContextDependent):
         server_config: MCPServerSettings | None,
         options: MCPAttachOptions | None,
     ) -> MCPAttachResult:
+        if self._closed:
+            raise RuntimeError("MCP aggregator is closed")
         attach_options = options or MCPAttachOptions()
         server_registry = self._require_server_registry()
 
@@ -951,6 +1222,9 @@ class MCPAggregator(ContextDependent):
                     resolved_config,
                     attach_options,
                 )
+            self._startup.set_status(
+                self._attachment_owner, server_name, "pending", phase="discovery"
+            )
             discovery = await self._discover_server_attachment(server_name)
             await self._commit_server_attachment(
                 server_name,
@@ -1305,6 +1579,7 @@ class MCPAggregator(ContextDependent):
                 return await self._detach_server_locked(server_name)
 
     async def _detach_server_locked(self, server_name: str) -> MCPDetachResult:
+        self._startup.clear_server(self._attachment_owner, server_name)
         display_name = self.server_display_name(server_name)
         existing_tools = self._server_to_tool_map.get(server_name, [])
         existing_prompts = self._prompt_cache.get(server_name, [])
@@ -1924,6 +2199,11 @@ class MCPAggregator(ContextDependent):
         if not self.initialized:
             await self.load_servers()
 
+        for server_name in tuple(self._deferred_servers):
+            info = self._tool_cache_info.get(server_name)
+            if info is not None and time.time() >= info.expires_at:
+                await self.refresh_tool_cache(server_name)
+
         tools: list[Tool] = []
 
         for namespaced_tool_name, namespaced_tool in self._namespaced_tool_map.items():
@@ -1954,6 +2234,7 @@ class MCPAggregator(ContextDependent):
                 tool_copy.meta = meta
             tools.append(tool_copy)
 
+        self._changed_deferred_tools.clear()
         return ListToolsResult(tools=tools)
 
     async def _record_server_call(
@@ -2074,6 +2355,7 @@ class MCPAggregator(ContextDependent):
 
         now = datetime.now(timezone.utc)
         status_map: dict[str, ServerStatus] = {}
+        startup = {entry.server_name: entry for entry in self.startup_status}
 
         for server_name in self.server_names:
             status = self._server_status_from_stats(server_name, now)
@@ -2088,6 +2370,15 @@ class MCPAggregator(ContextDependent):
             if status.server_capabilities is None:
                 status.server_capabilities = await self._capabilities_for_status(server_name)
             status.mcp_skills_enabled = server_supports_mcp_skills(status.server_capabilities)
+            lifecycle = startup.get(server_name)
+            if lifecycle is not None and lifecycle.state != "ready":
+                status.error_message = {
+                    "pending": "initializing...",
+                    "auth": "Authentication required or pending · /mcp auth",
+                    "error": "MCP startup failed · /mcp error",
+                }[lifecycle.state]
+                if status.is_connected is None:
+                    status.is_connected = False
             status_map[server_name] = status
 
         return status_map
@@ -2111,6 +2402,10 @@ class MCPAggregator(ContextDependent):
         last_call = stats.last_call_at if stats else None
         return ServerStatus(
             server_name=server_name,
+            tool_cache=self._tool_cache_info.get(server_name),
+            connection_policy=(
+                self._server_config(server_name) or MCPServerSettings()
+            ).connection_policy,
             last_call_at=last_call,
             last_error_at=stats.last_error_at if stats else None,
             staleness_seconds=(now - last_call).total_seconds() if last_call else None,
@@ -2846,6 +3141,48 @@ class MCPAggregator(ContextDependent):
                 content=[TextContent(type="text", text=f"Tool '{name}' not found")],
             )
 
+        catalog_changed = (server_name, local_tool_name) in self._changed_deferred_tools
+        if server_name in self._deferred_servers:
+            advertised = self._deferred_tool_definitions.get(server_name, {}).get(local_tool_name)
+            async with self._attachment_locks.setdefault(server_name, Lock()):
+                if server_name in self._deferred_servers:
+                    previous = self._deferred_tool_definitions.get(server_name, {})
+                    await self._attach_server_with_status_locked(
+                        server_name=server_name, server_config=None, options=None, refresh=True
+                    )
+                    current_tools = {
+                        t.tool.name: t.tool for t in self._server_to_tool_map.get(server_name, [])
+                    }
+                    self._changed_deferred_tools.update(
+                        (server_name, tool_name)
+                        for tool_name, tool in previous.items()
+                        if current_tools.get(tool_name) != tool
+                    )
+                    self._deferred_servers.discard(server_name)
+                    self._deferred_tool_definitions.pop(server_name, None)
+            current = next(
+                (
+                    t.tool
+                    for t in self._server_to_tool_map.get(server_name, [])
+                    if t.tool.name == local_tool_name
+                ),
+                None,
+            )
+            if advertised != current or current is None:
+                self._changed_deferred_tools.add((server_name, local_tool_name))
+                catalog_changed = True
+
+        if catalog_changed:
+            return CallToolResult(
+                is_error=True,
+                content=[
+                    TextContent(
+                        type="text",
+                        text="Tool catalog changed; list tools again before retrying.",
+                    )
+                ],
+            )
+
         display_server_name = self.server_display_name(server_name)
         namespaced_tool_name = create_namespaced_name(display_server_name, local_tool_name)
         active_tool_handler = request_tool_handler or self._tool_handler
@@ -3550,14 +3887,7 @@ class MCPAggregator(ContextDependent):
         async with self._refresh_lock:
             try:
                 # Fetch new tools from the server using _execute_on_server to properly record stats
-                tools_result = await self._execute_on_server(
-                    server_name=server_name,
-                    operation_type="tools/list",
-                    operation_name="",
-                    method_name="list_tools",
-                    method_args={},
-                )
-                new_tools = tools_result.tools or []
+                new_tools = await self._fetch_server_tools(server_name, cache_mode="refresh")
                 new_namespaced_tools = [
                     NamespacedTool(
                         tool=tool,

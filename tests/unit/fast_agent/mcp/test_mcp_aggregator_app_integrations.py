@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
-from mcp_types import Tool
+from mcp_types import ListToolsResult, Tool
 
 from fast_agent.mcp.app_integrations import (
     AppIntegrationKind,
@@ -393,7 +393,7 @@ def test_tool_list_refresh_rebuilds_app_visibility_before_commit() -> None:
     aggregator.validate_server = AsyncMock(return_value=True)
     aggregator.server_supports_feature = AsyncMock(return_value=True)
     aggregator._execute_on_server = AsyncMock(
-        return_value=SimpleNamespace(
+        return_value=ListToolsResult(
             tools=[
                 _tool_with_meta(
                     name="app_only",

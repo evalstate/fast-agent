@@ -19,6 +19,7 @@ from fast_agent.commands.mcp_command_intents import (
     parse_mcp_no_args_tokens,
     parse_mcp_server_name_tokens,
 )
+from fast_agent.commands.mcp_diagnostics import render_mcp_diagnostics
 from fast_agent.mcp.connect_targets import (
     parse_connect_command_text,
     render_connect_request,
@@ -124,12 +125,16 @@ def _mcp_usage_text(heading: str) -> str:
         "Usage:\n"
         "- /mcp list\n"
         "- /mcp status\n"
+        "- /mcp error [server]\n"
+        "- /mcp auth\n"
         "- /mcp attach <server_name>\n"
         "- /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
         "[--protocol auto|modern|legacy] "
         "[--oauth|--no-oauth] [--reconnect|--no-reconnect]\n"
         '  Example: /mcp connect "C:\\Program Files\\Tool\\tool.exe" --flag\n'
         "- /mcp disconnect <server_name>\n"
+        "- /mcp cache [clear [server|all]]\n"
+        "- /mcp refresh [server|all]\n"
         "- /mcp reconnect <server_name>"
     )
 
@@ -337,6 +342,23 @@ async def _handle_mcp_list_command(
     outcome = await mcp_runtime_handlers.handle_mcp_list(
         manager=manager,
         agent_name=handler.current_agent_name,
+    )
+    return handler._format_outcome_as_markdown(outcome, heading, io=io)
+
+
+async def _handle_mcp_cache_command(
+    handler: "SlashCommandHandler",
+    *,
+    heading: str,
+    ctx,
+    io: "ACPCommandIO",
+    manager,
+    tokens: list[str],
+) -> str:
+    import shlex
+
+    outcome = await mcp_runtime_handlers.handle_mcp_cache(
+        ctx, agent_name=handler.current_agent_name, value=shlex.join(tokens)
     )
     return handler._format_outcome_as_markdown(outcome, heading, io=io)
 
@@ -551,8 +573,18 @@ async def _handle_mcp_reconnect_command(
     return handler._format_outcome_as_markdown(outcome, heading, io=io)
 
 
+async def _handle_mcp_diagnostics_command(
+    handler: "SlashCommandHandler", *, heading: str, ctx, io, manager, tokens: list[str]
+) -> str:
+    return render_mcp_diagnostics(handler._get_current_agent(), tokens)
+
+
 _MCP_COMMAND_HANDLERS: dict[str, "_McpCommandHandler"] = {
+    "error": _handle_mcp_diagnostics_command,
+    "auth": _handle_mcp_diagnostics_command,
     "list": _handle_mcp_list_command,
+    "cache": _handle_mcp_cache_command,
+    "refresh": _handle_mcp_cache_command,
     "status": _handle_mcp_status_command,
     "attach": _handle_mcp_attach_command,
     "disconnect": _handle_mcp_disconnect_command,

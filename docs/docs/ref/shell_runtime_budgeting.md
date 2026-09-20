@@ -73,6 +73,11 @@ process.
 `process(action="wait", wait_sec=N)` waits for a managed process but does not
 terminate it merely because the wait interval expires.
 
+The prompt status bar’s `↻` indicator is muted before managed-process activity,
+yellow while processes run, and red above 75% capacity. It turns green when the
+current agent’s runtime retains process records but none are running, including
+after failure or termination: green means quiescent, not successful.
+
 Current static ceiling:
 
 ```yaml

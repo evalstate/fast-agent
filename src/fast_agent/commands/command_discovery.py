@@ -281,6 +281,19 @@ def _mcp_action_payloads() -> list[CommandIndexAction]:
             "notes": ["Use this to discover configured server names before attaching."],
         },
         {
+            "name": "error",
+            "summary": MCP_TOP_LEVEL_ACTION_DESCRIPTIONS["error"],
+            "usage": "/mcp error [server]",
+            "examples": ["/mcp error", "/mcp error docs"],
+            "arguments": [{**server_name_argument, "required": False}],
+        },
+        {
+            "name": "auth",
+            "summary": MCP_TOP_LEVEL_ACTION_DESCRIPTIONS["auth"],
+            "usage": "/mcp auth",
+            "examples": ["/mcp auth"],
+        },
+        {
             "name": "status",
             "summary": MCP_TOP_LEVEL_ACTION_DESCRIPTIONS["status"],
             "usage": "/mcp status",
@@ -371,6 +384,18 @@ def _mcp_action_payloads() -> list[CommandIndexAction]:
             "usage": "/mcp disconnect <server-name>",
             "examples": ["/mcp disconnect docs"],
             "arguments": [server_name_argument],
+        },
+        {
+            "name": "cache",
+            "summary": MCP_TOP_LEVEL_ACTION_DESCRIPTIONS["cache"],
+            "usage": "/mcp cache [clear [server|all]]",
+            "examples": ["/mcp cache", "/mcp cache clear all"],
+        },
+        {
+            "name": "refresh",
+            "summary": MCP_TOP_LEVEL_ACTION_DESCRIPTIONS["refresh"],
+            "usage": "/mcp refresh [server|all]",
+            "examples": ["/mcp refresh docs"],
         },
         {
             "name": "reconnect",
@@ -493,7 +518,7 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         {
             "name": "mcp",
             "summary": "Runtime MCP control",
-            "usage": "/mcp [list|status|attach|connect|disconnect|reconnect] [args]",
+            "usage": "/mcp [list|status|cache|refresh|error|auth|attach|connect|disconnect|reconnect] [args]",
             "actions": _mcp_action_payloads(),
             "examples": [
                 "/mcp list",

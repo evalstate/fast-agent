@@ -72,7 +72,9 @@ from fast_agent.ui.command_payloads import (
     LoadHistoryCommand,
     LoadPromptCommand,
     McpAttachCommand,
+    McpCacheCommand,
     McpConnectCommand,
+    McpDiagnosticsCommand,
     McpDisconnectCommand,
     McpListCommand,
     McpReconnectCommand,
@@ -255,6 +257,18 @@ _COMMAND_OUTCOME_ROUTES: tuple[_CommandOutcomeRoute, ...] = (
         "display",
         "agent_name",
         display_handlers.handle_show_markdown,
+    ),
+    _CommandOutcomeRoute(
+        McpCacheCommand,
+        "display",
+        "value",
+        mcp_runtime_handlers.handle_mcp_cache,
+    ),
+    _CommandOutcomeRoute(
+        McpDiagnosticsCommand,
+        "display",
+        "value",
+        display_handlers.handle_mcp_diagnostics,
     ),
     _CommandOutcomeRoute(
         ShowMcpStatusCommand,

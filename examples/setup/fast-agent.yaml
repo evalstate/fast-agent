@@ -230,3 +230,12 @@ skills:
     - "https://github.com/fast-agent-ai/skills"
     - "https://github.com/huggingface/skills"
     - "https://github.com/anthropics/skills"
+
+# Optional per-server MCP catalog settings (inside mcp.servers.<name>):
+# connection_policy: deferred # default eager; unrelated to provider defer_loading
+# include_instructions: false # required for deferred snapshot reuse; default true
+# tool_cache:
+#   enabled: true # default; set false to disable disk persistence
+#   directory: null # <fast-agent home>/cache/mcp-tools; descriptions may be sensitive
+#   ttl_seconds: 3600
+#   auth_identity: account-name # required for network persistence; change on account switch

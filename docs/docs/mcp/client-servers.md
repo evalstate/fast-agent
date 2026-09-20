@@ -432,3 +432,93 @@ mcp:
 ```
 
 Read more about the model string and settings [here](../models/). Sampling requests support vision - try [`@llmindset/mcp-webcam`](https://github.com/evalstate/mcp-webcam) for an example.
+
+
+### Startup and diagnostics
+
+Interactive CLI sessions make the input UI available while MCP servers start in
+parallel. One server's failure does not cancel other servers. Non-interactive
+callers still wait for startup to settle. The version area shows `MCP 2/4` during
+startup, `MCP ERR · /mcp` for errors, or `MCP AUTH · /mcp auth` for authentication
+waits. Errors take priority over authentication and progress. Successful retries
+update the indicator automatically; inspecting diagnostics does not clear it.
+Once startup settles without unresolved failures, the version label returns.
+Manual and successfully deferred servers are not counted as pending.
+
+In the terminal, ACP, or harness slash-command tool, use `/mcp error` to inspect
+startup failures for the active agent, or `/mcp error <server>` to select one
+server (quote names containing spaces). Details include recorded failure text,
+redacted credentials, recovery guidance, and an indication when startup is still
+pending. These commands do not wait for startup or retry connections.
+
+`/mcp auth` shows recorded authentication waits/failures. If authorization is
+already waiting, finish that flow rather than starting another login. For recovery,
+inspect configuration with `fast-agent auth mcp show <server>` and use the existing
+`fast-agent auth mcp login <server>` command for OAuth after the current attempt
+ends. Ad-hoc OAuth endpoints use `fast-agent auth mcp login --endpoint <exact-mcp-url>`
+on the fast-agent host. Correct static credentials outside chat. Then retry
+`/mcp attach <server>` for a failed configured attachment, or `/mcp reconnect <server>`
+for an attached server. `/mcp auth` itself does not log in, clear credentials, or
+start a browser. Also check `/mcp error`: not every authentication failure is
+classified as an authentication wait.
+
+### Tool catalog persistence and deferred connections
+
+Private, atomic disk snapshots of raw MCP tools are enabled by default. Set
+`tool_cache.enabled: false` per server to disable persistence. Defaults (inside
+`mcp.servers.<name>`):
+
+--8<-- "_generated/mcp_tool_cache_config_snippet.md"
+
+A null `directory` uses `<fast-agent home>/cache/mcp-tools`, normally
+`./.fast-agent/cache/mcp-tools`, respecting `--home` and `FAST_AGENT_HOME`.
+An explicit directory overrides that location. With `--no-home`, disk persistence
+is disabled unless an explicit cache directory is configured. Snapshots carry
+fetch timestamps and a version; expired, corrupt, or mismatched snapshots are
+not reused. Keys hash server configuration, authentication identity and explicit configured
+environment (not the inherited process environment); credentials are not serialized,
+but because configured header and environment values feed the key hash, the cache file
+name could in principle be matched against guessed low-entropy secrets. Tool descriptions themselves may
+contain sensitive server data, so use a trusted private cache directory.
+For network servers set `tool_cache.auth_identity` to a stable principal identifier
+and change it when switching accounts. Request-scoped bearer authentication
+never uses disk persistence.
+
+`connection_policy: deferred` reuses a fresh snapshot at startup, delaying connection
+until the first tool call. Missing/expired snapshots fall back to normal startup
+discovery. App metadata requires live validation and also falls back to discovery.
+Deferred reuse requires `include_instructions: false`; otherwise live discovery
+preserves server instructions. Prompts, resources, and server-provided skills are
+not restored from tool snapshots; they become available after connection.
+Snapshot TTL is a local reuse policy, not a server
+or SDK TTL; persisted snapshots always come from fresh paginated discovery.
+For stdio credentials inherited outside `env`, set and rotate `auth_identity`
+when switching accounts.
+`load_on_start: false` still skips startup entirely; forced connection overrides
+deferral. This policy is unrelated to the provider `defer_loading` hint.
+Before executing a deferred tool, fast-agent connects and refreshes under the
+existing attachment lock. Changed tool definitions are rejected so callers can
+list tools again. All discovery follows tools pagination.
+
+Aggregator APIs (both accept a server name or `None` for all configured servers):
+
+- `await clear_tool_cache(server_name=None)`: delete snapshots and deferred advertisements,
+  retaining connected live tools and app metadata. SDK tool discovery is always refreshed.
+- `await refresh_tool_cache(server_name=None)`: connect as needed and refresh
+  authoritative discovery using SDK `cache_mode="refresh"`. Errors propagate.
+- `await collect_server_status()`: `ServerStatus.tool_cache` reports source
+  (`live`/`disk`), fetch/expiry Unix timestamps, and raw tool count;
+  `connection_policy` reports the configured policy. Connection status remains
+  separate from catalog availability.
+
+### Tool catalog cache commands
+
+- `/mcp cache` shows recorded catalog provenance (`live` or `disk`), tool count,
+  fetched timestamp and age, and expiry. Missing provenance is shown as absent.
+  `/mcp` status also includes this information.
+- `/mcp cache clear [server|all]` removes snapshots and deferred advertisements while
+  retaining connected live tools without disconnecting servers. Omit the target to clear all attached servers.
+- `/mcp refresh [server|all]` connects if needed and replaces tool catalogs using
+  authoritative server discovery. Omit the target to refresh all attached servers.
+
+These commands are available in the TUI, ACP, and harness command surface.

@@ -112,6 +112,15 @@ class CommonAgentOptions:
         )
 
     @staticmethod
+    def model_picker():
+        return typer.Option(
+            False,
+            "--model-picker",
+            "-mp",
+            help="Force the startup model selector (interactive terminal only; no --model or --resume)",
+        )
+
+    @staticmethod
     def agent():
         return typer.Option(
             None,

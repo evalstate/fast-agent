@@ -127,3 +127,21 @@ async def test_run_prompt_once_converts_eof_to_eof_command() -> None:
     )
 
     assert isinstance(result, EOFCommand)
+
+
+def test_prompt_refreshes_toolbar_without_keyboard_input() -> None:
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import DummyInput
+    from prompt_toolkit.output import DummyOutput
+
+    with create_app_session(input=DummyInput(), output=DummyOutput()):
+        prompt = input_runtime.create_prompt_session(
+            history=None,
+            completer=None,
+            lexer=None,
+            multiline_filter=False,
+            toolbar=lambda: "MCP 0/1",
+            style=None,
+        )
+    assert prompt.app.refresh_interval is not None
+    assert 0 < prompt.app.refresh_interval <= 1
