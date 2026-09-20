@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 
+from fast_agent.llm.provider.copilot import broker
 from fast_agent.llm.provider.copilot.models import get_copilot_model
 from fast_agent.llm.provider.copilot.policy import (
     apply_policy,
@@ -32,7 +33,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
 from fast_agent.llm.provider_types import Provider
 
 if TYPE_CHECKING:
-    from fast_agent.llm.provider.copilot.endpoint import CopilotEndpoint
+    from fast_agent.llm.provider.copilot.broker import CopilotEndpoint
     from fast_agent.types import RequestParams
 
 
@@ -82,9 +83,7 @@ class CopilotResponsesLLM(ResponsesLLM):
             raise ValueError("Copilot Responses requires a Responses model.")
         if self.provider_managed_mcp_state.has_servers():
             raise ValueError("Copilot native MCP is not supported.")
-        from fast_agent.llm.provider.copilot.broker import get_copilot_broker
-
-        endpoint = await get_copilot_broker(self.context).resolve(
+        endpoint = await broker.get_copilot_broker(self.context).resolve(
             model, owner_id=self._copilot_owner_id, transport=transport
         )
         self._copilot_endpoint.set(endpoint)
@@ -194,6 +193,5 @@ class CopilotResponsesLLM(ResponsesLLM):
         exclude_fields: set | None = None,
     ) -> dict:
         arguments = super().prepare_provider_arguments(base_args, request_params, exclude_fields)
-        spec = get_copilot_model(self._copilot_endpoint.get().model_id)
         endpoint = self._copilot_endpoint.get()
-        return apply_policy(arguments, spec, endpoint.headers)
+        return apply_policy(arguments, get_copilot_model(endpoint.model_id), endpoint.headers)

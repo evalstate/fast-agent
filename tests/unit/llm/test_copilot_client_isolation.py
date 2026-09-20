@@ -13,7 +13,7 @@ import pytest
 
 from fast_agent.config import Settings
 from fast_agent.context import Context
-from fast_agent.llm.provider.copilot.endpoint import CopilotEndpoint
+from fast_agent.llm.provider.copilot.broker import CopilotEndpoint
 from fast_agent.llm.provider.copilot.messages import CopilotMessagesLLM
 from fast_agent.llm.provider.copilot.responses import CopilotResponsesLLM
 

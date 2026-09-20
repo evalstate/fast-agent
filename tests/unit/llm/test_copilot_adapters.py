@@ -20,7 +20,7 @@ from fast_agent.context import Context
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import load_model_overlay_registry
-from fast_agent.llm.provider.copilot.endpoint import CopilotEndpoint
+from fast_agent.llm.provider.copilot.broker import CopilotEndpoint
 from fast_agent.llm.provider.copilot.messages import CopilotMessagesLLM
 from fast_agent.llm.provider.copilot.models import get_copilot_model
 from fast_agent.llm.provider.copilot.policy import request_headers

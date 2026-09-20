@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass, field
 from importlib.metadata import version
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Literal
 
 from fast_agent.config import CopilotSettings
 from fast_agent.core.exceptions import ProviderKeyError
-from fast_agent.llm.provider.copilot.endpoint import CopilotEndpoint, Transport
 from fast_agent.llm.provider.copilot.models import get_copilot_model
 from fast_agent.llm.provider.copilot.oauth import (
     CopilotAuthenticationError,
@@ -17,9 +17,28 @@ from fast_agent.llm.provider.copilot.oauth import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from fast_agent.context import Context
 
 _USER_AGENT: Final = f"fast-agent/{version('fast-agent-mcp')}"
+
+Transport = Literal["sse", "websocket"]
+
+
+@dataclass(frozen=True)
+class CopilotEndpoint:
+    """Secret-bearing endpoint binding shared by the broker and the protocol adapters."""
+
+    model_id: str
+    wire_api: Literal["messages", "responses"]
+    transport: Transport
+    base_url: str = field(repr=False)
+    headers: Mapping[str, str] = field(repr=False)
+
+
+def copilot_settings(context: Context) -> CopilotSettings:
+    return context.config.copilot if context.config else CopilotSettings()
 
 
 class CopilotBroker:
@@ -88,4 +107,4 @@ class CopilotBroker:
 
 
 def get_copilot_broker(context: Context) -> CopilotBroker:
-    return CopilotBroker(context.config.copilot if context.config else CopilotSettings())
+    return CopilotBroker(copilot_settings(context))

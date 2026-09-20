@@ -8,14 +8,15 @@ from uuid import uuid4
 
 from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient, omit
 
-from fast_agent.config import AnthropicSettings, CopilotSettings
+from fast_agent.config import AnthropicSettings
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM, CacheTTL
+from fast_agent.llm.provider.copilot import broker
+from fast_agent.llm.provider.copilot.broker import CopilotEndpoint, copilot_settings
 from fast_agent.llm.provider.copilot.models import get_copilot_model
 from fast_agent.llm.provider.copilot.policy import apply_policy, reject_overrides
 from fast_agent.llm.provider_types import Provider
 
 if TYPE_CHECKING:
-    from fast_agent.llm.provider.copilot.endpoint import CopilotEndpoint
     from fast_agent.llm.structured_output_mode import StructuredOutputMode
     from fast_agent.types import RequestParams
 
@@ -58,9 +59,7 @@ class CopilotMessagesLLM(AnthropicLLM):
     async def _prepare_anthropic_client(self, model: str) -> None:
         if self.provider_managed_mcp_state.has_servers():
             raise ValueError("Copilot native MCP is not supported.")
-        from fast_agent.llm.provider.copilot.broker import get_copilot_broker
-
-        endpoint = await get_copilot_broker(self.context).resolve(
+        endpoint = await broker.get_copilot_broker(self.context).resolve(
             model, owner_id=self._copilot_owner_id, transport="sse"
         )
         self._copilot_endpoint.set(endpoint)
@@ -103,12 +102,11 @@ class CopilotMessagesLLM(AnthropicLLM):
         return False
 
     def _get_cache_mode(self) -> str:
-        settings = self.context.config.copilot if self.context.config else CopilotSettings()
-        return settings.cache_mode
+        return copilot_settings(self.context).cache_mode
 
     def _get_cache_ttl(self) -> CacheTTL:
         # Reuse model defaults/planning, not direct Anthropic account configuration.
-        settings = self.context.config.copilot if self.context.config else CopilotSettings()
+        settings = copilot_settings(self.context)
         return settings.cache_ttl or self.resolved_model.cache_ttl or AnthropicSettings().cache_ttl
 
     def _cache_diagnostics_enabled(self) -> bool:
