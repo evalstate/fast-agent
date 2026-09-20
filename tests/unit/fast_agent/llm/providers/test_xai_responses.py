@@ -12,7 +12,11 @@ from openai.types.responses.response_usage import InputTokensDetails, OutputToke
 from pydantic import ValidationError
 
 from fast_agent.config import Settings, XAISettings, XAIWebSearchSettings
-from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS, OPENAI_REASONING_ENCRYPTED
+from fast_agent.constants import (
+    DEFAULT_STREAMING_TIMEOUT,
+    OPENAI_ASSISTANT_MESSAGE_ITEMS,
+    OPENAI_REASONING_ENCRYPTED,
+)
 from fast_agent.context import Context
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
@@ -331,13 +335,13 @@ def test_xai_responses_default_model_used_when_model_missing() -> None:
     ("model", "reasoning_effort", "expected_timeout"),
     [
         ("grok-4.5", "high", GROK_EXTENDED_STREAMING_TIMEOUT),
-        ("grok-4.5", "medium", 120.0),
-        ("grok-4.5", "low", 120.0),
+        ("grok-4.5", "medium", DEFAULT_STREAMING_TIMEOUT),
+        ("grok-4.5", "low", DEFAULT_STREAMING_TIMEOUT),
         ("grok-4.6", "high", GROK_EXTENDED_STREAMING_TIMEOUT),
         ("grok-4.6", "xhigh", GROK_EXTENDED_STREAMING_TIMEOUT),
-        ("grok-4.6", "medium", 120.0),
-        ("grok-4.6", "low", 120.0),
-        ("grok-4.3", "high", 120.0),
+        ("grok-4.6", "medium", DEFAULT_STREAMING_TIMEOUT),
+        ("grok-4.6", "low", DEFAULT_STREAMING_TIMEOUT),
+        ("grok-4.3", "high", DEFAULT_STREAMING_TIMEOUT),
     ],
 )
 def test_xai_high_reasoning_gets_extended_streaming_timeout(
