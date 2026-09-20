@@ -1828,7 +1828,7 @@ async def test_websocket_completion_ws_records_phase_diagnostics() -> None:
 def test_successful_sse_stream_timing_is_attached_to_diagnostics_channel() -> None:
     harness = _TransportHarness(name="transport-harness", transport="sse")
     harness._last_transport_used = "sse"
-    harness._record_successful_stream_timing(
+    harness._record_stream_outcome(
         StreamTiming(
             events_received=3,
             first_event_wait_seconds=1.25,
@@ -1836,7 +1836,9 @@ def test_successful_sse_stream_timing_is_attached_to_diagnostics_channel() -> No
             inter_event_waits_over_threshold=0,
             timed_out_wait_seconds=None,
         ),
+        error=None,
         model="gpt-5.3-codex",
+        timeout_seconds=150.0,
         transport="sse",
     )
 
@@ -1868,18 +1870,25 @@ def test_successful_stream_warns_once_for_exceptional_inter_event_gap() -> None:
         timed_out_wait_seconds=None,
     )
 
-    harness._record_successful_stream_timing(
+    harness._record_stream_outcome(
         timing,
+        error=None,
         model="gpt-5.3-codex",
+        timeout_seconds=150.0,
         transport="websocket",
     )
 
     assert harness._capturing_logger.warning_messages == [
-        "Responses stream observed extended inter-event gap"
+        "Provider stream observed extended inter-event gap"
     ]
     assert harness._capturing_logger.warning_data == [
         {
             "model": "gpt-5.3-codex",
+            "phase": "stream",
+            "timeout_seconds": 150.0,
+            "call": 0,
+            "attempt": 1,
+            "max_attempts": 1,
             "transport": "websocket",
             "stream_timing": {
                 "events_received": 4,
@@ -1895,7 +1904,7 @@ def test_successful_stream_warns_once_for_exceptional_inter_event_gap() -> None:
 def test_slow_first_event_does_not_trigger_inter_event_gap_warning() -> None:
     harness = _ConnectionLifecycleHarness()
 
-    harness._record_successful_stream_timing(
+    harness._record_stream_outcome(
         StreamTiming(
             events_received=2,
             first_event_wait_seconds=35.0,
@@ -1903,7 +1912,9 @@ def test_slow_first_event_does_not_trigger_inter_event_gap_warning() -> None:
             inter_event_waits_over_threshold=0,
             timed_out_wait_seconds=None,
         ),
+        error=None,
         model="gpt-5.3-codex",
+        timeout_seconds=150.0,
         transport="websocket",
     )
 

@@ -56,9 +56,7 @@ from fast_agent.llm.provider.openai.structured_output import OpenAIStructuredOut
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider.reasoning_config import reasoning_setting_from_config
 from fast_agent.llm.provider.streaming_timeouts import (
-    StreamTiming,
     await_stream_start,
-    stream_timing_payload,
     with_stream_idle_timeout,
 )
 from fast_agent.llm.provider_types import Provider
@@ -1242,11 +1240,17 @@ class OpenAILLM(
         capture_filename: Path | None,
     ) -> _OpenAICompletionResponse:
         timeout = request.params.streaming_timeout
-        stream = await await_stream_start(
-            client.chat.completions.create(**request.arguments),
-            timeout_seconds=timeout,
-            timeout_message=f"OpenAI stream did not start within {timeout} seconds.",
-        )
+        try:
+            stream = await await_stream_start(
+                client.chat.completions.create(**request.arguments),
+                timeout_seconds=timeout,
+                timeout_message=f"OpenAI stream did not start within {timeout} seconds.",
+            )
+        except Exception as error:
+            self._record_stream_outcome(
+                None, error=error, model=request.model_name, timeout_seconds=timeout
+            )
+            raise
         timed_stream = with_stream_idle_timeout(
             stream,
             idle_timeout_seconds=timeout,
@@ -1284,38 +1288,18 @@ class OpenAILLM(
                 streamed_reasoning,
                 source="OpenAI non-streaming fallback response",
             )
-        except TimeoutError:
-            self._record_stream_failure(timed_stream.timing)
-            if timeout is None:
-                raise
-            self.logger.error(
-                "Streaming idle timeout while waiting for OpenAI completion",
-                data={
-                    "model": request.model_name,
-                    "timeout_seconds": timeout,
-                    "stream_timing": stream_timing_payload(timed_stream.timing, timed_out=True),
-                },
+        except Exception as error:
+            # Mid-stream failures (idle timeouts, truncated chunked responses, resets)
+            # restart the whole turn, so record how far this attempt got.
+            self._record_stream_outcome(
+                timed_stream.timing, error=error, model=request.model_name, timeout_seconds=timeout
             )
             raise
-        except Exception:
-            # Mid-stream failures (truncated chunked responses, resets) restart the
-            # whole turn, so record how far this attempt got for retry telemetry.
-            self._record_stream_failure(timed_stream.timing)
-            raise
         else:
-            self._record_stream_gap_observation(timed_stream.timing, model=request.model_name)
+            self._record_stream_outcome(
+                timed_stream.timing, error=None, model=request.model_name, timeout_seconds=timeout
+            )
         return _OpenAICompletionResponse(response, streamed_reasoning)
-
-    def _record_stream_gap_observation(self, timing: StreamTiming, *, model: str) -> None:
-        if not timing.inter_event_waits_over_threshold:
-            return
-        self.logger.warning(
-            "OpenAI stream observed extended inter-event gap",
-            data={
-                "model": model,
-                "stream_timing": stream_timing_payload(timing, timed_out=False),
-            },
-        )
 
     async def _run_openai_completion_request(
         self,
