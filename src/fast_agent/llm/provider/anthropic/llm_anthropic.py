@@ -93,6 +93,7 @@ from fast_agent.llm.provider.anthropic.web_tools import (
 )
 from fast_agent.llm.provider.error_utils import build_stream_failure_response
 from fast_agent.llm.provider.streaming_timeouts import (
+    _IdleTimeoutAsyncStream,
     await_stream_start,
     enter_stream_with_timeout,
     with_stream_idle_timeout,
@@ -2286,6 +2287,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         otel_span: Span | None = None
         otel_span_error = False
         response: BetaMessage | None = None
+        timed_stream: _IdleTimeoutAsyncStream[Any] | None = None
 
         try:
             stream_method = _maybe_unwrap_otel_beta_stream(anthropic.beta.messages.stream)
@@ -2316,14 +2318,12 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                     timeout_seconds=timeout_seconds,
                     timeout_message=f"Anthropic stream did not start within {timeout_seconds} seconds.",
                 ) as raw_stream:
-                    # The timeout wrapper forwards get_final_message to the SDK stream.
-                    stream = cast(
-                        "_AnthropicMessageStream",
-                        with_stream_idle_timeout(
-                            raw_stream,
-                            idle_timeout_seconds=timeout_seconds,
-                        ),
+                    timed_stream = with_stream_idle_timeout(
+                        raw_stream,
+                        idle_timeout_seconds=timeout_seconds,
                     )
+                    # The timeout wrapper forwards get_final_message to the SDK stream.
+                    stream = cast("_AnthropicMessageStream", timed_stream)
                     (
                         response,
                         thinking_segments,
@@ -2336,13 +2336,22 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 otel_span_error = True
             if isinstance(error, APIError):
                 logger.error("Streaming APIError during Anthropic completion", exc_info=error)
+            self._record_stream_outcome(
+                timed_stream.timing if timed_stream is not None else None,
+                error=error,
+                model=model,
+                timeout_seconds=timeout_seconds,
+            )
             raise
         finally:
             if otel_span is not None:
                 _finalize_fallback_stream_span(otel_span, response, otel_span_error)
 
-        if response is None:
+        if response is None or timed_stream is None:
             raise RuntimeError("Anthropic stream completed without a final message.")
+        self._record_stream_outcome(
+            timed_stream.timing, error=None, model=model, timeout_seconds=timeout_seconds
+        )
         return response, thinking_segments, streamed_text_segments
 
     def _anthropic_response_text_blocks(
@@ -2654,8 +2663,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 ANTHROPIC_CONTAINER_CHANNEL,
                 [TextContent(type="text", text=json.dumps({"id": response.container.id}))],
             )
+        diagnostics: dict[str, Any] = {}
         if cache_diagnostics_enabled or response.diagnostics is not None:
-            diagnostics: dict[str, Any] = (
+            diagnostics = (
                 response.diagnostics.model_dump(mode="json", exclude_none=False)
                 if response.diagnostics is not None
                 else {"cache_miss_reason": None}
@@ -2669,6 +2679,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                     ),
                 }
             )
+        if self._last_stream_timing is not None:
+            diagnostics["stream_timing"] = self._last_stream_timing
+        if diagnostics:
             channels = self._add_anthropic_channel(
                 channels,
                 ANTHROPIC_CACHE_DIAGNOSTICS_CHANNEL,

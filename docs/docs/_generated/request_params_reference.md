@@ -33,7 +33,7 @@
 | `emit_loop_progress` | `bool` | `False` |  |
 | `tool_result_mode` | `Literal['postprocess', 'passthrough', 'selectable']` | `'postprocess'` |  |
 | `batch_context` | `fast_agent.llm.request_params.BatchRequestContext | None` | `None` |  |
-| `streaming_timeout` | `float | None` | `120.0` |  |
+| `streaming_timeout` | `float | None` | `150.0` |  |
 | `top_p` | `float | None` | `None` |  |
 | `top_k` | `int | None` | `None` |  |
 | `min_p` | `float | None` | `None` |  |
