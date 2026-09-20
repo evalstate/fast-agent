@@ -221,6 +221,7 @@ async def login_copilot_oauth_async() -> OAuthCredential:
         console.console.print(
             f"Open {_VERIFICATION_URI} and enter code {device.user_code}.", markup=False
         )
+        console.console.print("Waiting for GitHub approval. Ctrl+C to cancel.", markup=False)
         credential = await poll_copilot_device_code(client, device)
     # Cancellation at any await above propagates without saving.
     with _store_errors():

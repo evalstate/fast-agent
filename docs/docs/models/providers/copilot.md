@@ -26,7 +26,9 @@ fast-agent --model copilot.claude-sonnet-5
 ```
 
 Alternatively, you can use `fast-agent go` and login direct from the model
-selection screen.
+selection screen. When signed out, pressing Enter on a Copilot model starts
+the device-code login immediately. Follow the displayed GitHub URL and code;
+fast-agent waits for approval. Press Ctrl+C to cancel.
 
 NB: OAuth credentials are **not model entitlement**: your account and
 application still need access to the selected model. Routing uses the local

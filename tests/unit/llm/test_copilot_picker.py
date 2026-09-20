@@ -64,43 +64,25 @@ async def test_activate(auth, statuses, expected, login_expected):
     broker.has_credentials.side_effect = statuses
     assert await activation.activate_copilot(CopilotSettings()) is expected
     assert login.called is login_expected
-    assert confirm.called is login_expected
+    confirm.assert_not_called()
     assert broker.has_credentials.await_count == len(statuses)
 
 
 @pytest.mark.asyncio
-async def test_consent_before_login_and_recheck(auth, monkeypatch):
+async def test_login_starts_without_confirmation_and_announces_progress(auth, capsys):
     broker, login, confirm = auth
-    events = Mock()
-    blocking = Mock()
-    monkeypatch.setattr("fast_agent.ui.console.ensure_blocking_console", blocking)
-    for name, mock in [
-        ("check", broker.has_credentials),
-        ("blocking", blocking),
-        ("confirm", confirm),
-        ("login", login),
-    ]:
-        events.attach_mock(mock, name)
     broker.has_credentials.side_effect = [False, True]
+
+    async def device_login():
+        output = capsys.readouterr().err
+        assert "Starting GitHub Copilot device-code login" in output
+        assert "Ctrl+C to cancel" in output
+
+    login.side_effect = device_login
     assert await activation.activate_copilot(CopilotSettings())
-    assert [call[0] for call in events.mock_calls] == [
-        "check",
-        "blocking",
-        "confirm",
-        "login",
-        "check",
-    ]
-    assert confirm.call_args.kwargs["default"] is False
-
-
-@pytest.mark.asyncio
-async def test_decline(auth):
-    broker, login, confirm = auth
-    broker.has_credentials.return_value = False
-    confirm.return_value = False
-    assert not await activation.activate_copilot(CopilotSettings())
-    login.assert_not_called()
-    broker.has_credentials.assert_awaited_once()
+    confirm.assert_not_called()
+    login.assert_awaited_once()
+    assert broker.has_credentials.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -140,15 +122,13 @@ async def test_auth_failure_retains_help(auth, monkeypatch, capsys, stage):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error", [EOFError, KeyboardInterrupt, activation.typer.Abort])
-@pytest.mark.parametrize("stage", ["confirm", "login"])
-async def test_interactive_cancellation(auth, error, stage):
+async def test_interactive_cancellation(auth, error):
     broker, login, confirm = auth
     broker.has_credentials.return_value = False
-    (confirm if stage == "confirm" else login).side_effect = error
+    login.side_effect = error
     assert not await activation.activate_copilot(CopilotSettings())
     broker.has_credentials.assert_awaited_once()
-    if stage == "confirm":
-        login.assert_not_called()
+    confirm.assert_not_called()
 
 
 @pytest.mark.asyncio

@@ -85,7 +85,6 @@ async def test_tui_task_cancellation_stops_directly_awaited_copilot_login(
     monkeypatch.delenv("COPILOT_GITHUB_TOKEN", raising=False)
     broker = Mock(has_credentials=AsyncMock(return_value=False))
     monkeypatch.setattr(activation, "CopilotBroker", Mock(return_value=broker))
-    monkeypatch.setattr(activation.typer, "confirm", Mock(return_value=True))
     monkeypatch.setattr("fast_agent.ui.console.ensure_blocking_console", Mock())
     started = asyncio.Event()
     stopped = asyncio.Event()
