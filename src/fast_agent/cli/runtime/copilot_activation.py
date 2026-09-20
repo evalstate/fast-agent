@@ -11,7 +11,7 @@ from fast_agent.llm.provider.copilot.oauth import login_copilot_oauth_async
 
 
 async def activate_copilot(settings: CopilotSettings) -> bool:
-    """Load credentials, optionally await device login; inference determines model access."""
+    """Load credentials or start device login after explicit picker selection."""
     from fast_agent.ui import console
 
     try:
@@ -25,8 +25,7 @@ async def activate_copilot(settings: CopilotSettings) -> bool:
                 "Device login will not replace an explicit environment token.",
             )
         console.ensure_blocking_console()
-        if not typer.confirm("Copilot is signed out. Start device-code login?", default=False):
-            return False
+        typer.echo("Starting GitHub Copilot device-code login… (Ctrl+C to cancel)", err=True)
         # Await directly: task cancellation must stop polling before credentials are saved.
         await login_copilot_oauth_async()
         if not await broker.has_credentials():

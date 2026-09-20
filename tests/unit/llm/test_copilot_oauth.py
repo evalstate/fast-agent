@@ -356,6 +356,7 @@ async def test_success_displays_only_user_instructions_and_saves(
     assert stored is not None
     assert stored.credential.refresh_token is None
     rendered = str(output.call_args_list)
+    assert "Waiting for GitHub approval. Ctrl+C to cancel." in rendered
     assert USER_CODE in rendered
     assert "https://github.com/login/device" in rendered
     assert TOKEN not in rendered
