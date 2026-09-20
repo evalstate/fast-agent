@@ -3,7 +3,6 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import click
 import typer.main
 
 from fast_agent.cli.main import LAZY_SUBCOMMAND_HELP, LAZY_SUBCOMMANDS, LazyGroup, app
@@ -35,7 +34,7 @@ def test_root_help_does_not_import_lazy_subcommands() -> None:
 def test_root_help_metadata_matches_subcommand_help() -> None:
     root_command = typer.main.get_command(app)
     assert isinstance(root_command, LazyGroup)
-    context = click.Context(root_command)
+    context = typer.Context(root_command)
 
     assert LAZY_SUBCOMMAND_HELP.keys() == LAZY_SUBCOMMANDS.keys()
     for command_name, expected_help in LAZY_SUBCOMMAND_HELP.items():

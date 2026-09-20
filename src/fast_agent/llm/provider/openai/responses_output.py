@@ -50,6 +50,7 @@ class ResponsesOutputMixin:
         def _finalize_turn_usage(
             self,
             usage: TurnUsage,
+            /,
             *,
             requested_service_tier: Literal["fast", "flex"] | None = None,
         ) -> None: ...

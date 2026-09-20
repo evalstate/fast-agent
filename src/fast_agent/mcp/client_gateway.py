@@ -241,9 +241,8 @@ async def open_request_scoped_client(
         try:
             yield connection
         except BaseException as exc:
-            suppressed = await connection.__aexit__(type(exc), exc, exc.__traceback__)
-            if not suppressed:
-                raise
+            await connection.__aexit__(type(exc), exc, exc.__traceback__)
+            raise
         else:
             await connection.__aexit__(None, None, None)
         return
@@ -350,7 +349,6 @@ def _create_transport(
         headers=prepared_auth.headers,
         auth=prepared_auth.oauth_provider,
         timeout=_http_timeout(config),
-        follow_redirects=True,
         event_hooks=_http_diagnostic_hooks(server_name, hooks),
     )
     return _managed_http_transport_context(

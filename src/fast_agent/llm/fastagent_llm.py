@@ -96,6 +96,7 @@ _RETRYABLE_PROVIDER_KEY_ERROR_TERMS = (
     "timeout",
 )
 _NON_RETRYABLE_CONTEXT_ERROR_CODES = ("context_length_exceeded",)
+_NON_RETRYABLE_REQUEST_ERROR_CODES = (*_NON_RETRYABLE_CONTEXT_ERROR_CODES, "model_not_supported")
 
 # Forward reference for type annotations
 if TYPE_CHECKING:
@@ -749,6 +750,18 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         if isinstance(error, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
             return True
 
+        # Deferred: this module must stay importable without the OpenAI/WebSocket SDKs.
+        from fast_agent.llm.provider.openai.responses_websocket import ResponsesWebSocketError
+
+        if isinstance(error, ResponsesWebSocketError):
+            if error.status == 400:
+                return True
+            if (
+                error.error_code
+                and casefold_text(error.error_code) in _NON_RETRYABLE_REQUEST_ERROR_CODES
+            ):
+                return True
+
         exception_module_roots = {
             exception_type.__module__.partition(".")[0] for exception_type in type(error).__mro__
         }
@@ -767,7 +780,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 return True
             if isinstance(error, OpenAIAPIError) and isinstance(error.code, str):
                 code = casefold_text(error.code)
-                if code in _NON_RETRYABLE_CONTEXT_ERROR_CODES:
+                if code in _NON_RETRYABLE_REQUEST_ERROR_CODES:
                     return True
 
         message = casefold_text(str(error))
@@ -1669,7 +1682,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _provider_api_key(self):
         from fast_agent.llm.provider_key_manager import ProviderKeyManager
 
-        assert self.provider
         return ProviderKeyManager.get_api_key(self.provider.config_name, self.context.config)
 
     def _base_url(self) -> str | None:

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, NoReturn, Protocol, cast
 from acp.exceptions import RequestError
 from acp.helpers import update_agent_message, update_user_message
 from acp.schema import (
+    AcpMcpServer,
     AgentMessageChunk,
     HttpMcpServer,
     ListSessionsResponse,
@@ -68,7 +69,7 @@ class SessionStoreHost(Protocol):
         session_id: str,
         *,
         cwd: str,
-        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio],
+        mcp_servers: list[HttpMcpServer | SseMcpServer | AcpMcpServer | McpServerStdio],
     ) -> SessionStateInitialization: ...
 
     async def _rollback_session_initialization(self, session_id: str) -> None: ...
@@ -382,7 +383,8 @@ class ACPServerSessionStore:
         self,
         cwd: str,
         session_id: str,
-        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio] | None = None,
+        mcp_servers: list[HttpMcpServer | SseMcpServer | AcpMcpServer | McpServerStdio]
+        | None = None,
         **kwargs: Any,
     ) -> LoadSessionResponse | None:
         _ = kwargs
@@ -490,7 +492,8 @@ class ACPServerSessionStore:
         self,
         cwd: str,
         session_id: str,
-        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio] | None = None,
+        mcp_servers: list[HttpMcpServer | SseMcpServer | AcpMcpServer | McpServerStdio]
+        | None = None,
         **kwargs: Any,
     ) -> ResumeSessionResponse:
         """Alias for session/load to support unstable session/resume."""
@@ -510,7 +513,7 @@ class ACPServerSessionStore:
         )
         if response is None:
             self._raise_session_not_found(session_id=session_id, request_cwd=request_cwd)
-        return ResumeSessionResponse(modes=response.modes, models=response.models)
+        return ResumeSessionResponse(modes=response.modes, config_options=response.config_options)
 
     @staticmethod
     def _encode_session_list_cursor(offset: int) -> str:

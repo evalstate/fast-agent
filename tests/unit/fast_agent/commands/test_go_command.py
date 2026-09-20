@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from click.utils import strip_ansi
+from typer._click.utils import strip_ansi
 from typer.testing import CliRunner
 
 from fast_agent.cli.commands import go as go_command

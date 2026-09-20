@@ -30,8 +30,8 @@ from fast_agent.agents.agent_types import (
     ScopedFunctionToolConfig,
     SkillConfig,
 )
-from fast_agent.agents.workflow.iterative_planner import ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE
-from fast_agent.agents.workflow.router_agent import (
+from fast_agent.agents.workflow.prompts import (
+    ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE,
     ROUTING_SYSTEM_INSTRUCTION,
 )
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION

@@ -2,8 +2,8 @@ import io
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from click.utils import strip_ansi
 from rich.console import Console
+from typer._click.utils import strip_ansi
 
 from fast_agent.mcp.app_integrations import AppServerConfig
 from fast_agent.mcp.mcp_aggregator import ServerStatus

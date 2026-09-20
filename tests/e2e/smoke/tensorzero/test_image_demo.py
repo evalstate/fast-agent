@@ -1,5 +1,5 @@
-import asyncio
 import importlib.util
+import inspect
 import sys
 from pathlib import Path
 
@@ -35,7 +35,7 @@ async def test_tensorzero_image_demo_smoke(project_root):
     try:
         image_demo_module = import_from_path("image_demo_module", image_demo_script_path)
         main_func = getattr(image_demo_module, "main", None)
-        if not main_func or not asyncio.iscoroutinefunction(main_func):
+        if not main_func or not inspect.iscoroutinefunction(main_func):
             pytest.fail(f"'main' async function not found in {image_demo_script_path}")
 
         print("Executing image_demo.main()...")

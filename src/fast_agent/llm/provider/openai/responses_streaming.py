@@ -581,28 +581,43 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
     async def _handle_responses_reasoning_delta(
         self,
         *,
-        event: Any,
+        event: object,
         event_type: str | None,
         reasoning_segments: ReasoningTextAccumulator,
-        reasoning_summary_parts: dict[tuple[str, int], ReasoningTextAccumulator],
+        reasoning_summary_parts: dict[tuple[int | str, int], ReasoningTextAccumulator],
         reasoning_chars: int,
         model: str,
     ) -> tuple[bool, int]:
-        if not isinstance(
-            event,
-            (ResponseReasoningSummaryTextDeltaEvent, ResponseReasoningTextDeltaEvent),
-        ) and not is_responses_reasoning_delta_event(event_type):
+        if isinstance(event, ResponseReasoningSummaryTextDeltaEvent):
+            delta = event.delta
+            output_index = event.output_index
+            item_id = event.item_id
+            summary_index = event.summary_index
+        elif isinstance(event, ResponseReasoningTextDeltaEvent):
+            delta = event.delta
+            output_index = item_id = summary_index = None
+        elif is_responses_reasoning_delta_event(event_type):
+            # Legacy aliases and untyped provider events may omit the indexes.
+            payload = snapshot_json_value(event)
+            if not isinstance(payload, dict):
+                return True, reasoning_chars
+            delta = payload.get("delta")
+            output_index = payload.get("output_index")
+            item_id = payload.get("item_id")
+            summary_index = payload.get("summary_index")
+        else:
             return False, reasoning_chars
 
-        delta = getattr(event, "delta", None)
-        if not delta:
+        if not isinstance(delta, str) or not delta:
             return True, reasoning_chars
 
-        item_id = getattr(event, "item_id", None)
-        summary_index = getattr(event, "summary_index", None)
+        # Output positions identify items within this stream. Some gateways rotate
+        # item_id on every delta, which must not create artificial summary parts.
+        # Keep the string ID fallback separate from integer output positions.
+        item_key = output_index if isinstance(output_index, int) else item_id
         starts_new_part = False
-        if isinstance(item_id, str) and isinstance(summary_index, int):
-            part_key = (item_id, summary_index)
+        if isinstance(item_key, (int, str)) and isinstance(summary_index, int):
+            part_key = (item_key, summary_index)
             part = reasoning_summary_parts.get(part_key)
             if part is None:
                 part = ReasoningTextAccumulator()
@@ -681,7 +696,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         estimated_tokens = 0
         reasoning_chars = 0
         reasoning_segments = ReasoningTextAccumulator(normalizer=normalize_reasoning_delta)
-        reasoning_summary_parts: dict[tuple[str, int], ReasoningTextAccumulator] = {}
+        reasoning_summary_parts: dict[tuple[int | str, int], ReasoningTextAccumulator] = {}
         tool_state = OpenAIToolStreamState()
         notified_tool_indices: set[int] = set()
         notified_tool_use_ids: set[str] = set()
@@ -737,13 +752,21 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 code = getattr(error, "code", None)
                 if not isinstance(message, str) or not message:
                     message = "Responses stream failed."
-                body: dict[str, Any] = {"message": message}
+                body: dict[str, object] = {"message": message}
                 if isinstance(code, str) and code:
                     body["code"] = code
+                param = getattr(error, "param", None)
+                if isinstance(param, str):
+                    body["param"] = param
+                # A flat event's type is the event discriminator, not an API error type.
+                if response is not None:
+                    error_type = getattr(error, "type", None)
+                    if isinstance(error_type, str):
+                        body["type"] = error_type
                 raise APIError(
                     message,
                     request=httpx2.Request("POST", "https://responses.invalid/responses"),
-                    body={"error": body},
+                    body=body,
                 )
             if self._handle_responses_tool_stream_event(
                 event=event,

@@ -18,6 +18,7 @@ from typing import (
 )
 
 if TYPE_CHECKING:
+    from a2a.types import AgentCard
     from rich.text import Text
 
     from fast_agent.agents.llm_agent import LlmAgent
@@ -26,7 +27,6 @@ if TYPE_CHECKING:
     from fast_agent.hooks.lifecycle_hook_types import LifecycleHookType
     from fast_agent.session.trajectory import TrajectoryRecord
 
-from a2a.types import AgentCard
 from mcp import ListToolsResult, Tool
 from mcp_types import (
     CallToolResult,
@@ -1571,7 +1571,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         return result
 
-    async def agent_card(self) -> AgentCard:
+    async def agent_card(self) -> "AgentCard":
         """
         Return an A2A card describing this Agent
         """

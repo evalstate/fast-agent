@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.formatted_text import to_formatted_text
+from prompt_toolkit.formatted_text import StyleAndTextTuples, to_formatted_text
 from prompt_toolkit.styles import Style
 from rich.markup import escape as escape_markup
 
@@ -134,7 +134,7 @@ def _track_accept_state(
 def _prompt_text_with_end_mark(
     resolve_prompt_text: "Callable[[], AnyFormattedText]",
     prompt_end_state: dict[str, bool],
-) -> object:
+) -> StyleAndTextTuples:
     fragments = list(to_formatted_text(resolve_prompt_text()))
     if not prompt_end_state["emitted"]:
         sequence = prompt_mark_sequence("B")

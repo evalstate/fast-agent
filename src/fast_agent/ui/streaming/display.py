@@ -6,9 +6,9 @@ import sys
 import time
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import IO, TYPE_CHECKING, Any, Protocol, TextIO, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, TextIO, cast, runtime_checkable
 
-from rich.console import Console, Group, RenderHook
+from rich.console import Console, Group
 from rich.control import Control
 from rich.file_proxy import FileProxy
 from rich.live import Live
@@ -334,7 +334,7 @@ def _elapsed_ms(newer: object, older: object) -> float | None:
     return None
 
 
-class _DiffLive(RenderHook):
+class _DiffLive(Live):
     """Minimal live-region renderer that updates changed lines in place."""
 
     def __init__(
@@ -351,19 +351,20 @@ class _DiffLive(RenderHook):
         vertical_overflow: str = "ellipsis",
         get_renderable: Callable[[], RenderableType] | None = None,
     ) -> None:
+        # Initialize Rich's Live contract for console registration and nesting.
+        # Diff rendering owns refresh and terminal state instead of Rich's timer.
+        super().__init__(
+            renderable,
+            console=console,
+            auto_refresh=False,
+            transient=transient,
+            redirect_stdout=redirect_stdout,
+            redirect_stderr=redirect_stderr,
+            get_renderable=get_renderable,
+        )
         del screen, auto_refresh, refresh_per_second, vertical_overflow
-        self.console = console
-        self.transient = transient
-        self._renderable = renderable
-        self._get_renderable = get_renderable
-        self._started = False
         self._lines: list[_RenderedLine] = []
         self._is_interactive = self.console.is_terminal
-        self._nested = False
-        self._redirect_stdout = redirect_stdout
-        self._redirect_stderr = redirect_stderr
-        self._restore_stdout: IO[str] | None = None
-        self._restore_stderr: IO[str] | None = None
         self._console_state_active = False
         self._cursor_below_frame = False
         self._frame_truncated = False
@@ -382,9 +383,6 @@ class _DiffLive(RenderHook):
                 self._console_state_active = True
         return self
 
-    def __exit__(self, *_args: object) -> None:
-        self.stop()
-
     def update(self, renderable: RenderableType, *, refresh: bool = False) -> None:
         self._renderable = renderable
         if refresh:
@@ -394,8 +392,6 @@ class _DiffLive(RenderHook):
         if not self._started:
             self.__enter__()
         renderable = self.get_renderable()
-        if renderable is None:
-            return
         if not self._is_interactive or self._nested:
             return
         lines = self._render_lines(renderable)
@@ -439,8 +435,7 @@ class _DiffLive(RenderHook):
 
     def _print_current_renderable(self) -> None:
         renderable = self.get_renderable()
-        if renderable is not None:
-            self.console.print(renderable)
+        self.console.print(renderable)
 
     def _stop_interactive(self) -> None:
         if self._nested:
@@ -464,10 +459,7 @@ class _DiffLive(RenderHook):
         if self._frame_truncated:
             self._clear_region()
             renderable = self.get_renderable()
-            if renderable is not None:
-                self.console.print(renderable)
-            else:
-                self._write("\n")
+            self.console.print(renderable)
             return
         if not self._cursor_below_frame:
             self._write("\n")
@@ -480,11 +472,6 @@ class _DiffLive(RenderHook):
         self.console.show_cursor(True)
         self._console_state_active = False
 
-    def get_renderable(self) -> RenderableType | None:
-        if self._get_renderable is not None:
-            return self._get_renderable()
-        return self._renderable
-
     def process_renderables(
         self,
         renderables: list["ConsoleRenderable"],
@@ -492,8 +479,6 @@ class _DiffLive(RenderHook):
         if not self._is_interactive or not self._started or self._nested:
             return renderables
         renderable = self.get_renderable()
-        if renderable is None:
-            return renderables
         if isinstance(renderable, str):
             current_renderable: ConsoleRenderable = self.console.render_str(renderable)
         else:

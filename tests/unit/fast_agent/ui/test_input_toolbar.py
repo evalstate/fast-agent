@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+import pytest
 from prompt_toolkit.formatted_text import HTML, to_formatted_text
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -191,6 +192,80 @@ def test_build_middle_segment_prefixes_codex_before_overlay() -> None:
 
     assert "∞gpt-5-codex" in middle
     assert "▼gpt-5-codex" not in middle
+
+
+@pytest.mark.parametrize(
+    ("model_name", "runtime_provider", "expected_label"),
+    [
+        ("gpt-5.6-terra", Provider.COPILOT, "(cp) gpt-5.6-terra"),
+        ("claude-sonnet-5", Provider.COPILOT, "(cp) claude-sonnet-5"),
+        ("copilot.gpt-5.6-terra", Provider.COPILOT, "(cp) gpt-5.6-terra"),
+        ("copilot.gpt-5.6-terra?reasoning=high", None, "(cp) gpt-5.6-terra"),
+        ("copilot/claude-sonnet-5", None, "(cp) claude-sonnet-5"),
+        ("gpt-5.6-terra", Provider.RESPONSES, "gpt-5.6-terra"),
+        ("claude-sonnet-5", Provider.ANTHROPIC, "claude-sonnet-5"),
+        ("gpt-5.6-terra", None, "gpt-5.6-terra"),
+        ("copilot-custom", None, "copilot-custom"),
+        ("openrouter/copilot/gpt-5.6-terra", None, "gpt-5.6-terra"),
+        ("copilot.gpt-5.6-terra", Provider.GENERIC, "gpt-5.6-terra"),
+        ("gpt-5-codex", Provider.CODEX_RESPONSES, "∞gpt-5-codex"),
+        ("anthropic-vertex/claude", None, "claude · Vertex"),
+    ],
+)
+def test_toolbar_copilot_label_preserves_model_identity(
+    model_name: str, runtime_provider: Provider | None, expected_label: str
+) -> None:
+    llm = (
+        _StubLlm(model_name=model_name, provider=runtime_provider)
+        if runtime_provider is not None
+        else None
+    )
+    agent = _StubAgent(config=_StubConfig(model=model_name), message_history=[], _llm=llm)
+    provider = cast("AgentApp", _StubAgentProvider(agent))
+    result = _resolve_toolbar_agent_state_cached("agent", provider, cache=ToolbarRenderCache())
+
+    middle = _build_middle_segment(result.state, shortcut_text="")
+
+    assert f">{expected_label}</style>" in middle
+    assert middle.count("(cp) ") == int(expected_label.startswith("(cp) "))
+    assert result.state.model_name == model_name
+    assert agent.config.model == model_name
+    if llm is not None:
+        assert llm.model_name == model_name
+        assert llm.provider is runtime_provider
+
+
+def test_toolbar_copilot_label_refreshes_on_llm_swap() -> None:
+    agent = _StubAgent(
+        config=_StubConfig(model="gpt-5.6-terra"),
+        message_history=[],
+        _llm=_StubLlm(model_name="gpt-5.6-terra", provider=Provider.RESPONSES),
+    )
+    provider = cast("AgentApp", _StubAgentProvider(agent))
+    cache = ToolbarRenderCache()
+    native = _resolve_toolbar_agent_state_cached("agent", provider, cache=cache)
+    agent._llm = _StubLlm(model_name="gpt-5.6-terra", provider=Provider.COPILOT)
+    copilot = _resolve_toolbar_agent_state_cached("agent", provider, cache=cache)
+    cached = _resolve_toolbar_agent_state_cached("agent", provider, cache=cache)
+
+    assert "(cp) " not in _build_middle_segment(native.state, shortcut_text="")
+    assert "(cp) gpt-5.6-terra" in _build_middle_segment(copilot.state, shortcut_text="")
+    assert copilot.cache_hit is False
+    assert cached.cache_hit is True
+    assert native.state.model_name == copilot.state.model_name == "gpt-5.6-terra"
+
+
+def test_build_middle_segment_preserves_copilot_overlay_label() -> None:
+    middle = _build_middle_segment(
+        ToolbarAgentState(
+            model_display="custom-model",
+            is_copilot_model=True,
+            is_overlay_model=True,
+        ),
+        shortcut_text="",
+    )
+
+    assert "(cp) ▼custom-model" in middle
 
 
 def test_build_middle_segment_renders_attachment_indicator() -> None:

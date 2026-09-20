@@ -192,7 +192,7 @@ class _HistoryTurnDisplayContext:
         pre_content = render_sources_pre_content(message)
 
         if not _should_render_assistant_message(
-            rendered_remote_activities=rendered_remote_activities,
+            has_tool_activity=rendered_remote_activities or bool(message.tool_calls),
             last_text=last_text,
             additional_message=additional_message,
             pre_content=pre_content,
@@ -296,14 +296,14 @@ def _append_web_activity_badges(additional_message: Text | None, badges: list[st
 
 def _should_render_assistant_message(
     *,
-    rendered_remote_activities: bool,
+    has_tool_activity: bool,
     last_text: str | None,
     additional_message: Text | None,
     pre_content: Any,
     badges: list[str],
 ) -> bool:
     return not (
-        rendered_remote_activities
+        has_tool_activity
         and last_text is None
         and additional_message is None
         and pre_content is None

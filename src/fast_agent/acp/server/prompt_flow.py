@@ -231,7 +231,7 @@ class ACPPromptFlow:
                 )
                 return PromptResponse(
                     stop_reason=CANCELLED,
-                    user_message_id=message_id,
+                    field_meta={"user_message_id": message_id} if message_id is not None else None,
                 )
             finally:
                 await self._mark_prompt_inactive(session_id)
@@ -384,8 +384,11 @@ class ACPPromptFlow:
 
         return PromptResponse(
             stop_reason=acp_stop_reason,
-            field_meta=status_line_meta,
-            user_message_id=message_id,
+            field_meta=(
+                {**(status_line_meta or {}), "user_message_id": message_id}
+                if message_id is not None
+                else status_line_meta
+            ),
         )
 
     async def _send_prompt_to_agent(
@@ -602,7 +605,7 @@ class ACPPromptFlow:
 
         return PromptResponse(
             stop_reason=END_TURN,
-            user_message_id=message_id,
+            field_meta={"user_message_id": message_id} if message_id is not None else None,
         )
 
     async def _prepare_streaming_context(

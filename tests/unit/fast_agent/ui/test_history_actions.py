@@ -160,3 +160,52 @@ async def test_display_history_turn_passes_stored_tool_metadata(monkeypatch) -> 
             "tool_call_id": "call_1",
         }
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("commentary", [None, "Waiting for the checks."])
+async def test_review_user_turn_preserves_process_activity_without_empty_bubble(
+    monkeypatch, commentary: str | None
+) -> None:
+    from mcp_types import CallToolResult
+
+    from fast_agent.commands.history_summaries import collect_user_turns
+    from fast_agent.types.llm_stop_reason import LlmStopReason
+
+    display = _capture_history_display(monkeypatch)
+    history = [
+        PromptMessageExtended(role="user", content=[TextContent(type="text", text="Run checks")]),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text=commentary)] if commentary else [],
+            tool_calls={
+                "wait_1": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name="process", arguments={"action": "wait", "process_id": "process-1"}
+                    ),
+                )
+            },
+            stop_reason=LlmStopReason.TOOL_USE,
+        ),
+        PromptMessageExtended(
+            role="user",
+            tool_results={
+                "wait_1": CallToolResult(content=[TextContent(type="text", text="Checks passed")])
+            },
+        ),
+        PromptMessageExtended(
+            role="assistant", content=[TextContent(type="text", text="All checks passed.")]
+        ),
+        PromptMessageExtended(role="user", content=[TextContent(type="text", text="What next?")]),
+    ]
+    turns = collect_user_turns(history)
+    assert len(turns) == 2
+    assert list(turns[0].messages) == history[:4]
+
+    await history_actions.display_history_turn("demo", list(turns[0].messages), config=None)
+
+    expected = ["tool_call", "tool_result", "assistant"]
+    if commentary:
+        expected.insert(0, "assistant")
+    assert display.events == expected

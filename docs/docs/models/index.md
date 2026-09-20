@@ -256,6 +256,14 @@ provider.model_name[?reasoning=value][&query=value...]
   `web_fetch`, `x_search`, `task_budget`, `max_tokens`, `streaming_timeout`, and
   `poll_period`
 
+!!! Note "Provider delimiter: `.` or `/`"
+    `/` is accepted as an equivalent provider delimiter, so `anthropic/claude-opus-5` is the
+    same as `anthropic.claude-opus-5`. The slash form is checked first: `hf/Qwen/Qwen3-235B`
+    resolves to provider `hf`, model `Qwen/Qwen3-235B`. The leading segment is only treated as
+    a provider when it matches a known provider name, so a bare Hugging Face-style `org/model`
+    id whose org equals a provider name (e.g. `openai/gpt-oss-120b`) would be read as a provider
+    override — prefix such ids explicitly with `hf.` / `hf/`.
+
 Examples:
 
 - `responses.gpt-5.5?reasoning=medium`
@@ -274,6 +282,38 @@ Examples:
 - `generic.llama3.2:latest`
 - `openrouter.google/gemini-2.5-pro-exp-03-25:free`
 - `tensorzero.my_tensorzero_function`
+
+### Model-selection vocabulary
+
+A model string selects along four independent dimensions, plus the settings
+that travel with the selection:
+
+- **provider** — who fast-agent authenticates to and which SDK/client it uses.
+  This is the model-string prefix (`.` or `/` delimited; the `Provider` enum; `provider` in an
+  overlay). `copilot.claude-opus-5` is a Copilot-account model, not an
+  Anthropic-account model.
+- **wire API** — the request/response schema: Anthropic Messages, OpenAI Chat
+  Completions, OpenAI Responses, Gemini, and so on. Today this is implicit in
+  the provider prefix for most providers (`openai.` is Chat Completions;
+  `responses.`, `openresponses.`, `codexresponses.` and `googleoai.` are
+  Responses-style routes) and is only recorded explicitly per model on the
+  Copilot route (`wire_api` in its model spec).
+- **transport** — the streaming transport for the LLM connection: `sse`,
+  `websocket`, or `auto`, chosen with `?transport=` or an overlay's
+  `defaults.transport`. This is unrelated to MCP *server* transports
+  (`stdio`/`sse`/`http`), which describe how fast-agent talks to tool servers.
+- **model name** — the exact name sent on the wire.
+
+Settings live in three tiers:
+
+1. **Catalog capabilities** (`ModelParameters`): context window, tokenizer/MIME
+   support, reasoning spec, edit-tool contract, `model_specific` prompt text.
+   These describe the model and are shared across provider routes.
+2. **Per-selection defaults** (`ModelConfig`): values parsed from the model
+   string query or an overlay's `defaults` (`reasoning`, `transport`,
+   `temperature`, ...).
+3. **Per-call `RequestParams`**: what an agent sends on a given turn, layered
+   on top of the defaults.
 
 ### Precedence
 

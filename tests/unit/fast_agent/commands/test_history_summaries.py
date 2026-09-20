@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.commands.history_summaries import build_history_turn_report
@@ -141,7 +142,7 @@ def test_build_history_turn_report_calculates_turn_metrics() -> None:
     assert turn.response_ms == 160
     assert turn.output_tokens == 20
     assert turn.tps is not None
-    assert round(turn.tps, 1) == 27.0
+    assert round(turn.tps, 1) == 25.0
 
 
 def test_build_history_turn_report_counts_provider_mcp_tools() -> None:
@@ -173,3 +174,80 @@ def test_build_history_turn_report_counts_provider_mcp_tools() -> None:
     assert report.turn_count == 1
     assert report.total_tool_calls == 1
     assert report.total_tool_errors == 0
+
+
+def _measured_response(
+    output_tokens: int | None,
+    duration_ms: float | None,
+    ttft_ms: float | None = None,
+    response_ms: float | None = None,
+) -> PromptMessageExtended:
+    channels: dict[str, list[TextContent]] = {}
+    if output_tokens is not None:
+        channels[FAST_AGENT_USAGE] = [TextContent(type="text", text=_usage_payload(output_tokens))]
+    if duration_ms is not None:
+        channels[FAST_AGENT_TIMING] = [
+            TextContent(
+                type="text",
+                text=json.dumps(
+                    _timing_payload(
+                        start_time=0,
+                        end_time=duration_ms / 1000,
+                        duration_ms=duration_ms,
+                        ttft_ms=ttft_ms,
+                        time_to_response_ms=response_ms,
+                    )
+                ),
+            )
+        ]
+    return PromptMessageExtended(role="assistant", channels=channels)
+
+
+@pytest.mark.parametrize("response_ms", [None, 1495.87, 31036.84, 37900])
+def test_history_tps_includes_reasoning_generation_time(response_ms: float | None) -> None:
+    report = build_history_turn_report(
+        [
+            PromptMessageExtended(role="user"),
+            _measured_response(1296, 37930.12, 1495.87, response_ms),
+        ]
+    )
+    assert report.turns[0].tps == pytest.approx(1296 / 36.43425)
+    assert report.average_tps == report.turns[0].tps
+    if response_ms is not None:
+        assert report.turns[0].response_ms == response_ms
+
+
+def test_history_tps_aggregates_matching_per_call_generation_windows() -> None:
+    report = build_history_turn_report(
+        [
+            PromptMessageExtended(role="user"),
+            _measured_response(10, 2000, 1000, 1500),
+            _measured_response(90, 6000, 3000, 5000),
+            # Unpaired telemetry must not inflate either side of the ratio.
+            _measured_response(1000, None),
+            _measured_response(None, 10000),
+        ]
+    )
+    turn = report.turns[0]
+    assert turn.tps == pytest.approx(100 / 4)
+    assert turn.output_tokens == 1100
+    assert turn.llm_time_ms == 18000
+    assert turn.ttft_ms == 1000
+    assert turn.response_ms == 1500
+
+
+@pytest.mark.parametrize("ttft_ms", [None, 0, 1000, 2000])
+def test_history_tps_falls_back_to_full_call_duration(ttft_ms: float | None) -> None:
+    report = build_history_turn_report(
+        [PromptMessageExtended(role="user"), _measured_response(20, 1000, ttft_ms, 900)]
+    )
+    assert report.turns[0].tps == 20
+
+
+@pytest.mark.parametrize("tokens,duration", [(None, 1000), (20, None), (20, 0), (0, 1000)])
+def test_history_tps_without_usable_measurement(tokens: int | None, duration: float | None) -> None:
+    report = build_history_turn_report(
+        [PromptMessageExtended(role="user"), _measured_response(tokens, duration)]
+    )
+    assert report.turns[0].tps is None
+    assert report.average_tps is None

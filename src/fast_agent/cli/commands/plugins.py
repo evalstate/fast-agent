@@ -45,7 +45,7 @@ from fast_agent.utils.text import strip_to_none
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    import click
+    from typer._click.core import Context
 
     from fast_agent.plugins.models import LocalPlugin
 
@@ -65,7 +65,7 @@ def _resolve_registry_input(ctx: typer.Context, command_registry: str | None = N
 
 
 def _context_home(ctx: typer.Context) -> Path | None:
-    current: click.Context | None = ctx
+    current: Context | None = ctx
     while current is not None:
         payload = current.obj
         if isinstance(payload, dict):

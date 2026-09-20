@@ -79,7 +79,9 @@ def _resolve_agent_card_paths(agent: InstructionContextAgent) -> tuple[str, str]
 def _resolve_model_specific(agent: InstructionContextAgent) -> str:
     if isinstance(agent, LlmInstructionContextAgent) and agent.llm is not None:
         model_params = agent.llm.resolved_model.model_params
-        if model_params is not None and model_params.model_specific:
+        # An explicit empty override (e.g. overlay metadata.model_specific: "") suppresses
+        # the catalog text; only an unset value falls through to the database.
+        if model_params is not None and model_params.model_specific is not None:
             return model_params.model_specific
 
     config_model = agent.config.model

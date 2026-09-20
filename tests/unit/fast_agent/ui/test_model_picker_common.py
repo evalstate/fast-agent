@@ -122,12 +122,12 @@ def test_curated_scope_hides_non_current_catalog_entries(tmp_path: Path) -> None
     assert "glm47" in all_tokens
 
 
-def test_huggingface_provider_is_active_when_hub_login_is_verified(
+def test_huggingface_provider_is_active_when_hub_token_is_present(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "fast_agent.ui.model_picker_common.is_huggingface_hub_logged_in",
-        lambda: True,
+        "fast_agent.ui.model_picker_common.get_huggingface_hub_token",
+        lambda: "hf_token",
     )
 
     snapshot = build_snapshot(config_payload={})
@@ -140,8 +140,8 @@ def test_huggingface_provider_is_inactive_without_hub_login_or_token(
 ) -> None:
     monkeypatch.delenv("HF_TOKEN", raising=False)
     monkeypatch.setattr(
-        "fast_agent.ui.model_picker_common.is_huggingface_hub_logged_in",
-        lambda: False,
+        "fast_agent.ui.model_picker_common.get_huggingface_hub_token",
+        lambda: None,
     )
 
     snapshot = build_snapshot(config_payload={})
@@ -835,8 +835,8 @@ def _isolate_activation_sources(monkeypatch: pytest.MonkeyPatch) -> None:
         staticmethod(lambda _provider_name: None),
     )
     monkeypatch.setattr(
-        "fast_agent.ui.model_picker_common.is_huggingface_hub_logged_in",
-        lambda: False,
+        "fast_agent.ui.model_picker_common.get_huggingface_hub_token",
+        lambda: None,
     )
     monkeypatch.setattr(
         "fast_agent.llm.provider.openai.codex_oauth.get_codex_token_status",

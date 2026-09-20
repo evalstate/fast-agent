@@ -19,12 +19,13 @@ from prompt_toolkit.widgets import Frame
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from prompt_toolkit.formatted_text import StyleAndTextTuples
+
     from fast_agent.llm.llamacpp_discovery import LlamaCppModelListing
     from fast_agent.ui.model_picker_common import ModelAvailability
 
 from fast_agent.ui.picker_theme import build_picker_style
 
-StyleFragments = list[tuple[str, str]]
 type LlamaCppPickerAction = Literal[
     "start_now",
     "start_now_with_shell",
@@ -378,9 +379,9 @@ class _LlamaCppModelPicker:
     def _cancel(self, event) -> None:
         event.app.exit(result=None)
 
-    def _render_models(self) -> StyleFragments:
+    def _render_models(self) -> StyleAndTextTuples:
         panel_width = self._model_panel_width()
-        fragments: StyleFragments = []
+        fragments: StyleAndTextTuples = []
         for index, model in enumerate(self.models):
             selected = index == self.state.model_index
             style = self._row_style(
@@ -396,8 +397,8 @@ class _LlamaCppModelPicker:
             )
         return fragments
 
-    def _render_actions(self) -> StyleFragments:
-        fragments: StyleFragments = []
+    def _render_actions(self) -> StyleAndTextTuples:
+        fragments: StyleAndTextTuples = []
         for index, action in enumerate(self.action_options):
             selected = index == self.state.action_index
             style = self._row_style(
@@ -408,7 +409,7 @@ class _LlamaCppModelPicker:
             fragments.append((style, f"{cursor}{action.label}\n"))
         return fragments
 
-    def _render_details(self) -> StyleFragments:
+    def _render_details(self) -> StyleAndTextTuples:
         model = self.current_model
         action = self.current_action
         training_context = self._training_context_label(

@@ -1,8 +1,8 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#     "ruff==0.16.0",
-#     "typer==0.25.1",
+#     "ruff==0.16.8",
+#     "typer==0.27.2",
 # ]
 # ///
 

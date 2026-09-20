@@ -15,9 +15,14 @@ from typing import (
     runtime_checkable,
 )
 
-from a2a.types import AgentCard
-from mcp import Tool
-from mcp_types import GetPromptResult, ListToolsResult, Prompt, PromptMessage, ReadResourceResult
+from mcp_types import (
+    GetPromptResult,
+    ListToolsResult,
+    Prompt,
+    PromptMessage,
+    ReadResourceResult,
+    Tool,
+)
 from pydantic import BaseModel
 from rich.text import Text
 
@@ -30,6 +35,8 @@ from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
+    from a2a.types import AgentCard
+
     from fast_agent.acp.acp_aware_mixin import ACPCommand, ACPModeInfo
     from fast_agent.acp.acp_context import ACPContext
     from fast_agent.agents.agent_types import AgentConfig, AgentType
@@ -358,7 +365,7 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
         namespace: str | None = None,
     ) -> str: ...
 
-    async def agent_card(self) -> AgentCard: ...
+    async def agent_card(self) -> "AgentCard": ...
 
     async def initialize(self) -> None: ...
 

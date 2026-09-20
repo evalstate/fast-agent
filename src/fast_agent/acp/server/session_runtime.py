@@ -7,7 +7,14 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from acp.helpers import update_agent_message_text
-from acp.schema import HttpMcpServer, McpServerStdio, SessionMode, SessionModeState, SseMcpServer
+from acp.schema import (
+    AcpMcpServer,
+    HttpMcpServer,
+    McpServerStdio,
+    SessionMode,
+    SessionModeState,
+    SseMcpServer,
+)
 
 from fast_agent.acp.acp_context import ACPContext, ClientInfo
 from fast_agent.acp.acp_context import ClientCapabilities as FAClientCapabilities
@@ -1134,7 +1141,7 @@ class ACPServerSessionRuntime:
         session_id: str,
         *,
         cwd: str,
-        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio],
+        mcp_servers: list[HttpMcpServer | SseMcpServer | AcpMcpServer | McpServerStdio],
     ) -> SessionStateInitialization:
         requested_mcp_servers = self._copy_requested_mcp_servers(mcp_servers)
 

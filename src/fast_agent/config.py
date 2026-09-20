@@ -1147,6 +1147,61 @@ class AnthropicVertexSettings(BaseModel):
     base_url: str | None = None
 
 
+class CopilotSettings(BaseModel):
+    """Native Copilot gateway and request settings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_url: str = "https://api.githubcopilot.com"
+    integration_id: str = Field(
+        default="copilot-sdk",
+        min_length=1,
+        pattern=r"^[!-~]+$",
+        description="Copilot integration routing identity sent on every inference request",
+    )
+
+    runtime_timeout_seconds: float = Field(default=30.0, gt=0)
+    cache_mode: Literal["off", "prompt", "auto"] = Field(
+        default="auto",
+        description=(
+            "Messages caching: off (disabled), prompt (cache tools+system and prompt templates), "
+            "auto (also advance through recent conversation turns)"
+        ),
+    )
+    cache_ttl: Literal["5m", "1h"] | None = Field(
+        default=None,
+        description="Messages cache TTL override; null uses the model default",
+    )
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: str) -> str:
+        from urllib.parse import urlsplit
+
+        message = (
+            "Copilot base_url must be an HTTPS origin without credentials, path, query or fragment."
+        )
+        try:
+            url = urlsplit(value)
+            port = url.port
+        except ValueError:
+            raise ValueError(message) from None
+        if (
+            any(character.isspace() or ord(character) < 32 for character in value)
+            or url.scheme != "https"
+            or not url.hostname
+            or url.username is not None
+            or url.password is not None
+            or url.path not in ("", "/")
+            or "?" in value
+            or "#" in value
+            or "\\" in value
+            or (port is None and url.netloc.endswith(":"))
+        ):
+            raise ValueError(message)
+        return value.rstrip("/")
+
+
 class AnthropicSettings(BaseModel):
     """Settings for using Anthropic models in the fast-agent application."""
 
@@ -2336,6 +2391,8 @@ class Settings(BaseSettings):
 
     compaction: CompactionSettings = Field(default_factory=CompactionSettings)
     """History compaction settings (auto trigger threshold, retained turns, prompt)."""
+
+    copilot: CopilotSettings = Field(default_factory=CopilotSettings)
 
     anthropic: AnthropicSettings | None = None
     """Settings for using Anthropic models in the fast-agent application"""

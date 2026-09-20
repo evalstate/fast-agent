@@ -5,7 +5,7 @@ This module provides a centralized lookup for model parameters including
 context windows, max output tokens, and supported tokenization types.
 """
 
-from typing import ClassVar, Literal
+from typing import ClassVar, Final, Literal
 
 from pydantic import BaseModel, Field
 
@@ -14,6 +14,11 @@ from fast_agent.constants import (
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
 )
 from fast_agent.llm.model_mime_support import ResourceSource, tokenizes_support_mime
+from fast_agent.llm.provider.copilot.models import (
+    COPILOT_MODELS,
+    CopilotModelSpec,
+    get_copilot_model,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
     AUTO_REASONING,
@@ -1491,6 +1496,10 @@ class ModelDatabase:
             return None
 
         effective_provider = provider or cls.get_default_provider(model)
+        if effective_provider == Provider.COPILOT:
+            model_id = cls._model_name_without_explicit_prefix(cls._strip_model_query(model))
+            spec = get_copilot_model(model_id)
+            return cls._PROVIDER_MODEL_OVERRIDES.get((Provider.COPILOT, spec.model_id))
         normalized = cls.normalize_model_name(model)
         if normalized in cls.REMOVED_MODEL_NAMES:
             return None
@@ -1761,15 +1770,25 @@ class ModelDatabase:
         return params.long_context_window if params else None
 
     @classmethod
-    def get_response_transports(cls, model: str) -> tuple[Literal["sse", "websocket"], ...] | None:
+    def get_response_transports(
+        cls, model: str, *, provider: Provider | None = None
+    ) -> tuple[Literal["sse", "websocket"], ...] | None:
         """Get supported Responses transports for a model, if explicitly defined."""
-        params = cls.get_model_params(model)
+        if (provider or cls.get_default_provider(model)) == Provider.COPILOT:
+            model_id = cls._model_name_without_explicit_prefix(cls._strip_model_query(model))
+            return get_copilot_model(model_id).transports
+        params = cls.get_model_params(model, provider=provider)
         return params.response_transports if params else None
 
     @classmethod
-    def get_response_websocket_providers(cls, model: str) -> tuple[Provider, ...] | None:
+    def get_response_websocket_providers(
+        cls, model: str, *, provider: Provider | None = None
+    ) -> tuple[Provider, ...] | None:
         """Get providers that may use websocket transport for this model."""
-        params = cls.get_model_params(model)
+        if (provider or cls.get_default_provider(model)) == Provider.COPILOT:
+            transports = cls.get_response_transports(model, provider=Provider.COPILOT)
+            return (Provider.COPILOT,) if transports and "websocket" in transports else ()
+        params = cls.get_model_params(model, provider=provider)
         return params.response_websocket_providers if params else None
 
     @classmethod
@@ -1813,14 +1832,14 @@ class ModelDatabase:
 
     @classmethod
     def supports_response_transport(
-        cls, model: str, transport: Literal["sse", "websocket"]
+        cls, model: str, transport: Literal["sse", "websocket"], *, provider: Provider | None = None
     ) -> bool | None:
         """Return transport support for a model, or None when unconstrained.
 
         A `None` return means the model has no explicit transport metadata and callers
         may apply provider-level defaults.
         """
-        transports = cls.get_response_transports(model)
+        transports = cls.get_response_transports(model, provider=provider)
         if transports is None:
             return None
         return transport in transports
@@ -1828,7 +1847,7 @@ class ModelDatabase:
     @classmethod
     def supports_response_websocket_provider(cls, model: str, provider: Provider) -> bool | None:
         """Return websocket provider support for a model, or None when unconstrained."""
-        providers = cls.get_response_websocket_providers(model)
+        providers = cls.get_response_websocket_providers(model, provider=provider)
         if providers is None:
             return None
         return provider in providers
@@ -2103,3 +2122,47 @@ ModelDatabase._PROVIDER_MODEL_OVERRIDES.update(
         if params.default_provider == Provider.ANTHROPIC
     }
 )
+
+
+# Copilot routes inherit the full base catalog entry so the same model behaves the same
+# regardless of provider route. Only fields that describe the provider route (not the model)
+# are overridden:
+#   default_provider / response_transports / response_websocket_providers: set from the
+#     Copilot model spec (the gateway decides which transports are offered).
+#   response_service_tiers: Copilot rejects service_tier selection.
+#   codex_responses_lite: Codex-specific request contract; not part of the Copilot gateway.
+#   long_context_window: extended-context tiers are an upstream billing feature that the
+#     gateway does not expose.
+#   anthropic_web_search_version / anthropic_web_fetch_version / anthropic_required_betas:
+#     the gateway exposes no Anthropic server-side web tools or beta headers.
+# Unknown models stay unknown.
+def _copilot_route_overrides(spec: CopilotModelSpec) -> dict[str, object]:
+    return {
+        "default_provider": Provider.COPILOT,
+        "response_transports": spec.transports,
+        "response_websocket_providers": (
+            (Provider.COPILOT,) if "websocket" in spec.transports else ()
+        ),
+        "response_service_tiers": (),
+        "codex_responses_lite": False,
+        "long_context_window": None,
+        "anthropic_web_search_version": None,
+        "anthropic_web_fetch_version": None,
+        "anthropic_required_betas": None,
+    }
+
+
+COPILOT_ROUTE_OVERRIDE_FIELDS: Final[frozenset[str]] = frozenset(
+    _copilot_route_overrides(next(iter(COPILOT_MODELS.values())))
+)
+
+for _copilot_spec in COPILOT_MODELS.values():
+    _base_name = {
+        "claude-haiku-4.5": "claude-haiku-4-5",
+        "claude-fable-5.1": "claude-fable-5-1",
+    }.get(_copilot_spec.model_id, _copilot_spec.model_id)
+    _base_params = ModelDatabase.MODELS.get(_base_name)
+    if _base_params is not None:
+        ModelDatabase._PROVIDER_MODEL_OVERRIDES[(Provider.COPILOT, _copilot_spec.model_id)] = (
+            _base_params.model_copy(update=_copilot_route_overrides(_copilot_spec))
+        )

@@ -16,6 +16,7 @@ from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LLMFactor
 from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_overlays import load_model_overlay_registry
+from fast_agent.llm.provider.copilot.models import get_copilot_model
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
     ReasoningEffortSetting,
@@ -849,6 +850,9 @@ def _resolve_provider_and_model_name(
             f"(e.g., tensorzero.my-function), got: {model_spec}"
         )
 
+    if provider == Provider.COPILOT:
+        get_copilot_model(model_name)
+
     return provider, model_name
 
 
@@ -857,6 +861,15 @@ def _validate_transport_constraints(
     model_name: str,
     transport: TransportSetting | None,
 ) -> None:
+    if provider == Provider.COPILOT:
+        spec = get_copilot_model(model_name)
+        requested = "websocket" if transport == "auto" else transport
+        if requested is not None and requested not in spec.transports:
+            raise ModelConfigError(
+                f"Transport '{transport}' is not supported for Copilot model '{model_name}'."
+            )
+        return
+
     if transport not in {"websocket", "auto"}:
         return
 
@@ -885,6 +898,11 @@ def _validate_service_tier_constraints(
     model_name: str,
     service_tier: ServiceTierSetting | None,
 ) -> None:
+    if provider == Provider.COPILOT:
+        if service_tier is not None:
+            raise ModelConfigError("Copilot does not support service_tier selection; omit it.")
+        return
+
     if provider == Provider.GOOGLE and service_tier is not None:
         if service_tier != "flex":
             raise ModelConfigError(
@@ -1007,6 +1025,17 @@ class ModelFactory:
             bedrock_pattern_matches=cls._bedrock_pattern_matches,
         )
 
+        if provider == Provider.COPILOT:
+            merged_overrides = merged_overrides.with_defaults(
+                ModelQueryOverrides(
+                    transport=(
+                        "websocket"
+                        if get_copilot_model(model_name).wire_api == "responses"
+                        else "sse"
+                    )
+                )
+            )
+
         reasoning_effort = merged_overrides.reasoning_effort
         if merged_overrides.instant is not None:
             if reasoning_effort is not None:
@@ -1126,20 +1155,31 @@ class ModelFactory:
         resolved_model = cls.resolve_model_spec(model_string, presets=presets)
         config = resolved_model.model_config
 
-        # Ensure provider is valid before trying to access PROVIDER_CLASSES with it
-        # Lazily ensure provider class map is populated and supports this provider
-        model_specific_class = cls.MODEL_SPECIFIC_CLASSES.get(config.model_name)
-        if model_specific_class is None and config.model_name not in cls.MODEL_SPECIFIC_NAMES:
-            llm_class = cls._load_provider_class(config.provider)
-            # Stash for next time
-            cls.PROVIDER_CLASSES[config.provider] = llm_class
-
-        if model_specific_class is not None:
-            llm_class = model_specific_class
-        elif config.model_name in cls.MODEL_SPECIFIC_NAMES:
-            llm_class = cls._load_model_specific_class(config.model_name)
+        if config.provider == Provider.COPILOT:
+            spec = get_copilot_model(config.model_name)
+            module_name = f"fast_agent.llm.provider.copilot.{spec.wire_api}"
+            class_name = (
+                "CopilotMessagesLLM" if spec.wire_api == "messages" else "CopilotResponsesLLM"
+            )
+            try:
+                llm_class = vars(import_module(module_name))[class_name]
+            except Exception as exc:
+                raise ModelConfigError(f"Copilot provider is unavailable: {exc}") from exc
         else:
-            llm_class = cls.PROVIDER_CLASSES[config.provider]
+            # Ensure provider is valid before trying to access PROVIDER_CLASSES with it
+            # Lazily ensure provider class map is populated and supports this provider
+            model_specific_class = cls.MODEL_SPECIFIC_CLASSES.get(config.model_name)
+            if model_specific_class is None and config.model_name not in cls.MODEL_SPECIFIC_NAMES:
+                llm_class = cls._load_provider_class(config.provider)
+                # Stash for next time
+                cls.PROVIDER_CLASSES[config.provider] = llm_class
+
+            if model_specific_class is not None:
+                llm_class = model_specific_class
+            elif config.model_name in cls.MODEL_SPECIFIC_NAMES:
+                llm_class = cls._load_model_specific_class(config.model_name)
+            else:
+                llm_class = cls.PROVIDER_CLASSES[config.provider]
 
         def factory(
             agent: AgentProtocol, request_params: RequestParams | None = None, **kwargs

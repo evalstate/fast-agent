@@ -50,7 +50,10 @@ def test_configure_otel_samples_and_flushes_spans() -> None:
                 )
 
                 with (
-                    patch.object(context_module, "OTLPSpanExporter", return_value=exporter),
+                    patch(
+                        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter",
+                        return_value=exporter,
+                    ),
                     patch.object(context_module.trace, "set_tracer_provider"),
                     patch.object(OpenAIInstrumentor, "instrument"),
                     patch.object(GoogleGenAiSdkInstrumentor, "instrument"),
@@ -91,3 +94,28 @@ def test_configure_otel_samples_and_flushes_spans() -> None:
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_disabled_telemetry_does_not_load_sdk() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import asyncio
+import sys
+
+from fast_agent.config import OpenTelemetrySettings, Settings
+from fast_agent.context import configure_otel
+
+asyncio.run(configure_otel(Settings(otel=OpenTelemetrySettings(enabled=False))))
+loaded = {name for name in sys.modules if name.startswith("opentelemetry.sdk")}
+assert not loaded, loaded
+""",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
