@@ -1,6 +1,11 @@
 ---
 title: GitHub Copilot
 description: Use Copilot models with fast-agent
+social:
+  title: GitHub Copilot
+  tagline: Use Anthropic and OpenAI models through native GitHub Copilot authentication with Messages or Responses wire formats.
+  description: Use Anthropic and OpenAI models through native GitHub Copilot authentication with Messages or Responses wire formats.
+  alt: fast-agent social card — GitHub Copilot
 ---
 
 # GitHub Copilot
