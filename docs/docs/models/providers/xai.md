@@ -56,7 +56,8 @@ Environment variables:
 - `XAI_BASE_URL`: Override the API endpoint
 - `FAST_AGENT_AUTH_FILE`: Explicit portable provider credential file
 
-An explicit `xai.api_key` or `XAI_API_KEY` takes precedence over stored OAuth.
+An explicit `xai.api_key` or `XAI_API_KEY` takes precedence over stored OAuth
+for standard Grok models. Grok 4.7 Fast always uses stored OAuth instead.
 
 ## Reuse images across turns
 
@@ -102,9 +103,12 @@ fast-agent --model "xai.grok-4.5"
 
 Select `grok47fast` (or `grokfast`), `xai.grok-4.7-build-fast`, or
 **Grok 4.7 Fast (OAuth)** in the model picker. **OAuth is required; public API
-key access is unavailable.** Fast costs twice the price of standard Grok 4.7
-and is not included in Grok Build's free tier. Remove any configured API key
-(including `XAI_API_KEY`) to use stored OAuth credentials.
+key access is unavailable.** Fast short-context token rates are twice standard
+Grok 4.7 rates; see [xAI pricing](https://docs.x.ai/developers/pricing) for the
+separate long-context tariff. Fast is not included in Grok Build's free tier. Fast always selects stored OAuth,
+even when an API key is configured; this is not a fallback after a failed API-key
+request. Without OAuth, the model picker offers xAI sign-in. Direct model use
+without OAuth reports a login instruction rather than trying the API key.
 
 Fast uses the existing xAI Responses backend (`https://api.x.ai/v1/responses`)
 with the OAuth bearer. It shares standard Grok 4.7’s 500,000-token context,
@@ -120,7 +124,8 @@ Grok Build's authenticated `GET https://cli-chat-proxy.grok.com/v1/models-v2`
 catalog. See the [Grok Build model metadata parser](https://github.com/xai-org/grok-build/blob/4247f661689354b831191f11eeeac8424993fe3d/crates/codegen/xai-grok-shell/src/remote/client.rs).
 Live fast-agent OAuth tests passed for both models over SSE and WebSocket,
 including function-tool execution and multi-turn replay. Availability depends
-on the signed-in account's entitlement; API-key access to Fast was not tested.
+on the signed-in account's entitlement. Standard Grok 4.7 also passed API-key
+tool/replay tests over both transports; Fast returned HTTP 404 with that key.
 
 ## Reasoning and search tools
 

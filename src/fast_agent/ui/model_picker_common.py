@@ -706,20 +706,31 @@ def model_options_for_provider(
 
     provider_option = find_provider(snapshot, provider.config_name)
     activation_action = provider_activation_action(snapshot, provider)
-    if activation_action is not None:
-        return [
-            replace(option, activation_action=activation_action)
-            for option in _catalog_options_from_entries(
-                provider_option.curated_entries,
-                provider=provider,
-                source=source,
-            )
-        ]
-    return _catalog_options_from_entries(
+    options = _catalog_options_from_entries(
         provider_option.curated_entries,
         provider=provider,
         source=source,
     )
+    if provider == Provider.XAI:
+        from fast_agent.llm.provider.openai.xai_oauth import (
+            XAI_OAUTH_ONLY_MODELS,
+            get_xai_token_status,
+        )
+
+        oauth_only = {(Provider.XAI, model) for model in XAI_OAUTH_ONLY_MODELS}
+        # Fast uses OAuth even when ordinary Grok requests use an API key.
+        status = get_xai_token_status()
+        oauth_ready = bool(status.get("present")) and not bool(status.get("expired"))
+        return [
+            replace(
+                option,
+                activation_action=(None if oauth_ready else ProviderActivation(provider))
+                if model_identity(option.spec) in oauth_only
+                else activation_action,
+            )
+            for option in options
+        ]
+    return [replace(option, activation_action=activation_action) for option in options]
 
 
 def model_capabilities(model_spec: str) -> ModelCapabilities:

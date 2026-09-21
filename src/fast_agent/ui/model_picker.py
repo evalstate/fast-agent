@@ -97,10 +97,10 @@ def _model_availability_display(
     *,
     provider_available: bool,
 ) -> ModelAvailabilityDisplay:
-    if provider_available:
-        availability: ModelAvailability = "active"
-    elif model.activation_action is not None:
-        availability = "attention"
+    if model.activation_action is not None:
+        availability: ModelAvailability = "attention"
+    elif provider_available:
+        availability = "active"
     else:
         availability = "inactive"
     return ModelAvailabilityDisplay(

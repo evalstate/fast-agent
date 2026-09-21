@@ -280,6 +280,7 @@ def test_provider_is_active_for_codex_auth_json(
 def test_provider_is_active_for_xai_oauth(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
     monkeypatch.setattr(
         "fast_agent.llm.provider.openai.xai_oauth.get_xai_token_status",
         lambda: {
@@ -534,6 +535,7 @@ def test_build_snapshot_surfaces_oauth_credential_source(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
     from fast_agent.auth.credentials import OAuthCredential, export_oauth_credential
 
     auth_path = tmp_path / "auth.json"

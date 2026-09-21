@@ -1038,3 +1038,70 @@ def test_xai_responses_preserves_regular_function_calls_when_x_search_enabled() 
 
     assert tool_calls is not None
     assert tool_calls["call_1"].params.name == "local_tool"
+
+
+@pytest.mark.parametrize("oauth_token", [None, "oauth-token"])
+def test_fast_uses_only_oauth_even_with_api_keys(monkeypatch, oauth_token: str | None) -> None:
+    from fast_agent.core.exceptions import ProviderKeyError
+
+    monkeypatch.setenv("XAI_API_KEY", "environment-key")
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.openai.xai_oauth.get_xai_access_token",
+        lambda: oauth_token,
+    )
+    llm = XAIResponsesLLM(
+        context=Context(config=Settings(xai=XAISettings(api_key="config-key"))),
+        model="grok-4.7-build-fast",
+        api_key="init-key",
+    )
+    assert llm._uses_oauth_credential()
+    if oauth_token is None:
+        with pytest.raises(ProviderKeyError, match="Grok Fast requires xAI OAuth"):
+            llm.validate_provider_credentials()
+    else:
+        assert llm._api_key() == oauth_token
+        assert llm._build_websocket_headers()["Authorization"] == f"Bearer {oauth_token}"
+
+
+def test_standard_grok_keeps_api_key_precedence_with_oauth(monkeypatch) -> None:
+    monkeypatch.setenv("XAI_API_KEY", "environment-key")
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.openai.xai_oauth.get_xai_access_token",
+        lambda: pytest.fail("Standard Grok must not resolve OAuth when an API key is set"),
+    )
+    llm = XAIResponsesLLM(context=Context(config=Settings()), model="grok-4.7")
+    assert llm._api_key() == "environment-key"
+    assert not llm._uses_oauth_credential()
+
+
+@pytest.mark.asyncio
+async def test_fast_refreshes_oauth_after_401_even_with_api_key(monkeypatch) -> None:
+    monkeypatch.setenv("XAI_API_KEY", "environment-key")
+    token = "initial-oauth"
+    refreshes = []
+
+    def get_token(*, force_refresh=False):
+        nonlocal token
+        if force_refresh:
+            refreshes.append(True)
+            token = "refreshed-oauth"
+        return token
+
+    monkeypatch.setattr("fast_agent.llm.provider.openai.xai_oauth.get_xai_access_token", get_token)
+    headers_seen = []
+    connection = object()
+
+    async def connect(self, url, headers, timeout_seconds):
+        headers_seen.append(headers["Authorization"])
+        if len(headers_seen) == 1:
+            raise ResponsesWebSocketError("expired token", status=401)
+        return connection
+
+    monkeypatch.setattr(ResponsesLLM, "_create_websocket_connection", connect)
+    llm = XAIResponsesLLM(context=Context(config=Settings()), model="grok-4.7-build-fast")
+    result = await llm._create_websocket_connection(
+        "wss://api.x.ai/v1/responses", llm._build_websocket_headers(), None
+    )
+    assert result is connection
+    assert refreshes == [True]
+    assert headers_seen == ["Bearer initial-oauth", "Bearer refreshed-oauth"]

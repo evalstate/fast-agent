@@ -28,6 +28,7 @@ from fast_agent.llm.provider.openai.web_tools import (
     build_xai_web_search_tool,
 )
 from fast_agent.llm.provider.openai.xai_image_uploads import XAIImageUploadManager
+from fast_agent.llm.provider.openai.xai_oauth import XAI_OAUTH_ONLY_MODELS
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage, usage_from_responses_compatible
 
@@ -257,7 +258,27 @@ class XAIResponsesLLM(ResponsesLLM):
         headers.setdefault("Authorization", f"Bearer {self._api_key()}")
         return headers
 
+    def _requires_oauth_credential(self) -> bool:
+        return self.default_request_params.model in XAI_OAUTH_ONLY_MODELS
+
+    def _api_key(self) -> str:
+        if not self._requires_oauth_credential():
+            return super()._api_key()
+
+        from fast_agent.llm.provider.openai.xai_oauth import get_xai_access_token
+
+        token = get_xai_access_token()
+        if token is None:
+            raise ProviderKeyError(
+                "Grok Fast requires xAI OAuth",
+                "Run `fast-agent auth provider login xai` to authenticate. "
+                "API keys cannot be used for this model.",
+            )
+        return token
+
     def _uses_oauth_credential(self) -> bool:
+        if self._requires_oauth_credential():
+            return True
         if self._init_api_key is not None:
             return False
         from fast_agent.llm.provider_key_manager import ProviderKeyManager
