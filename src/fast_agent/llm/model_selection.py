@@ -133,6 +133,9 @@ class ModelSelectionCatalog:
             for model_id in COPILOT_MODELS
         ),
         Provider.XAI: (
+            _builtin_entry("Grok 4.7"),
+            _builtin_entry("Grok 4.7 (X Search)"),
+            _builtin_entry("Grok 4.7 Fast (OAuth)"),
             _builtin_entry("Grok 4.6"),
             _builtin_entry("Grok 4.6 (X Search)"),
             _builtin_entry("Grok 4.5"),

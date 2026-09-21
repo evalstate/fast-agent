@@ -1032,6 +1032,9 @@ class ModelDatabase:
         update={"reasoning_effort_spec": XAI_GROK_46_REASONING_EFFORT_SPEC}
     )
 
+    GROK_47 = GROK_46.model_copy()
+    GROK_47_FAST = GROK_47.model_copy(update={"fast": True})
+
     MUSE_SPARK = ModelParameters(
         context_window=1_048_576,
         max_output_tokens=65535,
@@ -1399,6 +1402,8 @@ class ModelDatabase:
         "grok-4.3": GROK_43,
         "grok-4.5": GROK_45,
         "grok-4.6": GROK_46,
+        "grok-4.7": GROK_47,
+        "grok-4.7-build-fast": GROK_47_FAST,
         "muse-spark-1.2": MUSE_SPARK,
         "muse-spark-1.2-contributor": MUSE_SPARK,
         "muse-spark-1.3": MUSE_SPARK,
@@ -1477,6 +1482,7 @@ class ModelDatabase:
                 ("grok-4.3", GROK_43),
                 ("grok-4.5", GROK_45),
                 ("grok-4.6", GROK_46),
+                ("grok-4.7", GROK_47),
             )
         }
     )

@@ -328,7 +328,8 @@ def test_xai_responses_default_model_used_when_model_missing() -> None:
         model="",
     )
 
-    assert llm.default_request_params.model == DEFAULT_XAI_MODEL
+    assert llm.default_request_params.model == DEFAULT_XAI_MODEL == "grok-4.7"
+    assert llm.default_request_params.streaming_timeout == GROK_EXTENDED_STREAMING_TIMEOUT
 
 
 @pytest.mark.parametrize(
@@ -338,9 +339,17 @@ def test_xai_responses_default_model_used_when_model_missing() -> None:
         ("grok-4.5", "medium", DEFAULT_STREAMING_TIMEOUT),
         ("grok-4.5", "low", DEFAULT_STREAMING_TIMEOUT),
         ("grok-4.6", "high", GROK_EXTENDED_STREAMING_TIMEOUT),
+        ("grok-4.7", "high", GROK_EXTENDED_STREAMING_TIMEOUT),
+        ("grok-4.7-build-fast", "high", GROK_EXTENDED_STREAMING_TIMEOUT),
         ("grok-4.6", "xhigh", GROK_EXTENDED_STREAMING_TIMEOUT),
+        ("grok-4.7", "xhigh", GROK_EXTENDED_STREAMING_TIMEOUT),
+        ("grok-4.7-build-fast", "xhigh", GROK_EXTENDED_STREAMING_TIMEOUT),
         ("grok-4.6", "medium", DEFAULT_STREAMING_TIMEOUT),
+        ("grok-4.7", "medium", DEFAULT_STREAMING_TIMEOUT),
+        ("grok-4.7-build-fast", "medium", DEFAULT_STREAMING_TIMEOUT),
         ("grok-4.6", "low", DEFAULT_STREAMING_TIMEOUT),
+        ("grok-4.7", "low", DEFAULT_STREAMING_TIMEOUT),
+        ("grok-4.7-build-fast", "low", DEFAULT_STREAMING_TIMEOUT),
         ("grok-4.3", "high", DEFAULT_STREAMING_TIMEOUT),
     ],
 )
@@ -364,7 +373,11 @@ def test_xai_high_reasoning_gets_extended_streaming_timeout(
         ("grok-4.5", "high", 45.0),
         ("grok-4.5", "high", None),
         ("grok-4.6", "xhigh", 45.0),
+        ("grok-4.7", "xhigh", 45.0),
+        ("grok-4.7-build-fast", "xhigh", 45.0),
         ("grok-4.6", "xhigh", None),
+        ("grok-4.7", "xhigh", None),
+        ("grok-4.7-build-fast", "xhigh", None),
     ],
 )
 def test_xai_explicit_streaming_timeout_overrides_high_reasoning_default(
@@ -570,22 +583,31 @@ def test_xai_responses_flattens_stream_tool_calls_for_websocket() -> None:
     assert "extra_body" not in args
 
 
-def test_xai_responses_rejects_unverified_experimental_model() -> None:
+@pytest.mark.parametrize("model", ["grok-4.3", "grok-4.7", "grok-4.7-build-fast"])
+@pytest.mark.parametrize(
+    "settings",
+    [
+        XAISettings(api_key="test-key", stream_tool_calls=True),
+        XAISettings(api_key="test-key", reasoning_summary="concise"),
+    ],
+)
+def test_xai_responses_rejects_unverified_experimental_model(
+    model: str, settings: XAISettings
+) -> None:
     llm = XAIResponsesLLM(
-        context=Context(
-            config=Settings(xai=XAISettings(api_key="test-key", stream_tool_calls=True))
-        ),
-        model="grok-4.3",
+        context=Context(config=Settings(xai=settings)),
+        model=model,
     )
 
     with pytest.raises(ModelConfigError, match="supported only for grok-4.5, grok-4.6"):
         llm._build_response_args([], llm.default_request_params, tools=None)
 
 
-def test_xai_grok_46_builds_payload_with_xhigh_reasoning() -> None:
+@pytest.mark.parametrize("model", ["grok-4.6", "grok-4.7", "grok-4.7-build-fast"])
+def test_xai_grok_builds_payload_with_xhigh_reasoning(model: str) -> None:
     llm = XAIResponsesLLM(
         context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
-        model="grok-4.6",
+        model=model,
         reasoning_effort="xhigh",
     )
 

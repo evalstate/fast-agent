@@ -676,8 +676,9 @@ def test_reasoning_query_allows_xai_grok_43_effort() -> None:
     assert config.reasoning_effort == ReasoningEffortSetting(kind="effort", value="high")
 
 
-def test_reasoning_query_allows_xai_grok_46_xhigh_effort() -> None:
-    factory = ModelFactory.create_factory("xai.grok-4.6?reasoning=xhigh")
+@pytest.mark.parametrize("model", ["xai.grok-4.6", "xai.grok-4.7", "grok47", "grok", "grok4"])
+def test_reasoning_query_allows_xai_grok_xhigh_effort(model: str) -> None:
+    factory = ModelFactory.create_factory(f"{model}?reasoning=xhigh")
     llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
 
     assert isinstance(llm, ResponsesLLM)
@@ -835,6 +836,9 @@ def test_xai_streaming_timeout_query_overrides_high_reasoning_default(
         "xai/grok-4.5?reasoning=high",
         "xai/grok-4.6?reasoning=high",
         "xai/grok-4.6?reasoning=xhigh",
+        "xai/grok-4.7?reasoning=high",
+        "xai/grok-4.7?reasoning=xhigh",
+        "grok",
     ],
 )
 def test_xai_high_reasoning_defaults_to_extended_streaming_timeout(model: str) -> None:
@@ -1766,3 +1770,41 @@ def test_deepseek_version_period_is_preserved(
     config = ModelFactory.parse_model_string(model)
     assert config.provider == provider
     assert config.model_name == expected
+
+
+@pytest.mark.parametrize(
+    "selection",
+    ["grok", "grok4", "grok47", "grok-4.7", "xai.grok-4.7", "Grok 4.7"],
+)
+def test_public_grok_47_selection(selection: str) -> None:
+    config = ModelFactory.parse_model_string(selection)
+    assert config.provider == Provider.XAI
+    assert config.model_name == "grok-4.7"
+
+
+def test_grok_47_x_search_alias() -> None:
+    config = ModelFactory.parse_model_string("Grok 4.7 (X Search)")
+    assert config.provider == Provider.XAI
+    assert config.model_name == "grok-4.7"
+    assert config.x_search is True
+
+
+@pytest.mark.parametrize(
+    "selection",
+    [
+        "grok47fast",
+        "grokfast",
+        "grok-4.7-build-fast",
+        "xai.grok-4.7-build-fast",
+        "Grok 4.7 Fast (OAuth)",
+    ],
+)
+def test_grok_47_fast_selection(selection: str) -> None:
+    config = ModelFactory.parse_model_string(selection)
+    assert config.provider == Provider.XAI
+    assert config.model_name == "grok-4.7-build-fast"
+    factory = ModelFactory.create_factory(f"{selection}?reasoning=xhigh")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+    assert isinstance(llm, ResponsesLLM)
+    assert llm.provider == Provider.XAI
+    assert llm.reasoning_effort == ReasoningEffortSetting(kind="effort", value="xhigh")

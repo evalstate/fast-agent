@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from fast_agent.tool_activity_presentation import ToolActivityFamily
     from fast_agent.types import RequestParams
 
-DEFAULT_XAI_MODEL = "grok-4.6"
+DEFAULT_XAI_MODEL = "grok-4.7"
 GROK_EXTENDED_STREAMING_TIMEOUT: Final = 300.0
 XAI_BASE_URL = "https://api.x.ai/v1"
 XAI_EXPERIMENTAL_STREAMING_MODELS: Final = frozenset({"grok-4.5", "grok-4.6"})
@@ -100,7 +100,8 @@ class XAIResponsesLLM(ResponsesLLM):
             return
         effort = self._resolve_reasoning_effort()
         if (params.model == "grok-4.5" and effort == "high") or (
-            params.model == "grok-4.6" and effort in {"high", "xhigh"}
+            params.model in {"grok-4.6", "grok-4.7", "grok-4.7-build-fast"}
+            and effort in {"high", "xhigh"}
         ):
             params.streaming_timeout = GROK_EXTENDED_STREAMING_TIMEOUT
 
