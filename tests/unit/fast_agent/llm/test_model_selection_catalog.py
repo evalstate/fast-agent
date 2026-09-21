@@ -90,11 +90,17 @@ def test_xai_picker_omits_unsupported_instant_grok() -> None:
     assert "Grok 4.3 (instant)" not in aliases
 
 
-def test_xai_picker_promotes_grok_46() -> None:
+def test_xai_picker_promotes_grok_47() -> None:
     aliases = ModelSelectionCatalog.list_current_aliases(Provider.XAI)
 
-    assert aliases[:2] == ["Grok 4.6", "Grok 4.6 (X Search)"]
-    assert BUILTIN_MODEL_ALIASES["grok"] == "xai.grok-4.6"
+    assert aliases[:2] == ["Grok 4.7", "Grok 4.7 (X Search)"]
+    assert "Grok 4.7 Fast (OAuth)" in aliases
+    assert "Grok 4.7 Fast (X Search, OAuth)" in aliases
+    assert "Grok 4.6" in aliases
+    assert "Grok 4.6 (X Search)" in aliases
+    assert BUILTIN_MODEL_ALIASES["grok"] == "xai.grok-4.7"
+    assert BUILTIN_MODEL_ALIASES["grok4"] == "xai.grok-4.7"
+    assert BUILTIN_MODEL_ALIASES["grok47"] == "xai.grok-4.7"
     assert BUILTIN_MODEL_ALIASES["grok46"] == "xai.grok-4.6"
 
 

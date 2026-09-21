@@ -102,7 +102,7 @@ def test_astra_rejects_unsupported_modalities(provider: Provider, mime_type: str
 
 
 def test_managed_process_poll_folding_is_enabled_for_validated_models() -> None:
-    for model in ("grok-4.3", "grok-4.5", "grok-4.6"):
+    for model in ("grok-4.3", "grok-4.5", "grok-4.6", "grok-4.7"):
         grok = ModelDatabase.get_model_params(
             model,
             provider=Provider.XAI,
@@ -1388,3 +1388,32 @@ def test_deepseek_v41_hf_capabilities(backend: str) -> None:
     assert native is not None
     assert native.default_provider == Provider.DEEPSEEK
     assert native.reasoning == "openai"
+
+
+@pytest.mark.parametrize("model", ["grok-4.7", "grok47", "grok", "grok4"])
+def test_grok_47_registration(model: str) -> None:
+    assert ModelDatabase.get_default_provider(model) == Provider.XAI
+    assert ModelDatabase.get_context_window(model) == 500_000
+    spec = ModelDatabase.get_reasoning_effort_spec(model)
+    assert spec == ModelDatabase.get_reasoning_effort_spec("grok-4.6")
+    assert spec is not None
+    assert spec.default == ReasoningEffortSetting(kind="effort", value="high")
+    assert ModelDatabase.get_response_transports(model) == ("sse", "websocket")
+    assert ModelDatabase.supports_response_websocket_provider(model, Provider.XAI)
+
+
+def test_grok_47_openrouter_registration() -> None:
+    params = ModelDatabase.get_model_params("x-ai/grok-4.7", provider=Provider.OPENROUTER)
+    assert params is not None
+    assert params.context_window == 500_000
+    assert params.reasoning_effort_spec == ModelDatabase.get_reasoning_effort_spec("grok-4.7")
+
+
+@pytest.mark.parametrize("model", ["grok-4.7-build-fast", "grok47fast", "grokfast"])
+def test_grok_47_fast_inherits_standard_capabilities(model: str) -> None:
+    standard = ModelDatabase.get_model_params("grok-4.7")
+    fast = ModelDatabase.get_model_params(model)
+    assert standard is not None
+    assert fast is not None
+    assert fast.fast
+    assert fast.model_dump(exclude={"fast"}) == standard.model_dump(exclude={"fast"})

@@ -28,6 +28,7 @@ from fast_agent.llm.provider.openai.web_tools import (
     build_xai_web_search_tool,
 )
 from fast_agent.llm.provider.openai.xai_image_uploads import XAIImageUploadManager
+from fast_agent.llm.provider.openai.xai_oauth import XAI_OAUTH_ONLY_MODELS
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage, usage_from_responses_compatible
 
@@ -41,7 +42,7 @@ if TYPE_CHECKING:
     from fast_agent.tool_activity_presentation import ToolActivityFamily
     from fast_agent.types import RequestParams
 
-DEFAULT_XAI_MODEL = "grok-4.6"
+DEFAULT_XAI_MODEL = "grok-4.7"
 GROK_EXTENDED_STREAMING_TIMEOUT: Final = 300.0
 XAI_BASE_URL = "https://api.x.ai/v1"
 XAI_EXPERIMENTAL_STREAMING_MODELS: Final = frozenset({"grok-4.5", "grok-4.6"})
@@ -100,7 +101,8 @@ class XAIResponsesLLM(ResponsesLLM):
             return
         effort = self._resolve_reasoning_effort()
         if (params.model == "grok-4.5" and effort == "high") or (
-            params.model == "grok-4.6" and effort in {"high", "xhigh"}
+            params.model in {"grok-4.6", "grok-4.7", "grok-4.7-build-fast"}
+            and effort in {"high", "xhigh"}
         ):
             params.streaming_timeout = GROK_EXTENDED_STREAMING_TIMEOUT
 
@@ -256,7 +258,27 @@ class XAIResponsesLLM(ResponsesLLM):
         headers.setdefault("Authorization", f"Bearer {self._api_key()}")
         return headers
 
+    def _requires_oauth_credential(self) -> bool:
+        return self.default_request_params.model in XAI_OAUTH_ONLY_MODELS
+
+    def _api_key(self) -> str:
+        if not self._requires_oauth_credential():
+            return super()._api_key()
+
+        from fast_agent.llm.provider.openai.xai_oauth import get_xai_access_token
+
+        token = get_xai_access_token()
+        if token is None:
+            raise ProviderKeyError(
+                "Grok Fast requires xAI OAuth",
+                "Run `fast-agent auth provider login xai` to authenticate. "
+                "API keys cannot be used for this model.",
+            )
+        return token
+
     def _uses_oauth_credential(self) -> bool:
+        if self._requires_oauth_credential():
+            return True
         if self._init_api_key is not None:
             return False
         from fast_agent.llm.provider_key_manager import ProviderKeyManager

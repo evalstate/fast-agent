@@ -56,7 +56,8 @@ Environment variables:
 - `XAI_BASE_URL`: Override the API endpoint
 - `FAST_AGENT_AUTH_FILE`: Explicit portable provider credential file
 
-An explicit `xai.api_key` or `XAI_API_KEY` takes precedence over stored OAuth.
+An explicit `xai.api_key` or `XAI_API_KEY` takes precedence over stored OAuth
+for standard Grok models. Grok 4.7 Fast always uses stored OAuth instead.
 
 ## Reuse images across turns
 
@@ -87,28 +88,66 @@ xai:
 
 ## Use a model
 
+`grok` and `grok4` select public Grok 4.7, the default xAI model, with a
+500,000-token context window and `high` reasoning by default. Use `grok47`
+or `xai.grok-4.7` explicitly; older version aliases remain available.
+
 ```bash
-fast-agent --model "xai.grok-4.6?reasoning=xhigh"
-fast-agent --model "xai.grok-4.6?web_search=on"
-fast-agent --model "xai.grok-4.6?x_search=on"
+fast-agent --model "xai.grok-4.7?reasoning=xhigh"
+fast-agent --model "xai.grok-4.7?web_search=on"
+fast-agent --model "xai.grok-4.7?x_search=on"
 fast-agent --model "xai.grok-4.5"
 ```
+
+### Grok 4.7 Fast (OAuth)
+
+Select `grok47fast` (or `grokfast`), `xai.grok-4.7-build-fast`, or
+**Grok 4.7 Fast (OAuth)** in the model picker. **OAuth is required; public API
+key access is unavailable.** Fast short-context token rates are twice standard
+Grok 4.7 rates; see [xAI pricing](https://docs.x.ai/developers/pricing) for the
+separate long-context tariff. Fast is not included in Grok Build's free tier. Fast always selects stored OAuth,
+even when an API key is configured; this is not a fallback after a failed API-key
+request. Without OAuth, the model picker offers xAI sign-in. Direct model use
+without OAuth reports a login instruction rather than trying the API key.
+
+Fast uses the existing xAI Responses backend (`https://api.x.ai/v1/responses`)
+with the OAuth bearer. It shares standard Grok 4.7’s 500,000-token context,
+`low|medium|high|xhigh` reasoning (`high` by default), and conservative maximum
+output setting; no higher output limit is assumed.
+
+```bash
+fast-agent --model "grok47fast?reasoning=xhigh"
+fast-agent --model "grok47fast?x_search=on"
+```
+
+Select **Grok 4.7 Fast (X Search, OAuth)** in the model picker to enable
+X Search with the same OAuth-only credential routing.
+
+The Fast model ID and Responses backend were verified on 2026-09-21 using
+Grok Build's authenticated `GET https://cli-chat-proxy.grok.com/v1/models-v2`
+catalog. See the [Grok Build model metadata parser](https://github.com/xai-org/grok-build/blob/4247f661689354b831191f11eeeac8424993fe3d/crates/codegen/xai-grok-shell/src/remote/client.rs).
+Live fast-agent OAuth tests passed for both models over SSE and WebSocket,
+including function-tool execution and multi-turn replay. Availability depends
+on the signed-in account's entitlement. Standard Grok 4.7 also passed API-key
+tool/replay tests over both transports; Fast returned HTTP 404 with that key.
 
 ## Reasoning and search tools
 
 Useful xAI query parameters:
 
-- `reasoning=low|medium|high|xhigh` on Grok 4.6
+- `reasoning=low|medium|high|xhigh` on Grok 4.6 and 4.7
 - `reasoning=low|medium|high` on Grok 4.3 and 4.5
 - `web_search=on|off` for xAI web search
 - `x_search=on|off` for xAI's X Search remote tool
 
 `web_search` and `x_search` are distinct provider-managed tools.
 
-Grok 4.5 and 4.6 also support two opt-in experimental Responses settings:
+The opt-in experimental Responses settings `reasoning_summary` and
+`stream_tool_calls` remain limited to Grok 4.5 and 4.6; they are not enabled
+for Grok 4.7 or Grok 4.7 Fast.
 
 
-Grok 4.5 with `reasoning=high`, and Grok 4.6 with `reasoning=high` or
+Grok 4.5 with `reasoning=high`, and Grok 4.6/4.7 (including Fast) with `reasoning=high` or
 `reasoning=xhigh`, default to a 300-second idle timeout between stream events.
 Other model and reasoning combinations retain the global 150-second default.
 Set `streaming_timeout=<seconds>` to override the default, or
@@ -125,7 +164,7 @@ omits `wait_sec`. This is local fast-agent runtime policy, not an xAI request pa
 Override it for a model selection with `poll_period=<seconds>`:
 
 ```bash
-fast-agent --model "xai.grok-4.6?poll_period=420"
+fast-agent --model "xai.grok-4.7?poll_period=420"
 ```
 
 The value must be an integer from 10 through 3600 and cannot exceed

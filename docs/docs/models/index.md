@@ -103,7 +103,7 @@ Start with the native providers for common use, or use additional providers for 
 | Anthropic            | `fable`, `sonnet`, `opus`, `opus5`, `opus48`, `haiku`    | Claude 4.x/5, prompt caching, adaptive reasoning/effort, structured outputs, `web_search`, `web_fetch` where supported, long context, task budget |
 | Google               | `gemini37flash`, `gemini`, `gemini35flash`               | Gemini native API, structured outputs, thinking controls, text/image/PDF/audio/video input, YouTube links through media attachments             |
 | DeepSeek             | `deepseek`, `deepseekpro`                                | Native stateless Responses API, reasoning, function tools, JSON Schema structured output, and web search                                       |
-| xAI / Grok           | `grok43`, `grok45`, `grok46`, `grok-4.3`, `grok-4.5`, `grok-4.6` | Grok models, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports                                                      |
+| xAI / Grok           | `grok`, `grok43`, `grok45`, `grok46`, `grok47`, `grok47fast` (OAuth required), `grok-4.3`, `grok-4.5`, `grok-4.6`, `grok-4.7` | Grok models, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports                                                      |
 | Hugging Face         | `kimi`, `kimi26instant`, `deepseek-hf`, `glm`, `minimax` | Hugging Face Inference Providers routing, curated aliases, and HF MCP authentication                                                            |
 | Additional providers | `qwen-turbo`, `gpt-oss`                                  | Groq, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints                                                   |
 
