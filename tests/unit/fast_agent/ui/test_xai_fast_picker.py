@@ -18,11 +18,16 @@ from fast_agent.ui.model_picker_common import (
 )
 
 
+@pytest.mark.parametrize("query", ["", "?x_search=true"])
 @pytest.mark.parametrize("source", ["curated", "all"])
 @pytest.mark.parametrize("api_key", [False, True])
 @pytest.mark.parametrize("oauth_state", ["missing", "expired", "ready"])
 def test_fast_picker_requires_oauth(
-    monkeypatch: pytest.MonkeyPatch, source: ModelSource, api_key: bool, oauth_state: str
+    monkeypatch: pytest.MonkeyPatch,
+    source: ModelSource,
+    api_key: bool,
+    oauth_state: str,
+    query: str,
 ) -> None:
     monkeypatch.setenv("XAI_API_KEY", "")
     monkeypatch.setattr(
@@ -36,7 +41,7 @@ def test_fast_picker_requires_oauth(
     payload = {"xai": {"api_key": "test-key"}} if api_key else {}
     snapshot = build_snapshot(config_payload=payload)
     options = model_options_for_provider(snapshot, Provider.XAI, source=source)
-    fast = next(option for option in options if option.spec == "xai.grok-4.7-build-fast")
+    fast = next(option for option in options if option.spec == "xai.grok-4.7-build-fast" + query)
     ordinary = next(option for option in options if option.spec == "xai.grok-4.7")
     activation = ProviderActivation(Provider.XAI)
     assert fast.activation_action == (None if oauth_state == "ready" else activation)

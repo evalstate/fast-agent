@@ -136,6 +136,7 @@ class ModelSelectionCatalog:
             _builtin_entry("Grok 4.7"),
             _builtin_entry("Grok 4.7 (X Search)"),
             _builtin_entry("Grok 4.7 Fast (OAuth)"),
+            _builtin_entry("Grok 4.7 Fast (X Search, OAuth)"),
             _builtin_entry("Grok 4.6"),
             _builtin_entry("Grok 4.6 (X Search)"),
             _builtin_entry("Grok 4.5"),

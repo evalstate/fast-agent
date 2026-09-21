@@ -117,7 +117,11 @@ output setting; no higher output limit is assumed.
 
 ```bash
 fast-agent --model "grok47fast?reasoning=xhigh"
+fast-agent --model "grok47fast?x_search=on"
 ```
+
+Select **Grok 4.7 Fast (X Search, OAuth)** in the model picker to enable
+X Search with the same OAuth-only credential routing.
 
 The Fast model ID and Responses backend were verified on 2026-09-21 using
 Grok Build's authenticated `GET https://cli-chat-proxy.grok.com/v1/models-v2`

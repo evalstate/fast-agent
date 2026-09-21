@@ -1782,10 +1782,17 @@ def test_public_grok_47_selection(selection: str) -> None:
     assert config.model_name == "grok-4.7"
 
 
-def test_grok_47_x_search_alias() -> None:
-    config = ModelFactory.parse_model_string("Grok 4.7 (X Search)")
+@pytest.mark.parametrize(
+    "selection,model",
+    [
+        ("Grok 4.7 (X Search)", "grok-4.7"),
+        ("Grok 4.7 Fast (X Search, OAuth)", "grok-4.7-build-fast"),
+    ],
+)
+def test_grok_47_x_search_alias(selection: str, model: str) -> None:
+    config = ModelFactory.parse_model_string(selection)
     assert config.provider == Provider.XAI
-    assert config.model_name == "grok-4.7"
+    assert config.model_name == model
     assert config.x_search is True
 
 

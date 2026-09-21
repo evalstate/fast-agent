@@ -151,6 +151,7 @@ BUILTIN_MODEL_ALIASES: Final[dict[str, str]] = {
     "gpt-4.1-nano": "openai.gpt-4.1-nano",
     "Grok 4.7": "xai.grok-4.7",
     "Grok 4.7 Fast (OAuth)": "xai.grok-4.7-build-fast",
+    "Grok 4.7 Fast (X Search, OAuth)": "xai.grok-4.7-build-fast?x_search=true",
     "Grok 4.7 (X Search)": "xai.grok-4.7?x_search=true",
     "Grok 4.6": "xai.grok-4.6",
     "Grok 4.6 (X Search)": "xai.grok-4.6?x_search=true",

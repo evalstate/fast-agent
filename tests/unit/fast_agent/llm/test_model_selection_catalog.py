@@ -95,6 +95,7 @@ def test_xai_picker_promotes_grok_47() -> None:
 
     assert aliases[:2] == ["Grok 4.7", "Grok 4.7 (X Search)"]
     assert "Grok 4.7 Fast (OAuth)" in aliases
+    assert "Grok 4.7 Fast (X Search, OAuth)" in aliases
     assert "Grok 4.6" in aliases
     assert "Grok 4.6 (X Search)" in aliases
     assert BUILTIN_MODEL_ALIASES["grok"] == "xai.grok-4.7"
