@@ -203,7 +203,6 @@ async def test_stream_execution_contract(with_span: bool, outcome: str):
     from anthropic import APIError
 
     from fast_agent.llm.provider.anthropic import llm_anthropic as provider
-    from fast_agent.llm.provider.streaming_timeouts import StreamIdleTimeoutError
 
     fixtures = TestOpenTelemetryCompatibility()
     llm = fixtures._create_llm()
@@ -221,7 +220,9 @@ async def test_stream_execution_contract(with_span: bool, outcome: str):
             try:
                 if outcome in {"error", "api_error"}:
                     raise failure
-                if outcome in {"cancel", "idle_timeout"}:
+                if outcome == "idle_timeout":
+                    raise httpx2.ReadTimeout("HTTP stream stalled")
+                if outcome == "cancel":
                     waiting.set()
                     await asyncio.Event().wait()
                 async for event in super().__aiter__():
@@ -266,7 +267,7 @@ async def test_stream_execution_contract(with_span: bool, outcome: str):
             with pytest.raises(asyncio.CancelledError):
                 await task
         else:
-            with pytest.raises(StreamIdleTimeoutError):
+            with pytest.raises(httpx2.ReadTimeout):
                 await task
 
         assert stream._entered and stream._exited

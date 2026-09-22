@@ -1017,6 +1017,10 @@ async def test_write_text_file_auto_mode_prefers_apply_patch_for_codex_family_mo
         "responses.gpt-6-astra",
         "codexresponses.gpt-6-astra?reasoning=low",
         "responses.gpt-6-astra?reasoning=max",
+        "sol",
+        "luna",
+        "gpt-6-sol",
+        "responses.gpt-6-luna?reasoning=none",
     ],
 )
 async def test_astra_defaults_to_writer_editor_pair(model_name: str) -> None:
@@ -1053,7 +1057,7 @@ async def test_astra_explicit_apply_patch_overrides_writer_editor_default(model_
 @pytest.mark.parametrize(
     "model_name",
     [
-        "luna",
+        "luna56",
         "gpt-5.6-luna",
         "codexresponses.gpt-5.6-luna",
         "responses.gpt-5.6-luna",

@@ -472,7 +472,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         params = self._get_model_params(model_name)
         return params.response_service_tiers if params is not None else None
 
-    def _uses_codex_responses_lite(self, model_name: str | None) -> bool:
+    def _supports_codex_responses_lite(self, model_name: str | None) -> bool:
         params = self._get_model_params(model_name)
         return params.codex_responses_lite if params is not None else False
 

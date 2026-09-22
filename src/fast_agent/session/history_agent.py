@@ -52,6 +52,12 @@ class HistoryAgent:
     def usage_accumulator(self) -> UsageAccumulator | None:
         return self.agent.usage_accumulator
 
+    @property
+    def shell_runtime_enabled(self) -> bool:
+        from fast_agent.mcp.types import McpAgentProtocol
+
+        return isinstance(self.agent, McpAgentProtocol) and self.agent.shell_runtime_enabled
+
     def list_attached_mcp_servers(self) -> list[str]:
         if isinstance(self.agent, _AttachedMcpServerProvider):
             return self.agent.list_attached_mcp_servers()

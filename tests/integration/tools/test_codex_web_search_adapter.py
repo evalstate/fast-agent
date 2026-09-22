@@ -124,7 +124,7 @@ def agent_for(url: str, domains: list[str] | None = None) -> McpAgent:
         )
     )
     agent = McpAgent(AgentConfig(name="search", servers=[]), context=context)
-    agent._llm = GenerateSimulator(model="gpt-6-astra", context=context)
+    agent._llm = GenerateSimulator(model="gpt-6-astra", lite=True, context=context)
     return agent
 
 
@@ -261,7 +261,9 @@ async def test_same_name_detached_clones_keep_invocation_identity(tmp_path) -> N
         second = await parent.spawn_detached_instance(name="child[tool]")
         try:
             for clone in (first, second):
-                clone._llm = GenerateSimulator(model="gpt-6-astra", context=parent.context)
+                clone._llm = GenerateSimulator(
+                    model="gpt-6-astra", lite=True, context=parent.context
+                )
                 clone.clear()
                 await clone.call_tool("web_run", {"search_query": [{"q": "child"}]})
             first_id, second_id = [request["id"] for request in requests[-2:]]

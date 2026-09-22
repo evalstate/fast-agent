@@ -99,6 +99,8 @@ Examples:
 
 - `astra`
 - `codexresponses.gpt-6-astra?reasoning=max`
+- `sol`
+- `luna?reasoning=none`
 - `codexplan`
 - `codexresponses.gpt-5.5?reasoning=high`
 - `codexresponses.gpt-5.3-codex-spark?web_search=on`
@@ -216,7 +218,8 @@ for card-scoped runtime targets.
 ## Codex (OAuth Responses)
 
 **`fast-agent`** supports using your OpenAI Codex subscription. Run `fast-agent auth provider login codex`
-once, then use a Codex OAuth model alias such as `astra` (GPT-6-Astra), `codexplan` (GPT-6-Astra, medium reasoning),
+once, then use a Codex OAuth model alias such as `astra` (GPT-6-Astra), `sol` (GPT-6-Sol),
+`luna` (GPT-6-Luna), `codexplan` (GPT-6-Astra, medium reasoning),
 `codexplan54` (GPT-5.4 planning), `codexplan53` (GPT-5.3 Codex planning), or
 `codexspark` (GPT-5.3 Codex Spark).
 
@@ -258,6 +261,12 @@ codexresponses:
 - Tokens are stored in your OS keyring, with a secure file fallback, via `fast-agent auth provider login codex`.
 - `astra` maps to `codexresponses.gpt-6-astra?reasoning=medium`.
 - `gpt-6-astra` maps to the API-key-backed `responses.gpt-6-astra?reasoning=medium` route; availability still depends on the OpenAI API account's model access.
+- `sol` maps to `codexresponses.gpt-6-sol?reasoning=medium`, and `luna` maps to
+  `codexresponses.gpt-6-luna?reasoning=medium`. `gpt-6-sol` and `gpt-6-luna` use the
+  API-key-backed `responses` route. Unlike Astra, Sol and Luna also accept `reasoning=none`.
+- The previous `sol` and `luna` targets remain available as `sol56`
+  (`codexresponses.gpt-5.6-sol?reasoning=high`) and `luna56`
+  (`codexresponses.gpt-5.6-luna?reasoning=medium`).
 - `codexplan` maps to `codexresponses.gpt-6-astra?reasoning=medium`.
 - `codexplan54` maps to `codexresponses.gpt-5.4?reasoning=high`.
 - `codexplan53` maps to `codexresponses.gpt-5.3-codex?reasoning=medium`.
@@ -270,21 +279,37 @@ codexresponses:
   CLI auth files are treated as read-only and are never modified or deleted.
 - `fast-agent check` and `fast-agent auth` show Codex OAuth status.
 
+### Responses Lite (opt-in)
+
+Codex's own client sends GPT-6 and GPT-5.6-Luna requests using an internal
+"Responses Lite" contract. fast-agent uses the **standard** Responses contract
+on `codexresponses` by default: the Codex OAuth backend accepts it for these
+models, and it keeps parallel tool calls and hosted tools such as web search.
+
+Opt in per model string with `lite=on` (for example `astra?lite=on` or
+`codexresponses.gpt-6-sol?lite=on`). Lite sends the tool list and instructions
+as input items, disables parallel tool calls, sets `reasoning.context: all_turns`,
+and marks HTTP/WebSocket requests with the Lite header. `lite=on` is rejected for
+models without Lite support and for other providers. `/model` shows the current
+setting for Lite-capable Codex models.
+
 ### Standalone web search (Codex Lite)
 
-Enable web search on Astra to automatically expose the harness `web_run` tool:
+With Responses Lite enabled, web search uses the harness `web_run` tool (Lite
+does not run hosted tools):
 
 ```bash
 fast-agent auth provider login codex
-fast-agent go --model 'astra?web_search=true' --message 'Search for recent OpenAI announcements and link your sources.'
+fast-agent go --model 'astra?lite=on&web_search=true' --message 'Search for recent OpenAI announcements and link your sources.'
 
 # Disable for this run
-fast-agent go --model 'astra?web_search=false'
+fast-agent go --model 'astra?lite=on&web_search=false'
 ```
 
 No shell access or MCP server is required. This standalone route applies only to
-Codex Lite models such as Astra. Sol's hosted search and public OpenAI Responses
-hosted search are unchanged. The existing `codexresponses.web_search.enabled`
+Lite requests (`lite=on`) for models such as Astra, GPT-6-Sol and GPT-6-Luna. Without
+`lite=on`, `web_search=true` uses hosted Responses web search, as it does for
+public OpenAI Responses. The existing `codexresponses.web_search.enabled`
 setting provides the configuration default; the model flag overrides it. Existing
 search context size, allowed domains, external web access and approximate user
 location settings also apply. The tool honors the configured tool-permission
@@ -341,11 +366,13 @@ successful-response body size limit. Library callers may supply
 `SearchRequest.max_output_tokens`; the harness does not set a search output token
 limit. `response_length` requests detail, not a client-side hard cap.
 
-### Astra context: explicit opt-in
+### GPT-6 context: explicit opt-in
 
 fast-agent keeps the default context window at **272,000 tokens** for both
 `astra` (Codex OAuth) and `gpt-6-astra` (Responses API). Larger context is opt-in,
-not an automatic increase: retaining more input can increase cost.
+not an automatic increase: retaining more input can increase cost. GPT-6-Sol
+(`sol`/`gpt-6-sol`) and GPT-6-Luna (`luna`/`gpt-6-luna`) use the same route-specific
+defaults and opt-in windows as Astra.
 
 The local Codex source snapshot (`~/reference/codex/codex-rs/`) lists
 `gpt-6-astra` as the first entry in `models-manager/models.json`, with

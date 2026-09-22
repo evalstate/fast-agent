@@ -88,7 +88,8 @@ configuration too.
 
 ## Exact model names
 
-Use these provider-qualified names; there are no Copilot aliases. Unknown IDs
+Use these provider-qualified names; `copilot.opus` and `copilot.opus55` select
+Opus 5.5. Unknown IDs
 are rejected rather than routed to another provider. `copilot.claude-opus5` is
 not canonical and has no alias; use `copilot.claude-opus-5`.
 
@@ -97,13 +98,16 @@ not canonical and has no alias; use `copilot.claude-opus-5`.
 | `copilot.claude-haiku-4.5` | Messages |
 | `copilot.claude-sonnet-5` | Messages |
 | `copilot.claude-opus-4-8` | Messages |
-| `copilot.claude-opus-5` | Messages |
+| `copilot.claude-opus-5.5` (`copilot.opus`, `copilot.opus55`) | Messages |
+| `copilot.claude-opus-5` (pinned older version) | Messages |
 | `copilot.claude-fable-5` | Messages |
 | `copilot.claude-fable-5.1` | Messages |
 | `copilot.gpt-5.6-luna` | Responses |
 | `copilot.gpt-5.6-terra` | Responses |
 | `copilot.gpt-5.6-sol` | Responses |
 | `copilot.gpt-6-astra` | Responses |
+| `copilot.gpt-6-sol` | Responses |
+| `copilot.gpt-6-luna` | Responses |
 
 Provider identity stays Copilot regardless of wire API; Anthropic/OpenAI API
 keys are not used for these models. The status bar prefixes Copilot model labels
@@ -145,7 +149,7 @@ request cache controls are still forwarded even when automatic planning is off.
 
 ## Transport and compatibility
 
-The four GPT models default to **WebSockets**, using static curated capability
+The GPT models default to **WebSockets**, using static curated capability
 metadata; no remote catalog is required. Select HTTP/SSE explicitly if needed:
 
 ```bash

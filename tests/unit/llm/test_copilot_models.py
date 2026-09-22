@@ -23,12 +23,15 @@ PUBLIC_IDS = {
     "claude-sonnet-5",
     "claude-opus-4-8",
     "claude-opus-5",
+    "claude-opus-5.5",
     "claude-fable-5",
     "claude-fable-5.1",
     "gpt-5.6-luna",
     "gpt-5.6-terra",
     "gpt-5.6-sol",
     "gpt-6-astra",
+    "gpt-6-sol",
+    "gpt-6-luna",
 }
 
 

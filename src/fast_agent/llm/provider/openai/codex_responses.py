@@ -41,6 +41,9 @@ class CodexResponsesLLM(ResponsesLLM):
 
     def __init__(self, provider: Provider = Provider.CODEX_RESPONSES, **kwargs: Any) -> None:
         kwargs.pop("provider", None)
+        # Responses Lite is opt-in (`?lite=on`); the standard contract keeps hosted
+        # tools and parallel tool calls.
+        self._responses_lite: bool = kwargs.pop("lite", False)
         super().__init__(provider=provider, **kwargs)
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
         self._validate_codex_max_tokens(self.default_request_params)
@@ -68,6 +71,9 @@ class CodexResponsesLLM(ResponsesLLM):
             raise ModelConfigError(
                 "Provider 'codexresponses' does not support max token limits in request metadata."
             )
+
+    def _uses_codex_responses_lite(self, model_name: str | None) -> bool:
+        return self._responses_lite and self._supports_codex_responses_lite(model_name)
 
     def standalone_web_search_enabled(self, model: str | None = None) -> bool:
         return self.web_search_enabled and self._uses_codex_responses_lite(

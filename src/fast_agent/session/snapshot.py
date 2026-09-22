@@ -151,6 +151,7 @@ class SessionAgentSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    shell_enabled: bool | None = None
     history_file: str | None = None
     resolved_prompt: str | None = None
     model: str | None = None
@@ -256,6 +257,12 @@ class SessionSnapshot(BaseModel):
     continuation: SessionContinuationSnapshot = Field(default_factory=SessionContinuationSnapshot)
     analysis: SessionAnalysisSnapshot = Field(default_factory=SessionAnalysisSnapshot)
     execution: SessionExecutionSnapshot = Field(default_factory=SessionExecutionSnapshot)
+
+
+@runtime_checkable
+class _ShellStateProvider(Protocol):
+    @property
+    def shell_runtime_enabled(self) -> bool: ...
 
 
 @runtime_checkable
@@ -940,6 +947,11 @@ def _capture_agent_snapshot(
         existing_snapshot=existing_snapshot,
     )
     return SessionAgentSnapshot(
+        shell_enabled=(
+            agent.shell_runtime_enabled
+            if isinstance(agent, _ShellStateProvider)
+            else (existing_snapshot.shell_enabled if existing_snapshot is not None else None)
+        ),
         history_file=_capture_history_file(
             session=session,
             agent_name=agent.name,

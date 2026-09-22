@@ -22,6 +22,7 @@ COPILOT_MODELS: Final[Mapping[str, CopilotModelSpec]] = MappingProxyType(
         spec.model_id: spec
         for spec in (
             CopilotModelSpec("claude-fable-5.1", "messages", False, ("sse",)),
+            CopilotModelSpec("claude-opus-5.5", "messages", False, ("sse",)),
             CopilotModelSpec("claude-opus-4-8", "messages", True, ("sse",)),
             CopilotModelSpec("claude-opus-5", "messages", True, ("sse",)),
             CopilotModelSpec("claude-sonnet-5", "messages", True, ("sse",)),
@@ -33,6 +34,16 @@ COPILOT_MODELS: Final[Mapping[str, CopilotModelSpec]] = MappingProxyType(
                 True,
                 ("sse", "websocket"),
                 supports_web_search=True,
+            ),
+            *(
+                CopilotModelSpec(
+                    model_id,
+                    "responses",
+                    True,
+                    ("sse", "websocket"),
+                    supports_web_search=True,
+                )
+                for model_id in ("gpt-6-sol", "gpt-6-luna")
             ),
             CopilotModelSpec(
                 "gpt-5.6-sol",

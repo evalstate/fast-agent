@@ -30,6 +30,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     send_response_request,
 )
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import RequestParams
 
@@ -267,12 +268,35 @@ async def test_owner_and_task_binding_isolation(broker: FakeBroker, context: Con
     assert broker.calls[0][1] == broker.calls[2][1]
 
 
+@pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh", "max"])
+def test_opus_55_effort_controls(
+    context: Context, effort: Literal["low", "medium", "high", "xhigh", "max"]
+) -> None:
+    llm = CopilotMessagesLLM(
+        context=context,
+        model="claude-opus-5.5",
+    )
+    llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value=effort))
+    args, enabled = llm._resolve_thinking_arguments("claude-opus-5.5", 128000, None)
+    assert enabled
+    assert "thinking" not in args
+    assert args["output_config"] == {"effort": effort}
+
+
 @pytest.mark.asyncio
-async def test_fable_policy_and_thinking_preservation(broker: FakeBroker, context: Context) -> None:
-    llm = CopilotMessagesLLM(context=context, model="claude-fable-5.1")
-    await llm._prepare_anthropic_client("claude-fable-5.1")
+@pytest.mark.parametrize("model", ["claude-fable-5.1", "claude-opus-5.5"])
+async def test_always_on_policy_and_thinking_preservation(
+    broker: FakeBroker, context: Context, model: str
+) -> None:
+    llm = CopilotMessagesLLM(context=context, model=model)
+    await llm._prepare_anthropic_client(model)
+    if model == "claude-opus-5.5":
+        thinking_args, enabled = llm._resolve_thinking_arguments(model, 128000, None)
+        assert enabled
+        assert "thinking" not in thinking_args
+        assert thinking_args["output_config"] == {"effort": "medium"}
     base = {
-        "model": "claude-fable-5.1",
+        "model": model,
         "messages": [
             {
                 "role": "assistant",
@@ -310,7 +334,10 @@ async def test_fable_policy_and_thinking_preservation(broker: FakeBroker, contex
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model", ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])
+@pytest.mark.parametrize(
+    "model",
+    ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+)
 @pytest.mark.parametrize("factory", [False, True])
 async def test_gpt_defaults_to_websocket_without_sse_fallback(
     model: str, factory: bool, context: Context, monkeypatch: pytest.MonkeyPatch
@@ -845,7 +872,9 @@ async def test_responses_extra_body_matches_sse_and_websocket_wire_payload(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model", ["gpt-6-astra", "gpt-5.6-luna", "gpt-5.6-sol"])
+@pytest.mark.parametrize(
+    "model", ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-luna", "gpt-5.6-sol"]
+)
 async def test_verified_web_search_toggle_and_websocket_payload(
     model: str, broker: FakeBroker, context: Context
 ) -> None:

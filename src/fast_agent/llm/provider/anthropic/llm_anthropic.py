@@ -15,6 +15,7 @@ from anthropic import (
     APIError,
     AsyncAnthropic,
     AuthenticationError,
+    Timeout,
     transform_schema,
 )
 from anthropic.lib.streaming import BetaMessageStreamEvent
@@ -2114,14 +2115,24 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         exclude_fields: set | None = None,
     ) -> dict:
         arguments = super().prepare_provider_arguments(base_args, request_params, exclude_fields)
-        if self._normalize_model_name(str(arguments.get("model", ""))) == "claude-fable-5-1":
+        model = self._normalize_model_name(str(arguments.get("model", "")))
+        if model in {"claude-fable-5-1", "claude-opus-5-5", "claude-opus-5.5"}:
             extra_body = arguments.get("extra_body") or {}
             tool_choice = extra_body.get("tool_choice", arguments.get("tool_choice"))
             if isinstance(tool_choice, dict) and tool_choice.get("type") in {"any", "tool"}:
                 raise ValueError(
-                    "Claude Fable 5.1 does not support forced tool use; use auto or none, "
+                    f"{model} does not support forced tool use; use auto or none, "
                     "and JSON mode for structured output."
                 )
+        if model in {"claude-opus-5-5", "claude-opus-5.5"}:
+            extra_body = arguments.get("extra_body") or {}
+            thinking = extra_body.get("thinking", arguments.get("thinking"))
+            if thinking is not None and (
+                not isinstance(thinking, dict)
+                or thinking.get("type") != "adaptive"
+                or "budget_tokens" in thinking
+            ):
+                raise ValueError("Opus 5.5 requires always-on adaptive thinking.")
         sampling_keys = ("temperature", "top_p", "top_k")
         sampling = {
             key: arguments.pop(key) for key in sampling_keys if arguments.get(key) is not None
@@ -2133,6 +2144,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             "claude-opus-4-7",
             "claude-opus-4-8",
             "claude-opus-5",
+            "claude-opus-5-5",
+            "claude-opus-5.5",
             "claude-fable-5",
             "claude-fable-5-1",
             "claude-sonnet-5",
@@ -2294,7 +2307,11 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             if stream_method is not anthropic.beta.messages.stream:
                 otel_span = _start_fallback_stream_span(model)
 
-            stream_call = stream_method(**arguments)
+            # The SDK filters SSE pings before yielding parsed events. Enforce
+            # idleness on HTTP reads instead, preserving the other client limits.
+            request_timeout = Timeout(anthropic.timeout)
+            request_timeout.read = timeout_seconds
+            stream_call = stream_method(**{**arguments, "timeout": request_timeout})
             stream_manager = (
                 await await_stream_start(
                     stream_call,
@@ -2320,9 +2337,10 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 ) as raw_stream:
                     timed_stream = with_stream_idle_timeout(
                         raw_stream,
-                        idle_timeout_seconds=timeout_seconds,
+                        idle_timeout_seconds=None,
                     )
-                    # The timeout wrapper forwards get_final_message to the SDK stream.
+                    # Keep parsed-event timing and forward get_final_message, but
+                    # do not terminate healthy streams between parsed events.
                     stream = cast("_AnthropicMessageStream", timed_stream)
                     (
                         response,

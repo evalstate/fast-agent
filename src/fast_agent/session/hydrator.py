@@ -177,6 +177,7 @@ class SessionHydrator:
         for agent_name, agent_snapshot in agent_snapshots.items():
             await self._hydrate_agent(
                 session=session,
+                snapshot=snapshot,
                 agent_name=agent_name,
                 agent_snapshot=agent_snapshot,
                 agents=agents,
@@ -235,6 +236,7 @@ class SessionHydrator:
         self,
         *,
         session: Session,
+        snapshot: SessionSnapshot,
         agent_name: str,
         agent_snapshot: SessionAgentSnapshot,
         agents: Mapping[str, AgentProtocol],
@@ -247,6 +249,9 @@ class SessionHydrator:
             return
 
         if policy.restore_runtime_state:
+            self._restore_agent_shell(
+                session, snapshot, agent, agent_name, agent_snapshot, state.warnings
+            )
             await self._restore_runtime_state(
                 agent=agent,
                 agent_name=agent_name,
@@ -268,6 +273,51 @@ class SessionHydrator:
             SessionHydrationWarning(
                 code="missing-agent",
                 message=f"Persisted agent {agent_name!r} is not available in this runtime",
+                agent_name=agent_name,
+            )
+        )
+
+    @staticmethod
+    def _restore_agent_shell(
+        session: Session,
+        snapshot: SessionSnapshot,
+        agent: AgentProtocol,
+        agent_name: str,
+        agent_snapshot: SessionAgentSnapshot,
+        warnings: list[SessionHydrationWarning],
+    ) -> None:
+        if agent_snapshot.shell_enabled is not True:
+            return
+
+        from fast_agent.agents.mcp_agent import McpAgent
+
+        if not isinstance(agent, McpAgent) or agent.shell_runtime_enabled:
+            return
+        context = agent.context
+        if context is not None and context.no_shell:
+            reason = "shell access was explicitly disabled"
+        elif snapshot.continuation.lineage.acp_session_id is not None or (
+            context is not None and context.acp is not None
+        ):
+            reason = "ACP sessions require current client authorization"
+        elif (
+            session.manager is None
+            or (saved_cwd := snapshot.continuation.cwd) is None
+            or Path(saved_cwd).expanduser().resolve() != session.manager.workspace_dir
+        ):
+            reason = "the saved workspace does not match the current workspace"
+        else:
+            try:
+                agent.enable_shell()
+            except (OSError, ValueError) as exc:
+                reason = f"shell runtime could not be started ({exc})"
+            else:
+                return
+
+        warnings.append(
+            SessionHydrationWarning(
+                code="shell-restore-skipped",
+                message=f"Did not restore shell access for agent {agent_name!r}: {reason}.",
                 agent_name=agent_name,
             )
         )

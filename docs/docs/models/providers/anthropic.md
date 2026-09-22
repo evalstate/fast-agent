@@ -9,6 +9,41 @@ social:
 
 Anthropic models support Text, Vision and PDF content. Caching is enabled by default, and Remote MCP is supported.
 
+## Streaming timeout
+
+`streaming_timeout` limits HTTP read inactivity for Anthropic Messages, including
+Copilot Messages. SSE pings keep a stream alive even when no text or other parsed
+events arrive. It is not a total response deadline. Parsed-event timing is still
+recorded for diagnostics.
+
+`streaming_timeout=none` disables the read and stream-start timeouts; SDK
+connect/write/pool limits remain unchanged. A numeric value also bounds stream
+startup as before.
+
+## Claude Opus 5.5
+
+Released September 22, 2026. `opus` and `opus55` select `claude-opus-5-5`;
+`opus5` remains pinned to Opus 5. Copilot uses `copilot.claude-opus-5.5`
+(or `copilot.opus` / `copilot.opus55`).
+
+- 1,000,000-token context and 128,000-token maximum output.
+- Adaptive thinking is always on and cannot be disabled or assigned a manual
+  token budget. Default effort is `medium`; `auto` leaves effort to the provider.
+  Supported effort levels are `low`, `medium`, `high`, `xhigh`, and `max`, as
+  confirmed in the [Anthropic effort documentation](https://platform.claude.com/docs/en/build-with-claude/effort).
+  Fast-mode pricing is not assumed.
+- Forced tool use is unsupported. Use `auto` or `none`, and native JSON mode for
+  structured output on direct Anthropic. Copilot retains its existing structured-output
+  restrictions (forced-tool fallback is rejected). Unsupported sampling controls
+  are removed, as for Fable 5.1.
+- Thinking blocks belong to their originating model and conversation. Do not
+  transplant them into other conversations or models, or edit earlier history.
+  Preserve empty signed thinking blocks and text between tool calls. Thinking
+  display is empty by default; fast-agent does not request summarized display.
+- Anthropic pricing per million tokens: input **$4**, output **$20**, 5-minute
+  cache writes **$5**, 1-hour cache writes **$8**, cache reads **$0.20**.
+  Cache reads are **5%** of input price, not 10%. These are not Copilot charges.
+
 ## Claude Fable 5.1
 
 Use `claude-fable-5-1` (for example, `fast-agent go --model "claude-fable-5-1?reasoning=max"`).
@@ -110,7 +145,8 @@ Claude reasoning support depends on the model family:
 
 | Model family | fast-agent aliases | Reasoning mode | Effort values | Task budget |
 | --- | --- | --- | --- | --- |
-| Claude Opus 5 | `opus`, `opus5` | adaptive, on by default | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | supported |
+| Claude Opus 5.5 | `opus`, `opus55` | adaptive, always on | `auto`, `low`, `medium`, `high`, `xhigh`, `max` | not enabled |
+| Claude Opus 5 | `opus5` | adaptive, on by default | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | supported |
 | Claude Opus 4.8 | `opus4`, `opus48` | adaptive | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | supported |
 | Claude Opus 4.7 | `opus47` | adaptive | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | supported |
 | Claude Opus 4.6 | `opus46` | adaptive | `auto`, `low`, `medium`, `high`, `max`, `off` | not supported |
@@ -157,7 +193,7 @@ anthropic:
 You can also set reasoning per run using the model string:
 
 - `sonnet?reasoning=4096`
-- `opus?reasoning=xhigh&task_budget=128k`
+- `opus5?reasoning=xhigh&task_budget=128k`
 - `opus47?reasoning=auto&task_budget=64k`
 - `claude-opus-4-6?reasoning=auto`
 

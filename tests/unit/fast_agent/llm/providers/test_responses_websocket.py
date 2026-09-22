@@ -1624,6 +1624,10 @@ class _ContinuationConnectionLifecycleHarness(CodexResponsesLLM):
 
 
 class _CodexRoutingContextHarness(_ContinuationConnectionLifecycleHarness):
+    def __init__(self) -> None:
+        super().__init__()
+        self._responses_lite = True
+
     def _build_response_args(
         self,
         input_items: list[dict[str, Any]],

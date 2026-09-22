@@ -868,6 +868,7 @@ def _build_responses_family_llm(
     *,
     model_name: str | None = None,
     configured_service_tier: Literal["fast", "flex"] | None = None,
+    lite: bool = False,
 ) -> ResponsesLLM:
     if provider == Provider.RESPONSES:
         settings = Settings(
@@ -895,7 +896,12 @@ def _build_responses_family_llm(
             )
         )
         model = model_name or "gpt-5.3-codex"
-        llm_class = CodexResponsesLLM
+        return CodexResponsesLLM(
+            context=Context(config=settings),
+            model=model,
+            name=f"{provider.value}-service-tier-test",
+            lite=lite,
+        )
     else:
         raise AssertionError(f"unexpected provider: {provider}")
 
@@ -915,9 +921,9 @@ def test_codexresponses_provider_defaults_to_websocket_preferred_transport() -> 
     assert llm.configured_transport == "auto"
 
 
-@pytest.mark.parametrize("model_name", ["gpt-5.6-luna", "gpt-6-astra"])
+@pytest.mark.parametrize("model_name", ["gpt-5.6-luna", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"])
 def test_codexresponses_lite_uses_internal_request_contract(model_name: str) -> None:
-    llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name=model_name)
+    llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name=model_name, lite=True)
     input_items = [
         {
             "type": "message",
@@ -954,6 +960,7 @@ def test_codexresponses_lite_fast_preserves_both_routing_headers() -> None:
     llm = _build_responses_family_llm(
         Provider.CODEX_RESPONSES,
         model_name="gpt-5.6-luna",
+        lite=True,
     )
 
     args = llm._build_response_args(
@@ -983,7 +990,7 @@ def test_gpt_6_astra_sends_max_reasoning_to_codexresponses() -> None:
     )
 
     assert args["reasoning"]["effort"] == "max"
-    assert args["reasoning"]["context"] == "all_turns"
+    assert "context" not in args["reasoning"]
 
 
 def test_gpt_6_astra_uses_standard_contract_through_responses_api() -> None:
@@ -1023,7 +1030,9 @@ def test_gpt_6_astra_codex_client_meets_minimum_version() -> None:
 
 
 def test_codexresponses_lite_adds_per_request_websocket_metadata() -> None:
-    llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name="gpt-5.6-luna")
+    llm = _build_responses_family_llm(
+        Provider.CODEX_RESPONSES, model_name="gpt-5.6-luna", lite=True
+    )
     arguments: dict[str, Any] = {"model": "gpt-5.6-luna"}
 
     llm._prepare_websocket_arguments(arguments)
@@ -1054,7 +1063,11 @@ async def test_codexresponses_inlines_local_pdf_without_files_api(tmp_path: Path
     }
 
 
-@pytest.mark.parametrize("model_name", ["gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra"])
+@pytest.mark.parametrize(
+    "model_name",
+    # Lite-capable models also use the standard contract unless `lite=on` is set.
+    ["gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra", "gpt-6-sol"],
+)
 def test_codexresponses_standard_model_omits_lite_contract(model_name: str) -> None:
     llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name=model_name)
     args = llm._build_response_args(
@@ -1065,6 +1078,7 @@ def test_codexresponses_standard_model_omits_lite_contract(model_name: str) -> N
 
     assert args["extra_headers"] == {CODEX_ROUTING_HINT_HEADER: f"model={model_name}"}
     assert args["instructions"] == "instructions"
+    assert args["parallel_tool_calls"] is True
     assert "client_metadata" not in args
 
 
