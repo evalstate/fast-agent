@@ -127,6 +127,9 @@ contract, poll settings, structured-output policy and tokenizer support as
   `anthropic_required_betas`: cleared; the gateway exposes no Anthropic
   server-side web tools or beta headers.
 
+Claude Opus 5, Sonnet 5, and Fable 5/5.1 have no default file-creation advisory;
+older Claude models retain the heredoc guidance. This does not change tool availability.
+
 ## Prompt caching
 
 Claude Messages uses the normal Anthropic automatic cache planner **by default**:

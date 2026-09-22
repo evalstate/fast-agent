@@ -660,16 +660,16 @@ def test_overlay_empty_model_specific_suppresses_catalog_prompt_text(tmp_path: P
         """
 name: quiet-opus
 provider: copilot
-model: claude-opus-5
+model: claude-opus-4-8
 metadata:
   model_specific: ""
 """.strip(),
     )
-    assert ModelDatabase.get_model_specific("copilot.claude-opus-5")
+    assert ModelDatabase.get_model_specific("copilot.claude-opus-4-8")
 
     with _isolated_overlay_environment(home, cleanup_base=tmp_path):
         # The agent config names the catalog model; only the attached LLM carries the overlay.
-        agent = LlmAgent(AgentConfig(name="quiet", model="copilot.claude-opus-5"))
+        agent = LlmAgent(AgentConfig(name="quiet", model="copilot.claude-opus-4-8"))
         agent._llm = ModelFactory.create_factory("quiet-opus")(agent)
         context = build_agent_instruction_context(agent)
 

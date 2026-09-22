@@ -111,10 +111,18 @@ def test_copilot_route_inherits_base_catalog_entry(public_id: str, base_id: str)
     assert copilot.anthropic_required_betas is None
 
 
-def test_copilot_opus_keeps_anthropic_model_specific_prompt() -> None:
-    expected = ModelDatabase.get_model_specific("claude-opus-5")
+@pytest.mark.parametrize(
+    "model_id",
+    ["claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-fable-5.1"],
+)
+def test_copilot_claude5_has_no_file_creation_advisory(model_id: str) -> None:
+    assert ModelDatabase.get_model_specific(f"copilot.{model_id}") == ""
+
+
+def test_copilot_opus48_keeps_anthropic_model_specific_prompt() -> None:
+    expected = ModelDatabase.get_model_specific("claude-opus-4-8")
     assert expected
-    assert ModelDatabase.get_model_specific("copilot.claude-opus-5") == expected
+    assert ModelDatabase.get_model_specific("copilot.claude-opus-4-8") == expected
 
 
 def test_mixed_factory_dispatch_ignores_bare_overrides(monkeypatch):
