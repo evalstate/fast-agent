@@ -96,6 +96,7 @@ not canonical and has no alias; use `copilot.claude-opus-5`.
 | --- | --- |
 | `copilot.claude-haiku-4.5` | Messages |
 | `copilot.claude-sonnet-5` | Messages |
+| `copilot.claude-opus-4-8` | Messages |
 | `copilot.claude-opus-5` | Messages |
 | `copilot.claude-fable-5` | Messages |
 | `copilot.claude-fable-5.1` | Messages |

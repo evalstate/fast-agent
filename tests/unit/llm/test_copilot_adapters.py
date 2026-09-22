@@ -148,9 +148,16 @@ def responses_events() -> bytes:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("wire", ["messages", "responses"])
+@pytest.mark.parametrize(
+    "wire,model",
+    [
+        ("messages", "claude-sonnet-5"),
+        ("messages", "claude-opus-4-8"),
+        ("responses", "gpt-6-astra"),
+    ],
+)
 async def test_parent_sse_loop_fresh_binding_and_payload(
-    wire: str, broker: FakeBroker, context: Context, monkeypatch: pytest.MonkeyPatch
+    wire: str, model: str, broker: FakeBroker, context: Context, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     requests: list[httpx2.Request] = []
     bodies: list[dict[str, Any]] = []
@@ -174,9 +181,9 @@ async def test_parent_sse_loop_fresh_binding_and_payload(
         f"{module}.{'AsyncAnthropic' if wire == 'messages' else 'AsyncOpenAI'}", client_factory
     )
     llm = (
-        CopilotMessagesLLM(context=context, model="claude-sonnet-5")
+        CopilotMessagesLLM(context=context, model=model)
         if wire == "messages"
-        else CopilotResponsesLLM(context=context, model="gpt-6-astra", transport="sse")
+        else CopilotResponsesLLM(context=context, model=model, transport="sse")
     )
     tool = Tool(name="local_tool", input_schema={"type": "object", "properties": {}})
     for _ in range(2):
@@ -232,6 +239,7 @@ async def test_parent_sse_loop_fresh_binding_and_payload(
         assert "DO-NOT-SEND" not in str(request.headers)
         assert request.headers["x-initiator"] == "agent"
         assert request.headers["copilot-vision-request"] == "true"
+        assert body["model"] == model
         assert body["tools"][0]["name"] == "local_tool"
         assert body["max_tokens" if wire == "messages" else "max_output_tokens"] == 37
         if wire == "messages":
@@ -1186,3 +1194,18 @@ async def test_messages_overlay_inherits_catalog_cache_ttl(
     marker = {"type": "ephemeral", "ttl": resolved.model_params.cache_ttl}
     assert body["system"][-1]["cache_control"] == marker
     assert body["messages"][-1]["content"][-1]["cache_control"] == marker
+
+
+def test_factory_opus48_high_reasoning(context: Context) -> None:
+    from fast_agent.agents.agent_types import AgentConfig
+    from fast_agent.agents.tool_agent import ToolAgent
+
+    agent = ToolAgent(AgentConfig("opus48-high"), context=context)
+    llm = ModelFactory.create_factory("copilot.claude-opus-4-8?reasoning=high")(agent)
+    assert isinstance(llm, CopilotMessagesLLM)
+    assert llm.provider is Provider.COPILOT
+    assert llm.default_request_params.model == "claude-opus-4-8"
+    arguments, enabled = llm._resolve_thinking_arguments("claude-opus-4-8", 4096, None)
+    assert enabled
+    assert arguments["thinking"] == {"type": "adaptive"}
+    assert arguments["output_config"]["effort"] == "high"
