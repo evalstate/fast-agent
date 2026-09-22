@@ -27,6 +27,7 @@ from fast_agent.llm.model_display_name import (
     resolve_llm_display_name,
     resolve_resolved_model_display_name,
 )
+from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.task_budget import format_task_budget_tokens
 from fast_agent.llm.terminal_output_limits import (
     calculate_terminal_output_limit_for_max_tokens,
@@ -210,6 +211,14 @@ def _iter_model_identity_lines(
 
     if resolved_model is not None:
         lines.extend(_iter_structured_output_lines(resolved_model))
+        model_params = resolved_model.model_params
+        if (
+            resolved_model.provider == Provider.CODEX_RESPONSES
+            and model_params is not None
+            and model_params.codex_responses_lite
+        ):
+            lite = "on" if resolved_model.model_config.lite else "off (enable with ?lite=on)"
+            lines.append(("Responses Lite", lite, False))
 
     sampling_overrides = _render_sampling_overrides(llm)
     if sampling_overrides:

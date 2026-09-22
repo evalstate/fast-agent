@@ -20,7 +20,7 @@ from fast_agent.tools.web_search import SearchCommands, SearchResponse, WebSearc
 
 class SearchSimulator(CodexResponsesLLM):
     def __init__(self, model: str = "gpt-6-astra") -> None:
-        super().__init__(model=model, web_search=True)
+        super().__init__(model=model, web_search=True, lite=True)
         self.search_models: list[str | None] = []
         self.search_ids: list[str] = []
         self.fail = False
@@ -57,6 +57,9 @@ async def test_dynamic_availability_without_shell() -> None:
     agent._llm = ResponsesLLM(model="gpt-6-astra", web_search=True)
     assert "web_run" not in {tool.name for tool in (await agent.list_tools()).tools}
     agent._llm = CodexResponsesLLM(model="gpt-5.3-codex", web_search=True)
+    assert "web_run" not in {tool.name for tool in (await agent.list_tools()).tools}
+    # Without `lite=on`, Lite-capable models use hosted search instead of `web_run`.
+    agent._llm = CodexResponsesLLM(model="gpt-6-astra", web_search=True)
     assert "web_run" not in {tool.name for tool in (await agent.list_tools()).tools}
 
 
@@ -146,6 +149,7 @@ async def test_provider_adapter_against_http_simulator() -> None:
         port = server.sockets[0].getsockname()[1]
         llm = CodexResponsesLLM(
             model="gpt-5.3-codex",
+            lite=True,
             context=Context(
                 config=Settings(
                     codexresponses=CodexResponsesSettings(

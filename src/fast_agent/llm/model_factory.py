@@ -103,6 +103,7 @@ _SINGLE_VALUE_MODEL_QUERY_KEYS = (
     "transport",
     "service_tier",
     "streaming_timeout",
+    "lite",
 )
 _STRUCTURED_TOOL_QUERY_KEYS = (
     "structured_tools",
@@ -194,6 +195,7 @@ class ModelConfig(BaseModel):
     structured_output_mode: StructuredOutputMode | None = None
     structured_tool_policy: StructuredToolPolicy | None = None
     long_context: bool = False
+    lite: bool | None = None
     transport: TransportSetting | None = None
     service_tier: ServiceTierSetting | None = None
     web_search: bool | None = None
@@ -223,6 +225,7 @@ class ModelQueryOverrides:
     structured_output_mode: StructuredOutputMode | None = None
     structured_tool_policy: StructuredToolPolicy | None = None
     long_context: bool | None = None
+    lite: bool | None = None
     transport: TransportSetting | None = None
     service_tier: ServiceTierSetting | None = None
     web_search: bool | None = None
@@ -258,6 +261,7 @@ class ModelQueryOverrides:
                 self.structured_tool_policy, defaults.structured_tool_policy
             ),
             long_context=coalesce(self.long_context, defaults.long_context),
+            lite=coalesce(self.lite, defaults.lite),
             transport=coalesce(self.transport, defaults.transport),
             service_tier=coalesce(self.service_tier, defaults.service_tier),
             web_search=coalesce(self.web_search, defaults.web_search),
@@ -312,6 +316,7 @@ class ParsedModelSpec:
             structured_output_mode=self.query_overrides.structured_output_mode,
             structured_tool_policy=self.query_overrides.structured_tool_policy,
             long_context=self.query_overrides.long_context or False,
+            lite=self.query_overrides.lite,
             transport=self.query_overrides.transport,
             service_tier=self.query_overrides.service_tier,
             web_search=self.query_overrides.web_search,
@@ -582,6 +587,13 @@ def _parse_context_query(query_params: ModelQueryPairs, model_spec: str) -> bool
     return None
 
 
+def _parse_lite_query(query_params: ModelQueryPairs, model_spec: str) -> bool | None:
+    if _has_query_key(query_params, "lite"):
+        raw_value = _collect_query_values(query_params, ("lite",))[-1]
+        return _parse_bool_query(raw_value, "lite", model_spec)
+    return None
+
+
 def _parse_transport_query(
     query_params: ModelQueryPairs, model_spec: str
 ) -> TransportSetting | None:
@@ -670,6 +682,7 @@ def _parse_query_overrides(
         structured_output_mode=_parse_structured_query(query_params, model_spec),
         structured_tool_policy=_parse_structured_tool_query(query_params, model_spec),
         long_context=_parse_context_query(query_params, model_spec),
+        lite=_parse_lite_query(query_params, model_spec),
         transport=_parse_transport_query(query_params, model_spec),
         service_tier=_parse_service_tier_query(query_params, model_spec),
         web_search=web_tool_overrides["web_search"],
@@ -944,6 +957,19 @@ def _validate_service_tier_constraints(
         )
 
 
+def _validate_lite_constraints(provider: Provider, model_name: str, lite: bool | None) -> None:
+    if not lite:
+        return
+    if provider != Provider.CODEX_RESPONSES:
+        raise ModelConfigError(
+            f"lite=on is supported only with provider 'codexresponses', not '{provider.config_name}'."
+        )
+    if not ModelDatabase.supports_codex_responses_lite(model_name, provider=provider):
+        raise ModelConfigError(
+            f"Model '{model_name}' does not support Codex Responses Lite (lite=on)."
+        )
+
+
 def _validate_max_tokens_constraints(
     provider: Provider,
     max_tokens: int | None,
@@ -1055,6 +1081,7 @@ class ModelFactory:
 
         _validate_transport_constraints(provider, model_name, merged_overrides.transport)
         _validate_service_tier_constraints(provider, model_name, merged_overrides.service_tier)
+        _validate_lite_constraints(provider, model_name, merged_overrides.lite)
         _validate_max_tokens_constraints(
             provider,
             merged_overrides.max_tokens,

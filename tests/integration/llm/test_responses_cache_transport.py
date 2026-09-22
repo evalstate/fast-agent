@@ -129,7 +129,7 @@ async def simulator(unused_tcp_port: int) -> AsyncIterator[tuple[str, list[dict[
 
 
 async def make_agent(
-    url: str, *, codex: bool, transport: str, model: str = "gpt-6-astra"
+    url: str, *, codex: bool, transport: str, model: str = "gpt-6-astra", lite: bool = False
 ) -> tuple[LlmAgent, ResponsesLLM]:
     claim = {"https://api.openai.com/auth": {"chatgpt_account_id": "local-test"}}
     token = "test." + base64.urlsafe_b64encode(json.dumps(claim).encode()).decode() + ".test"
@@ -142,7 +142,9 @@ async def make_agent(
     agent = LlmAgent(AgentConfig(name="cache-test", model=model), context=context)
 
     def factory(agent: AgentProtocol, **kwargs: Any) -> ResponsesLLM:
-        return (CodexResponsesLLM if codex else ResponsesLLM)(agent=agent, **kwargs)
+        if codex:
+            return CodexResponsesLLM(agent=agent, lite=lite, **kwargs)
+        return ResponsesLLM(agent=agent, **kwargs)
 
     llm = await agent.attach_llm(
         factory,
@@ -162,11 +164,13 @@ def updates(payload: dict[str, Any]) -> list[str]:
     ]
 
 
-@pytest.mark.parametrize("codex", [False, True])
+@pytest.mark.parametrize(("codex", "lite"), [(False, False), (True, False), (True, True)])
 @pytest.mark.parametrize("transport", ["sse", "websocket"])
-async def test_effort_history_resume_and_clear(simulator, codex: bool, transport: str) -> None:
+async def test_effort_history_resume_and_clear(
+    simulator, codex: bool, lite: bool, transport: str
+) -> None:
     url, requests = simulator
-    agent, llm = await make_agent(url, codex=codex, transport=transport)
+    agent, llm = await make_agent(url, codex=codex, transport=transport, lite=lite)
     try:
         for effort in ("low", "high", "high", "low"):
             llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value=effort))
@@ -184,8 +188,11 @@ async def test_effort_history_resume_and_clear(simulator, codex: bool, transport
         else:
             assert [updates(request) for request in requests] == [[], ["high"], [], ["low"]]
             assert all("previous_response_id" in request for request in requests[1:])
-        if codex:
-            assert all(request["reasoning"]["context"] == "all_turns" for request in requests)
+        # Only the opt-in Codex Lite contract pins reasoning context.
+        assert all(
+            request["reasoning"].get("context") == ("all_turns" if lite else None)
+            for request in requests
+        )
         for request in requests:
             for index, item in enumerate(request["input"]):
                 if item["type"] == "configuration_update":
@@ -194,7 +201,7 @@ async def test_effort_history_resume_and_clear(simulator, codex: bool, transport
     finally:
         await llm.close()
 
-    resumed, llm = await make_agent(url, codex=codex, transport=transport)
+    resumed, llm = await make_agent(url, codex=codex, transport=transport, lite=lite)
     try:
         resumed.load_message_history(from_json(saved))
         await resumed.generate([Prompt.user("Resume")])

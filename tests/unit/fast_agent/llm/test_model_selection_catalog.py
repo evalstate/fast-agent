@@ -117,7 +117,10 @@ def test_metaai_muse_aliases_select_the_current_and_contributor_tiers() -> None:
 def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() -> None:
     expected = {
         "astra": "codexresponses.gpt-6-astra?reasoning=medium",
-        "sol": "codexresponses.gpt-5.6-sol?reasoning=high",
+        "sol": "codexresponses.gpt-6-sol?reasoning=medium",
+        "luna": "codexresponses.gpt-6-luna?reasoning=medium",
+        "sol56": "codexresponses.gpt-5.6-sol?reasoning=high",
+        "luna56": "codexresponses.gpt-5.6-luna?reasoning=medium",
         "terra": "codexresponses.gpt-5.6-terra?reasoning=high",
         "codexplan": "codexresponses.gpt-6-astra?reasoning=medium",
     }
@@ -136,11 +139,13 @@ def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() ->
         ) == ModelFactory.parse_model_string(model_spec)
 
 
-def test_gpt_6_astra_is_available_through_codex_and_api_routes() -> None:
-    assert BUILTIN_MODEL_ALIASES["astra"] == "codexresponses.gpt-6-astra?reasoning=medium"
-    assert BUILTIN_MODEL_ALIASES["gpt-6-astra"] == "responses.gpt-6-astra?reasoning=medium"
-    assert "astra" in ModelSelectionCatalog.list_current_aliases(Provider.CODEX_RESPONSES)
-    assert "gpt-6-astra" in ModelSelectionCatalog.list_current_aliases(Provider.RESPONSES)
+@pytest.mark.parametrize("name", ["astra", "sol", "luna"])
+def test_gpt_6_models_are_available_through_codex_and_api_routes(name: str) -> None:
+    model = f"gpt-6-{name}"
+    assert BUILTIN_MODEL_ALIASES[name] == f"codexresponses.{model}?reasoning=medium"
+    assert BUILTIN_MODEL_ALIASES[model] == f"responses.{model}?reasoning=medium"
+    assert name in ModelSelectionCatalog.list_current_aliases(Provider.CODEX_RESPONSES)
+    assert model in ModelSelectionCatalog.list_current_aliases(Provider.RESPONSES)
 
 
 def test_deepseek_catalog_exposes_native_responses_models() -> None:

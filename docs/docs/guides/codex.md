@@ -28,7 +28,7 @@ This starts **fast-agent** pre-configured for a Codex-style coding workflow.
 - A `dev` coding agent for interactive software work
 - A bounded rg-first search helper backed by `codexspark`
 - WebSocket-capable transport for modern Codex/OpenAI models
-- Filesystem editing tools selected for the model: Astra defaults to
+- Filesystem editing tools selected for the model: GPT-6 models (Astra, Sol, Luna) default to
   `write_text_file` plus `edit_file`; patch-oriented models use `apply_patch`
 - Preconfigured MCP targets available from `/mcp attach`
 
@@ -36,8 +36,8 @@ The coding agent has a minimal system prompt plus tools for the shell,
 filesystem and **fast-agent** services. `AGENTS.md` is included automatically if
 present. Customise the agent by editing `.fast-agent/agent-cards/dev.md`.
 
-Astra's writer/editor default applies to both Responses and Codex Responses,
-including the `astra` and `codexplan` aliases. To explicitly select the
+The GPT-6 writer/editor default applies to both Responses and Codex Responses,
+including the `astra`, `sol`, `luna` and `codexplan` aliases. To explicitly select the
 Codex-style patch interface instead:
 
 ```yaml
@@ -77,6 +77,8 @@ are stored in your OS keyring, with a secure file fallback. After that you can u
 Codex OAuth model aliases such as:
 
 - `codexplan` — GPT-6-Astra with medium reasoning
+- `sol` — GPT-6-Sol with medium reasoning
+- `luna` — GPT-6-Luna with medium reasoning
 
 If you prefer, you can also run model setup explicitly:
 
@@ -86,10 +88,12 @@ uvx fast-agent-mcp@latest model setup
 
 ## Web search
 
-Use `fast-agent go --model 'astra?web_search=true'` to enable automatic `web_run`
-on Codex Lite without shell access; use `web_search=false` to disable it.
+Use `fast-agent go --model 'astra?web_search=true'` to enable hosted web search;
+use `web_search=false` to disable it. Codex OAuth models use the standard Responses
+contract by default. With `lite=on` (Codex's internal Responses Lite contract), web
+search instead uses the harness `web_run` tool, without shell access.
 In a running conversation, `/model web_search on` and `/model web_search off`
-control the same feature. Sol and public Responses keep their hosted search route.
+control the same feature.
 See [standalone web search](../models/providers/openai.md#standalone-web-search-codex-lite)
 for configuration, the internal endpoint caveat, and a runnable library example
 with caller-supplied authentication.

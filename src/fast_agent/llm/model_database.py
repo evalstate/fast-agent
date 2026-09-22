@@ -109,7 +109,11 @@ class ModelParameters(BaseModel):
     """Supported service_tier values for the native Google API."""
 
     codex_responses_lite: bool = False
-    """Whether Codex uses the internal Responses Lite request contract."""
+    """Whether the Codex internal Responses Lite request contract is available.
+
+    Lite is opt-in with the ``lite=on`` model query; requests use the standard
+    Responses contract (hosted tools, parallel tool calls) by default.
+    """
 
     anthropic_web_search_version: str | None = None
     """Anthropic built-in web_search tool version, if supported by the model."""
@@ -304,6 +308,13 @@ class ModelDatabase:
     OPENAI_GPT_6_ASTRA_REASONING = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["low", "medium", "high", "xhigh", "max"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    # Verified against Responses via Codex OAuth: `minimal` and `ultra` are rejected.
+    OPENAI_GPT_6_SOL_LUNA_REASONING = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["none", "low", "medium", "high", "xhigh", "max"],
         default=ReasoningEffortSetting(kind="effort", value="medium"),
     )
 
@@ -641,6 +652,10 @@ class ModelDatabase:
         model_specific=GPT_53_PLUS_MODEL_SPECIFIC,
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=240,
+    )
+
+    OPENAI_GPT_6_SOL_LUNA = OPENAI_GPT_6_ASTRA.model_copy(
+        update={"reasoning_effort_spec": OPENAI_GPT_6_SOL_LUNA_REASONING}
     )
 
     OPENAI_GPT_CODEX_SPARK = ModelParameters(
@@ -1342,6 +1357,8 @@ class ModelDatabase:
         "gpt-5.6-terra": _with_fast(OPENAI_GPT_56),
         "gpt-5.6-luna": _with_fast(OPENAI_GPT_56_LUNA),
         "gpt-6-astra": OPENAI_GPT_6_ASTRA,
+        "gpt-6-sol": OPENAI_GPT_6_SOL_LUNA,
+        "gpt-6-luna": _with_fast(OPENAI_GPT_6_SOL_LUNA),
         "gpt-5.4-mini": OPENAI_GPT_54_SMALL.model_copy(
             update={"model_specific": GPT_53_PLUS_MODEL_SPECIFIC}
         ),
@@ -1478,13 +1495,19 @@ class ModelDatabase:
             ("gpt-5.6-luna", _with_fast(OPENAI_GPT_56_LUNA)),
         )
     }
-    # Astra's extended window is opt-in and specific to the Responses route.
+    # GPT-6 extended windows are opt-in and route-specific.
     _PROVIDER_MODEL_OVERRIDES.update(
         {
-            (Provider.RESPONSES, "gpt-6-astra"): _with_long_context(OPENAI_GPT_6_ASTRA, 1_050_000),
-            (Provider.CODEX_RESPONSES, "gpt-6-astra"): _with_long_context(
-                OPENAI_GPT_6_ASTRA, 872_000
-            ),
+            (provider, model): _with_long_context(params, window)
+            for model, params in (
+                ("gpt-6-astra", OPENAI_GPT_6_ASTRA),
+                ("gpt-6-sol", OPENAI_GPT_6_SOL_LUNA),
+                ("gpt-6-luna", _with_fast(OPENAI_GPT_6_SOL_LUNA)),
+            )
+            for provider, window in (
+                (Provider.RESPONSES, 1_050_000),
+                (Provider.CODEX_RESPONSES, 872_000),
+            )
         }
     )
     _PROVIDER_MODEL_OVERRIDES[(Provider.ZAI, "glm-5.2")] = GLM_5_2.model_copy(
@@ -1828,9 +1851,9 @@ class ModelDatabase:
         return params.google_service_tiers if params else ()
 
     @classmethod
-    def uses_codex_responses_lite(cls, model: str) -> bool:
-        """Return whether Codex uses the Responses Lite contract for a model."""
-        params = cls.get_model_params(model)
+    def supports_codex_responses_lite(cls, model: str, provider: Provider | None = None) -> bool:
+        """Return whether the Codex Responses Lite contract is available for a model."""
+        params = cls.get_model_params(model, provider=provider)
         return params.codex_responses_lite if params else False
 
     @classmethod

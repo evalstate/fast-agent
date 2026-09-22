@@ -106,6 +106,8 @@ not canonical and has no alias; use `copilot.claude-opus-5`.
 | `copilot.gpt-5.6-terra` | Responses |
 | `copilot.gpt-5.6-sol` | Responses |
 | `copilot.gpt-6-astra` | Responses |
+| `copilot.gpt-6-sol` | Responses |
+| `copilot.gpt-6-luna` | Responses |
 
 Provider identity stays Copilot regardless of wire API; Anthropic/OpenAI API
 keys are not used for these models. The status bar prefixes Copilot model labels
@@ -147,7 +149,7 @@ request cache controls are still forwarded even when automatic planning is off.
 
 ## Transport and compatibility
 
-The four GPT models default to **WebSockets**, using static curated capability
+The GPT models default to **WebSockets**, using static curated capability
 metadata; no remote catalog is required. Select HTTP/SSE explicitly if needed:
 
 ```bash

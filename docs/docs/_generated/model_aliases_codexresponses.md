@@ -7,6 +7,8 @@
 | `codexplan55` | `codexresponses.gpt-5.5?reasoning=medium` |
 | `codexspark` | `codexresponses.gpt-5.3-codex-spark` |
 | `gpt-5.3-codex-spark` | `gpt-5.3-codex-spark` |
-| `luna` | `codexresponses.gpt-5.6-luna?reasoning=medium` |
-| `sol` | `codexresponses.gpt-5.6-sol?reasoning=high` |
+| `luna` | `codexresponses.gpt-6-luna?reasoning=medium` |
+| `luna56` | `codexresponses.gpt-5.6-luna?reasoning=medium` |
+| `sol` | `codexresponses.gpt-6-sol?reasoning=medium` |
+| `sol56` | `codexresponses.gpt-5.6-sol?reasoning=high` |
 | `terra` | `codexresponses.gpt-5.6-terra?reasoning=high` |

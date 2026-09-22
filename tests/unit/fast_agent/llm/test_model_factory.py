@@ -1692,14 +1692,36 @@ def test_astra_reasoning_default_and_override(model: str, query: str, expected: 
     assert llm._resolve_reasoning_effort() == expected
 
 
-@pytest.mark.parametrize(("model", "window"), [("astra", 872_000), ("gpt-6-astra", 1_050_000)])
+@pytest.mark.parametrize(
+    "model",
+    ["sol", "luna", "gpt6sol", "gpt6luna", "codexresponses.gpt-6-sol", "responses.gpt-6-luna"],
+)
+@pytest.mark.parametrize(("query", "expected"), [("", "medium"), ("?reasoning=none", "none")])
+def test_gpt_6_sol_luna_reasoning_default_and_none(model: str, query: str, expected: str) -> None:
+    llm = ModelFactory.create_factory(f"{model}{query}")(LlmAgent(AgentConfig(name="test")))
+
+    assert isinstance(llm, ResponsesLLM)
+    assert llm._resolve_reasoning_effort() == expected
+
+
+@pytest.mark.parametrize(
+    ("model", "window"),
+    [
+        ("astra", 872_000),
+        ("gpt-6-astra", 1_050_000),
+        ("sol", 872_000),
+        ("gpt-6-sol", 1_050_000),
+        ("luna", 872_000),
+        ("gpt-6-luna", 1_050_000),
+    ],
+)
 @pytest.mark.parametrize("query", ["", "?long_context=false", "?long_context=true", "?context=1m"])
 def test_astra_long_context_real_llm(model: str, window: int, query: str) -> None:
     from fast_agent.commands.model_details import _iter_model_identity_lines
     from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
 
     llm = ModelFactory.create_factory(f"{model}{query}")(LlmAgent(AgentConfig(name="test")))
-    assert isinstance(llm, CodexResponsesLLM if model == "astra" else ResponsesLLM)
+    assert isinstance(llm, ResponsesLLM if model.startswith("gpt-") else CodexResponsesLLM)
     enabled = query in {"?long_context=true", "?context=1m"}
     expected = window if enabled else 272_000
     assert llm._context_window_override == (window if enabled else None)
@@ -1720,6 +1742,48 @@ def test_long_context_preserves_explicit_context_window_override() -> None:
 
     assert info is not None
     assert info.context_window == 8192
+
+
+@pytest.mark.parametrize(
+    ("model", "lite"),
+    [
+        ("sol", False),
+        ("sol?lite=on", True),
+        ("luna?lite=off", False),
+        ("astra?lite=true", True),
+        ("codexresponses.gpt-5.6-luna?lite=on", True),
+        ("codexresponses.gpt-5.5?lite=off", False),
+    ],
+)
+def test_codex_responses_lite_is_opt_in_from_model_string(model: str, lite: bool) -> None:
+    from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
+
+    llm = ModelFactory.create_factory(model)(LlmAgent(AgentConfig(name="test")))
+    assert isinstance(llm, CodexResponsesLLM)
+    args = llm._build_response_args(
+        [], RequestParams(model=llm.model_name, system_prompt="instructions"), None
+    )
+
+    assert args["parallel_tool_calls"] is not lite
+    assert ("instructions" in args) is not lite
+    assert llm.standalone_web_search_enabled() is False  # web search is off by default
+    from fast_agent.commands.model_details import _iter_model_identity_lines
+
+    assert ("Responses Lite", "on", False) in _iter_model_identity_lines(llm) or not lite
+
+
+@pytest.mark.parametrize(
+    ("model", "message"),
+    [
+        ("codexresponses.gpt-5.5?lite=on", "does not support Codex Responses Lite"),
+        ("gpt-6-sol?lite=on", "supported only with provider 'codexresponses'"),
+    ],
+)
+def test_codex_responses_lite_rejects_unsupported_models_and_providers(
+    model: str, message: str
+) -> None:
+    with pytest.raises(ModelConfigError, match=message):
+        ModelFactory.create_factory(model)
 
 
 @pytest.mark.parametrize("model", ["openai.gpt-6-astra", "responses.gpt-5"])

@@ -87,6 +87,42 @@ def test_gpt_6_astra_matches_codex_catalog_capabilities() -> None:
     assert ModelDatabase.get_default_provider("gpt-6-astra") == Provider.RESPONSES
 
 
+@pytest.mark.parametrize("model", ["gpt-6-sol", "gpt-6-luna"])
+def test_gpt_6_sol_luna_match_astra_contract_with_none_effort(model: str) -> None:
+    params = ModelDatabase.get_model_params(model)
+    astra = ModelDatabase.get_model_params("gpt-6-astra")
+
+    assert params is not None and astra is not None
+    assert params.reasoning_effort_spec is not None
+    assert params.reasoning_effort_spec.allowed_efforts == [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    ]
+    assert params.reasoning_effort_spec.default == ReasoningEffortSetting(
+        kind="effort", value="medium"
+    )
+    shared = {
+        "context_window",
+        "max_output_tokens",
+        "codex_responses_lite",
+        "response_service_tiers",
+        "shell_edit_tool",
+        "shell_tool_profile",
+        "text_verbosity_spec",
+        "tokenizes",
+    }
+    assert params.model_dump(include=shared) == astra.model_dump(include=shared)
+    assert params.fast is (model == "gpt-6-luna")
+    for provider, window in ((Provider.RESPONSES, 1_050_000), (Provider.CODEX_RESPONSES, 872_000)):
+        routed = ModelDatabase.get_model_params(model, provider=provider)
+        assert routed is not None
+        assert routed.long_context_window == window
+
+
 @pytest.mark.parametrize("provider", [Provider.RESPONSES, Provider.CODEX_RESPONSES])
 @pytest.mark.parametrize("mime_type", [*DOCUMENT_MIME_TYPES, "image/png", "text/plain"])
 def test_astra_supports_documents_and_existing_modalities(
@@ -1332,11 +1368,11 @@ def test_gpt_56_supports_api_reasoning_efforts_through_max():
         assert ModelDatabase.supports_mime(model_name, "application/pdf")
         assert ModelDatabase.supports_mime(model_name, "image/png")
 
-    assert ModelDatabase.uses_codex_responses_lite("gpt-5.6-luna")
-    assert not ModelDatabase.uses_codex_responses_lite("gpt-5.6")
-    assert not ModelDatabase.uses_codex_responses_lite("gpt-5.6-sol")
-    assert not ModelDatabase.uses_codex_responses_lite("gpt-5.6-terra")
-    assert not ModelDatabase.uses_codex_responses_lite("gpt-5.5")
+    assert ModelDatabase.supports_codex_responses_lite("gpt-5.6-luna")
+    assert not ModelDatabase.supports_codex_responses_lite("gpt-5.6")
+    assert not ModelDatabase.supports_codex_responses_lite("gpt-5.6-sol")
+    assert not ModelDatabase.supports_codex_responses_lite("gpt-5.6-terra")
+    assert not ModelDatabase.supports_codex_responses_lite("gpt-5.5")
 
 
 def test_gemini_model_specific_mentions_youtube_capability():
