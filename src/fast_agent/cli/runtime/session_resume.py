@@ -76,14 +76,8 @@ async def resume_session_if_requested(
     from fast_agent.mcp.types import McpAgentProtocol
 
     active_name = request.target_agent_name or default_agent.name
-    saved_agent = result.session.load_snapshot().continuation.agents.get(active_name)
     active_agent = agent_app.get_agent(active_name)
-    if (
-        saved_agent is not None
-        and saved_agent.shell_enabled is True
-        and isinstance(active_agent, McpAgentProtocol)
-        and active_agent.shell_runtime_enabled
-    ):
+    if isinstance(active_agent, McpAgentProtocol) and active_agent.shell_runtime_enabled:
         emit_resume_notice(
             f"[dim]Shell access active for resumed agent[/dim] [cyan]{escape(active_name)}[/cyan]",
             interactive_notice=interactive_notice,
