@@ -710,6 +710,7 @@ class ModelDatabase:
     )
     ANTHROPIC_OPUS_5 = ANTHROPIC_OPUS_48.model_copy(
         update={
+            "model_specific": None,
             "anthropic_thinking_field_required": False,
             "anthropic_thinking_disable_supported": True,
             "anthropic_web_fetch_version": None,
@@ -717,6 +718,7 @@ class ModelDatabase:
     )
     ANTHROPIC_FABLE_5 = ANTHROPIC_OPUS_48.model_copy(
         update={
+            "model_specific": None,
             "reasoning_effort_spec": ANTHROPIC_ALWAYS_ON_ADAPTIVE_THINKING_EFFORT_SPEC,
             "anthropic_thinking_field_required": False,
         }
@@ -780,6 +782,7 @@ class ModelDatabase:
     )
     ANTHROPIC_SONNET_5 = ANTHROPIC_SONNET_46.model_copy(
         update={
+            "model_specific": None,
             "max_output_tokens": 128000,
             "reasoning_effort_spec": ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC_OPUS47,
             "anthropic_thinking_field_required": False,

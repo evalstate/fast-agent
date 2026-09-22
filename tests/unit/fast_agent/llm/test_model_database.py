@@ -140,23 +140,14 @@ def test_managed_process_poll_folding_is_enabled_for_validated_models() -> None:
             assert params.process_poll_default_wait_seconds == 240
 
 
-def test_anthropic_catalog_uses_posix_file_creation_guidance() -> None:
-    anthropic_models = [model for model in ModelDatabase.MODELS if model.startswith("claude-")]
-
-    assert anthropic_models
+@pytest.mark.parametrize("provider", [Provider.ANTHROPIC, Provider.ANTHROPIC_VERTEX])
+def test_anthropic_file_creation_guidance_is_limited_to_older_models(provider: Provider) -> None:
+    unguided = {"claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-fable-5-1"}
+    anthropic_models = {model for model in ModelDatabase.MODELS if model.startswith("claude-")}
+    assert unguided <= anthropic_models
     for model in anthropic_models:
-        assert (
-            ModelDatabase.get_model_specific(model, provider=Provider.ANTHROPIC)
-            == ModelDatabase.MODEL_PREFERS_HEREDOCS
-        )
-
-    assert (
-        ModelDatabase.get_model_specific(
-            "claude-sonnet-4-6",
-            provider=Provider.ANTHROPIC_VERTEX,
-        )
-        == ModelDatabase.MODEL_PREFERS_HEREDOCS
-    )
+        expected = "" if model in unguided else ModelDatabase.MODEL_PREFERS_HEREDOCS
+        assert ModelDatabase.get_model_specific(model, provider=provider) == expected
 
 
 def test_glm52_hf_provider_suffix_resolves_without_provider_prefix():
