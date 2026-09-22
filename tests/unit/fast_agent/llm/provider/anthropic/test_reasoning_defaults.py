@@ -1129,10 +1129,11 @@ def test_structured_output_modes_still_preserve_other_beta_flags() -> None:
 
 @pytest.mark.parametrize("choice", ["auto", "none", "any", "tool"])
 @pytest.mark.parametrize("in_extra_body", [False, True])
-def test_fable_51_tool_choice_contract(choice: str, in_extra_body: bool) -> None:
-    llm = _make_llm("claude-fable-5-1")
+@pytest.mark.parametrize("model", ["claude-fable-5-1", "claude-opus-5-5"])
+def test_always_on_tool_choice_contract(choice: str, in_extra_body: bool, model: str) -> None:
+    llm = _make_llm(model)
     tool_args = {"tool_choice": {"type": choice}}
-    base_args = {"model": "claude-fable-5-1", "messages": [], "max_tokens": 1000}
+    base_args = {"model": model, "messages": [], "max_tokens": 1000}
     base_args.update({"extra_body": tool_args} if in_extra_body else tool_args)
     if choice in {"any", "tool"}:
         with pytest.raises(ValueError, match="does not support forced tool use"):
@@ -1163,4 +1164,72 @@ def test_fable_51_drops_extra_body_sampling() -> None:
         },
         RequestParams(),
     )
+    assert "extra_body" not in result
+
+
+@pytest.mark.parametrize("reasoning", [None, False, "medium", 1024])
+def test_opus_55_always_on_defaults_to_medium(reasoning: str | int | bool | None) -> None:
+    llm = _make_llm("claude-opus-5-5", reasoning=reasoning)
+    args, enabled = llm._resolve_thinking_arguments(
+        model="claude-opus-5-5", max_tokens=128000, structured_mode="json"
+    )
+    assert enabled
+    assert "thinking" not in args
+    assert args["output_config"] == {"effort": "medium"}
+    assert llm._resolve_structured_output_mode("claude-opus-5-5", _StructuredResponse) == "json"
+
+
+@pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh", "max"])
+def test_opus_55_supported_efforts_reach_request(effort: str) -> None:
+    model = "claude-opus-5-5"
+    llm = _make_llm(model, reasoning=effort)
+    args, enabled = llm._resolve_thinking_arguments(
+        model=model, max_tokens=128000, structured_mode="json"
+    )
+    assert enabled
+    assert "thinking" not in args
+    assert args["output_config"] == {"effort": effort}
+
+
+@pytest.mark.parametrize("in_extra_body", [False, True])
+@pytest.mark.parametrize(
+    "thinking",
+    [
+        {"type": "disabled"},
+        {"type": "enabled", "budget_tokens": 1024},
+        {"type": "adaptive", "budget_tokens": 1024},
+    ],
+)
+def test_opus_55_rejects_thinking_overrides(in_extra_body: bool, thinking: dict) -> None:
+    llm = _make_llm("claude-opus-5-5")
+    override = {"thinking": thinking}
+    args = {"model": "claude-opus-5-5"}
+    args.update({"extra_body": override} if in_extra_body else override)
+    with pytest.raises(ValueError, match="always-on adaptive"):
+        llm.prepare_provider_arguments(args, RequestParams())
+
+
+def test_opus_55_preserves_empty_signed_thinking_and_text() -> None:
+    llm = _make_llm("claude-opus-5-5")
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "thinking", "thinking": "", "signature": "opaque"},
+                {"type": "text", "text": "Checking the result."},
+                {"type": "tool_use", "id": "call", "name": "check", "input": {}},
+            ],
+        }
+    ]
+    result = llm.prepare_provider_arguments(
+        {
+            "model": "claude-opus-5-5",
+            "messages": messages,
+            "temperature": 0.5,
+            "extra_body": {"top_p": 0.8, "top_k": 10},
+        },
+        RequestParams(),
+    )
+    assert result["messages"] == messages
+    assert "temperature" not in result
     assert "extra_body" not in result

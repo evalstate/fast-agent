@@ -716,6 +716,20 @@ class ModelDatabase:
             "anthropic_web_fetch_version": None,
         }
     )
+    # https://platform.claude.com/docs/en/build-with-claude/effort
+    ANTHROPIC_OPUS_55 = ANTHROPIC_OPUS_5.model_copy(
+        update={
+            "reasoning_effort_spec": ReasoningEffortSpec(
+                kind="effort",
+                allowed_efforts=["low", "medium", "high", "xhigh", "max"],
+                allow_auto=True,
+                default=ReasoningEffortSetting(kind="effort", value="medium"),
+            ),
+            "anthropic_thinking_disable_supported": False,
+            "anthropic_task_budget_supported": False,
+        }
+    )
+
     ANTHROPIC_FABLE_5 = ANTHROPIC_OPUS_48.model_copy(
         update={
             "model_specific": None,
@@ -1373,6 +1387,7 @@ class ModelDatabase:
         "claude-opus-4-7": ANTHROPIC_OPUS_47,
         "claude-opus-4-8": ANTHROPIC_OPUS_48,
         "claude-opus-5": ANTHROPIC_OPUS_5,
+        "claude-opus-5-5": ANTHROPIC_OPUS_55,
         "claude-fable-5": ANTHROPIC_FABLE_5,
         "claude-fable-5-1": ANTHROPIC_FABLE_51,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
@@ -2169,6 +2184,7 @@ for _copilot_spec in COPILOT_MODELS.values():
     _base_name = {
         "claude-haiku-4.5": "claude-haiku-4-5",
         "claude-fable-5.1": "claude-fable-5-1",
+        "claude-opus-5.5": "claude-opus-5-5",
     }.get(_copilot_spec.model_id, _copilot_spec.model_id)
     _base_params = ModelDatabase.MODELS.get(_base_name)
     if _base_params is not None:

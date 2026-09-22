@@ -156,7 +156,8 @@ Useful query parameters and config:
 - `anthropic.cache_ttl: 5m|1h`
 - `poll_period=10..3600` for the default managed-process wait
 
-`opus` and `opus5` resolve to `claude-opus-5`; use `opus48`, `opus47`, or `opus46` to pin an older
+`opus` and `opus55` resolve to `claude-opus-5-5`; `opus5` remains pinned to
+`claude-opus-5`. Use `opus48`, `opus47`, or `opus46` to pin an older
 Opus generation. Opus 5 does not support `web_fetch`, so use `web_search` alone or pin `opus48`
 when fetch is required. Claude Opus 4.7+ uses adaptive reasoning rather than fixed thinking budgets:
 `reasoning=auto` lets the model choose, effort levels tune depth and token spend, and `task_budget`

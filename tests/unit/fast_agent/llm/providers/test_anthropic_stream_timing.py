@@ -1,6 +1,6 @@
 """Anthropic Messages streaming diagnostics (shared with Copilot Messages).
 
-The stream is wrapped with the shared idle-timeout helper; these tests cover what
+The stream is wrapped with the shared timing helper; these tests cover what
 the provider does with the resulting timing: every failed attempt is logged with
 trial-local call/attempt identifiers (stream-start failures distinguished from idle
 established streams), and successful timing lands in the provider diagnostics channel.
@@ -14,7 +14,9 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from anthropic import Timeout
 from anthropic.types.beta import BetaMessage, BetaTextBlock, BetaUsage
+from httpx2 import ReadTimeout
 from mcp_types import TextContent
 
 from fast_agent.config import AnthropicSettings, Settings
@@ -26,7 +28,7 @@ from fast_agent.llm.provider.anthropic.llm_anthropic import (
     AnthropicLLM,
 )
 from fast_agent.llm.provider.copilot.messages import CopilotMessagesLLM
-from fast_agent.llm.provider.streaming_timeouts import StreamIdleTimeoutError, StreamTiming
+from fast_agent.llm.provider.streaming_timeouts import StreamTiming
 
 if TYPE_CHECKING:
     from fast_agent.core.logging.events import EventContext, EventType
@@ -69,7 +71,7 @@ def _message() -> BetaMessage:
 class _ScriptedStream:
     """Anthropic-style stream context manager driven by a script.
 
-    Script items are opaque events (yielded as-is), ``HANG`` (never yields again),
+    Script items are opaque events (yielded as-is), ``HANG`` (HTTP read timeout),
     or an exception (raised mid-stream). ``start=HANG`` never finishes entering.
     """
 
@@ -88,7 +90,7 @@ class _ScriptedStream:
     async def __aiter__(self):
         for item in self._script:
             if item is HANG:
-                await asyncio.Event().wait()
+                raise ReadTimeout("HTTP stream stalled")
             if isinstance(item, BaseException):
                 raise item
             yield item
@@ -117,9 +119,10 @@ class _Harness:
         self.llm.logger = self.logger
         self.scripts = list(scripts)
         self.client = SimpleNamespace(
+            timeout=Timeout(600, connect=5),
             beta=SimpleNamespace(
                 messages=SimpleNamespace(stream=lambda **_: self.scripts.pop(0)),
-            )
+            ),
         )
 
     async def run(self, timeout: float | None, *_args: object) -> None:
@@ -192,20 +195,20 @@ def test_long_gap_success_warns_and_merges_with_cache_diagnostics() -> None:
 
 
 @pytest.mark.asyncio
-async def test_zero_event_idle_timeout_is_an_established_stream_failure() -> None:
+async def test_zero_event_read_timeout_is_an_established_stream_failure() -> None:
     h = _Harness([_ScriptedStream([HANG])])
 
-    with pytest.raises(StreamIdleTimeoutError):
+    with pytest.raises(ReadTimeout):
         await h.run(0.01)
 
     [attempt] = h.logger.stream_attempts()
     assert attempt["phase"] == "stream"
-    assert attempt["error_type"] == "StreamIdleTimeoutError"
+    assert attempt["error_type"] == "ReadTimeout"
     assert attempt["timeout_seconds"] == 0.01
     timing = attempt["stream_timing"]
     assert timing["events_received"] == 0
-    assert timing["timed_out"] is True
-    assert timing["timed_out_wait_ms"] is not None
+    assert timing["timed_out"] is False
+    assert "timed_out_wait_ms" not in timing
     assert timing["first_event_wait_ms"] is None
     assert h.llm._stream_failure_events_received == 0
     assert set(attempt) == {
@@ -239,7 +242,7 @@ async def test_stream_start_timeout_is_distinguished_from_idle() -> None:
 async def test_mid_stream_timeout_keeps_event_count() -> None:
     h = _Harness([_ScriptedStream(["a", "b", HANG])])
 
-    with pytest.raises(StreamIdleTimeoutError):
+    with pytest.raises(ReadTimeout):
         await h.run(0.01)
 
     [attempt] = h.logger.stream_attempts()
@@ -284,7 +287,7 @@ async def test_retry_recovery_identifies_attempts_and_clears_stale_timing() -> N
 async def test_retry_exhaustion_retains_every_attempt() -> None:
     h = _Harness([_ScriptedStream([HANG]), _ScriptedStream(["a", HANG])], retries=1)
 
-    with pytest.raises(StreamIdleTimeoutError):
+    with pytest.raises(ReadTimeout):
         await h.llm._execute_with_retry(h.run, 0.01)
 
     first, last = h.logger.stream_attempts()
@@ -296,7 +299,7 @@ async def test_retry_exhaustion_retains_every_attempt() -> None:
 
     # A later call gets a fresh call id so its attempts cannot be confused with the first.
     h.scripts += [_ScriptedStream([HANG]), _ScriptedStream([HANG])]
-    with pytest.raises(StreamIdleTimeoutError):
+    with pytest.raises(ReadTimeout):
         await h.llm._execute_with_retry(h.run, 0.01)
     assert h.logger.stream_attempts()[-1]["call"] == 2
 
@@ -328,3 +331,144 @@ async def test_retry_channel_and_stream_logs_agree_on_progress() -> None:
     [diag_block] = channels[ANTHROPIC_CACHE_DIAGNOSTICS_CHANNEL]
     assert isinstance(diag_block, TextContent)
     assert json.loads(diag_block.text)["stream_timing"]["events_received"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("llm_type", [AnthropicLLM, CopilotMessagesLLM])
+@pytest.mark.parametrize("mode", ["pings", "stall", "disabled"])
+async def test_sdk_http_read_timeout_and_filtered_pings(
+    llm_type: type[AnthropicLLM], mode: str
+) -> None:
+    """Use real SDK SSE parsing and HTTP reads, not parsed-event test doubles."""
+    from anthropic import AsyncAnthropic
+    from httpx2 import AsyncClient, Request
+
+    def sse(event: str, data: dict[str, object]) -> bytes:
+        return f"event: {event}\ndata: {json.dumps(data)}\n\n".encode()
+
+    start_message = _message().model_dump()
+    start_message.update(content=[], stop_reason=None)
+    start = sse("message_start", {"type": "message_start", "message": start_message})
+    stop = sse("message_stop", {"type": "message_stop"})
+    server_done = asyncio.Event()
+
+    async def serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            headers = await reader.readuntil(b"\r\n\r\n")
+            for line in headers.split(b"\r\n"):
+                if line.lower().startswith(b"content-length:"):
+                    await reader.readexactly(int(line.split(b":", 1)[1]))
+            writer.write(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n"
+            )
+            # Exercise both the first-event wait and a later parsed-event gap.
+            for event in (start, stop):
+                for _ in range(8):
+                    await asyncio.sleep(0.05)
+                    if mode == "pings":
+                        writer.write(sse("ping", {"type": "ping"}))
+                        await writer.drain()
+                writer.write(event)
+                await writer.drain()
+        except ConnectionError:
+            # Expected when the read timeout closes the client connection.
+            pass
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except ConnectionError:
+                pass
+            server_done.set()
+
+    request_timeouts: list[object] = []
+
+    async def record_timeout(request: Request) -> None:
+        request_timeouts.append(request.extensions["timeout"])
+
+    h = _Harness([], llm_type=llm_type)
+    client_timeout = Timeout(connect=1, read=0.1, write=2, pool=3)
+    timeout_seconds = None if mode == "disabled" else 0.2
+    server = await asyncio.start_server(serve, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    async with (
+        server,
+        AsyncAnthropic(
+            api_key="test-key",
+            base_url=f"http://127.0.0.1:{port}",
+            timeout=client_timeout,
+            max_retries=0,
+            http_client=AsyncClient(event_hooks={"request": [record_timeout]}),
+        ) as client,
+    ):
+        try:
+            call = h.llm._execute_anthropic_stream(
+                anthropic=client,
+                arguments={
+                    "model": MODEL,
+                    "max_tokens": 10,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
+                model=MODEL,
+                capture_filename=None,
+                timeout_seconds=timeout_seconds,
+            )
+            if mode == "stall":
+                with pytest.raises(ReadTimeout):
+                    await asyncio.wait_for(call, 3)
+                assert h.llm._stream_failure_events_received == 0
+            else:
+                response, _, _ = await asyncio.wait_for(call, 3)
+                assert response.id == "msg_1"
+                timing = _diagnostics(h.llm)["stream_timing"]
+                # Pings are absent from parsed events, despite keeping reads alive.
+                assert timing["events_received"] == 2
+                assert timing["first_event_wait_ms"] >= 200
+                assert timing["max_inter_event_wait_ms"] >= 200
+            assert request_timeouts == [
+                {"connect": 1, "read": timeout_seconds, "write": 2, "pool": 3}
+            ]
+            assert client.timeout is client_timeout
+            assert client_timeout.read == 0.1
+        finally:
+            await asyncio.wait_for(server_done.wait(), 3)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("client_timeout", [None, 7.0, Timeout(9, connect=1)])
+@pytest.mark.parametrize("streaming_timeout", [None, 0.5])
+async def test_request_timeout_normalizes_sdk_client_defaults(
+    client_timeout: float | Timeout | None, streaming_timeout: float | None
+) -> None:
+    from anthropic import AsyncAnthropic
+    from httpx2 import AsyncClient, MockTransport, Request, Response
+
+    async def respond(request: Request) -> Response:
+        expected = Timeout(client_timeout)
+        expected.read = streaming_timeout
+        assert request.extensions["timeout"] == expected.as_dict()
+        message = {"type": "message_start", "message": _message().model_dump()}
+        return Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=(
+                f"event: message_start\ndata: {json.dumps(message)}\n\n"
+                'event: message_stop\ndata: {"type":"message_stop"}\n\n'
+            ),
+        )
+
+    h = _Harness([])
+    async with AsyncAnthropic(
+        api_key="test-key",
+        timeout=client_timeout,
+        http_client=AsyncClient(transport=MockTransport(respond)),
+    ) as client:
+        response, _, _ = await h.llm._execute_anthropic_stream(
+            anthropic=client,
+            arguments={"model": MODEL, "max_tokens": 1, "messages": []},
+            model=MODEL,
+            capture_filename=None,
+            timeout_seconds=streaming_timeout,
+        )
+        assert response.id == "msg_1"
+        assert client.timeout == client_timeout

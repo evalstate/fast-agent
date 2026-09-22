@@ -1815,3 +1815,20 @@ def test_grok_47_fast_selection(selection: str) -> None:
     assert isinstance(llm, ResponsesLLM)
     assert llm.provider == Provider.XAI
     assert llm.reasoning_effort == ReasoningEffortSetting(kind="effort", value="xhigh")
+
+
+@pytest.mark.parametrize(
+    ("alias", "wire_model", "provider"),
+    [
+        ("opus", "claude-opus-5-5", Provider.ANTHROPIC),
+        ("opus55", "claude-opus-5-5", Provider.ANTHROPIC),
+        ("opus5", "claude-opus-5", Provider.ANTHROPIC),
+        ("copilot.opus", "claude-opus-5.5", Provider.COPILOT),
+        ("copilot.opus55", "claude-opus-5.5", Provider.COPILOT),
+        ("copilot.claude-opus-5", "claude-opus-5", Provider.COPILOT),
+    ],
+)
+def test_opus_default_and_pinned_versions(alias: str, wire_model: str, provider: Provider):
+    resolved = ModelFactory.resolve_model_spec(alias)
+    assert resolved.wire_model_name == wire_model
+    assert resolved.provider == provider

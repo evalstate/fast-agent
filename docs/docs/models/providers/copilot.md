@@ -88,7 +88,8 @@ configuration too.
 
 ## Exact model names
 
-Use these provider-qualified names; there are no Copilot aliases. Unknown IDs
+Use these provider-qualified names; `copilot.opus` and `copilot.opus55` select
+Opus 5.5. Unknown IDs
 are rejected rather than routed to another provider. `copilot.claude-opus5` is
 not canonical and has no alias; use `copilot.claude-opus-5`.
 
@@ -97,7 +98,8 @@ not canonical and has no alias; use `copilot.claude-opus-5`.
 | `copilot.claude-haiku-4.5` | Messages |
 | `copilot.claude-sonnet-5` | Messages |
 | `copilot.claude-opus-4-8` | Messages |
-| `copilot.claude-opus-5` | Messages |
+| `copilot.claude-opus-5.5` (`copilot.opus`, `copilot.opus55`) | Messages |
+| `copilot.claude-opus-5` (pinned older version) | Messages |
 | `copilot.claude-fable-5` | Messages |
 | `copilot.claude-fable-5.1` | Messages |
 | `copilot.gpt-5.6-luna` | Responses |

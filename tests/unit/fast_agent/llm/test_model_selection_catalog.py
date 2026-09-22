@@ -542,3 +542,16 @@ def test_huggingface_catalog_includes_deepseek_v41_novita() -> None:
 
     assert entry.model == "hf.deepseek-ai/DeepSeek-V4.1-Flash:novita"
     assert entry.current
+
+
+def test_opus_55_picker_defaults_and_limits() -> None:
+    anthropic = ModelSelectionCatalog.list_current_models(Provider.ANTHROPIC)
+    copilot = ModelSelectionCatalog.list_current_models(Provider.COPILOT)
+    assert "claude-opus-5-5" in anthropic
+    assert copilot.index("copilot.claude-opus-5.5") < copilot.index("copilot.claude-opus-5")
+    for model in ("claude-opus-5-5", "copilot.claude-opus-5.5"):
+        params = ModelDatabase.get_model_params(model)
+        assert params is not None
+        assert params.context_window == 1_000_000
+        assert params.max_output_tokens == 128_000
+        assert not params.anthropic_thinking_disable_supported

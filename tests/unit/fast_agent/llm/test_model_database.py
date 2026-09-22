@@ -142,7 +142,13 @@ def test_managed_process_poll_folding_is_enabled_for_validated_models() -> None:
 
 @pytest.mark.parametrize("provider", [Provider.ANTHROPIC, Provider.ANTHROPIC_VERTEX])
 def test_anthropic_file_creation_guidance_is_limited_to_older_models(provider: Provider) -> None:
-    unguided = {"claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-fable-5-1"}
+    unguided = {
+        "claude-opus-5",
+        "claude-opus-5-5",
+        "claude-sonnet-5",
+        "claude-fable-5",
+        "claude-fable-5-1",
+    }
     anthropic_models = {model for model in ModelDatabase.MODELS if model.startswith("claude-")}
     assert unguided <= anthropic_models
     for model in anthropic_models:
