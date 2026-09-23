@@ -573,6 +573,15 @@ def test_codexresponses_fast_service_tier_query_requires_model_support(
         ModelFactory.parse_model_string(f"codexresponses.{model_name}?service_tier=fast")
 
 
+@pytest.mark.parametrize("model_name", ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"])
+def test_responses_gpt6_flex_service_tier_query(model_name: str) -> None:
+    config = ModelFactory.parse_model_string(f"responses.{model_name}?service_tier=flex")
+
+    assert config.provider == Provider.RESPONSES
+    assert config.model_name == model_name
+    assert config.service_tier == "flex"
+
+
 def test_codexresponses_flex_service_tier_query_rejected() -> None:
     with pytest.raises(ModelConfigError, match="does not support service_tier=flex"):
         ModelFactory.parse_model_string("codexresponses.gpt-5.4?service_tier=flex")
