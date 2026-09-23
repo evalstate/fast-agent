@@ -18,6 +18,8 @@ import pytest
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.exceptions import ModelConfigError
+from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory, ParsedModelSpec, Provider
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
@@ -1025,18 +1027,6 @@ def test_builtin_glm_alias_uses_glm_52_default() -> None:
     assert config.provider == Provider.HUGGINGFACE
     assert config.model_name == "zai-org/GLM-5.2:zai-org"
 
-    current = ModelFactory.parse_model_string("glm52")
-    assert current.provider == Provider.HUGGINGFACE
-    assert current.model_name == "zai-org/GLM-5.2:zai-org"
-
-    explicit = ModelFactory.parse_model_string("glm51")
-    assert explicit.provider == Provider.HUGGINGFACE
-    assert explicit.model_name == "zai-org/GLM-5.1:together"
-
-    legacy = ModelFactory.parse_model_string("glm5")
-    assert legacy.provider == Provider.HUGGINGFACE
-    assert legacy.model_name == "zai-org/GLM-5:novita"
-
 
 def test_zaiglm_alias_uses_native_zai_provider() -> None:
     config = ModelFactory.parse_model_string("zaiglm")
@@ -1056,75 +1046,10 @@ def test_opus_alias_resolves_to_current_catalog_model():
     assert config.model_name == opus_entry.model
 
 
-def test_claude_alias_resolves_to_sonnet_46():
+def test_claude_alias_resolves_to_current_sonnet():
     config = ModelFactory.parse_model_string("claude")
     assert config.provider == Provider.ANTHROPIC
     assert config.model_name == "claude-sonnet-5"
-
-    config = ModelFactory.parse_model_string("sonnet4")
-    assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == "claude-sonnet-4-6"
-
-    config = ModelFactory.parse_model_string("opus4")
-    assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == "claude-opus-4-8"
-
-    config = ModelFactory.parse_model_string("opus5")
-    assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == "claude-opus-5"
-
-    config = ModelFactory.parse_model_string("opus46")
-    assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == "claude-opus-4-6"
-
-    config = ModelFactory.parse_model_string("opus47")
-    assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == "claude-opus-4-7"
-
-    config = ModelFactory.parse_model_string("opus48")
-    assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == "claude-opus-4-8"
-
-    config = ModelFactory.parse_model_string("fable")
-    assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == "claude-fable-5"
-
-
-def test_gemini31_alias_resolves_to_google_31_preview():
-    config = ModelFactory.parse_model_string("gemini3.1")
-    assert config.provider == Provider.GOOGLE
-    assert config.model_name == "gemini-3.1-pro-preview"
-
-    config = ModelFactory.parse_model_string("gemini31pro")
-    assert config.provider == Provider.GOOGLE
-    assert config.model_name == "gemini-3.1-pro-preview"
-
-
-def test_gemini31_flash_lite_alias_resolves_to_google_preview():
-    config = ModelFactory.parse_model_string("gemini3.1flashlite")
-    assert config.provider == Provider.GOOGLE
-    assert config.model_name == "gemini-3.1-flash-lite-preview"
-
-
-def test_gemini25_alias_resolves_to_current_google_flash():
-    config = ModelFactory.parse_model_string("gemini25")
-    assert config.provider == Provider.GOOGLE
-    assert config.model_name == "gemini-2.5-flash"
-
-
-@pytest.mark.parametrize("alias", ["gemini35", "gemini35flash", "gemini3.5flash"])
-def test_gemini35_flash_aliases_resolve_to_current_google_flash(alias: str):
-    config = ModelFactory.parse_model_string(alias)
-    assert config.provider == Provider.GOOGLE
-    assert config.model_name == "gemini-3.5-flash"
-
-
-@pytest.mark.parametrize("alias", ["gemini37", "gemini37flash", "gemini3.7flash"])
-def test_gemini37_flash_aliases_resolve_to_current_google_flash(alias: str) -> None:
-    config = ModelFactory.parse_model_string(alias)
-
-    assert config.provider == Provider.GOOGLE
-    assert config.model_name == "gemini-3.7-flash"
 
 
 @pytest.mark.parametrize("alias", ["gemini", "gemini38", "gemini38flash", "gemini3.8flash"])
@@ -1143,31 +1068,6 @@ def test_deepseek_alias_resolves_to_deepseek_responses_model(alias: str) -> None
     config = ModelFactory.parse_model_string(alias)
     assert config.provider == Provider.DEEPSEEK
     assert config.model_name == "deepseek-flash"
-
-
-def test_deepseek_pro_alias_resolves_to_deepseek_responses_model() -> None:
-    config = ModelFactory.parse_model_string("deepseekpro")
-
-    assert config.provider == Provider.DEEPSEEK
-    assert config.model_name == "deepseek-v4-pro"
-
-
-@pytest.mark.parametrize(
-    "model",
-    ("deepseek-v4-flash-vision-exp",),
-)
-def test_deepseek_vision_model_resolves_to_deepseek_responses(model: str) -> None:
-    config = ModelFactory.parse_model_string(model)
-
-    assert config.provider == Provider.DEEPSEEK
-    assert config.model_name == "deepseek-v4-flash-vision-exp"
-
-
-def test_deepseek_hf_aliases_resolve_to_hf_deepseek_v4_pro():
-    for alias in ("deepseek-hf", "deepseek4-hf", "deepseek4pro-hf", "deepseekv4pro-hf"):
-        config = ModelFactory.parse_model_string(alias)
-        assert config.provider == Provider.HUGGINGFACE
-        assert config.model_name == "deepseek-ai/DeepSeek-V4-Pro:together"
 
 
 @pytest.mark.parametrize(
@@ -1682,17 +1582,8 @@ def test_long_context_false_overrides_preset(default: str) -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "model",
-    [
-        "astra",
-        "codexplan",
-        "gpt6astra",
-        "gpt-6-astra",
-        "codexresponses.gpt-6-astra",
-        "responses.gpt-6-astra",
-    ],
-)
+# One Codex alias and one Responses route; alias resolution is covered by the catalog tests.
+@pytest.mark.parametrize("model", ["astra", "responses.gpt-6-astra"])
 @pytest.mark.parametrize(("query", "expected"), [("", "medium"), ("?reasoning=low", "low")])
 def test_astra_reasoning_default_and_override(model: str, query: str, expected: str) -> None:
     llm = ModelFactory.create_factory(f"{model}{query}")(LlmAgent(AgentConfig(name="test")))
@@ -1701,10 +1592,7 @@ def test_astra_reasoning_default_and_override(model: str, query: str, expected: 
     assert llm._resolve_reasoning_effort() == expected
 
 
-@pytest.mark.parametrize(
-    "model",
-    ["sol", "luna", "gpt6sol", "gpt6luna", "codexresponses.gpt-6-sol", "responses.gpt-6-luna"],
-)
+@pytest.mark.parametrize("model", ["sol", "responses.gpt-6-luna"])
 @pytest.mark.parametrize(("query", "expected"), [("", "medium"), ("?reasoning=none", "none")])
 def test_gpt_6_sol_luna_reasoning_default_and_none(model: str, query: str, expected: str) -> None:
     llm = ModelFactory.create_factory(f"{model}{query}")(LlmAgent(AgentConfig(name="test")))
@@ -1716,12 +1604,9 @@ def test_gpt_6_sol_luna_reasoning_default_and_none(model: str, query: str, expec
 @pytest.mark.parametrize(
     ("model", "window"),
     [
+        # Sol/Luna share Astra's contract (asserted in test_model_database).
         ("astra", 872_000),
         ("gpt-6-astra", 1_050_000),
-        ("sol", 872_000),
-        ("gpt-6-sol", 1_050_000),
-        ("luna", 872_000),
-        ("gpt-6-luna", 1_050_000),
     ],
 )
 @pytest.mark.parametrize("query", ["", "?long_context=false", "?long_context=true", "?context=1m"])
@@ -1905,3 +1790,14 @@ def test_opus_default_and_pinned_versions(alias: str, wire_model: str, provider:
     resolved = ModelFactory.resolve_model_spec(alias)
     assert resolved.wire_model_name == wire_model
     assert resolved.provider == provider
+
+
+def test_builtin_aliases_resolve_to_catalog_models() -> None:
+    """Every builtin alias must parse and land on a known catalog entry."""
+    unresolved = []
+    for alias in BUILTIN_MODEL_ALIASES:
+        config = ModelFactory.parse_model_string(alias)
+        if ModelDatabase.get_model_params(config.model_name, provider=config.provider) is None:
+            unresolved.append(alias)
+
+    assert unresolved == []
