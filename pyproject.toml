@@ -154,6 +154,7 @@ dev = [
     "pytest-cov>=6.1.1",
     "ipdb>=0.13.13",
     "zensical==0.0.62",
+    "pytest-xdist>=3.8",
 ]
 
 [project.scripts]
