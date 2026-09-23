@@ -69,7 +69,7 @@ def test_gpt_6_astra_matches_codex_catalog_capabilities() -> None:
         Provider.RESPONSES,
         Provider.CODEX_RESPONSES,
     )
-    assert params.response_service_tiers == ("fast",)
+    assert params.response_service_tiers == ("fast", "flex")
     assert params.reasoning_effort_spec == ModelDatabase.OPENAI_GPT_6_ASTRA_REASONING
     assert params.reasoning_effort_spec.default == ReasoningEffortSetting(
         kind="effort",

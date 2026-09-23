@@ -646,7 +646,7 @@ class ModelDatabase:
         text_verbosity_spec=TextVerbositySpec(default="low"),
         response_transports=("sse", "websocket"),
         response_websocket_providers=(Provider.RESPONSES, Provider.CODEX_RESPONSES),
-        response_service_tiers=("fast",),
+        response_service_tiers=("fast", "flex"),
         codex_responses_lite=True,
         default_provider=Provider.RESPONSES,
         model_specific=GPT_53_PLUS_MODEL_SPECIFIC,
