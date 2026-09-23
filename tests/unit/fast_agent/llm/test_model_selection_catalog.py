@@ -362,50 +362,6 @@ def test_catalog_lists_legacy_aliases_when_configured() -> None:
     assert "glm47" not in current_aliases
 
 
-def test_huggingface_curated_catalog_includes_both_kimi_k3_routes() -> None:
-    entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.HUGGINGFACE]
-    aliases = {"Kimi K3 (fireworks-ai)", "Kimi K3 (together)"}
-    kimi_k3_entries = [entry for entry in entries if entry.alias in aliases]
-
-    assert [(entry.display_label, entry.model) for entry in kimi_k3_entries] == [
-        ("Kimi K3 (fireworks-ai)", "hf.moonshotai/Kimi-K3:fireworks-ai"),
-        ("Kimi K3 (together)", "hf.moonshotai/Kimi-K3:together"),
-    ]
-    assert all(entry.current for entry in kimi_k3_entries)
-
-
-def test_huggingface_curated_catalog_includes_muse_glimmer_together() -> None:
-    entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.HUGGINGFACE]
-    glimmer = next(entry for entry in entries if entry.alias == "glimmer")
-
-    assert glimmer.display_label == "Muse Glimmer 30B (together)"
-    assert glimmer.model == (
-        "hf.meta-models/Muse-Glimmer-30B:together?temperature=1.0&top_p=0.95&top_k=64"
-    )
-    assert glimmer.current is True
-
-
-def test_huggingface_curated_catalog_includes_deepseek_v4_flash_0731_routes() -> None:
-    entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.HUGGINGFACE]
-    aliases = {
-        "DeepSeek V4 Flash 0731 (baseten)",
-        "DeepSeek V4 Flash 0731 (deepinfra)",
-    }
-    deepseek_entries = [entry for entry in entries if entry.alias in aliases]
-
-    assert [(entry.display_label, entry.model) for entry in deepseek_entries] == [
-        (
-            "DeepSeek V4 Flash 0731 (baseten)",
-            "hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten",
-        ),
-        (
-            "DeepSeek V4 Flash 0731 (deepinfra)",
-            "hf.deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra",
-        ),
-    ]
-    assert all(entry.current for entry in deepseek_entries)
-
-
 def test_list_all_models_for_provider() -> None:
     openai_models = ModelSelectionCatalog.list_all_models(Provider.OPENAI)
     assert "gpt-4.1" in openai_models
@@ -447,15 +403,6 @@ def test_codexresponses_current_entries_use_explicit_transports() -> None:
     assert "codexresponses.gpt-5.4?reasoning=high" in current
     assert "codexresponses.gpt-5.5?reasoning=medium" in current
     assert "codexresponses.gpt-5.3-codex-spark" in current
-
-
-def test_google_curated_models_exist_in_provider_catalog() -> None:
-    known = {
-        ModelDatabase.normalize_model_name(model)
-        for model in ModelSelectionCatalog.list_all_models(Provider.GOOGLE)
-    }
-    for entry in ModelSelectionCatalog.list_current_entries(Provider.GOOGLE):
-        assert ModelDatabase.normalize_model_name(entry.model) in known
 
 
 def test_openrouter_list_all_models_uses_discovery(monkeypatch) -> None:
@@ -541,14 +488,6 @@ def test_overlay_catalog_uses_explicit_environment_context(
     assert "ambientoverlay" not in current_aliases
 
 
-def test_huggingface_catalog_includes_deepseek_v41_novita() -> None:
-    entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.HUGGINGFACE]
-    entry = next(entry for entry in entries if entry.alias == "DeepSeek V4.1 Flash (novita)")
-
-    assert entry.model == "hf.deepseek-ai/DeepSeek-V4.1-Flash:novita"
-    assert entry.current
-
-
 def test_opus_55_picker_defaults_and_limits() -> None:
     anthropic = ModelSelectionCatalog.list_current_models(Provider.ANTHROPIC)
     copilot = ModelSelectionCatalog.list_current_models(Provider.COPILOT)
@@ -560,3 +499,15 @@ def test_opus_55_picker_defaults_and_limits() -> None:
         assert params.context_window == 1_000_000
         assert params.max_output_tokens == 128_000
         assert not params.anthropic_thinking_disable_supported
+
+
+def test_catalog_entries_resolve_to_known_models() -> None:
+    """Every picker entry must parse and land on a known model catalog entry."""
+    unresolved = []
+    for entries in ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER.values():
+        for entry in entries:
+            config = ModelFactory.parse_model_string(entry.model)
+            if ModelDatabase.get_model_params(config.model_name, provider=config.provider) is None:
+                unresolved.append(entry.model)
+
+    assert unresolved == []

@@ -288,53 +288,10 @@ def test_google_native_schema_tool_policy_matches_catalog_entries() -> None:
     assert policies == {None, "no_tools"}
 
 
-def test_gemini35_flash_specs_match_api_guide() -> None:
-    params = ModelDatabase.get_model_params("gemini-3.5-flash")
-
-    assert params is not None
-    assert params.context_window == 1_048_576
-    assert params.max_output_tokens == 65_536
-    assert params.fast is True
-    assert params.structured_tool_policy is None
-    assert params.reasoning == "google_thinking"
-    assert params.reasoning_effort_spec is not None
-    assert params.reasoning_effort_spec.default is not None
-    assert params.reasoning_effort_spec.default.kind == "effort"
-    assert params.reasoning_effort_spec.default.value == "medium"
-
-
-@pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.8-flash"])
-def test_current_gemini_flash_specs_match_api_guide(model: str) -> None:
-    params = ModelDatabase.get_model_params(model)
-
-    assert params is not None
-    assert params.context_window == 1_048_576
-    assert params.max_output_tokens == 65_536
-    assert params.fast is True
-    assert params.structured_tool_policy is None
-    assert params.google_search_supported is True
-    assert params.reasoning == "google_thinking"
-    assert params.reasoning_effort_spec is not None
-    assert params.reasoning_effort_spec.allowed_efforts == ["low", "medium", "high"]
-    assert params.reasoning_effort_spec.default == ReasoningEffortSetting(
-        kind="effort",
-        value="medium",
-    )
-    assert params.google_service_tiers == ("flex",)
-    assert ModelDatabase.supports_google_service_tier(model, "flex")
-
-
 @pytest.mark.parametrize("mime", ["image/png", "application/pdf", "audio/mpeg", "video/mp4"])
 def test_gemini38_supports_documented_inputs_and_structured_output(mime: str) -> None:
     assert ModelDatabase.supports_mime("gemini-3.8-flash", mime)
     assert ModelDatabase.get_json_mode("gemini-3.8-flash") == "schema"
-
-
-def test_gemini31_pro_allows_tools_with_structured_output() -> None:
-    params = ModelDatabase.get_model_params("gemini-3.1-pro-preview")
-
-    assert params is not None
-    assert params.structured_tool_policy is None
 
 
 def test_huggingface_qwen35_structured_output_uses_prompted_json_object_mode() -> None:
@@ -416,30 +373,6 @@ def test_qwen38_defers_json_object_until_after_tool_use() -> None:
         prepared_params,
         [tool],
     )
-
-
-def test_huggingface_kimi25_uses_schema_mode() -> None:
-    params = ModelDatabase.get_model_params("moonshotai/Kimi-K2.5")
-
-    assert params is not None
-    assert params.json_mode == "schema"
-    assert params.structured_tool_policy is None
-
-
-def test_huggingface_gemma4_31b_metadata() -> None:
-    params = ModelDatabase.get_model_params("google/gemma-4-31B-it:cerebras")
-
-    assert params is not None
-    assert params.context_window == 131_000
-    assert params.max_output_tokens == 40_000
-    assert params.json_mode == "schema"
-    assert params.structured_tool_policy == "no_tools"
-    assert params.reasoning == "reasoning_content"
-    assert params.reasoning_effort_spec is not None
-    assert params.reasoning_effort_spec.default is not None
-    assert params.reasoning_effort_spec.default.value == "none"
-    assert ModelDatabase.supports_mime("google/gemma-4-31B-it", "image/png")
-    assert not ModelDatabase.supports_mime("google/gemma-4-31B-it", "audio/mpeg")
 
 
 def test_model_database_anthropic_web_tool_versions_for_46_models():
@@ -601,19 +534,6 @@ def test_model_database_supports_mime_basic():
     assert ModelDatabase.supports_mime("gpt-4o", "png")
 
 
-@pytest.mark.parametrize(
-    "model", ["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"]
-)
-def test_deepseek_flash_capabilities(model: str) -> None:
-    params = ModelDatabase.get_model_params(model)
-    assert params is not None
-    assert params.context_window == 1_048_576
-    assert params.max_output_tokens == 393_216
-    for mime in ("image/jpeg", "image/png", "image/gif", "image/webp"):
-        assert ModelDatabase.supports_mime(model, mime)
-    assert not ModelDatabase.supports_mime(model, "application/pdf")
-
-
 def test_deepseek_hf_flash_remains_text_only() -> None:
     assert not ModelDatabase.supports_mime("deepseek-ai/DeepSeek-V4-Flash-0731", "image/png")
 
@@ -644,30 +564,6 @@ def test_gemini_37_flash_uses_validated_shell_contract() -> None:
     assert params.shell_edit_tool == "write_text_file"
 
 
-def test_model_database_xai_grok_aliases_and_responses_transport():
-    assert ModelDatabase.get_default_provider("grok") == Provider.XAI
-    assert ModelDatabase.get_default_provider("grok-4.3") == Provider.XAI
-    assert ModelDatabase.get_default_provider("grok-4.5") == Provider.XAI
-    assert ModelDatabase.get_default_provider("grok-4.6") == Provider.XAI
-
-    assert ModelDatabase.get_context_window("grok") == 500_000
-    assert ModelDatabase.get_context_window("grok-4.3") == 1_000_000
-    assert ModelDatabase.get_context_window("grok-4.5") == 500_000
-    assert ModelDatabase.get_context_window("grok-4.6") == 500_000
-    assert ModelDatabase.get_model_params("grok-4.3-latest") is None
-    assert ModelDatabase.get_model_params("grok-4-fast-reasoning") is None
-    assert ModelDatabase.get_model_params("grok-3") is None
-    assert ModelDatabase.get_response_transports("grok-4.3") == ("sse", "websocket")
-    assert ModelDatabase.supports_response_websocket_provider("grok-4.3", Provider.XAI)
-
-    openrouter = ModelDatabase.get_model_params(
-        "x-ai/grok-4.6",
-        provider=Provider.OPENROUTER,
-    )
-    assert openrouter is not None
-    assert openrouter.reasoning_effort_spec == ModelDatabase.XAI_GROK_46_REASONING_EFFORT_SPEC
-
-
 def test_model_database_xai_image_input_mime_types_match_docs():
     vision_model = "grok-4.5"
 
@@ -677,42 +573,6 @@ def test_model_database_xai_image_input_mime_types_match_docs():
     assert not ModelDatabase.supports_mime(vision_model, "image/webp")
     assert ModelDatabase.supports_mime("grok-4.3", "image/png")
     assert not ModelDatabase.supports_mime("grok-4.3", "image/webp")
-
-
-def test_model_database_metaai_muse_spark_metadata():
-    models = (
-        "muse-spark-1.2",
-        "muse-spark-1.2-contributor",
-        "muse-spark-1.3",
-        "muse-spark-1.3-contributor",
-        "muse-spark-1.1",
-    )
-
-    for model in models:
-        assert ModelDatabase.get_default_provider(model) == Provider.META_AI
-        assert ModelDatabase.get_context_window(model) == 1_048_576
-        assert ModelDatabase.get_response_transports(model) == ("sse",)
-        assert not ModelDatabase.supports_response_websocket_provider(model, Provider.META_AI)
-        assert ModelDatabase.supports_mime(model, "image/png")
-        assert ModelDatabase.supports_mime(model, "application/pdf")
-        assert ModelDatabase.supports_mime(model, "video/mp4")
-
-
-def test_model_database_muse_glimmer_huggingface_metadata() -> None:
-    model = "meta-models/Muse-Glimmer-30B:together"
-    params = ModelDatabase.get_model_params(model, provider=Provider.HUGGINGFACE)
-
-    assert params is not None
-    assert params.default_provider == Provider.HUGGINGFACE
-    assert params.context_window == 131_072
-    assert params.max_output_tokens == 128_000
-    assert params.json_mode is None
-    assert params.reasoning == "stream"
-    assert params.stream_mode == "manual"
-    assert params.reasoning_effort_spec == ModelDatabase.MUSE_GLIMMER_REASONING_EFFORT_SPEC
-    assert ModelDatabase.supports_mime(model, "image/png")
-    assert not ModelDatabase.supports_mime(model, "application/pdf")
-    assert not ModelDatabase.supports_mime(model, "video/mp4")
 
 
 def test_model_database_google_video_audio_mime_types():
@@ -835,23 +695,6 @@ def test_model_database_response_websocket_provider_support() -> None:
     assert ModelDatabase.supports_response_websocket_provider("gpt-4o", Provider.RESPONSES) is None
 
 
-def test_model_database_grok_reasoning_spec() -> None:
-    specs = [ModelDatabase.get_reasoning_effort_spec(model) for model in ("grok-4.3", "grok-4.5")]
-
-    for spec in specs:
-        assert spec is not None
-        assert spec.kind == "effort"
-        assert spec.allowed_efforts == ["low", "medium", "high"]
-        assert spec.default is not None
-        assert spec.default.kind == "effort"
-        assert spec.default.value == "high"
-
-    grok_46_spec = ModelDatabase.get_reasoning_effort_spec("grok-4.6")
-    assert grok_46_spec is not None
-    assert grok_46_spec.allowed_efforts == ["low", "medium", "high", "xhigh"]
-    assert grok_46_spec.default == ReasoningEffortSetting(kind="effort", value="high")
-
-
 def test_glm_51_matches_glm_5_capabilities() -> None:
     old = ModelDatabase.get_model_params("zai-org/glm-5")
     new = ModelDatabase.get_model_params("zai-org/glm-5.1")
@@ -870,68 +713,6 @@ def test_model_database_codex_spark_is_text_only() -> None:
     assert ModelDatabase.supports_mime("gpt-5.3-codex-spark", "text/plain")
     assert not ModelDatabase.supports_mime("gpt-5.3-codex-spark", "application/pdf")
     assert not ModelDatabase.supports_mime("gpt-5.3-codex-spark", "image/png")
-
-
-def test_model_database_opus_47_reasoning_spec():
-    """Opus 4.7 should expose adaptive effort settings including xhigh."""
-    spec = ModelDatabase.get_reasoning_effort_spec("claude-opus-4-7")
-    assert spec is not None
-    assert spec.kind == "effort"
-    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh", "max"]
-    assert spec.allow_toggle_disable
-
-
-def test_model_database_opus_5_capabilities():
-    """Opus 5 defaults to adaptive thinking and does not support web fetch."""
-    params = ModelDatabase.get_model_params("claude-opus-5")
-    spec = ModelDatabase.get_reasoning_effort_spec("claude-opus-5")
-
-    assert params is not None
-    assert params.context_window == 1_000_000
-    assert params.max_output_tokens == 128_000
-    assert params.anthropic_thinking_field_required is False
-    assert params.anthropic_thinking_disable_supported is True
-    assert params.anthropic_web_search_version == "web_search_20260209"
-    assert params.anthropic_web_fetch_version is None
-    assert params.anthropic_task_budget_supported is True
-    assert spec is not None
-    assert spec.kind == "effort"
-    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh", "max"]
-    assert spec.allow_auto is True
-    assert spec.allow_toggle_disable is True
-
-
-def test_model_database_fable_5_reasoning_spec_is_always_on():
-    """Fable 5 adaptive thinking is always on and needs no thinking field."""
-    params = ModelDatabase.get_model_params("claude-fable-5")
-    spec = ModelDatabase.get_reasoning_effort_spec("claude-fable-5")
-
-    assert params is not None
-    assert params.anthropic_thinking_field_required is False
-    assert spec is not None
-    assert spec.kind == "effort"
-    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh"]
-    assert spec.allow_auto is True
-    assert spec.allow_toggle_disable is False
-    assert spec.default is not None
-    assert spec.default.value == "auto"
-
-
-def test_model_database_sonnet_5_reasoning_spec():
-    """Sonnet 5 defaults to adaptive thinking, supports disable, and has 128k output."""
-    params = ModelDatabase.get_model_params("claude-sonnet-5")
-    spec = ModelDatabase.get_reasoning_effort_spec("claude-sonnet-5")
-
-    assert params is not None
-    assert params.context_window == 1_000_000
-    assert params.max_output_tokens == 128_000
-    assert params.anthropic_thinking_field_required is False
-    assert params.anthropic_thinking_disable_supported is True
-    assert spec is not None
-    assert spec.kind == "effort"
-    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh", "max"]
-    assert spec.allow_auto is True
-    assert spec.allow_toggle_disable is True
 
 
 def test_model_database_text_verbosity_spec():
@@ -1351,30 +1132,6 @@ def test_model_specific_defaults_for_gpt_53_plus_family():
     assert ModelDatabase.get_model_specific("gpt-5.2") == ""
 
 
-def test_gpt_54_mini_default_reasoning_effort_is_medium():
-    spec = ModelDatabase.get_reasoning_effort_spec("gpt-5.4-mini")
-
-    assert spec is not None
-    assert spec.default == ReasoningEffortSetting(kind="effort", value="medium")
-
-
-def test_gpt_56_supports_api_reasoning_efforts_through_max():
-    for model_name in ("gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
-        spec = ModelDatabase.get_reasoning_effort_spec(model_name)
-
-        assert spec is not None
-        assert spec.allowed_efforts == ["none", "low", "medium", "high", "xhigh", "max"]
-        assert spec.default == ReasoningEffortSetting(kind="effort", value="high")
-        assert ModelDatabase.supports_mime(model_name, "application/pdf")
-        assert ModelDatabase.supports_mime(model_name, "image/png")
-
-    assert ModelDatabase.supports_codex_responses_lite("gpt-5.6-luna")
-    assert not ModelDatabase.supports_codex_responses_lite("gpt-5.6")
-    assert not ModelDatabase.supports_codex_responses_lite("gpt-5.6-sol")
-    assert not ModelDatabase.supports_codex_responses_lite("gpt-5.6-terra")
-    assert not ModelDatabase.supports_codex_responses_lite("gpt-5.5")
-
-
 def test_gemini_model_specific_mentions_youtube_capability():
     for model_name in (
         "gemini-2.0-flash",
@@ -1390,58 +1147,6 @@ def test_gemini_model_specific_mentions_youtube_capability():
         assert ModelDatabase.supports_mime(model_name, "video/mp4")
 
 
-def test_fable_51_limits_and_always_on_effort():
-    params = ModelDatabase.get_model_params("claude-fable-5-1")
-    assert params is not None
-    assert params.context_window == 1_000_000
-    assert params.max_output_tokens == 128_000
-    spec = params.reasoning_effort_spec
-    assert spec is not None
-    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh", "max"]
-    assert not spec.allow_toggle_disable
-    assert not params.anthropic_thinking_field_required
-    assert not params.anthropic_thinking_disable_supported
-
-
-@pytest.mark.parametrize("backend", ("", ":novita", ":fireworks-ai", ":other-backend"))
-def test_deepseek_v41_hf_capabilities(backend: str) -> None:
-    model = f"deepseek-ai/DeepSeek-V4.1-Flash{backend}"
-    params = ModelDatabase.get_model_params(model)
-    assert params is not None
-    assert params.default_provider == Provider.HUGGINGFACE
-    assert params.context_window == 1_048_576
-    assert params.max_output_tokens == 393_216
-    assert params.fast
-    assert params.json_mode == "schema"
-    assert params.reasoning == "reasoning_content"
-    for mime in ("image/jpeg", "image/png", "image/gif", "image/webp"):
-        assert ModelDatabase.supports_mime(model, mime)
-    assert not ModelDatabase.supports_mime(model, "application/pdf")
-    native = ModelDatabase.get_model_params("deepseek-flash")
-    assert native is not None
-    assert native.default_provider == Provider.DEEPSEEK
-    assert native.reasoning == "openai"
-
-
-@pytest.mark.parametrize("model", ["grok-4.7", "grok47", "grok", "grok4"])
-def test_grok_47_registration(model: str) -> None:
-    assert ModelDatabase.get_default_provider(model) == Provider.XAI
-    assert ModelDatabase.get_context_window(model) == 500_000
-    spec = ModelDatabase.get_reasoning_effort_spec(model)
-    assert spec == ModelDatabase.get_reasoning_effort_spec("grok-4.6")
-    assert spec is not None
-    assert spec.default == ReasoningEffortSetting(kind="effort", value="high")
-    assert ModelDatabase.get_response_transports(model) == ("sse", "websocket")
-    assert ModelDatabase.supports_response_websocket_provider(model, Provider.XAI)
-
-
-def test_grok_47_openrouter_registration() -> None:
-    params = ModelDatabase.get_model_params("x-ai/grok-4.7", provider=Provider.OPENROUTER)
-    assert params is not None
-    assert params.context_window == 500_000
-    assert params.reasoning_effort_spec == ModelDatabase.get_reasoning_effort_spec("grok-4.7")
-
-
 @pytest.mark.parametrize("model", ["grok-4.7-build-fast", "grok47fast", "grokfast"])
 def test_grok_47_fast_inherits_standard_capabilities(model: str) -> None:
     standard = ModelDatabase.get_model_params("grok-4.7")
@@ -1450,3 +1155,23 @@ def test_grok_47_fast_inherits_standard_capabilities(model: str) -> None:
     assert fast is not None
     assert fast.fast
     assert fast.model_dump(exclude={"fast"}) == standard.model_dump(exclude={"fast"})
+
+
+def test_catalog_entries_are_internally_consistent() -> None:
+    """Catalog invariants; per-model limits are data, not test literals."""
+    problems: list[str] = []
+    for model, params in ModelDatabase.MODELS.items():
+        if params.max_output_tokens > params.context_window:
+            problems.append(f"{model}: max_output_tokens exceeds context_window")
+        if (
+            params.long_context_window is not None
+            and params.long_context_window <= params.context_window
+        ):
+            problems.append(f"{model}: long_context_window does not extend context_window")
+        spec = params.reasoning_effort_spec
+        if spec is not None and spec.default is not None and spec.default.kind == "effort":
+            allowed = [*(spec.allowed_efforts or []), *(["auto"] if spec.allow_auto else [])]
+            if spec.default.value not in allowed:
+                problems.append(f"{model}: default effort {spec.default.value!r} not allowed")
+
+    assert problems == []

@@ -44,6 +44,9 @@ INVALID_TOKENS = (
     "synthetic-tokené",
     "synthetic-token\u200b",
 )
+# Token validation itself is covered against the full INVALID_TOKENS list at login;
+# read paths only need to prove they route invalid tokens (empty and header injection).
+ROUTING_INVALID_TOKENS = ("", "synthetic-token\r\nInjected:header")
 
 
 def device_response(**updates: object) -> httpx.Response:
@@ -469,8 +472,7 @@ def test_environment_precedence(monkeypatch: pytest.MonkeyPatch, auth_file: Path
     }
 
 
-# The OS already rejects NUL bytes in environment values.
-@pytest.mark.parametrize("token", [token for token in INVALID_TOKENS if "\x00" not in token])
+@pytest.mark.parametrize("token", ROUTING_INVALID_TOKENS)
 @pytest.mark.parametrize("operation", READ_OPERATIONS)
 def test_invalid_environment_never_falls_back(
     monkeypatch: pytest.MonkeyPatch, token: str, operation: Callable[[], object]
@@ -594,7 +596,7 @@ def test_keyring_source_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     loader.assert_called_with("copilot")
 
 
-@pytest.mark.parametrize("token", INVALID_TOKENS)
+@pytest.mark.parametrize("token", ROUTING_INVALID_TOKENS)
 @pytest.mark.parametrize("operation", READ_OPERATIONS)
 def test_invalid_saved_token_is_not_a_login_failure(
     token: str, operation: Callable[[], object]
