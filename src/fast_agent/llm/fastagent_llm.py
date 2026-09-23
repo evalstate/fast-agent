@@ -27,7 +27,12 @@ from fast_agent.constants import (
     CONTROL_MESSAGE_SAVE_HISTORY,
 )
 from fast_agent.context_dependent import ContextDependent
-from fast_agent.core.exceptions import AgentConfigError, ProviderKeyError, ServerConfigError
+from fast_agent.core.exceptions import (
+    AgentConfigError,
+    ModelConfigError,
+    ProviderKeyError,
+    ServerConfigError,
+)
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import (
@@ -801,7 +806,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
     @staticmethod
     def _is_fatal_retry_error(error: Exception) -> bool:
-        if isinstance(error, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
+        if isinstance(
+            error, (KeyboardInterrupt, AgentConfigError, ModelConfigError, ServerConfigError)
+        ):
             return True
 
         # Deferred: this module must stay importable without the OpenAI/WebSocket SDKs.

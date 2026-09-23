@@ -17,6 +17,7 @@ from fast_agent.agents.tool_runner import ToolRunner
 from fast_agent.config import CodexResponsesSettings, OpenAISettings, Settings
 from fast_agent.constants import FAST_AGENT_PENDING_MEDIA_ATTACHMENTS
 from fast_agent.context import Context
+from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.interfaces import AgentProtocol
 from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
@@ -323,7 +324,7 @@ async def test_extra_body_cannot_cross_astra_boundary(
     url, requests = simulator
     agent, llm = await make_agent(url, codex=codex, transport=transport, model=model)
     try:
-        with pytest.raises(ValueError, match="directly in metadata"):
+        with pytest.raises(ModelConfigError, match="directly in metadata"):
             await agent.generate(
                 [Prompt.user("Work")],
                 RequestParams(metadata={"extra_body": {"model": override, "truncation": "auto"}}),

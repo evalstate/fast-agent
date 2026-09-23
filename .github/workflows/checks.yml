@@ -83,7 +83,7 @@ jobs:
           uv sync --locked --group dev
 
       - name: Run unit tests
-        run: uv run pytest tests/unit -v
+        run: uv run pytest tests/unit -n auto -q -ra --durations=20
 
   integration-test:
     name: Integration (${{ matrix.name }})
@@ -121,7 +121,7 @@ jobs:
           uv sync --locked --group dev
 
       - name: Run integration tests
-        run: uv run pytest -m integration -v ${{ matrix.path }} ${{ matrix.args }}
+        run: uv run pytest -m integration -v --durations=20 ${{ matrix.path }} ${{ matrix.args }}
 
   test:
     name: test

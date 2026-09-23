@@ -5,6 +5,7 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.agents.tool_runner import ToolRunner
 from fast_agent.constants import FAST_AGENT_PENDING_MEDIA_ATTACHMENTS
+from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_cache import (
     prepare_cached_request,
@@ -46,7 +47,7 @@ def test_cache_keys_are_instance_scoped_not_explicit_breakpoints() -> None:
 )
 def test_incompatible_astra_overrides_are_validated(metadata) -> None:
     llm = ResponsesLLM(model="gpt-6-astra")
-    with pytest.raises(ValueError):
+    with pytest.raises(ModelConfigError):
         prepare_cached_request(
             [Prompt.user("Work")],
             RequestParams(model="gpt-6-astra", metadata=metadata),

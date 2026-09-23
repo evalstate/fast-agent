@@ -5,7 +5,7 @@ from anthropic import RequestTooLargeError as AnthropicRequestTooLargeError
 from openai import APIError as OpenAIAPIError
 from openai import BadRequestError as OpenAIBadRequestError
 
-from fast_agent.core.exceptions import ProviderKeyError
+from fast_agent.core.exceptions import ModelConfigError, ProviderKeyError
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider.openai.responses_websocket import ResponsesWebSocketError
 
@@ -18,6 +18,12 @@ def test_provider_key_errors_with_retryable_terms_are_not_fatal() -> None:
 
 def test_provider_key_errors_without_retryable_terms_are_fatal() -> None:
     error = ProviderKeyError("Missing API key")
+
+    assert FastAgentLLM._is_fatal_retry_error(error) is True
+
+
+def test_model_config_errors_are_fatal() -> None:
+    error = ModelConfigError("Set model directly in metadata, not extra_body")
 
     assert FastAgentLLM._is_fatal_retry_error(error) is True
 
