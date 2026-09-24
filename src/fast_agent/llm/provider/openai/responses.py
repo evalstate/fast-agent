@@ -81,7 +81,7 @@ from fast_agent.utils.text import strip_casefold
 
 _logger = get_logger(__name__)
 
-DEFAULT_RESPONSES_MODEL = "gpt-5.2"
+DEFAULT_RESPONSES_MODEL = "gpt-5.6"
 DEFAULT_REASONING_EFFORT = "medium"
 MIN_RESPONSES_MAX_TOKENS = 16
 DEFAULT_RESPONSES_BASE_URL = "https://api.openai.com/v1"
