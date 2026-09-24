@@ -160,3 +160,32 @@ The default (and explicit `?transport=websocket`) has **no SSE fallback**.
 Explicit `?transport=auto` tries WebSocket first, with SSE fallback on early errors.
 Ordinary OpenAI/Codex Responses defaults to `auto`.
 Claude models use SSE only. The native runtime does not query `/models`.
+
+## Image attachments
+
+Copilot Messages and Responses upload inline images to GitHub's Copilot chat
+attachment service and send the returned URLs to the model. This is separate
+from the unsupported Anthropic/OpenAI Files APIs. Uploads use the broker's
+Copilot credential; upload failures fall back to inline images.
+
+The adapter retains original image data in saved history. Upload URLs are cached
+in memory per adapter and credential (up to 128 entries, refreshed after 30
+minutes), not persisted into the session. Resuming a session uploads its images
+again as needed. At most 20 image URLs are used per request, including existing
+URL images; additional inline images remain inline rather than being dropped.
+
+Messages images are proportionally resized to a maximum dimension of 2,000
+pixels before upload or inline fallback, avoiding the stricter dimension limit
+on many-image requests. JPEG stays JPEG; other resized formats become PNG
+(animated images are flattened to the first frame when resizing is necessary).
+This only changes the request representation, not the original files or history.
+It does not remove the provider's total image-count or context limits.
+
+Run the live smoke test with existing Copilot credentials (uses inference quota):
+
+```bash
+uv run examples/copilot/image_upload_probe.py
+```
+
+It checks image recognition and URL reuse through Messages/SSE and
+Responses/SSE and WebSocket, without printing credentials or attachment URLs.

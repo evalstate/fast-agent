@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from copy import deepcopy
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Literal
 from unittest.mock import AsyncMock
@@ -72,6 +73,19 @@ def broker(monkeypatch: pytest.MonkeyPatch) -> FakeBroker:
     monkeypatch.setenv("OPENAI_ORG_ID", "DO-NOT-SEND")
     monkeypatch.setenv("OPENAI_PROJECT_ID", "DO-NOT-SEND")
     return fake
+
+
+@pytest.fixture(autouse=True)
+def image_uploads(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    # Adapter tests exercise SDK serialization, never the attachment HTTP service.
+    async def normalize(payload: dict[str, Any], endpoint: CopilotEndpoint) -> dict[str, Any]:
+        return deepcopy(payload)
+
+    mock = AsyncMock(side_effect=normalize)
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.copilot.images.CopilotImageUploads.normalize", mock
+    )
+    return mock
 
 
 @pytest.fixture
@@ -158,7 +172,12 @@ def responses_events() -> bytes:
     ],
 )
 async def test_parent_sse_loop_fresh_binding_and_payload(
-    wire: str, model: str, broker: FakeBroker, context: Context, monkeypatch: pytest.MonkeyPatch
+    wire: str,
+    model: str,
+    broker: FakeBroker,
+    context: Context,
+    monkeypatch: pytest.MonkeyPatch,
+    image_uploads: AsyncMock,
 ) -> None:
     requests: list[httpx2.Request] = []
     bodies: list[dict[str, Any]] = []
@@ -187,46 +206,68 @@ async def test_parent_sse_loop_fresh_binding_and_payload(
         else CopilotResponsesLLM(context=context, model=model, transport="sse")
     )
     tool = Tool(name="local_tool", input_schema={"type": "object", "properties": {}})
+    uploaded_url = "https://attachments.example/uploaded.png"
+    # Heterogeneous provider wire payloads at the SDK boundary.
+    message: dict[str, Any] = {
+        "role": "user",
+        "content": [
+            {
+                "type": "tool_result",
+                "tool_use_id": "call",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": "AA==",
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+    inputs = [
+        {
+            "type": "function_call_output",
+            "call_id": "call",
+            "output": [{"type": "input_image", "image_url": "data:image/png;base64,AA=="}],
+        }
+    ]
+    original_message = deepcopy(message)
+    original_inputs = deepcopy(inputs)
+
+    async def normalize(payload: dict[str, Any], endpoint: CopilotEndpoint) -> dict[str, Any]:
+        normalized = deepcopy(payload)
+        if wire == "messages":
+            image = normalized["messages"][-1]["content"][0]["content"][0]
+            assert image["source"] == original_message["content"][0]["content"][0]["source"]
+            image["source"] = {"type": "url", "url": uploaded_url}
+        else:
+            image = normalized["input"][0]["output"][0]
+            assert image["image_url"] == "data:image/png;base64,AA=="
+            image["image_url"] = uploaded_url
+        return normalized
+
+    image_uploads.side_effect = normalize
     for _ in range(2):
         params = RequestParams(model=llm.default_request_params.model, max_tokens=37)
         if isinstance(llm, CopilotMessagesLLM):
-            await llm._anthropic_completion(
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "call",
-                            "content": [
-                                {
-                                    "type": "image",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": "image/png",
-                                        "data": "AA==",
-                                    },
-                                }
-                            ],
-                        }
-                    ],
-                },
-                params,
-                tools=[tool],
-            )
+            await llm._anthropic_completion(message, params, tools=[tool])
         else:
-            await llm._responses_completion(
-                [
-                    {
-                        "type": "function_call_output",
-                        "call_id": "call",
-                        "output": [
-                            {"type": "input_image", "image_url": "data:image/png;base64,AA=="}
-                        ],
-                    }
-                ],
-                params,
-                tools=[tool],
-            )
+            await llm._responses_completion(inputs, params, tools=[tool])
+        assert message == original_message
+        assert inputs == original_inputs
+    assert image_uploads.await_count == 2
+    for generation, call in enumerate(image_uploads.await_args_list, 1):
+        payload, endpoint = call.args
+        assert set(payload) == {"messages" if wire == "messages" else "input"}
+        assert endpoint.model_id == model
+        assert endpoint.wire_api == wire
+        assert endpoint.headers == {"authorization": f"Bearer broker-{generation}"}
+        assert endpoint.base_url == f"https://copilot-{generation}.example" + (
+            "/v1" if wire == "messages" and generation % 2 == 0 else ""
+        )
     assert llm.provider is Provider.COPILOT
     assert len(llm.usage_accumulator.turns) == 2
     assert all(turn.provider is Provider.COPILOT for turn in llm.usage_accumulator.turns)
@@ -244,8 +285,13 @@ async def test_parent_sse_loop_fresh_binding_and_payload(
         assert body["tools"][0]["name"] == "local_tool"
         assert body["max_tokens" if wire == "messages" else "max_output_tokens"] == 37
         if wire == "messages":
+            assert body["messages"][-1]["content"][0]["content"][0]["source"] == {
+                "type": "url",
+                "url": uploaded_url,
+            }
             assert "eager_input_streaming" not in body["tools"][0]
         else:
+            assert body["input"][0]["output"][0]["image_url"] == uploaded_url
             assert body["store"] is False
             assert "previous_response_id" not in body
     if isinstance(llm, CopilotResponsesLLM):

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient, omit
@@ -12,13 +12,17 @@ from fast_agent.config import AnthropicSettings
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM, CacheTTL
 from fast_agent.llm.provider.copilot import broker
 from fast_agent.llm.provider.copilot.broker import CopilotEndpoint, copilot_settings
+from fast_agent.llm.provider.copilot.images import CopilotImageUploads
 from fast_agent.llm.provider.copilot.models import get_copilot_model
 from fast_agent.llm.provider.copilot.policy import apply_policy, reject_overrides
 from fast_agent.llm.provider_types import Provider
 
 if TYPE_CHECKING:
+    from anthropic.types.beta import BetaMessageParam
+
+    from fast_agent.llm.provider.anthropic.llm_anthropic import _AnthropicCompletionRequest
     from fast_agent.llm.structured_output_mode import StructuredOutputMode
-    from fast_agent.types import RequestParams
+    from fast_agent.types import PromptMessageExtended, RequestParams
 
 
 class CopilotMessagesLLM(AnthropicLLM):
@@ -31,6 +35,7 @@ class CopilotMessagesLLM(AnthropicLLM):
         if kwargs.get("transport") not in (None, "sse"):
             raise ValueError("Copilot Messages only supports SSE.")
         self._copilot_owner_id = uuid4().hex
+        self._image_uploads = CopilotImageUploads()
         self._copilot_endpoint: ContextVar[CopilotEndpoint] = ContextVar(
             "copilot_messages_endpoint"
         )
@@ -91,6 +96,24 @@ class CopilotMessagesLLM(AnthropicLLM):
         # rather than merge, with broker headers (including the auth omit sentinel).
         client._custom_headers = headers
         return client
+
+    async def _prepare_anthropic_completion_request(
+        self,
+        anthropic: Any,
+        message_param: BetaMessageParam,
+        request_params: RequestParams | None,
+        pre_messages: list[BetaMessageParam] | None,
+        history: list[PromptMessageExtended] | None,
+        current_extended: PromptMessageExtended | None,
+    ) -> _AnthropicCompletionRequest:
+        request = await super()._prepare_anthropic_completion_request(
+            anthropic, message_param, request_params, pre_messages, history, current_extended
+        )
+        normalized = await self._image_uploads.normalize(
+            {"messages": request.messages}, self._copilot_endpoint.get()
+        )
+        request.messages = cast("list[BetaMessageParam]", normalized["messages"])
+        return request
 
     def supports_files_api(self) -> bool:
         return False

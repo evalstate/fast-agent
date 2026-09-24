@@ -9,6 +9,7 @@ from uuid import uuid4
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 
 from fast_agent.llm.provider.copilot import broker
+from fast_agent.llm.provider.copilot.images import CopilotImageUploads
 from fast_agent.llm.provider.copilot.models import get_copilot_model
 from fast_agent.llm.provider.copilot.policy import (
     apply_policy,
@@ -45,6 +46,7 @@ class CopilotResponsesLLM(ResponsesLLM):
         if kwargs.get("web_fetch"):
             raise ValueError("Copilot provider web fetch is not supported.")
         self._copilot_owner_id = uuid4().hex
+        self._image_uploads = CopilotImageUploads()
         self._copilot_endpoint: ContextVar[CopilotEndpoint] = ContextVar(
             "copilot_responses_endpoint"
         )
@@ -160,8 +162,11 @@ class CopilotResponsesLLM(ResponsesLLM):
         self, client: AsyncOpenAI, input_items: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         reject_files(input_items)
-        # Inline images are already wire-ready; never invoke OpenAI's Files API.
-        return input_items
+        # Copilot attachments are distinct from the unsupported OpenAI Files API.
+        normalized = await self._image_uploads.normalize(
+            {"input": input_items}, self._copilot_endpoint.get()
+        )
+        return normalized["input"]
 
     @property
     def web_search_supported(self) -> bool:
