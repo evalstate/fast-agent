@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import os
+from typing import TYPE_CHECKING
 
 import pytest
 
 import fast_agent.config as config_module
 from fast_agent.constants import FAST_AGENT_RUNTIME_HOME
 from fast_agent.session import reset_session_manager
+from fast_agent.ui.console import configure_console_stream
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 @pytest.fixture(autouse=True)
@@ -45,6 +50,13 @@ def shorten_logging_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(AsyncEventBus, "_drain_queue_before_stop", drain_queue_before_stop)
     monkeypatch.setattr(AsyncEventBus, "_cancel_process_task", cancel_process_task)
+
+
+@pytest.fixture(autouse=True)
+def reset_shared_console_stream() -> Iterator[None]:
+    """Runtime paths (e.g. stdio servers) reroute the shared console; don't leak it."""
+    yield
+    configure_console_stream("stdout")
 
 
 @pytest.fixture(autouse=True)

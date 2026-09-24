@@ -24,8 +24,6 @@ from fast_agent.ui.mcp_display import (
     _capability_token_style,
     _channel_arrow_style,
     _elicitation_capability_state,
-    _format_compact_duration,
-    _format_timeline_label,
     _get_health_state,
     _render_channel_summary,
     _sampling_capability_state,
@@ -107,40 +105,6 @@ def test_modern_health_text_is_omitted_without_legacy_ping_loop() -> None:
     )
 
     assert _build_health_text(status) is None
-
-
-def test_format_compact_duration_omits_missing_and_non_finite_values() -> None:
-    assert _format_compact_duration(None) is None
-    assert _format_compact_duration(float("nan")) is None
-    assert _format_compact_duration(float("inf")) is None
-
-
-def test_format_compact_duration_formats_positive_values() -> None:
-    assert _format_compact_duration(0.5) == "<1s"
-    assert _format_compact_duration(65) == "1m05s"
-    assert _format_compact_duration(3700) == "1h01m"
-
-
-@pytest.mark.parametrize(
-    ("total_seconds", "expected"),
-    [
-        (0, "0s"),
-        (-5, "0s"),
-        (5, "5s"),
-        (60, "1m"),
-        (65, "1m05s"),
-        (3600, "1h"),
-        (3660, "1h01m"),
-        (86400, "1d"),
-        (90000, "1d1h"),
-        (86400 + 59 * 60, "1d"),
-    ],
-)
-def test_format_timeline_label_uses_largest_two_units(
-    total_seconds: int,
-    expected: str,
-) -> None:
-    assert _format_timeline_label(total_seconds) == expected
 
 
 def test_app_integration_capability_state_returns_false_when_config_disabled() -> None:

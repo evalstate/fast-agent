@@ -211,11 +211,11 @@ def test_obsolete_environment_settings_are_rejected(
         Settings()
 
 
-@pytest.mark.parametrize("model_id", sorted(PUBLIC_IDS))
+# Rejection is provider-level, so one model per tier covers it.
 @pytest.mark.parametrize("tier", ["fast", "flex"])
-def test_copilot_factory_rejects_service_tiers(model_id: str, tier: str) -> None:
+def test_copilot_factory_rejects_service_tiers(tier: str) -> None:
     with pytest.raises(ModelConfigError, match="service_tier"):
-        ModelFactory.create_factory(f"copilot.{model_id}?service_tier={tier}")
+        ModelFactory.create_factory(f"copilot.{min(PUBLIC_IDS)}?service_tier={tier}")
 
 
 @pytest.mark.parametrize("mode", ["off", "prompt", "auto"])

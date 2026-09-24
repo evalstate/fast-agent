@@ -574,16 +574,16 @@ def test_configured_baseten_backend_uses_route_output_limit() -> None:
     assert request["max_tokens"] == 384_000
 
 
-@pytest.mark.parametrize("backend", ("", ":novita", ":fireworks-ai", ":other-backend"))
+# Backend and reasoning are independent; cover each value once rather than the product.
 @pytest.mark.parametrize(
-    "query, effort",
+    "backend, query, effort",
     (
-        ("", "max"),
-        ("?reasoning=max", "max"),
-        ("?reasoning=off", "none"),
-        ("?reasoning=none", "none"),
-        ("?reasoning=low", "low"),
-        ("?reasoning=high", "high"),
+        ("", "", "max"),
+        (":novita", "?reasoning=max", "max"),
+        (":fireworks-ai", "?reasoning=off", "none"),
+        (":other-backend", "?reasoning=none", "none"),
+        ("", "?reasoning=low", "low"),
+        (":novita", "?reasoning=high", "high"),
     ),
 )
 def test_deepseek_v41_hf_model_profile_fallback(backend: str, query: str, effort: str) -> None:

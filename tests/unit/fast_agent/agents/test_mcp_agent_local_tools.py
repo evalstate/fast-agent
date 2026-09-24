@@ -1023,17 +1023,44 @@ async def test_write_text_file_auto_mode_prefers_apply_patch_for_codex_family_mo
         "responses.gpt-6-luna?reasoning=none",
     ],
 )
-async def test_astra_defaults_to_writer_editor_pair(model_name: str) -> None:
+async def test_gpt6_defaults_to_writer_editor_pair_with_shell_name(model_name: str) -> None:
     config = AgentConfig(
         name="test", instruction="Instruction", servers=[], shell=True, model=model_name
     )
     agent = McpAgent(config=config, context=Context())
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
-    assert {"bash", "process", "read_text_file", "write_text_file", "edit_file"} <= tool_names
+    assert {"shell", "process", "read_text_file", "write_text_file", "edit_file"} <= tool_names
+    assert "bash" not in tool_names
     assert "apply_patch" not in tool_names
 
     await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_gpt6_shell_name_preserves_minimal_process_schema_and_folding_capability() -> None:
+    agents = [
+        McpAgent(
+            config=AgentConfig(
+                name="test", instruction="Instruction", servers=[], shell=True, model=model
+            ),
+            context=Context(),
+        )
+        for model in ("codexresponses.gpt-6-luna", "codexresponses.gpt-5.5")
+    ]
+    try:
+        gpt6_tools = {tool.name: tool for tool in (await agents[0].list_tools()).tools}
+        previous_tools = {tool.name: tool for tool in (await agents[1].list_tools()).tools}
+        assert gpt6_tools["shell"].input_schema == previous_tools["bash"].input_schema
+        assert "shell" in (gpt6_tools["process"].description or "")
+        params = ModelDatabase.get_model_params("gpt-6-luna")
+        assert params is not None
+        assert params.managed_process_poll_folding is True
+        assert "bash" not in gpt6_tools
+        assert "shell" not in previous_tools
+    finally:
+        for agent in agents:
+            await agent._aggregator.close()
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.10.31"
+version = "0.10.34"
 description = "Code, Build and Evaluate agents - excellent Model and Skills/MCP/ACP/A2A Support"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -154,6 +154,7 @@ dev = [
     "pytest-cov>=6.1.1",
     "ipdb>=0.13.13",
     "zensical==0.0.62",
+    "pytest-xdist>=3.8",
 ]
 
 [project.scripts]

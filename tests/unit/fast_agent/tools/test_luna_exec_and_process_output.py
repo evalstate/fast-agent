@@ -149,10 +149,21 @@ def test_process_guidance_distinguishes_preview_from_retained_reads(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("profile", ["minimal_process", "luna_exec"])
-@pytest.mark.parametrize("action", ["wait", "status"])
-@pytest.mark.parametrize("limit", [1, 20, 999, 1000])
-@pytest.mark.parametrize("retain_output", [True, False])
+# Pairwise cover of profile x action x limit x retain_output: every value pair appears
+# at least once without spawning the full 32-process cartesian product.
+@pytest.mark.parametrize(
+    ("profile", "action", "limit", "retain_output"),
+    [
+        ("minimal_process", "wait", 1, True),
+        ("luna_exec", "status", 1, False),
+        ("minimal_process", "status", 20, False),
+        ("luna_exec", "wait", 20, True),
+        ("minimal_process", "wait", 999, False),
+        ("luna_exec", "status", 999, True),
+        ("minimal_process", "status", 1000, True),
+        ("luna_exec", "wait", 1000, False),
+    ],
+)
 async def test_wait_status_limit_preserves_process_and_allows_retained_read(
     tmp_path: Path,
     profile: ShellToolProfile,

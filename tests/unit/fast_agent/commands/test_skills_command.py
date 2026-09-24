@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -242,6 +243,8 @@ def test_top_level_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
         cwd=_repo_root(),
+        # Long tmp paths (e.g. xdist's popen-gwN) must not be truncated by Rich tables.
+        env={**os.environ, "COLUMNS": "400"},
     )
 
     assert result.returncode == 0, result.stderr
@@ -275,6 +278,8 @@ def test_local_skills_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> No
         capture_output=True,
         text=True,
         cwd=_repo_root(),
+        # Long tmp paths (e.g. xdist's popen-gwN) must not be truncated by Rich tables.
+        env={**os.environ, "COLUMNS": "400"},
     )
 
     assert result.returncode == 0, result.stderr

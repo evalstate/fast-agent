@@ -77,6 +77,7 @@ Examples:
 - `responses.gpt-5.5?reasoning=medium`
 - `responses.gpt-5.5?web_search=on`
 - `responses.gpt-5.4?service_tier=flex`
+- `responses.gpt-6-luna?service_tier=flex`
 
 ### Codex Responses models
 

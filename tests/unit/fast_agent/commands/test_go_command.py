@@ -461,6 +461,8 @@ def test_go_workspace_rejects_missing_directory(tmp_path: Path) -> None:
             "--message",
             "summarize",
         ],
+        # Keep long tmp paths (e.g. xdist's popen-gwN) on one line in the error panel.
+        env={"COLUMNS": "400"},
     )
 
     assert result.exit_code == 2
