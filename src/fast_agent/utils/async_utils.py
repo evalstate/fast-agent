@@ -129,8 +129,30 @@ async def gather_with_cancel(aws: Iterable[Awaitable[T]]) -> list[T | BaseExcept
     asyncio.CancelledError is re-raised so cancellation never gets swallowed.
     """
 
-    results = await asyncio.gather(*aws, return_exceptions=True)
-    for item in results:
-        if isinstance(item, asyncio.CancelledError):
-            raise item
+    tasks = [asyncio.ensure_future(aw) for aw in aws]
+    pending = set(tasks)
+    try:
+        while pending:
+            done, pending = await asyncio.wait(
+                pending,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            cancelled = next((task for task in done if task.cancelled()), None)
+            if cancelled is not None:
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                cancelled.result()
+    except asyncio.CancelledError:
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        raise
+
+    results: list[T | BaseException] = []
+    for task in tasks:
+        try:
+            results.append(task.result())
+        except BaseException as exc:
+            results.append(exc)
     return results

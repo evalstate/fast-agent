@@ -1,7 +1,10 @@
 """Tests for asyncio runtime helpers."""
 
+import asyncio
 import sys
 from types import SimpleNamespace
+
+import pytest
 
 from fast_agent.utils import async_utils
 
@@ -55,3 +58,43 @@ def test_uvloop_creation_failure_falls_back_to_asyncio(monkeypatch) -> None:
         async_utils._UVLOOP_REQUESTED = None
         async_utils._UVLOOP_CONFIGURED = None
         sys.modules.pop("uvloop", None)
+
+
+@pytest.mark.asyncio
+async def test_gather_with_cancel_preserves_results_and_exceptions() -> None:
+    async def return_value() -> int:
+        return 7
+
+    async def fail() -> int:
+        raise RuntimeError("failed")
+
+    results = await async_utils.gather_with_cancel([return_value(), fail()])
+
+    assert results[0] == 7
+    assert isinstance(results[1], RuntimeError)
+
+
+@pytest.mark.asyncio
+async def test_gather_with_cancel_propagates_child_cancellation_and_cancels_sibling() -> None:
+    sibling_started = asyncio.Event()
+    sibling_cancelled = asyncio.Event()
+
+    async def cancel() -> None:
+        await sibling_started.wait()
+        raise asyncio.CancelledError("child cancelled")
+
+    async def wait_forever() -> None:
+        sibling_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            sibling_cancelled.set()
+            raise
+
+    with pytest.raises(asyncio.CancelledError, match="child cancelled"):
+        await asyncio.wait_for(
+            async_utils.gather_with_cancel([cancel(), wait_forever()]),
+            timeout=1,
+        )
+
+    assert sibling_cancelled.is_set()
