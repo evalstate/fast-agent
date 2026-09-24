@@ -32,10 +32,10 @@ from fast_agent.llm.provider.openai.llm_deepseek import DeepSeekResponsesLLM
 from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 from fast_agent.llm.provider.openai.llm_google_oai import GoogleOaiLLM
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
-from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+from fast_agent.llm.provider.openai.llm_openai import DEFAULT_OPENAI_MODEL, OpenAILLM
 from fast_agent.llm.provider.openai.llm_openrouter import OpenRouterLLM
 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
-from fast_agent.llm.provider.openai.responses import ResponsesLLM
+from fast_agent.llm.provider.openai.responses import DEFAULT_RESPONSES_MODEL, ResponsesLLM
 from fast_agent.llm.provider_types import Provider
 
 
@@ -218,3 +218,19 @@ def test_azure_default_model_overrides_azure_deployment() -> None:
     llm = AzureOpenAILLM(context=Context(config=settings), model="")
 
     assert llm.default_request_params.model == "preferred-model"
+
+
+def test_openai_hard_coded_fallback_is_not_deprecated() -> None:
+    # gpt-5-mini is scheduled for shutdown 2026-12-11 (issue #959).
+    # The fallback must be a model with no published shutdown date.
+    assert DEFAULT_OPENAI_MODEL == "gpt-4.1-mini"
+    llm = OpenAILLM(context=Context(config=Settings()), model="")
+    assert llm.default_request_params.model == "gpt-4.1-mini"
+
+
+def test_responses_hard_coded_fallback_is_not_deprecated() -> None:
+    # gpt-5.2 is listed as deprecated by OpenAI (issue #959).
+    # The fallback must be a model that is not on the deprecations list.
+    assert DEFAULT_RESPONSES_MODEL == "gpt-5.6"
+    llm = ResponsesLLM(context=Context(config=Settings()), model="")
+    assert llm.default_request_params.model == "gpt-5.6"
