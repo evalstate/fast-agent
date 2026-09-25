@@ -449,6 +449,7 @@ class MCPAggregator(ContextDependent):
                     self._startup.set_status(self._attachment_owner, name, "pending")
                 self._startup_task = asyncio.create_task(self._load_background_servers())
                 self._startup_task.add_done_callback(self._on_background_startup_done)
+                self._startup.track(self._startup_task)
             else:
                 await self.load_servers()
 
@@ -825,7 +826,10 @@ class MCPAggregator(ContextDependent):
             if not force_connect:
                 live_names = []
                 for name in names:
-                    if not await self._restore_tool_catalog(name):
+                    if await self._restore_tool_catalog(name):
+                        # Deferred servers are usable from the snapshot without connecting.
+                        self._startup.set_status(self._attachment_owner, name, "ready")
+                    else:
                         live_names.append(name)
                 names = live_names
             for name in names:

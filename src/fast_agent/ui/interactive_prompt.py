@@ -1214,6 +1214,7 @@ class InteractivePrompt:
         self._clear_progress_for_agent(agent_name)
         progress_display.resume()
         try:
+            await self._wait_for_mcp_startup(prompt_provider, agent_name)
             result = await send_func(prompt_payload, agent_name)
         except KeyboardInterrupt:
             write_interactive_trace("prompt.send.keyboard_interrupt", agent=agent_name)
@@ -1248,6 +1249,14 @@ class InteractivePrompt:
             set_last_copyable_output(result)
 
         return result
+
+    @staticmethod
+    async def _wait_for_mcp_startup(prompt_provider: "AgentApp", agent_name: str) -> None:
+        context = prompt_provider._agent(agent_name).context
+        if context is None or not context.mcp_startup.pending:
+            return
+        rich_print("[dim]Waiting for MCP startup… (Ctrl+C to cancel)[/dim]")
+        await context.mcp_startup.wait()
 
     @staticmethod
     def _apply_pending_execution_result(

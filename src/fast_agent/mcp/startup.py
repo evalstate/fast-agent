@@ -1,5 +1,6 @@
 """Immutable, owner-scoped MCP lifecycle diagnostics shared by runtime and UI."""
 
+import asyncio
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from time import monotonic
@@ -28,6 +29,20 @@ class MCPStartup:
         self._inactive_owners: set[str] = set()
         self._history: list[ServerStartupStatus] = []
         self._started: dict[tuple[str, str], float] = {}
+        self._tasks: set[asyncio.Task[None]] = set()
+
+    def track(self, task: asyncio.Task[None]) -> None:
+        """Register background startup work that the first prompt waits for."""
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    @property
+    def pending(self) -> bool:
+        return bool(self._tasks)
+
+    async def wait(self) -> None:
+        """Wait for tracked startup work; cancelling the waiter leaves startup running."""
+        await asyncio.shield(asyncio.gather(*self._tasks, return_exceptions=True))
 
     def set_status(
         self,

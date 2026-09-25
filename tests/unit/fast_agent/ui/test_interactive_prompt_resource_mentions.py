@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 
 class _MentionAgent:
+    context = None
+
     def __init__(self) -> None:
         self.message_history = []
 

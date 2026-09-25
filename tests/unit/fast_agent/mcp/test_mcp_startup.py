@@ -232,3 +232,60 @@ async def test_reconnect_waits_for_inflight_startup(monkeypatch) -> None:
     first.cancel()
     with pytest.raises(asyncio.CancelledError):
         await first
+
+
+@pytest.mark.asyncio
+async def test_first_prompt_gate_waits_for_startup_and_survives_waiter_cancel(
+    monkeypatch, tmp_path
+) -> None:
+    import time
+
+    from mcp_types import Tool
+
+    from fast_agent.config import MCPToolCacheSettings
+    from fast_agent.mcp.tool_catalog_cache import ToolCatalogCache, ToolSnapshot
+
+    registry = ServerRegistry()
+    registry.register_central("live", MCPServerSettings(command="unused"))
+    cached = MCPServerSettings(
+        command="unused",
+        connection_policy="deferred",
+        include_instructions=False,
+        tool_cache=MCPToolCacheSettings(directory=str(tmp_path)),
+    )
+    registry.register_central("cached", cached)
+    cache = ToolCatalogCache(cached)
+    cache.save(
+        ToolSnapshot(
+            key=cache.key,
+            fetched_at=time.time(),
+            tools=[Tool(name="tool", input_schema={"type": "object"})],
+        )
+    )
+    context = Context(server_registry=registry, background_mcp_startup=True)
+    aggregator = MCPAggregator(
+        server_names=["live", "cached"], connection_persistence=False, context=context
+    )
+    release = asyncio.Event()
+
+    async def attach(*, server_name, server_config, options):
+        await release.wait()
+
+    monkeypatch.setattr(aggregator, "_attach_server_locked", attach)
+    await aggregator.__aenter__()
+    assert context.mcp_startup.pending
+    waiter = asyncio.create_task(context.mcp_startup.wait())
+    await asyncio.sleep(0)
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+    # Cancelling a prompt that was waiting must not cancel startup itself.
+    release.set()
+    await asyncio.wait_for(context.mcp_startup.wait(), 1)
+    assert not context.mcp_startup.pending
+    # Snapshot-restored deferred servers are usable, not stuck pending.
+    assert {entry.server_name: entry.state for entry in aggregator.startup_status} == {
+        "live": "ready",
+        "cached": "ready",
+    }
+    await aggregator.close()

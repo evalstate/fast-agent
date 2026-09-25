@@ -470,8 +470,20 @@ class McpAgent(ABC, ToolAgent):
 
         # Apply template substitution to the instruction with server instructions
         await self._apply_instruction_templates()
+        context = self._aggregator.context
+        if context.background_mcp_startup:
+            # Servers are still connecting; re-render once they settle, before the first turn.
+            context.mcp_startup.track(asyncio.create_task(self._refresh_after_mcp_startup()))
 
         await super().initialize()
+
+    async def _refresh_after_mcp_startup(self) -> None:
+        from fast_agent.core.instruction_refresh import rebuild_agent_instruction
+
+        # Startup failures are recorded per server; render whatever did connect.
+        with suppress(Exception):
+            await self._aggregator.wait_for_startup()
+        await rebuild_agent_instruction(self)
 
     async def shutdown(self) -> None:
         """
