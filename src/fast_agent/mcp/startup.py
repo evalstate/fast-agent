@@ -1,6 +1,7 @@
 """Immutable, owner-scoped MCP lifecycle diagnostics shared by runtime and UI."""
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from time import monotonic
@@ -30,6 +31,12 @@ class MCPStartup:
         self._history: list[ServerStartupStatus] = []
         self._started: dict[tuple[str, str], float] = {}
         self._tasks: set[asyncio.Task[None]] = set()
+        self._listeners: set[Callable[[], None]] = set()
+
+    def subscribe(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Notify on status changes (e.g. to redraw a toolbar); returns an unsubscribe."""
+        self._listeners.add(listener)
+        return lambda: self._listeners.discard(listener)
 
     def track(self, task: asyncio.Task[None]) -> None:
         """Register background startup work that the first prompt waits for."""
@@ -92,6 +99,8 @@ class MCPStartup:
             duration_seconds=monotonic() - self._started[key],
             transport=transport or (previous.transport if previous else None),
         )
+        for listener in tuple(self._listeners):
+            listener()
 
     def snapshot(self, owner: str | None = None) -> tuple[ServerStartupStatus, ...]:
         return tuple(

@@ -89,7 +89,6 @@ def create_prompt_session(
         complete_in_thread=True,
         mouse_support=False,
         bottom_toolbar=toolbar,
-        refresh_interval=0.25,
         style=style,
         erase_when_done=True,
     )

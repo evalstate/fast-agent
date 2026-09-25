@@ -920,19 +920,11 @@ class MCPAggregator(ContextDependent):
 
     def _catalog_cache(self, server_name: str) -> ToolCatalogCache | None:
         config = self._server_config(server_name)
-        if config is None or not config.tool_cache.enabled or request_bearer_token.get():
+        # Request-forwarded bearer tokens never use durable snapshots.
+        if config is None or request_bearer_token.get():
             return None
-        # OAuth/session credentials are not necessarily represented in server settings.
-        if config.transport != "stdio" and not config.tool_cache.auth_identity:
-            return None
-        settings = self.context.config
-        if (
-            config.tool_cache.directory is None
-            and settings is not None
-            and settings._fast_agent_no_home
-        ):
-            return None
-        return ToolCatalogCache(config, settings=settings)
+        cache = ToolCatalogCache(config, settings=self.context.config)
+        return cache if cache.enabled else None
 
     async def _restore_tool_catalog(self, server_name: str) -> bool:
         config = self._server_config(server_name)

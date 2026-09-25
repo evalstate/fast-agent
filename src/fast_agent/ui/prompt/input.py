@@ -852,6 +852,14 @@ async def get_enhanced_input(
     )
     session.app.key_bindings = bindings
 
+    # Redraw only when MCP startup status changes; no periodic refresh while idle.
+    agent_context = agent_provider._agent(agent_name).context if agent_provider else None
+    unsubscribe_startup = (
+        agent_context.mcp_startup.subscribe(session.app.invalidate)
+        if agent_context is not None
+        else None
+    )
+
     toolbar_switch_task = None
     if shell_input.context.enabled:
         toolbar_switch_task = start_toolbar_switch_task(
@@ -893,6 +901,8 @@ async def get_enhanced_input(
             parse_special_input=parse_special_input,
         )
     finally:
+        if unsubscribe_startup is not None:
+            unsubscribe_startup()
         await cleanup_prompt_session(
             session=session,
             toolbar_switch_task=toolbar_switch_task,

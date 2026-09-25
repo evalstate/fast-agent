@@ -49,6 +49,12 @@ def _identity_value(value: object) -> object:
 class ToolCatalogCache:
     def __init__(self, config: MCPServerSettings, *, settings: Settings | None = None) -> None:
         self.config = config
+        # --no-home disables the default cache location; an explicit directory still applies.
+        self._no_home = (
+            config.tool_cache.directory is None
+            and settings is not None
+            and settings._fast_agent_no_home
+        )
         # Hash explicit resolved configuration, never volatile inherited environment.
         payload = json.dumps(
             [
@@ -64,19 +70,27 @@ class ToolCatalogCache:
             default=str,
         ).encode()
         self.key = hashlib.sha256(payload).hexdigest()
+        self._settings = settings
+
+    @property
+    def path(self) -> Path:
+        # Resolved lazily: the default home location is unavailable under --no-home.
         directory = (
-            Path(config.tool_cache.directory).expanduser()
-            if config.tool_cache.directory is not None
-            else resolve_home_dir(settings if settings is not None else Settings())
+            Path(self.config.tool_cache.directory).expanduser()
+            if self.config.tool_cache.directory is not None
+            else resolve_home_dir(self._settings if self._settings is not None else Settings())
             / "cache"
             / "mcp-tools"
         )
-        self.path = directory / f"{self.key}.json"
+        return directory / f"{self.key}.json"
 
     @property
     def enabled(self) -> bool:
+        # OAuth/session credentials are not necessarily represented in server settings,
+        # so network snapshots need an explicit account partition.
         return (
             self.config.tool_cache.enabled
+            and not self._no_home
             and (
                 self.config.transport == "stdio"
                 or bool((self.config.tool_cache.auth_identity or "").strip())

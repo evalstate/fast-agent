@@ -1015,8 +1015,15 @@ class InteractivePrompt:
             active_send_func = (
                 quiet_send_func if pending.hash_send_quiet and quiet_send_func else send_func
             )
+
+            async def startup_gated_send(
+                message: str | PromptMessage | PromptMessageExtended, target_agent: str
+            ) -> str:
+                await self._wait_for_mcp_startup(prompt_provider, target_agent)
+                return await active_send_func(message, target_agent)
+
             hash_send_execution = await self._execute_hash_send(
-                send_func=active_send_func,
+                send_func=startup_gated_send,
                 target_agent=pending.hash_send_target,
                 message=pending.hash_send_message,
                 quiet=pending.hash_send_quiet,
