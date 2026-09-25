@@ -736,7 +736,7 @@ class _SplitListPicker:
 
 
 async def _preflight_copilot_auth(config_payload: dict[str, object]) -> bool:
-    """Check local Copilot credentials only; no network, login, or inference."""
+    """Resolve Copilot credentials, refreshing if needed; no login or inference."""
     from fast_agent.config import CopilotSettings
     from fast_agent.llm.provider.copilot.broker import CopilotBroker
 
