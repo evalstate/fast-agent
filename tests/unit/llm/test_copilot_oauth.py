@@ -351,13 +351,16 @@ async def test_success_displays_only_user_instructions_and_saves(
 ) -> None:
     output = Mock()
     monkeypatch.setattr(oauth.console.console, "print", output)
-    github.responses.extend([device_response(), token_response()])
+    github.responses.extend(
+        [device_response(), token_response(refresh_token="login-refresh-secret")]
+    )
     credential = await oauth.login_copilot_oauth_async()
     assert isinstance(credential, OAuthCredential)
     assert oauth.get_copilot_access_token() == TOKEN
     stored = credentials.load_oauth_credential("copilot")
     assert stored is not None
-    assert stored.credential.refresh_token is None
+    assert stored.credential.refresh_token == "login-refresh-secret"
+    assert "login-refresh-secret" not in repr(credential)
     rendered = str(output.call_args_list)
     assert "Waiting for GitHub approval. Ctrl+C to cancel." in rendered
     assert USER_CODE in rendered
@@ -664,3 +667,192 @@ async def test_device_token_must_be_printable_nonspace_ascii(
         await oauth.login_copilot_oauth_async()
     assert_safe(error.value, *([token] if token.strip() else []))
     assert not auth_file.exists()
+
+
+@pytest.fixture
+def refresh_http(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
+    requests: list[httpx.Request] = []
+    client_type = httpx.Client
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return token_response(refresh_token="rotated-secret", expires_in=3600)
+
+    def factory(*, timeout: float, trust_env: bool, follow_redirects: bool) -> httpx.Client:
+        assert timeout == 30
+        assert trust_env is False
+        assert follow_redirects is False
+        return client_type(transport=httpx.MockTransport(respond), timeout=timeout)
+
+    monkeypatch.setattr(oauth.httpx, "Client", factory)
+    return requests
+
+
+@pytest.mark.parametrize("remaining", [-1, 30])
+def test_refresh_rotates_and_persists(
+    refresh_http: list[httpx.Request], clock: Clock, remaining: int
+):
+    credentials.save_oauth_credential(
+        "copilot",
+        OAuthCredential(
+            access_token="old-secret",
+            refresh_token="refresh-secret",
+            expires_at=clock.time() + remaining,
+        ),
+    )
+    credential = oauth.get_copilot_credential()
+    assert credential is not None
+    assert credential.refresh_token == "rotated-secret"
+    assert credential.expires_at == clock.time() + 3600
+    assert "rotated-secret" not in repr(credential)
+    stored = credentials.load_oauth_credential("copilot")
+    assert stored is not None
+    assert stored.credential.model_dump() == credential.model_dump()
+    assert oauth.get_copilot_access_token() == TOKEN
+    assert len(refresh_http) == 1
+    request = refresh_http[0]
+    assert str(request.url) == "https://github.com/login/oauth/access_token"
+    assert parse_qs(request.content.decode()) == {
+        "client_id": [oauth.COPILOT_CLIENT_ID],
+        "grant_type": ["refresh_token"],
+        "refresh_token": ["refresh-secret"],
+    }
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(400, text=TOKEN),
+        httpx.Response(302, headers={"Location": "https://example.invalid/"}),
+        httpx.Response(200, json={"error": TOKEN, "error_description": TOKEN}),
+        httpx.Response(200, text=TOKEN),
+        token_response(refresh_token=""),
+        httpx.ReadTimeout(TOKEN),
+    ],
+)
+def test_refresh_errors_preserve_store(
+    monkeypatch: pytest.MonkeyPatch, auth_file: Path, response: httpx.Response | httpx.RequestError
+):
+    credentials.save_oauth_credential(
+        "copilot", OAuthCredential(access_token=TOKEN, refresh_token="refresh-secret", expires_at=1)
+    )
+    original = auth_file.read_bytes()
+    client_type = httpx.Client
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if isinstance(response, httpx.RequestError):
+            raise response
+        return response
+
+    monkeypatch.setattr(
+        oauth.httpx,
+        "Client",
+        lambda **kwargs: client_type(transport=httpx.MockTransport(respond), **kwargs),
+    )
+    with pytest.raises(ProviderKeyError) as error:
+        oauth.get_copilot_credential()
+    assert not isinstance(error.value, oauth.CopilotAuthenticationError)
+    assert_safe(error.value, "refresh-secret")
+    assert auth_file.read_bytes() == original
+
+
+@pytest.mark.parametrize("source", ["file", "keyring"])
+def test_refresh_retains_token_and_source(
+    monkeypatch: pytest.MonkeyPatch, source: credentials.AuthSource
+) -> None:
+
+    old = OAuthCredential(access_token=TOKEN, refresh_token="refresh-secret", expires_at=1)
+    monkeypatch.setattr(
+        oauth,
+        "load_oauth_credential",
+        Mock(return_value=credentials.StoredCredential(old, source)),
+    )
+    save = Mock()
+    monkeypatch.setattr(oauth, "save_oauth_credential", save)
+    client_type = httpx.Client
+    monkeypatch.setattr(
+        oauth.httpx,
+        "Client",
+        lambda **kwargs: client_type(
+            transport=httpx.MockTransport(lambda request: token_response()), **kwargs
+        ),
+    )
+    result = oauth.get_copilot_credential()
+    assert result is not None
+    assert result.refresh_token == "refresh-secret"
+    assert result.expires_at is None
+    save.assert_called_once_with("copilot", result, source=source)
+
+
+def test_concurrent_refresh_reloads_under_lock(
+    refresh_http: list[httpx.Request], monkeypatch: pytest.MonkeyPatch
+):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier, local
+
+    credentials.save_oauth_credential(
+        "copilot",
+        OAuthCredential(access_token="old-secret", refresh_token="refresh-secret", expires_at=1),
+    )
+    load = oauth.load_oauth_credential
+    barrier = Barrier(2)
+    state = local()
+
+    def synchronized_load(provider: str) -> credentials.StoredCredential | None:
+        stored = load(provider)
+        if not state.__dict__.get("loaded", False):
+            state.loaded = True
+            barrier.wait(timeout=5)
+        return stored
+
+    monkeypatch.setattr(oauth, "load_oauth_credential", synchronized_load)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: oauth.get_copilot_access_token(), range(2)))
+    assert results == [TOKEN, TOKEN]
+    assert len(refresh_http) == 1
+
+
+@pytest.mark.parametrize("kind", ["valid", "override", "missing", "status"])
+def test_no_refresh_network(
+    kind: str, refresh_http: list[httpx.Request], monkeypatch: pytest.MonkeyPatch, clock: Clock
+):
+    if kind != "missing":
+        credentials.save_oauth_credential(
+            "copilot",
+            OAuthCredential(
+                access_token=TOKEN,
+                refresh_token="refresh-secret",
+                expires_at=clock.time() + (3600 if kind == "valid" else -1),
+            ),
+        )
+    if kind == "override":
+        monkeypatch.setenv("COPILOT_GITHUB_TOKEN", "override-secret")
+    if kind == "status":
+        assert oauth.get_copilot_token_status()["expired"] is True
+    else:
+        oauth.get_copilot_credential()
+    assert not refresh_http
+
+
+@pytest.mark.parametrize("error_code", ["bad_refresh_token", "invalid_grant", "expired_token"])
+def test_rejected_refresh_requires_login_without_deleting_credentials(
+    monkeypatch: pytest.MonkeyPatch, auth_file: Path, error_code: str
+) -> None:
+    credentials.save_oauth_credential(
+        "copilot", OAuthCredential(access_token=TOKEN, refresh_token="refresh-secret", expires_at=1)
+    )
+    original = auth_file.read_bytes()
+    client_type = httpx.Client
+    monkeypatch.setattr(
+        oauth.httpx,
+        "Client",
+        lambda **kwargs: client_type(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, json={"error": error_code})
+            ),
+            **kwargs,
+        ),
+    )
+    with pytest.raises(oauth.CopilotAuthenticationError):
+        oauth.get_copilot_credential()
+    assert auth_file.read_bytes() == original
