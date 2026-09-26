@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias, cast
 
 from mcp_types import Tool
 
 from fast_agent.constants import MAX_PROCESS_OUTPUT_QUERY_CHARS, MAX_TERMINAL_OUTPUT_BYTE_LIMIT
+from fast_agent.tools.apply_patch_tool import APPLY_PATCH_INPUT_FIELD as FREEFORM_TOOL_INPUT_FIELD
+from fast_agent.tools.apply_patch_tool import OPENAI_RESPONSES_CUSTOM_TOOL_META_KEY
 from fast_agent.tools.filesystem_tool_args import (
     coerce_optional_string_argument,
     coerce_positive_int_argument,
@@ -502,6 +505,116 @@ def build_luna_exec_tool(*, shell_name: str, tool_name: str = LUNA_EXEC_TOOL_NAM
             "required": ["command"],
             "additionalProperties": False,
         },
+    )
+
+
+FREEFORM_SHELL_PRAGMA = "# @shell:"
+FREEFORM_SHELL_GRAMMAR = r"""
+start: pragma_source | plain_source
+pragma_source: PRAGMA_LINE NEWLINE SOURCE
+plain_source: SOURCE
+
+PRAGMA_LINE: /[ \t]*# @shell:[^\r\n]*/
+NEWLINE: /\r?\n/
+SOURCE: /[\s\S]+/
+"""
+_FREEFORM_SHELL_OPTIONS = frozenset({"background", "timeout", "workdir"})
+
+
+def build_freeform_shell_tool(*, shell_name: str, tool_name: str) -> Tool:
+    """Build the luna_exec contract as a freeform raw-command tool (no JSON arguments)."""
+    return Tool(
+        name=tool_name,
+        description=(
+            f"Run one shell command in {shell_name}. The tool input is the raw command text "
+            "exactly as typed in a terminal: not JSON, not quoted, and no markdown fences. "
+            "Multi-line scripts and heredocs are allowed. Keep finite commands whose result "
+            "or exit status matters in the foreground, including builds, tests, installs, "
+            "downloads, compilation, training, and scripts, even when they may be slow; the "
+            "runtime auto-awaits them up to a bounded total-runtime cap and returns a managed "
+            "process ID only if they remain active at that cap. Options go on an optional "
+            f'first line: `{FREEFORM_SHELL_PRAGMA} {{"background": true}}` only for a server '
+            "or service that must remain running; "
+            f'`{FREEFORM_SHELL_PRAGMA} {{"timeout": 300}}` only when a hard deadline is '
+            "explicitly wanted (expiry terminates the process group); "
+            f'`{FREEFORM_SHELL_PRAGMA} {{"workdir": "/path"}}` to run in another '
+            "directory. Do not use shell `&`, `nohup`, or `disown`."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                FREEFORM_TOOL_INPUT_FIELD: {
+                    "type": "string",
+                    "description": "Raw shell command text, optionally preceded by a "
+                    f"`{FREEFORM_SHELL_PRAGMA} {{...}}` options line.",
+                }
+            },
+            "required": [FREEFORM_TOOL_INPUT_FIELD],
+            "additionalProperties": False,
+        },
+        _meta={
+            OPENAI_RESPONSES_CUSTOM_TOOL_META_KEY: {
+                "type": "custom",
+                "format": {
+                    "type": "grammar",
+                    "syntax": "lark",
+                    "definition": FREEFORM_SHELL_GRAMMAR,
+                },
+            }
+        },
+    )
+
+
+def parse_freeform_shell_input(
+    arguments: dict[str, Any] | None,
+    *,
+    tool_name: str,
+) -> ShellExecuteArguments:
+    """Parse raw freeform shell input with an optional `# @shell: {...}` options line."""
+    payload = coerce_tool_arguments(arguments)
+    raw = payload.get(FREEFORM_TOOL_INPUT_FIELD)
+    if not isinstance(raw, str):
+        raise ValueError(f"Error: {tool_name} input must be raw command text")
+    first, newline, rest = raw.partition("\n")
+    options: dict[str, Any] = {}
+    command = raw
+    if first.strip().startswith(FREEFORM_SHELL_PRAGMA):
+        option_text = first.strip().removeprefix(FREEFORM_SHELL_PRAGMA).strip()
+        try:
+            parsed_options = json.loads(option_text) if option_text else {}
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Error: the `{FREEFORM_SHELL_PRAGMA}` options line must be a JSON object "
+                f'such as {{"background": true}} ({exc.msg})'
+            ) from exc
+        if not isinstance(parsed_options, dict):
+            raise ValueError(
+                f"Error: the `{FREEFORM_SHELL_PRAGMA}` options line must be a JSON object"
+            )
+        unknown = sorted(set(parsed_options) - _FREEFORM_SHELL_OPTIONS)
+        if unknown:
+            raise ValueError(
+                f"Error: unknown {tool_name} option(s): {', '.join(repr(k) for k in unknown)}; "
+                "use background, timeout, or workdir"
+            )
+        options = parsed_options
+        command = rest if newline else ""
+    if not command.strip():
+        raise ValueError(
+            f"Error: {tool_name} input contained no command, so nothing ran. "
+            "Send the complete command text."
+        )
+    canonical: dict[str, Any] = {"command": command}
+    if "background" in options:
+        canonical["background"] = options["background"]
+    if "timeout" in options:
+        canonical["timeout"] = options["timeout"]
+    if "workdir" in options:
+        canonical["working_directory"] = options["workdir"]
+    return _parse_aligned_shell_arguments(
+        canonical,
+        tool_name=tool_name,
+        allowed_arguments=_GROK_SHELL_ARGUMENTS,
     )
 
 

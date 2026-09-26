@@ -312,7 +312,9 @@ class ShellSettings(BaseModel):
             "'minimal_process' exposes Bash and Process; "
             "'native' retains the legacy execute/poll_process/terminate_process tools; "
             "'grok_shell' exposes aligned shell plus Process; "
-            "'luna_exec' exposes foreground-first exec plus Process"
+            "'luna_exec' exposes foreground-first exec plus Process; "
+            "'freeform_shell' exposes the luna_exec contract as a freeform (non-JSON) "
+            "raw-command shell tool plus Process"
         ),
     )
     timeout_seconds: int = Field(

@@ -91,6 +91,7 @@ from fast_agent.tools.shell_tool_definitions import (
     MinimalProcessReadOutputArguments,
     ShellExecuteArguments,
     build_execute_tool,
+    build_freeform_shell_tool,
     build_grok_shell_tool,
     build_luna_exec_tool,
     build_minimal_bash_tool,
@@ -98,6 +99,7 @@ from fast_agent.tools.shell_tool_definitions import (
     build_poll_process_tool,
     build_terminate_process_tool,
     parse_execute_arguments,
+    parse_freeform_shell_input,
     parse_grok_shell_arguments,
     parse_luna_exec_arguments,
     parse_minimal_bash_arguments,
@@ -328,6 +330,7 @@ class ShellRuntime:
         self._minimal_process_profile = False
         self._grok_shell_profile = False
         self._luna_exec_profile = False
+        self._freeform_shell_profile = False
         self._luna_exec_tool_name = LUNA_EXEC_TOOL_NAME
         if process_poll_max_wait_seconds is not None:
             self._max_process_poll_seconds = process_poll_max_wait_seconds
@@ -382,6 +385,13 @@ class ShellRuntime:
             if tool is not None
         ]
 
+    def _parse_luna_family_arguments(
+        self, arguments: dict[str, Any] | None
+    ) -> ShellExecuteArguments:
+        if self._freeform_shell_profile:
+            return parse_freeform_shell_input(arguments, tool_name=self._luna_exec_tool_name)
+        return parse_luna_exec_arguments(arguments, tool_name=self._luna_exec_tool_name)
+
     def owns_tool(self, name: str) -> bool:
         """Return whether this runtime owns a model-facing tool name."""
         return any(tool.name == name for tool in self.tools)
@@ -403,7 +413,9 @@ class ShellRuntime:
         self._luna_exec_tool_name = model_shell_tool_name or LUNA_EXEC_TOOL_NAME
         self._minimal_process_profile = resolved_profile == "minimal_process"
         self._grok_shell_profile = resolved_profile == "grok_shell"
-        self._luna_exec_profile = resolved_profile == "luna_exec"
+        # The freeform shell is the luna_exec contract with raw-command (non-JSON) input.
+        self._freeform_shell_profile = resolved_profile == "freeform_shell"
+        self._luna_exec_profile = resolved_profile in {"luna_exec", "freeform_shell"}
         if not self.enabled:
             self._tool = None
             self._poll_process_tool = None
@@ -412,7 +424,15 @@ class ShellRuntime:
         shell_name = self.runtime_info().name
         if self._grok_shell_profile or self._luna_exec_profile:
             shell_tool = (
-                build_luna_exec_tool(shell_name=shell_name, tool_name=self._luna_exec_tool_name)
+                (
+                    build_freeform_shell_tool(
+                        shell_name=shell_name, tool_name=self._luna_exec_tool_name
+                    )
+                    if self._freeform_shell_profile
+                    else build_luna_exec_tool(
+                        shell_name=shell_name, tool_name=self._luna_exec_tool_name
+                    )
+                )
                 if self._luna_exec_profile
                 else build_grok_shell_tool(shell_name=shell_name)
             )
@@ -753,7 +773,7 @@ class ShellRuntime:
             parsed = (
                 parse_minimal_bash_arguments(arguments)
                 if self._minimal_process_profile
-                else parse_luna_exec_arguments(arguments, tool_name=self._luna_exec_tool_name)
+                else self._parse_luna_family_arguments(arguments)
                 if self._luna_exec_profile
                 else parse_grok_shell_arguments(arguments)
                 if self._grok_shell_profile
@@ -2631,7 +2651,7 @@ class ShellRuntime:
             )
         if name == self._luna_exec_tool_name and self._luna_exec_profile:
             try:
-                parsed = parse_luna_exec_arguments(arguments, tool_name=self._luna_exec_tool_name)
+                parsed = self._parse_luna_family_arguments(arguments)
             except ValueError as exc:
                 return self._invalid_execute_result(str(exc))
             return await self._execute_parsed(
