@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.10.34"
+version = "0.10.35"
 description = "Code, Build and Evaluate agents - excellent Model and Skills/MCP/ACP/A2A Support"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -24,7 +24,7 @@ dependencies = [
     "rich==15.0.0",
     "typer==0.27.2",
     "anthropic[vertex]==1.8.0",
-    "openai[aiohttp,realtime]==3.18.0",
+    "openai[aiohttp,realtime]==3.19.2",
     "prompt-toolkit==3.0.53",
     "aiohttp==3.14.3",
     "opentelemetry-exporter-otlp-proto-http==1.44.0",

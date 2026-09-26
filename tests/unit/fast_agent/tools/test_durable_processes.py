@@ -249,7 +249,9 @@ async def test_durable_poll_consumes_dropped_output_accounting(tmp_path: Path) -
     assert first_metadata["retained_output_bytes_since_last_poll"] == 1024
     assert first_metadata["dropped_output_bytes_since_last_poll"] == 200000 - 1024
     assert first_metadata["output_truncated"] is True
+    assert first_metadata["output_line_count"] > 0
     assert second_metadata["output_bytes_since_last_poll"] == 0
+    assert second_metadata["output_line_count"] == 0
     assert second_metadata["retained_output_bytes_since_last_poll"] == 0
     assert second_metadata["dropped_output_bytes_since_last_poll"] == 0
 
