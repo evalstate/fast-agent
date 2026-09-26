@@ -3,6 +3,7 @@ import json
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, ClassVar, Literal
 from uuid import uuid4
 
@@ -70,6 +71,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.text_verbosity import parse_text_verbosity
+from fast_agent.llm.upload_progress import run_with_upload_progress
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -1332,6 +1334,22 @@ class ResponsesLLM(
             return self._empty_responses_error(context=context)
         return retry_message
 
+    async def _normalize_request_files(
+        self,
+        client: AsyncOpenAI,
+        input_items: list[dict[str, Any]],
+        *,
+        display_model: str,
+    ) -> list[dict[str, Any]]:
+        normalized, uploaded = await run_with_upload_progress(
+            lambda: self._normalize_input_files(client, input_items),
+            partial(self._log_upload_progress, model=display_model),
+        )
+        if uploaded:
+            # Uploads run after the Sending event here; restore it for the request.
+            self._log_chat_progress(self.chat_turn(), model=display_model)
+        return normalized
+
     async def _responses_completion_sse(
         self,
         *,
@@ -1343,7 +1361,9 @@ class ResponsesLLM(
         try:
             await self._prepare_responses_client(model_name, "sse")
             async with self._responses_client() as client:
-                normalized_input = await self._normalize_input_files(client, input_items)
+                normalized_input = await self._normalize_request_files(
+                    client, input_items, display_model=model_name
+                )
                 arguments = self._build_response_args(normalized_input, request_params, tools)
                 self.logger.debug("Responses request", data=arguments)
                 capture_filename = _stream_capture_filename(self.chat_turn())
@@ -1427,7 +1447,9 @@ class ResponsesLLM(
         await self._prepare_responses_client(model_name, "websocket")
         async with self._responses_client() as client:
             phase_started_at = time.perf_counter()
-            normalized_input = await self._normalize_input_files(client, input_items)
+            normalized_input = await self._normalize_request_files(
+                client, input_items, display_model=f"{model_name} [ws]"
+            )
             self._record_ws_phase(phase_timings, "normalize_input", phase_started_at)
 
         phase_started_at = time.perf_counter()
