@@ -43,6 +43,7 @@ from fast_agent.mcp.tool_result_metadata import (
     update_tool_result_display_metadata,
 )
 from fast_agent.skills.registry import SkillRegistry
+from fast_agent.tools.apply_patch_tool import get_openai_responses_custom_tool_payload
 from fast_agent.tools.durable_processes import DurableProcessStore
 from fast_agent.tools.shell_process import process_result_metadata
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
@@ -1150,10 +1151,10 @@ async def test_gpt6_luna_selected_luna_exec_contract_is_named_shell(model_name: 
     )
     try:
         default_tools = {tool.name: tool for tool in (await default_agent.list_tools()).tools}
-        assert set(default_tools["shell"].input_schema["properties"]) == {
-            "command",
-            "run_in_background",
-        }
+        default_shell = default_tools["shell"]
+        assert set(default_shell.input_schema["properties"]) == {"input"}
+        assert get_openai_responses_custom_tool_payload(default_shell) is not None
+        assert "not JSON" in (default_shell.description or "")
     finally:
         await default_agent._aggregator.close()
 
