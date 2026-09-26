@@ -2,7 +2,7 @@ import asyncio
 import json
 import time
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from functools import partial
 from typing import Any, ClassVar, Literal
 from uuid import uuid4
@@ -149,10 +149,50 @@ class _ResponsesWsAttemptState:
     is_reusable: bool
     reused_existing_connection: bool
     planner: ResponsesWsRequestPlanner
+    connection_age_at_request_start_seconds: float | None = None
     keep_connection: bool = False
     retry_after_release: bool = False
     reconnect_diagnostics: dict[str, Any] | None = None
     stream: WebSocketResponsesStream | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ResponsesWsFailureDiagnostic:
+    error_code: str | None
+    stream_started: bool
+    connection_age_at_request_start_seconds: float | None
+    connection_age_at_failure_seconds: float | None
+    reused_connection: bool | None
+    reconnect_eligible: bool
+    websocket_attempt: int
+    call: int
+    attempt: int
+    max_attempts: int
+    schema: Literal["fast-agent.responses-websocket-failure/v1"] = (
+        "fast-agent.responses-websocket-failure/v1"
+    )
+    transport: Literal["websocket"] = "websocket"
+    websocket_max_attempts: Literal[2] = 2
+
+
+def _safe_websocket_error_code(code: str | None) -> str | None:
+    # A provider-controlled string may contain secrets even if short/alphanumeric.
+    # Never persist arbitrary codes, truncated codes, or a hash of their contents.
+    if code is None:
+        return None
+    if code in {
+        "previous_response_not_found",
+        "websocket_connection_limit_reached",
+        "invalid_request_error",
+        "server_error",
+        "rate_limit_exceeded",
+        "insufficient_quota",
+        "context_length_exceeded",
+        "model_not_found",
+        "invalid_api_key",
+    }:
+        return code
+    return "unknown"
 
 
 class ResponsesLLM(
@@ -1516,6 +1556,9 @@ class ResponsesLLM(
             is_reusable=is_reusable,
             reused_existing_connection=reused_existing_connection,
             planner=planner,
+            connection_age_at_request_start_seconds=(
+                self._ws_connections.connection_age_seconds(connection)
+            ),
         )
 
     async def _run_responses_ws_attempt(
@@ -1695,6 +1738,47 @@ class ResponsesLLM(
             data=retry_data,
         )
 
+    def _record_responses_ws_failure(
+        self,
+        error: Exception,
+        *,
+        attempt: int,
+        attempt_state: _ResponsesWsAttemptState | None,
+    ) -> None:
+        """Persist failures, including recovered and terminal attempts, via JSONL logging.
+
+        Eligibility describes only the existing bounded transport reconnect, not
+        outer provider retries. No provider text or request metadata is serialized.
+        """
+        ws_error = error if isinstance(error, ResponsesWebSocketError) else None
+        stream = attempt_state.stream if attempt_state is not None else None
+        call, provider_attempt, max_attempts = self._stream_attempt or (0, 1, 1)
+        diagnostic = _ResponsesWsFailureDiagnostic(
+            error_code=_safe_websocket_error_code(ws_error.diagnostic_error_code)
+            if ws_error
+            else None,
+            stream_started=(
+                ws_error.stream_started if ws_error else stream.stream_started if stream else False
+            ),
+            connection_age_at_request_start_seconds=(
+                attempt_state.connection_age_at_request_start_seconds if attempt_state else None
+            ),
+            connection_age_at_failure_seconds=(
+                self._ws_connections.connection_age_seconds(attempt_state.connection)
+                if attempt_state
+                else None
+            ),
+            reused_connection=attempt_state.reused_existing_connection if attempt_state else None,
+            reconnect_eligible=attempt_state.retry_after_release if attempt_state else False,
+            websocket_attempt=attempt + 1,
+            call=call,
+            attempt=provider_attempt,
+            max_attempts=max_attempts,
+        )
+        # Match the shared stream-failure path's severity: info retry notices are
+        # filtered out by error-level telemetry configurations.
+        self.logger.error("Responses websocket attempt failed", data=asdict(diagnostic))
+
     async def _responses_completion_ws(
         self,
         *,
@@ -1712,9 +1796,14 @@ class ResponsesLLM(
         last_error: ResponsesWebSocketError | None = None
         reconnected = False
         for attempt in range(2):
-            attempt_state = await self._acquire_responses_ws_attempt(
-                attempt=attempt, context=context
-            )
+            try:
+                attempt_state = await self._acquire_responses_ws_attempt(
+                    attempt=attempt, context=context
+                )
+            except Exception as error:
+                self._record_responses_ws_failure(error, attempt=attempt, attempt_state=None)
+                raise
+            failure: Exception | None = None
             try:
                 result = await self._run_responses_ws_attempt(
                     context=context,
@@ -1723,10 +1812,12 @@ class ResponsesLLM(
                 )
                 return result.response, result.streamed_summary, result.input_items
             except ResponsesWebSocketError as error:
+                failure = error
                 last_error = self._handle_responses_ws_error(
                     error=error, attempt_state=attempt_state, context=context
                 )
             except TimeoutError as error:
+                failure = error
                 attempt_state.planner.rollback(
                     error,
                     stream_started=(
@@ -1737,10 +1828,15 @@ class ResponsesLLM(
                 )
                 raise
             except Exception as exc:
+                failure = exc
                 last_error = self._handle_responses_ws_unexpected_error(
                     error=exc, attempt_state=attempt_state
                 )
             finally:
+                if failure is not None:
+                    self._record_responses_ws_failure(
+                        failure, attempt=attempt, attempt_state=attempt_state
+                    )
                 await self._release_responses_ws_attempt(attempt_state)
 
             if attempt_state.retry_after_release:

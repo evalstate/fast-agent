@@ -287,6 +287,10 @@ class JSONSerializer:
         # Handle None
         if obj is None:
             return None
+        # Immutable JSON scalars can share identity (especially bool/small int).
+        # Repeated values are not cycles and must retain their JSON types.
+        if isinstance(obj, _JSON_NATIVE_SCALAR_TYPES):
+            return obj
 
         if depth == 0:
             self._parent_obj = obj

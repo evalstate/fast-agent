@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pytest
+import pytest_asyncio
 from aiohttp import WSMsgType
 from mcp_types import CallToolResult, TextContent
 from openai import omit
@@ -23,6 +24,8 @@ from fast_agent.constants import (
     FAST_AGENT_RETRY,
 )
 from fast_agent.context import Context
+from fast_agent.core.logging.events import EventFilter
+from fast_agent.core.logging.transport import AsyncEventBus, FileTransport
 from fast_agent.llm.provider.openai.codex_responses import (
     CODEX_RESPONSES_LITE_HEADER,
     CODEX_RESPONSES_LITE_WS_METADATA_KEY,
@@ -67,6 +70,9 @@ from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types import LlmStopReason
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+    from pathlib import Path
+
     from mcp import Tool
 
     from fast_agent.core.logging.logger import Logger
@@ -218,8 +224,9 @@ class _FakeResponsesClient:
         del exc_type, exc, tb
 
 
-class _ReleaseTrackingConnectionManager:
+class _ReleaseTrackingConnectionManager(WebSocketConnectionManager):
     def __init__(self, connection: ManagedWebSocketConnection) -> None:
+        super().__init__()
         self.connection = connection
         self.release_keep_values: list[bool] = []
 
@@ -245,8 +252,9 @@ class _ReleaseTrackingConnectionManager:
         self.release_keep_values.append(keep)
 
 
-class _SequenceConnectionManager:
+class _SequenceConnectionManager(WebSocketConnectionManager):
     def __init__(self, connections: list[ManagedWebSocketConnection]) -> None:
+        super().__init__()
         self._connections = connections
         self.acquire_calls = 0
         self.release_keep_values: list[bool] = []
@@ -1666,8 +1674,9 @@ class _TimeoutContinuationConnectionLifecycleHarness(_ContinuationConnectionLife
         return await super()._process_stream(stream, model, capture_filename)
 
 
-class _PlannedAcquireConnectionManager:
+class _PlannedAcquireConnectionManager(WebSocketConnectionManager):
     def __init__(self, planned_connections: list[tuple[ManagedWebSocketConnection, bool]]) -> None:
+        super().__init__()
         self._planned_connections = planned_connections
         self.release_keep_values: list[bool] = []
 
@@ -2434,7 +2443,9 @@ async def test_websocket_streaming_timeout_releases_reusable_connection() -> Non
         )
 
     assert harness._release_manager.release_keep_values == [False]
-    timeout_data = harness._capturing_logger.error_data[-1]
+    timeout_data = harness._capturing_logger.error_data[
+        harness._capturing_logger.error_messages.index("Provider stream attempt failed")
+    ]
     assert timeout_data is not None
     assert timeout_data["transport"] == "websocket"
     assert timeout_data["stream_timing"]["events_received"] == 0
@@ -2914,5 +2925,253 @@ async def test_xai_websocket_cancellation_closes_connection_without_replay(
         assert len(connections) == 1
         assert len(_sent_payloads(connections[0])) == 1
         assert connections[0].websocket.closed and connections[0].session.closed
+    finally:
+        await llm.close()
+
+
+@pytest_asyncio.fixture
+async def websocket_failure_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[Path]:
+    """Exercise the real logger -> bus -> filtered JSONL transport, not a log spy."""
+    path = tmp_path / "telemetry.jsonl"
+    bus = AsyncEventBus(FileTransport(path, event_filter=EventFilter(min_level="error")))
+    monkeypatch.setattr(AsyncEventBus, "_instance", bus)
+    await bus.start()
+    try:
+        yield path
+    finally:
+        # Logger schedules emit tasks; let them run before stopping the bus.
+        await asyncio.sleep(0)
+        await bus.stop()
+
+
+def _persisted_websocket_failures(path: Path) -> list[dict[str, Any]]:
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    return [row["data"] for row in rows if row["message"] == "Responses websocket attempt failed"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reused", [False, True])
+@pytest.mark.parametrize("known_age", [False, True])
+@pytest.mark.parametrize(
+    ("code", "partial", "repeat"),
+    [
+        ("invalid_request_error", False, False),
+        ("websocket_connection_limit_reached", False, False),
+        ("websocket_connection_limit_reached", False, True),
+        ("websocket_connection_limit_reached", True, False),
+        ("secret_code_abcdefghijklmnopqrstuvwxyz", False, False),
+        ("https://secret.invalid/?token=private\n" + "x" * 1000, False, False),
+    ],
+)
+async def test_websocket_failures_persist_safe_bounded_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+    websocket_failure_log: Path,
+    reused: bool,
+    known_age: bool,
+    code: str,
+    partial: bool,
+    repeat: bool,
+) -> None:
+    llm, clock, connections = _mock_provider_websocket(monkeypatch)
+    llm._stream_attempt = (7, 2, 4)
+    if not known_age:
+        # Legacy/untracked sockets must report null, not invent age zero.
+        def mark_untracked(connection: ManagedWebSocketConnection, reuse_key: str | None) -> None:
+            connection.reuse_key = reuse_key
+
+        monkeypatch.setattr(llm._ws_connections, "_mark_created", mark_untracked)
+    failing = False
+    first_failure_connection: ManagedWebSocketConnection | None = None
+    emitted_partial = False
+
+    async def receive(self: _FakeWebSocket, timeout: float | None = None) -> SimpleNamespace:
+        nonlocal emitted_partial
+        if not failing:
+            return _ws_completed()
+        if partial and not emitted_partial:
+            emitted_partial = True
+            return _ws_event({"type": "response.output_text.delta", "delta": "private-prompt"})
+        if repeat or (first_failure_connection and self is first_failure_connection.websocket):
+            clock.now += 3.0
+            return _ws_event(
+                {
+                    "type": "error",
+                    "stream_id": "private-stream-id",
+                    "error": {
+                        "code": code,
+                        "message": "private-error-body",
+                        "param": "private-param",
+                        "headers": {"Authorization": "Bearer private-auth"},
+                    },
+                }
+            )
+        return _ws_completed()
+
+    monkeypatch.setattr(_FakeWebSocket, "receive", receive)
+    original_acquire = llm._ws_connections.acquire
+
+    async def acquire(*args: Any, **kwargs: Any) -> tuple[ManagedWebSocketConnection, bool]:
+        nonlocal first_failure_connection
+        result = await original_acquire(*args, **kwargs)
+        if failing and first_failure_connection is None:
+            first_failure_connection = result[0]
+        return result
+
+    monkeypatch.setattr(llm._ws_connections, "acquire", acquire)
+
+    async def request() -> None:
+        await llm._responses_completion_ws(
+            input_items=_ws_input_items("private-prompt"),
+            request_params=RequestParams(model="grok-4.3"),
+            tools=None,
+            model_name="grok-4.3",
+        )
+
+    try:
+        if reused:
+            await request()
+            clock.now += 10.0
+        failing = True
+        eligible = not partial and (reused or code == "websocket_connection_limit_reached")
+        if not eligible or repeat:
+            with pytest.raises(ResponsesWebSocketError):
+                await request()
+        else:
+            await request()
+        await asyncio.sleep(0)
+        failures = _persisted_websocket_failures(websocket_failure_log)
+        assert len(failures) == (2 if eligible and repeat else 1)
+        first = failures[0]
+        assert first == {
+            "schema": "fast-agent.responses-websocket-failure/v1",
+            "transport": "websocket",
+            "error_code": code
+            if code in {"invalid_request_error", "websocket_connection_limit_reached"}
+            else "unknown",
+            "stream_started": partial,
+            "connection_age_at_request_start_seconds": (10.0 if reused else 0.0)
+            if known_age
+            else None,
+            "connection_age_at_failure_seconds": (13.0 if reused else 3.0) if known_age else None,
+            "reused_connection": reused,
+            "reconnect_eligible": eligible,
+            "websocket_attempt": 1,
+            "websocket_max_attempts": 2,
+            "call": 7,
+            "attempt": 2,
+            "max_attempts": 4,
+        }
+        if len(failures) == 2:
+            second = failures[1]
+            assert second["websocket_attempt"] == 2
+            assert second["reconnect_eligible"] is False
+            assert second["reused_connection"] is False
+            assert second["connection_age_at_request_start_seconds"] == (0.0 if known_age else None)
+            assert second["connection_age_at_failure_seconds"] == (3.0 if known_age else None)
+        persisted = websocket_failure_log.read_text()
+        for secret in ("private-", "secret_code_", "secret.invalid", "Authorization"):
+            assert secret not in persisted
+        assert len(connections) == (2 if eligible else 1)
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_kind", ["acquire", "send", "timeout"])
+async def test_websocket_non_payload_failures_are_persisted(
+    monkeypatch: pytest.MonkeyPatch, websocket_failure_log: Path, failure_kind: str
+) -> None:
+    llm, clock, connections = _mock_provider_websocket(monkeypatch)
+
+    async def fail(*_args: Any, **_kwargs: Any) -> Any:
+        clock.now += 2.0
+        if failure_kind == "timeout":
+            raise TimeoutError("private-timeout-message")
+        raise RuntimeError("private-exception-message")
+
+    if failure_kind == "acquire":
+        monkeypatch.setattr(llm, "_create_websocket_connection", fail)
+    elif failure_kind == "send":
+        monkeypatch.setattr(_FakeWebSocket, "send_str", fail)
+    else:
+        monkeypatch.setattr(llm, "_process_responses_ws_stream", fail)
+    expected = {"acquire": RuntimeError, "send": ResponsesWebSocketError, "timeout": TimeoutError}
+    try:
+        with pytest.raises(expected[failure_kind]):
+            await llm._responses_completion_ws(
+                input_items=[],
+                request_params=RequestParams(model="grok-4.3"),
+                tools=None,
+                model_name="grok-4.3",
+            )
+        await asyncio.sleep(0)
+        (failure,) = _persisted_websocket_failures(websocket_failure_log)
+        assert failure["error_code"] is None
+        assert failure["stream_started"] is False
+        assert failure["reconnect_eligible"] is False
+        assert failure["connection_age_at_request_start_seconds"] == (
+            None if failure_kind == "acquire" else 0.0
+        )
+        assert failure["connection_age_at_failure_seconds"] == (
+            None if failure_kind == "acquire" else 2.0
+        )
+        assert "private-" not in websocket_failure_log.read_text()
+        assert all(connection.websocket.closed for connection in connections)
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("code", "persisted_code"),
+    [
+        ("invalid_request_error", "invalid_request_error"),
+        ("websocket_connection_limit_reached", "websocket_connection_limit_reached"),
+        ("https://secret.invalid/?token=private\n" + "x" * 1000, "unknown"),
+    ],
+)
+async def test_nested_response_failure_persists_code_without_enabling_reconnect(
+    monkeypatch: pytest.MonkeyPatch,
+    websocket_failure_log: Path,
+    code: str,
+    persisted_code: str,
+) -> None:
+    llm, _clock, connections = _mock_provider_websocket(monkeypatch)
+
+    async def receive(self: _FakeWebSocket, timeout: float | None = None) -> SimpleNamespace:
+        return _ws_event(
+            {
+                "type": "response.failed",
+                "response": {
+                    "error": {"code": code, "message": "private-error-body"},
+                },
+            }
+        )
+
+    monkeypatch.setattr(_FakeWebSocket, "receive", receive)
+    try:
+        with pytest.raises(ResponsesWebSocketError) as raised:
+            await llm._responses_completion_ws(
+                input_items=[],
+                request_params=RequestParams(model="grok-4.3"),
+                tools=None,
+                model_name="grok-4.3",
+            )
+        assert raised.value.error_code is None
+        assert raised.value.diagnostic_error_code == code
+        assert str(raised.value) == "WebSocket Responses request failed."
+        await asyncio.sleep(0)
+        (failure,) = _persisted_websocket_failures(websocket_failure_log)
+        assert failure["error_code"] == persisted_code
+        assert failure["reused_connection"] is False
+        assert failure["stream_started"] is False
+        assert failure["reconnect_eligible"] is False
+        assert failure["websocket_attempt"] == 1
+        assert len(connections) == 1
+        persisted = websocket_failure_log.read_text()
+        assert "private" not in persisted
+        assert "secret.invalid" not in persisted
     finally:
         await llm.close()
