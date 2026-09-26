@@ -1,7 +1,10 @@
 import asyncio
 import concurrent.futures
+import contextlib
+import contextvars
 import functools
 import sys
+import threading
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from importlib.util import find_spec
 from typing import Any, ParamSpec, TypeVar
@@ -104,6 +107,36 @@ async def run_in_thread(func: Callable[P, T], *args: P.args, **kwargs: P.kwargs)
     if kwargs:
         return await to_thread.run_sync(functools.partial(func, *args, **kwargs))
     return await to_thread.run_sync(func, *args)
+
+
+async def run_in_daemon_thread(func: Callable[[], T], *, name: str) -> T:
+    """Run a blocking callable in a daemon thread that never delays interpreter exit.
+
+    Unlike the default executor, cancellation or timeout abandons the thread, so
+    only use this for work that is safe to cut off at process exit.
+    """
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[T] = loop.create_future()
+    context = contextvars.copy_context()
+
+    def deliver(setter: Callable[[Any], None], value: object) -> None:
+        def settle() -> None:
+            if not future.done():
+                setter(value)
+
+        with contextlib.suppress(RuntimeError):  # loop closed after abandonment
+            loop.call_soon_threadsafe(settle)
+
+    def run() -> None:
+        try:
+            result = context.run(func)
+        except BaseException as exc:
+            deliver(future.set_exception, exc)
+        else:
+            deliver(future.set_result, result)
+
+    threading.Thread(target=run, name=name, daemon=True).start()
+    return await future
 
 
 def _run_in_new_loop(func: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs) -> T:

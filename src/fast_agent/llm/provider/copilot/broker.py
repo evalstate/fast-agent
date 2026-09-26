@@ -15,6 +15,7 @@ from fast_agent.llm.provider.copilot.oauth import (
     CopilotAuthenticationError,
     get_copilot_access_token,
 )
+from fast_agent.utils.async_utils import run_in_daemon_thread
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -52,12 +53,15 @@ class CopilotBroker:
         self._settings = settings
 
     async def _access_token(self, timeout: float) -> str:
-        # Resolve afresh in a worker. Timeout/cancellation stops waiting, not the
-        # worker: an in-flight refresh may still persist rotated tokens under the
-        # shared lock. HTTP has its own timeout; lock waits may outlive this call.
+        # Resolve afresh in a daemon worker. Timeout/cancellation stops waiting,
+        # not the worker: an in-flight refresh may still persist rotated tokens
+        # under the shared lock. HTTP and the lock wait are bounded; the keyring
+        # is not, so the worker must never block interpreter exit.
         try:
             async with asyncio.timeout(timeout):
-                token = await asyncio.to_thread(get_copilot_access_token)
+                token = await run_in_daemon_thread(
+                    get_copilot_access_token, name="fast-agent-copilot-token"
+                )
         except TimeoutError:
             raise ProviderKeyError("Copilot operation timed out.") from None
         if token is None:
