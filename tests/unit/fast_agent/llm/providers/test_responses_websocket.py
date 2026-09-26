@@ -17,10 +17,12 @@ from openai.types.beta.beta_responses_server_event import (
 from websockets.exceptions import ConnectionClosedError
 from websockets.frames import Close
 
+from fast_agent.config import Settings
 from fast_agent.constants import (
     FAST_AGENT_ERROR_CHANNEL,
     FAST_AGENT_RETRY,
 )
+from fast_agent.context import Context
 from fast_agent.llm.provider.openai.codex_responses import (
     CODEX_RESPONSES_LITE_HEADER,
     CODEX_RESPONSES_LITE_WS_METADATA_KEY,
@@ -51,6 +53,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
 from fast_agent.llm.provider.openai.streaming_utils import (
     validate_incomplete_tool_entries,
 )
+from fast_agent.llm.provider.openai.xai_responses import XAIResponsesLLM
 from fast_agent.llm.provider.streaming_timeouts import (
     StreamIdleTimeoutError,
     StreamTiming,
@@ -2688,3 +2691,228 @@ async def test_connect_websocket_owns_supplied_client(
     manager.__aexit__.assert_awaited_once()
     assert str(client.websocket_base_url).startswith("wss://example.test")
     assert connect.call_args.kwargs["extra_query"] == {"q": "1"}
+
+
+@dataclass
+class _ProviderLifetimeClock:
+    now: float = 1.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _mock_provider_websocket(
+    monkeypatch: pytest.MonkeyPatch, *, xai: bool = True
+) -> tuple[ResponsesLLM, _ProviderLifetimeClock, list[ManagedWebSocketConnection]]:
+    llm = (
+        XAIResponsesLLM(context=Context(config=Settings()), model="grok-4.3")
+        if xai
+        else ResponsesLLM(
+            context=Context(config=Settings()), model="gpt-4.1", transport="websocket"
+        )
+    )
+    clock = _ProviderLifetimeClock()
+    # Keep the provider-created manager (and its configured lifetimes); replace only time/I/O.
+    monkeypatch.setattr(llm._ws_connections, "_clock", clock)
+    monkeypatch.setattr(llm, "_responses_client", _FakeResponsesClient)
+    monkeypatch.setattr(llm, "_build_websocket_headers", lambda: {})
+    connections: list[ManagedWebSocketConnection] = []
+
+    async def connect(
+        url: str, headers: dict[str, str], timeout_seconds: float | None
+    ) -> ManagedWebSocketConnection:
+        connection = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
+        connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(llm, "_create_websocket_connection", connect)
+    return llm, clock, connections
+
+
+def _ws_event(event: dict[str, Any]) -> SimpleNamespace:
+    return SimpleNamespace(type=WSMsgType.TEXT, data=json.dumps(event))
+
+
+def _ws_completed() -> SimpleNamespace:
+    return _ws_event(
+        {
+            "type": "response.completed",
+            "response": {"id": "resp_test", "status": "completed", "output": []},
+        }
+    )
+
+
+def _ws_tool_history() -> list[dict[str, Any]]:
+    return [
+        *_ws_input_items("Read the file"),
+        {"type": "function_call", "call_id": "call_read", "name": "read_file", "arguments": "{}"},
+        {
+            "type": "function_call_output",
+            "call_id": "call_read",
+            "output": "retained file contents",
+        },
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("xai", [True, False], ids=["xai-20-minutes", "openai-55-minutes"])
+async def test_provider_websocket_lifetime_rotation_preserves_history(
+    monkeypatch: pytest.MonkeyPatch, xai: bool
+) -> None:
+    llm, clock, connections = _mock_provider_websocket(monkeypatch, xai=xai)
+    history = _ws_tool_history()
+    model = "grok-4.3" if xai else "gpt-4.1"
+
+    async def receive(self: _FakeWebSocket, timeout: float | None = None) -> SimpleNamespace:
+        return _ws_completed()
+
+    monkeypatch.setattr(_FakeWebSocket, "receive", receive)
+    try:
+        for age, expected_connections in [
+            (0, 1),
+            (1199, 1),
+            (1200, 2 if xai else 1),
+            (2399, 2 if xai else 1),
+            (3299, 3 if xai else 1),
+            (3300, 3 if xai else 2),
+        ]:
+            clock.now = 1.0 + age
+            history.extend(_ws_input_items(f"Continue at {age}"))
+            _, _, normalized = await llm._responses_completion_ws(
+                input_items=history,
+                request_params=RequestParams(model=model),
+                tools=None,
+                model_name=model,
+            )
+            assert normalized == history
+            assert len(connections) == expected_connections
+            payload = json.loads(_sent_payloads(connections[-1])[-1])
+            if xai or age == 3300:
+                assert payload["input"] == history
+                assert "previous_response_id" not in payload
+            assert all(c.websocket.closed and c.session.closed for c in connections[:-1])
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("partial", [None, "text", "tool"])
+@pytest.mark.parametrize("repeated", [False, True])
+async def test_xai_connection_limit_recovery_is_bounded_and_never_replays_partial_output(
+    monkeypatch: pytest.MonkeyPatch, partial: str | None, repeated: bool
+) -> None:
+    llm, _, connections = _mock_provider_websocket(monkeypatch)
+    error = _ws_event(
+        {
+            "type": "error",
+            "error": {
+                "code": "websocket_connection_limit_reached",
+                "message": "Connection lifetime exceeded",
+            },
+        }
+    )
+    initial_events = [_ws_event({"type": "response.created", "response": {"id": "resp_test"}})]
+    if partial == "text":
+        initial_events.append(_ws_event({"type": "response.output_text.delta", "delta": "hello"}))
+    elif partial == "tool":
+        initial_events.append(
+            _ws_event(
+                {
+                    "type": "response.output_item.added",
+                    "output_index": 0,
+                    "item": {
+                        "type": "function_call",
+                        "id": "fc_1",
+                        "call_id": "call_1",
+                        "name": "read_file",
+                        "arguments": "",
+                    },
+                }
+            )
+        )
+    initial_events.append(error)
+
+    async def receive(self: _FakeWebSocket, timeout: float | None = None) -> SimpleNamespace:
+        if self is connections[0].websocket:
+            return initial_events.pop(0)
+        return error if repeated else _ws_completed()
+
+    monkeypatch.setattr(_FakeWebSocket, "receive", receive)
+    history = _ws_tool_history()
+    try:
+        request = llm._responses_completion_ws(
+            input_items=history,
+            request_params=RequestParams(model="grok-4.3"),
+            tools=None,
+            model_name="grok-4.3",
+        )
+        if partial or repeated:
+            with pytest.raises(ResponsesWebSocketError) as excinfo:
+                await request
+            assert excinfo.value.stream_started is bool(partial)
+            assert excinfo.value.error_code == "websocket_connection_limit_reached"
+        else:
+            await request
+        assert len(connections) == (1 if partial else 2)
+        for connection in connections:
+            payloads = _sent_payloads(connection)
+            assert len(payloads) == 1
+            assert json.loads(payloads[0])["input"] == history
+            assert "previous_response_id" not in json.loads(payloads[0])
+        assert connections[0].websocket.closed
+        assert connections[0].session.closed
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+async def test_xai_aged_busy_websocket_is_closed_only_after_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    llm, clock, connections = _mock_provider_websocket(monkeypatch)
+    manager = llm._ws_connections
+
+    async def connect() -> ManagedWebSocketConnection:
+        return await llm._create_websocket_connection("wss://example.test/responses", {}, None)
+
+    try:
+        busy, reusable = await manager.acquire(connect)
+        clock.now += 20 * 60
+        temporary, temp_reusable = await manager.acquire(connect)
+        assert not temp_reusable
+        assert temporary is not busy
+        assert not busy.websocket.closed
+        await manager.release(temporary, reusable=temp_reusable, keep=True)
+        await manager.release(busy, reusable=reusable, keep=True)
+        assert busy.websocket.closed and busy.session.closed
+        fresh, _ = await manager.acquire(connect)
+        assert fresh is not busy
+        assert len(connections) == 3
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+async def test_xai_websocket_cancellation_closes_connection_without_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    llm, clock, connections = _mock_provider_websocket(monkeypatch)
+
+    async def receive(self: _FakeWebSocket, timeout: float | None = None) -> SimpleNamespace:
+        clock.now += 20 * 60
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(_FakeWebSocket, "receive", receive)
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await llm._responses_completion_ws(
+                input_items=_ws_tool_history(),
+                request_params=RequestParams(model="grok-4.3"),
+                tools=None,
+                model_name="grok-4.3",
+            )
+        assert len(connections) == 1
+        assert len(_sent_payloads(connections[0])) == 1
+        assert connections[0].websocket.closed and connections[0].session.closed
+    finally:
+        await llm.close()

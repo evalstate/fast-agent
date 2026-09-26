@@ -1,6 +1,7 @@
 import base64
 import unittest
 from collections.abc import Iterable, Mapping
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, ClassVar, cast
 
 import pytest
@@ -956,7 +957,10 @@ async def test_normalize_chat_completion_files_uploads_remote_document(monkeypat
         data: bytes,
         filename: str | None,
         mime_type: str | None,
+        *,
+        already_counted: bool = False,
     ) -> str:
+        assert already_counted
         assert data == b"%PDF-1.4 remote"
         assert filename == "report.pdf"
         assert mime_type == "application/pdf"
@@ -983,3 +987,55 @@ async def test_normalize_chat_completion_files_uploads_remote_document(monkeypat
             ],
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_normalize_chat_completion_files_reuses_remote_uploads_without_download(
+    monkeypatch,
+):
+    llm = llm_openai.OpenAILLM(Provider.OPENAI, model="gpt-4.1")
+    client = AsyncOpenAI(api_key="test")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "file",
+                    "file": {
+                        "filename": "report.pdf",
+                        "file_url": "https://example.com/report.pdf",
+                    },
+                }
+            ],
+        }
+    ]
+    downloads: list[str] = []
+    uploads: list[bytes] = []
+    progress: list[tuple[int, int]] = []
+
+    async def fake_download_remote_file(file_url: str) -> tuple[bytes | None, str | None]:
+        downloads.append(file_url)
+        return b"%PDF-1.4 remote", "application/pdf"
+
+    async def fake_create(*, file, purpose):
+        uploads.append(file[1])
+        return SimpleNamespace(id="file_remote_pdf")
+
+    monkeypatch.setattr(llm, "_download_remote_file", fake_download_remote_file)
+    monkeypatch.setattr(client.files, "create", fake_create)
+    monkeypatch.setattr(
+        llm, "_log_upload_progress", lambda n, total, **_: progress.append((n, total))
+    )
+
+    for _ in range(2):
+        normalized = await llm._normalize_chat_completion_files(
+            client, cast("list[ChatCompletionMessageParam]", messages)
+        )
+        assert normalized[0]["content"] == [
+            {"type": "file", "file": {"file_id": "file_remote_pdf"}}
+        ]
+
+    # History attachments are fetched once, not on every turn.
+    assert downloads == ["https://example.com/report.pdf"]
+    assert uploads == [b"%PDF-1.4 remote"]
+    assert progress == [(1, 1)]

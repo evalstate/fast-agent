@@ -78,7 +78,9 @@ def broker(monkeypatch: pytest.MonkeyPatch) -> FakeBroker:
 @pytest.fixture(autouse=True)
 def image_uploads(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     # Adapter tests exercise SDK serialization, never the attachment HTTP service.
-    async def normalize(payload: dict[str, Any], endpoint: CopilotEndpoint) -> dict[str, Any]:
+    async def normalize(
+        payload: dict[str, Any], endpoint: CopilotEndpoint, on_progress: Any = None
+    ) -> dict[str, Any]:
         return deepcopy(payload)
 
     mock = AsyncMock(side_effect=normalize)
@@ -237,7 +239,9 @@ async def test_parent_sse_loop_fresh_binding_and_payload(
     original_message = deepcopy(message)
     original_inputs = deepcopy(inputs)
 
-    async def normalize(payload: dict[str, Any], endpoint: CopilotEndpoint) -> dict[str, Any]:
+    async def normalize(
+        payload: dict[str, Any], endpoint: CopilotEndpoint, on_progress: Any = None
+    ) -> dict[str, Any]:
         normalized = deepcopy(payload)
         if wire == "messages":
             image = normalized["messages"][-1]["content"][0]["content"][0]
