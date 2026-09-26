@@ -1,7 +1,9 @@
 """Tests for asyncio runtime helpers."""
 
 import asyncio
+import subprocess
 import sys
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -98,3 +100,38 @@ async def test_gather_with_cancel_propagates_child_cancellation_and_cancels_sibl
         )
 
     assert sibling_cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_run_in_daemon_thread_returns_results_and_raises_errors() -> None:
+    assert await async_utils.run_in_daemon_thread(lambda: 42, name="test") == 42
+
+    def fail() -> None:
+        raise ValueError("boom")
+
+    with pytest.raises(ValueError, match="boom"):
+        await async_utils.run_in_daemon_thread(fail, name="test")
+
+
+def test_abandoned_daemon_thread_does_not_block_interpreter_exit() -> None:
+    script = """
+import asyncio, time
+from fast_agent.utils.async_utils import run_in_daemon_thread
+
+async def main():
+    try:
+        async with asyncio.timeout(0.1):
+            await run_in_daemon_thread(lambda: time.sleep(60), name="stuck")
+    except TimeoutError:
+        print("timed out")
+
+asyncio.run(main())
+"""
+    started = time.monotonic()
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=30, check=False
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "timed out"
+    assert time.monotonic() - started < 15

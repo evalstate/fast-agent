@@ -487,34 +487,57 @@ def test_failed_process_audit_restores_original_poll_order() -> None:
     assert context_management["retained_step_ids"] == [6, 7]
 
 
-def test_running_process_with_output_is_not_folded() -> None:
+def test_output_poll_bounds_running_fold_and_is_preserved() -> None:
     history = _history_before_terminal(5)
+    output_pair = history[1:3]
     _update_result_metadata(history[2], output_line_count=1)
+
+    folded = fold_completed_process_poll_history(
+        history,
+        _poll_result(5, output_line_count=0),
+    )
+
+    assert folded is not None
+    assert folded.history[1:3] == output_pair
+    assert folded.metadata["polls_folded"] == 3
+    assert folded.metadata["polls_retained"] == 1
+
+
+def test_unknown_output_poll_bounds_fold() -> None:
+    history = _history_before_terminal(4)
+    results = history[4].tool_results
+    assert results is not None
+    meta = next(iter(results.values())).meta
+    assert meta is not None
+    del meta[FAST_AGENT_SHELL_PROCESS_METADATA]["output_line_count"]
 
     assert (
         fold_completed_process_poll_history(
             history,
-            _poll_result(5, output_line_count=0),
+            _poll_result(4, output_line_count=0),
         )
         is None
     )
 
 
-def test_terminal_process_with_output_in_earlier_poll_is_not_folded() -> None:
-    history = _history_before_terminal(5)
+def test_terminal_fold_keeps_earlier_output_poll() -> None:
+    history = _history_before_terminal(7)
     result = history[4].tool_results
     assert result is not None
     output_result = next(iter(result.values()))
     _update_result_metadata(history[4], output_line_count=3)
     output_result.content = [TextContent(type="text", text="compiler error details")]
+    output_pair = history[3:5]
 
-    assert (
-        fold_completed_process_poll_history(
-            history,
-            _poll_result(5, status="failed", output_line_count=0),
-        )
-        is None
+    folded = fold_completed_process_poll_history(
+        history,
+        _poll_result(7, status="failed", output_line_count=0),
     )
+
+    assert folded is not None
+    assert folded.history[3:5] == output_pair
+    assert folded.metadata["polls_folded"] == 3
+    assert folded.metadata["polls_retained"] == 2
 
 
 def test_quiet_running_process_folds_earlier_polls() -> None:
@@ -633,14 +656,16 @@ def test_narration_does_not_weaken_zero_output_fold_guard() -> None:
     history = _history_before_terminal(4)
     history[1].content = [TextContent(type="text", text="Waiting.")]
     _update_result_metadata(history[2], output_line_count=1)
+    output_pair = history[1:3]
 
-    assert (
-        fold_completed_process_poll_history(
-            history,
-            _poll_result(4, status="completed", output_line_count=0),
-        )
-        is None
+    folded = fold_completed_process_poll_history(
+        history,
+        _poll_result(4, status="completed", output_line_count=0),
     )
+
+    assert folded is not None
+    assert folded.history[1:3] == output_pair
+    assert "assistant_updates" not in folded.metadata
 
 
 def test_parallel_narrated_poll_call_stops_suffix_collection() -> None:
