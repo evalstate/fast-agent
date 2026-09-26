@@ -72,6 +72,15 @@ MIN_PROCESS_POLL_WAIT_SECONDS = 10
 MAX_PROCESS_POLL_WAIT_SECONDS = 3600
 """Maximum configurable managed-process wait in seconds."""
 
+DEFAULT_PROCESS_POLL_MAX_WAIT_SECONDS = 260
+"""Default ceiling for one model-initiated managed-process wait.
+
+Each wait returns while provider prompt caches are still warm (tested with a safe
+buffer at about 260 seconds), so a hung or long process costs a cached poll
+rather than blocking the model for up to an hour. Longer work is followed with
+repeated waits, which fold in history when quiet.
+"""
+
 MAX_PROCESS_OUTPUT_QUERY_CHARS = 512
 """Maximum literal query length for retained process output."""
 

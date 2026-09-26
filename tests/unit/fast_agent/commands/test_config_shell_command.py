@@ -9,6 +9,7 @@ from fast_agent.cli.commands.config import (
 )
 from fast_agent.config import ShellSettings
 from fast_agent.constants import (
+    DEFAULT_PROCESS_POLL_MAX_WAIT_SECONDS,
     MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
     MAX_PROCESS_POLL_WAIT_SECONDS,
 )
@@ -68,7 +69,7 @@ def test_build_shell_form_uses_managed_process_wait_ceiling() -> None:
 
     field = schema.fields["process_poll_max_wait_seconds"]
     assert isinstance(field, IntegerField)
-    assert field.default == MAX_PROCESS_POLL_WAIT_SECONDS
+    assert field.default == DEFAULT_PROCESS_POLL_MAX_WAIT_SECONDS
     assert field.maximum == MAX_PROCESS_POLL_WAIT_SECONDS
 
 

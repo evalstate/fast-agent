@@ -73,11 +73,13 @@ process.
 `process(action="wait", wait_sec=N)` waits for a managed process but does not
 terminate it merely because the wait interval expires.
 
-Current static ceiling:
+Current static ceiling (a simple fixed slice that keeps provider prompt caches
+warm; a longer model wait period raises the default, an explicit value is
+authoritative):
 
 ```yaml
 shell_execution:
-  process_poll_max_wait_seconds: 3600
+  process_poll_max_wait_seconds: 260
 ```
 
 ### Outer agent/run timeout

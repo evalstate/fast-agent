@@ -146,8 +146,9 @@ anthropic:
 #  durable_output_max_bytes: 2097152
 # optional parent directory for retained-output session directories
 #  retained_output_temp_directory: null
-# maximum duration of one model-initiated managed-process wait
-#  process_poll_max_wait_seconds: 3600
+# maximum duration of one model-initiated managed-process wait; the default keeps
+# provider prompt caches warm between polls (raise up to 3600 if needed)
+#  process_poll_max_wait_seconds: 260
 # maximum total foreground runtime before returning a live process;
 # 0 returns it at the initial yield without stopping it
 #  foreground_auto_await_max_seconds: 30

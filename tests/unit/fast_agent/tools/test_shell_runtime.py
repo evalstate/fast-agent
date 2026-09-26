@@ -20,10 +20,10 @@ import fast_agent.tools.local_shell_executor as local_shell_executor
 import fast_agent.tools.shell_runtime as shell_runtime_module
 from fast_agent.config import LoggerSettings, Settings, ShellSettings, ToolDisplaySettings
 from fast_agent.constants import (
+    DEFAULT_PROCESS_POLL_MAX_WAIT_SECONDS,
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     FAST_AGENT_SHELL_PROCESS_METADATA,
     MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
-    MAX_PROCESS_POLL_WAIT_SECONDS,
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
 )
 from fast_agent.event_progress import ProgressAction
@@ -632,7 +632,8 @@ def test_execute_tool_schema_declares_per_call_options() -> None:
         "wake_on_output",
     }
     assert (
-        poll_tool.input_schema["properties"]["wait_sec"]["maximum"] == MAX_PROCESS_POLL_WAIT_SECONDS
+        poll_tool.input_schema["properties"]["wait_sec"]["maximum"]
+        == DEFAULT_PROCESS_POLL_MAX_WAIT_SECONDS
     )
     wake_schema = poll_tool.input_schema["properties"]["wake_on_output"]
     assert wake_schema["default"] is False
@@ -673,7 +674,7 @@ def test_minimal_process_profile_exposes_only_bash_and_process() -> None:
     assert "required" not in process_tool.input_schema
     wait_schema = process_tool.input_schema["properties"]["wait_sec"]
     assert "default" not in wait_schema
-    assert wait_schema["maximum"] == MAX_PROCESS_POLL_WAIT_SECONDS
+    assert wait_schema["maximum"] == DEFAULT_PROCESS_POLL_MAX_WAIT_SECONDS
     assert "Values below 10 are clamped to 10" in wait_schema["description"]
     assert "`wait` defaults to 30 seconds" in (process_tool.description or "")
 
@@ -1143,8 +1144,7 @@ def test_poll_process_updates_default_for_model_switch() -> None:
     assert _parse_poll(runtime, {"process_id": "process-1"}).wait_sec == 25
 
 
-@pytest.mark.asyncio
-async def test_poll_process_rejects_wait_above_configured_maximum() -> None:
+def test_poll_process_clamps_wait_above_configured_maximum() -> None:
     settings = Settings(shell_execution=ShellSettings(process_poll_max_wait_seconds=240))
     runtime = ShellRuntime(
         activation_reason="test",
@@ -1152,11 +1152,8 @@ async def test_poll_process_rejects_wait_above_configured_maximum() -> None:
         config=settings,
     )
 
-    result = await runtime.poll_process({"process_id": "process-1", "wait_sec": 241})
-
-    assert result.is_error is True
-    assert isinstance(result.content[0], TextContent)
-    assert "'wait_sec' argument must be at most 240" in result.content[0].text
+    assert _parse_poll(runtime, {"process_id": "process-1", "wait_sec": 241}).wait_sec == 240
+    assert _parse_poll(runtime, {"process_id": "process-1", "wait_sec": 3600}).wait_sec == 240
 
 
 def test_shell_metadata_uses_effective_per_call_options() -> None:
@@ -3626,3 +3623,39 @@ async def test_execute_emits_terminal_failed_progress_when_subprocess_start_fail
     assert progress_payloads[1]["details"] == "failed: spawn failed"
     assert progress_payloads[1]["tool_state"] == "failed"
     assert progress_payloads[1]["tool_terminal"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("configured_max", "expected_wait"),
+    [(None, DEFAULT_PROCESS_POLL_MAX_WAIT_SECONDS), (600, 600)],
+)
+async def test_process_wait_request_is_clamped_to_cache_warm_ceiling(
+    configured_max: int | None, expected_wait: int
+) -> None:
+    shell_settings = (
+        ShellSettings(tool_profile="minimal_process", show_bash=False)
+        if configured_max is None
+        else ShellSettings(
+            tool_profile="minimal_process",
+            show_bash=False,
+            process_poll_max_wait_seconds=configured_max,
+        )
+    )
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("wait-ceiling-test"),
+        config=Settings(shell_execution=shell_settings),
+    )
+    process_tool = next(tool for tool in runtime.tools if tool.name == "process")
+    assert process_tool.input_schema["properties"]["wait_sec"]["maximum"] == expected_wait
+
+    started = await runtime.call_tool("bash", {"command": "sleep 0.2", "run_in_background": True})
+    process_id = str((shell_runtime_module.process_result_metadata(started) or {})["process_id"])
+    waited = await runtime.call_tool(
+        "process", {"process_id": process_id, "action": "wait", "wait_sec": 3600}
+    )
+    metadata = shell_runtime_module.process_result_metadata(waited)
+    assert metadata is not None
+    assert metadata["poll_wait_sec"] == expected_wait
+    assert metadata["process_status"] == "completed"

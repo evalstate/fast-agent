@@ -486,8 +486,8 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
             "examples": [
                 "/process",
                 "/process --history",
-                "/process attach process-0123456789abcdef0123456789abcdef",
-                "/process terminate process-0123456789abcdef0123456789abcdef",
+                "/process attach process-k7m2q",
+                "/process terminate process-k7m2q",
             ],
         },
         {
