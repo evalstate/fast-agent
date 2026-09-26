@@ -1104,6 +1104,9 @@ class ShellRuntime:
             else max(time.time() - snapshot.spec.created_at, 0.0)
         )
         output_observed = bool(snapshot.stdout_total_bytes or snapshot.stderr_total_bytes)
+        # The durable spool only accounts bytes, so the byte delta is the exact
+        # no-output signal; the preview line count is a lower bound otherwise.
+        output_line_count = max(len(output.splitlines()), 1) if output_bytes else 0
         lines = [output] if output else []
         lines.extend(
             [
@@ -1126,6 +1129,7 @@ class ShellRuntime:
                 "process_yield_reason": poll_yield_reason,
                 "process_elapsed_seconds": elapsed,
                 "os_process_id": snapshot.status.child_pid,
+                "output_line_count": output_line_count,
                 "output_bytes_since_last_poll": output_bytes,
                 "retained_output_bytes_since_last_poll": retained_output_bytes,
                 "dropped_output_bytes_since_last_poll": dropped_output_bytes,
@@ -1160,7 +1164,7 @@ class ShellRuntime:
         self._append_poll_output_activity(
             result,
             output_bytes=output_bytes,
-            output_lines=len(output.splitlines()),
+            output_lines=output_line_count,
             seconds_since_last_output=seconds_since_last_output,
             output_observed=output_observed,
         )
