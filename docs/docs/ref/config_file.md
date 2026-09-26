@@ -810,7 +810,7 @@ shell_execution:
   retained_output_max_bytes: 2097152  # Per shell process
   durable_output_max_bytes: 2097152  # Per persistent stdout/stderr/combined log
   retained_output_temp_directory: null  # Optional parent directory
-  process_poll_max_wait_seconds: 3600  # Accepted range: 1–3600
+  process_poll_max_wait_seconds: 260  # Default keeps prompt caches warm; range: 1–3600
   foreground_auto_await_max_seconds: 30  # Total runtime; range: 0–3600; 0 disables
   managed_process_poll_history_folding: auto  # auto | on | off
 ```
@@ -862,9 +862,13 @@ commands model-interruptible. It still lets shorter commands finish in their
 original shell call without a model turn spent scheduling a process wait.
 
 `process_poll_max_wait_seconds` caps a single model-initiated managed-process
-wait. Catalogue and overlay defaults are capped for compatibility. An explicit
-model-string `poll_period` above the configured maximum is rejected instead of
-being silently reduced.
+wait. The 260-second default returns each wait while provider prompt caches are
+still warm (a hung or long process then costs a cached poll rather than blocking
+the model for up to an hour); longer work is followed with repeated waits, which
+fold in history when quiet. Model requests above the ceiling are clamped. Unless
+the ceiling is set explicitly, a longer model wait period (catalogue, overlay or
+`poll_period`) raises it; an explicit ceiling is authoritative and a longer
+`poll_period` is rejected instead of being silently reduced.
 
 See [Foreground auto-await and outer-budget-aware process waits](shell_runtime_budgeting.md)
 for the model-interruptibility tradeoff, external-deadline integration gap,

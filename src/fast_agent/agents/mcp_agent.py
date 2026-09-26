@@ -63,6 +63,7 @@ from fast_agent.config import MCPServerSettings, ShellSettings
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     HUMAN_INPUT_TOOL_NAME,
+    MAX_PROCESS_POLL_WAIT_SECONDS,
     should_parallelize_tool_calls,
 )
 from fast_agent.core.exceptions import AgentConfigError, ModelConfigError, PromptExitError
@@ -173,6 +174,7 @@ class _ShellRuntimeSettings:
     tool_profile: ShellToolProfile
     model_tool_profile: ResolvedShellToolProfile | None
     model_shell_tool_name: str | None
+    process_poll_max_wait_seconds: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -916,6 +918,7 @@ class McpAgent(ABC, ToolAgent):
             tool_profile=configured_profile,
             model_tool_profile=model_tool_profile,
             model_shell_tool_name=model_shell_tool_name,
+            process_poll_max_wait_seconds=self._effective_process_poll_max_wait_seconds(),
         )
 
     def _model_process_poll_default_wait_seconds(
@@ -1188,17 +1191,39 @@ class McpAgent(ABC, ToolAgent):
         poll_period = resolved_model.model_config.process_poll_default_wait_seconds
         if poll_period is None:
             return
-        maximum = (
-            self._context.config.shell_execution.process_poll_max_wait_seconds
-            if self._context is not None and self._context.config is not None
-            else ShellSettings().process_poll_max_wait_seconds
-        )
+        shell_config = self._shell_settings()
+        if "process_poll_max_wait_seconds" not in shell_config.model_fields_set:
+            # The default ceiling yields to an intentionally longer model wait period.
+            return
+        maximum = shell_config.process_poll_max_wait_seconds
         if poll_period > maximum:
             raise ModelConfigError(
                 f"Model query poll_period={poll_period} exceeds "
                 f"shell_execution.process_poll_max_wait_seconds={maximum}. "
                 "Lower poll_period or raise the configured maximum."
             )
+
+    def _shell_settings(self) -> ShellSettings:
+        if self._context is not None and self._context.config is not None:
+            return self._context.config.shell_execution
+        return ShellSettings()
+
+    def _effective_process_poll_max_wait_seconds(
+        self,
+        llm: FastAgentLLMProtocol | None = None,
+    ) -> int:
+        """Return the wait ceiling: explicit config, or the cache-warm default.
+
+        The default ceiling keeps provider prompt caches warm between polls, but an
+        intentionally longer model wait period (catalogue, overlay or ``poll_period``)
+        raises it; an explicitly configured ceiling is authoritative.
+        """
+        shell_config = self._shell_settings()
+        configured = shell_config.process_poll_max_wait_seconds
+        if "process_poll_max_wait_seconds" in shell_config.model_fields_set:
+            return configured
+        model_period = self._model_process_poll_default_wait_seconds(llm)
+        return min(max(configured, model_period), MAX_PROCESS_POLL_WAIT_SECONDS)
 
     def _on_llm_attached(self, llm: FastAgentLLMProtocol) -> None:
         super()._on_llm_attached(llm)
@@ -1257,6 +1282,9 @@ class McpAgent(ABC, ToolAgent):
         )
         configured_profile = shell_config.tool_profile if shell_config is not None else "auto"
         model_params = self._resolve_shell_model_params(llm)
+        self._shell_runtime.set_max_process_poll_seconds(
+            self._effective_process_poll_max_wait_seconds(llm)
+        )
         self._shell_runtime.set_tool_profile(
             configured_profile,
             model_profile=(model_params.shell_tool_profile if model_params is not None else None),
@@ -1355,6 +1383,7 @@ class McpAgent(ABC, ToolAgent):
             tool_profile=shell_settings.tool_profile,
             model_tool_profile=shell_settings.model_tool_profile,
             model_shell_tool_name=shell_settings.model_shell_tool_name,
+            process_poll_max_wait_seconds=shell_settings.process_poll_max_wait_seconds,
             config=config,
             agent_name=self._name,
             shell_environment=self._shell_environment,

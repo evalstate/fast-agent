@@ -232,6 +232,7 @@ class ShellRuntime:
         tool_profile: ShellToolProfile | None = None,
         model_tool_profile: ResolvedShellToolProfile | None = None,
         model_shell_tool_name: str | None = None,
+        process_poll_max_wait_seconds: int | None = None,
         foreground_auto_await_max_seconds: float | None = None,
         durable_process_root: Path | None = None,
         session_id_provider: Callable[[], str | None] | None = None,
@@ -328,6 +329,8 @@ class ShellRuntime:
         self._grok_shell_profile = False
         self._luna_exec_profile = False
         self._luna_exec_tool_name = LUNA_EXEC_TOOL_NAME
+        if process_poll_max_wait_seconds is not None:
+            self._max_process_poll_seconds = process_poll_max_wait_seconds
         self._process_poll_default_wait_seconds = min(
             process_poll_default_wait_seconds,
             self._max_process_poll_seconds,
@@ -1429,6 +1432,14 @@ class ShellRuntime:
 
     def _uses_unified_process_profile(self) -> bool:
         return self._minimal_process_profile or self._grok_shell_profile or self._luna_exec_profile
+
+    def set_max_process_poll_seconds(self, value: int) -> None:
+        """Set the effective wait ceiling; set_tool_profile rebuilds the tool schemas."""
+        self._max_process_poll_seconds = value
+        self._process_poll_default_wait_seconds = min(
+            self._process_poll_default_wait_seconds,
+            self._max_process_poll_seconds,
+        )
 
     def set_process_poll_default_wait_seconds(self, value: int) -> None:
         """Update the model-specific default used when wait_sec is omitted."""

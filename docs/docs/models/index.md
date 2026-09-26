@@ -364,10 +364,8 @@ Set the default wait used when `process(action="wait")` omits `wait_sec`:
 - `opus?poll_period=3000` for an intentionally long wait with a one-hour cache policy
 
 `poll_period` is local fast-agent runtime policy and is not sent to the provider.
-It must be an integer from 10 through 3600. It overrides catalogue and model-overlay
-defaults, but an explicit value above
-`shell_execution.process_poll_max_wait_seconds` is rejected. A wait still returns
-as soon as the managed process completes.
+It must be an integer from 10 through 3600 and overrides catalogue and model-overlay
+defaults. By default the ceiling is 260 seconds, so each wait returns while provider prompt caches are still warm; a model wait period above it (catalogue, overlay or `poll_period`) raises the default ceiling to that period. When `shell_execution.process_poll_max_wait_seconds` is set explicitly it is authoritative and a longer `poll_period` is rejected. Model requests above the ceiling are clamped. A wait still returns as soon as the managed process completes.
 
 ### Output token limit
 

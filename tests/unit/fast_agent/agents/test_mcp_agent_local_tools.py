@@ -254,6 +254,75 @@ async def test_model_query_poll_period_updates_shell_runtime_on_model_switch() -
     await agent._aggregator.close()
 
 
+def _process_wait_maximum(agent: McpAgent) -> int:
+    runtime = agent._shell_runtime
+    assert runtime is not None
+    process_tool = next(tool for tool in runtime.tools if tool.name == "process")
+    return process_tool.input_schema["properties"]["wait_sec"]["maximum"]
+
+
+@pytest.mark.asyncio
+async def test_default_process_wait_ceiling_is_cache_warm() -> None:
+    agent = McpAgent(
+        AgentConfig(
+            name="test",
+            instruction="Instruction",
+            servers=[],
+            shell=True,
+            model="codexresponses.gpt-6-luna",
+        ),
+        context=Context(),
+    )
+    try:
+        assert _process_wait_maximum(agent) == 260
+    finally:
+        await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_longer_model_poll_period_raises_default_wait_ceiling() -> None:
+    agent = McpAgent(
+        AgentConfig(
+            name="test",
+            instruction="Instruction",
+            servers=[],
+            shell=True,
+            model="silent?poll_period=30",
+        ),
+        context=Context(),
+    )
+    await agent.attach_llm(ModelFactory.create_factory("silent?poll_period=30"))
+    try:
+        assert _process_wait_maximum(agent) == 260
+        await agent.set_model("silent?poll_period=3000")
+        assert _process_wait_maximum(agent) == 3000
+        runtime = agent._shell_runtime
+        assert runtime is not None
+        assert runtime._process_poll_default_wait_seconds == 3000
+    finally:
+        await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_process_wait_ceiling_is_authoritative() -> None:
+    agent = McpAgent(
+        AgentConfig(
+            name="test",
+            instruction="Instruction",
+            servers=[],
+            shell=True,
+            model="codexresponses.gpt-6-luna",
+        ),
+        context=Context(
+            config=Settings(shell_execution=ShellSettings(process_poll_max_wait_seconds=3600))
+        ),
+    )
+    try:
+        assert _process_wait_maximum(agent) == 3600
+    finally:
+        await agent._aggregator.close()
+
+
 @pytest.mark.asyncio
 async def test_model_query_poll_period_above_operator_ceiling_rejects_switch_atomically() -> None:
     agent = McpAgent(

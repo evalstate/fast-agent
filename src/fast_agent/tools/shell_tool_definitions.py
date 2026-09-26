@@ -610,8 +610,8 @@ def parse_poll_process_arguments(
     wait_sec = payload.get("wait_sec", default_wait_seconds)
     if type(wait_sec) is not int or wait_sec < 0:
         raise ValueError("Error: 'wait_sec' argument must be a non-negative integer")
-    if wait_sec > max_wait_seconds:
-        raise ValueError(f"Error: 'wait_sec' argument must be at most {max_wait_seconds}")
+    # Requests above the ceiling are clamped: a wait always returns by the ceiling.
+    wait_sec = min(wait_sec, max_wait_seconds)
     wake_on_output = payload.get("wake_on_output", False)
     if type(wake_on_output) is not bool:
         raise ValueError("Error: 'wake_on_output' argument must be a boolean")
@@ -830,8 +830,7 @@ def parse_minimal_process_arguments(
     if action == "wait" and wait_sec is not None:
         if type(wait_sec) is not int or wait_sec < 0:
             raise ValueError("Error: 'wait_sec' argument must be a non-negative integer")
-        if wait_sec > max_wait_seconds:
-            raise ValueError(f"Error: 'wait_sec' argument must be at most {max_wait_seconds}")
+        # Requests above the ceiling are clamped: a wait always returns by the ceiling.
         wait_sec = min(max(wait_sec, min_wait_seconds), max_wait_seconds)
     elif action != "wait":
         wait_sec = None

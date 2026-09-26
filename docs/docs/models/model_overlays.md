@@ -207,10 +207,11 @@ Common fields:
   consulted when `shell_execution.managed_process_poll_history_folding` is
   `auto`.
 - `process_poll_default_wait_seconds`: default `poll_process` wait when the model
-  omits `wait_sec` (`0` keeps polling non-blocking). The value is capped by
-  `shell_execution.process_poll_max_wait_seconds`. An explicit model-string
-  `poll_period` takes precedence over this metadata and is rejected if it
-  exceeds the configured maximum.
+  omits `wait_sec` (`0` keeps polling non-blocking). A value above the default
+  260-second wait ceiling raises that ceiling; an explicitly configured
+  `shell_execution.process_poll_max_wait_seconds` caps it instead. An explicit
+  model-string `poll_period` takes precedence over this metadata and is rejected
+  only if it exceeds an explicitly configured maximum.
 - `model_specific`: system-prompt text substituted for `{{model_specific}}` in
   the default instruction. Set it to an empty string to suppress the catalog
   text for the base model.
