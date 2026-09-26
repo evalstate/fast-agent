@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 # Import tool progress context for reporting shell execution progress
 from fast_agent.agents.tool_agent import _tool_progress_context
 from fast_agent.constants import (
+    BACKGROUND_LAUNCH_SETTLE_SECONDS,
     DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES,
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
@@ -134,6 +135,7 @@ _DEFAULT_IDLE_YIELD_SECONDS = 10
 _DEFAULT_FOREGROUND_YIELD_SECONDS = 30
 _DEFAULT_MINIMAL_PROCESS_WAIT_SECONDS = 30
 _PROCESS_OUTPUT_DEBOUNCE_SECONDS = PROCESS_OUTPUT_DEBOUNCE_SECONDS
+_BACKGROUND_FAILURE_TAIL_BYTES = 2000
 
 
 def _default_max_process_poll_seconds() -> int:
@@ -1890,6 +1892,35 @@ class ShellRuntime:
                 raise cancelled
         return snapshot
 
+    async def _settle_durable_launch(
+        self,
+        snapshot: DurableProcessSnapshot,
+    ) -> DurableProcessSnapshot:
+        """Watch a new durable process briefly so an immediate exit is reported."""
+        store = self._durable_process_store
+        if store is None:
+            return snapshot
+        deadline = time.monotonic() + BACKGROUND_LAUNCH_SETTLE_SECONDS
+        while self._durable_status(snapshot) == "running" and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+            snapshot = await asyncio.to_thread(store.get, snapshot.spec.process_id)
+        return snapshot
+
+    async def _peek_durable_output_tail(self, snapshot: DurableProcessSnapshot) -> str:
+        """Return recent output without consuming it, so later polls still report it."""
+        store = self._durable_process_store
+        if store is None:
+            return ""
+        offset = max(snapshot.output_bytes - _BACKGROUND_FAILURE_TAIL_BYTES, 0)
+        output = await asyncio.to_thread(
+            store.read_output,
+            snapshot.spec.process_id,
+            stream=DurableProcessStream.COMBINED,
+            offset=offset,
+            limit=_BACKGROUND_FAILURE_TAIL_BYTES,
+        )
+        return output.text
+
     def _register_durable_process(self, snapshot: DurableProcessSnapshot) -> None:
         process_id = snapshot.spec.process_id
         self._attached_durable_processes.add(process_id)
@@ -2970,7 +3001,15 @@ class ShellRuntime:
                     tool_terminal=True,
                 )
                 return _text_result(f"Command execution failed: {exc}", is_error=True)
+            snapshot = await self._settle_durable_launch(snapshot)
             result = self._durable_launch_result(snapshot)
+            if self._durable_status(snapshot) == "failed":
+                tail = await self._peek_durable_output_tail(snapshot)
+                if tail:
+                    for block in result.content:
+                        if isinstance(block, TextContent):
+                            block.text = f"{tail.rstrip()}\n{block.text}"
+                            break
             status = self._durable_status(snapshot)
             progress_details = (
                 f"running ({snapshot.spec.process_id})"

@@ -1191,7 +1191,9 @@ async def test_cancelled_durable_poll_preserves_output_debounce(
     )
     result = await runtime.execute(
         {
-            "command": "printf ready; sleep 30",
+            # Emit after the background launch settle window so the output is fresh
+            # (inside the debounce) when the poll below starts.
+            "command": "sleep 1.8; printf ready; sleep 30",
             "background": True,
         }
     )
