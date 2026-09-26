@@ -27,6 +27,7 @@
 | `structured_schema` | `dict[str, Any] | None` | `None` |  |
 | `structured_tool_policy` | `Literal['auto', 'always', 'defer', 'no_tools']` | `'auto'` |  |
 | `sampling_tool_choice` | `Literal['auto', 'required', 'none'] | None` | `None` |  |
+| `tool_search` | `Literal['off', 'auto', 'always']` | `'off'` |  |
 | `template_vars` | `dict[str, Any]` | `{}` |  |
 | `mcp_metadata` | `dict[str, Any] | None` | `None` |  |
 | `tool_execution_handler` | `Any | None` | `None` |  |
