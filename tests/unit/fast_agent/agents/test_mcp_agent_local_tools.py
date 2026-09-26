@@ -1141,12 +1141,27 @@ async def test_gpt6_shell_name_preserves_minimal_process_schema_and_folding_capa
         "codexresponses.gpt-6-luna?reasoning=low",
     ],
 )
-async def test_gpt6_luna_uses_luna_exec_contract_named_shell(model_name: str) -> None:
-    agent = McpAgent(
+async def test_gpt6_luna_selected_luna_exec_contract_is_named_shell(model_name: str) -> None:
+    default_agent = McpAgent(
         config=AgentConfig(
             name="test", instruction="Instruction", servers=[], shell=True, model=model_name
         ),
         context=Context(),
+    )
+    try:
+        default_tools = {tool.name: tool for tool in (await default_agent.list_tools()).tools}
+        assert set(default_tools["shell"].input_schema["properties"]) == {
+            "command",
+            "run_in_background",
+        }
+    finally:
+        await default_agent._aggregator.close()
+
+    agent = McpAgent(
+        config=AgentConfig(
+            name="test", instruction="Instruction", servers=[], shell=True, model=model_name
+        ),
+        context=Context(config=Settings(shell_execution=ShellSettings(tool_profile="luna_exec"))),
     )
     try:
         tools = {tool.name: tool for tool in (await agent.list_tools()).tools}
