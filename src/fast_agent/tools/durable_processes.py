@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import os
+import secrets
 import shutil
 import stat
 import subprocess
@@ -35,7 +36,13 @@ if TYPE_CHECKING:
 
 _VERSION: Final = 1
 _PROCESS_ID_PREFIX: Final = "process-"
-_PROCESS_ID_LENGTH: Final = len(_PROCESS_ID_PREFIX) + 32
+# Model-facing IDs are short so they can be copied reliably. The alphabet omits
+# visually ambiguous characters (0/o, 1/i/l) and every generated suffix contains
+# a letter, so it can never be confused with sequential session IDs (process-N).
+_PROCESS_ID_ALPHABET: Final = "23456789abcdefghjkmnpqrstuvwxyz"
+_PROCESS_ID_SUFFIX_LENGTH: Final = 5
+# Records created by fast-agent 0.10.35 and earlier use a 32-character hex suffix.
+_LEGACY_PROCESS_ID_SUFFIX_LENGTH: Final = 32
 _MAX_OUTPUT_READ_BYTES: Final = 1024 * 1024
 _OUTPUT_SEARCH_CHUNK_BYTES: Final = 64 * 1024
 _NONTERMINAL_STATES: Final = frozenset({"created", "starting", "running", "stopping"})
@@ -644,16 +651,25 @@ def validate_process_id(process_id: str) -> None:
 
 
 def _is_process_id(process_id: str) -> bool:
+    if not process_id.startswith(_PROCESS_ID_PREFIX):
+        return False
     suffix = process_id.removeprefix(_PROCESS_ID_PREFIX)
-    return (
-        len(process_id) == _PROCESS_ID_LENGTH
-        and len(suffix) == 32
-        and all(character in "0123456789abcdef" for character in suffix)
+    if len(suffix) == _PROCESS_ID_SUFFIX_LENGTH:
+        return all(character in _PROCESS_ID_ALPHABET for character in suffix) and any(
+            character.isalpha() for character in suffix
+        )
+    return len(suffix) == _LEGACY_PROCESS_ID_SUFFIX_LENGTH and all(
+        character in "0123456789abcdef" for character in suffix
     )
 
 
 def _new_process_id() -> str:
-    return f"{_PROCESS_ID_PREFIX}{uuid.uuid4().hex}"
+    while True:
+        suffix = "".join(
+            secrets.choice(_PROCESS_ID_ALPHABET) for _ in range(_PROCESS_ID_SUFFIX_LENGTH)
+        )
+        if any(character.isalpha() for character in suffix):
+            return f"{_PROCESS_ID_PREFIX}{suffix}"
 
 
 def _require_posix() -> None:

@@ -1528,3 +1528,52 @@ def _linux_process_is_running(process_id: int) -> bool:
     except FileNotFoundError:
         return False
     return len(stat_fields) > 2 and stat_fields[2] != "Z"
+
+
+def test_new_durable_process_ids_are_short_and_unambiguous() -> None:
+    from fast_agent.tools.durable_processes import (
+        _PROCESS_ID_ALPHABET,
+        _new_process_id,
+        validate_process_id,
+    )
+
+    ids = {_new_process_id() for _ in range(2000)}
+    for process_id in ids:
+        assert process_id.startswith("process-")
+        suffix = process_id.removeprefix("process-")
+        assert len(suffix) == 5
+        assert set(suffix) <= set(_PROCESS_ID_ALPHABET)
+        assert not set(suffix) & set("01oil")
+        assert any(character.isalpha() for character in suffix)
+        validate_process_id(process_id)
+    assert len(ids) > 1990
+
+
+def test_legacy_durable_process_ids_remain_valid_and_malformed_ids_are_rejected() -> None:
+    from fast_agent.tools.durable_processes import validate_process_id
+
+    validate_process_id("process-5204d725801a45c4a7f6f5a9d46485a7")
+    for invalid in (
+        "process-12345",
+        "process-abc1",
+        "process-abcd0",
+        "process-ABCDE",
+        "process-5204d725801a45c4a7f6f5a9d46485a",
+        "proc-k7m2q",
+        "process-k7m2q/..",
+    ):
+        with pytest.raises(ValueError):
+            validate_process_id(invalid)
+
+
+def test_durable_store_creates_short_process_ids(tmp_path: Path) -> None:
+    store = DurableProcessStore(tmp_path / "processes")
+    snapshot = store.create(
+        command="true",
+        shell=Path("/bin/sh"),
+        cwd=tmp_path,
+        output_byte_limit=1024,
+    )
+    assert len(snapshot.spec.process_id) == len("process-") + 5
+    assert (tmp_path / "processes" / snapshot.spec.process_id).is_dir()
+    assert store.get(snapshot.spec.process_id).spec.process_id == snapshot.spec.process_id

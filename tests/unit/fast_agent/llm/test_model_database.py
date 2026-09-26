@@ -111,6 +111,7 @@ def test_gpt_6_sol_luna_match_astra_contract_with_none_effort(model: str) -> Non
         "codex_responses_lite",
         "response_service_tiers",
         "shell_edit_tool",
+        "shell_tool_name",
         "shell_tool_profile",
         "text_verbosity_spec",
         "tokenizes",
@@ -121,6 +122,7 @@ def test_gpt_6_sol_luna_match_astra_contract_with_none_effort(model: str) -> Non
         routed = ModelDatabase.get_model_params(model, provider=provider)
         assert routed is not None
         assert routed.long_context_window == window
+        assert routed.shell_tool_profile == params.shell_tool_profile
 
 
 @pytest.mark.parametrize("provider", [Provider.RESPONSES, Provider.CODEX_RESPONSES])

@@ -167,7 +167,8 @@ Override it for a model selection with `poll_period=<seconds>`:
 fast-agent --model "xai.grok-4.7?poll_period=420"
 ```
 
-The value must be an integer from 10 through 3600 and cannot exceed
+The value must be an integer from 10 through 3600. It raises the default 260-second
+wait ceiling when longer, but cannot exceed an explicitly configured
 `shell_execution.process_poll_max_wait_seconds`. For a persistent per-model
 default, use an overlay's `metadata.process_poll_default_wait_seconds`.
 

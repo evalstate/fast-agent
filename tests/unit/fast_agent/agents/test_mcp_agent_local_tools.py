@@ -254,6 +254,75 @@ async def test_model_query_poll_period_updates_shell_runtime_on_model_switch() -
     await agent._aggregator.close()
 
 
+def _process_wait_maximum(agent: McpAgent) -> int:
+    runtime = agent._shell_runtime
+    assert runtime is not None
+    process_tool = next(tool for tool in runtime.tools if tool.name == "process")
+    return process_tool.input_schema["properties"]["wait_sec"]["maximum"]
+
+
+@pytest.mark.asyncio
+async def test_default_process_wait_ceiling_is_cache_warm() -> None:
+    agent = McpAgent(
+        AgentConfig(
+            name="test",
+            instruction="Instruction",
+            servers=[],
+            shell=True,
+            model="codexresponses.gpt-6-luna",
+        ),
+        context=Context(),
+    )
+    try:
+        assert _process_wait_maximum(agent) == 260
+    finally:
+        await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_longer_model_poll_period_raises_default_wait_ceiling() -> None:
+    agent = McpAgent(
+        AgentConfig(
+            name="test",
+            instruction="Instruction",
+            servers=[],
+            shell=True,
+            model="silent?poll_period=30",
+        ),
+        context=Context(),
+    )
+    await agent.attach_llm(ModelFactory.create_factory("silent?poll_period=30"))
+    try:
+        assert _process_wait_maximum(agent) == 260
+        await agent.set_model("silent?poll_period=3000")
+        assert _process_wait_maximum(agent) == 3000
+        runtime = agent._shell_runtime
+        assert runtime is not None
+        assert runtime._process_poll_default_wait_seconds == 3000
+    finally:
+        await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_process_wait_ceiling_is_authoritative() -> None:
+    agent = McpAgent(
+        AgentConfig(
+            name="test",
+            instruction="Instruction",
+            servers=[],
+            shell=True,
+            model="codexresponses.gpt-6-luna",
+        ),
+        context=Context(
+            config=Settings(shell_execution=ShellSettings(process_poll_max_wait_seconds=3600))
+        ),
+    )
+    try:
+        assert _process_wait_maximum(agent) == 3600
+    finally:
+        await agent._aggregator.close()
+
+
 @pytest.mark.asyncio
 async def test_model_query_poll_period_above_operator_ceiling_rejects_switch_atomically() -> None:
     agent = McpAgent(
@@ -1046,14 +1115,14 @@ async def test_gpt6_shell_name_preserves_minimal_process_schema_and_folding_capa
             ),
             context=Context(),
         )
-        for model in ("codexresponses.gpt-6-luna", "codexresponses.gpt-5.5")
+        for model in ("codexresponses.gpt-6-sol", "codexresponses.gpt-5.5")
     ]
     try:
         gpt6_tools = {tool.name: tool for tool in (await agents[0].list_tools()).tools}
         previous_tools = {tool.name: tool for tool in (await agents[1].list_tools()).tools}
         assert gpt6_tools["shell"].input_schema == previous_tools["bash"].input_schema
         assert "shell" in (gpt6_tools["process"].description or "")
-        params = ModelDatabase.get_model_params("gpt-6-luna")
+        params = ModelDatabase.get_model_params("gpt-6-sol")
         assert params is not None
         assert params.managed_process_poll_folding is True
         assert "bash" not in gpt6_tools
@@ -1061,6 +1130,55 @@ async def test_gpt6_shell_name_preserves_minimal_process_schema_and_folding_capa
     finally:
         for agent in agents:
             await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "codexresponses.gpt-6-luna",
+        "responses.gpt-6-luna",
+        "codexresponses.gpt-6-luna?reasoning=low",
+    ],
+)
+async def test_gpt6_luna_selected_luna_exec_contract_is_named_shell(model_name: str) -> None:
+    default_agent = McpAgent(
+        config=AgentConfig(
+            name="test", instruction="Instruction", servers=[], shell=True, model=model_name
+        ),
+        context=Context(),
+    )
+    try:
+        default_tools = {tool.name: tool for tool in (await default_agent.list_tools()).tools}
+        assert set(default_tools["shell"].input_schema["properties"]) == {
+            "command",
+            "run_in_background",
+        }
+    finally:
+        await default_agent._aggregator.close()
+
+    agent = McpAgent(
+        config=AgentConfig(
+            name="test", instruction="Instruction", servers=[], shell=True, model=model_name
+        ),
+        context=Context(config=Settings(shell_execution=ShellSettings(tool_profile="luna_exec"))),
+    )
+    try:
+        tools = {tool.name: tool for tool in (await agent.list_tools()).tools}
+        assert "exec" not in tools
+        assert "bash" not in tools
+        shell = tools["shell"]
+        assert set(shell.input_schema["properties"]) == {
+            "command",
+            "working_directory",
+            "background",
+            "timeout",
+        }
+        assert "result or exit status matters" in (shell.description or "")
+        assert "returned by shell" in (tools["process"].description or "")
+        assert {"write_text_file", "edit_file", "read_text_file"} <= set(tools)
+    finally:
+        await agent._aggregator.close()
 
 
 @pytest.mark.asyncio
