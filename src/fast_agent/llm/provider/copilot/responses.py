@@ -162,10 +162,24 @@ class CopilotResponsesLLM(ResponsesLLM):
         self, client: AsyncOpenAI, input_items: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         reject_files(input_items)
+        endpoint = self._copilot_endpoint.get()
+        display_model = (
+            f"{endpoint.model_id} [ws]" if endpoint.transport == "websocket" else endpoint.model_id
+        )
+        uploaded = False
+
+        def on_progress(count: int, total: int) -> None:
+            nonlocal uploaded
+            uploaded = True
+            self._log_upload_progress(count, total, model=display_model, noun="image")
+
         # Copilot attachments are distinct from the unsupported OpenAI Files API.
         normalized = await self._image_uploads.normalize(
-            {"input": input_items}, self._copilot_endpoint.get()
+            {"input": input_items}, endpoint, on_progress=on_progress
         )
+        if uploaded:
+            # Uploads run after the Sending event here; restore it for the request.
+            self._log_chat_progress(self.chat_turn(), model=display_model)
         return normalized["input"]
 
     @property
