@@ -75,6 +75,7 @@ class ResponsesWebSocketError(RuntimeError):
         *,
         stream_started: bool = False,
         error_code: str | None = None,
+        diagnostic_error_code: str | None = None,
         status: int | None = None,
         error_param: str | None = None,
         headers: dict[str, str] | None = None,
@@ -83,10 +84,16 @@ class ResponsesWebSocketError(RuntimeError):
         super().__init__(message)
         self.stream_started = stream_started
         self.error_code = error_code
+        self._diagnostic_error_code = diagnostic_error_code
         self.status = status
         self.error_param = error_param
         self.headers = headers
         self.stream_id = stream_id
+
+    @property
+    def diagnostic_error_code(self) -> str | None:
+        """Failure code for telemetry only; never used to decide retries."""
+        return self._diagnostic_error_code or self.error_code
 
 
 class _AttrObjectView:
@@ -1000,10 +1007,18 @@ class WebSocketResponsesStream:
             error_headers,
             stream_id,
         ) = self._extract_error_details(payload)
+        diagnostic_error_code: str | None = None
+        if payload.get("type") == "response.failed":
+            response = payload.get("response")
+            if isinstance(response, Mapping):
+                error = response.get("error")
+                if isinstance(error, Mapping):
+                    diagnostic_error_code = _non_empty_string(error.get("code"))
         raise ResponsesWebSocketError(
             error_message,
             stream_started=self._stream_started,
             error_code=error_code,
+            diagnostic_error_code=diagnostic_error_code,
             status=error_status,
             error_param=error_param,
             headers=error_headers,
@@ -1200,6 +1215,12 @@ class WebSocketConnectionManager:
             connection.created_monotonic = self._clock()
         if connection.reuse_key is None:
             connection.reuse_key = reuse_key
+
+    def connection_age_seconds(self, connection: ManagedWebSocketConnection) -> float | None:
+        """Observe age using the same monotonic clock as connection lifecycle policy."""
+        if connection.created_monotonic is None:
+            return None
+        return round(max(0.0, self._clock() - connection.created_monotonic), 3)
 
     def _is_too_old(self, connection: ManagedWebSocketConnection) -> bool:
         if self._max_age_seconds <= 0 or connection.created_monotonic is None:

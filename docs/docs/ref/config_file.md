@@ -779,6 +779,22 @@ When `logger.path` is omitted, file logging writes to
 `<current-working-directory>/fast-agent-log.jsonl`. Explicit relative paths continue to resolve
 from the process current working directory.
 
+Responses websocket failures emit an error-level structured event,
+`Responses websocket attempt failed`, through this logging path, including failures
+recovered by the transport's bounded reconnect. File logging persists these events
+as JSONL even at `level: "error"`; they do not depend on a completed assistant
+response or ATIF export. Logging disabled with `type: "none"` does not persist them.
+
+The `fast-agent.responses-websocket-failure/v1` payload includes an allowlisted
+`error_code` (`null` when absent, `unknown` for unrecognized codes), `stream_started`,
+connection ages at request start and failure in seconds (`null` when unknown),
+reuse status, and `reconnect_eligible`. Ages use the connection manager's monotonic
+clock. Eligibility describes the existing single transport reconnect only, not
+outer provider retries; `websocket_attempt` / `websocket_max_attempts` distinguish
+that bound from the provider `call`, `attempt`, and `max_attempts` counters.
+The diagnostic contains no error text, headers, URLs, request/response bodies,
+prompts, or credentials. It does not change retry or timeout policy.
+
 ## MCP Diagnostics Settings
 
 ```yaml
