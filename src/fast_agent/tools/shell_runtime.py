@@ -231,6 +231,7 @@ class ShellRuntime:
         extended_guidance: bool = False,
         tool_profile: ShellToolProfile | None = None,
         model_tool_profile: ResolvedShellToolProfile | None = None,
+        model_shell_tool_name: str | None = None,
         foreground_auto_await_max_seconds: float | None = None,
         durable_process_root: Path | None = None,
         session_id_provider: Callable[[], str | None] | None = None,
@@ -326,6 +327,7 @@ class ShellRuntime:
         self._minimal_process_profile = False
         self._grok_shell_profile = False
         self._luna_exec_profile = False
+        self._luna_exec_tool_name = LUNA_EXEC_TOOL_NAME
         self._process_poll_default_wait_seconds = min(
             process_poll_default_wait_seconds,
             self._max_process_poll_seconds,
@@ -336,6 +338,7 @@ class ShellRuntime:
         self.set_tool_profile(
             configured_profile,
             model_profile=model_tool_profile,
+            model_shell_tool_name=model_shell_tool_name,
         )
         process_readback_supported = (
             self._minimal_process_profile or self._grok_shell_profile or self._luna_exec_profile
@@ -385,9 +388,16 @@ class ShellRuntime:
         profile: ShellToolProfile,
         *,
         model_profile: ResolvedShellToolProfile | None = None,
+        model_shell_tool_name: str | None = None,
     ) -> None:
-        """Replace model-facing shell tools using config and model metadata."""
+        """Replace model-facing shell tools using config and model metadata.
+
+        ``model_shell_tool_name`` is the catalog's explicit model-facing shell tool
+        name. The luna_exec contract adopts it when present and otherwise keeps
+        its historical ``exec`` name.
+        """
         resolved_profile = resolve_shell_tool_profile(profile, model_profile)
+        self._luna_exec_tool_name = model_shell_tool_name or LUNA_EXEC_TOOL_NAME
         self._minimal_process_profile = resolved_profile == "minimal_process"
         self._grok_shell_profile = resolved_profile == "grok_shell"
         self._luna_exec_profile = resolved_profile == "luna_exec"
@@ -399,12 +409,12 @@ class ShellRuntime:
         shell_name = self.runtime_info().name
         if self._grok_shell_profile or self._luna_exec_profile:
             shell_tool = (
-                build_luna_exec_tool(shell_name=shell_name)
+                build_luna_exec_tool(shell_name=shell_name, tool_name=self._luna_exec_tool_name)
                 if self._luna_exec_profile
                 else build_grok_shell_tool(shell_name=shell_name)
             )
             shell_tool_name = (
-                LUNA_EXEC_TOOL_NAME if self._luna_exec_profile else GROK_SHELL_TOOL_NAME
+                self._luna_exec_tool_name if self._luna_exec_profile else GROK_SHELL_TOOL_NAME
             )
             self._tool = set_tool_source(
                 shell_tool,
@@ -740,7 +750,7 @@ class ShellRuntime:
             parsed = (
                 parse_minimal_bash_arguments(arguments)
                 if self._minimal_process_profile
-                else parse_luna_exec_arguments(arguments)
+                else parse_luna_exec_arguments(arguments, tool_name=self._luna_exec_tool_name)
                 if self._luna_exec_profile
                 else parse_grok_shell_arguments(arguments)
                 if self._grok_shell_profile
@@ -2187,7 +2197,7 @@ class ShellRuntime:
             yielded_reason=yielded_reason,
             minimal_process_profile=self._minimal_process_profile,
             aligned_shell_tool_name=(
-                LUNA_EXEC_TOOL_NAME
+                self._luna_exec_tool_name
                 if self._luna_exec_profile
                 else GROK_SHELL_TOOL_NAME
                 if self._grok_shell_profile
@@ -2608,9 +2618,9 @@ class ShellRuntime:
                 show_tool_call_id=show_tool_call_id,
                 defer_display_to_tool_result=defer_display_to_tool_result,
             )
-        if name == LUNA_EXEC_TOOL_NAME and self._luna_exec_profile:
+        if name == self._luna_exec_tool_name and self._luna_exec_profile:
             try:
-                parsed = parse_luna_exec_arguments(arguments)
+                parsed = parse_luna_exec_arguments(arguments, tool_name=self._luna_exec_tool_name)
             except ValueError as exc:
                 return self._invalid_execute_result(str(exc))
             return await self._execute_parsed(

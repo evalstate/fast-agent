@@ -659,6 +659,10 @@ class ModelDatabase:
         update={"reasoning_effort_spec": OPENAI_GPT_6_SOL_LUNA_REASONING}
     )
 
+    # GPT-6 Luna uses the foreground-first luna_exec shell contract (as GPT-5.6
+    # Luna does), exposed under the model's shell tool name ("shell").
+    OPENAI_GPT_6_LUNA = OPENAI_GPT_6_SOL_LUNA.model_copy(update={"shell_tool_profile": "luna_exec"})
+
     OPENAI_GPT_CODEX_SPARK = ModelParameters(
         context_window=128000,
         max_output_tokens=128000,
@@ -1359,7 +1363,7 @@ class ModelDatabase:
         "gpt-5.6-luna": _with_fast(OPENAI_GPT_56_LUNA),
         "gpt-6-astra": OPENAI_GPT_6_ASTRA,
         "gpt-6-sol": OPENAI_GPT_6_SOL_LUNA,
-        "gpt-6-luna": _with_fast(OPENAI_GPT_6_SOL_LUNA),
+        "gpt-6-luna": _with_fast(OPENAI_GPT_6_LUNA),
         "gpt-5.4-mini": OPENAI_GPT_54_SMALL.model_copy(
             update={"model_specific": GPT_53_PLUS_MODEL_SPECIFIC}
         ),
@@ -1503,7 +1507,7 @@ class ModelDatabase:
             for model, params in (
                 ("gpt-6-astra", OPENAI_GPT_6_ASTRA),
                 ("gpt-6-sol", OPENAI_GPT_6_SOL_LUNA),
-                ("gpt-6-luna", _with_fast(OPENAI_GPT_6_SOL_LUNA)),
+                ("gpt-6-luna", _with_fast(OPENAI_GPT_6_LUNA)),
             )
             for provider, window in (
                 (Provider.RESPONSES, 1_050_000),

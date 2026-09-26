@@ -172,6 +172,7 @@ class _ShellRuntimeSettings:
     process_poll_default_wait_seconds: int
     tool_profile: ShellToolProfile
     model_tool_profile: ResolvedShellToolProfile | None
+    model_shell_tool_name: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -888,6 +889,7 @@ class McpAgent(ABC, ToolAgent):
         configured_profile = shell_config.tool_profile if shell_config is not None else "auto"
         model_params = self._resolve_shell_model_params()
         model_tool_profile = model_params.shell_tool_profile if model_params is not None else None
+        model_shell_tool_name = model_params.shell_tool_name if model_params is not None else None
         model_name = self._resolve_shell_tool_model_name()
 
         if output_limit_selection == "explicit" and config_output_byte_limit is not None:
@@ -913,6 +915,7 @@ class McpAgent(ABC, ToolAgent):
             process_poll_default_wait_seconds=(self._model_process_poll_default_wait_seconds()),
             tool_profile=configured_profile,
             model_tool_profile=model_tool_profile,
+            model_shell_tool_name=model_shell_tool_name,
         )
 
     def _model_process_poll_default_wait_seconds(
@@ -1257,6 +1260,9 @@ class McpAgent(ABC, ToolAgent):
         self._shell_runtime.set_tool_profile(
             configured_profile,
             model_profile=(model_params.shell_tool_profile if model_params is not None else None),
+            model_shell_tool_name=(
+                model_params.shell_tool_name if model_params is not None else None
+            ),
         )
         self._bash_tool = self._shell_runtime.tool
         self._shell_runtime.set_process_poll_default_wait_seconds(
@@ -1348,6 +1354,7 @@ class McpAgent(ABC, ToolAgent):
             process_poll_default_wait_seconds=(shell_settings.process_poll_default_wait_seconds),
             tool_profile=shell_settings.tool_profile,
             model_tool_profile=shell_settings.model_tool_profile,
+            model_shell_tool_name=shell_settings.model_shell_tool_name,
             config=config,
             agent_name=self._name,
             shell_environment=self._shell_environment,

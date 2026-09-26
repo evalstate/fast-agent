@@ -106,6 +106,45 @@ def test_luna_exec_profile_exposes_exec_and_unified_process() -> None:
     assert "path" not in properties
 
 
+@pytest.mark.asyncio
+async def test_luna_exec_adopts_explicit_model_shell_tool_name() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("luna-exec-test"),
+        foreground_yield_seconds=0.001,
+        model_shell_tool_name="shell",
+        config=Settings(shell_execution=ShellSettings(tool_profile="luna_exec", show_bash=False)),
+    )
+
+    assert [tool.name for tool in runtime.tools] == ["shell", "process"]
+    assert runtime.owns_tool("shell")
+    assert not runtime.owns_tool("exec")
+    assert set(runtime.tools[0].input_schema["properties"]) == {
+        "command",
+        "working_directory",
+        "background",
+        "timeout",
+    }
+    assert "returned by shell" in (runtime.tools[1].description or "")
+
+    result = await runtime.call_tool("shell", {"command": "echo luna-shell-ok"})
+    assert not result.is_error
+    assert "luna-shell-ok" in _text(result)
+
+    rejected = await runtime.call_tool("shell", {"command": "echo x", "run_in_background": True})
+    assert rejected.is_error
+
+
+def test_luna_exec_keeps_exec_name_without_model_shell_tool_name() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("luna-exec-test"),
+        model_shell_tool_name=None,
+        config=Settings(shell_execution=ShellSettings(tool_profile="luna_exec")),
+    )
+    assert [tool.name for tool in runtime.tools] == ["exec", "process"]
+
+
 @pytest.mark.parametrize("suffix", ["é", "€", "😀"])
 @pytest.mark.parametrize("limit", [2048, 3000])
 def test_preview_preserves_buffer_truncation_at_utf8_boundary(suffix: str, limit: int) -> None:

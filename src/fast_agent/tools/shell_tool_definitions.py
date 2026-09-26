@@ -453,9 +453,9 @@ def build_grok_shell_tool(*, shell_name: str) -> Tool:
     )
 
 
-def build_luna_exec_tool(*, shell_name: str) -> Tool:
+def build_luna_exec_tool(*, shell_name: str, tool_name: str = LUNA_EXEC_TOOL_NAME) -> Tool:
     return Tool(
-        name=LUNA_EXEC_TOOL_NAME,
+        name=tool_name,
         description=(
             f"Run one shell command in {shell_name}. Keep finite commands whose "
             "result or exit status matters in the foreground. Omit `timeout` for "
@@ -693,10 +693,12 @@ def parse_grok_shell_arguments(
 
 def parse_luna_exec_arguments(
     arguments: dict[str, Any] | None,
+    *,
+    tool_name: str = LUNA_EXEC_TOOL_NAME,
 ) -> ShellExecuteArguments:
     return _parse_aligned_shell_arguments(
         arguments,
-        tool_name=LUNA_EXEC_TOOL_NAME,
+        tool_name=tool_name,
         allowed_arguments=_LUNA_EXEC_ARGUMENTS,
     )
 

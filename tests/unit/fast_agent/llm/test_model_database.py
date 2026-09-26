@@ -111,16 +111,19 @@ def test_gpt_6_sol_luna_match_astra_contract_with_none_effort(model: str) -> Non
         "codex_responses_lite",
         "response_service_tiers",
         "shell_edit_tool",
-        "shell_tool_profile",
+        "shell_tool_name",
         "text_verbosity_spec",
         "tokenizes",
     }
     assert params.model_dump(include=shared) == astra.model_dump(include=shared)
+    assert params.shell_tool_profile == ("luna_exec" if model == "gpt-6-luna" else None)
+    assert astra.shell_tool_profile is None
     assert params.fast is (model == "gpt-6-luna")
     for provider, window in ((Provider.RESPONSES, 1_050_000), (Provider.CODEX_RESPONSES, 872_000)):
         routed = ModelDatabase.get_model_params(model, provider=provider)
         assert routed is not None
         assert routed.long_context_window == window
+        assert routed.shell_tool_profile == params.shell_tool_profile
 
 
 @pytest.mark.parametrize("provider", [Provider.RESPONSES, Provider.CODEX_RESPONSES])
