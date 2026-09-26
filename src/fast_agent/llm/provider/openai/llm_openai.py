@@ -2,6 +2,7 @@ import asyncio
 import json
 from contextlib import suppress
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, ClassVar, Protocol, cast, runtime_checkable
@@ -63,6 +64,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
+from fast_agent.llm.upload_progress import plan_upload, run_with_upload_progress
 from fast_agent.llm.usage_tracking import usage_from_openai_chat
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.mime_utils import guess_mime_type
@@ -316,12 +318,32 @@ class OpenAILLM(
             return part, False
 
         filename = self._chat_file_filename(file_obj)
+        # Content-hash caching needs the bytes, so key remote files by URL to avoid
+        # re-downloading every history attachment on every turn.
+        remote_key = (
+            f"url:{filename or ''}:{file_url}"
+            if file_url.startswith(("http://", "https://"))
+            else None
+        )
+        if remote_key is not None:
+            if cached := self._file_id_cache.get(remote_key):
+                return {"type": "file", "file": {"file_id": cached}}, True
+            if plan_upload(remote_key):
+                return part, False
         data_bytes, filename, mime_type = await self._chat_file_bytes_from_url(file_url, filename)
         if data_bytes is None:
             return part, False
 
         resolved_mime_type = mime_type or guess_mime_type(filename or file_url)
-        file_id = await self._upload_file_bytes(client, data_bytes, filename, resolved_mime_type)
+        file_id = await self._upload_file_bytes(
+            client,
+            data_bytes,
+            filename,
+            resolved_mime_type,
+            already_counted=remote_key is not None,
+        )
+        if remote_key is not None:
+            self._file_id_cache[remote_key] = file_id
         return {"type": "file", "file": {"file_id": file_id}}, True
 
     async def _normalize_chat_content_parts(
@@ -364,7 +386,15 @@ class OpenAILLM(
         client: AsyncOpenAI,
         messages: list[ChatCompletionMessageParam],
     ) -> list[ChatCompletionMessageParam]:
-        return [await self._normalize_chat_message_files(client, message) for message in messages]
+        async def walk() -> list[ChatCompletionMessageParam]:
+            return [
+                await self._normalize_chat_message_files(client, message) for message in messages
+            ]
+
+        normalized, _ = await run_with_upload_progress(
+            walk, partial(self._log_upload_progress, model=self.default_request_params.model)
+        )
+        return normalized
 
     def _resolve_reasoning_effort(self) -> str | None:
         setting = self.reasoning_effort

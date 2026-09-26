@@ -1467,6 +1467,21 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         }
         self.logger.debug("Chat in progress", data=data)
 
+    def _log_upload_progress(
+        self, uploaded: int, total: int, *, model: str | None, noun: str = "attachment"
+    ) -> None:
+        """Log an attachment upload step (``uploaded`` of ``total``) before a request."""
+        self.logger.debug(
+            "Uploading attachments",
+            data={
+                "progress_action": ProgressAction.UPLOADING,
+                "model": model,
+                "agent_name": self.name,
+                "chat_turn": self.chat_turn(),
+                "details": f"{noun} {uploaded}/{total}",
+            },
+        )
+
     def _update_streaming_progress(self, content: str, model: str, estimated_tokens: int) -> int:
         """Update streaming progress with token estimation and formatting.
 

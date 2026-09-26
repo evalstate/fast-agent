@@ -134,7 +134,9 @@ class _FileHarness(ResponsesFileMixin):
     def __init__(self) -> None:
         self._file_id_cache: dict[str, str] = {}
 
-    async def _upload_file_bytes(self, client, data, filename, mime_type) -> str:
+    async def _upload_file_bytes(
+        self, client, data, filename, mime_type, *, already_counted: bool = False
+    ) -> str:
         return f"file_{len(data)}"
 
 
