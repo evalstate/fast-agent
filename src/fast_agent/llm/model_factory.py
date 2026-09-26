@@ -160,6 +160,7 @@ _PROVIDER_CLASS_PATHS: dict[Provider, tuple[str, str]] = {
         "MetaAIResponsesLLM",
     ),
     Provider.OPENROUTER: ("fast_agent.llm.provider.openai.llm_openrouter", "OpenRouterLLM"),
+    Provider.ORCAROUTER: ("fast_agent.llm.provider.openai.llm_orcarouter", "OrcaRouterLLM"),
     Provider.TENSORZERO: (
         "fast_agent.llm.provider.openai.llm_tensorzero_openai",
         "TensorZeroOpenAILLM",

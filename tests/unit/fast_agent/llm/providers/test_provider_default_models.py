@@ -21,6 +21,7 @@ from fast_agent.config import (
     OpenAISettings,
     OpenResponsesSettings,
     OpenRouterSettings,
+    OrcaRouterSettings,
     Settings,
 )
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS
@@ -34,6 +35,7 @@ from fast_agent.llm.provider.openai.llm_google_oai import GoogleOaiLLM
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider.openai.llm_openrouter import OpenRouterLLM
+from fast_agent.llm.provider.openai.llm_orcarouter import OrcaRouterLLM
 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider_types import Provider
@@ -155,6 +157,55 @@ def test_openrouter_provider_base_url_prefers_config_over_env() -> None:
             os.environ.pop("OPENROUTER_BASE_URL", None)
         else:
             os.environ["OPENROUTER_BASE_URL"] = original_env
+
+
+def test_orcarouter_provider_default_model_used_when_model_missing() -> None:
+    llm = OrcaRouterLLM(context=Context(config=Settings()), model="")
+
+    assert llm.default_request_params.model == "openai/gpt-4o-mini"
+
+
+def test_orcarouter_provider_config_default_model_used_when_model_missing() -> None:
+    settings = Settings(orcarouter=OrcaRouterSettings(default_model="anthropic/claude-sonnet-4-6"))
+    llm = OrcaRouterLLM(context=Context(config=settings), model="")
+
+    assert llm.default_request_params.model == "anthropic/claude-sonnet-4-6"
+
+
+def test_orcarouter_provider_bare_model_gets_namespace() -> None:
+    llm = OrcaRouterLLM(context=Context(config=Settings()), model="auto")
+
+    assert llm.default_request_params.model == "orcarouter/auto"
+
+
+def test_orcarouter_provider_namespaced_model_is_preserved() -> None:
+    llm = OrcaRouterLLM(
+        context=Context(config=Settings()),
+        model="google/gemini-2.5-flash",
+    )
+
+    assert llm.default_request_params.model == "google/gemini-2.5-flash"
+
+
+def test_orcarouter_provider_base_url_prefers_config_over_env() -> None:
+    original_env = os.environ.get("ORCAROUTER_BASE_URL")
+    os.environ["ORCAROUTER_BASE_URL"] = "https://env-orcarouter.example/v1"
+    try:
+        settings = Settings(orcarouter=OrcaRouterSettings(base_url="https://config.example/v1"))
+        llm = OrcaRouterLLM(context=Context(config=settings), model="openai/gpt-4o-mini")
+
+        assert llm._base_url() == "https://config.example/v1"
+    finally:
+        if original_env is None:
+            os.environ.pop("ORCAROUTER_BASE_URL", None)
+        else:
+            os.environ["ORCAROUTER_BASE_URL"] = original_env
+
+
+def test_orcarouter_provider_default_base_url_used_when_unset() -> None:
+    llm = OrcaRouterLLM(context=Context(config=Settings()), model="openai/gpt-4o-mini")
+
+    assert llm._base_url() == "https://api.orcarouter.ai/v1"
 
 
 def test_huggingface_provider_default_model_used_with_provider_suffix() -> None:
