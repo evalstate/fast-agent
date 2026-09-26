@@ -245,7 +245,7 @@ class ResponsesLLM(
         self._last_transport_used: ResponsesActiveTransport | None = None
         self._ws_connections = WebSocketConnectionManager(
             idle_timeout_seconds=55 * 60.0,
-            max_age_seconds=55 * 60.0,
+            max_age_seconds=self._websocket_max_age_seconds(),
         )
         self._ws_debug_inline = env_flag("FAST_AGENT_DEBUG_RESPONSES_WS")
         self._web_search_override: bool | None = (
@@ -523,6 +523,10 @@ class ResponsesLLM(
 
     def _prepare_websocket_arguments(self, arguments: dict[str, Any]) -> None:
         """Apply provider-specific per-request websocket metadata."""
+
+    def _websocket_max_age_seconds(self) -> float:
+        """Rotate connections at safe request boundaries before the provider lifetime limit."""
+        return 55 * 60.0
 
     def _websocket_keepalive_options(self) -> ResponsesWebSocketKeepaliveOptions:
         return {}
