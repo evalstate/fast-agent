@@ -83,6 +83,7 @@ def test_tool_is_a_responses_custom_grammar_tool() -> None:
     assert payload["format"]["syntax"] == "lark"
     assert "# @shell:" in payload["format"]["definition"]
     assert "not JSON" in (tool.description or "")
+    assert "stopped when the session ends" in (tool.description or "")
 
 
 @pytest.mark.asyncio
@@ -133,3 +134,27 @@ async def test_gpt6_luna_agent_exposes_freeform_shell_when_selected() -> None:
         assert {"process", "read_text_file", "write_text_file", "edit_file"} <= set(tools)
     finally:
         await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_yielded_foreground_process_names_freeform_background_syntax() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("freeform-test"),
+        model_shell_tool_name="shell",
+        config=Settings(
+            shell_execution=ShellSettings(tool_profile="freeform_shell", show_bash=False)
+        ),
+        idle_yield_seconds=0.05,
+        foreground_yield_seconds=0.5,
+        foreground_auto_await_max_seconds=0,
+    )
+    try:
+        result = await runtime.call_tool("shell", {"input": "sleep 5"})
+        block = result.content[0]
+        assert isinstance(block, TextContent)
+        assert "stopped when the session ends" in block.text
+        assert 'relaunch with a first line `# @shell: {"background": true}`' in block.text
+        assert "background=true" not in block.text
+    finally:
+        await runtime.close()

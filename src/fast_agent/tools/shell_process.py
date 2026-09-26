@@ -294,6 +294,7 @@ def build_managed_process_result(
     aligned_shell_tool_name: str | None,
     io_drain_timeout_seconds: float,
     output_preview_limit: int | None = None,
+    background_option_hint: str | None = None,
 ) -> CallToolResult:
     unread_output_line_count = process.output_state.unread_output_line_count
     output = process.output_state.consume(output_preview_limit)
@@ -366,11 +367,14 @@ def build_managed_process_result(
             and process.lifecycle == "session"
             and yielded_reason in {"idle", "foreground", "auto_await_cap"}
         ):
+            relaunch_option = background_option_hint or (
+                "background=true"
+                if aligned_shell_tool_name is not None
+                else "run_in_background=true"
+            )
             sections.append(
-                "This process is session-scoped and will be stopped when the agent finishes. "
-                "If it must remain running, stop it and relaunch with "
-                f"{'background' if aligned_shell_tool_name is not None else 'run_in_background'}"
-                "=true."
+                "This process is session-scoped and will be stopped when the session ends. "
+                f"If it must keep running afterwards, stop it and relaunch with {relaunch_option}."
             )
         if (
             process.callbacks.os_process_id is not None

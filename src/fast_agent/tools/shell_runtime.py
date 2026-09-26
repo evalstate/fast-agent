@@ -88,6 +88,7 @@ from fast_agent.tools.shell_profiles import (
 )
 from fast_agent.tools.shell_progress import ShellProgressReporter
 from fast_agent.tools.shell_tool_definitions import (
+    FREEFORM_SHELL_PRAGMA,
     PROCESS_OUTPUT_DEBOUNCE_SECONDS,
     MinimalProcessReadOutputArguments,
     ShellExecuteArguments,
@@ -2267,6 +2268,11 @@ class ShellRuntime:
             ),
             io_drain_timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
             output_preview_limit=output_preview_limit,
+            background_option_hint=(
+                f'a first line `{FREEFORM_SHELL_PRAGMA} {{"background": true}}`'
+                if self._freeform_shell_profile
+                else None
+            ),
         )
         metadata = process_result_metadata(result)
         if metadata is not None and process.foreground_auto_await is not None:

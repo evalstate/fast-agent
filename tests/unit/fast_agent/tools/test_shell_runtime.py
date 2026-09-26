@@ -2651,7 +2651,7 @@ async def test_automatically_yielded_foreground_process_remains_session_scoped()
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "effective_lifecycle" not in result.content[0].text
-    assert "session-scoped and will be stopped when the agent finishes" in (result.content[0].text)
+    assert "session-scoped and will be stopped when the session ends" in (result.content[0].text)
     assert "relaunch with run_in_background=true" in result.content[0].text
     metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
     assert metadata["lifecycle"] == "session"
