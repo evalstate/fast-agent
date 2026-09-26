@@ -23,10 +23,14 @@ They are useful when you want a short token such as `qwen-local` or `sonnet-lab`
 
 In practice, overlays are the easiest way to work with:
 
+- hosted OpenAI-compatible services with separate endpoints and API keys
 - local OpenAI-compatible servers
 - self-hosted `llama.cpp` endpoints
 - alternate gateways for the same wire model
 - multiple differently-tuned variants of the same underlying model
+
+For Neuralwatt, DeepInfra, SiliconFlow, and OrcaRouter endpoints and a hosted
+overlay example, see [Additional Providers](providers/additional.md#multiple-hosted-providers).
 
 ## What an overlay does
 

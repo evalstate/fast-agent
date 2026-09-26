@@ -54,7 +54,11 @@ uv tool install -U fast-agent-mcp
 fast-agent --model opus -xx
 ```
 
-Use local models with the generic provider, or automatically create the correct configuration for `llama.cpp`:
+Use hosted OpenAI-compatible services such as Neuralwatt, DeepInfra, SiliconFlow,
+and OrcaRouter with the `generic` provider. See the [hosted provider setup guide](docs/docs/models/providers/additional.md#hosted-provider-setup)
+for endpoints, API keys, and model selection.
+
+For local models, use the same `generic` provider, or automatically create the correct configuration for `llama.cpp`:
 
 ```bash
 fast-agent model llamacpp
