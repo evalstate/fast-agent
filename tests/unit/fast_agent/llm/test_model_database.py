@@ -1181,10 +1181,11 @@ def test_catalog_entries_are_internally_consistent() -> None:
 
 
 def test_runaway_tool_input_limit_applies_only_to_gpt_6_luna() -> None:
-    limits = {
-        model: ModelDatabase.get_model_params(model).tool_input_stream_delta_limit  # type: ignore[union-attr]
-        for model in ("gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "gpt-5.6-luna", "grok-4.3")
-    }
+    limits: dict[str, int | None] = {}
+    for model in ("gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "gpt-5.6-luna", "grok-4.3"):
+        params = ModelDatabase.get_model_params(model)
+        assert params is not None
+        limits[model] = params.tool_input_stream_delta_limit
     assert limits == {
         "gpt-6-luna": 64_000,
         "gpt-6-sol": None,
