@@ -47,6 +47,7 @@ from fast_agent.llm.provider.openai.tool_event_helpers import (
 )
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider.openai.tool_stream_state import OpenAIToolStreamState
+from fast_agent.llm.provider.streaming_timeouts import ToolInputRunawayError
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.tool_activity_presentation import (
     ToolActivityFamily,
@@ -150,6 +151,14 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         ) -> int: ...
 
         def chat_turn(self) -> int: ...
+
+        def _get_model_params(self, model_name: str | None) -> Any: ...
+
+    def _tool_input_stream_delta_limit(self, model: str) -> int | None:
+        get_params = getattr(self, "_get_model_params", None)
+        params = get_params(model) if callable(get_params) else None
+        limit = getattr(params, "tool_input_stream_delta_limit", None)
+        return limit if isinstance(limit, int) else None
 
     def _is_provider_managed_function_call(self, name: str) -> bool:
         del name
@@ -690,6 +699,49 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
 
         return False
 
+    def _check_tool_input_runaway(
+        self,
+        event: Any,
+        *,
+        tool_state: OpenAIToolStreamState,
+        counters: dict[object, list[int]],
+        limit: int,
+    ) -> None:
+        """Count one tool-input delta and raise once a single call exceeds ``limit``."""
+        index = getattr(event, "output_index", None)
+        item_id = responses_event_item_id(event)
+        key: object = item_id if item_id is not None else index
+        delta = getattr(event, "delta", None)
+        text = delta if isinstance(delta, str) else ""
+        counts = counters.setdefault(key, [0, 0, 0])  # deltas, chars, whitespace-only
+        counts[0] += 1
+        counts[1] += len(text)
+        counts[2] += bool(text) and not text.strip()
+        if counts[0] <= limit:
+            return
+        tool_info = tool_state.resolve_open(index=index, item_id=item_id)
+        tool_name = tool_info.tool_name if tool_info is not None else None
+        error = ToolInputRunawayError(
+            tool_name=tool_name,
+            limit=limit,
+            deltas=counts[0],
+            chars=counts[1],
+            whitespace_only_deltas=counts[2],
+        )
+        self.logger.error(
+            "Runaway tool input stream abandoned",
+            data={
+                "tool_name": tool_name,
+                "event_type": getattr(event, "type", None),
+                "limit": limit,
+                "deltas": counts[0],
+                "chars": counts[1],
+                "whitespace_only_deltas": counts[2],
+                "tail_whitespace_only": not text.strip(),
+            },
+        )
+        raise error
+
     async def _process_stream(
         self, stream: Any, model: str, capture_filename: Path | None
     ) -> tuple[Any, list[str]]:
@@ -703,10 +755,19 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         final_response: Any | None = None
         completed_output_items: list[CompletedOutputItem] = []
         stream_event_index = 0
+        tool_input_limit = self._tool_input_stream_delta_limit(model)
+        tool_input_deltas: dict[object, list[int]] = {}
 
         async for event in stream:
             _save_stream_chunk(capture_filename, event)
             event_type = getattr(event, "type", None)
+            if tool_input_limit is not None and event_type in _ARGUMENT_DELTA_EVENT_TYPES:
+                self._check_tool_input_runaway(
+                    event,
+                    tool_state=tool_state,
+                    counters=tool_input_deltas,
+                    limit=tool_input_limit,
+                )
             self._handle_safety_buffering_event(
                 event,
                 model=model,
