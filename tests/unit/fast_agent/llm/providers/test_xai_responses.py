@@ -134,28 +134,6 @@ def test_xai_responses_provider_defaults_to_websocket_transport() -> None:
     assert llm.configured_transport == "websocket"
 
 
-def test_xai_sends_custom_grammar_tools_as_json_functions() -> None:
-    from fast_agent.tools.shell_tool_definitions import build_freeform_shell_tool
-
-    tool = build_freeform_shell_tool(shell_name="bash", tool_name="shell")
-    xai = XAIResponsesLLM(
-        context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
-        model="grok-4.3",
-    )
-    openai = ResponsesLLM(
-        context=Context(config=Settings()),
-        model="gpt-6-sol",
-    )
-
-    [xai_payload] = xai._build_declared_tools_payload([tool], "grok-4.3")
-    [openai_payload] = openai._build_declared_tools_payload([tool], "gpt-6-sol")
-
-    assert xai_payload["type"] == "function"
-    assert xai_payload["name"] == "shell"
-    assert xai_payload["parameters"]["required"] == ["input"]
-    assert openai_payload["type"] == "custom"
-
-
 def test_xai_image_upload_settings_default_to_public_urls_and_validate_ttl() -> None:
     settings = XAISettings()
 

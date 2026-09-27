@@ -59,9 +59,6 @@ XAI_X_SEARCH_INTERNAL_TOOL_NAMES = frozenset(
 class XAIResponsesLLM(ResponsesLLM):
     """LLM implementation for xAI's Responses-compatible API."""
 
-    # xAI rejects `type: custom` tools ("unknown variant `custom`").
-    _supports_custom_tools = False
-
     def _translate_responses_usage(
         self,
         usage: ResponseUsage,
