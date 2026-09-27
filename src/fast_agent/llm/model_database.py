@@ -643,6 +643,9 @@ class ModelDatabase:
         reasoning="openai",
         reasoning_effort_spec=OPENAI_GPT_6_ASTRA_REASONING,
         shell_tool_name="shell",
+        # GPT-6 writes shell commands as raw text through the freeform
+        # (Responses custom-grammar) contract named "shell".
+        shell_tool_profile="freeform_shell",
         shell_edit_tool="write_text_file",
         text_verbosity_spec=TextVerbositySpec(default="low"),
         response_transports=("sse", "websocket"),
@@ -659,11 +662,7 @@ class ModelDatabase:
         update={"reasoning_effort_spec": OPENAI_GPT_6_SOL_LUNA_REASONING}
     )
 
-    # GPT-6 Luna writes shell commands as raw text (Codex runs GPT-6 without JSON
-    # tool arguments), using the freeform luna_exec contract named "shell".
-    OPENAI_GPT_6_LUNA = OPENAI_GPT_6_SOL_LUNA.model_copy(
-        update={"shell_tool_profile": "freeform_shell"}
-    )
+    OPENAI_GPT_6_LUNA = OPENAI_GPT_6_SOL_LUNA
 
     OPENAI_GPT_CODEX_SPARK = ModelParameters(
         context_window=128000,
