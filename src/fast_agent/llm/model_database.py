@@ -644,8 +644,7 @@ class ModelDatabase:
         reasoning_effort_spec=OPENAI_GPT_6_ASTRA_REASONING,
         shell_tool_name="shell",
         # GPT-6 writes shell commands as raw text through the freeform
-        # (Responses custom-grammar) contract named "shell"; providers without
-        # custom tools receive the same tool as a JSON function.
+        # (Responses custom-grammar) contract named "shell".
         shell_tool_profile="freeform_shell",
         shell_edit_tool="write_text_file",
         text_verbosity_spec=TextVerbositySpec(default="low"),
