@@ -1108,7 +1108,8 @@ async def test_gpt6_defaults_to_writer_editor_pair_with_shell_name(model_name: s
 
 
 @pytest.mark.asyncio
-async def test_gpt6_shell_name_preserves_minimal_process_schema_and_folding_capability() -> None:
+@pytest.mark.parametrize("gpt6_model", ["codexresponses.gpt-6-sol", "codexresponses.gpt-6-astra"])
+async def test_gpt6_sol_astra_use_freeform_shell_with_folding_capability(gpt6_model: str) -> None:
     agents = [
         McpAgent(
             config=AgentConfig(
@@ -1116,14 +1117,15 @@ async def test_gpt6_shell_name_preserves_minimal_process_schema_and_folding_capa
             ),
             context=Context(),
         )
-        for model in ("codexresponses.gpt-6-sol", "codexresponses.gpt-5.5")
+        for model in (gpt6_model, "codexresponses.gpt-5.5")
     ]
     try:
         gpt6_tools = {tool.name: tool for tool in (await agents[0].list_tools()).tools}
         previous_tools = {tool.name: tool for tool in (await agents[1].list_tools()).tools}
-        assert gpt6_tools["shell"].input_schema == previous_tools["bash"].input_schema
+        assert get_openai_responses_custom_tool_payload(gpt6_tools["shell"]) is not None
+        assert get_openai_responses_custom_tool_payload(previous_tools["bash"]) is None
         assert "shell" in (gpt6_tools["process"].description or "")
-        params = ModelDatabase.get_model_params("gpt-6-sol")
+        params = ModelDatabase.get_model_params(gpt6_model.removeprefix("codexresponses."))
         assert params is not None
         assert params.managed_process_poll_folding is True
         assert "bash" not in gpt6_tools

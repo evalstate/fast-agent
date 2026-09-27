@@ -205,6 +205,10 @@ class ResponsesLLM(
 ):
     """LLM implementation for OpenAI's Responses models."""
 
+    # Responses-compatible APIs without custom (freeform/grammar) tools receive
+    # those tools as JSON functions with the same single-string input schema.
+    _supports_custom_tools: bool = True
+
     config_section: str | None = None
 
     RESPONSES_EXCLUDE_FIELDS: ClassVar[set[str]] = {
@@ -870,7 +874,11 @@ class ResponsesLLM(
     ) -> list[dict[str, Any]]:
         tools_payload: list[dict[str, Any]] = []
         for tool in tools or []:
-            custom_payload = get_openai_responses_custom_tool_payload(tool)
+            custom_payload = (
+                get_openai_responses_custom_tool_payload(tool)
+                if self._supports_custom_tools
+                else None
+            )
             if custom_payload is not None:
                 tools_payload.append(custom_payload)
                 continue
