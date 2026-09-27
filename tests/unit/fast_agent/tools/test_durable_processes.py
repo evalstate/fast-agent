@@ -1117,6 +1117,8 @@ async def test_durable_poll_waits_for_unread_output_to_settle(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(shell_runtime_module, "_PROCESS_OUTPUT_DEBOUNCE_SECONDS", 0.1)
+    # This test covers poll debounce; skip the launch settle so the burst is still unread.
+    monkeypatch.setattr(shell_runtime_module, "BACKGROUND_LAUNCH_SETTLE_SECONDS", 0)
     root = tmp_path / "processes"
     script = tmp_path / "burst.py"
     script.write_text(
@@ -1191,7 +1193,9 @@ async def test_cancelled_durable_poll_preserves_output_debounce(
     )
     result = await runtime.execute(
         {
-            "command": "printf ready; sleep 30",
+            # Emit after the background launch settle window so the output is fresh
+            # (inside the debounce) when the poll below starts.
+            "command": "sleep 1.8; printf ready; sleep 30",
             "background": True,
         }
     )

@@ -78,6 +78,11 @@ class ModelParameters(BaseModel):
     shell_tool_profile: ResolvedShellToolProfile | None = None
     """Optional model-specific shell contract selected when shell tool profile is auto."""
 
+    tool_input_stream_delta_limit: int | None = Field(default=None, ge=1)
+    """Abort and retry a Responses stream attempt when one tool call's streamed input
+    exceeds this many delta events (about one token each); guards against runaway
+    tool input. ``None`` disables the guard."""
+
     reasoning: None | str = None
     """Reasoning output style. 'tags' if enclosed in <thinking> tags, 'none' if not used"""
 
@@ -662,7 +667,12 @@ class ModelDatabase:
         update={"reasoning_effort_spec": OPENAI_GPT_6_SOL_LUNA_REASONING}
     )
 
-    OPENAI_GPT_6_LUNA = OPENAI_GPT_6_SOL_LUNA
+    # Freeform shell comes from Astra. The runaway-input limit is about 1.8x the
+    # largest observed legitimate GPT-6 Luna tool input (35,438 tokens); observed
+    # runaways streamed whitespace for 25-73 minutes.
+    OPENAI_GPT_6_LUNA = OPENAI_GPT_6_SOL_LUNA.model_copy(
+        update={"tool_input_stream_delta_limit": 64_000}
+    )
 
     OPENAI_GPT_CODEX_SPARK = ModelParameters(
         context_window=128000,

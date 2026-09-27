@@ -317,8 +317,8 @@ def build_minimal_bash_tool(
         description=(
             f"Run one shell command in {shell_name}. Set "
             "`run_in_background=true` for a server, service, or other "
-            "long-running command; it returns a managed process ID and remains "
-            "running for the verifier. Do not use shell `&`, `nohup`, or `disown` "
+            "long-running command; it returns a managed process ID and keeps "
+            "running after the session ends. Do not use shell `&`, `nohup`, or `disown` "
             f"to detach services. {process_guidance}"
         ),
         input_schema={
@@ -421,7 +421,7 @@ def build_grok_shell_tool(*, shell_name: str) -> Tool:
             "`timeout` is present, wait "
             "synchronously for completion and terminate the process group if the hard "
             "deadline expires. Set `background=true` only for a server, service, or "
-            "other command that must remain running for later checks or the verifier. "
+            "other command that must keep running after the session ends. "
             "Do not use shell `&`, `nohup`, or `disown` to detach services."
         ),
         input_schema={
@@ -538,7 +538,11 @@ def build_freeform_shell_tool(*, shell_name: str, tool_name: str) -> Tool:
             f'`{FREEFORM_SHELL_PRAGMA} {{"timeout": 300}}` only when a hard deadline is '
             "explicitly wanted (expiry terminates the process group); "
             f'`{FREEFORM_SHELL_PRAGMA} {{"workdir": "/path"}}` to run in another '
-            "directory. Do not use shell `&`, `nohup`, or `disown`."
+            "directory. Do not use shell `&`, `nohup`, or `disown`. Commands started "
+            "without the background option are stopped when the session ends, including "
+            "any still running when they return a process ID. Start servers and services "
+            "that must keep running afterwards with a first line "
+            f'`{FREEFORM_SHELL_PRAGMA} {{"background": true}}`.'
         ),
         input_schema={
             "type": "object",
