@@ -421,7 +421,7 @@ def build_grok_shell_tool(*, shell_name: str) -> Tool:
             "`timeout` is present, wait "
             "synchronously for completion and terminate the process group if the hard "
             "deadline expires. Set `background=true` only for a server, service, or "
-            "other command that must remain running for later checks or the verifier. "
+            "other command that must keep running after the session ends. "
             "Do not use shell `&`, `nohup`, or `disown` to detach services."
         ),
         input_schema={
