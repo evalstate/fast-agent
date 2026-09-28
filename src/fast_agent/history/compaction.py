@@ -648,6 +648,10 @@ async def compact_conversation(
             ),
             "template_messages": len(plan.templates),
             "retained_messages": len(plan.retained_tail),
+            # The summarization call is a real model call: keep its request and
+            # response (with usage/timing channels) so exports can account for it.
+            "summary_request": request_text,
+            "summary_response": response.model_dump(by_alias=True, mode="json", exclude_none=True),
         },
     )
 

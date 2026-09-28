@@ -882,7 +882,8 @@ def test_fold_archives_exact_usage_and_atif_restores_totals(tmp_path, summary_co
     assert trajectory.final_metrics.total_cached_tokens == 400
     assert trajectory.final_metrics.total_completion_tokens == 65
     assert trajectory.final_metrics.total_cost_usd == pytest.approx(0.15)
-    assert trajectory.final_metrics.total_steps == 7 + int(summary_compaction)
+    # A summary boundary adds itself plus the copied retained tail (the final reply).
+    assert trajectory.final_metrics.total_steps == 7 + 2 * int(summary_compaction)
     assert trajectory.final_metrics.extra is not None
     assert trajectory.final_metrics.extra["total_reasoning_tokens"] == 15
     assert trajectory.final_metrics.extra["total_tool_use_tokens"] == 15
@@ -894,7 +895,8 @@ def test_fold_archives_exact_usage_and_atif_restores_totals(tmp_path, summary_co
     assert trajectory.final_metrics.extra["observed_prompt_tokens_lower_bound"] == 515
     assert trajectory.final_metrics.extra["observed_completion_tokens_lower_bound"] == 65
     assert trajectory.final_metrics.extra["observed_cached_tokens_lower_bound"] == 400
-    assert len(trajectory.steps) == 7 + int(summary_compaction)
+    assert len(trajectory.steps) == 7 + 2 * int(summary_compaction)
+    assert sum(bool(step.is_copied_context) for step in trajectory.steps) == int(summary_compaction)
     step_metrics = [step.metrics for step in trajectory.steps if step.metrics is not None]
     assert sum(metric.prompt_tokens or 0 for metric in step_metrics) == 515
     assert sum(metric.completion_tokens or 0 for metric in step_metrics) == 65

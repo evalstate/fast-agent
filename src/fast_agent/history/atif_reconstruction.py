@@ -14,10 +14,12 @@ from pathlib import Path
 
 from mcp_types import TextContent
 
-from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL
+from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL, FAST_AGENT_PROCESS_POLL_FOLD
 from fast_agent.types import PromptMessageExtended
 
 COMPACTION_BOUNDARY = "fast-agent-atif-compaction-boundary"
+COPIED_CONTEXT = "fast-agent-atif-copied-context"
+_EXPORT_MARKERS = (COMPACTION_BOUNDARY, COPIED_CONTEXT)
 
 
 class HistoryReconstructionError(ValueError):
@@ -158,9 +160,13 @@ def reconstruct_history(
     )
     boundary = history[index].model_copy(deep=True)
     try:
-        boundary.timestamp = datetime.fromisoformat(str(metadata["compacted_at"]))
+        compacted_at = datetime.fromisoformat(str(metadata["compacted_at"]))
     except (KeyError, ValueError):
         raise HistoryReconstructionError("Invalid compaction timestamp") from None
+    boundary.timestamp = compacted_at
+    summary_call = {
+        key: metadata[key] for key in ("summary_request", "summary_response") if key in metadata
+    }
     boundary.channels = {
         COMPACTION_BOUNDARY: [
             TextContent(
@@ -174,15 +180,51 @@ def reconstruct_history(
                         "template_messages": index,
                         "compacted_messages": compacted,
                         "retained_messages": tail_count,
-                        "replacement_order": ["templates", "summary", "retained_tail"],
+                        "replacement_order": [
+                            "system_prompt",
+                            "templates",
+                            "summary",
+                            "retained_tail",
+                        ],
                         "archive_verified": True,
-                        "summary_usage": "unavailable",
+                        "summary_usage": "recorded" if summary_call else "unavailable",
+                        **({"summary_call": summary_call} if summary_call else {}),
                     }
                 ),
             )
         ]
     }
-    return original + [boundary] + history[index + 1 + tail_count :]
+    tail = history[index + 1 : index + 1 + tail_count]
+    # Under an ATIF "replace" boundary only later steps are model-visible, so the
+    # context that survives compaction is re-emitted as copied context.
+    copies = [
+        *(_copied_context(message, "template", compacted_at) for message in history[:index]),
+        *(_copied_context(message, "retained_tail", compacted_at) for message in tail),
+    ]
+    return original + [boundary, *copies] + history[index + 1 + tail_count :]
+
+
+def _copied_context(
+    message: PromptMessageExtended, role: str, timestamp: datetime
+) -> PromptMessageExtended:
+    copy = message.model_copy(deep=True)
+    channels = {
+        name: blocks
+        for name, blocks in (copy.channels or {}).items()
+        # The copy is the model-visible form: a nested summary is plain user text,
+        # and a poll fold is its folded prompt rather than another audit expansion.
+        if name not in (FAST_AGENT_COMPACTION_CHANNEL, FAST_AGENT_PROCESS_POLL_FOLD)
+    }
+    channels[COPIED_CONTEXT] = [TextContent(type="text", text=json.dumps({"role": role}))]
+    copy.channels = channels
+    copy.timestamp = timestamp
+    return copy
+
+
+def is_export_marker(message: PromptMessageExtended) -> bool:
+    """Whether a message is a reconstruction artifact rather than an original."""
+    channels = message.channels or {}
+    return any(marker in channels for marker in _EXPORT_MARKERS)
 
 
 def reconcile_transient(
@@ -199,7 +241,7 @@ def reconcile_transient(
     originals = [
         message
         for message in (history if overlap_history is None else overlap_history)
-        if COMPACTION_BOUNDARY not in (message.channels or {})
+        if not is_export_marker(message)
     ]
     # Include containment: a persisted final turn needs no second copy.
     matches = [
@@ -216,9 +258,10 @@ def reconcile_transient(
         return list(history)
     # A transient turn can retain evidence completed before a post-turn summary
     # that the persisted archive did not capture. Keep trailing context boundaries
-    # at their observed times instead of moving that evidence after compaction.
+    # (and their copied context) at their observed times instead of moving that
+    # evidence after compaction.
     split = len(history)
-    while split and COMPACTION_BOUNDARY in (history[split - 1].channels or {}):
+    while split and is_export_marker(history[split - 1]):
         split -= 1
     trailing = history[split:]
     result = list(history[:split])

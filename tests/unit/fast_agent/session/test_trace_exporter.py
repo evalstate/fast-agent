@@ -2789,11 +2789,13 @@ def test_session_atif_reconstructs_archives_not_previous_snapshot(tmp_path: Path
     )
     payload = json.loads(output.read_text())
     assert [
-        call["tool_call_id"] for step in payload["steps"] for call in step.get("tool_calls", [])
+        call["tool_call_id"]
+        for step in _original_steps(payload)
+        for call in step.get("tool_calls", [])
     ] == ["call-1", "call-3"]
     assert [
         result["content"]
-        for step in payload["steps"]
+        for step in _original_steps(payload)
         for result in step.get("observation", {}).get("results", [])
     ] == ["output 1\n", "output 3\n"]
 
@@ -2804,3 +2806,12 @@ def test_session_atif_reconstructs_archives_not_previous_snapshot(tmp_path: Path
             ExportRequest(target=session_dir, agent_name="agent", format="atif", output_path=output)
         )
     assert output.read_bytes() == before
+
+
+def _original_steps(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Audit view: original interactions, without boundaries or copied context."""
+    steps = payload["steps"]
+    assert isinstance(steps, list)
+    return [
+        step for step in steps if step["source"] != "system" and not step.get("is_copied_context")
+    ]

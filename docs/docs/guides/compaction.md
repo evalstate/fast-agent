@@ -128,10 +128,23 @@ To recover the full pre-compaction transcript, load the archive:
 ## ATIF export after compaction
 
 Live ATIF output and persisted session ATIF export reconstruct archived history
-through the same verifier. They preserve original messages and tool results once,
-and emit system context-management steps for summaries. Restored audit messages
-were **not** all visible to the model after compaction. Process-poll fold audits
-are still expanded, including when reconciling a raw transient final turn.
+through the same verifier. Original messages and tool results appear once, in
+their original positions. Each summary becomes an ATIF `context_management`
+boundary (`type: "compaction"`, `boundary: "replace"`) following the ATIF v1.7
+convention:
+
+- the boundary step's `observation` holds the summary the model saw;
+- the system prompt, templates, and retained recent turns that stayed in the
+  model's context follow the boundary as `is_copied_context` steps, which carry
+  no usage and are excluded from SFT by spec-following consumers;
+- `extra.context_management` lists `removed_step_ids`, `retained_step_ids`, and
+  `copied_step_ids`, and each copy records `copied_from_step_id`;
+- the summarization model call is embedded in `subagent_trajectories`, referenced
+  from the boundary observation, and included in final metrics.
+
+A consumer applying the spec's replace-boundary rule therefore reconstructs the
+same context fast-agent sent to the model. Process-poll fold audits are still
+expanded, including when reconciling a raw transient final turn.
 
 Recovery follows linked archives and verifies exact template and retained-tail
 sequences; it does not concatenate current/previous snapshots or globally
@@ -146,8 +159,9 @@ Disabling session history still permits ordinary compaction, but a full ATIF
 export cannot recover discarded history. Persisted recovery covers saved
 evidence only, not unsaved messages lost on hard termination. It does not merge
 existing ATIF files: preserve those separately when they contain extra transient
-evidence. Summary-generation usage is not stored with the checkpoint; exported
-accounting explicitly excludes those calls and is not complete run spend.
+evidence. Checkpoints written before summary calls were recorded have no
+summary usage: their boundaries report `summary_usage: "unavailable"` and
+final metrics mark the accounting as excluding those calls.
 
 ## Manual compaction from the Harness API
 

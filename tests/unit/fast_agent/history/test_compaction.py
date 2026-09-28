@@ -681,12 +681,45 @@ class TestCompactConversation:
             assert manager.current_session is not None
             assert archive_path.name not in manager.current_session.info.history_files
             from fast_agent.history.atif_reconstruction import (
-                COMPACTION_BOUNDARY,
+                is_export_marker,
                 reconstruct_history,
             )
 
             restored = reconstruct_history(agent.message_history, archive_path.parent, agent.name)
-            assert [m for m in restored if COMPACTION_BOUNDARY not in (m.channels or {})] == history
+            assert [m for m in restored if not is_export_marker(m)] == history
+        finally:
+            reset_session_manager()
+
+    async def test_persists_summary_call_for_trace_accounting(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        monkeypatch.chdir(workspace)
+        reset_session_manager()
+        try:
+            agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"), summary="the summary")
+            agent.context = Context(
+                config=Settings(session_history=True),
+                session_manager=SessionManager(
+                    cwd=workspace,
+                    home_override=workspace / ".fast-agent",
+                    respect_env_override=False,
+                ),
+            )
+
+            await compact_conversation(
+                agent, settings=CompactionSettings(keep_turns=1), instructions="focus"
+            )
+
+            summary = next(m for m in agent.message_history if is_compaction_message(m))
+            block = (summary.channels or {})[FAST_AGENT_COMPACTION_CHANNEL][0]
+            assert isinstance(block, TextContent)
+            metadata = json.loads(block.text)
+            # Exactly what the summarizer received and returned.
+            assert metadata["summary_request"] == agent.llm.requests[0][-1].first_text()
+            response = PromptMessageExtended.model_validate(metadata["summary_response"])
+            assert response.role == "assistant"
+            assert response.first_text() == "the summary"
         finally:
             reset_session_manager()
 
