@@ -2196,11 +2196,6 @@ class MCPAggregator(ContextDependent):
         if not self.initialized:
             await self.load_servers()
 
-        for server_name in tuple(self._deferred_servers):
-            info = self._tool_cache_info.get(server_name)
-            if info is not None and time.time() >= info.expires_at:
-                await self.refresh_tool_cache(server_name)
-
         tools: list[Tool] = []
 
         for namespaced_tool_name, namespaced_tool in self._namespaced_tool_map.items():

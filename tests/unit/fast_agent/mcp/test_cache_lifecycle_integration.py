@@ -67,3 +67,18 @@ async def test_detach_failed_server_clears_active_error_keeps_history():
     await aggregator.detach_server("server")
     assert not aggregator.get_startup_errors()
     assert aggregator.startup_history[0].failure_detail == "failed"
+
+
+@pytest.mark.asyncio
+async def test_listing_tools_never_connects_deferred_server(monkeypatch):
+    # UI reads (completion, /tools, banners) call list_tools; they must not spawn or connect.
+    aggregator = build_aggregator()
+    aggregator.initialized = True
+    aggregator._deferred_servers.add("server")
+    aggregator._tool_cache_info["server"] = ToolCacheInfo(
+        source="disk", fetched_at=1, expires_at=2, tool_count=0
+    )
+    attach = AsyncMock(side_effect=AssertionError("list_tools connected a deferred server"))
+    monkeypatch.setattr(aggregator, "_attach_server_locked", attach)
+    await aggregator.list_tools()
+    attach.assert_not_awaited()
