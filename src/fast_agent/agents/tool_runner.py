@@ -284,6 +284,15 @@ class ToolRunner:
             self._pending_tool_request = assistant_message
             self._pending_tool_response = None
             return
+        if assistant_message.stop_reason == LlmStopReason.CONTINUE:
+            if self._advance_iteration():
+                # History already contains this assistant response. Without history,
+                # retain it locally; never manufacture a user prompt/tool result.
+                if self._use_history_enabled():
+                    self._delta_messages = []
+                else:
+                    self._delta_messages.append(assistant_message)
+            return
         if self._should_start_deferred_structured_finalization(assistant_message):
             self._start_deferred_structured_finalization(assistant_message)
             return
@@ -294,7 +303,7 @@ class ToolRunner:
         try:
             async for message in self:
                 last = message
-                if message.stop_reason == LlmStopReason.TOOL_USE:
+                if message.stop_reason in (LlmStopReason.TOOL_USE, LlmStopReason.CONTINUE):
                     await self._persist_tool_loop_checkpoint(message)
             if last is None:
                 raise RuntimeError("ToolRunner produced no messages")
@@ -344,7 +353,10 @@ class ToolRunner:
 
     async def _maybe_auto_compact_before_followup_llm(self) -> None:
         message = self._last_message
-        if message is None or message.stop_reason != LlmStopReason.TOOL_USE:
+        if message is None or message.stop_reason not in (
+            LlmStopReason.TOOL_USE,
+            LlmStopReason.CONTINUE,
+        ):
             return
         try:
             from fast_agent.hooks.compaction import auto_compact_history_mid_turn
@@ -847,6 +859,29 @@ class ToolRunner:
             stop_reason=stop_reason,
         )
 
+    def _advance_iteration(self) -> bool:
+        """Charge tool and provider-requested follow-ups to the same finite budget."""
+        self._iteration += 1
+        max_iterations = (
+            self._request_params.max_iterations
+            if self._request_params is not None
+            else DEFAULT_MAX_ITERATIONS
+        )
+        if self._iteration <= max_iterations:
+            return True
+        _logger.warning(
+            "Tool loop stopped: maximum iterations reached",
+            data={
+                "agent_name": self._agent.name,
+                "iterations": self._iteration,
+                "max_iterations": max_iterations,
+            },
+        )
+        if self._last_message is not None:
+            self._last_message.stop_reason = LlmStopReason.MAX_ITERATIONS
+        self._done = True
+        return False
+
     async def _ensure_tools_ready(self) -> None:
         if self._tools is None:
             self._tools = (await self._agent.list_tools()).tools
@@ -875,27 +910,10 @@ class ToolRunner:
             self._done = True
             return
 
-        self._iteration += 1
-        max_iterations = (
-            self._request_params.max_iterations
-            if self._request_params is not None
-            else DEFAULT_MAX_ITERATIONS
-        )
-        if self._iteration > max_iterations:
-            _logger.warning(
-                "Tool loop stopped: maximum iterations reached",
-                data={
-                    "agent_name": self._agent.name,
-                    "iterations": self._iteration,
-                    "max_iterations": max_iterations,
-                },
-            )
-            if self._last_message is not None:
-                self._last_message.stop_reason = LlmStopReason.MAX_ITERATIONS
+        if not self._advance_iteration():
             if self._use_history_enabled():
                 self._stage_tool_response(tool_message)
                 self._append_history_messages(*self._delta_messages)
-            self._done = True
             return
 
         if self._passthrough_enabled():
