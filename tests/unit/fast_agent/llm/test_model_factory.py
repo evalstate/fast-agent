@@ -615,7 +615,7 @@ def test_model_query_web_tool_flags():
 def test_model_query_web_tool_flags_boolean_aliases():
     config = ModelFactory.parse_model_string("sonnet?web_search=yes&web_fetch=disable")
     assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == "claude-sonnet-5"
+    assert config.model_name == "claude-sonnet-5-5"
     assert config.web_search is True
     assert config.web_fetch is False
 
@@ -1049,7 +1049,7 @@ def test_opus_alias_resolves_to_current_catalog_model():
 def test_claude_alias_resolves_to_current_sonnet():
     config = ModelFactory.parse_model_string("claude")
     assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == "claude-sonnet-5"
+    assert config.model_name == "claude-sonnet-5-5"
 
 
 @pytest.mark.parametrize("alias", ["gemini", "gemini38", "gemini38flash", "gemini3.8flash"])
@@ -1801,3 +1801,22 @@ def test_builtin_aliases_resolve_to_catalog_models() -> None:
             unresolved.append(alias)
 
     assert unresolved == []
+
+
+@pytest.mark.parametrize(
+    ("alias", "wire_model", "provider"),
+    [
+        ("sonnet", "claude-sonnet-5-5", Provider.ANTHROPIC),
+        ("claude", "claude-sonnet-5-5", Provider.ANTHROPIC),
+        ("sonnet55", "claude-sonnet-5-5", Provider.ANTHROPIC),
+        ("sonnet5", "claude-sonnet-5", Provider.ANTHROPIC),
+        ("copilot.sonnet", "claude-sonnet-5.5", Provider.COPILOT),
+        ("copilot.sonnet55", "claude-sonnet-5.5", Provider.COPILOT),
+    ],
+)
+def test_sonnet_default_and_pinned_versions(
+    alias: str, wire_model: str, provider: Provider
+) -> None:
+    resolved = ModelFactory.resolve_model_spec(alias)
+    assert resolved.wire_model_name == wire_model
+    assert resolved.provider == provider

@@ -20,6 +20,60 @@ recorded for diagnostics.
 connect/write/pool limits remain unchanged. A numeric value also bounds stream
 startup as before.
 
+## Claude Sonnet 5.5
+
+`sonnet`, `claude`, and `sonnet55` select `claude-sonnet-5-5`.
+`sonnet5` remains pinned to Sonnet 5.
+
+```bash
+# Uses ANTHROPIC_API_KEY (or anthropic.api_key in configuration).
+uv run fast-agent go --model sonnet55
+# Uses the existing Copilot login, not your Anthropic API key.
+uv run fast-agent go --model copilot.sonnet55
+```
+
+Sonnet 5.5 has a 1M-token context and 128K maximum output. Adaptive thinking
+defaults to `high` effort; `low`, `medium`, `high`, `xhigh`, and `max` are
+supported. fast-agent requests `thinking: {"type": "adaptive", "display": "summarized"}`
+by default on both API-key and Copilot routes, preserving adaptive thinking while
+making progress summaries visible. Explicit request metadata can override display.
+`reasoning=off` sends `thinking: {"type": "between_tools"}` rather
+than `disabled`. This mode supports only low/medium/high effort; manual thinking
+budgets and forced tool choice are rejected locally. Unsupported sampling controls
+are removed. Preserve signed thinking blocks unchanged and keep history append-only.
+
+See Anthropic's [Sonnet 5.5 migration notes](https://platform.claude.com/docs/en/models/sonnet-5-5/whats-new-sonnet-5-5).
+
+### Structured output: current models
+
+GPT-6 Astra/Sol/Luna, Opus 5.5, and Sonnet 5.5 use JSON-schema output by
+default on their API-key and Copilot routes. GPT-6 uses Responses `text.format`;
+Claude uses Messages `output_config.format`. Regular tools may coexist with the
+schema (`structured_tool_policy: always`). Request-level `no_tools` and `defer`
+remain available. Do not select legacy `tool_use` output mode for Claude 5.5:
+those models reject forced tool choice.
+
+Local mocked-HTTP tests cover schema payloads, tool coexistence, tool suppression,
+schema deferral, and Copilot header restrictions. Live Copilot smoke tests passed
+on September 28, 2026 for all five models, both schema-only and tool-call-to-schema
+round trips, including Sonnet 5.5 with `reasoning=off`. The accepted Sonnet wire ID
+is `claude-sonnet-5.5`. Direct API smoke tests remain blocked by missing credentials
+in the test environment.
+
+Use `structured_schema()` for structured output through the normal agent tool
+loop; `structured()` is the Pydantic-only output path and does not run that loop.
+The live tool test reads a randomly generated value from a local function tool
+and checks both tool execution and the final schema-validated value.
+
+To verify real responses with your configured credentials and Copilot account
+(this makes billable requests):
+
+```bash
+uv run pytest tests/e2e/structured/test_current_model_structured_outputs.py -q
+# Or test only the Sonnet routes:
+uv run pytest tests/e2e/structured/test_current_model_structured_outputs.py -q -k sonnet55
+```
+
 ## Claude Opus 5.5
 
 Released September 22, 2026. `opus` and `opus55` select `claude-opus-5-5`;
@@ -33,13 +87,15 @@ Released September 22, 2026. `opus` and `opus55` select `claude-opus-5-5`;
   confirmed in the [Anthropic effort documentation](https://platform.claude.com/docs/en/build-with-claude/effort).
   Fast-mode pricing is not assumed.
 - Forced tool use is unsupported. Use `auto` or `none`, and native JSON mode for
-  structured output on direct Anthropic. Copilot retains its existing structured-output
-  restrictions (forced-tool fallback is rejected). Unsupported sampling controls
+  structured output on both direct Anthropic and Copilot routes. Legacy forced-tool
+  output mode is rejected. Unsupported sampling controls
   are removed, as for Fable 5.1.
 - Thinking blocks belong to their originating model and conversation. Do not
   transplant them into other conversations or models, or edit earlier history.
   Preserve empty signed thinking blocks and text between tool calls. Thinking
-  display is empty by default; fast-agent does not request summarized display.
+  display is omitted by the provider by default; fast-agent explicitly requests
+  `thinking: {"type": "adaptive", "display": "summarized"}` on API-key and Copilot
+  routes so progress is visible while adaptive thinking remains on.
 - Anthropic pricing per million tokens: input **$4**, output **$20**, 5-minute
   cache writes **$5**, 1-hour cache writes **$8**, cache reads **$0.20**.
   Cache reads are **5%** of input price, not 10%. These are not Copilot charges.

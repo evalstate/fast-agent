@@ -2761,3 +2761,57 @@ def test_session_trace_exporter_uploads_trace_to_hugging_face_dataset(tmp_path: 
     assert result.upload is not None
     assert result.upload.repo_id == "owner/dataset"
     assert result.upload.path_in_repo == "exports/trace.jsonl"
+
+
+def test_session_atif_reconstructs_archives_not_previous_snapshot(tmp_path: Path) -> None:
+    from tests.unit.fast_agent.history.test_atif_reconstruction import (
+        _checkpoint,
+        _exchange,
+        _message,
+    )
+
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    current = _checkpoint(session_dir, [_message(0), *_exchange(1), _message(2)])
+    save_json(current + _exchange(3), str(session_dir / "history_agent.json"))
+    # Previous is an overlapping checkpoint, never an additional source.
+    save_json(current, str(session_dir / "history_agent.previous.json"))
+    _write_session_snapshot(
+        session_dir,
+        session_id="session",
+        active_agent="agent",
+        agents={"agent": SessionAgentSnapshot(history_file="history_agent.json")},
+    )
+    output = tmp_path / "atif.json"
+    exporter = SessionTraceExporter(session_manager=_build_manager(tmp_path))
+    exporter.export(
+        ExportRequest(target=session_dir, agent_name="agent", format="atif", output_path=output)
+    )
+    payload = json.loads(output.read_text())
+    assert [
+        call["tool_call_id"]
+        for step in _original_steps(payload)
+        for call in step.get("tool_calls", [])
+    ] == ["call-1", "call-3"]
+    assert [
+        result["content"]
+        for step in _original_steps(payload)
+        for result in step.get("observation", {}).get("results", [])
+    ] == ["output 1\n", "output 3\n"]
+
+    before = output.read_bytes()
+    next(session_dir.glob("compacted_*.json")).unlink()
+    with pytest.raises(SessionExportReadError, match="archive"):
+        exporter.export(
+            ExportRequest(target=session_dir, agent_name="agent", format="atif", output_path=output)
+        )
+    assert output.read_bytes() == before
+
+
+def _original_steps(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Audit view: original interactions, without boundaries or copied context."""
+    steps = payload["steps"]
+    assert isinstance(steps, list)
+    return [
+        step for step in steps if step["source"] != "system" and not step.get("is_copied_context")
+    ]

@@ -2137,3 +2137,76 @@ async def test_cli_background_startup_is_only_enabled_for_repl(
 
     await run_cli_flow(cast("Any", fast), request, flow=flow)
     assert fast.background_startup is (message is None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("termination", ["success", "error", "cancelled"])
+async def test_live_atif_reconstructs_compaction_and_preserves_transient_results(
+    tmp_path: Path, termination: str
+) -> None:
+    from fast_agent.cli.runtime.agent_setup import (
+        _export_failed_one_shot_atif,
+        _export_live_atif_trajectory,
+    )
+    from fast_agent.session import SessionManager
+    from tests.unit.fast_agent.history.test_atif_reconstruction import (
+        _checkpoint,
+        _exchange,
+        _message,
+    )
+
+    manager = SessionManager(
+        cwd=tmp_path, home_override=tmp_path / ".fast-agent", respect_env_override=False
+    )
+    session = manager.create_session()
+    manager.set_current_session(session)
+    agent = ToolAgent(AgentConfig("agent"))
+    archived = [_message(0), *_exchange(1), _message(2)]
+    current = _checkpoint(session.directory, archived)
+    agent.load_message_history(current + _exchange(3))
+    agent.last_turn_messages = [_message(2), *_exchange(3), *_exchange(4)]
+    app = SimpleNamespace(_agent=lambda _: agent)
+    output = tmp_path / "trajectory.json"
+    request = _make_request(result_file=None, trajectory_output=output)
+    if termination == "success":
+        await _export_live_atif_trajectory(
+            app,
+            request,
+            transient_messages_by_agent={"agent": agent.last_turn_messages},
+            session_manager=manager,
+            harness_session=None,
+        )
+    else:
+        await _export_failed_one_shot_atif(
+            app,
+            agent,
+            "prompt",
+            request,
+            # Larger than the compacted history: slicing at this length loses evidence.
+            history_before=archived * 3,
+            session_manager=manager,
+            harness_session=None,
+            error=asyncio.CancelledError() if termination == "cancelled" else RuntimeError("test"),
+        )
+    payload = json.loads(output.read_text())
+    assert [
+        call["tool_call_id"]
+        for step in _original_steps(payload)
+        for call in step.get("tool_calls", [])
+    ] == ["call-1", "call-3", "call-4"]
+    assert [
+        result["content"]
+        for step in _original_steps(payload)
+        for result in step.get("observation", {}).get("results", [])
+    ] == ["output 1\n", "output 3\n", "output 4\n"]
+    if termination != "success":
+        assert payload["extra"]["termination"]["status"] == termination
+
+
+def _original_steps(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Audit view: original interactions, without boundaries or copied context."""
+    steps = payload["steps"]
+    assert isinstance(steps, list)
+    return [
+        step for step in steps if step["source"] != "system" and not step.get("is_copied_context")
+    ]

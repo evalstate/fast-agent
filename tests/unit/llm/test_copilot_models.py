@@ -21,6 +21,7 @@ from fast_agent.llm.provider_types import Provider
 PUBLIC_IDS = {
     "claude-haiku-4.5",
     "claude-sonnet-5",
+    "claude-sonnet-5.5",
     "claude-opus-4-8",
     "claude-opus-5",
     "claude-opus-5.5",
@@ -233,3 +234,14 @@ def test_copilot_cache_settings_accept_supported_values(mode: str, ttl: str | No
 def test_copilot_cache_settings_reject_invalid_values(values: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
         CopilotSettings.model_validate(values)
+
+
+@pytest.mark.parametrize(
+    "alias", ["copilot.opus", "copilot.opus55", "copilot.sonnet", "copilot.sonnet55"]
+)
+@pytest.mark.parametrize("suffix", ["", "?reasoning=high"])
+def test_alias_metadata_lookup_matches_resolved_model(alias: str, suffix: str) -> None:
+    selection = alias + suffix
+    resolved = ModelFactory.resolve_model_spec(selection)
+    assert ModelDatabase.get_model_params(selection) == resolved.model_params
+    assert ModelDatabase.get_model_specific(selection) == ""

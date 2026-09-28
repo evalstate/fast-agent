@@ -12,7 +12,11 @@ Used by the ``/compact`` command and the automatic post-turn trigger
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import tempfile
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -434,6 +438,7 @@ def build_summary_message(
     tokens_before: int | None,
     context_window: int | None,
     model: str | None,
+    archive_metadata: dict[str, object] | None = None,
 ) -> PromptMessageExtended:
     """Build the checkpoint summary as a user message with a typed compaction channel."""
     visible = f"[COMPACTED HISTORY]\n{SUMMARY_NOTICE}\n\n{summary_text}"
@@ -446,6 +451,8 @@ def build_summary_message(
         "prompt": prompt_text,
         "instructions": instructions,
     }
+    if archive_metadata is not None:
+        metadata.update(archive_metadata)
     message = Prompt.user(visible)
     message.channels = {
         FAST_AGENT_COMPACTION_CHANNEL: [
@@ -512,9 +519,18 @@ def _archive_history(
 
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         safe_agent = "".join(c if c.isalnum() or c in "-_" else "_" for c in agent.name)
-        filename = f"compacted_{stamp}_{safe_agent}.json"
+        filename = f"compacted_{stamp}_{uuid.uuid4().hex}_{safe_agent}.json"
         filepath = session.directory / filename
-        save_messages(history, str(filepath))
+        with tempfile.NamedTemporaryFile(
+            dir=session.directory, prefix=".compaction-", suffix=".json", delete=False
+        ) as handle:
+            temporary = Path(handle.name)
+        try:
+            save_messages(history, str(temporary))
+            # Publish only complete bytes, without overwriting an existing archive.
+            os.link(temporary, filepath)
+        finally:
+            temporary.unlink(missing_ok=True)
         manager.set_current_session(session)
         return str(filepath)
     except RuntimeError as exc:
@@ -612,6 +628,8 @@ async def compact_conversation(
         raise CompactionError("Compaction model returned an empty summary; history unchanged.")
 
     archive_file = _archive_history(agent, history)
+    if archive_file is None and _session_persistence_enabled(agent):
+        raise CompactionError("Compaction archive failed; history unchanged.")
 
     summary_message = build_summary_message(
         summary_text,
@@ -621,6 +639,20 @@ async def compact_conversation(
         tokens_before=tokens_before,
         context_window=context_window,
         model=usage.model if usage else None,
+        archive_metadata={
+            "archive_file": Path(archive_file).name if archive_file else None,
+            "archive_sha256": (
+                hashlib.sha256(Path(archive_file).read_bytes()).hexdigest()
+                if archive_file
+                else None
+            ),
+            "template_messages": len(plan.templates),
+            "retained_messages": len(plan.retained_tail),
+            # The summarization call is a real model call: keep its request and
+            # response (with usage/timing channels) so exports can account for it.
+            "summary_request": request_text,
+            "summary_response": response.model_dump(by_alias=True, mode="json", exclude_none=True),
+        },
     )
 
     new_history = plan.templates + [summary_message] + plan.retained_tail

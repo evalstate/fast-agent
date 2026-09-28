@@ -642,6 +642,8 @@ class ModelDatabase:
     )
 
     OPENAI_GPT_6_ASTRA = ModelParameters(
+        json_mode="schema",
+        structured_tool_policy="always",
         context_window=272_000,
         max_output_tokens=128_000,
         tokenizes=OPENAI_MULTIMODAL,
@@ -750,6 +752,8 @@ class ModelDatabase:
     # https://platform.claude.com/docs/en/build-with-claude/effort
     ANTHROPIC_OPUS_55 = ANTHROPIC_OPUS_5.model_copy(
         update={
+            "json_mode": "schema",
+            "structured_tool_policy": "always",
             "reasoning_effort_spec": ReasoningEffortSpec(
                 kind="effort",
                 allowed_efforts=["low", "medium", "high", "xhigh", "max"],
@@ -832,6 +836,22 @@ class ModelDatabase:
             "reasoning_effort_spec": ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC_OPUS47,
             "anthropic_thinking_field_required": False,
             "anthropic_thinking_disable_supported": True,
+        }
+    )
+
+    ANTHROPIC_SONNET_55 = ANTHROPIC_SONNET_5.model_copy(
+        update={
+            "json_mode": "schema",
+            "structured_tool_policy": "always",
+            # reasoning=off uses between_tools, not the unsupported disabled mode.
+            "anthropic_thinking_disable_supported": False,
+            "reasoning_effort_spec": ReasoningEffortSpec(
+                kind="effort",
+                allowed_efforts=["low", "medium", "high", "xhigh", "max"],
+                allow_toggle_disable=True,
+                allow_auto=True,
+                default=ReasoningEffortSetting(kind="effort", value="high"),
+            ),
         }
     )
 
@@ -1413,6 +1433,7 @@ class ModelDatabase:
         ),
         "claude-sonnet-4-6": ANTHROPIC_SONNET_46,
         "claude-sonnet-5": ANTHROPIC_SONNET_5,
+        "claude-sonnet-5-5": ANTHROPIC_SONNET_55,
         "claude-opus-4-0": ANTHROPIC_OPUS_4_LEGACY,
         "claude-opus-4-1": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-5": ANTHROPIC_OPUS_4_VERSIONED,
@@ -1560,7 +1581,9 @@ class ModelDatabase:
 
         effective_provider = provider or cls.get_default_provider(model)
         if effective_provider == Provider.COPILOT:
-            model_id = cls._model_name_without_explicit_prefix(cls._strip_model_query(model))
+            model_spec = cls._strip_model_query(model)
+            model_spec = cls._preset_for_model_name(model_spec) or model_spec
+            model_id = cls._model_name_without_explicit_prefix(cls._strip_model_query(model_spec))
             spec = get_copilot_model(model_id)
             return cls._PROVIDER_MODEL_OVERRIDES.get((Provider.COPILOT, spec.model_id))
         normalized = cls.normalize_model_name(model)
@@ -2224,6 +2247,7 @@ for _copilot_spec in COPILOT_MODELS.values():
         "claude-haiku-4.5": "claude-haiku-4-5",
         "claude-fable-5.1": "claude-fable-5-1",
         "claude-opus-5.5": "claude-opus-5-5",
+        "claude-sonnet-5.5": "claude-sonnet-5-5",
     }.get(_copilot_spec.model_id, _copilot_spec.model_id)
     _base_params = ModelDatabase.MODELS.get(_base_name)
     if _base_params is not None:

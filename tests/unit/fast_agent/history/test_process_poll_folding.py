@@ -786,7 +786,8 @@ def test_tool_result_message_preserves_shell_process_metadata_in_channel() -> No
     }
 
 
-def test_fold_archives_exact_usage_and_atif_restores_totals() -> None:
+@pytest.mark.parametrize("summary_compaction", [False, True])
+def test_fold_archives_exact_usage_and_atif_restores_totals(tmp_path, summary_compaction) -> None:
     history = _history_before_terminal(4)
     first_request = history[1]
     assert first_request.tool_calls is not None
@@ -854,6 +855,16 @@ def test_fold_archives_exact_usage_and_atif_restores_totals() -> None:
     final = PromptMessageExtended(role="assistant")
     _add_usage(final, 5, cost_usd=0.05)
     exported_history = [*folded.history, folded.tool_message, final]
+    if summary_compaction:
+        from tests.unit.fast_agent.history.test_atif_reconstruction import _checkpoint
+
+        exported_history = _checkpoint(tmp_path, exported_history, tail=1)
+        from fast_agent.session.trace_export_atif import live_export_history
+
+        # ToolRunner keeps raw transient messages even when prompt history folds.
+        exported_history = live_export_history(
+            exported_history, [*history, terminal, final], tmp_path, "agent"
+        )
     trajectory = build_atif_trajectory(
         AtifRunSource(
             session_id="session",
@@ -862,6 +873,7 @@ def test_fold_archives_exact_usage_and_atif_restores_totals() -> None:
             provider="provider",
             history=exported_history,
             message_timestamps=(None,) * len(exported_history),
+            parent_session_dir=tmp_path,
         )
     )
 
@@ -870,7 +882,8 @@ def test_fold_archives_exact_usage_and_atif_restores_totals() -> None:
     assert trajectory.final_metrics.total_cached_tokens == 400
     assert trajectory.final_metrics.total_completion_tokens == 65
     assert trajectory.final_metrics.total_cost_usd == pytest.approx(0.15)
-    assert trajectory.final_metrics.total_steps == 7
+    # A summary boundary adds itself plus the copied retained tail (the final reply).
+    assert trajectory.final_metrics.total_steps == 7 + 2 * int(summary_compaction)
     assert trajectory.final_metrics.extra is not None
     assert trajectory.final_metrics.extra["total_reasoning_tokens"] == 15
     assert trajectory.final_metrics.extra["total_tool_use_tokens"] == 15
@@ -882,7 +895,8 @@ def test_fold_archives_exact_usage_and_atif_restores_totals() -> None:
     assert trajectory.final_metrics.extra["observed_prompt_tokens_lower_bound"] == 515
     assert trajectory.final_metrics.extra["observed_completion_tokens_lower_bound"] == 65
     assert trajectory.final_metrics.extra["observed_cached_tokens_lower_bound"] == 400
-    assert len(trajectory.steps) == 7
+    assert len(trajectory.steps) == 7 + 2 * int(summary_compaction)
+    assert sum(bool(step.is_copied_context) for step in trajectory.steps) == int(summary_compaction)
     step_metrics = [step.metrics for step in trajectory.steps if step.metrics is not None]
     assert sum(metric.prompt_tokens or 0 for metric in step_metrics) == 515
     assert sum(metric.completion_tokens or 0 for metric in step_metrics) == 65

@@ -38,6 +38,8 @@ from fast_agent.types import RequestParams
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fast_agent.llm.stream_types import StreamChunk
+
 
 class FakeBroker:
     def __init__(self) -> None:
@@ -329,7 +331,7 @@ def test_opus_55_effort_controls(
     llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value=effort))
     args, enabled = llm._resolve_thinking_arguments("claude-opus-5.5", 128000, None)
     assert enabled
-    assert "thinking" not in args
+    assert args["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert args["output_config"] == {"effort": effort}
 
 
@@ -343,7 +345,7 @@ async def test_always_on_policy_and_thinking_preservation(
     if model == "claude-opus-5.5":
         thinking_args, enabled = llm._resolve_thinking_arguments(model, 128000, None)
         assert enabled
-        assert "thinking" not in thinking_args
+        assert thinking_args["thinking"] == {"type": "adaptive", "display": "summarized"}
         assert thinking_args["output_config"] == {"effort": "medium"}
     base = {
         "model": model,
@@ -375,6 +377,7 @@ async def test_always_on_policy_and_thinking_preservation(
     ):
         with pytest.raises(ValueError, match="tool"):
             llm.prepare_provider_arguments(base, RequestParams(metadata=metadata))
+    llm._structured_output_mode_override = "tool_use"
     with pytest.raises(ValueError, match="tool"):
         await llm._anthropic_completion(
             {"role": "user", "content": "structured"},
@@ -1288,3 +1291,252 @@ def test_factory_opus48_high_reasoning(context: Context) -> None:
     assert enabled
     assert arguments["thinking"] == {"type": "adaptive"}
     assert arguments["output_config"]["effort"] == "high"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"])
+@pytest.mark.parametrize("copilot", [False, True], ids=["native", "copilot"])
+@pytest.mark.parametrize(
+    "with_tools,policy",
+    [(False, "auto"), (True, "auto"), (True, "no_tools"), (True, "defer")],
+    ids=["schema-only", "with-tools", "suppress-tools", "defer-schema"],
+)
+async def test_gpt6_structured_output_wire_contract(
+    model: str,
+    copilot: bool,
+    with_tools: bool,
+    policy: Literal["auto", "no_tools", "defer"],
+    broker: FakeBroker,
+    context: Context,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.llm.provider.openai.responses import ResponsesLLM
+
+    requests: list[httpx2.Request] = []
+
+    def respond(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return httpx2.Response(
+            200, headers={"content-type": "text/event-stream"}, content=responses_events()
+        )
+
+    def client_factory(**kwargs: Any) -> AsyncOpenAI:
+        kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
+        return AsyncOpenAI(**kwargs)
+
+    module = "copilot.responses" if copilot else "openai.responses"
+    monkeypatch.setattr(f"fast_agent.llm.provider.{module}.AsyncOpenAI", client_factory)
+    llm = (
+        CopilotResponsesLLM(context=context, model=model, transport="sse")
+        if copilot
+        else ResponsesLLM(context=context, model=model, transport="sse")
+    )
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+    }
+    original = deepcopy(schema)
+    params = RequestParams(structured_schema=schema, structured_tool_policy=policy)
+    tools = [Tool(name="lookup", input_schema={"type": "object", "properties": {}})]
+    try:
+        await llm.generate(
+            [Prompt.user("Answer using the schema")],
+            request_params=params,
+            tools=tools if with_tools else None,
+        )
+        assert len(requests) == 1
+        body = json.loads(requests[0].content)
+        assert isinstance(body, dict)
+        assert body["model"] == model
+        if policy == "defer":
+            assert "format" not in body.get("text", {})
+        else:
+            output_format = body["text"]["format"]
+            assert output_format["type"] == "json_schema"
+            assert output_format["strict"] is True
+            assert output_format["schema"]["properties"] == schema["properties"]
+            assert output_format["schema"]["required"] == ["answer"]
+            assert output_format["schema"]["additionalProperties"] is False
+        assert "response_format" not in body
+        assert "structured_schema" not in body
+        assert [tool["name"] for tool in body.get("tools", [])] == (
+            ["lookup"] if with_tools and policy != "no_tools" else []
+        )
+        assert schema == original
+        assert params.structured_schema == original
+        if copilot:
+            assert body["store"] is False
+            assert requests[0].headers["authorization"] == "Bearer broker-1"
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("family", ["opus", "sonnet"])
+@pytest.mark.parametrize("copilot", [False, True], ids=["native-auto", "copilot-auto"])
+@pytest.mark.parametrize(
+    "with_tools,policy",
+    [(False, "auto"), (True, "auto"), (True, "no_tools"), (True, "defer")],
+    ids=["schema-only", "with-tools", "suppress-tools", "defer-schema"],
+)
+async def test_claude55_json_output_wire_contract(
+    family: str,
+    copilot: bool,
+    with_tools: bool,
+    policy: Literal["auto", "no_tools", "defer"],
+    broker: FakeBroker,
+    context: Context,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
+
+    requests: list[httpx2.Request] = []
+
+    def respond(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return httpx2.Response(
+            200, headers={"content-type": "text/event-stream"}, content=anthropic_events()
+        )
+
+    def client_factory(**kwargs: Any) -> AsyncAnthropic:
+        kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
+        return AsyncAnthropic(**kwargs)
+
+    module = "copilot.messages" if copilot else "anthropic.llm_anthropic"
+    monkeypatch.setattr(f"fast_agent.llm.provider.{module}.AsyncAnthropic", client_factory)
+    model = f"claude-{family}-5.5" if copilot else f"claude-{family}-5-5"
+    llm = (
+        CopilotMessagesLLM(context=context, model=model)
+        if copilot
+        else AnthropicLLM(context=context, model=model)
+    )
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+        "additionalProperties": False,
+    }
+    original = deepcopy(schema)
+    tools = [Tool(name="lookup", input_schema={"type": "object", "properties": {}})]
+    await llm.generate(
+        [Prompt.user("Answer using the schema")],
+        request_params=RequestParams(
+            max_tokens=16000, structured_schema=schema, structured_tool_policy=policy
+        ),
+        tools=tools if with_tools else None,
+    )
+    assert len(requests) == 1
+    body = json.loads(requests[0].content)
+    assert isinstance(body, dict)
+    assert body["model"] == model
+    if policy == "defer":
+        assert "format" not in body.get("output_config", {})
+    else:
+        assert body["output_config"]["format"] == {"type": "json_schema", "schema": schema}
+    assert "output_format" not in body
+    assert "structured_schema" not in body
+    assert [tool["name"] for tool in body.get("tools", [])] == (
+        ["lookup"] if with_tools and policy != "no_tools" else []
+    )
+    assert body.get("tool_choice", {"type": "auto"})["type"] == "auto"
+    assert schema == original
+    if copilot:
+        assert "anthropic-beta" not in requests[0].headers
+        assert all("eager_input_streaming" not in tool for tool in body.get("tools", []))
+        assert "x-api-key" not in requests[0].headers
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model", "mode"),
+    [
+        (model, mode)
+        for model in ("claude-sonnet-5.5", "claude-opus-5.5")
+        for mode in ("default", "summarized", "omitted")
+    ]
+    + [("claude-sonnet-5.5", "between_tools")],
+)
+async def test_claude55_progress_display_stream_and_replay(
+    model: str,
+    mode: str,
+    broker: FakeBroker,
+    context: Context,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summary = "" if mode == "omitted" else "Inventory checked; reading the sample station next."
+    signature = "opaque-test-signature"
+    requests: list[dict[str, Any]] = []
+    events = [
+        json.loads(line.removeprefix("data: "))
+        for line in anthropic_events().decode().splitlines()
+        if line.startswith("data: ")
+    ]
+    for event in events:
+        if "index" in event:
+            event["index"] += 1
+    thinking_events = [
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "thinking", "thinking": "", "signature": ""},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "thinking_delta", "thinking": summary},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "signature_delta", "signature": signature},
+        },
+        {"type": "content_block_stop", "index": 0},
+    ]
+    events[1:1] = thinking_events
+    stream = "".join(
+        f"event: {event['type']}\ndata: {json.dumps(event)}\n\n" for event in events
+    ).encode()
+
+    def respond(request: httpx2.Request) -> httpx2.Response:
+        requests.append(json.loads(request.content))
+        assert "anthropic-beta" not in request.headers
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, content=stream)
+
+    def client_factory(**kwargs: Any) -> AsyncAnthropic:
+        kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
+        return AsyncAnthropic(**kwargs)
+
+    monkeypatch.setattr("fast_agent.llm.provider.copilot.messages.AsyncAnthropic", client_factory)
+    llm = CopilotMessagesLLM(context=context, model=model)
+    if mode == "between_tools":
+        llm.set_reasoning_effort(ReasoningEffortSetting(kind="toggle", value=False))
+    params = RequestParams(max_tokens=4096)
+    if mode in {"summarized", "omitted"}:
+        params.metadata = {"thinking": {"type": "adaptive", "display": mode}}
+    chunks: list[StreamChunk] = []
+    remove = llm.add_stream_listener(chunks.append)
+    try:
+        first = await llm.generate([Prompt.user("Inspect inventory")], request_params=params)
+        assert "".join(chunk.text for chunk in chunks if chunk.is_reasoning) == summary
+        assert "".join(chunk.text for chunk in chunks if not chunk.is_reasoning) == "OK"
+        assert all(signature not in chunk.text for chunk in chunks)
+        await llm.generate(
+            [Prompt.user("Inspect inventory"), first, Prompt.user("Continue")],
+            request_params=params,
+        )
+    finally:
+        remove()
+
+    assert len(requests) == 2
+    for body in requests:
+        if mode == "omitted":
+            assert body["thinking"] == {"type": "adaptive", "display": "omitted"}
+        elif mode in {"default", "summarized"}:
+            assert body["thinking"] == {"type": "adaptive", "display": "summarized"}
+        else:
+            assert body["thinking"] == {"type": "between_tools"}
+    assistant = next(item for item in requests[1]["messages"] if item["role"] == "assistant")
+    thinking = next(block for block in assistant["content"] if block["type"] == "thinking")
+    assert thinking["thinking"] == summary
+    assert thinking["signature"] == signature
