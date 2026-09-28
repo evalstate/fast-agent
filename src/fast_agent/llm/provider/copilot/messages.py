@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextvars import ContextVar
+from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
@@ -109,8 +110,11 @@ class CopilotMessagesLLM(AnthropicLLM):
         request = await super()._prepare_anthropic_completion_request(
             anthropic, message_param, request_params, pre_messages, history, current_extended
         )
+        endpoint = self._copilot_endpoint.get()
         normalized = await self._image_uploads.normalize(
-            {"messages": request.messages}, self._copilot_endpoint.get()
+            {"messages": request.messages},
+            endpoint,
+            on_progress=partial(self._log_upload_progress, model=endpoint.model_id, noun="image"),
         )
         request.messages = cast("list[BetaMessageParam]", normalized["messages"])
         return request

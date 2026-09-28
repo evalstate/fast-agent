@@ -111,16 +111,19 @@ def test_gpt_6_sol_luna_match_astra_contract_with_none_effort(model: str) -> Non
         "codex_responses_lite",
         "response_service_tiers",
         "shell_edit_tool",
-        "shell_tool_profile",
+        "shell_tool_name",
         "text_verbosity_spec",
         "tokenizes",
     }
     assert params.model_dump(include=shared) == astra.model_dump(include=shared)
+    assert params.shell_tool_profile == "freeform_shell"
+    assert astra.shell_tool_profile == "freeform_shell"
     assert params.fast is (model == "gpt-6-luna")
     for provider, window in ((Provider.RESPONSES, 1_050_000), (Provider.CODEX_RESPONSES, 872_000)):
         routed = ModelDatabase.get_model_params(model, provider=provider)
         assert routed is not None
         assert routed.long_context_window == window
+        assert routed.shell_tool_profile == params.shell_tool_profile
 
 
 @pytest.mark.parametrize("provider", [Provider.RESPONSES, Provider.CODEX_RESPONSES])
@@ -1175,3 +1178,18 @@ def test_catalog_entries_are_internally_consistent() -> None:
                 problems.append(f"{model}: default effort {spec.default.value!r} not allowed")
 
     assert problems == []
+
+
+def test_runaway_tool_input_limit_applies_only_to_gpt_6_luna() -> None:
+    limits: dict[str, int | None] = {}
+    for model in ("gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "gpt-5.6-luna", "grok-4.3"):
+        params = ModelDatabase.get_model_params(model)
+        assert params is not None
+        limits[model] = params.tool_input_stream_delta_limit
+    assert limits == {
+        "gpt-6-luna": 64_000,
+        "gpt-6-sol": None,
+        "gpt-6-astra": None,
+        "gpt-5.6-luna": None,
+        "grok-4.3": None,
+    }

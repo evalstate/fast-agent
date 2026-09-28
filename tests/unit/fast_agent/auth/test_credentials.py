@@ -2,11 +2,15 @@ import json
 import stat
 from pathlib import Path
 
+import pytest
+
 from fast_agent.auth.credentials import (
     OAuthCredential,
+    credential_refresh_lock,
     load_oauth_credential,
     save_oauth_credential,
 )
+from fast_agent.core.exceptions import ProviderKeyError
 
 
 def test_auth_file_can_be_read_without_creating_a_sibling_lock(monkeypatch, tmp_path: Path) -> None:
@@ -70,3 +74,15 @@ def test_new_default_auth_directory_is_private(monkeypatch, tmp_path: Path) -> N
     auth_path = tmp_path / ".fast-agent" / "auth.json"
     assert stat.S_IMODE(auth_path.parent.stat().st_mode) == 0o700
     assert stat.S_IMODE(auth_path.stat().st_mode) == 0o600
+
+
+def test_refresh_lock_wait_is_bounded_and_retryable(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("FAST_AGENT_AUTH_FILE", str(tmp_path / "auth.json"))
+
+    with credential_refresh_lock("copilot"):
+        with pytest.raises(ProviderKeyError, match="another fast-agent process"):
+            with credential_refresh_lock("copilot", timeout=0.05):
+                pass
+
+    with credential_refresh_lock("copilot", timeout=0.05):
+        pass

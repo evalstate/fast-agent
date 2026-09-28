@@ -12,6 +12,7 @@ class ProgressAction(str, Enum):
     CONNECTING = "Connecting"
     LOADED = "Loaded"
     INITIALIZED = "Initialized"
+    UPLOADING = "Uploading"
     SENDING = "Sending"
     STREAMING = "Streaming"  # Special action for real-time streaming updates
     THINKING = "Thinking"  # Special action for real-time thinking updates

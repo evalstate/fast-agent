@@ -134,7 +134,9 @@ class _FileHarness(ResponsesFileMixin):
     def __init__(self) -> None:
         self._file_id_cache: dict[str, str] = {}
 
-    async def _upload_file_bytes(self, client, data, filename, mime_type) -> str:
+    async def _upload_file_bytes(
+        self, client, data, filename, mime_type, *, already_counted: bool = False
+    ) -> str:
         return f"file_{len(data)}"
 
 
@@ -3563,3 +3565,82 @@ async def test_stream_process_finalizes_mcp_call_when_done_event_is_missing() ->
     stop_payloads = [payload for event, payload in harness.events if event == "stop"]
     assert len(stop_payloads) == 1
     assert stop_payloads[0]["tool_name"] == "stripe/create_payment_link"
+
+
+class _LimitedStreamingHarness(_StreamingHarness):
+    def __init__(self, limit: int | None) -> None:
+        super().__init__()
+        self._limit = limit
+
+    def _get_model_params(self, model_name: str | None) -> Any:
+        del model_name
+        return SimpleNamespace(tool_input_stream_delta_limit=self._limit)
+
+
+def _custom_tool_input_stream(delta_count: int) -> _FakeResponsesStream:
+    final_response = SimpleNamespace(output=[], usage=None)
+    added = SimpleNamespace(
+        type="response.output_item.added",
+        output_index=0,
+        item=SimpleNamespace(type="custom_tool_call", id="ctc_1", call_id="call_1", name="shell"),
+        item_id="ctc_1",
+    )
+    deltas = [
+        SimpleNamespace(
+            type="response.custom_tool_call_input.delta",
+            output_index=0,
+            item_id="ctc_1",
+            delta="   ",
+        )
+        for _ in range(delta_count)
+    ]
+    return _FakeResponsesStream(
+        events=[
+            added,
+            *deltas,
+            SimpleNamespace(
+                type="response.output_item.done",
+                output_index=0,
+                item=SimpleNamespace(
+                    type="custom_tool_call",
+                    id="ctc_1",
+                    call_id="call_1",
+                    name="shell",
+                    status="completed",
+                ),
+                item_id="ctc_1",
+            ),
+            SimpleNamespace(type="response.completed", response=final_response),
+        ],
+        final_response=final_response,
+    )
+
+
+@pytest.mark.asyncio
+async def test_runaway_tool_input_stream_raises_after_model_limit() -> None:
+    from fast_agent.llm.fastagent_llm import FastAgentLLM
+    from fast_agent.llm.provider.streaming_timeouts import ToolInputRunawayError
+
+    harness = _LimitedStreamingHarness(limit=5)
+
+    with pytest.raises(ToolInputRunawayError) as caught:
+        await harness._process_stream(
+            _custom_tool_input_stream(6), model="gpt-test", capture_filename=None
+        )
+
+    assert caught.value.tool_name == "shell"
+    assert caught.value.deltas == 6
+    assert caught.value.whitespace_only_deltas == 6
+    assert FastAgentLLM._is_fatal_retry_error(caught.value) is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("limit", "deltas"), [(5, 5), (None, 200)])
+async def test_tool_input_stream_within_limit_or_unlimited_completes(
+    limit: int | None, deltas: int
+) -> None:
+    harness = _LimitedStreamingHarness(limit=limit)
+
+    await harness._process_stream(
+        _custom_tool_input_stream(deltas), model="gpt-test", capture_filename=None
+    )

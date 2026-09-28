@@ -335,3 +335,62 @@ async def test_messages_adapter_uses_broker_auth_and_disables_eager_tool_streami
         assert tools == [{"name": "local", "input_schema": {"type": "object"}}]
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stop", ["timeout", "cancel"])
+async def test_refresh_can_finish_after_broker_stops_waiting(
+    monkeypatch: pytest.MonkeyPatch, broker: CopilotBroker, stop: str
+) -> None:
+    monkeypatch.delenv("COPILOT_GITHUB_TOKEN")
+    save_oauth_credential(
+        "copilot",
+        OAuthCredential(access_token=TOKEN, refresh_token="synthetic-refresh", expires_at=1),
+    )
+    loop = asyncio.get_running_loop()
+    started = asyncio.Event()
+    saved = asyncio.Event()
+    release = threading.Event()
+
+    def post(*args: object, **kwargs: object) -> httpx.Response:
+        loop.call_soon_threadsafe(started.set)
+        assert release.wait(5)
+        return httpx.Response(
+            200,
+            json={
+                "access_token": "refreshed-token",
+                "refresh_token": "rotated-token",
+                "token_type": "bearer",
+                "expires_in": 3600,
+            },
+        )
+
+    client = Mock()
+    client.__enter__ = Mock(return_value=client)
+    client.__exit__ = Mock(return_value=False)
+    client.post.side_effect = post
+    monkeypatch.setattr(oauth.httpx, "Client", Mock(return_value=client))
+
+    def save(provider: str, credential: OAuthCredential, *, source: str) -> None:
+        assert source == "file"
+        save_oauth_credential(provider, credential, source="file")
+        loop.call_soon_threadsafe(saved.set)
+
+    monkeypatch.setattr(oauth, "save_oauth_credential", save)
+    task = asyncio.create_task(broker.has_credentials(timeout=0.1 if stop == "timeout" else 30))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        if stop == "cancel":
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            with pytest.raises(ProviderKeyError, match="timed out"):
+                await task
+        assert not saved.is_set()
+    finally:
+        release.set()
+        await asyncio.wait_for(saved.wait(), timeout=2)
+        await asyncio.gather(task, return_exceptions=True)
+    assert oauth.get_copilot_access_token() == "refreshed-token"
+    client.post.assert_called_once()

@@ -249,7 +249,9 @@ async def test_durable_poll_consumes_dropped_output_accounting(tmp_path: Path) -
     assert first_metadata["retained_output_bytes_since_last_poll"] == 1024
     assert first_metadata["dropped_output_bytes_since_last_poll"] == 200000 - 1024
     assert first_metadata["output_truncated"] is True
+    assert first_metadata["output_line_count"] > 0
     assert second_metadata["output_bytes_since_last_poll"] == 0
+    assert second_metadata["output_line_count"] == 0
     assert second_metadata["retained_output_bytes_since_last_poll"] == 0
     assert second_metadata["dropped_output_bytes_since_last_poll"] == 0
 
@@ -1115,6 +1117,8 @@ async def test_durable_poll_waits_for_unread_output_to_settle(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(shell_runtime_module, "_PROCESS_OUTPUT_DEBOUNCE_SECONDS", 0.1)
+    # This test covers poll debounce; skip the launch settle so the burst is still unread.
+    monkeypatch.setattr(shell_runtime_module, "BACKGROUND_LAUNCH_SETTLE_SECONDS", 0)
     root = tmp_path / "processes"
     script = tmp_path / "burst.py"
     script.write_text(
@@ -1189,7 +1193,9 @@ async def test_cancelled_durable_poll_preserves_output_debounce(
     )
     result = await runtime.execute(
         {
-            "command": "printf ready; sleep 30",
+            # Emit after the background launch settle window so the output is fresh
+            # (inside the debounce) when the poll below starts.
+            "command": "sleep 1.8; printf ready; sleep 30",
             "background": True,
         }
     )
@@ -1526,3 +1532,52 @@ def _linux_process_is_running(process_id: int) -> bool:
     except FileNotFoundError:
         return False
     return len(stat_fields) > 2 and stat_fields[2] != "Z"
+
+
+def test_new_durable_process_ids_are_short_and_unambiguous() -> None:
+    from fast_agent.tools.durable_processes import (
+        _PROCESS_ID_ALPHABET,
+        _new_process_id,
+        validate_process_id,
+    )
+
+    ids = {_new_process_id() for _ in range(2000)}
+    for process_id in ids:
+        assert process_id.startswith("process-")
+        suffix = process_id.removeprefix("process-")
+        assert len(suffix) == 5
+        assert set(suffix) <= set(_PROCESS_ID_ALPHABET)
+        assert not set(suffix) & set("01oil")
+        assert any(character.isalpha() for character in suffix)
+        validate_process_id(process_id)
+    assert len(ids) > 1990
+
+
+def test_legacy_durable_process_ids_remain_valid_and_malformed_ids_are_rejected() -> None:
+    from fast_agent.tools.durable_processes import validate_process_id
+
+    validate_process_id("process-5204d725801a45c4a7f6f5a9d46485a7")
+    for invalid in (
+        "process-12345",
+        "process-abc1",
+        "process-abcd0",
+        "process-ABCDE",
+        "process-5204d725801a45c4a7f6f5a9d46485a",
+        "proc-k7m2q",
+        "process-k7m2q/..",
+    ):
+        with pytest.raises(ValueError):
+            validate_process_id(invalid)
+
+
+def test_durable_store_creates_short_process_ids(tmp_path: Path) -> None:
+    store = DurableProcessStore(tmp_path / "processes")
+    snapshot = store.create(
+        command="true",
+        shell=Path("/bin/sh"),
+        cwd=tmp_path,
+        output_byte_limit=1024,
+    )
+    assert len(snapshot.spec.process_id) == len("process-") + 5
+    assert (tmp_path / "processes" / snapshot.spec.process_id).is_dir()
+    assert store.get(snapshot.spec.process_id).spec.process_id == snapshot.spec.process_id

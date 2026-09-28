@@ -182,7 +182,10 @@ def _target_and_details(
         )
 
     if "llm" in event.namespace:
-        return str(target or ""), _llm_progress_details(event_data, tool_context)
+        details = _llm_progress_details(event_data, tool_context)
+        if action == ProgressAction.UPLOADING:
+            details = _append_details(details, str(raw_details or ""), separator=" • ")
+        return str(target or ""), details
 
     return (
         str(target or event_data.get("target", "unknown")),

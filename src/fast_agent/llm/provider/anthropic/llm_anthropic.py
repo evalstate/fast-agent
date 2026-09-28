@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import Any, ClassVar, Literal, Protocol, cast, runtime_checkable
 
@@ -115,6 +116,7 @@ from fast_agent.llm.task_budget import (
 )
 from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
 from fast_agent.llm.tool_tracking import ToolCallTracker
+from fast_agent.llm.upload_progress import plan_upload, run_with_upload_progress
 from fast_agent.llm.usage_tracking import usage_from_anthropic
 from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES, guess_mime_type, normalize_mime_type
 from fast_agent.mcp.prompt import Prompt
@@ -825,6 +827,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         cached = self._file_id_cache.get(cache_key)
         if cached:
             return cached
+        if plan_upload(cache_key):
+            return None  # Planning pass; no file ID is recorded.
 
         file_metadata = await anthropic.files.upload(file=(filename, data, mime_type))
         if not file_metadata.id:
@@ -902,16 +906,21 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if not self.supports_document_uploads():
             return
 
-        for message in messages:
-            for content in message.content:
-                if not isinstance(content, EmbeddedResource):
-                    continue
+        async def walk() -> None:
+            for message in messages:
+                for content in message.content:
+                    if not isinstance(content, EmbeddedResource):
+                        continue
 
-                resource = content.resource
-                if not isinstance(resource, BlobResourceContents):
-                    continue
+                    resource = content.resource
+                    if not isinstance(resource, BlobResourceContents):
+                        continue
 
-                await self._prepare_anthropic_document_resource(anthropic, resource)
+                    await self._prepare_anthropic_document_resource(anthropic, resource)
+
+        await run_with_upload_progress(
+            walk, partial(self._log_upload_progress, model=self.default_request_params.model)
+        )
 
     def _get_cache_ttl(self) -> CacheTTL:
         """Get the cache TTL configuration ('5m' or '1h')."""

@@ -128,3 +128,34 @@ async def test_prepare_anthropic_file_resources_infers_document_mime_from_uri() 
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_prepare_anthropic_file_resources_reports_upload_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    llm = _make_llm()
+    anthropic = _FakeAnthropic()
+    progress: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        llm, "_log_upload_progress", lambda n, total, **_: progress.append((n, total))
+    )
+
+    def document(data: bytes) -> PromptMessageExtended:
+        resource = BlobResourceContents(
+            uri="file:///tmp/report.docx",
+            mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            blob=base64.b64encode(data).decode("ascii"),
+        )
+        return PromptMessageExtended(
+            role="user", content=[EmbeddedResource(type="resource", resource=resource)]
+        )
+
+    await llm._prepare_anthropic_file_resources(anthropic, [document(b"one"), document(b"two")])
+    assert progress == [(1, 2), (2, 2)]
+    assert len(anthropic.files.calls) == 2
+
+    progress.clear()
+    await llm._prepare_anthropic_file_resources(anthropic, [document(b"one")])
+    assert progress == []
+    assert len(anthropic.files.calls) == 2

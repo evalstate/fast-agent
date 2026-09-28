@@ -19,6 +19,7 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
 from fast_agent.constants import (
     DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES,
+    DEFAULT_PROCESS_POLL_MAX_WAIT_SECONDS,
     MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
     MAX_PROCESS_POLL_WAIT_SECONDS,
 )
@@ -311,7 +312,9 @@ class ShellSettings(BaseModel):
             "'minimal_process' exposes Bash and Process; "
             "'native' retains the legacy execute/poll_process/terminate_process tools; "
             "'grok_shell' exposes aligned shell plus Process; "
-            "'luna_exec' exposes foreground-first exec plus Process"
+            "'luna_exec' exposes foreground-first exec plus Process; "
+            "'freeform_shell' exposes the luna_exec contract as a freeform (non-JSON) "
+            "raw-command shell tool plus Process"
         ),
     )
     timeout_seconds: int = Field(
@@ -371,7 +374,7 @@ class ShellSettings(BaseModel):
         ),
     )
     process_poll_max_wait_seconds: int = Field(
-        default=MAX_PROCESS_POLL_WAIT_SECONDS,
+        default=DEFAULT_PROCESS_POLL_MAX_WAIT_SECONDS,
         ge=1,
         le=MAX_PROCESS_POLL_WAIT_SECONDS,
         description="Maximum duration of one model-initiated managed-process wait",

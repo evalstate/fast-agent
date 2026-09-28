@@ -318,6 +318,11 @@ class XAIResponsesLLM(ResponsesLLM):
             return (*key, encrypted_content)
         return key
 
+    def _websocket_max_age_seconds(self) -> float:
+        # Leave headroom below xAI's 25-minute absolute connection lifetime.
+        # Active streams are never interrupted by age-based rotation.
+        return 20 * 60.0
+
     def _websocket_keepalive_options(self) -> ResponsesWebSocketKeepaliveOptions:
         # xAI currently doesn't reliably answer client-generated Ping frames.
         # Keep automatic Pong replies enabled while restoring the previous

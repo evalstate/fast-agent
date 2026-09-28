@@ -357,6 +357,29 @@ def test_convert_log_event_llm_chat_turn_omits_blank_model_prefix() -> None:
     assert progress_event.details == "turn 3"
 
 
+def test_convert_log_event_llm_upload_appends_upload_progress() -> None:
+    event = Event(
+        type="debug",
+        namespace="fast_agent.llm.provider.copilot.messages",
+        message="Uploading attachments",
+        data={
+            "data": {
+                "progress_action": ProgressAction.UPLOADING,
+                "agent_name": "assistant",
+                "model": "claude-opus-5.5",
+                "chat_turn": 5,
+                "details": "image 2/3",
+            }
+        },
+    )
+
+    progress_event = convert_log_event(event)
+    assert progress_event is not None
+    assert progress_event.action == ProgressAction.UPLOADING
+    assert progress_event.target == "assistant"
+    assert progress_event.details == "claude-opus-5.5 turn 5 • image 2/3"
+
+
 def test_convert_log_event_generic_tool_progress_includes_context_and_details() -> None:
     event = Event(
         type="info",

@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from fast_agent.auth.credentials import (
     OAuthCredential,
     StoredCredential,
+    credential_refresh_lock,
     delete_oauth_credential,
     load_oauth_credential,
     save_oauth_credential,
@@ -31,6 +32,7 @@ COPILOT_PROVIDER_ID: Final = "copilot"
 _DEVICE_URL: Final = "https://github.com/login/device/code"
 _TOKEN_URL: Final = "https://github.com/login/oauth/access_token"
 _VERIFICATION_URI: Final = "https://github.com/login/device"
+_REFRESH_SKEW_SECONDS: Final = 60
 _LOGIN_HINT: Final = "Run `fast-agent auth provider login copilot`."
 
 _PositiveSeconds = Annotated[float, Field(gt=0, allow_inf_nan=False)]
@@ -68,6 +70,7 @@ class _DeviceResponse(_OAuthResponse):
 class _TokenResponse(_OAuthResponse):
     error: None = None
     access_token: Annotated[str, Field(min_length=1, pattern=r"^[!-~]+$")] = Field(repr=False)
+    refresh_token: _NonemptyString | None = Field(default=None, repr=False)
     token_type: Literal["bearer", "Bearer"]
     scope: str | None = None
     expires_in: _PositiveSeconds | None = None
@@ -191,6 +194,7 @@ async def poll_copilot_device_code(
                     raise _http_error(response)
                 return _CopilotCredential(
                     access_token=payload.access_token,
+                    refresh_token=payload.refresh_token,
                     token_type=payload.token_type,
                     scope=payload.scope,
                     expires_at=(
@@ -265,8 +269,56 @@ def _load_validated_credential() -> StoredCredential | None:
     return stored
 
 
+def _needs_refresh(credential: OAuthCredential) -> bool:
+    return (
+        credential.refresh_token is not None
+        and credential.expires_at is not None
+        and time.time() + _REFRESH_SKEW_SECONDS >= credential.expires_at
+    )
+
+
+def _refresh_credential(credential: OAuthCredential) -> OAuthCredential:
+    try:
+        with httpx.Client(timeout=30, trust_env=False, follow_redirects=False) as client:
+            response = client.post(
+                _TOKEN_URL,
+                data={
+                    "client_id": COPILOT_CLIENT_ID,
+                    "grant_type": "refresh_token",
+                    "refresh_token": credential.refresh_token,
+                },
+                headers={"Accept": "application/json"},
+                follow_redirects=False,
+            )
+    except httpx.RequestError:
+        raise ProviderKeyError(
+            "Unable to contact GitHub to refresh Copilot OAuth token.", "Retry the request."
+        ) from None
+    if not response.is_success:
+        raise ProviderKeyError(
+            f"Copilot OAuth refresh failed (HTTP {response.status_code}).", "Retry the request."
+        )
+    try:
+        payload = _TOKEN_RESPONSE.validate_json(response.content)
+    except ValidationError:
+        raise ProviderKeyError("Invalid GitHub refresh response.", "Retry the request.") from None
+    if isinstance(payload, _ErrorResponse):
+        if payload.error in {"bad_refresh_token", "invalid_grant", "expired_token"}:
+            raise CopilotAuthenticationError("GitHub rejected Copilot OAuth refresh.", _LOGIN_HINT)
+        raise ProviderKeyError(
+            "GitHub could not refresh Copilot OAuth token.", "Retry the request."
+        )
+    return _CopilotCredential(
+        access_token=payload.access_token,
+        refresh_token=payload.refresh_token or credential.refresh_token,
+        token_type=payload.token_type,
+        scope=payload.scope if payload.scope is not None else credential.scope,
+        expires_at=time.time() + payload.expires_in if payload.expires_in is not None else None,
+    )
+
+
 def get_copilot_credential() -> OAuthCredential | None:
-    """Resolve validated credentials, preferring the environment and rejecting expiry."""
+    """Resolve credentials, refreshing expiring stored tokens under the shared lock."""
     environment = _environment_credential()
     if environment is not None:
         return environment
@@ -274,6 +326,15 @@ def get_copilot_credential() -> OAuthCredential | None:
     if stored is None:
         return None
     credential = stored.credential
+    if _needs_refresh(credential):
+        with _store_errors(), credential_refresh_lock(COPILOT_PROVIDER_ID):
+            stored = _load_validated_credential()
+            if stored is None:
+                return None
+            credential = stored.credential
+            if _needs_refresh(credential):
+                credential = _refresh_credential(credential)
+                save_oauth_credential(COPILOT_PROVIDER_ID, credential, source=stored.source)
     if credential.expires_at is not None and time.time() >= credential.expires_at:
         raise CopilotAuthenticationError("Copilot OAuth token expired.", _LOGIN_HINT)
     return credential

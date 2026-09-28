@@ -15,6 +15,7 @@ from fast_agent.llm.provider.copilot.oauth import (
     CopilotAuthenticationError,
     get_copilot_access_token,
 )
+from fast_agent.utils.async_utils import run_in_daemon_thread
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -52,11 +53,15 @@ class CopilotBroker:
         self._settings = settings
 
     async def _access_token(self, timeout: float) -> str:
-        # Load validated credentials afresh on every request. Only this read runs
-        # in a worker, so cancellation cannot leave authentication state mutations.
+        # Resolve afresh in a daemon worker. Timeout/cancellation stops waiting,
+        # not the worker: an in-flight refresh may still persist rotated tokens
+        # under the shared lock. HTTP and the lock wait are bounded; the keyring
+        # is not, so the worker must never block interpreter exit.
         try:
             async with asyncio.timeout(timeout):
-                token = await asyncio.to_thread(get_copilot_access_token)
+                token = await run_in_daemon_thread(
+                    get_copilot_access_token, name="fast-agent-copilot-token"
+                )
         except TimeoutError:
             raise ProviderKeyError("Copilot operation timed out.") from None
         if token is None:
@@ -75,15 +80,15 @@ class CopilotBroker:
         }
 
     async def has_credentials(self, timeout: float | None = None) -> bool:
-        """Check local presence, expiry, and format without remote entitlement checks or login."""
+        """Resolve credentials (refreshing if needed), without entitlement checks or login."""
         limit = self._settings.runtime_timeout_seconds
         if timeout is not None:
             limit = min(timeout, limit)
         try:
             await self._access_token(limit)
         except CopilotAuthenticationError:
-            # Missing (raised above) and expired (raised by the loader) credentials
-            # both mean "not signed in". Invalid overrides/stores propagate.
+            # Missing, expired, or failed refresh means "not signed in".
+            # Invalid overrides/stores propagate.
             return False
         return True
 

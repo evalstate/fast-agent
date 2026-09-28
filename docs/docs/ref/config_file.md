@@ -779,6 +779,22 @@ When `logger.path` is omitted, file logging writes to
 `<current-working-directory>/fast-agent-log.jsonl`. Explicit relative paths continue to resolve
 from the process current working directory.
 
+Responses websocket failures emit an error-level structured event,
+`Responses websocket attempt failed`, through this logging path, including failures
+recovered by the transport's bounded reconnect. File logging persists these events
+as JSONL even at `level: "error"`; they do not depend on a completed assistant
+response or ATIF export. Logging disabled with `type: "none"` does not persist them.
+
+The `fast-agent.responses-websocket-failure/v1` payload includes an allowlisted
+`error_code` (`null` when absent, `unknown` for unrecognized codes), `stream_started`,
+connection ages at request start and failure in seconds (`null` when unknown),
+reuse status, and `reconnect_eligible`. Ages use the connection manager's monotonic
+clock. Eligibility describes the existing single transport reconnect only, not
+outer provider retries; `websocket_attempt` / `websocket_max_attempts` distinguish
+that bound from the provider `call`, `attempt`, and `max_attempts` counters.
+The diagnostic contains no error text, headers, URLs, request/response bodies,
+prompts, or credentials. It does not change retry or timeout policy.
+
 ## MCP Diagnostics Settings
 
 ```yaml
@@ -810,7 +826,7 @@ shell_execution:
   retained_output_max_bytes: 2097152  # Per shell process
   durable_output_max_bytes: 2097152  # Per persistent stdout/stderr/combined log
   retained_output_temp_directory: null  # Optional parent directory
-  process_poll_max_wait_seconds: 3600  # Accepted range: 1–3600
+  process_poll_max_wait_seconds: 260  # Default keeps prompt caches warm; range: 1–3600
   foreground_auto_await_max_seconds: 30  # Total runtime; range: 0–3600; 0 disables
   managed_process_poll_history_folding: auto  # auto | on | off
 ```
@@ -862,9 +878,13 @@ commands model-interruptible. It still lets shorter commands finish in their
 original shell call without a model turn spent scheduling a process wait.
 
 `process_poll_max_wait_seconds` caps a single model-initiated managed-process
-wait. Catalogue and overlay defaults are capped for compatibility. An explicit
-model-string `poll_period` above the configured maximum is rejected instead of
-being silently reduced.
+wait. The 260-second default returns each wait while provider prompt caches are
+still warm (a hung or long process then costs a cached poll rather than blocking
+the model for up to an hour); longer work is followed with repeated waits, which
+fold in history when quiet. Model requests above the ceiling are clamped. Unless
+the ceiling is set explicitly, a longer model wait period (catalogue, overlay or
+`poll_period`) raises it; an explicit ceiling is authoritative and a longer
+`poll_period` is rejected instead of being silently reduced.
 
 See [Foreground auto-await and outer-budget-aware process waits](shell_runtime_budgeting.md)
 for the model-interruptibility tradeoff, external-deadline integration gap,

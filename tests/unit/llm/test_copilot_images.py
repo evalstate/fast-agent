@@ -28,9 +28,9 @@ def endpoint():
     )
 
 
-def image_data(size=(20, 10)):
+def image_data(size=(20, 10), color=(0, 0, 0)):
     stream = BytesIO()
-    Image.new("RGB", size).save(stream, format="PNG")
+    Image.new("RGB", size, color).save(stream, format="PNG")
     return stream.getvalue()
 
 
@@ -181,6 +181,34 @@ async def test_resizing_and_safe_inline_fallback(monkeypatch, endpoint, caplog, 
     assert payload == before
     assert "retaining inline" in caplog.text
     assert "secret" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_progress_reports_only_uncached_uploads(monkeypatch, endpoint):
+    mock_http(
+        monkeypatch,
+        lambda request: httpx.Response(201, json={"url": "https://attachment.example/image"}),
+    )
+    first, second = block(image_data()), block(image_data(color=(1, 0, 0)))
+    uploads = images.CopilotImageUploads()
+    progress: list[tuple[int, int]] = []
+
+    async def send(*content):
+        await uploads.normalize(
+            {"messages": [{"content": list(content)}]},
+            endpoint,
+            on_progress=lambda count, total: progress.append((count, total)),
+        )
+
+    # A repeated history image uploads once.
+    await send(first, first, second)
+    assert progress == [(1, 2), (2, 2)]
+    progress.clear()
+    await send(first, second)
+    assert progress == []
+    third = block(image_data(color=(2, 0, 0)))
+    await send(first, second, third)
+    assert progress == [(1, 1)]
 
 
 @pytest.mark.asyncio
@@ -373,9 +401,10 @@ async def test_request_upload_deadline(monkeypatch, endpoint, in_flight, route):
         "messages": [
             {
                 "content": [
+                    # Distinct pixels: identical resized bytes would reuse the first URL.
                     block(image_data((2400, 1200))),
-                    block(image_data((3000, 1500))),
-                    block(image_data((2600, 1300))),
+                    block(image_data((3000, 1500), (1, 0, 0))),
+                    block(image_data((2600, 1300), (2, 0, 0))),
                 ]
             }
         ]

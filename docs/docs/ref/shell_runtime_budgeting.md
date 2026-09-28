@@ -78,11 +78,13 @@ yellow while processes run, and red above 75% capacity. It turns green when the
 current agent’s runtime retains process records but none are running, including
 after failure or termination: green means quiescent, not successful.
 
-Current static ceiling:
+Current static ceiling (a simple fixed slice that keeps provider prompt caches
+warm; a longer model wait period raises the default, an explicit value is
+authoritative):
 
 ```yaml
 shell_execution:
-  process_poll_max_wait_seconds: 3600
+  process_poll_max_wait_seconds: 260
 ```
 
 ### Outer agent/run timeout

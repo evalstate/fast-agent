@@ -78,6 +78,11 @@ class ModelParameters(BaseModel):
     shell_tool_profile: ResolvedShellToolProfile | None = None
     """Optional model-specific shell contract selected when shell tool profile is auto."""
 
+    tool_input_stream_delta_limit: int | None = Field(default=None, ge=1)
+    """Abort and retry a Responses stream attempt when one tool call's streamed input
+    exceeds this many delta events (about one token each); guards against runaway
+    tool input. ``None`` disables the guard."""
+
     reasoning: None | str = None
     """Reasoning output style. 'tags' if enclosed in <thinking> tags, 'none' if not used"""
 
@@ -643,6 +648,9 @@ class ModelDatabase:
         reasoning="openai",
         reasoning_effort_spec=OPENAI_GPT_6_ASTRA_REASONING,
         shell_tool_name="shell",
+        # GPT-6 writes shell commands as raw text through the freeform
+        # (Responses custom-grammar) contract named "shell".
+        shell_tool_profile="freeform_shell",
         shell_edit_tool="write_text_file",
         text_verbosity_spec=TextVerbositySpec(default="low"),
         response_transports=("sse", "websocket"),
@@ -657,6 +665,13 @@ class ModelDatabase:
 
     OPENAI_GPT_6_SOL_LUNA = OPENAI_GPT_6_ASTRA.model_copy(
         update={"reasoning_effort_spec": OPENAI_GPT_6_SOL_LUNA_REASONING}
+    )
+
+    # Freeform shell comes from Astra. The runaway-input limit is about 1.8x the
+    # largest observed legitimate GPT-6 Luna tool input (35,438 tokens); observed
+    # runaways streamed whitespace for 25-73 minutes.
+    OPENAI_GPT_6_LUNA = OPENAI_GPT_6_SOL_LUNA.model_copy(
+        update={"tool_input_stream_delta_limit": 64_000}
     )
 
     OPENAI_GPT_CODEX_SPARK = ModelParameters(
@@ -1359,7 +1374,7 @@ class ModelDatabase:
         "gpt-5.6-luna": _with_fast(OPENAI_GPT_56_LUNA),
         "gpt-6-astra": OPENAI_GPT_6_ASTRA,
         "gpt-6-sol": OPENAI_GPT_6_SOL_LUNA,
-        "gpt-6-luna": _with_fast(OPENAI_GPT_6_SOL_LUNA),
+        "gpt-6-luna": _with_fast(OPENAI_GPT_6_LUNA),
         "gpt-5.4-mini": OPENAI_GPT_54_SMALL.model_copy(
             update={"model_specific": GPT_53_PLUS_MODEL_SPECIFIC}
         ),
@@ -1503,7 +1518,7 @@ class ModelDatabase:
             for model, params in (
                 ("gpt-6-astra", OPENAI_GPT_6_ASTRA),
                 ("gpt-6-sol", OPENAI_GPT_6_SOL_LUNA),
-                ("gpt-6-luna", _with_fast(OPENAI_GPT_6_SOL_LUNA)),
+                ("gpt-6-luna", _with_fast(OPENAI_GPT_6_LUNA)),
             )
             for provider, window in (
                 (Provider.RESPONSES, 1_050_000),

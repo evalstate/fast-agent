@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
 
+from fast_agent.llm.upload_progress import plan_upload
 from fast_agent.mcp.mime_utils import guess_mime_type
 
 
@@ -53,11 +54,15 @@ class ResponsesFileMixin:
         data: bytes,
         filename: str | None,
         mime_type: str | None,
+        *,
+        already_counted: bool = False,
     ) -> str:
         cache_key = self._file_cache_key(data, filename, mime_type)
         cached = self._file_id_cache.get(cache_key)
         if cached:
             return cached
+        if not already_counted and plan_upload(cache_key):
+            return ""  # Planning pass; its result is discarded.
 
         if filename and mime_type:
             file_param: Any = (filename, data, mime_type)

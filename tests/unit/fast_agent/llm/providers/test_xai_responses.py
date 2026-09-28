@@ -196,6 +196,44 @@ async def test_xai_image_upload_reuses_public_url_across_replayed_history() -> N
 
 
 @pytest.mark.asyncio
+async def test_xai_image_upload_reports_progress_then_restores_sending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    simulator = _XAIFileAPISimulator()
+    llm = XAIResponsesLLM(
+        context=Context(
+            config=Settings(xai=XAISettings(api_key="test-key", image_upload_mode="public_url"))
+        ),
+        model="grok-4.6",
+    )
+    events: list[tuple[str, object]] = []
+    monkeypatch.setattr(
+        llm, "_log_upload_progress", lambda n, total, **_: events.append(("upload", (n, total)))
+    )
+    monkeypatch.setattr(
+        llm,
+        "_log_chat_progress",
+        lambda chat_turn=None, model=None: events.append(("sending", model)),
+    )
+    input_items = [
+        {
+            "type": "message",
+            "role": "user",
+            "content": [_inline_image_part(b"one"), _inline_image_part(b"two")],
+        }
+    ]
+
+    async with _xai_file_client(simulator) as client:
+        await llm._normalize_request_files(client, input_items, display_model="grok-4.6 [ws]")
+        assert events == [("upload", (1, 2)), ("upload", (2, 2)), ("sending", "grok-4.6 [ws]")]
+        events.clear()
+        await llm._normalize_request_files(client, input_items, display_model="grok-4.6 [ws]")
+
+    assert events == []
+    assert len(simulator.upload_bodies) == 2
+
+
+@pytest.mark.asyncio
 async def test_xai_image_upload_leaves_remote_and_unsupported_images_unchanged() -> None:
     simulator = _XAIFileAPISimulator()
     llm = XAIResponsesLLM(

@@ -1,7 +1,10 @@
 import asyncio
 import concurrent.futures
+import contextlib
+import contextvars
 import functools
 import sys
+import threading
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from importlib.util import find_spec
 from typing import Any, ParamSpec, TypeVar
@@ -106,6 +109,36 @@ async def run_in_thread(func: Callable[P, T], *args: P.args, **kwargs: P.kwargs)
     return await to_thread.run_sync(func, *args)
 
 
+async def run_in_daemon_thread(func: Callable[[], T], *, name: str) -> T:
+    """Run a blocking callable in a daemon thread that never delays interpreter exit.
+
+    Unlike the default executor, cancellation or timeout abandons the thread, so
+    only use this for work that is safe to cut off at process exit.
+    """
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[T] = loop.create_future()
+    context = contextvars.copy_context()
+
+    def deliver(setter: Callable[[Any], None], value: object) -> None:
+        def settle() -> None:
+            if not future.done():
+                setter(value)
+
+        with contextlib.suppress(RuntimeError):  # loop closed after abandonment
+            loop.call_soon_threadsafe(settle)
+
+    def run() -> None:
+        try:
+            result = context.run(func)
+        except BaseException as exc:
+            deliver(future.set_exception, exc)
+        else:
+            deliver(future.set_result, result)
+
+    threading.Thread(target=run, name=name, daemon=True).start()
+    return await future
+
+
 def _run_in_new_loop(func: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs) -> T:
     def runner() -> T:
         loop = create_event_loop()
@@ -129,8 +162,30 @@ async def gather_with_cancel(aws: Iterable[Awaitable[T]]) -> list[T | BaseExcept
     asyncio.CancelledError is re-raised so cancellation never gets swallowed.
     """
 
-    results = await asyncio.gather(*aws, return_exceptions=True)
-    for item in results:
-        if isinstance(item, asyncio.CancelledError):
-            raise item
+    tasks = [asyncio.ensure_future(aw) for aw in aws]
+    pending = set(tasks)
+    try:
+        while pending:
+            done, pending = await asyncio.wait(
+                pending,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            cancelled = next((task for task in done if task.cancelled()), None)
+            if cancelled is not None:
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                cancelled.result()
+    except asyncio.CancelledError:
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        raise
+
+    results: list[T | BaseException] = []
+    for task in tasks:
+        try:
+            results.append(task.result())
+        except BaseException as exc:
+            results.append(exc)
     return results

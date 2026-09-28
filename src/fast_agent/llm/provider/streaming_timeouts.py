@@ -55,6 +55,33 @@ class StreamIdleTimeoutError(TimeoutError):
         self.events_received = events_received
 
 
+class ToolInputRunawayError(RuntimeError):
+    """Raised when one streamed tool call's input exceeds the model's delta limit.
+
+    The attempt is abandoned and retried like other provider stream failures.
+    """
+
+    def __init__(
+        self,
+        *,
+        tool_name: str | None,
+        limit: int,
+        deltas: int,
+        chars: int,
+        whitespace_only_deltas: int,
+    ) -> None:
+        super().__init__(
+            f"Streamed input for tool {tool_name or '<unknown>'!r} exceeded {limit} deltas "
+            f"({chars} characters, {whitespace_only_deltas} whitespace-only deltas); "
+            "abandoning the runaway attempt."
+        )
+        self.tool_name = tool_name
+        self.limit = limit
+        self.deltas = deltas
+        self.chars = chars
+        self.whitespace_only_deltas = whitespace_only_deltas
+
+
 class _IdleTimeoutAsyncStream(AsyncIterator[T]):
     """Apply an idle timeout between provider events while preserving stream helpers."""
 

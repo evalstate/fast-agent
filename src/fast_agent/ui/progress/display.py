@@ -156,6 +156,7 @@ def _process_poll_blink_next(elapsed_seconds: float) -> bool:
 
 
 _ACTION_DESCRIPTION_ICONS = {
+    ProgressAction.UPLOADING: "▲",
     ProgressAction.SENDING: "▶",
     ProgressAction.CALLING_TOOL: "◀",
     ProgressAction.READING_RESOURCE: "◀",
@@ -167,6 +168,7 @@ _ACTION_STYLES = {
     ProgressAction.CONNECTING: "bold yellow",
     ProgressAction.LOADED: "dim green",
     ProgressAction.INITIALIZED: "dim green",
+    ProgressAction.UPLOADING: "blue",
     ProgressAction.SENDING: "blue",
     ProgressAction.STREAMING: "green",  # Assistant Colour
     ProgressAction.THINKING: "yellow",  # Assistant Colour

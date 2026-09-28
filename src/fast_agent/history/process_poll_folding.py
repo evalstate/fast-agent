@@ -829,7 +829,9 @@ def fold_managed_process_poll_history(
         exchange = _exchange(request, result, request_index=cursor - 1)
         if exchange is None or exchange.process_id != current.process_id:
             break
-        if _has_resource_observation(exchange):
+        # Warnings and output (or unknown output) bound the foldable suffix, so
+        # they stay in history while later quiet polls can still fold.
+        if _has_resource_observation(exchange) or _output_line_count(exchange) != 0:
             break
         reverse_exchanges.append(exchange)
         cursor -= 2
@@ -854,8 +856,6 @@ def fold_managed_process_poll_history(
         1 if prior_fold is not None and process_status != "running" else _MIN_FOLDED_POLLS
     )
     if folded_polls < minimum_folded_polls:
-        return None
-    if any(_output_line_count(exchange) != 0 for exchange in removed_exchanges):
         return None
 
     first_removed = exchanges[0].request_index

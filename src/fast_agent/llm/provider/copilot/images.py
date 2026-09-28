@@ -8,6 +8,7 @@ import hashlib
 import logging
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from copy import deepcopy
 from io import BytesIO
 from typing import TYPE_CHECKING, Any
@@ -24,6 +25,8 @@ _MAX_URL_IMAGES = 20
 _UPLOAD_TIMEOUT_SECONDS = 60
 _UPLOAD_URL = "https://uploads.github.com/copilot/chat/attachments"
 
+UploadProgress = Callable[[int, int], None]
+
 
 class CopilotImageUploads:
     """Normalize SDK dictionaries without inspecting tool arguments or other metadata.
@@ -36,7 +39,13 @@ class CopilotImageUploads:
         self._cache: OrderedDict[tuple[bytes, str, bytes], tuple[float, str]] = OrderedDict()
 
     # Any is confined to the external SDK's heterogeneous dict/list payload boundary.
-    async def normalize(self, payload: dict[str, Any], endpoint: CopilotEndpoint) -> dict[str, Any]:
+    async def normalize(
+        self,
+        payload: dict[str, Any],
+        endpoint: CopilotEndpoint,
+        on_progress: UploadProgress | None = None,
+    ) -> dict[str, Any]:
+        """Return a copy with inline images uploaded; report ``(n, total)`` before each POST."""
         result = deepcopy(payload)
         blocks: list[dict[str, Any]] = []
         for field in ("messages", "input"):
@@ -53,30 +62,64 @@ class CopilotImageUploads:
         # Repeated history images need only one decode/resize per request, including
         # inline overflow. Keep image bytes request-local rather than in the URL cache.
         resized: dict[tuple[str, str], tuple[bytes, str]] = {}
-        deadline = time.monotonic() + _UPLOAD_TIMEOUT_SECONDS
+        planned: list[tuple[dict[str, Any], bytes, str]] = []
         uploads_enabled = True
+        for block in blocks:
+            if block.get("type") == "input_image":
+                # Copilot rejects an omitted detail even though OpenAI accepts it.
+                block.setdefault("detail", "auto")
+            try:
+                prepared = self._inline_image(
+                    block, endpoint, resized, uploads_enabled and len(planned) < remaining
+                )
+            except (ValueError, OSError):
+                uploads_enabled = False
+                logger.warning("Copilot image upload failed; retaining inline image.")
+                continue
+            if prepared is not None and uploads_enabled and len(planned) < remaining:
+                planned.append((block, *prepared))
+        if planned:
+            await self._upload_planned(planned, endpoint, on_progress)
+        return result
+
+    async def _upload_planned(
+        self,
+        planned: list[tuple[dict[str, Any], bytes, str]],
+        endpoint: CopilotEndpoint,
+        on_progress: UploadProgress | None,
+    ) -> None:
+        now = time.monotonic()
+        for expired in [key for key, (until, _) in self._cache.items() if until <= now]:
+            del self._cache[expired]
+        keys = [self._cache_key(data, mime, endpoint) for _, data, mime in planned]
+        # Repeated history images upload once; later copies hit the cache.
+        total = len({key for key in keys if key not in self._cache})
+        uploaded = 0
+        deadline = time.monotonic() + _UPLOAD_TIMEOUT_SECONDS
         async with httpx.AsyncClient(timeout=30, trust_env=False, follow_redirects=False) as client:
-            for block in blocks:
-                if block.get("type") == "input_image":
-                    # Copilot rejects an omitted detail even though OpenAI accepts it.
-                    block.setdefault("detail", "auto")
-                was_url = self._is_url(block)
+            for (block, data, mime), key in zip(planned, keys, strict=True):
+                cached = self._cache.get(key)
+                if cached:
+                    self._cache.move_to_end(key)
+                    self._apply_url(block, cached[1])
+                    continue
+                uploaded += 1
+                if on_progress is not None:
+                    on_progress(uploaded, total)
                 try:
-                    await self._image(
-                        block,
-                        endpoint,
-                        client,
-                        uploads_enabled and remaining > 0,
-                        resized,
-                        deadline,
-                    )
+                    timeout = deadline - time.monotonic()
+                    if timeout <= 0:
+                        raise TimeoutError("Copilot image upload deadline expired")
+                    async with asyncio.timeout(timeout):
+                        url = await self._upload(data, mime, endpoint, client)
                 except (httpx.HTTPError, TimeoutError, ValueError, OSError):
-                    uploads_enabled = False
                     # Exceptions can include credentials or signed URLs; never log their text.
                     logger.warning("Copilot image upload failed; retaining inline image.")
-                if not was_url and self._is_url(block):
-                    remaining -= 1
-        return result
+                    return
+                self._cache[key] = (time.monotonic() + 1800, url)
+                if len(self._cache) > 128:
+                    self._cache.popitem(last=False)
+                self._apply_url(block, url)
 
     def _content(self, value: Any, blocks: list[dict[str, Any]]) -> None:
         if isinstance(value, list):
@@ -103,25 +146,23 @@ class CopilotImageUploads:
         url = block.get("image_url")
         return isinstance(url, str) and not url.startswith("data:")
 
-    async def _image(
+    def _inline_image(
         self,
         block: dict[str, Any],
         endpoint: CopilotEndpoint,
-        client: httpx.AsyncClient,
-        allow_upload: bool,
         resized: dict[tuple[str, str], tuple[bytes, str]],
-        deadline: float,
-    ) -> None:
+        needs_data: bool,
+    ) -> tuple[bytes, str] | None:
+        """Validate an inline image, resize it for Messages, and return upload bytes."""
         source = block.get("source")
-        anthropic = block.get("type") == "image"
-        if anthropic:
+        if block.get("type") == "image":
             if not isinstance(source, dict) or source.get("type") != "base64":
-                return
+                return None
             mime, encoded = source.get("media_type"), source.get("data")
         else:
             inline = block.get("image_url")
             if not isinstance(inline, str) or not inline.startswith("data:"):
-                return
+                return None
             header, encoded = inline[5:].split(",", 1)
             mime, encoding = header.split(";", 1)
             if encoding != "base64":
@@ -130,40 +171,41 @@ class CopilotImageUploads:
             raise ValueError("Invalid image media type")
         if not isinstance(encoded, str):
             raise ValueError("Invalid image data")
-        if endpoint.wire_api == "messages":
-            key = (mime, encoded)
-            cached = resized.get(key)
-            if cached is None:
-                cached = self._resize(base64.b64decode(encoded, validate=True), mime)
-                resized[key] = cached
-            data, mime = cached
-            # Update the copy before attempting upload so failures also use safe dimensions.
-            encoded = base64.b64encode(data).decode("ascii")
-            if anthropic:
-                assert isinstance(source, dict)
-                source.update(data=encoded, media_type=mime)
-            else:
-                block["image_url"] = f"data:{mime};base64,{encoded}"
+        if endpoint.wire_api != "messages":
+            return (base64.b64decode(encoded, validate=True), mime) if needs_data else None
+        key = (mime, encoded)
+        cached = resized.get(key)
+        if cached is None:
+            cached = self._resize(base64.b64decode(encoded, validate=True), mime)
+            resized[key] = cached
+        data, mime = cached
+        # Update the copy before attempting upload so failures also use safe dimensions.
+        encoded = base64.b64encode(data).decode("ascii")
+        if isinstance(source, dict):
+            source.update(data=encoded, media_type=mime)
         else:
-            if not allow_upload:
-                return
-            data = base64.b64decode(encoded, validate=True)
-        if not allow_upload:
-            return
-        timeout = deadline - time.monotonic()
-        if timeout <= 0:
-            raise TimeoutError("Copilot image upload deadline expired")
-        async with asyncio.timeout(timeout):
-            url = await self._upload(data, mime, endpoint, client)
-        if anthropic:
-            assert isinstance(source, dict)
-            replacement = dict(source)
+            block["image_url"] = f"data:{mime};base64,{encoded}"
+        return data, mime
+
+    @staticmethod
+    def _apply_url(block: dict[str, Any], url: str) -> None:
+        if block.get("type") == "image":
+            replacement = dict(block["source"])
             replacement.pop("data", None)
             replacement.pop("media_type", None)
             replacement.update(type="url", url=url)
             block["source"] = replacement
         else:
             block["image_url"] = url
+
+    @staticmethod
+    def _cache_key(data: bytes, mime: str, endpoint: CopilotEndpoint) -> tuple[bytes, str, bytes]:
+        credential = "\n".join(
+            f"{key.lower()}:{value}"
+            for key, value in sorted(endpoint.headers.items())
+            if key.lower() == "authorization"
+        )
+        return hashlib.sha256(credential.encode()).digest(), mime, hashlib.sha256(data).digest()
 
     @staticmethod
     def _resize(data: bytes, mime: str) -> tuple[bytes, str]:
@@ -181,19 +223,6 @@ class CopilotImageUploads:
     async def _upload(
         self, data: bytes, mime: str, endpoint: CopilotEndpoint, client: httpx.AsyncClient
     ) -> str:
-        credential = "\n".join(
-            f"{key.lower()}:{value}"
-            for key, value in sorted(endpoint.headers.items())
-            if key.lower() == "authorization"
-        )
-        key = (hashlib.sha256(credential.encode()).digest(), mime, hashlib.sha256(data).digest())
-        now = time.monotonic()
-        for expired in [key for key, (until, _) in self._cache.items() if until <= now]:
-            del self._cache[expired]
-        cached = self._cache.get(key)
-        if cached:
-            self._cache.move_to_end(key)
-            return cached[1]
         headers = {k: v for k, v in endpoint.headers.items() if k.lower() != "content-type"}
         headers["Content-Type"] = "application/octet-stream"
         response = await client.post(
@@ -216,7 +245,4 @@ class CopilotImageUploads:
             or any(character.isspace() or ord(character) < 32 for character in url)
         ):
             raise ValueError("Invalid attachment URL")
-        self._cache[key] = (time.monotonic() + 1800, url)
-        if len(self._cache) > 128:
-            self._cache.popitem(last=False)
         return url
