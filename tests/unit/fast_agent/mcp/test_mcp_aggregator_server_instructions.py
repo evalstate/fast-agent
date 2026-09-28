@@ -1,46 +1,14 @@
 import asyncio
-import enum
-import importlib.util
-import sys
-import types
-from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock
 
 from mcp_types import Tool
 
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
-MODULE_PATH = PROJECT_ROOT / "src" / "fast_agent" / "mcp" / "mcp_aggregator.py"
+from fast_agent.mcp.mcp_aggregator import MCPAggregator, NamespacedTool
 
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
-
-# Backport StrEnum for Python < 3.11 environments
-if not hasattr(enum, "StrEnum"):
-
-    class StrEnum(str, enum.Enum):
-        pass
-
-    enum.StrEnum = StrEnum
-
-# Provide minimal stubs for optional dependencies referenced during import
-if "a2a" not in sys.modules:
-    a2a_module = types.ModuleType("a2a")
-    a2a_types_module = types.ModuleType("a2a.types")
-    setattr(a2a_types_module, "AgentCard", object)  # noqa: B010
-    setattr(a2a_types_module, "AgentSkill", object)  # noqa: B010
-    setattr(a2a_module, "types", a2a_types_module)  # noqa: B010
-    sys.modules["a2a"] = a2a_module
-    sys.modules["a2a.types"] = a2a_types_module
-
-spec = importlib.util.spec_from_file_location("fast_agent.mcp.mcp_aggregator", MODULE_PATH)
-if spec is None or spec.loader is None:
-    raise RuntimeError("Failed to load mcp_aggregator module for testing")
-_module = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = _module
-spec.loader.exec_module(_module)
-
-MCPAggregator = _module.MCPAggregator
-NamespacedTool = _module.NamespacedTool
+if TYPE_CHECKING:
+    from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
 
 
 def test_get_server_instructions_does_not_implicitly_connect() -> None:
@@ -50,8 +18,6 @@ def test_get_server_instructions_does_not_implicitly_connect() -> None:
         context=None,
         name="test-agent",
     )
-    aggregator.display = None
-
     aggregator._namespaced_tool_map = {
         "huggingface.tool_a": NamespacedTool(
             tool=Tool(name="tool_a", input_schema={"type": "object"}),
@@ -70,7 +36,7 @@ def test_get_server_instructions_does_not_implicitly_connect() -> None:
         # If get_server() is called, it means we're implicitly connecting, which this test forbids.
         get_server=AsyncMock(side_effect=AssertionError("get_server() should not be called")),
     )
-    aggregator._persistent_connection_manager = fake_manager
+    aggregator._persistent_connection_manager = cast("MCPConnectionManager", fake_manager)
 
     result = asyncio.run(aggregator.get_server_instructions())
     assert result == {"huggingface": ("hf instructions", ["tool_a"])}
