@@ -38,9 +38,14 @@ A compaction does three things:
 3. **Replaces.** History becomes `templates + summary + recent turns`. The
    summary is a clearly-marked message (it shows as `compacted` in `/history`),
    not an ordinary user message. The original pre-compaction history is archived
-   to a `compacted_*.json` file in the session directory, so nothing is lost.
+   to a `compacted_*.json` file in the session directory when session history
+   persistence is enabled.
 
 If the summarization call fails or returns nothing, history is left untouched.
+With session history enabled, an archive failure also leaves history unchanged.
+Archives are published atomically under collision-resistant names; each new
+summary records the archive filename, SHA-256 digest, and retention boundaries.
+Prior summaries in that archive link to earlier archives.
 
 ## Automatic compaction
 
@@ -119,6 +124,30 @@ To recover the full pre-compaction transcript, load the archive:
 ```
 /history load compacted_20260613-120000_default.json
 ```
+
+## ATIF export after compaction
+
+Live ATIF output and persisted session ATIF export reconstruct archived history
+through the same verifier. They preserve original messages and tool results once,
+and emit system context-management steps for summaries. Restored audit messages
+were **not** all visible to the model after compaction. Process-poll fold audits
+are still expanded, including when reconciling a raw transient final turn.
+
+Recovery follows linked archives and verifies exact template and retained-tail
+sequences; it does not concatenate current/previous snapshots or globally
+deduplicate messages. Legacy unlinked archives require a unique exact positive
+tail overlap, timestamped originals, and an archive filename timestamp within
+five seconds before the summary. Missing, malformed, conflicting, or ambiguous
+evidence fails the full export rather than silently producing a partial trace.
+This includes legacy summary-only histories and retained tails whose exact
+overlap can no longer be verified.
+
+Disabling session history still permits ordinary compaction, but a full ATIF
+export cannot recover discarded history. Persisted recovery covers saved
+evidence only, not unsaved messages lost on hard termination. It does not merge
+existing ATIF files: preserve those separately when they contain extra transient
+evidence. Summary-generation usage is not stored with the checkpoint; exported
+accounting explicitly excludes those calls and is not complete run spend.
 
 ## Manual compaction from the Harness API
 

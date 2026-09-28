@@ -2103,3 +2103,65 @@ def test_apply_shell_cwd_policy_preflight_interactive_create_errors_on_remaining
 
     assert exc_info.value.exit_code == 1
     assert "Shell cwd policy (error):" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("termination", ["success", "error", "cancelled"])
+async def test_live_atif_reconstructs_compaction_and_preserves_transient_results(
+    tmp_path: Path, termination: str
+) -> None:
+    from fast_agent.cli.runtime.agent_setup import (
+        _export_failed_one_shot_atif,
+        _export_live_atif_trajectory,
+    )
+    from fast_agent.session import SessionManager
+    from tests.unit.fast_agent.history.test_atif_reconstruction import (
+        _checkpoint,
+        _exchange,
+        _message,
+    )
+
+    manager = SessionManager(
+        cwd=tmp_path, home_override=tmp_path / ".fast-agent", respect_env_override=False
+    )
+    session = manager.create_session()
+    manager.set_current_session(session)
+    agent = ToolAgent(AgentConfig("agent"))
+    archived = [_message(0), *_exchange(1), _message(2)]
+    current = _checkpoint(session.directory, archived)
+    agent.load_message_history(current + _exchange(3))
+    agent.last_turn_messages = [_message(2), *_exchange(3), *_exchange(4)]
+    app = SimpleNamespace(_agent=lambda _: agent)
+    output = tmp_path / "trajectory.json"
+    request = _make_request(result_file=None, trajectory_output=output)
+    if termination == "success":
+        await _export_live_atif_trajectory(
+            app,
+            request,
+            transient_messages_by_agent={"agent": agent.last_turn_messages},
+            session_manager=manager,
+            harness_session=None,
+        )
+    else:
+        await _export_failed_one_shot_atif(
+            app,
+            agent,
+            "prompt",
+            request,
+            # Larger than the compacted history: slicing at this length loses evidence.
+            history_before=archived * 3,
+            session_manager=manager,
+            harness_session=None,
+            error=asyncio.CancelledError() if termination == "cancelled" else RuntimeError("test"),
+        )
+    payload = json.loads(output.read_text())
+    assert [
+        call["tool_call_id"] for step in payload["steps"] for call in step.get("tool_calls", [])
+    ] == ["call-1", "call-3", "call-4"]
+    assert [
+        result["content"]
+        for step in payload["steps"]
+        for result in step.get("observation", {}).get("results", [])
+    ] == ["output 1\n", "output 3\n", "output 4\n"]
+    if termination != "success":
+        assert payload["extra"]["termination"]["status"] == termination

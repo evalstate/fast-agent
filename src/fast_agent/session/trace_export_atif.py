@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlparse
 from mcp_types import CallToolResult, ImageContent, TextContent
 
 from fast_agent.constants import (
+    FAST_AGENT_COMPACTION_CHANNEL,
     FAST_AGENT_PROCESS_POLL_FOLD,
     FAST_AGENT_RETRY,
     FAST_AGENT_SHELL_PROCESS_METADATA,
@@ -26,6 +27,11 @@ from fast_agent.constants import (
     REASONING,
 )
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.history.atif_reconstruction import (
+    COMPACTION_BOUNDARY,
+    reconcile_transient,
+    reconstruct_history,
+)
 from fast_agent.history.process_poll_fold_audit import (
     ArchivedContextRewrite,
     ProcessPollFoldAudit,
@@ -469,6 +475,38 @@ def _expand_process_poll_folds(
     return items
 
 
+def live_export_history(
+    history: list[PromptMessageExtended],
+    transient: list[PromptMessageExtended] | None,
+    session_dir: Path | None,
+    agent_name: str,
+) -> list[PromptMessageExtended]:
+    """Keep no-history turn exports, but never let a transient hide compaction."""
+    if not any(FAST_AGENT_COMPACTION_CHANNEL in (message.channels or {}) for message in history):
+        return list(transient or history)
+    restored = reconstruct_history(history, session_dir, agent_name)
+    if not transient:
+        return restored
+    # Compare the lossless original poll messages to the raw ToolRunner turn,
+    # not its rewritten/folded prompt representation. Keep the folded form in
+    # the result so the normal writer still emits every poll context boundary.
+    audit = _expand_process_poll_folds(
+        AtifRunSource(
+            session_id="",
+            agent_name=agent_name,
+            model_name=None,
+            provider=None,
+            history=restored,
+            message_timestamps=tuple(message.timestamp for message in restored),
+        )
+    )
+    return reconcile_transient(
+        restored,
+        transient,
+        overlap_history=[item.message for item in audit if isinstance(item, _AuditMessage)],
+    )
+
+
 def _resolve_call_step_ids(
     call_ids: tuple[str, ...],
     call_step_ids: dict[str, int],
@@ -482,6 +520,13 @@ def _resolve_call_step_ids(
 
 
 def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
+    history = reconstruct_history(source.history, source.parent_session_dir, source.agent_name)
+    if history != source.history:
+        source = replace(
+            source,
+            history=history,
+            message_timestamps=tuple(message.timestamp for message in history),
+        )
     model_name = source.model_name
     steps: list[AtifStep] = []
     call_step_ids: dict[str, int] = {}
@@ -544,6 +589,18 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
         message = item.message
         timestamp = item.timestamp
         timestamp_text = timestamp.isoformat().replace("+00:00", "Z") if timestamp else None
+        boundary = _json_channel_mapping(message, COMPACTION_BOUNDARY)
+        if boundary is not None:
+            steps.append(
+                AtifStep(
+                    step_id=len(steps) + 1,
+                    timestamp=timestamp_text,
+                    source="system",
+                    message=_atif_content(list(message.content)),
+                    extra={"context_management": boundary},
+                )
+            )
+            continue
         if message.tool_results:
             for call_id, result in message.tool_results.items():
                 _attach_tool_result(
@@ -591,6 +648,9 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
     ]
     usage_coverage = _usage_coverage_extra(steps)
     usage_calls_complete = usage_coverage["llm_usage_calls_complete"]
+    summary_boundaries = sum(
+        COMPACTION_BOUNDARY in (message.channels or {}) for message in source.history
+    )
     total_reasoning_tokens = _sum_optional_int(
         _metric_extra_int(item, "reasoning_tokens") if item is not None else None
         for item in metrics
@@ -634,6 +694,15 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
                 "folded_process_poll_steps": folded_polls or None,
                 "process_poll_context_rewrites": context_boundary_count or None,
                 **usage_coverage,
+                **(
+                    {
+                        "summary_compactions": summary_boundaries,
+                        "summary_compaction_usage_complete": False,
+                        "accounting_scope": "original_assistant_messages_excluding_summary_calls",
+                    }
+                    if summary_boundaries
+                    else {}
+                ),
             }.items()
             if value is not None
         }
@@ -662,6 +731,7 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
         notes=_atif_notes(
             source.notes,
             context_boundary_count=context_boundary_count,
+            summary_boundary_count=summary_boundaries,
         ),
     )
     _embed_subagent_trajectories(trajectory, source)
@@ -672,8 +742,17 @@ def _atif_notes(
     notes: str | None,
     *,
     context_boundary_count: int,
+    summary_boundary_count: int = 0,
 ) -> str | None:
     additions: list[str] = []
+    if summary_boundary_count:
+        additions.append(
+            "Summary compaction archives restore the audit history, not the model-visible "
+            "context. System boundaries replace the previous model context with templates, "
+            "the displayed summary, and the retained tail; originals are not replayed. "
+            "Accounting covers original assistant messages only. Summary-generation usage "
+            "was not persisted and is excluded; these totals are not complete run spend."
+        )
     if context_boundary_count:
         additions.append(
             "Managed-process polling folds preserve every original LLM/tool step for "
@@ -1045,6 +1124,7 @@ def _load_child_session_trajectory(
             provider=active_agent.provider,
             history=history,
             message_timestamps=tuple(message.timestamp for message in history),
+            parent_session_dir=child_dir,
             extra={
                 key: value
                 for key, value in {
