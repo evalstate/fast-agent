@@ -1065,6 +1065,13 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
         )
     _status_console().print(protocol_line)
 
+    if status.tool_cache is not None:
+        tools_line = Text(indent + "  ")
+        tools_line.append_text(
+            _build_aligned_field("tools", build_tool_cache_text(status.tool_cache))
+        )
+        _status_console().print(tools_line)
+
     health_text = _build_health_text(status)
     if health_text is not None:
         health_line = Text(indent + "  ")
@@ -1187,7 +1194,6 @@ def _render_server_status_block(
 ) -> None:
     primary_caps, secondary_caps = _format_capability_shorthand(status, template_expected)
     _render_server_header(server, index, indent=indent, total_width=total_width)
-    _status_console().print(Text(indent + format_tool_cache(status.tool_cache)))
     _render_server_metadata(status, indent=indent)
     _render_server_state(status, indent=indent, template_expected=template_expected)
     _render_server_calls(status, indent=indent)
@@ -1249,22 +1255,32 @@ async def render_mcp_status_text(agent, *, width: int = 100) -> str:
     return buffer.getvalue().strip()
 
 
-def format_tool_cache(info: ToolCacheInfo | None) -> str:
-    """Describe recorded catalog provenance, not inferred cache configuration."""
-    if info is None:
-        return "tool cache: absent (no recorded provenance)"
+def build_tool_cache_text(info: ToolCacheInfo) -> Text:
+    """One line: count · origin and age · how change is detected · where it lives."""
     now = datetime.now(timezone.utc).timestamp()
-    age = format_compact_duration(max(0, now - info.fetched_at))
-    fetched = datetime.fromtimestamp(info.fetched_at, timezone.utc).isoformat()
-    if info.expires_at is None:
-        expiry = "no expiry: server digest checked on each call"
-    else:
+    separator = (" · ", Colours.TEXT_DIM)
+    text = Text()
+    text.append(str(info.tool_count), style=Colours.TEXT_DEFAULT)
+    text.append(*separator)
+    text.append(info.source, style=Colours.TEXT_DEFAULT)
+    text.append(f" {format_compact_duration(max(0, now - info.fetched_at))} ago", Colours.TEXT_DIM)
+    if info.digest:
+        text.append(*separator)
+        text.append("digest checked per call", style=Colours.TEXT_SUCCESS)
+    elif info.persisted and info.expires_at is not None:
+        text.append(*separator)
         remaining = format_compact_duration(abs(info.expires_at - now))
-        expires = datetime.fromtimestamp(info.expires_at, timezone.utc).isoformat()
-        expiry = (
-            f"expires in {remaining}" if info.expires_at > now else f"expired {remaining} ago"
-        ) + f" ({expires})"
-    return (
-        f"tool cache: {info.source}, {info.tool_count} tools; "
-        f"fetched {fetched} (age {age}); {expiry}"
-    )
+        if info.expires_at > now:
+            text.append(f"reusable for {remaining}", style=Colours.TEXT_DIM)
+        else:
+            text.append(f"expired {remaining} ago", style=Colours.TEXT_WARNING)
+    text.append(*separator)
+    text.append("saved" if info.persisted else "memory only", style=Colours.TEXT_DIM)
+    return text
+
+
+def format_tool_cache(info: ToolCacheInfo | None) -> str:
+    """Plain-text catalog provenance for command output."""
+    if info is None:
+        return "no tool catalog recorded"
+    return f"tools: {build_tool_cache_text(info).plain}"

@@ -994,13 +994,14 @@ class MCPAggregator(ContextDependent):
             self._deferred_servers.add(server_name)
             self._deferred_instructions[server_name] = snapshot.instructions
             self._definition_versions[server_name] = snapshot.definition_versions
+            digest = cache.digest_mode(snapshot)
             self._tool_cache_info[server_name] = ToolCacheInfo(
                 source="disk",
                 fetched_at=snapshot.fetched_at,
-                expires_at=None
-                if cache.digest_mode(snapshot)
-                else snapshot.fetched_at + config.tool_cache.ttl_seconds,
                 tool_count=len(tools),
+                digest=digest,
+                expires_at=None if digest else snapshot.fetched_at + config.tool_cache.ttl_seconds,
+                persisted=True,
             )
             self.definitions_generation += 1
         return True
@@ -1120,17 +1121,17 @@ class MCPAggregator(ContextDependent):
                 instructions=instructions,
                 definition_versions=versions,
             )
-            config = self._server_config(server_name)
-            ttl = config.tool_cache.ttl_seconds if config else 3600
-            digest = cache is not None and cache.digest_mode(snapshot)
+            config = self._server_config(server_name) or MCPServerSettings()
+            # Digests describe the live connection whether or not anything is persisted.
+            digest = snapshot.digest_mode(include_instructions=config.include_instructions)
             self._tool_cache_info[server_name] = ToolCacheInfo(
                 source="live",
                 fetched_at=now,
-                expires_at=None if digest else now + ttl,
                 tool_count=len(tools),
+                digest=digest,
+                expires_at=None if digest else now + config.tool_cache.ttl_seconds,
+                persisted=cache is not None and cache.save(snapshot),
             )
-            if cache is not None:
-                cache.save(snapshot)
             self.definitions_generation += 1
             return tools
         except Exception as e:

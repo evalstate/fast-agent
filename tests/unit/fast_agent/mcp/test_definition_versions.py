@@ -149,3 +149,23 @@ async def test_tool_runner_relists_listed_tools_when_definitions_change():
     agent.tool_definitions_generation = 2
     await pinned._ensure_tools_ready()
     assert agent.listed == 2  # caller-supplied tools are never replaced
+
+
+def test_unpartitioned_network_server_persists_only_digest_snapshots(tmp_path):
+    # e.g. `--url https://huggingface.co/mcp?anon`: no auth_identity is configured.
+    config = MCPServerSettings(
+        transport="http",
+        url="https://example.com/mcp",
+        tool_cache=MCPToolCacheSettings(directory=str(tmp_path)),
+    )
+    cache = ToolCatalogCache(config)
+    ttl_only = ToolSnapshot(key=cache.key, fetched_at=time.time(), tools=[TOOL])
+    assert not cache.save(ttl_only)
+    assert cache.load() is None
+    digest = ttl_only.model_copy(
+        update={
+            "definition_versions": DefinitionVersions(tools="sha256:t", instructions="sha256:i")
+        }
+    )
+    assert cache.save(digest)
+    assert cache.load() == digest

@@ -59,18 +59,24 @@ def test_invalid_cache_commands_are_rejected(command):
     assert isinstance(parse_special_input(command), CommandError)
 
 
-def test_cache_display_uses_recorded_provenance_and_expiry():
+def test_cache_display_describes_origin_change_detection_and_persistence():
     now = datetime.now(timezone.utc).timestamp()
-    info = ToolCacheInfo(source="disk", fetched_at=now - 120, expires_at=now - 60, tool_count=3)
-    rendered = format_tool_cache(info)
-    assert "disk" in rendered and "3 tools" in rendered
-    assert "age" in rendered and "expired" in rendered
-    assert datetime.fromtimestamp(info.fetched_at, timezone.utc).isoformat() in rendered
-    assert "absent" in format_tool_cache(None)
-    info.source = "live"
-    info.expires_at = now + 60
-    assert "live" in format_tool_cache(info)
-    assert "expires in" in format_tool_cache(info)
+    digest = ToolCacheInfo(source="live", fetched_at=now - 4, tool_count=4, digest=True)
+    assert (
+        format_tool_cache(digest)
+        == "tools: 4 · live 4s ago · digest checked per call · memory only"
+    )
+    saved = ToolCacheInfo(
+        source="disk", fetched_at=now - 120, tool_count=3, expires_at=now + 60, persisted=True
+    )
+    assert "disk 2m ago" in format_tool_cache(saved)
+    assert "reusable for" in format_tool_cache(saved) and "saved" in format_tool_cache(saved)
+    saved.expires_at = now - 60
+    assert "expired" in format_tool_cache(saved)
+    # Without persistence a TTL means nothing to the user; don't show one.
+    unsaved = ToolCacheInfo(source="live", fetched_at=now, tool_count=1, expires_at=now + 60)
+    assert "reusable" not in format_tool_cache(unsaved)
+    assert format_tool_cache(None) == "no tool catalog recorded"
 
 
 @pytest.mark.asyncio
@@ -148,7 +154,7 @@ async def test_cache_summary_does_not_refresh_or_infer_missing_provenance():
     ctx.agent_provider = Mock()
     ctx.agent_provider._agent.return_value = agent
     outcome = await handle_mcp_cache(ctx, agent_name="main", value="cache")
-    assert "docs: tool cache: absent" in outcome.messages[0].plain_text()
+    assert "docs: no tool catalog recorded" in outcome.messages[0].plain_text()
     aggregator.refresh_tool_cache.assert_not_called()
     aggregator.clear_tool_cache.assert_not_called()
 
@@ -169,5 +175,5 @@ async def test_cache_summary_uses_real_aggregator_without_connecting():
     ctx.agent_provider._agent.return_value = agent
     outcome = await handle_mcp_cache(ctx, agent_name="main", value="cache")
     assert not any(message.channel == "error" for message in outcome.messages)
-    assert "manual: tool cache: absent" in outcome.messages[0].plain_text()
+    assert "manual: no tool catalog recorded" in outcome.messages[0].plain_text()
     assert not aggregator.startup_status

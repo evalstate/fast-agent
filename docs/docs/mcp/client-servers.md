@@ -490,7 +490,8 @@ but because configured header and environment values feed the key hash, the cach
 name could in principle be matched against guessed low-entropy secrets. Tool descriptions themselves may
 contain sensitive server data, so use a trusted private cache directory.
 For network servers set `tool_cache.auth_identity` to a stable principal identifier
-and change it when switching accounts. Request-scoped bearer authentication
+and change it when switching accounts; without it, only digest-mode snapshots (below)
+are persisted. Request-scoped bearer authentication
 never uses disk persistence.
 
 `connection_policy: deferred` reuses a fresh snapshot at startup, delaying connection
@@ -525,7 +526,9 @@ When a snapshot carries a tools digest, plus an instructions digest if
   reported stale (tools, or reconnects for instructions), returns a "definitions
   changed" result to the model, and re-lists tools and re-renders instructions before
   the next model call.
-- `/mcp cache` shows `no expiry: server digest checked on each call`.
+- Digest snapshots are persisted even without `tool_cache.auth_identity` (for
+  example `fast-agent go --url https://huggingface.co/mcp?anon`): a snapshot from
+  another account or deployment is rejected by the server before any tool runs.
 
 Servers only advertise digests where the complete tool list is cheap to compute; for
 Hugging Face that is anonymous access (`?anon`) or a named bouquet other than `all`.
@@ -544,9 +547,11 @@ Aggregator APIs (both accept a server name or `None` for all configured servers)
 
 ### Tool catalog cache commands
 
-- `/mcp cache` shows recorded catalog provenance (`live` or `disk`), tool count,
-  fetched timestamp and age, and expiry. Missing provenance is shown as absent.
-  `/mcp` status also includes this information.
+- `/mcp cache` shows one line per server, also shown as the `tools` row in `/mcp`:
+  tool count, origin (`live` or `disk`) and age, how changes are detected
+  (`digest checked per call`, or `reusable for …`/`expired …` for saved TTL snapshots),
+  and whether a snapshot is `saved` or `memory only`. For example
+  `tools: 4 · live 8s ago · digest checked per call · saved`.
 - `/mcp cache clear [server|all]` removes snapshots and deferred advertisements while
   retaining connected live tools without disconnecting servers. Omit the target to clear all attached servers.
 - `/mcp refresh [server|all]` connects if needed and replaces tool catalogs using

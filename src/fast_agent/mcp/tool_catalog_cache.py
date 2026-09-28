@@ -23,9 +23,13 @@ logger = get_logger(__name__)
 class ToolCacheInfo(BaseModel):
     source: Literal["live", "disk"]
     fetched_at: float
-    expires_at: float | None
-    """None: validated by server definition digests on every call instead of a TTL."""
     tool_count: int
+    digest: bool = False
+    """Server definition digests are checked on every call; no TTL applies."""
+    expires_at: float | None = None
+    """Local reuse deadline for catalogs without digests."""
+    persisted: bool = False
+    """A snapshot of this catalog is on disk for later sessions."""
 
 
 class ToolSnapshot(BaseModel):
@@ -35,6 +39,10 @@ class ToolSnapshot(BaseModel):
     tools: list[Tool] = Field(default_factory=list)
     instructions: str | None = None
     definition_versions: DefinitionVersions = Field(default_factory=DefinitionVersions)
+
+    def digest_mode(self, *, include_instructions: bool) -> bool:
+        """Server digests cover everything cached: ignore the TTL, detect change on call."""
+        return self.definition_versions.validates(instructions=include_instructions)
 
 
 def _identity_value(value: object) -> object:
@@ -90,32 +98,40 @@ class ToolCatalogCache:
 
     @property
     def enabled(self) -> bool:
-        # OAuth/session credentials are not necessarily represented in server settings,
-        # so network snapshots need an explicit account partition.
         return (
             self.config.tool_cache.enabled
             and not self._no_home
-            and (
-                self.config.transport == "stdio"
-                or bool((self.config.tool_cache.auth_identity or "").strip())
-            )
             and not (self.config.auth and self.config.auth.forward)
         )
+
+    @property
+    def partitioned(self) -> bool:
+        """OAuth/session credentials are not necessarily represented in server settings,
+        so TTL snapshots of network servers need an explicit account partition."""
+        return self.config.transport == "stdio" or bool(
+            (self.config.tool_cache.auth_identity or "").strip()
+        )
+
+    def reusable(self, snapshot: ToolSnapshot) -> bool:
+        """Digest snapshots are checked by the server on every call, so they need no
+        partition; another account's snapshot is rejected before any tool executes."""
+        return self.digest_mode(snapshot) or self.partitioned
 
     def load(self) -> ToolSnapshot | None:
         if not self.enabled:
             return None
         try:
             snapshot = ToolSnapshot.model_validate_json(self.path.read_bytes())
-            if snapshot.key == self.key and (self.digest_mode(snapshot) or self._fresh(snapshot)):
+            if snapshot.key == self.key and (
+                self.digest_mode(snapshot) or (self.partitioned and self._fresh(snapshot))
+            ):
                 return snapshot
         except (OSError, ValidationError):
             pass
         return None
 
     def digest_mode(self, snapshot: ToolSnapshot) -> bool:
-        """Server digests cover everything cached: ignore the TTL, detect change on call."""
-        return snapshot.definition_versions.validates(instructions=self.config.include_instructions)
+        return snapshot.digest_mode(include_instructions=self.config.include_instructions)
 
     def _fresh(self, snapshot: ToolSnapshot) -> bool:
         age = time.time() - snapshot.fetched_at
@@ -126,9 +142,10 @@ class ToolCatalogCache:
             with suppress(OSError):
                 self.path.unlink(missing_ok=True)
 
-    def save(self, snapshot: ToolSnapshot) -> None:
-        if not self.enabled:
-            return
+    def save(self, snapshot: ToolSnapshot) -> bool:
+        """Write the snapshot if policy allows; returns whether it is now on disk."""
+        if not self.enabled or not self.reusable(snapshot):
+            return False
         # Persistence is optional: filesystem failures must not break discovery.
         temporary: str | None = None
         try:
@@ -139,8 +156,10 @@ class ToolCatalogCache:
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temporary, self.path)
+            return True
         except OSError as exc:
             logger.warning(f"Unable to persist MCP tool catalog: {exc}")
+            return False
         finally:
             if temporary is not None:
                 with suppress(OSError):
