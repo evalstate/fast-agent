@@ -680,6 +680,46 @@ class TestCompactConversation:
             assert archive_path.parent.parent == workspace / ".fast-agent" / "sessions"
             assert manager.current_session is not None
             assert archive_path.name not in manager.current_session.info.history_files
+            from fast_agent.history.atif_reconstruction import (
+                is_export_marker,
+                reconstruct_history,
+            )
+
+            restored = reconstruct_history(agent.message_history, archive_path.parent, agent.name)
+            assert [m for m in restored if not is_export_marker(m)] == history
+        finally:
+            reset_session_manager()
+
+    async def test_persists_summary_call_for_trace_accounting(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        monkeypatch.chdir(workspace)
+        reset_session_manager()
+        try:
+            agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"), summary="the summary")
+            agent.context = Context(
+                config=Settings(session_history=True),
+                session_manager=SessionManager(
+                    cwd=workspace,
+                    home_override=workspace / ".fast-agent",
+                    respect_env_override=False,
+                ),
+            )
+
+            await compact_conversation(
+                agent, settings=CompactionSettings(keep_turns=1), instructions="focus"
+            )
+
+            summary = next(m for m in agent.message_history if is_compaction_message(m))
+            block = (summary.channels or {})[FAST_AGENT_COMPACTION_CHANNEL][0]
+            assert isinstance(block, TextContent)
+            metadata = json.loads(block.text)
+            # Exactly what the summarizer received and returned.
+            assert metadata["summary_request"] == agent.llm.requests[0][-1].first_text()
+            response = PromptMessageExtended.model_validate(metadata["summary_response"])
+            assert response.role == "assistant"
+            assert response.first_text() == "the summary"
         finally:
             reset_session_manager()
 
@@ -779,3 +819,66 @@ class TestUsageEstimateOverride:
         assert usage.summary.total == 440
         assert usage.get_summary()["current_context_tokens"] == 123
         assert usage.get_summary()["total"] == 440
+
+
+@pytest.mark.anyio
+async def test_archival_failure_preserves_original_history(tmp_path, monkeypatch):
+    from fast_agent.history.compaction import CompactionError
+
+    agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"))
+    agent.context = Context(config=Settings(session_history=True))
+    before = list(agent.message_history)
+    monkeypatch.setattr("fast_agent.history.compaction._archive_history", lambda *_: None)
+    with pytest.raises(CompactionError, match="history unchanged"):
+        await compact_conversation(agent, settings=CompactionSettings(keep_turns=1))
+    assert agent.message_history == before
+
+
+@pytest.mark.anyio
+async def test_disabled_persistence_compacts_but_cannot_claim_full_export(tmp_path):
+    from fast_agent.history.atif_reconstruction import (
+        HistoryReconstructionError,
+        reconstruct_history,
+    )
+
+    agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"))
+    agent.context = Context(config=Settings(session_history=False))
+    result = await compact_conversation(agent, settings=CompactionSettings(keep_turns=1))
+    assert result.archive_file is None
+    with pytest.raises(HistoryReconstructionError):
+        reconstruct_history(agent.message_history, tmp_path, agent.name)
+
+
+def test_archives_are_atomic_unique_and_never_overwrite(tmp_path, monkeypatch):
+    from fast_agent.history.compaction import _archive_history
+    from fast_agent.mcp.prompt_serialization import load_messages
+
+    manager = SessionManager(
+        cwd=tmp_path, home_override=tmp_path / ".fast-agent", respect_env_override=False
+    )
+    agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"))
+    agent.context = Context(config=Settings(session_history=True), session_manager=manager)
+    first = _archive_history(agent, agent.message_history)
+    second = _archive_history(agent, agent.message_history)
+    assert first and second and first != second
+    assert load_messages(first) == agent.message_history
+    assert load_messages(second) == agent.message_history
+    original = Path(first).read_bytes()
+
+    def fail_link(*args):
+        raise FileExistsError("collision")
+
+    monkeypatch.setattr("fast_agent.history.compaction.os.link", fail_link)
+    assert _archive_history(agent, agent.message_history) is None
+    assert Path(first).read_bytes() == original
+    assert not list(Path(first).parent.glob(".compaction-*"))
+    assert len(list(Path(first).parent.glob("compacted_*"))) == 2
+
+    def partial_write(messages, filename):
+        Path(filename).write_text("{")
+        raise OSError("partial write")
+
+    monkeypatch.setattr("fast_agent.mcp.prompt_serialization.save_messages", partial_write)
+    assert _archive_history(agent, agent.message_history) is None
+    assert len(list(Path(first).parent.glob("compacted_*"))) == 2
+    assert not list(Path(first).parent.glob(".compaction-*"))

@@ -38,9 +38,14 @@ A compaction does three things:
 3. **Replaces.** History becomes `templates + summary + recent turns`. The
    summary is a clearly-marked message (it shows as `compacted` in `/history`),
    not an ordinary user message. The original pre-compaction history is archived
-   to a `compacted_*.json` file in the session directory, so nothing is lost.
+   to a `compacted_*.json` file in the session directory when session history
+   persistence is enabled.
 
 If the summarization call fails or returns nothing, history is left untouched.
+With session history enabled, an archive failure also leaves history unchanged.
+Archives are published atomically under collision-resistant names; each new
+summary records the archive filename, SHA-256 digest, and retention boundaries.
+Prior summaries in that archive link to earlier archives.
 
 ## Automatic compaction
 
@@ -119,6 +124,44 @@ To recover the full pre-compaction transcript, load the archive:
 ```
 /history load compacted_20260613-120000_default.json
 ```
+
+## ATIF export after compaction
+
+Live ATIF output and persisted session ATIF export reconstruct archived history
+through the same verifier. Original messages and tool results appear once, in
+their original positions. Each summary becomes an ATIF `context_management`
+boundary (`type: "compaction"`, `boundary: "replace"`) following the ATIF v1.7
+convention:
+
+- the boundary step's `observation` holds the summary the model saw;
+- the system prompt, templates, and retained recent turns that stayed in the
+  model's context follow the boundary as `is_copied_context` steps, which carry
+  no usage and are excluded from SFT by spec-following consumers;
+- `extra.context_management` lists `removed_step_ids`, `retained_step_ids`, and
+  `copied_step_ids`, and each copy records `copied_from_step_id`;
+- the summarization model call is embedded in `subagent_trajectories`, referenced
+  from the boundary observation, and included in final metrics.
+
+A consumer applying the spec's replace-boundary rule therefore reconstructs the
+same context fast-agent sent to the model. Process-poll fold audits are still
+expanded, including when reconciling a raw transient final turn.
+
+Recovery follows linked archives and verifies exact template and retained-tail
+sequences; it does not concatenate current/previous snapshots or globally
+deduplicate messages. Legacy unlinked archives require a unique exact positive
+tail overlap, timestamped originals, and an archive filename timestamp within
+five seconds before the summary. Missing, malformed, conflicting, or ambiguous
+evidence fails the full export rather than silently producing a partial trace.
+This includes legacy summary-only histories and retained tails whose exact
+overlap can no longer be verified.
+
+Disabling session history still permits ordinary compaction, but a full ATIF
+export cannot recover discarded history. Persisted recovery covers saved
+evidence only, not unsaved messages lost on hard termination. It does not merge
+existing ATIF files: preserve those separately when they contain extra transient
+evidence. Checkpoints written before summary calls were recorded have no
+summary usage: their boundaries report `summary_usage: "unavailable"` and
+final metrics mark the accounting as excluding those calls.
 
 ## Manual compaction from the Harness API
 

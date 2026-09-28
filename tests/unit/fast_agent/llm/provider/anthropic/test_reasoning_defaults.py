@@ -28,6 +28,7 @@ from fast_agent.llm.provider.anthropic.llm_anthropic import (
     AnthropicLLM,
 )
 from fast_agent.llm.provider.anthropic.llm_anthropic_vertex import AnthropicVertexLLM
+from fast_agent.llm.provider.copilot.messages import CopilotMessagesLLM
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, is_auto_reasoning
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt import Prompt
@@ -1129,7 +1130,9 @@ def test_structured_output_modes_still_preserve_other_beta_flags() -> None:
 
 @pytest.mark.parametrize("choice", ["auto", "none", "any", "tool"])
 @pytest.mark.parametrize("in_extra_body", [False, True])
-@pytest.mark.parametrize("model", ["claude-fable-5-1", "claude-opus-5-5"])
+@pytest.mark.parametrize(
+    "model", ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-sonnet-5.5"]
+)
 def test_always_on_tool_choice_contract(choice: str, in_extra_body: bool, model: str) -> None:
     llm = _make_llm(model)
     tool_args = {"tool_choice": {"type": choice}}
@@ -1174,7 +1177,7 @@ def test_opus_55_always_on_defaults_to_medium(reasoning: str | int | bool | None
         model="claude-opus-5-5", max_tokens=128000, structured_mode="json"
     )
     assert enabled
-    assert "thinking" not in args
+    assert args["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert args["output_config"] == {"effort": "medium"}
     assert llm._resolve_structured_output_mode("claude-opus-5-5", _StructuredResponse) == "json"
 
@@ -1187,7 +1190,7 @@ def test_opus_55_supported_efforts_reach_request(effort: str) -> None:
         model=model, max_tokens=128000, structured_mode="json"
     )
     assert enabled
-    assert "thinking" not in args
+    assert args["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert args["output_config"] == {"effort": effort}
 
 
@@ -1233,3 +1236,87 @@ def test_opus_55_preserves_empty_signed_thinking_and_text() -> None:
     assert result["messages"] == messages
     assert "temperature" not in result
     assert "extra_body" not in result
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-sonnet-5.5"])
+@pytest.mark.parametrize("reasoning", [None, "auto", False, "low", "medium", "high"])
+def test_sonnet_55_reasoning_request(model: str, reasoning: str | bool | None) -> None:
+    llm = (
+        CopilotMessagesLLM(
+            context=Context(config=Settings()), model=model, reasoning_effort=reasoning
+        )
+        if model == "claude-sonnet-5.5"
+        else _make_llm(model, reasoning=reasoning)
+    )
+    args, enabled = llm._resolve_thinking_arguments(
+        model=model, max_tokens=128000, structured_mode="json"
+    )
+    result = args
+    assert result["max_tokens"] == 128000
+    if reasoning is False:
+        assert not enabled
+        assert result["thinking"] == {"type": "between_tools"}
+        assert "output_config" not in result
+    else:
+        assert enabled
+        assert result["thinking"] == {"type": "adaptive", "display": "summarized"}
+        if reasoning in {"low", "medium", "high"}:
+            assert result["output_config"] == {"effort": reasoning}
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-sonnet-5.5"])
+@pytest.mark.parametrize("in_extra_body", [False, True])
+@pytest.mark.parametrize(
+    "thinking",
+    [
+        {"type": "disabled"},
+        {"type": "enabled", "budget_tokens": 1024},
+        {"type": "adaptive", "budget_tokens": 1024},
+        {"type": "between_tools", "budget_tokens": 1024},
+        {"type": "between_tools", "display": "summarized"},
+    ],
+)
+def test_sonnet_55_rejects_invalid_thinking(
+    model: str, in_extra_body: bool, thinking: dict[str, object]
+) -> None:
+    llm = _make_llm(model)
+    override = {"thinking": thinking}
+    args = {"model": model, **({"extra_body": override} if in_extra_body else override)}
+    with pytest.raises(ValueError, match="Sonnet 5.5 requires"):
+        llm.prepare_provider_arguments(args, RequestParams())
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-sonnet-5.5"])
+@pytest.mark.parametrize("in_extra_body", [False, True])
+@pytest.mark.parametrize("thinking_type", ["adaptive", "between_tools"])
+@pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh", "max"])
+def test_sonnet_55_effort_contract(
+    model: str, in_extra_body: bool, thinking_type: str, effort: str
+) -> None:
+    llm = _make_llm(model)
+    override = {"thinking": {"type": thinking_type}, "output_config": {"effort": effort}}
+    args = {"model": model, **({"extra_body": override} if in_extra_body else override)}
+    if thinking_type == "between_tools" and effort in {"xhigh", "max"}:
+        with pytest.raises(ValueError, match="only low, medium, or high"):
+            llm.prepare_provider_arguments(args, RequestParams())
+    else:
+        result = llm.prepare_provider_arguments(args, RequestParams())
+        payload = result["extra_body"] if in_extra_body else result
+        assert payload["thinking"] == {"type": thinking_type}
+        assert payload["output_config"] == {"effort": effort}
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-sonnet-5.5"])
+def test_sonnet_55_drops_sampling(model: str) -> None:
+    llm = _make_llm(model)
+    result = llm.prepare_provider_arguments(
+        {
+            "model": model,
+            "temperature": 0.5,
+            "top_p": 0.8,
+            "top_k": 10,
+            "extra_body": {"temperature": 0.3, "top_p": 0.7, "top_k": 20},
+        },
+        RequestParams(),
+    )
+    assert not {"temperature", "top_p", "top_k", "extra_body"} & result.keys()

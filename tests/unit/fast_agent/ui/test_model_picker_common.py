@@ -891,3 +891,15 @@ def test_snapshot_orders_active_providers_first_and_fast_agent_last(
     # Directed check: openrouter (late in fixed order) floats above responses.
     keys = [option.provider for option in ranked]
     assert keys.index(Provider.OPENROUTER) < keys.index(Provider.RESPONSES)
+
+
+def test_claude55_picker_places_sonnet_immediately_after_opus() -> None:
+    """Keep the two current Claude tiers adjacent on both supported routes."""
+    snapshot = build_snapshot()
+    for provider, opus, sonnet in (
+        (Provider.ANTHROPIC, "claude-opus-5-5", "claude-sonnet-5-5"),
+        (Provider.COPILOT, "copilot.claude-opus-5.5", "copilot.claude-sonnet-5.5"),
+    ):
+        options = model_options_for_provider(snapshot, provider, source="curated")
+        specs = [option.spec for option in options]
+        assert specs.index(sonnet) == specs.index(opus) + 1

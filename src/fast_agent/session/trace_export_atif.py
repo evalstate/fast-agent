@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlparse
 from mcp_types import CallToolResult, ImageContent, TextContent
 
 from fast_agent.constants import (
+    FAST_AGENT_COMPACTION_CHANNEL,
     FAST_AGENT_PROCESS_POLL_FOLD,
     FAST_AGENT_RETRY,
     FAST_AGENT_SHELL_PROCESS_METADATA,
@@ -26,11 +27,18 @@ from fast_agent.constants import (
     REASONING,
 )
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.history.atif_reconstruction import (
+    COMPACTION_BOUNDARY,
+    COPIED_CONTEXT,
+    reconcile_transient,
+    reconstruct_history,
+)
 from fast_agent.history.process_poll_fold_audit import (
     ArchivedContextRewrite,
     ProcessPollFoldAudit,
 )
 from fast_agent.llm.usage_tracking import UsageReport, UsageSummary
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import load_messages
 from fast_agent.privacy.sanitizer import RedactionAccumulator
@@ -469,6 +477,38 @@ def _expand_process_poll_folds(
     return items
 
 
+def live_export_history(
+    history: list[PromptMessageExtended],
+    transient: list[PromptMessageExtended] | None,
+    session_dir: Path | None,
+    agent_name: str,
+) -> list[PromptMessageExtended]:
+    """Keep no-history turn exports, but never let a transient hide compaction."""
+    if not any(FAST_AGENT_COMPACTION_CHANNEL in (message.channels or {}) for message in history):
+        return list(transient or history)
+    restored = reconstruct_history(history, session_dir, agent_name)
+    if not transient:
+        return restored
+    # Compare the lossless original poll messages to the raw ToolRunner turn,
+    # not its rewritten/folded prompt representation. Keep the folded form in
+    # the result so the normal writer still emits every poll context boundary.
+    audit = _expand_process_poll_folds(
+        AtifRunSource(
+            session_id="",
+            agent_name=agent_name,
+            model_name=None,
+            provider=None,
+            history=restored,
+            message_timestamps=tuple(message.timestamp for message in restored),
+        )
+    )
+    return reconcile_transient(
+        restored,
+        transient,
+        overlap_history=[item.message for item in audit if isinstance(item, _AuditMessage)],
+    )
+
+
 def _resolve_call_step_ids(
     call_ids: tuple[str, ...],
     call_step_ids: dict[str, int],
@@ -481,12 +521,134 @@ def _resolve_call_step_ids(
     return [call_step_ids[call_id] for call_id in call_ids]
 
 
+def _copied_role(message: PromptMessageExtended) -> object:
+    return (_json_channel_mapping(message, COPIED_CONTEXT) or {}).get("role")
+
+
+def _summary_call_trajectory(
+    source: AtifRunSource,
+    summary_call: dict[str, object],
+    *,
+    trajectory_id: str,
+    parent_step_id: int,
+    input_step_ids: list[int],
+) -> AtifTrajectory:
+    request = summary_call.get("summary_request")
+    if not isinstance(request, str):
+        raise ValueError("Compaction summary request is malformed")
+    response = PromptMessageExtended.model_validate(summary_call.get("summary_response"))
+    history = [Prompt.user(request), response]
+    report = _usage_report(response)
+    child = build_atif_trajectory(
+        AtifRunSource(
+            session_id=source.session_id,
+            agent_name=source.agent_name,
+            model_name=report.final_attempt.model if report else source.model_name,
+            provider=source.provider,
+            history=history,
+            message_timestamps=(None, response.timestamp),
+        )
+    )
+    child.trajectory_id = trajectory_id
+    child.extra = {
+        "role": "context_compaction_summary",
+        "parent_step_id": parent_step_id,
+        # The summarizer saw these parent steps followed by this request; they are
+        # referenced rather than copied to avoid duplicating the compacted region.
+        "input_step_ids": input_step_ids,
+    }
+    return child
+
+
 def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
+    history = reconstruct_history(source.history, source.parent_session_dir, source.agent_name)
+    if history != source.history:
+        source = replace(
+            source,
+            history=history,
+            message_timestamps=tuple(message.timestamp for message in history),
+        )
     model_name = source.model_name
     steps: list[AtifStep] = []
     call_step_ids: dict[str, int] = {}
+    # Step IDs the model can see, in model order. Summary boundaries use it to
+    # name the steps they remove and retain.
+    context_step_ids: list[int] = []
+    compaction_children: list[AtifTrajectory] = []
+    summary_boundaries_with_usage = 0
     audit_items = _expand_process_poll_folds(source)
     context_boundary_count = 0
+
+    def append_message(
+        message: PromptMessageExtended,
+        timestamp: datetime | None,
+        *,
+        copied_from_step_id: int | None = None,
+    ) -> int | None:
+        timestamp_text = timestamp.isoformat().replace("+00:00", "Z") if timestamp else None
+        if message.tool_results:
+            for call_id, result in message.tool_results.items():
+                _attach_tool_result(
+                    steps,
+                    call_id,
+                    result,
+                    _tool_result_extra(message, call_id, result),
+                )
+            return None
+        copied = COPIED_CONTEXT in (message.channels or {})
+        step_source = "agent" if message.role == "assistant" else "user"
+        calls = _tool_calls(message) if step_source == "agent" else None
+        step_extra = _step_timing_extra(message) if step_source == "agent" and not copied else {}
+        if step_source == "agent" and message.stop_reason is not None:
+            step_extra["stop_reason"] = str(message.stop_reason)
+        if step_source == "agent" and message.phase is not None:
+            step_extra["phase"] = str(message.phase)
+        if copied_from_step_id is not None:
+            step_extra["copied_from_step_id"] = copied_from_step_id
+        steps.append(
+            AtifStep(
+                step_id=len(steps) + 1,
+                timestamp=timestamp_text,
+                source=step_source,
+                model_name=model_name if step_source == "agent" else None,
+                reasoning_effort=(
+                    source.reasoning_effort or _reasoning_effort(model_name)
+                    if step_source == "agent"
+                    else None
+                ),
+                message=_atif_content(list(message.content)),
+                reasoning_content=(
+                    _channel_text(message, REASONING) if step_source == "agent" else None
+                ),
+                tool_calls=calls,
+                # Copied steps restate earlier interactions: they carry no new
+                # LLM call, so usage and call accounting stay on the original.
+                metrics=_usage(message) if step_source == "agent" and not copied else None,
+                llm_call_count=(
+                    (0 if copied else _llm_call_count(message)) if step_source == "agent" else None
+                ),
+                is_copied_context=True if copied else None,
+                extra=step_extra or None,
+            )
+        )
+        for call in calls or ():
+            call_step_ids[call.tool_call_id] = steps[-1].step_id
+        return steps[-1].step_id
+
+    def append_copies(
+        copies: list[PromptMessageExtended],
+        original_step_ids: list[int],
+        timestamp: datetime | None,
+    ) -> list[int]:
+        originals = iter(original_step_ids)
+        copy_ids: list[int] = []
+        for message in copies:
+            original = None if message.tool_results else next(originals)
+            step_id = append_message(message, timestamp, copied_from_step_id=original)
+            if step_id is not None:
+                copy_ids.append(step_id)
+        return copy_ids
+
     if source.system_prompt:
         steps.append(
             AtifStep(
@@ -495,7 +657,11 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
                 message=source.system_prompt,
             )
         )
-    for item in audit_items:
+        context_step_ids.append(1)
+    index = 0
+    while index < len(audit_items):
+        item = audit_items[index]
+        index += 1
         if isinstance(item, _ContextRewrite):
             removed_step_ids = _resolve_call_step_ids(
                 item.removed_call_ids,
@@ -520,6 +686,9 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
                 item.timestamp.isoformat().replace("+00:00", "Z") if item.timestamp else None
             )
             context_boundary_count += 1
+            context_step_ids = [
+                step_id for step_id in context_step_ids if step_id not in removed_step_ids
+            ]
             steps.append(
                 AtifStep(
                     step_id=len(steps) + 1,
@@ -542,48 +711,103 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
             continue
 
         message = item.message
-        timestamp = item.timestamp
-        timestamp_text = timestamp.isoformat().replace("+00:00", "Z") if timestamp else None
-        if message.tool_results:
-            for call_id, result in message.tool_results.items():
-                _attach_tool_result(
-                    steps,
-                    call_id,
-                    result,
-                    _tool_result_extra(message, call_id, result),
-                )
+        boundary = _json_channel_mapping(message, COMPACTION_BOUNDARY)
+        if boundary is None:
+            step_id = append_message(message, item.timestamp)
+            if step_id is not None:
+                context_step_ids.append(step_id)
             continue
-        step_source = "agent" if message.role == "assistant" else "user"
-        calls = _tool_calls(message) if step_source == "agent" else None
-        step_extra = _step_timing_extra(message)
-        if message.stop_reason is not None:
-            step_extra["stop_reason"] = str(message.stop_reason)
-        if message.phase is not None:
-            step_extra["phase"] = str(message.phase)
+
+        copies: list[PromptMessageExtended] = []
+        while index < len(audit_items):
+            candidate = audit_items[index]
+            if not isinstance(candidate, _AuditMessage):
+                break
+            if COPIED_CONTEXT not in (candidate.message.channels or {}):
+                break
+            copies.append(candidate.message)
+            index += 1
+        template_copies = [m for m in copies if _copied_role(m) == "template"]
+        tail_copies = [m for m in copies if _copied_role(m) == "retained_tail"]
+        if len(template_copies) + len(tail_copies) != len(copies):
+            raise ValueError("Compaction copied context is malformed")
+        system_ids = context_step_ids[:1] if source.system_prompt else []
+        body = context_step_ids[len(system_ids) :]
+        template_count = sum(not m.tool_results for m in template_copies)
+        tail_count = sum(not m.tool_results for m in tail_copies)
+        if template_count + tail_count > len(body):
+            raise ValueError("Compaction boundary does not match the exported context")
+        template_ids = body[:template_count]
+        tail_ids = body[len(body) - tail_count :] if tail_count else []
+        removed_ids = body[template_count : len(body) - tail_count]
+
+        summary_call = boundary.pop("summary_call", None)
+        boundary_step_id = len(steps) + 1
+        timestamp = item.timestamp
+        summary_ref: list[AtifSubagentTrajectoryRef] | None = None
+        if isinstance(summary_call, dict):
+            child = _summary_call_trajectory(
+                source,
+                summary_call,
+                trajectory_id=f"compaction-step-{boundary_step_id}",
+                parent_step_id=boundary_step_id,
+                input_step_ids=[*system_ids, *template_ids, *removed_ids],
+            )
+            compaction_children.append(child)
+            summary_boundaries_with_usage += 1
+            summary_ref = [
+                AtifSubagentTrajectoryRef(
+                    trajectory_id=child.trajectory_id,
+                    session_id=child.session_id,
+                    extra={"role": "context_compaction_summary"},
+                )
+            ]
         steps.append(
             AtifStep(
-                step_id=len(steps) + 1,
-                timestamp=timestamp_text,
-                source=step_source,
-                model_name=model_name if step_source == "agent" else None,
-                reasoning_effort=(
-                    source.reasoning_effort or _reasoning_effort(model_name)
-                    if step_source == "agent"
-                    else None
+                step_id=boundary_step_id,
+                timestamp=timestamp.isoformat().replace("+00:00", "Z") if timestamp else None,
+                source="system",
+                message="Context compaction performed",
+                observation=AtifObservation(
+                    results=[
+                        AtifObservationResult(
+                            content=_atif_content(list(message.content)),
+                            subagent_trajectory_ref=summary_ref,
+                        )
+                    ]
                 ),
-                message=_atif_content(list(message.content)),
-                reasoning_content=(
-                    _channel_text(message, REASONING) if step_source == "agent" else None
-                ),
-                tool_calls=calls,
-                metrics=_usage(message) if step_source == "agent" else None,
-                llm_call_count=_llm_call_count(message) if step_source == "agent" else None,
-                extra=step_extra if step_source == "agent" and step_extra else None,
+                extra={"context_management": boundary},
             )
         )
-        if calls:
-            for call in calls:
-                call_step_ids[call.tool_call_id] = steps[-1].step_id
+        system_copy_ids: list[int] = []
+        if source.system_prompt:
+            steps.append(
+                AtifStep(
+                    step_id=len(steps) + 1,
+                    timestamp=steps[-1].timestamp,
+                    source="system",
+                    message=source.system_prompt,
+                    is_copied_context=True,
+                    extra={"copied_from_step_id": system_ids[0]},
+                )
+            )
+            system_copy_ids.append(steps[-1].step_id)
+        template_copy_ids = append_copies(template_copies, template_ids, timestamp)
+        tail_copy_ids = append_copies(tail_copies, tail_ids, timestamp)
+        boundary.update(
+            {
+                "removed_step_ids": removed_ids,
+                "retained_step_ids": [*system_ids, *template_ids, *tail_ids],
+                "copied_step_ids": [*system_copy_ids, *template_copy_ids, *tail_copy_ids],
+                "replacement_source": "observation",
+            }
+        )
+        context_step_ids = [
+            *system_copy_ids,
+            *template_copy_ids,
+            boundary_step_id,
+            *tail_copy_ids,
+        ]
     if not steps:
         raise ValueError("ATIF trajectories require at least one interaction step")
     metrics = [
@@ -591,6 +815,10 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
     ]
     usage_coverage = _usage_coverage_extra(steps)
     usage_calls_complete = usage_coverage["llm_usage_calls_complete"]
+    summary_boundaries = sum(
+        COMPACTION_BOUNDARY in (message.channels or {}) for message in source.history
+    )
+    summary_usage_complete = summary_boundaries_with_usage == summary_boundaries
     total_reasoning_tokens = _sum_optional_int(
         _metric_extra_int(item, "reasoning_tokens") if item is not None else None
         for item in metrics
@@ -634,6 +862,19 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
                 "folded_process_poll_steps": folded_polls or None,
                 "process_poll_context_rewrites": context_boundary_count or None,
                 **usage_coverage,
+                **(
+                    {
+                        "summary_compactions": summary_boundaries,
+                        "summary_compaction_usage_complete": summary_usage_complete,
+                        "accounting_scope": (
+                            None
+                            if summary_usage_complete
+                            else "original_assistant_messages_excluding_summary_calls"
+                        ),
+                    }
+                    if summary_boundaries
+                    else {}
+                ),
             }.items()
             if value is not None
         }
@@ -658,10 +899,13 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
         ),
         steps=steps,
         final_metrics=total,
+        subagent_trajectories=compaction_children or None,
         extra=source.extra,
         notes=_atif_notes(
             source.notes,
             context_boundary_count=context_boundary_count,
+            summary_boundary_count=summary_boundaries,
+            summary_usage_complete=summary_usage_complete,
         ),
     )
     _embed_subagent_trajectories(trajectory, source)
@@ -672,8 +916,24 @@ def _atif_notes(
     notes: str | None,
     *,
     context_boundary_count: int,
+    summary_boundary_count: int = 0,
+    summary_usage_complete: bool = True,
 ) -> str | None:
     additions: list[str] = []
+    if summary_boundary_count:
+        additions.append(
+            "Summary compaction archives restore the audit history before each "
+            "context_management replace boundary. The boundary observation holds the "
+            "summary; the system prompt, templates, and retained tail that stay visible "
+            "to the model follow it as is_copied_context steps, which carry no usage."
+        )
+        additions.append(
+            "Summary-generation calls are embedded as subagent trajectories referenced "
+            "from each boundary observation and included in final metrics."
+            if summary_usage_complete
+            else "Some summary-generation calls were not persisted: accounting excludes "
+            "them, so these totals are not complete run spend."
+        )
     if context_boundary_count:
         additions.append(
             "Managed-process polling folds preserve every original LLM/tool step for "
@@ -833,7 +1093,8 @@ def _embed_subagent_trajectories(
     root: AtifTrajectory,
     source: AtifRunSource,
 ) -> None:
-    embedded: list[AtifTrajectory] = []
+    # Compaction summary calls are embedded while their boundary steps are built.
+    embedded: list[AtifTrajectory] = list(root.subagent_trajectories or ())
     embedded_session_ids: set[str] = set()
     embedded_call_ids: set[str] = set()
     exported_call_ids = {
@@ -1045,6 +1306,7 @@ def _load_child_session_trajectory(
             provider=active_agent.provider,
             history=history,
             message_timestamps=tuple(message.timestamp for message in history),
+            parent_session_dir=child_dir,
             extra={
                 key: value
                 for key, value in {

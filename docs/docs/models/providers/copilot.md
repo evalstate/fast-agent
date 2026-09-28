@@ -96,7 +96,8 @@ not canonical and has no alias; use `copilot.claude-opus-5`.
 | Model | Wire API |
 | --- | --- |
 | `copilot.claude-haiku-4.5` | Messages |
-| `copilot.claude-sonnet-5` | Messages |
+| `copilot.claude-sonnet-5.5` (`copilot.sonnet`, `copilot.sonnet55`) | Messages |
+| `copilot.claude-sonnet-5` (pinned older version) | Messages |
 | `copilot.claude-opus-4-8` | Messages |
 | `copilot.claude-opus-5.5` (`copilot.opus`, `copilot.opus55`) | Messages |
 | `copilot.claude-opus-5` (pinned older version) | Messages |
@@ -112,6 +113,77 @@ not canonical and has no alias; use `copilot.claude-opus-5`.
 Provider identity stays Copilot regardless of wire API; Anthropic/OpenAI API
 keys are not used for these models. The status bar prefixes Copilot model labels
 with `(cp)`; this does not change the model name used in configuration.
+
+## Structured output
+
+GPT-6 Astra/Sol/Luna use Responses JSON schema (`text.format`).
+Opus 5.5 and Sonnet 5.5 select Messages JSON schema (`output_config.format`)
+automatically, without direct Anthropic beta headers. Regular tools can coexist
+with the schema; explicit `structured_tool_policy` overrides remain supported.
+Legacy forced-tool output mode is rejected for Claude 5.5.
+
+Live schema-only and tool-call-to-schema smoke tests passed for all five models
+on September 28, 2026, including the Sonnet 5.5 wire ID `claude-sonnet-5.5` and
+its `reasoning=off` setting. These results confirm access for the tested account;
+availability can still vary by account. Use `structured_schema()` for the tool
+loop. See the [credentialed smoke tests](anthropic.md#structured-output-current-models).
+
+## Claude 5.5 progress visibility
+
+Live-tested on September 28, 2026 through the normal fast-agent tool loop.
+Sonnet 5.5 and Opus 5.5 request adaptive thinking with summarized display by default,
+on both Copilot and direct Anthropic routes. No request metadata is needed.
+The live default-mode demo confirmed 412 between-tool summary characters after
+this change, with all three tool calls completing. Opus 5.5's default-mode probe
+also passed, showing 507 between-tool summary characters without request metadata.
+
+Explicit request metadata still takes precedence; for example, to keep adaptive
+thinking but suppress its summaries:
+
+```python
+from fast_agent.types import RequestParams
+
+response = await agent.probe.generate(
+    "Inspect the batch and give brief progress updates between tool calls.",
+    request_params=RequestParams(
+        max_tokens=4096,
+        metadata={"thinking": {"type": "adaptive", "display": "omitted"}},
+    ),
+)
+```
+
+Alternatively, select `copilot.sonnet55?reasoning=off`. This uses `between_tools`:
+no up-front thinking, but readable between-tool progress summaries. Do **not**
+add a `display` field to `between_tools`; the model rejects that combination.
+This alternative applies only to Sonnet: Opus 5.5 keeps adaptive thinking always on.
+
+Run the billable synthetic inspection demo:
+
+```bash
+uv run examples/copilot/sonnet_progress.py --mode all
+# Individual modes: default, summarized, omitted, between_tools
+```
+
+The demo uses three sequential local tools, renders the normal terminal output,
+and reports timestamps and stream channels. Before changing the default, one observed run produced:
+
+| Mode | Visible thinking-summary characters between tools | Ordinary text characters between tools |
+| --- | ---: | ---: |
+| Previous default (display omitted) | 0 | 0 |
+| Adaptive, display summarized | 473 | 0 |
+| between_tools | 314 | 0 |
+
+These counts describe that run, not guarantees. Retesting with Anthropic SDK
+1.9.0 also passed all three modes: 0, 369, and 337 between-tool summary characters,
+respectively. An earlier shorter-update probe returned ordinary text progress
+even without a display override. The longer
+probe reproduced the silent gaps and demonstrated summaries arriving **before**
+the next tool executed, rather than only in the final answer.
+
+The existing thinking-stream renderer already displays these summaries.
+`display: summarized` can also return up-front thinking summaries: it is not a
+progress-only channel. Only Sonnet 5.5 and Opus 5.5 defaults changed; other models are unaffected. Signed thinking blocks must
+still be replayed unchanged, including empty blocks in omitted-display mode.
 
 ## Model parameters
 

@@ -185,6 +185,7 @@ def test_anthropic_file_creation_guidance_is_limited_to_older_models(provider: P
         "claude-opus-5",
         "claude-opus-5-5",
         "claude-sonnet-5",
+        "claude-sonnet-5-5",
         "claude-fable-5",
         "claude-fable-5-1",
     }
