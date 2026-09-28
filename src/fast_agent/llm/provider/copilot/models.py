@@ -23,9 +23,9 @@ COPILOT_MODELS: Final[Mapping[str, CopilotModelSpec]] = MappingProxyType(
         for spec in (
             CopilotModelSpec("claude-fable-5.1", "messages", False, ("sse",)),
             CopilotModelSpec("claude-opus-5.5", "messages", False, ("sse",)),
+            CopilotModelSpec("claude-sonnet-5.5", "messages", False, ("sse",)),
             CopilotModelSpec("claude-opus-4-8", "messages", True, ("sse",)),
             CopilotModelSpec("claude-opus-5", "messages", True, ("sse",)),
-            CopilotModelSpec("claude-sonnet-5.5", "messages", False, ("sse",)),
             CopilotModelSpec("claude-sonnet-5", "messages", True, ("sse",)),
             CopilotModelSpec("claude-haiku-4.5", "messages", True, ("sse",)),
             CopilotModelSpec("claude-fable-5", "messages", True, ("sse",)),
