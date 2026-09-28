@@ -1034,9 +1034,11 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         assistant_message: PromptMessageExtended,
     ) -> None:
         """Persist the last turn unless explicitly disabled by control text."""
-        if not sanitized_messages:
-            return
-        if sanitized_messages[-1].first_text().startswith(CONTROL_MESSAGE_SAVE_HISTORY):
+        # Provider-requested follow-ups have no new user/tool input, but their
+        # assistant response must still be retained for subsequent inference.
+        if sanitized_messages and sanitized_messages[-1].first_text().startswith(
+            CONTROL_MESSAGE_SAVE_HISTORY
+        ):
             return
 
         history_messages = [self._strip_removed_metadata(msg) for msg in sanitized_messages]

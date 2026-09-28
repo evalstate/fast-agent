@@ -446,6 +446,10 @@ class ResponsesOutputMixin:
                 return LlmStopReason.SAFETY
             if reason == "max_output_tokens":
                 return LlmStopReason.MAX_TOKENS
+        # Provider extension: response completion need not finish the agent turn.
+        # Use identity, not truthiness: malformed values (e.g. 0) must not continue.
+        if status in (None, "completed") and getattr(response, "end_turn", None) is False:
+            return LlmStopReason.CONTINUE
         return LlmStopReason.END_TURN
 
     def _extract_reasoning_summary(
