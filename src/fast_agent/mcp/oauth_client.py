@@ -632,6 +632,36 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
         logger.debug(f"OAuth metadata discovery failed: {url}")
         return "continue"
 
+    async def discover_authorization_server(self, client: httpx.AsyncClient) -> bytes | None:
+        """Run protected-resource and authorization-server discovery out of band.
+
+        Used by grants that do not start from a 401 challenge (device authorization).
+        Populates ``context`` exactly as the challenge-driven flow does and returns the
+        raw authorization-server metadata document so callers can read extension fields
+        that ``OAuthMetadata`` does not model.
+        """
+        prm_urls = _build_prm_discovery_urls(
+            www_auth_resource_metadata_url=None,
+            server_url=self.context.server_url,
+            discovery_server_url=self._discovery_server_url,
+        )
+        for url in prm_urls:
+            response = await client.send(create_oauth_metadata_request(url))
+            if await self._handle_prm_discovery_response(response, url=url):
+                break
+
+        for url in build_oauth_authorization_server_metadata_discovery_urls(
+            self.context.auth_server_url,
+            self._discovery_server_url,
+        ):
+            response = await client.send(create_oauth_metadata_request(url))
+            result = await self._handle_asm_discovery_response(response, url=url)
+            if result == "found":
+                return response.content
+            if result == "stop":
+                break
+        return None
+
     def _update_client_metadata_scope(self, response: httpx.Response) -> None:
         self.context.client_metadata.scope = get_client_metadata_scopes(
             extract_scope_from_www_auth(response),

@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings, Settings
     from fast_agent.core.keyring_utils import KeyringStatus
     from fast_agent.mcp.client_gateway import EffectiveMCPAuthMode
+    from fast_agent.mcp.oauth_device import MCPDeviceCode
 
 app = typer.Typer(
     help="Inspect and manage provider and MCP credentials.",
@@ -820,6 +821,45 @@ async def _run_login_session(
         return False
 
 
+async def _show_device_code(code: MCPDeviceCode) -> None:
+    console.print()
+    if code.verification_uri_complete is not None:
+        console.print(f"Open {code.verification_uri_complete}", markup=False)
+        console.print(
+            f"or visit {code.verification_uri} and enter code: {code.user_code}", markup=False
+        )
+    else:
+        console.print(
+            f"Open {code.verification_uri} and enter code: {code.user_code}", markup=False
+        )
+    console.print(
+        f"Waiting for approval (code expires in {code.expires_in:.0f}s). Ctrl+C to cancel.",
+        markup=False,
+    )
+
+
+async def _run_device_login(cfg: MCPServerSettings, timeout_seconds: float) -> bool:
+    from fast_agent.mcp.oauth_device import (
+        MCPDeviceAuthorizationError,
+        login_mcp_server_with_device_code,
+    )
+
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            await login_mcp_server_with_device_code(cfg, on_user_code=_show_device_code)
+    except TimeoutError:
+        typer.echo(
+            f"MCP OAuth device login timed out after {timeout_seconds:g} seconds. "
+            "Increase --timeout and retry.",
+            err=True,
+        )
+        return False
+    except MCPDeviceAuthorizationError as exc:
+        typer.echo(f"MCP OAuth device login failed: {exc}", err=True)
+        return False
+    return True
+
+
 @mcp_app.command("login")
 def mcp_login(
     server: str | None = typer.Argument(None, help="Configured MCP server name"),
@@ -838,6 +878,11 @@ def mcp_login(
         "--timeout",
         min=1.0,
         help="Maximum seconds to wait for login and MCP initialization",
+    ),
+    device: bool = typer.Option(
+        False,
+        "--device",
+        help="Use the OAuth device flow (enter a code on any device; no local browser)",
     ),
     config_path: str | None = typer.Option(
         None,
@@ -883,7 +928,10 @@ def mcp_login(
     print_detail_line(console, "endpoint", redact_mcp_url(config.url) if config.url else "-")
     print_detail_line(console, "OAuth resource", redact_mcp_url(resource))
     print_detail_line(console, "storage", keyring_status.name)
-    if not run_sync(
+    if device:
+        if not run_sync(_run_device_login, config, timeout_seconds):
+            raise typer.Exit(1)
+    elif not run_sync(
         _run_login_session,
         config,
         timeout_seconds,
