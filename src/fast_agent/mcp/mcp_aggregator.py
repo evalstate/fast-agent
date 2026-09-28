@@ -66,6 +66,13 @@ from fast_agent.mcp.client_gateway import (
     resolve_oauth_mode,
 )
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
+from fast_agent.mcp.definition_versions import (
+    KNOWN_DEFINITION_VERSIONS_META,
+    DefinitionTarget,
+    DefinitionVersions,
+    parse_definition_versions,
+    stale_definitions,
+)
 from fast_agent.mcp.failures import summarize_mcp_diagnostic_text
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.helpers.content_helpers import get_text
@@ -304,6 +311,12 @@ class ServerStats:
     def record_reconnect(self) -> None:
         """Record a successful reconnection."""
         self.reconnect_count += 1
+
+
+DEFINITIONS_CHANGED_MESSAGE = (
+    "Tool definitions changed on the server; the call was not executed. "
+    "Review the updated tool definitions before retrying."
+)
 
 
 class ServerStatus(BaseModel):
@@ -572,6 +585,10 @@ class MCPAggregator(ContextDependent):
         self._deferred_servers: set[str] = set()
         self._changed_deferred_tools: set[tuple[str, str]] = set()
         self._deferred_tool_definitions: dict[str, dict[str, Tool]] = {}
+        self._deferred_instructions: dict[str, str | None] = {}
+        self._definition_versions: dict[str, DefinitionVersions] = {}
+        self.definitions_generation = 0
+        """Bumped when tool definitions or instructions change; agents re-list/re-render."""
         self._staged_discovery_tools: dict[str, list[NamespacedTool]] = {}
         self._attachment_owner = f"aggregator:{id(self)}"
         self._runtime_definition_owner = self._attachment_owner
@@ -881,6 +898,8 @@ class MCPAggregator(ContextDependent):
     async def _clear_runtime_indexes(self) -> None:
         self._deferred_servers.clear()
         self._deferred_tool_definitions.clear()
+        self._deferred_instructions.clear()
+        self._definition_versions.clear()
         self._changed_deferred_tools.clear()
         self._tool_cache_info.clear()
         async with self._tool_map_lock:
@@ -934,13 +953,9 @@ class MCPAggregator(ContextDependent):
             return False
         snapshot = cache.load()
         # App tools require live resource/visibility validation, not only a tool snapshot.
-        if (
-            snapshot is None
-            or config.include_instructions
-            or any(
-                {"ui", "ui/resourceUri", "openai/outputTemplate"}.intersection(tool.meta or {})
-                for tool in snapshot.tools
-            )
+        if snapshot is None or any(
+            {"ui", "ui/resourceUri", "openai/outputTemplate"}.intersection(tool.meta or {})
+            for tool in snapshot.tools
         ):
             return False
         async with self._tool_map_lock:
@@ -964,12 +979,17 @@ class MCPAggregator(ContextDependent):
                 tool.name: tool.model_copy(deep=True) for tool in snapshot.tools
             }
             self._deferred_servers.add(server_name)
+            self._deferred_instructions[server_name] = snapshot.instructions
+            self._definition_versions[server_name] = snapshot.definition_versions
             self._tool_cache_info[server_name] = ToolCacheInfo(
                 source="disk",
                 fetched_at=snapshot.fetched_at,
-                expires_at=snapshot.fetched_at + config.tool_cache.ttl_seconds,
+                expires_at=None
+                if cache.digest_mode(snapshot)
+                else snapshot.fetched_at + config.tool_cache.ttl_seconds,
                 tool_count=len(tools),
             )
+            self.definitions_generation += 1
         return True
 
     def _cache_targets(self, server_name: str | None) -> list[str]:
@@ -994,6 +1014,8 @@ class MCPAggregator(ContextDependent):
                         self._app_integration_configs.pop(key, None)
                         self._deferred_servers.discard(key)
                         self._deferred_tool_definitions.pop(key, None)
+                        self._deferred_instructions.pop(key, None)
+                        self._definition_versions.pop(key, None)
                     if key not in self._attached_server_names:
                         self._tool_cache_info.pop(key, None)
 
@@ -1017,6 +1039,21 @@ class MCPAggregator(ContextDependent):
                 )
                 self._deferred_servers.discard(key)
                 self._deferred_tool_definitions.pop(key, None)
+                self._deferred_instructions.pop(key, None)
+
+    def _live_definitions(
+        self, server_name: str, pages: list[ListToolsResult]
+    ) -> tuple[str | None, DefinitionVersions]:
+        """Instructions and digests from the live connection and an unpaginated listing."""
+        manager = self._persistent_connection_manager
+        connection = manager.running_servers.get(server_name) if manager is not None else None
+        # A tools digest covers the complete list; it can't vouch for a paginated fetch.
+        tools_version = parse_definition_versions(pages[0].meta).tools if len(pages) == 1 else None
+        if connection is None:
+            return None, DefinitionVersions(tools=tools_version)
+        return connection.server_instructions, DefinitionVersions(
+            tools=tools_version, instructions=connection.definition_versions.instructions
+        )
 
     async def _fetch_server_tools(
         self,
@@ -1034,6 +1071,7 @@ class MCPAggregator(ContextDependent):
             tools: list[Tool] = []
             cursor: str | None = None
             seen: set[str] = set()
+            pages: list[ListToolsResult] = []
             while True:
                 # A durable snapshot must represent a fresh fetch, not extend SDK TTL.
                 args: dict[str, Any] = {
@@ -1048,6 +1086,7 @@ class MCPAggregator(ContextDependent):
                     method_name="list_tools",
                     method_args=args,
                 )
+                pages.append(result)
                 tools.extend(result.tools or [])
                 cursor = result.next_cursor
                 if cursor is None:
@@ -1057,15 +1096,29 @@ class MCPAggregator(ContextDependent):
                 seen.add(cursor)
                 if len(seen) >= 1000:
                     raise ValueError("Exceeded tools pagination page limit")
+            instructions, versions = self._live_definitions(server_name, pages)
+            self._definition_versions[server_name] = versions
             cache = self._catalog_cache(server_name)
             now = time.time()
+            snapshot = ToolSnapshot(
+                key=cache.key if cache is not None else "",
+                fetched_at=now,
+                tools=tools,
+                instructions=instructions,
+                definition_versions=versions,
+            )
             config = self._server_config(server_name)
             ttl = config.tool_cache.ttl_seconds if config else 3600
+            digest = cache is not None and cache.digest_mode(snapshot)
             self._tool_cache_info[server_name] = ToolCacheInfo(
-                source="live", fetched_at=now, expires_at=now + ttl, tool_count=len(tools)
+                source="live",
+                fetched_at=now,
+                expires_at=None if digest else now + ttl,
+                tool_count=len(tools),
             )
             if cache is not None:
-                cache.save(ToolSnapshot(key=cache.key, fetched_at=now, tools=tools))
+                cache.save(snapshot)
+            self.definitions_generation += 1
             return tools
         except Exception as e:
             if supports_tools:
@@ -2302,7 +2355,15 @@ class MCPAggregator(ContextDependent):
             This ensures optional MCP servers don't get launched just because an agent
             prompt contains the `{{serverInstructions}}` placeholder.
         """
-        instructions: dict[str, tuple[str | None, list[str]]] = {}
+        instructions: dict[str, tuple[str | None, list[str]]] = {
+            # Deferred servers render their snapshot, so the prompt matches later sessions.
+            self.server_display_name(server_name): (
+                cached,
+                [tool.tool.name for tool in self._server_to_tool_map.get(server_name, [])],
+            )
+            for server_name, cached in self._deferred_instructions.items()
+            if server_name in self._deferred_servers
+        }
 
         if not self.connection_persistence:
             return instructions
@@ -2669,6 +2730,9 @@ class MCPAggregator(ContextDependent):
             result = recovery.result
             success_flag = recovery.success
         except Exception as exc:
+            if stale_definitions(exc) is not None:
+                success_flag = False
+                raise
             if self._should_retry_with_oauth(server_name, exc):
                 recovery = await self._handle_auth_challenge(
                     server_name, try_execute, error_factory
@@ -2733,7 +2797,7 @@ class MCPAggregator(ContextDependent):
 
         metadata = _mcp_metadata_var.get()
         if metadata:
-            kwargs["meta"] = metadata
+            kwargs["meta"] = {**metadata, **kwargs.get("meta", {})}
         return kwargs
 
     def _handle_session_method_error(
@@ -3095,6 +3159,24 @@ class MCPAggregator(ContextDependent):
                 return _ServerOperationRecovery(result=error_factory(error_msg), success=False)
             raise RuntimeError(error_msg) from e
 
+    def _known_definition_versions(self, server_name: str) -> dict[str, str]:
+        versions = self._definition_versions.get(server_name)
+        config = self._server_config(server_name)
+        if versions is None or config is None:
+            return {}
+        return versions.known(instructions=config.include_instructions)
+
+    async def _refresh_stale_definitions(
+        self, server_name: str, stale: frozenset[DefinitionTarget]
+    ) -> None:
+        """Re-fetch what the server reported stale; agents re-list and re-render next step."""
+        logger.info(f"Definitions changed on '{server_name}': {sorted(stale)}; refreshing")
+        if "instructions" in stale:
+            # Instructions arrive with discovery: only a new connection re-reads them.
+            await self._reconnect_for_future_operations(server_name, "tools/call")
+        await self._refresh_server_tools(server_name)
+        self.definitions_generation += 1
+
     def tool_catalog(self) -> MCPToolCatalog:
         return MCPToolCatalog.snapshot(
             by_namespaced_name=self._namespaced_tool_map,
@@ -3156,6 +3238,7 @@ class MCPAggregator(ContextDependent):
                     )
                     self._deferred_servers.discard(server_name)
                     self._deferred_tool_definitions.pop(server_name, None)
+                    self._deferred_instructions.pop(server_name, None)
             current = next(
                 (
                     t.tool
@@ -3174,7 +3257,7 @@ class MCPAggregator(ContextDependent):
                 content=[
                     TextContent(
                         type="text",
-                        text="Tool catalog changed; list tools again before retrying.",
+                        text=DEFINITIONS_CHANGED_MESSAGE,
                     )
                 ],
             )
@@ -3230,20 +3313,31 @@ class MCPAggregator(ContextDependent):
             )
 
             try:
-                result = await self._execute_on_server(
-                    server_name=server_name,
-                    operation_type="tools/call",
-                    operation_name=local_tool_name,
-                    method_name="call_tool",
-                    method_args={
-                        "name": local_tool_name,
-                        "arguments": arguments,
-                    },
-                    error_factory=lambda msg: CallToolResult(
-                        is_error=True, content=[TextContent(type="text", text=msg)]
-                    ),
-                    progress_callback=progress_callback,
-                )
+                method_args: dict[str, Any] = {"name": local_tool_name, "arguments": arguments}
+                known = self._known_definition_versions(server_name)
+                if known:
+                    method_args["meta"] = {KNOWN_DEFINITION_VERSIONS_META: known}
+                try:
+                    result = await self._execute_on_server(
+                        server_name=server_name,
+                        operation_type="tools/call",
+                        operation_name=local_tool_name,
+                        method_name="call_tool",
+                        method_args=method_args,
+                        error_factory=lambda msg: CallToolResult(
+                            is_error=True, content=[TextContent(type="text", text=msg)]
+                        ),
+                        progress_callback=progress_callback,
+                    )
+                except Exception as exc:
+                    stale = stale_definitions(exc)
+                    if stale is None:
+                        raise
+                    await self._refresh_stale_definitions(server_name, stale)
+                    result = CallToolResult(
+                        is_error=True,
+                        content=[TextContent(type="text", text=DEFINITIONS_CHANGED_MESSAGE)],
+                    )
 
                 await self._complete_tool_execution(
                     active_tool_handler,

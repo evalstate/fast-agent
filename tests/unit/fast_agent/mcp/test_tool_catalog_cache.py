@@ -177,7 +177,7 @@ def test_disk_failure_is_optional(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_deferred_snapshot_does_not_omit_instructions_or_app_validation(tmp_path):
+async def test_deferred_snapshot_renders_cached_instructions_but_not_app_tools(tmp_path):
     config = MCPServerSettings(
         command="server",
         connection_policy="deferred",
@@ -186,15 +186,21 @@ async def test_deferred_snapshot_does_not_omit_instructions_or_app_validation(tm
     cache = ToolCatalogCache(config)
     cache.save(
         ToolSnapshot(
-            key=cache.key, fetched_at=time.time(), tools=[Tool(name="action", input_schema={})]
+            key=cache.key,
+            fetched_at=time.time(),
+            tools=[Tool(name="action", input_schema={})],
+            instructions="Use action for everything.",
         )
     )
     registry = ServerRegistry()
     registry.register_central("test", config)
     aggregator = MCPAggregator(server_names=["test"], context=Context(server_registry=registry))
-    assert not await aggregator._restore_tool_catalog("test")
-    config.include_instructions = False
-    cache = ToolCatalogCache(config)
+    # Instructions travel with the snapshot, so the prompt matches without connecting.
+    assert await aggregator._restore_tool_catalog("test")
+    assert await aggregator.get_server_instructions() == {
+        "test": ("Use action for everything.", ["action"])
+    }
+    # App tools still need live resource/visibility validation.
     cache.save(
         ToolSnapshot(
             key=cache.key,

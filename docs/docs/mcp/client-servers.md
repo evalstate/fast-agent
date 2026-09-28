@@ -487,9 +487,10 @@ never uses disk persistence.
 `connection_policy: deferred` reuses a fresh snapshot at startup, delaying connection
 until the first tool call. Missing/expired snapshots fall back to normal startup
 discovery. App metadata requires live validation and also falls back to discovery.
-Deferred reuse requires `include_instructions: false`; otherwise live discovery
-preserves server instructions. Prompts, resources, and server-provided skills are
-not restored from tool snapshots; they become available after connection.
+Snapshots store server instructions with the tools, so `{{serverInstructions}}`
+renders the same prompt before the server connects. Prompts, resources, and
+server-provided skills are not restored from tool snapshots; they become available
+after connection.
 Snapshot TTL is a local reuse policy, not a server
 or SDK TTL; persisted snapshots always come from fresh paginated discovery.
 For stdio credentials inherited outside `env`, set and rotate `auth_identity`
@@ -497,8 +498,29 @@ when switching accounts.
 `load_on_start: false` still skips startup entirely; forced connection overrides
 deferral. This policy is unrelated to the provider `defer_loading` hint.
 Before executing a deferred tool, fast-agent connects and refreshes under the
-existing attachment lock. Changed tool definitions are rejected so callers can
-list tools again. All discovery follows tools pagination.
+existing attachment lock. Changed tool definitions are rejected without executing;
+the agent re-lists its tools (and re-renders server instructions) before the model's
+next call in the same turn. All discovery follows tools pagination.
+
+#### Digest mode (definition versions)
+
+Some servers advertise digests of their tool list and instructions (currently the
+Hugging Face MCP server, as a prototype of the MCP Definition Versions proposal:
+`_meta["huggingface.co/definition-versions"]` on `tools/list` and `server/discover`).
+When a snapshot carries a tools digest, plus an instructions digest if
+`include_instructions` is enabled, it is in **digest mode**:
+
+- The snapshot TTL is ignored; the snapshot is reused until the server reports a change.
+- Every tool call echoes the known digests. The server rejects stale calls before
+  executing them (JSON-RPC error `-32987`); fast-agent refreshes what the server
+  reported stale (tools, or reconnects for instructions), returns a "definitions
+  changed" result to the model, and re-lists tools and re-renders instructions before
+  the next model call.
+- `/mcp cache` shows `no expiry: server digest checked on each call`.
+
+Servers only advertise digests where the complete tool list is cheap to compute; for
+Hugging Face that is anonymous access (`?anon`) or a named bouquet other than `all`.
+Other servers and requests keep TTL-based reuse.
 
 Aggregator APIs (both accept a server name or `None` for all configured servers):
 

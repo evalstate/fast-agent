@@ -260,6 +260,7 @@ class McpAgent(ABC, ToolAgent):
 
         # Store the original template - resolved instruction set after build()
         self._instruction_template = self.config.instruction
+        self._rendered_definitions_generation = 0
         self._instruction = self.config.instruction  # Will be replaced by builder output
         self._subagent_directive_found = False
         self.executor = context.executor if context else None
@@ -472,6 +473,7 @@ class McpAgent(ABC, ToolAgent):
         await self.__aenter__()
 
         # Apply template substitution to the instruction with server instructions
+        self._rendered_definitions_generation = self._aggregator.definitions_generation
         await self._apply_instruction_templates()
         context = self._aggregator.context
         if context.background_mcp_startup:
@@ -481,12 +483,32 @@ class McpAgent(ABC, ToolAgent):
         await super().initialize()
 
     async def _refresh_after_mcp_startup(self) -> None:
-        from fast_agent.core.instruction_refresh import rebuild_agent_instruction
-
         # Startup failures are recorded per server; render whatever did connect.
         with suppress(Exception):
             await self._aggregator.wait_for_startup()
+        await self._render_current_definitions()
+
+    @property
+    def tool_definitions_generation(self) -> int:
+        return self._aggregator.definitions_generation
+
+    async def _render_current_definitions(self) -> None:
+        from fast_agent.core.instruction_refresh import rebuild_agent_instruction
+
+        self._rendered_definitions_generation = self._aggregator.definitions_generation
         await rebuild_agent_instruction(self)
+
+    async def _tool_runner_llm_step(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> PromptMessageExtended:
+        # Server definitions changed mid-turn (e.g. a digest mismatch): the system prompt
+        # lists server tools and instructions, so re-render it before the next call.
+        if self._aggregator.definitions_generation != self._rendered_definitions_generation:
+            await self._render_current_definitions()
+        return await super()._tool_runner_llm_step(messages, request_params, tools)
 
     async def shutdown(self) -> None:
         """

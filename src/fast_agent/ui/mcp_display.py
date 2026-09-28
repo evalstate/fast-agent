@@ -1255,11 +1255,16 @@ def format_tool_cache(info: ToolCacheInfo | None) -> str:
         return "tool cache: absent (no recorded provenance)"
     now = datetime.now(timezone.utc).timestamp()
     age = format_compact_duration(max(0, now - info.fetched_at))
-    remaining = format_compact_duration(abs(info.expires_at - now))
-    expiry = f"expires in {remaining}" if info.expires_at > now else f"expired {remaining} ago"
     fetched = datetime.fromtimestamp(info.fetched_at, timezone.utc).isoformat()
-    expires = datetime.fromtimestamp(info.expires_at, timezone.utc).isoformat()
+    if info.expires_at is None:
+        expiry = "no expiry: server digest checked on each call"
+    else:
+        remaining = format_compact_duration(abs(info.expires_at - now))
+        expires = datetime.fromtimestamp(info.expires_at, timezone.utc).isoformat()
+        expiry = (
+            f"expires in {remaining}" if info.expires_at > now else f"expired {remaining} ago"
+        ) + f" ({expires})"
     return (
         f"tool cache: {info.source}, {info.tool_count} tools; "
-        f"fetched {fetched} (age {age}); {expiry} ({expires})"
+        f"fetched {fetched} (age {age}); {expiry}"
     )

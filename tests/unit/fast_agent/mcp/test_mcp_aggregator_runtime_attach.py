@@ -336,6 +336,9 @@ async def test_attachment_discovery_failure_rolls_back_transaction(
     disconnected: list[str] = []
 
     class _Manager:
+        def __init__(self) -> None:
+            self.running_servers: dict[str, object] = {}
+
         async def disconnect_server(self, server_name: str) -> None:
             disconnected.append(server_name)
 

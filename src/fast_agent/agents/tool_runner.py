@@ -58,6 +58,9 @@ class _ToolLoopAgent(MessageHistoryAgentProtocol, Protocol):
 
     async def list_tools(self) -> ListToolsResult: ...
 
+    @property
+    def tool_definitions_generation(self) -> int: ...
+
     def should_finalize_deferred_structured_turn(
         self,
         messages: list[PromptMessageExtended],
@@ -152,6 +155,9 @@ class ToolRunner:
         self._turn_messages: list[PromptMessageExtended] = list(messages)
         self._request_params = request_params
         self._tools = tools
+        # Caller-supplied tools are authoritative; listed tools follow definition changes.
+        self._tools_listed = tools is None
+        self._tools_generation: int | None = None
         self._hooks = hooks or ToolRunnerHooks()
 
         self._iteration = 0
@@ -751,6 +757,7 @@ class ToolRunner:
             self._delta_messages.append(assistant_message)
             self._delta_messages.append(finalizer)
         self._tools = []
+        self._tools_listed = False
 
     def _consume_staged_terminal_response(self) -> PromptMessageExtended | None:
         staged = self._staged_terminal_response
@@ -848,8 +855,10 @@ class ToolRunner:
         )
 
     async def _ensure_tools_ready(self) -> None:
-        if self._tools is None:
+        generation = self._agent.tool_definitions_generation
+        if self._tools is None or (self._tools_listed and generation != self._tools_generation):
             self._tools = (await self._agent.list_tools()).tools
+            self._tools_generation = generation
 
     async def _ensure_tool_response_staged(self) -> None:
         if self._pending_tool_request is None:

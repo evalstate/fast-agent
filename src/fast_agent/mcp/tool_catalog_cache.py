@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, SecretBytes, SecretStr, ValidationError
 
 from fast_agent.config import MCPServerSettings, Settings
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.mcp.definition_versions import DefinitionVersions
 from fast_agent.paths import resolve_home_dir
 
 logger = get_logger(__name__)
@@ -22,15 +23,18 @@ logger = get_logger(__name__)
 class ToolCacheInfo(BaseModel):
     source: Literal["live", "disk"]
     fetched_at: float
-    expires_at: float
+    expires_at: float | None
+    """None: validated by server definition digests on every call instead of a TTL."""
     tool_count: int
 
 
 class ToolSnapshot(BaseModel):
-    version: Literal[1] = 1
+    version: Literal[2] = 2
     key: str
     fetched_at: float
     tools: list[Tool] = Field(default_factory=list)
+    instructions: str | None = None
+    definition_versions: DefinitionVersions = Field(default_factory=DefinitionVersions)
 
 
 def _identity_value(value: object) -> object:
@@ -103,12 +107,19 @@ class ToolCatalogCache:
             return None
         try:
             snapshot = ToolSnapshot.model_validate_json(self.path.read_bytes())
-            age = time.time() - snapshot.fetched_at
-            if snapshot.key == self.key and 0 <= age < self.config.tool_cache.ttl_seconds:
+            if snapshot.key == self.key and (self.digest_mode(snapshot) or self._fresh(snapshot)):
                 return snapshot
         except (OSError, ValidationError):
             pass
         return None
+
+    def digest_mode(self, snapshot: ToolSnapshot) -> bool:
+        """Server digests cover everything cached: ignore the TTL, detect change on call."""
+        return snapshot.definition_versions.validates(instructions=self.config.include_instructions)
+
+    def _fresh(self, snapshot: ToolSnapshot) -> bool:
+        age = time.time() - snapshot.fetched_at
+        return 0 <= age < self.config.tool_cache.ttl_seconds
 
     def clear(self) -> None:
         if self.enabled:
