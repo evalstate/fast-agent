@@ -135,6 +135,18 @@ def safe_mcp_diagnostic_text(value: str) -> str:
     return value if len(value) <= 2000 else value[:1997] + "..."
 
 
+def summarize_mcp_diagnostic_text(value: str) -> str:
+    """Collapse recorded failure lines for status views, retaining distinct causes."""
+    lines = dict.fromkeys(
+        line.strip().removeprefix("Caused by: ")
+        for line in safe_mcp_diagnostic_text(value).splitlines()
+        if line.strip()
+    )
+    summary = " · ".join(lines)
+    # Keep the end of a long chain: it usually contains the underlying cause.
+    return summary if len(summary) <= 500 else "..." + summary[-497:]
+
+
 def safe_mcp_exception_text(error: BaseException) -> str:
     """Summarize a cycle-safe exception chain, redacting by exception type where possible."""
     parts: list[str] = []

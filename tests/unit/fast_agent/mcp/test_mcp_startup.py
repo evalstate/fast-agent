@@ -63,7 +63,9 @@ async def test_background_startup_is_parallel_observable_and_cancelled(monkeypat
     assert aggregator.get_startup_errors("broken")[0].failure_detail == "independent failure"
     assert context.mcp_startup.snapshot() == aggregator.startup_status
     status = await asyncio.wait_for(aggregator.collect_server_status(), 1)
-    assert status["broken"].error_message == "MCP startup failed · /mcp error"
+    assert status["broken"].error_message is not None
+    assert "independent failure" in status["broken"].error_message
+    assert "/mcp error" in status["broken"].error_message
     assert status["slow"].error_message == "initializing..."
     # UI reads do not wait for pending servers or schedule duplicate startup.
     await asyncio.wait_for(aggregator.list_tools(), 1)

@@ -66,6 +66,7 @@ from fast_agent.mcp.client_gateway import (
     resolve_oauth_mode,
 )
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
+from fast_agent.mcp.failures import summarize_mcp_diagnostic_text
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.interfaces import ServerRegistryProtocol
@@ -2373,6 +2374,10 @@ class MCPAggregator(ContextDependent):
                     "auth": "Authentication required or pending · /mcp auth",
                     "error": "MCP startup failed · /mcp error",
                 }[lifecycle.state]
+                if lifecycle.state == "error" and lifecycle.failure_detail:
+                    summary = summarize_mcp_diagnostic_text(lifecycle.failure_detail)
+                    if summary:
+                        status.error_message = f"MCP startup failed: {summary} · /mcp error"
                 if status.is_connected is None:
                     status.is_connected = False
             status_map[server_name] = status

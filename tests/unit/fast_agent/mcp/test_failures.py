@@ -7,6 +7,7 @@ from fast_agent.mcp.failures import (
     classify_mcp_failure,
     redact_mcp_failure_text,
     render_mcp_failure,
+    summarize_mcp_diagnostic_text,
 )
 
 
@@ -249,3 +250,26 @@ def test_safe_diagnostic_text_redacts_credentials_and_neutralizes_terminal_outpu
     assert "h.example" in text
     assert "\x1b" not in text
     assert "[bold]" not in text
+
+
+def test_inline_diagnostic_collapses_blank_lines_and_duplicate_causes() -> None:
+    summary = summarize_mcp_diagnostic_text(
+        "Failed to initialize\n\nConnectError: [SSL: WRONG_VERSION_NUMBER]\n"
+        "Caused by: ConnectError: [SSL: WRONG_VERSION_NUMBER]"
+    )
+    assert "Failed to initialize" in summary
+    assert summary.count("ConnectError:") == 1
+    assert "WRONG_VERSION_NUMBER" in summary
+    assert "\n" not in summary
+
+
+def test_inline_diagnostic_is_safe_and_bounded() -> None:
+    summary = summarize_mcp_diagnostic_text(
+        "\x1b[31m[bold]failure\nAuthorization: Bearer secret-value"
+    )
+    assert "secret-value" not in summary
+    assert "\x1b" not in summary
+    assert "[bold]" not in summary
+    long_summary = summarize_mcp_diagnostic_text("x" * 700 + "\nRoot cause")
+    assert len(long_summary) <= 500
+    assert long_summary.endswith("Root cause")
