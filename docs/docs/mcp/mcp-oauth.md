@@ -90,6 +90,9 @@ Notes:
     `fast-agent auth mcp login --endpoint https://example.com/custom/mcp`
   - Exact ad-hoc SSE endpoint:
     `fast-agent auth mcp login --endpoint https://example.com/events --transport sse`
+  - No local browser (SSH, containers, headless hosts): add `--device`, for
+    example `fast-agent auth mcp login --endpoint https://huggingface.co/mcp --device`.
+    See [Device login](#device-login-no-browser).
   - Login waits up to five minutes by default. Use `--timeout <seconds>` when
     the authorization flow or server initialization needs longer.
 
@@ -125,6 +128,10 @@ to an empty value to disable the built-in default.
     `fast-agent auth mcp login --endpoint https://example-server.modelcontextprotocol.io/mcp`
   - Complete the link flow once; tokens will be reused next time.
 
+- Device login (no browser on this machine)
+  - `fast-agent auth mcp login myserver --device`
+  - Open the printed verification URL on any device and enter the code.
+
 - Inspect and forget a stored credential
   - `fast-agent auth mcp show myserver`
   - `fast-agent auth mcp credentials`
@@ -140,6 +147,29 @@ configured. If the server was also removed, use `forget --resource <exact-url>`
 when the resource URL is known; generic OS keyring APIs cannot enumerate an
 unindexed historical username.
 
+## Device login (no browser)
+
+`fast-agent auth mcp login <server> --device` (or `--endpoint <url> --device`)
+uses the OAuth 2.0 Device Authorization Grant (RFC 8628) instead of the browser
+redirect flow. It needs no local callback port or browser: fast-agent prints a
+verification URL and a short code, you approve on any device, and fast-agent
+polls until the authorization server issues a token.
+
+- The server's authorization-server metadata must advertise a
+  `device_authorization_endpoint` and allow the
+  `urn:ietf:params:oauth:grant-type:device_code` grant (Hugging Face does).
+  Otherwise login fails with a message saying so; use the browser flow instead.
+- fast-agent registers a public client that declares the device grant through
+  dynamic client registration when the server supports it, falling back to the
+  client ID metadata document. Scopes (`auth.scope` or the server's advertised
+  scopes) and the RFC 8707 `resource` are selected exactly as for browser login.
+- Tokens and the client registration are stored in the same keychain entry as a
+  browser login, so later connections and refresh use them unchanged, and
+  `auth mcp forget` removes them.
+- Press Ctrl+C to cancel. Nothing is stored unless the server issues a token.
+
+Device login is never selected automatically; pass `--device` explicitly.
+
 ## Troubleshooting
 
 - Immediate 401 with no link
@@ -149,6 +179,7 @@ unindexed historical username.
 - Link opens but no callback received
   - Confirm `http://localhost:3030/callback` is reachable (firewall/port in use).
   - If blocked, paste the returned callback URL when prompted in the terminal.
+  - On a remote or headless host, use `fast-agent auth mcp login <server> --device`.
 
 - Keychain not persisting tokens (Linux)
   - Install and run a Secret Service (gnome‑keyring) or KWallet.

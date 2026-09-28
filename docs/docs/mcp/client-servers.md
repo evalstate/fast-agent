@@ -456,7 +456,7 @@ already waiting, finish that flow rather than starting another login. For recove
 inspect configuration with `fast-agent auth mcp show <server>` and use the existing
 `fast-agent auth mcp login <server>` command for OAuth after the current attempt
 ends. Ad-hoc OAuth endpoints use `fast-agent auth mcp login --endpoint <exact-mcp-url>`
-on the fast-agent host. Correct static credentials outside chat. Then retry
+on the fast-agent host; add `--device` when that host has no browser. Correct static credentials outside chat. Then retry
 `/mcp attach <server>` for a failed configured attachment, or `/mcp reconnect <server>`
 for an attached server. `/mcp auth` itself does not log in, clear credentials, or
 start a browser. Also check `/mcp error`: not every authentication failure is
