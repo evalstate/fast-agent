@@ -1,0 +1,16 @@
+:root {
+  --ease-ui: cubic-bezier(0.2, 0.7, 0.2, 1); /* @kind other */
+  --ease-pop: cubic-bezier(0.34, 1.56, 0.64, 1); /* @kind other */   /* overshoot: bursts entering */
+  --ease-ratchet: cubic-bezier(0.7, 0, 0.3, 1); /* @kind other */    /* 72° loader steps */
+  --dur-hover: 120ms; /* @kind other */
+  --dur-ui: 200ms; /* @kind other */
+  --dur-pop: 420ms; /* @kind other */
+  --dur-ratchet: 640ms; /* @kind other */
+}
+@keyframes fa-pop { from { transform: scale(0.55) rotate(-26deg); opacity: 0; } to { transform: scale(1) rotate(var(--tilt, -8deg)); opacity: 1; } }
+@keyframes fa-ratchet { 0% { transform: rotate(0deg); } 20% { transform: rotate(72deg); } 100% { transform: rotate(72deg); } }
+@keyframes fa-prompt { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+@keyframes fa-chevrons { 0%, 100% { opacity: 0.25; } 30% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+}

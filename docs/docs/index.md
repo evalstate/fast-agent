@@ -1,5 +1,5 @@
 ---
-title: fast-agent - Code, Build and Evaluate Agents
+title: fast-agent — The harness your model deserves
 hide:
 - navigation
 - toc
@@ -7,135 +7,43 @@ hide:
 - view
 social:
   title: fast-agent
-  tagline: Simple, extendable agents.
-  description: MCP-native agents, workflows, and servers.
-  alt: fast-agent — MCP-native agents, workflows, and servers
-  variant: hero
+  description: Code in the terminal. Build agents in Python. Connect your tools with MCP.
 ---
 
-
-<section class="fa-home-splash">
-  <div class="fa-home-splash__heading">
-    <div>
-      <span class="fa-home-splash__brand" aria-label="fast-agent">
-        <img class="fa-home-splash__wordmark fa-home-splash__wordmark--dark" src="assets/brand/fast-agent-anim-dark.svg" width="720" height="200" alt="fast-agent">
-        <img class="fa-home-splash__wordmark fa-home-splash__wordmark--light" src="assets/brand/fast-agent-anim-light.svg" width="720" height="200" alt="fast-agent">
-      </span>
-      <h1>The harness your model deserves.</h1>
-    </div>
-    <div>
-      <p>
-        Same model, better results. fast-agent leads on 
-        <strong>accuracy</strong> and <strong>cost efficiency</strong>.
-      </p>
-      <div class="fa-home-splash__actions">
-        <a class="fa-btn fa-btn--primary" href="guides/codex/">Try it now</a>
-        <a class="fa-btn" href="guides/migrate-automations/">Migrate your automations</a>
-      </div>
-    </div>
-  </div>
-
-  <div class="fa-benchmark" data-fa-benchmark>
-    <div class="fa-benchmark__loading">Loading Terminal-Bench comparisons…</div>
-  </div>
-  <div class="fa-benchmark-stats" data-fa-benchmark-stats aria-live="polite" aria-label="Selected comparison summary"></div>
+<div class="forward-home">
+<div class="fa-background-sparks" aria-hidden="true"><span></span><span></span><span></span></div>
+<div class="fa-front-grid">
+<header class="fa-editorial-intro">
+  <p class="fa-eyebrow">People + tools + a more open tomorrow</p>
+  <h1>fast-agent</h1>
+  <p class="fa-home-deck">The harness your<br>model deserves.</p>
+  <p>Code in your terminal. Build in Python.<br>Your models. Your tools. Your way.</p>
+  <a class="fa-masthead-link" href="#start-title">Get started <span aria-hidden="true">↓</span></a>
+</header>
+<section class="fa-campaign" aria-label="Accuracy and efficiency">
+  <a class="fa-atomic-campaign" href="benchmarks/" aria-label="View fast-agent accuracy and efficiency benchmarks">
+    <div class="fa-approved-character" role="img" aria-label="The 1950s-style presenter holds an illustrative Pareto frontier chart, not measured benchmark data."><img src="assets/forward/assets/illustration/presenter-approved-poses.png" alt="" width="1536" height="1024" fetchpriority="high"><svg class="fa-board-chart" viewBox="0 0 120 100" aria-hidden="true" focusable="false"><path d="M14 10V86H112" fill="none" stroke="#082C34" stroke-width="3" stroke-linecap="round"/><g fill="#277C80" opacity=".5"><circle cx="40" cy="72" r="4"/><circle cx="63" cy="66" r="4"/><circle cx="80" cy="48" r="4"/><circle cx="98" cy="57" r="4"/></g><path d="M26 65Q39 36 56 27T104 14" fill="none" stroke="#F45125" stroke-width="4" stroke-linecap="round"/><g fill="#FFB52E" stroke="#082C34" stroke-width="2"><circle cx="26" cy="65" r="5"/><circle cx="56" cy="27" r="5"/><circle cx="104" cy="14" r="5"/></g></svg></div>
+    <div class="fa-atomic-message"><span class="fa-live-burst">More!</span><h2>Accuracy.<br>Efficiency.</h2><span class="fa-atomic-rule" aria-hidden="true"></span></div>
+    <img class="fa-atomic-spark" src="assets/forward/assets/sparkle-atomic.svg" alt="" width="48" height="48">
+  </a>
+  <div class="fa-campaign-caption"><p><strong>fast-agent leads in accuracy and efficiency.</strong><small>Terminal-Bench 2.1 comparisons, including provisional results and estimated costs.</small></p><a href="benchmarks/">View performance data <span aria-hidden="true">↗</span></a></div>
 </section>
 
-<section class="fa-product-intro">
-  <div>
-    <p class="fa-kicker">Coding agent and development toolkit</p>
-    <h2>Simple, extendable agents.</h2>
-    <p class="fa-lede">
-      Excellent provider and local model support. Flexible context management. Terminal native and scriptable.
-    </p>
-    <div class="fa-hero__actions">
-      <a class="fa-btn" href="agents/defining/">Build an agent</a>
-      <a class="fa-btn" href="ref/go_command/">Explore the CLI</a>
-    </div>
-  </div>
-  <div class="fa-term" aria-label="fast-agent terminal quickstart">
-    <div class="fa-term__bar">
-      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-      <strong>~/projects/fast-agent</strong>
-    </div>
-    <pre><code><span class="fa-muted">$</span> uvx fast-agent-mcp@latest -x
-<span class="fa-good">start</span> an interactive session with shell tools
+</div>
 
-<span class="fa-muted">$</span> uv tool install -U fast-agent-mcp
-<span class="fa-good">install</span> the latest version of fast-agent
-
-<span class="fa-muted">$</span> fast-agent --pack codex
-<span class="fa-good">code</span> download configuration to use codex<span class="fa-cursor"></span></code></pre>
-  </div>
+<div class="fa-install-row"><div class="fa-manifesto" aria-hidden="true"><span>Ideas.</span><span>Agents.</span><span>Progress.</span></div>
+<section class="fa-start" aria-labelledby="start-title">
+  <div class="fa-start-copy"><p class="fa-eyebrow">01 / Start here</p><h2 id="start-title">Get started.</h2><p>One command starts an interactive session with shell tools. Connect your model provider and get to work.</p><a href="getting_started/installation/">Setup guide <span aria-hidden="true">↗</span></a></div>
+  <div class="fa-install-stage"><img class="fa-install-presenter" src="assets/forward/assets/illustration/presenter-install-v1.png" alt="" width="1024" height="1024"><img class="fa-install-presenter fa-install-presenter-arm" src="assets/forward/assets/illustration/presenter-install-v1.png" alt="" width="1024" height="1024"><div class="fa-start-terminal"><div class="fa-terminal-heading"><span>YOUR TERMINAL</span><span aria-hidden="true">❯_</span></div><pre><code>uvx fast-agent-mcp@latest -x</code></pre><p>Requires uv. Prefer a permanent install?</p><code class="fa-install-alternative">uv tool install -U fast-agent-mcp</code></div></div>
 </section>
 
-<!--
+</div>
 
-<section id="try-it-now" class="fa-band fa-band--start">
-  <div>
-    <h2>Get started now</h2>
-  </div>
-  <div class="fa-term" aria-label="fast-agent terminal quickstart">
-    <div class="fa-term__bar">
-      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-      <strong>~/projects/fast-agent</strong>
-    </div>
-    <pre><code><span class="fa-muted">$</span> uvx fast-agent-mcp@latest -x
-<span class="fa-good">ready</span> Start an interactive agent with shell tools
+<section class="fa-editorial-cards" aria-label="Explore fast-agent">
+  <a class="fa-destination fa-destination--build" href="agents/defining/"><p class="fa-eyebrow">02 / Build something</p><h2>Agents, made<br>your way.</h2><p>Start with an Agent Card or a few lines of Python. Add tools, skills and workflows as you need them.</p><div class="fa-card-bottom"><span>Build your first agent</span><span aria-hidden="true">↗</span></div></a>
 
-<span class="fa-muted">$</span> fast-agent --url https://huggingface.co/mcp --auth $HF_TOKEN
-<span class="fa-good">connected</span> Quick connect to an MCP Server
-
-<span class="fa-muted">$</span> fast-agent go --pack analyst --model haiku
-<span class="fa-good">install</span>  reusable agent card pack</code></pre>
-  </div>  
-  <pre><code>uvx fast-agent-mcp@latest -x</code></pre>
+  <a class="fa-destination fa-destination--migrate" href="guides/migrate-automations/"><p class="fa-eyebrow">03 / Keep what works</p><h2>Bring your<br>automations.</h2><p>Move existing workflows into fast-agent, with editable definitions and control over your context.</p><div class="fa-card-bottom"><span>Migrate your automations</span><span aria-hidden="true">↗</span></div></a>
 </section>
 
--->
-
-<section class="fa-grid fa-grid--4">
-  <article class="fa-card">
-    <h3>Extensive Model Support</h3>
-    <p>
-      Native provider support for Anthropic, Google and OpenAI compatible endpoints. <br />Auto configuration for <b>llama.cpp</b> hosted models. <br />
-    </p>
-    <a href="models/">Model features</a>
-  </article>
-  <article class="fa-card">
-    <h3>MCP and ACP</h3>
-    <p>
-      Attach MCP servers from config or command line. Deploy Agents via ACP or MCP. Comprehensive support and transport diagnostics. 
-    </p>
-    <a href="mcp/">ACP guide</a> <br />
-    <a href="mcp/">MCP guide</a> 
-  </article>
-  <article class="fa-card">
-    <h3>Plugin and Extend</h3>
-    <p>
-       Write plugins and hooks with simple Python, or use directly from the API. Distribute and update configurations with Card Packs. 
-    </p>
-    <a href="agents/plugins/">Plugin docs</a>
-  </article>
-  <article class="fa-card">
-    <h3>Control your context</h3>
-    <p>
-      Template based <a href="agents/instructions">System Prompts</a>. Install and update Agent Skills, prompt files or Agent definitions.
-    </p>
-    <a href="guides/skills/">Agent Skills</a>
-  </article>
-</section>
-
-<!-- 
-
-<section class="fa-proof">
-  <h2>Why people try fast-agent first</h2>
-  <div class="fa-grid fa-grid--4">
-    <p class="fa-card"><strong>Simple commands.</strong> `uvx`, `fast-agent go`, and card packs make first contact fast.</p>
-    <p class="fa-card"><strong>MCP depth.</strong> The docs and tests cover advanced MCP behavior, not only tool calls.</p>
-    <p class="fa-card"><strong>Reusable definitions.</strong> Agent cards, workflows, skills, and config files stay editable.</p>
-    <p class="fa-card"><strong>Real deployment paths.</strong> Use the same work from CLI, Python, MCP, and ACP surfaces.</p>
-  </div>
-</section>
-
--->
+<nav class="fa-toolkit" aria-label="Toolkit documentation"><span class="fa-eyebrow">Make it yours</span><a href="models/">Models <span aria-hidden="true">↗</span></a><a href="mcp/">MCP tools <span aria-hidden="true">↗</span></a><a href="guides/skills/">Agent Skills <span aria-hidden="true">↗</span></a><a href="ref/go_command/">CLI reference <span aria-hidden="true">↗</span></a></nav>
+</div>

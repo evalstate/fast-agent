@@ -151,7 +151,7 @@ window.fastAgentBenchmark = {
   taskCount: 445,
   sourceUrl:
     "https://hub.harborframework.com/datasets/terminal-bench/terminal-bench-2-1/6?tab=leaderboard&leaderboard=main",
-  methodologyUrl: "benchmarks/",
+  methodologyUrl: "#benchmark-methodology-disclaimers",
   pricing: {
     "gpt-5.6-sol": fastAgentSolPricing,
   },
