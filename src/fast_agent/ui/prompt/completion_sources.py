@@ -1256,6 +1256,7 @@ def _mcp_prefix_completion(
     for prefix, completion_fn in (
         ("/mcp error ", lambda owner, partial: owner._complete_configured_mcp_servers(partial)),
         ("/mcp attach ", lambda owner, partial: owner._complete_configured_mcp_servers(partial)),
+        ("/mcp auth ", lambda owner, partial: owner._complete_configured_mcp_servers(partial)),
         ("/mcp disconnect ", _complete_attached_mcp_servers),
         ("/mcp reconnect ", _complete_attached_mcp_servers),
         ("/mcp cache clear ", _mcp_cache_targets),

@@ -451,16 +451,25 @@ server (quote names containing spaces). Details include recorded failure text,
 redacted credentials, recovery guidance, and an indication when startup is still
 pending. These commands do not wait for startup or retry connections.
 
-`/mcp auth` shows recorded authentication waits/failures. If authorization is
-already waiting, finish that flow rather than starting another login. For recovery,
-inspect configuration with `fast-agent auth mcp show <server>` and use the existing
-`fast-agent auth mcp login <server>` command for OAuth after the current attempt
-ends. Ad-hoc OAuth endpoints use `fast-agent auth mcp login --endpoint <exact-mcp-url>`
-on the fast-agent host; add `--device` when that host has no browser. Correct static credentials outside chat. Then retry
-`/mcp attach <server>` for a failed configured attachment, or `/mcp reconnect <server>`
-for an attached server. `/mcp auth` itself does not log in, clear credentials, or
-start a browser. Also check `/mcp error`: not every authentication failure is
-classified as an authentication wait.
+Background startup never begins an interactive login. A remote server without stored
+OAuth tokens that answers with an authentication challenge is recorded as needing
+authentication instead of opening a browser: the status bar shows `MCP AUTH · /mcp auth`
+and the prompt announces `MCP server '<server>' requires authentication` once. Servers
+with stored tokens connect (and refresh) as usual; other servers keep starting.
+
+- `/mcp auth` shows recorded authentication waits and failures.
+- `/mcp auth <server>` logs in and connects: it runs `/mcp connect <server> --oauth`
+  for the configured server, printing the authorization link and waiting for the
+  browser callback (Ctrl+C cancels). Server instructions are re-rendered on success.
+- `/mcp auth <server> --device` first runs a [device login](mcp-oauth.md#device-login-no-browser),
+  showing a code to enter on any device, then connects with the stored token. It needs
+  `auth.persist: keyring` (the default).
+
+Static credentials (headers, tokens) are corrected outside chat; then use
+`/mcp attach <server>`, or `/mcp reconnect <server>` for an attached server.
+Outside a session, `fast-agent auth mcp login <server> [--device]` performs the same
+logins. Also check `/mcp error`: not every authentication failure is classified as an
+authentication wait.
 
 ### Tool catalog persistence and deferred connections
 

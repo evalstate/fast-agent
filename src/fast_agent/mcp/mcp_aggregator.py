@@ -78,6 +78,7 @@ from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.interfaces import ServerRegistryProtocol
 from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager, ServerConnection
+from fast_agent.mcp.oauth_client import stored_oauth_tokens_present
 from fast_agent.mcp.prompt_metadata import with_prompt_metadata
 from fast_agent.mcp.skills_extension import GetSkillResult, ListSkillsResult
 from fast_agent.mcp.startup import MCPStartup, ServerStartupStatus
@@ -102,6 +103,7 @@ from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.utils.collections import unique_preserve_order
 from fast_agent.utils.env import env_flag
 from fast_agent.utils.text import strip_casefold
+from fast_agent.utils.transports import uses_mcp_remote_transport
 
 if TYPE_CHECKING:
     from fast_agent.context import Context
@@ -881,13 +883,24 @@ class MCPAggregator(ContextDependent):
     async def _start_server(self, server_name: str) -> None:
         # Status transitions are owned by _attach_server_with_status_locked; this only
         # contains failures so sibling servers keep starting.
+        background = self.context.background_mcp_startup
+        interactive_oauth = not background or await self._has_stored_oauth_tokens(server_name)
         with suppress(Exception):
             await self.attach_server(
                 server_name=server_name,
                 options=MCPAttachOptions(
-                    allow_oauth_paste_fallback=not self.context.background_mcp_startup
+                    allow_oauth_paste_fallback=not background,
+                    # Background startup never begins a login: without stored tokens an
+                    # auth challenge records "auth" status for `/mcp auth <server>`.
+                    trigger_oauth=None if interactive_oauth else False,
                 ),
             )
+
+    async def _has_stored_oauth_tokens(self, server_name: str) -> bool:
+        config = self._server_config(server_name)
+        if config is None or not uses_mcp_remote_transport(config.transport):
+            return False
+        return await asyncio.to_thread(stored_oauth_tokens_present, config)
 
     async def _reset_runtime_indexes(self) -> None:
         async with self._lifecycle_lock:
@@ -2427,7 +2440,7 @@ class MCPAggregator(ContextDependent):
             if lifecycle is not None and lifecycle.state != "ready":
                 status.error_message = {
                     "pending": "initializing...",
-                    "auth": "Authentication required or pending · /mcp auth",
+                    "auth": f"Authentication required · /mcp auth {server_name}",
                     "error": "MCP startup failed · /mcp error",
                 }[lifecycle.state]
                 if lifecycle.state == "error" and lifecycle.failure_detail:

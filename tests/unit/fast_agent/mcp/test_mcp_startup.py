@@ -5,7 +5,7 @@ import pytest
 
 from fast_agent.config import MCPServerSettings
 from fast_agent.context import Context
-from fast_agent.mcp.mcp_aggregator import MCPAggregator
+from fast_agent.mcp.mcp_aggregator import MCPAggregator, MCPAttachOptions
 from fast_agent.mcp.startup import MCPStartup
 from fast_agent.mcp_server_registry import ServerRegistry
 
@@ -291,3 +291,33 @@ async def test_first_prompt_gate_waits_for_startup_and_survives_waiter_cancel(
         "cached": "ready",
     }
     await aggregator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("background", "stored_tokens", "trigger_oauth"),
+    [(True, False, False), (True, True, None), (False, False, None)],
+)
+async def test_background_startup_never_begins_an_interactive_login(
+    monkeypatch, background: bool, stored_tokens: bool, trigger_oauth: bool | None
+) -> None:
+    registry = ServerRegistry()
+    registry.register_central(
+        "remote", MCPServerSettings(transport="http", url="https://example.com/mcp")
+    )
+    aggregator = MCPAggregator(
+        server_names=["remote"],
+        connection_persistence=False,
+        context=Context(server_registry=registry, background_mcp_startup=background),
+    )
+    monkeypatch.setattr(
+        aggregator, "_has_stored_oauth_tokens", AsyncMock(return_value=stored_tokens)
+    )
+    captured: list[MCPAttachOptions] = []
+
+    async def attach(*, server_name, server_config, options: MCPAttachOptions) -> None:
+        captured.append(options)
+
+    monkeypatch.setattr(aggregator, "_attach_server_locked", attach)
+    await aggregator._start_server("remote")
+    assert captured[0].trigger_oauth is trigger_oauth

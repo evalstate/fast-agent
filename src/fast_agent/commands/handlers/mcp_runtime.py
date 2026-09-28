@@ -19,6 +19,7 @@ from fast_agent.mcp.connect_targets import (
     McpConnectMode,
     ParsedMcpConnectRequest,
     build_server_config_from_target,
+    parse_connect_command_text,
     redact_mcp_url,
     render_normalized_target,
     resolve_connect_auth_token,
@@ -877,3 +878,52 @@ async def handle_mcp_cache(ctx: CommandContext, *, agent_name: str, value: str) 
             channel="error",
         )
     return outcome
+
+
+def mcp_auth_connect_request(server_name: str) -> ParsedMcpConnectRequest:
+    """`/mcp auth <server>` is `/mcp connect <configured server> --oauth`."""
+    return parse_connect_command_text(
+        join_commandline([server_name, "--oauth"], syntax="posix"),
+        syntax="posix",
+        resolve_configured_name=True,
+    )
+
+
+async def handle_mcp_device_login(
+    ctx: CommandContext,
+    *,
+    server_name: str,
+    on_user_code: Callable[[str], Awaitable[None]],
+) -> str | None:
+    """Device-code login for a configured server; returns an error message, or None."""
+    from fast_agent.mcp.oauth_device import (
+        MCPDeviceAuthorizationError,
+        MCPDeviceCode,
+        login_mcp_server_with_device_code,
+    )
+
+    mcp_settings = ctx.resolve_settings().mcp
+    config = mcp_settings.servers.get(server_name) if mcp_settings is not None else None
+    if config is None:
+        return f"Unknown MCP server '{server_name}'. Use /mcp list to see configured servers."
+    if config.auth is not None and config.auth.persist == "memory":
+        # The server isn't connected, so there is no live in-memory store to share.
+        return (
+            f"Device login needs persisted credentials; '{server_name}' uses "
+            "auth.persist: memory. Use /mcp auth without --device."
+        )
+
+    async def show(code: MCPDeviceCode) -> None:
+        link = code.verification_uri_complete or code.verification_uri
+        await on_user_code(
+            f"To authorize '{server_name}', open {link} and enter code {code.user_code} "
+            f"(expires in {int(code.expires_in // 60)} min)."
+        )
+
+    try:
+        await login_mcp_server_with_device_code(
+            config.model_copy(update={"name": server_name}), on_user_code=show
+        )
+    except MCPDeviceAuthorizationError as exc:
+        return str(exc)
+    return None

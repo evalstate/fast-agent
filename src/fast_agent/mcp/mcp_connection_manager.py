@@ -24,7 +24,10 @@ from mcp.shared.exceptions import MCPError
 from mcp_types import JSONRPCNotification, SubscriptionFilter
 
 from fast_agent.context_dependent import ContextDependent
-from fast_agent.core.exceptions import ServerInitializationError
+from fast_agent.core.exceptions import (
+    ServerAuthenticationRequiredError,
+    ServerInitializationError,
+)
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
@@ -1423,6 +1426,14 @@ class MCPConnectionManager(ContextDependent):
                     formatted_error,
                     server_conn.server_config.url,
                 ),
+                server_name=server_name,
+            ) from server_conn._lifecycle_error
+
+        if server_conn._auth_challenge_received:
+            # The server demanded credentials this attempt could not supply.
+            raise ServerAuthenticationRequiredError(
+                f"MCP Server: '{server_name}': Authentication required.",
+                f"Log in with /mcp auth {server_name} (add --device without a browser).",
                 server_name=server_name,
             ) from server_conn._lifecycle_error
 

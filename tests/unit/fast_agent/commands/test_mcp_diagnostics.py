@@ -9,7 +9,7 @@ from fast_agent.commands.harness import _execute_mcp_command
 from fast_agent.commands.mcp_diagnostics import render_mcp_diagnostics
 from fast_agent.config import Settings
 from fast_agent.context import Context
-from fast_agent.ui.command_payloads import CommandError, McpDiagnosticsCommand
+from fast_agent.ui.command_payloads import CommandError, McpAuthCommand, McpDiagnosticsCommand
 from fast_agent.ui.prompt.parser import parse_special_input
 
 
@@ -36,10 +36,18 @@ def test_parser(command: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "command", ["/mcp error a b", "/mcp auth a", '/mcp error "', '/mcp error ""']
+    "command",
+    ["/mcp error a b", "/mcp auth a b", "/mcp auth --device", '/mcp error "', '/mcp error ""'],
 )
 def test_invalid_parser(command: str) -> None:
     assert isinstance(parse_special_input(command), CommandError)
+
+
+@pytest.mark.parametrize(
+    ("command", "device"), [("/mcp auth hf", False), ("/mcp auth hf --device", True)]
+)
+def test_auth_with_server_is_a_login(command: str, device: bool) -> None:
+    assert parse_special_input(command) == McpAuthCommand(server_name="hf", device=device)
 
 
 @pytest.mark.asyncio
@@ -62,8 +70,8 @@ def test_filter_and_auth_recovery(agent: McpAgent) -> None:
     selected = render_mcp_diagnostics(agent, ["error", "broken server"])
     assert "OAuth authorization required" not in selected
     auth = render_mcp_diagnostics(agent, ["auth"])
-    assert "fast-agent auth mcp login" in auth
-    assert "does not log in" in auth
+    assert "/mcp auth login" in auth
+    assert "--device" in auth
     assert "executable missing" not in auth
     assert "Unknown startup server" in render_mcp_diagnostics(agent, ["error", "missing"])
     assert "unavailable" in render_mcp_diagnostics(object(), ["auth"])

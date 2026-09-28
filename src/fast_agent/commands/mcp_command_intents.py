@@ -42,7 +42,7 @@ MCP_TOP_LEVEL_ACTION_DESCRIPTIONS: dict[str, str] = {
     "cache": "Show or clear tool caches",
     "refresh": "Refresh tool catalogs from servers",
     "error": "Show startup failures and recovery guidance",
-    "auth": "Show authentication diagnostics and recovery guidance",
+    "auth": "Show auth diagnostics, or log in to a server (/mcp auth <server> [--device])",
     "list": "List configured and attached MCP servers",
     "status": "Show detailed MCP server status",
     "attach": "Attach a configured MCP server",
@@ -110,3 +110,27 @@ def parse_mcp_cache_tokens(tokens: list[str]) -> McpCacheIntent:
     if target is not None and not target.strip():
         return McpCacheIntent("summary", error=usage)
     return McpCacheIntent(action, None if target == "all" else target)
+
+
+MCP_AUTH_USAGE = "Usage: /mcp auth [<server> [--device]]"
+
+
+@dataclass(frozen=True, slots=True)
+class McpAuthIntent:
+    """`/mcp auth` shows diagnostics; `/mcp auth <server>` logs in and connects."""
+
+    server_name: str | None = None
+    device: bool = False
+    error: str | None = None
+
+
+def parse_mcp_auth_tokens(tokens: list[str]) -> McpAuthIntent:
+    args = tokens[1:]
+    device = "--device" in args
+    names = [arg for arg in args if arg != "--device"]
+    if len(names) > 1 or any(name.startswith("--") for name in names):
+        return McpAuthIntent(error=MCP_AUTH_USAGE)
+    server_name = strip_to_none(names[0]) if names else None
+    if device and server_name is None:
+        return McpAuthIntent(error=MCP_AUTH_USAGE)
+    return McpAuthIntent(server_name=server_name, device=device)

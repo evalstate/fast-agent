@@ -40,6 +40,13 @@ class McpDiagnosticsCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class McpAuthCommand(CommandBase):
+    server_name: str
+    device: bool = False
+    kind: Literal["mcp_auth"] = "mcp_auth"
+
+
+@dataclass(frozen=True, slots=True)
 class ShowMcpStatusCommand(CommandBase):
     kind: Literal["show_mcp_status"] = "show_mcp_status"
 
@@ -501,6 +508,7 @@ CommandPayload = (
     | ShowMarkdownCommand
     | McpCacheCommand
     | McpDiagnosticsCommand
+    | McpAuthCommand
     | ShowMcpStatusCommand
     | EnvironmentCommand
     | ProcessCommand

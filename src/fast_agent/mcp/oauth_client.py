@@ -1370,6 +1370,14 @@ def list_keyring_credentials(service: str = "fast-agent-mcp") -> list[str]:
         return []
 
 
+def stored_oauth_tokens_present(server_config: MCPServerSettings) -> bool:
+    """Whether the keyring holds tokens this server's OAuth provider would load."""
+    return _oauth_provider_settings(server_config).persist_mode == "keyring" and any(
+        keyring_token_present(identity)
+        for identity in compute_server_identity_candidates(server_config)
+    )
+
+
 def keyring_credential_present(resource: str, service: str = "fast-agent-mcp") -> bool:
     """Return whether a resource has tokens or OAuth client registration."""
     try:

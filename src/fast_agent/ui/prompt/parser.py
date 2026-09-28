@@ -54,6 +54,7 @@ from fast_agent.ui.command_payloads import (
     LoadHistoryCommand,
     LoadPromptCommand,
     McpAttachCommand,
+    McpAuthCommand,
     McpCacheCommand,
     McpConnectCommand,
     McpDiagnosticsCommand,
@@ -179,11 +180,22 @@ def _parse_mcp_diagnostics_command(tokens: list[str], _remainder: str) -> Comman
     return McpDiagnosticsCommand(value=shlex.join(tokens))
 
 
+def _parse_mcp_auth_command(tokens: list[str], remainder: str) -> CommandPayload:
+    from fast_agent.commands.mcp_command_intents import parse_mcp_auth_tokens
+
+    intent = parse_mcp_auth_tokens(tokens)
+    if intent.error:
+        return CommandError(intent.error)
+    if intent.server_name is None:
+        return _parse_mcp_diagnostics_command(tokens, remainder)
+    return McpAuthCommand(server_name=intent.server_name, device=intent.device)
+
+
 _MCP_TOKEN_PARSERS: dict[str, _McpTokenParser] = {
     "cache": _parse_mcp_cache_command,
     "refresh": _parse_mcp_cache_command,
     "error": _parse_mcp_diagnostics_command,
-    "auth": _parse_mcp_diagnostics_command,
+    "auth": _parse_mcp_auth_command,
     "list": _parse_mcp_list_command,
     "status": _parse_mcp_status_command,
     **dict.fromkeys(_MCP_SERVER_COMMAND_TYPES, _parse_mcp_server_name_command),

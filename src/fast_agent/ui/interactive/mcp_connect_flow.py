@@ -168,3 +168,30 @@ async def handle_mcp_connect(
         _remove_duplicate_oauth_link_message(outcome)
 
     return outcome
+
+
+async def run_mcp_device_login(context: "CommandContext", server_name: str) -> bool:
+    """Show a device code and wait for authorization; Ctrl+C cancels. True on success."""
+
+    async def show_code(message: str) -> None:
+        rich_print(f"[bold]{message}[/bold]")
+        rich_print("[dim]Waiting for authorization… (Ctrl+C to cancel)[/dim]")
+
+    login_task = asyncio.create_task(
+        mcp_runtime_handlers.handle_mcp_device_login(
+            context, server_name=server_name, on_user_code=show_code
+        )
+    )
+    previous_sigint_handler = _install_sigint_cancel_handler(login_task)
+    try:
+        error = await login_task
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        await _cancel_connect_task(login_task)
+        rich_print("[yellow]Device login cancelled; returned to prompt.[/yellow]")
+        return False
+    finally:
+        _restore_sigint_handler(previous_sigint_handler)
+    if error is not None:
+        rich_print(Text(error, style="red"))
+        return False
+    return True

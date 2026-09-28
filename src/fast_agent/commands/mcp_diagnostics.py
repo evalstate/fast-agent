@@ -7,6 +7,7 @@ from fast_agent.utils.markdown import markdown_code_span
 
 def diagnostics_usage_error(tokens: list[str]) -> str | None:
     if tokens[0].lower() == "auth":
+        # `/mcp auth <server>` is a login; only the bare form renders diagnostics.
         return "Usage: /mcp auth" if len(tokens) != 1 else None
     if len(tokens) > 2 or (len(tokens) == 2 and not tokens[1].strip()):
         return "Usage: /mcp error [server]"
@@ -48,8 +49,9 @@ def render_mcp_diagnostics(agent: object, tokens: list[str]) -> str:
         lines.extend(markdown_code_span(line) for line in safe.splitlines())
         if status.state == "auth":
             lines.append(
-                "Authentication is required or in progress; finish the existing authorization flow. "
-                "Do not start a second login while it is waiting."
+                "Authentication is required: run "
+                + markdown_code_span(f"/mcp auth {safe_mcp_diagnostic_text(status.server_name)}")
+                + " to log in and connect (add `--device` to log in without a browser here)."
             )
         else:
             lines.append(
@@ -74,13 +76,11 @@ def render_mcp_diagnostics(agent: object, tokens: list[str]) -> str:
         )
     if auth or any(s.state == "auth" for s in failures):
         lines.append(
-            "Inspect configured authentication with `fast-agent auth mcp show <server>` "
-            "or stored OAuth resources with `fast-agent auth mcp credentials`. "
-            "For OAuth recovery after the current attempt ends, run "
-            "`fast-agent auth mcp login <server>` on the fast-agent host "
-            "(ad-hoc endpoints: `fast-agent auth mcp login --endpoint <exact-mcp-url>`), "
-            "then attach/connect again. For token-based authentication, correct the configured "
-            "credential outside chat. This command does not log in or expose credentials. "
+            "Log in from this session with `/mcp auth <server>` (`--device` for a code "
+            "you can enter on another device). Inspect configured authentication with "
+            "`fast-agent auth mcp show <server>` or stored OAuth resources with "
+            "`fast-agent auth mcp credentials`. For token-based authentication, correct the "
+            "configured credential outside chat. This command does not expose credentials. "
             "Auth failures may be recorded as errors; also check `/mcp error`."
         )
     return "\n\n".join(lines)

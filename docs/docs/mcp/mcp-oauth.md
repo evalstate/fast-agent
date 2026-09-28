@@ -170,6 +170,9 @@ polls until the authorization server issues a token.
 
 Device login is never selected automatically; pass `--device` explicitly.
 
+In an interactive session, `/mcp auth <server> --device` runs the same device login
+and then connects the server, so you don't need to leave the session.
+
 ## Troubleshooting
 
 - Immediate 401 with no link

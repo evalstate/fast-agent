@@ -66,7 +66,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  /process terminate <process-id> - Terminate a managed or durable process",
             "  /mcp           - Show detailed MCP server status for the active agent",
             "  /mcp error [server] - Show startup failures and recovery guidance",
-            "  /mcp auth - Show authentication diagnostics",
+            "  /mcp auth [<server> [--device]] - Auth diagnostics, or log in and connect",
             "  /mcp status    - Show detailed MCP server status for the active agent",
             "  /mcp list      - List configured and attached MCP servers",
             "  /mcp attach <name> - Attach a configured MCP server",

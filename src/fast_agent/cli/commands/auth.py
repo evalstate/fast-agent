@@ -30,9 +30,9 @@ from fast_agent.mcp.oauth_client import (
     compute_server_identity,
     compute_server_identity_candidates,
     keyring_credential_present,
-    keyring_token_present,
     list_keyring_credentials,
     oauth_resource_key_candidates,
+    stored_oauth_tokens_present,
 )
 from fast_agent.ui.console import console
 from fast_agent.utils.action_normalization import normalize_action_token
@@ -261,17 +261,7 @@ def _credential_state(
         return persistence, "memory"
     if not keyring_status.available:
         return persistence, "unavailable"
-    return (
-        persistence,
-        (
-            "ready"
-            if any(
-                keyring_token_present(candidate)
-                for candidate in compute_server_identity_candidates(server)
-            )
-            else "missing"
-        ),
-    )
+    return persistence, "ready" if stored_oauth_tokens_present(server) else "missing"
 
 
 def _mcp_server_view(
