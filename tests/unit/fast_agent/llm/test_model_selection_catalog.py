@@ -511,3 +511,16 @@ def test_catalog_entries_resolve_to_known_models() -> None:
                 unresolved.append(entry.model)
 
     assert unresolved == []
+
+
+def test_sonnet_55_picker_defaults_and_limits() -> None:
+    assert "claude-sonnet-5-5" in ModelSelectionCatalog.list_current_models(Provider.ANTHROPIC)
+    copilot = ModelSelectionCatalog.list_current_models(Provider.COPILOT)
+    assert copilot.index("copilot.claude-sonnet-5.5") < copilot.index("copilot.claude-sonnet-5")
+    for model in ("claude-sonnet-5-5", "copilot.claude-sonnet-5.5"):
+        params = ModelDatabase.get_model_params(model)
+        assert params is not None
+        assert params.context_window == 1_000_000
+        assert params.max_output_tokens == 128_000
+        assert params.json_mode == "schema"
+        assert params.structured_tool_policy == "always"

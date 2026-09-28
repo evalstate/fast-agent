@@ -961,7 +961,13 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
     def _uses_summarized_thinking_display(self, model: str) -> bool:
         """Return True when summarized thinking should be requested explicitly."""
-        return self._normalize_model_name(model) == "claude-opus-4-7"
+        return self._normalize_model_name(model) in {
+            "claude-opus-4-7",
+            "claude-opus-5-5",
+            "claude-opus-5.5",
+            "claude-sonnet-5-5",
+            "claude-sonnet-5.5",
+        }
 
     def _requires_explicit_thinking_field(self, model: str) -> bool:
         return self._get_model_anthropic_thinking_field_required(model)
@@ -1038,18 +1044,21 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             return args, False
 
         if not thinking_enabled:
-            if self._supports_thinking_disable(model):
-                setting = self.reasoning_effort
-                if setting and setting.kind == "toggle" and setting.value is False:
+            setting = self.reasoning_effort
+            if setting and setting.kind == "toggle" and setting.value is False:
+                if self._normalize_model_name(model) in {"claude-sonnet-5-5", "claude-sonnet-5.5"}:
+                    args["thinking"] = {"type": "between_tools"}
+                elif self._supports_thinking_disable(model):
                     args["thinking"] = {"type": "disabled"}
             if max_tokens is not None:
                 args["max_tokens"] = max_tokens
             return args, False
 
         if adaptive_supported:
-            if self._requires_explicit_thinking_field(model):
+            summarized_display = self._uses_summarized_thinking_display(model)
+            if self._requires_explicit_thinking_field(model) or summarized_display:
                 thinking: dict[str, str] = {"type": "adaptive"}
-                if self._uses_summarized_thinking_display(model):
+                if summarized_display:
                     thinking["display"] = "summarized"
                 args["thinking"] = thinking
             effort = self._resolve_adaptive_effort(model)
@@ -1070,6 +1079,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             args["max_tokens"] = current_max
         return args, True
 
+    def _supports_native_json_schema(self, model: str) -> bool:
+        return self.supports_direct_anthropic_beta("structured_output")
+
     def _resolve_structured_output_mode(
         self,
         model: str,
@@ -1086,7 +1098,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
         json_mode = self._get_model_json_mode(model)
         if json_mode == "schema":
-            if self.supports_direct_anthropic_beta("structured_output"):
+            if self._supports_native_json_schema(model):
                 return "json"
             return "tool_use"
         return "tool_use"
@@ -2125,7 +2137,13 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
     ) -> dict:
         arguments = super().prepare_provider_arguments(base_args, request_params, exclude_fields)
         model = self._normalize_model_name(str(arguments.get("model", "")))
-        if model in {"claude-fable-5-1", "claude-opus-5-5", "claude-opus-5.5"}:
+        if model in {
+            "claude-fable-5-1",
+            "claude-opus-5-5",
+            "claude-opus-5.5",
+            "claude-sonnet-5-5",
+            "claude-sonnet-5.5",
+        }:
             extra_body = arguments.get("extra_body") or {}
             tool_choice = extra_body.get("tool_choice", arguments.get("tool_choice"))
             if isinstance(tool_choice, dict) and tool_choice.get("type") in {"any", "tool"}:
@@ -2142,6 +2160,29 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 or "budget_tokens" in thinking
             ):
                 raise ValueError("Opus 5.5 requires always-on adaptive thinking.")
+        if model in {"claude-sonnet-5-5", "claude-sonnet-5.5"}:
+            extra_body = arguments.get("extra_body") or {}
+            thinking = extra_body.get("thinking", arguments.get("thinking"))
+            if thinking is not None and (
+                not isinstance(thinking, dict)
+                or thinking.get("type") not in {"adaptive", "between_tools"}
+                or "budget_tokens" in thinking
+                or (thinking.get("type") == "between_tools" and len(thinking) != 1)
+            ):
+                raise ValueError(
+                    "Sonnet 5.5 requires adaptive thinking or thinking={'type': 'between_tools'}."
+                )
+            output_config = extra_body.get("output_config", arguments.get("output_config")) or {}
+            effort = output_config.get("effort")
+            if (
+                isinstance(thinking, dict)
+                and thinking.get("type") == "between_tools"
+                and effort is not None
+                and effort not in {"low", "medium", "high"}
+            ):
+                raise ValueError(
+                    "Sonnet 5.5 between_tools supports only low, medium, or high effort."
+                )
         sampling_keys = ("temperature", "top_p", "top_k")
         sampling = {
             key: arguments.pop(key) for key in sampling_keys if arguments.get(key) is not None
@@ -2158,6 +2199,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             "claude-fable-5",
             "claude-fable-5-1",
             "claude-sonnet-5",
+            "claude-sonnet-5-5",
+            "claude-sonnet-5.5",
         }:
             removed = list(sampling)
             for key in sampling_keys:
