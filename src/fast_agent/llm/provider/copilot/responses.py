@@ -32,6 +32,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     resolve_responses_ws_url,
 )
 from fast_agent.llm.provider_types import Provider
+from fast_agent.mcp.mime_utils import guess_mime_type
 
 if TYPE_CHECKING:
     from fast_agent.llm.provider.copilot.broker import CopilotEndpoint
@@ -158,10 +159,37 @@ class CopilotResponsesLLM(ResponsesLLM):
             )
         return await super()._acquire_responses_ws_attempt(attempt=attempt, context=context)
 
+    async def _normalize_input_part(
+        self, client: AsyncOpenAI, part: dict[str, Any]
+    ) -> tuple[dict[str, Any], bool]:
+        # Keep images with the Copilot attachment normalizer, never the Files API.
+        if part.get("type") != "input_file":
+            return part, False
+        data = part.get("file_data")
+        if not isinstance(data, str) or data.startswith("data:"):
+            return part, False
+        filename = part.get("filename")
+        mime_type = guess_mime_type(filename) if isinstance(filename, str) else None
+        return {
+            **part,
+            "file_data": f"data:{mime_type or 'application/octet-stream'};base64,{data}",
+        }, True
+
     async def _normalize_input_files(
         self, client: AsyncOpenAI, input_items: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         reject_files(input_items)
+        # Responses accepts both shorthand strings and lists of content blocks.
+        # Normalize only block lists and leave the caller's history untouched.
+        normalized_items: list[dict[str, Any]] = []
+        for item in input_items:
+            updated = dict(item)
+            for key in ("content", "output"):
+                content = item.get(key)
+                if isinstance(content, list):
+                    updated[key], _ = await self._normalize_content_parts(client, content)
+            normalized_items.append(updated)
+        input_items = normalized_items
         endpoint = self._copilot_endpoint.get()
         display_model = (
             f"{endpoint.model_id} [ws]" if endpoint.transport == "websocket" else endpoint.model_id

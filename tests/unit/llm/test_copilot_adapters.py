@@ -636,7 +636,7 @@ def test_headers_ignore_arbitrary_tool_inputs() -> None:
     ) == {"x-initiator": "agent", "copilot-vision-request": "true"}
 
 
-def test_messages_document_uploads_unsupported(context: Context) -> None:
+def test_messages_files_api_uploads_unsupported(context: Context) -> None:
     llm = CopilotMessagesLLM(context=context, model="claude-sonnet-5")
     assert not llm.supports_files_api()
     assert not llm.supports_document_uploads()
@@ -1549,3 +1549,181 @@ async def test_claude55_progress_display_stream_and_replay(
     thinking = next(block for block in assistant["content"] if block["type"] == "thinking")
     assert thinking["thinking"] == summary
     assert thinking["signature"] == signature
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        {
+            "type": "input_file",
+            "filename": "report.pdf",
+            "file_data": "data:application/pdf;base64,AA==",
+        },
+        {
+            "type": "document",
+            "source": {"type": "base64", "media_type": "application/pdf", "data": "AA=="},
+        },
+        {
+            "type": "document",
+            "source": {"type": "text", "media_type": "text/plain", "data": "report"},
+        },
+        {
+            "type": "document",
+            "source": {"type": "content", "content": [{"type": "text", "text": "report"}]},
+        },
+    ],
+)
+def test_inline_documents_do_not_require_files_api(block: dict[str, Any]) -> None:
+    from fast_agent.llm.provider.copilot.policy import reject_files
+
+    reject_files([{"role": "user", "content": [block]}])
+    reject_files([{"role": "user", "content": [{"type": "tool_result", "content": [block]}]}])
+    reject_files([{"type": "function_call_output", "output": [block]}])
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        {"type": "input_file", "file_id": "hosted"},
+        {"type": "input_file", "file_url": "https://example.com/report.pdf"},
+        {"type": "input_file", "file_data": "AA==", "file_id": "hosted"},
+        {"type": "input_file", "file_data": "AA==", "file_url": "https://example.com/report.pdf"},
+        {"type": "input_file"},
+        {"type": "document", "source": {"type": "file", "file_id": "hosted"}},
+        {"type": "document", "source": {"type": "url", "url": "https://example.com/report.pdf"}},
+        {"type": "document"},
+        {"type": "input_image", "file_id": "hosted"},
+        {"type": "file", "file_id": "hosted"},
+        {
+            "type": "document",
+            "source": {"type": "content", "content": [{"type": "file", "file_id": "hosted"}]},
+        },
+    ],
+)
+def test_hosted_documents_still_rejected(block: dict[str, Any]) -> None:
+    from fast_agent.llm.provider.copilot.policy import reject_files
+
+    with pytest.raises(ValueError, match="file"):
+        reject_files([{"role": "user", "content": [{"type": "tool_result", "content": [block]}]}])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wire", ["messages", "responses"])
+@pytest.mark.parametrize("from_tool", [False, True])
+async def test_inline_pdf_through_parent_loop(
+    wire: str,
+    from_tool: bool,
+    broker: FakeBroker,
+    context: Context,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import base64
+
+    from mcp.types import (
+        BlobResourceContents,
+        CallToolRequest,
+        CallToolRequestParams,
+        CallToolResult,
+        EmbeddedResource,
+    )
+
+    from fast_agent.types import PromptMessageExtended
+
+    encoded = base64.b64encode(b"%PDF-1.4 synthetic").decode()
+    resource = EmbeddedResource(
+        type="resource",
+        resource=BlobResourceContents(
+            uri="file:///report.pdf", mime_type="application/pdf", blob=encoded
+        ),
+    )
+    bodies: list[dict[str, Any]] = []
+
+    async def respond(request: httpx2.Request) -> httpx2.Response:
+        # There must be no request to a provider Files API.
+        assert request.url.path.endswith("/messages" if wire == "messages" else "/responses")
+        bodies.append(json.loads(await request.aread()))
+        return httpx2.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=anthropic_events() if wire == "messages" else responses_events(),
+        )
+
+    def client_factory(**kwargs: Any) -> AsyncAnthropic | AsyncOpenAI:
+        kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
+        return AsyncAnthropic(**kwargs) if wire == "messages" else AsyncOpenAI(**kwargs)
+
+    monkeypatch.setattr(
+        f"fast_agent.llm.provider.copilot.{wire}.{'AsyncAnthropic' if wire == 'messages' else 'AsyncOpenAI'}",
+        client_factory,
+    )
+    llm = (
+        CopilotMessagesLLM(context=context, model="claude-sonnet-5")
+        if wire == "messages"
+        else CopilotResponsesLLM(context=context, model="gpt-6-astra", transport="sse")
+    )
+    if from_tool:
+        messages = [
+            Prompt.user("Read report.pdf"),
+            Prompt.assistant(
+                tool_calls={
+                    "call": CallToolRequest(
+                        method="tools/call",
+                        params=CallToolRequestParams(
+                            name="attach_media", arguments={"source": "report.pdf"}
+                        ),
+                    )
+                }
+            ),
+            PromptMessageExtended(
+                role="user",
+                content=[],
+                tool_results={
+                    "call": CallToolResult(content=[resource]),
+                },
+            ),
+        ]
+    else:
+        messages = [Prompt.user("Read this PDF", resource)]
+    before = [message.model_dump() for message in messages]
+    result = await llm.generate(messages)
+    assert result.all_text() == "OK"
+    assert len(bodies) == 1
+    body = json.dumps(bodies[0])
+    assert encoded in body
+    if wire == "responses":
+        assert f"data:application/pdf;base64,{encoded}" in body
+    assert '"document"' in body if wire == "messages" else '"input_file"' in body
+    assert '"file_id"' not in body
+    assert [message.model_dump() for message in messages] == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("slot", ["content", "output"])
+@pytest.mark.parametrize("prefixed", [False, True])
+async def test_responses_inline_file_normalization_is_idempotent(
+    slot: str, prefixed: bool, broker: FakeBroker, context: Context
+) -> None:
+    llm = CopilotResponsesLLM(context=context, model="gpt-6-astra", transport="sse")
+    await llm._prepare_responses_client("gpt-6-astra", "sse")
+    data_url = "data:application/pdf;base64,AA=="
+    original = [
+        {
+            "type": "message" if slot == "content" else "function_call_output",
+            slot: [
+                {
+                    "type": "input_file",
+                    "filename": "report.pdf",
+                    "file_data": data_url if prefixed else "AA==",
+                },
+                {"type": "input_image", "image_url": "data:image/png;base64,AA=="},
+            ],
+        }
+    ]
+    before = deepcopy(original)
+    client = llm._responses_client()
+    once = await llm._normalize_input_files(client, original)
+    twice = await llm._normalize_input_files(client, once)
+    assert once[0][slot][0]["file_data"] == data_url
+    assert once[0][slot][1] == before[0][slot][1]
+    assert twice == once
+    assert original == before
