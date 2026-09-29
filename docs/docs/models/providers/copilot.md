@@ -266,3 +266,16 @@ uv run examples/copilot/image_upload_probe.py
 
 It checks image recognition and URL reuse through Messages/SSE and
 Responses/SSE and WebSocket, without printing credentials or attachment URLs.
+
+## Document attachments
+
+Inline PDFs are supported on Copilot Responses (SSE and WebSocket) and Claude
+Messages. Local PDF attachments, including `attach_media` results, are sent
+inline without a provider file upload. Responses wraps base64 file bytes in a
+MIME data URL; Claude uses its native inline document source. Original history
+is retained unchanged. Claude inline text/content document sources are also
+allowed.
+
+This does **not** enable the OpenAI or Anthropic Files APIs. Hosted file IDs and
+document URL references remain rejected; attach a local copy instead. Gateway
+model, file-size and context limits still apply.
