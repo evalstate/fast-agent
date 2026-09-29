@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
-from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL, FAST_AGENT_USAGE
+from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL, FAST_AGENT_USAGE, REASONING
 from fast_agent.history.atif_reconstruction import (
     COMPACTION_BOUNDARY,
     HistoryReconstructionError,
@@ -375,6 +375,58 @@ def test_replace_boundary_carries_model_visible_context(tmp_path: Path):
     assert trajectory.final_metrics is not None
     assert trajectory.final_metrics.extra is not None
     assert trajectory.final_metrics.extra["llm_usage_expected_call_count"] == 4
+
+
+@pytest.mark.parametrize("retained_as", ["template", "tail"])
+def test_copied_reasoning_stays_on_original_step(tmp_path: Path, retained_as: str):
+    usage = {
+        "schema": "fast-agent.usage/v2",
+        "provider_attempts": [
+            {
+                "provider": "openai",
+                "usage_schema": "openai-chat",
+                "model": "test",
+                "prompt": {"total": 12, "cache_read": 0},
+                "completion": {"total": 3, "reasoning": 2},
+                "tool_calls": 0,
+            }
+        ],
+    }
+    assistant = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="answer")],
+        channels={
+            REASONING: [TextContent(type="text", text="original reasoning")],
+            FAST_AGENT_USAGE: [TextContent(type="text", text=json.dumps(usage))],
+        },
+        timestamp=BASE,
+        is_template=retained_as == "template",
+    )
+    if retained_as == "template":
+        archived = [assistant, _message(1)]
+        current = _checkpoint(tmp_path, archived, templates=1, tail=0)
+    else:
+        archived = [_message(1), assistant]
+        current = _checkpoint(tmp_path, archived, tail=1)
+    original_history = [message.model_copy(deep=True) for message in archived]
+
+    trajectory = _trajectory(current, tmp_path)
+    original, copied = [step for step in trajectory.steps if step.source == "agent"]
+    assert original.reasoning_content == "original reasoning"
+    assert original.metrics is not None
+    assert original.llm_call_count == 1
+    assert copied.is_copied_context
+    assert copied.message == original.message
+    assert (copied.extra or {})["copied_from_step_id"] == original.step_id
+    assert copied.reasoning_content is None
+    assert copied.metrics is None
+    assert copied.llm_call_count == 0
+    assert trajectory.final_metrics is not None
+    assert trajectory.final_metrics.extra is not None
+    assert trajectory.final_metrics.extra["llm_usage_expected_call_count"] == 1
+    assert trajectory.final_metrics.extra["llm_usage_observed_call_count"] == 1
+    assert trajectory.final_metrics.extra["observed_reasoning_tokens_lower_bound"] == 2
+    assert archived == original_history
 
 
 def test_summary_call_is_embedded_and_accounted(tmp_path: Path):

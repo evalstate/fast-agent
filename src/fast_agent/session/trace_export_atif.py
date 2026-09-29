@@ -618,7 +618,9 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
                 ),
                 message=_atif_content(list(message.content)),
                 reasoning_content=(
-                    _channel_text(message, REASONING) if step_source == "agent" else None
+                    _channel_text(message, REASONING)
+                    if step_source == "agent" and not copied
+                    else None
                 ),
                 tool_calls=calls,
                 # Copied steps restate earlier interactions: they carry no new
