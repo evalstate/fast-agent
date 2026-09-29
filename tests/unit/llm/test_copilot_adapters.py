@@ -389,7 +389,15 @@ async def test_always_on_policy_and_thinking_preservation(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "model",
-    ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+    [
+        "gpt-6-astra",
+        "gpt-6.1-sol",
+        "gpt-6-sol",
+        "gpt-6-luna",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+    ],
 )
 @pytest.mark.parametrize("factory", [False, True])
 async def test_gpt_defaults_to_websocket_without_sse_fallback(
@@ -926,7 +934,8 @@ async def test_responses_extra_body_matches_sse_and_websocket_wire_payload(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "model", ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-luna", "gpt-5.6-sol"]
+    "model",
+    ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-luna", "gpt-5.6-sol"],
 )
 async def test_verified_web_search_toggle_and_websocket_payload(
     model: str, broker: FakeBroker, context: Context
@@ -1294,7 +1303,7 @@ def test_factory_opus48_high_reasoning(context: Context) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model", ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"])
+@pytest.mark.parametrize("model", ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"])
 @pytest.mark.parametrize("copilot", [False, True], ids=["native", "copilot"])
 @pytest.mark.parametrize(
     "with_tools,policy",

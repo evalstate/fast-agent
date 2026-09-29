@@ -669,6 +669,10 @@ class ModelDatabase:
         update={"reasoning_effort_spec": OPENAI_GPT_6_SOL_LUNA_REASONING}
     )
 
+    # GPT-6.1 Sol keeps the GPT-6 Sol tool/transport layout but, like Astra, rejects
+    # `none`/`minimal` effort (verified on Codex OAuth and Copilot Responses).
+    OPENAI_GPT_61_SOL = OPENAI_GPT_6_ASTRA
+
     # Freeform shell comes from Astra. The runaway-input limit is about 1.8x the
     # largest observed legitimate GPT-6 Luna tool input (35,438 tokens); observed
     # runaways streamed whitespace for 25-73 minutes.
@@ -1393,6 +1397,7 @@ class ModelDatabase:
         "gpt-5.6-terra": _with_fast(OPENAI_GPT_56),
         "gpt-5.6-luna": _with_fast(OPENAI_GPT_56_LUNA),
         "gpt-6-astra": OPENAI_GPT_6_ASTRA,
+        "gpt-6.1-sol": OPENAI_GPT_61_SOL,
         "gpt-6-sol": OPENAI_GPT_6_SOL_LUNA,
         "gpt-6-luna": _with_fast(OPENAI_GPT_6_LUNA),
         "gpt-5.4-mini": OPENAI_GPT_54_SMALL.model_copy(
@@ -1538,6 +1543,7 @@ class ModelDatabase:
             (provider, model): _with_long_context(params, window)
             for model, params in (
                 ("gpt-6-astra", OPENAI_GPT_6_ASTRA),
+                ("gpt-6.1-sol", OPENAI_GPT_61_SOL),
                 ("gpt-6-sol", OPENAI_GPT_6_SOL_LUNA),
                 ("gpt-6-luna", _with_fast(OPENAI_GPT_6_LUNA)),
             )
