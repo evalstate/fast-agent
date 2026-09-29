@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     )
 
 TRANSIENT_ARTIFACT_MAX_BYTES = 2 * 1024 * 1024
+TOOL_RESULT_ARTIFACT_MAX_BYTES = 32 * 1024 * 1024
 TRANSIENT_ARTIFACT_QUOTA_MARKER = "\n[fast-agent temporary-file quota reached]\n"
 _ARTIFACT_NAME_PART = re.compile(r"^[A-Za-z0-9._-]+$")
 logger = get_logger(__name__)
@@ -28,16 +29,25 @@ def validate_artifact_name_parts(*, prefix: str, suffix: str) -> None:
         raise ValueError("Temporary artifact prefix and suffix must be filename-safe.")
 
 
-def bounded_temporary_text(content: str, *, max_bytes: int) -> tuple[bytes, bool]:
-    """Encode a bounded UTF-8 prefix without splitting a code point."""
+def temporary_text_payload(content: str) -> bytes:
+    """Encode artifact text with normalized line endings."""
 
-    payload = content.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+    return content.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+
+
+def bounded_temporary_text(content: str, *, max_bytes: int) -> tuple[bytes, bool]:
+    """Encode a bounded UTF-8 prefix, ending on a line boundary when one is available."""
+
+    payload = temporary_text_payload(content)
     if len(payload) <= max_bytes:
         return payload, True
 
     marker = TRANSIENT_ARTIFACT_QUOTA_MARKER.encode("utf-8")
     retained_limit = max(0, max_bytes - len(marker))
     retained = payload[:retained_limit]
+    last_newline = retained.rfind(b"\n")
+    if last_newline >= 0:
+        retained = retained[: last_newline + 1]
     while retained:
         try:
             retained.decode("utf-8")
@@ -116,6 +126,27 @@ class TransientArtifactStore:
             ),
         )
 
+    async def write_complete_text(
+        self,
+        *,
+        producer: str,
+        suffix: str,
+        content: str,
+        description: str,
+        max_bytes: int,
+    ) -> TransientArtifactResult | None:
+        """Write ``content`` only if it fits whole; formats such as JSON are useless when cut."""
+
+        if len(temporary_text_payload(content)) > max_bytes:
+            return None
+        return await self.write_text(
+            producer=producer,
+            suffix=suffix,
+            content=content,
+            description=description,
+            max_bytes=max_bytes,
+        )
+
     async def close(self) -> None:
         async with self._lock:
             if self._closed:
@@ -143,9 +174,11 @@ class TransientArtifactStore:
 __all__ = [
     "TRANSIENT_ARTIFACT_MAX_BYTES",
     "TRANSIENT_ARTIFACT_QUOTA_MARKER",
+    "TOOL_RESULT_ARTIFACT_MAX_BYTES",
     "TransientArtifactResult",
     "TransientArtifactStore",
     "bounded_temporary_text",
     "format_retained_artifact_notice",
+    "temporary_text_payload",
     "validate_artifact_name_parts",
 ]

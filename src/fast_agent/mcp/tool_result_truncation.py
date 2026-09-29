@@ -15,20 +15,35 @@ _TOOL_RESULT_TRUNCATION_GUIDANCE = (
 )
 
 
+def _canonical_text(canonical: list[ContentBlock]) -> str:
+    return "\n".join(text for block in canonical if (text := get_text(block)) is not None)
+
+
+def tool_result_exceeds_byte_limit(result: CallToolResult, *, byte_limit: int) -> bool:
+    """Return whether the canonical textual result would be truncated for the model."""
+
+    text = _canonical_text(canonicalize_tool_result_content_for_llm(result))
+    return len(text.encode("utf-8")) > byte_limit
+
+
 def truncate_tool_result_for_llm(
     result: CallToolResult,
     *,
     byte_limit: int,
+    guidance: str | None = None,
 ) -> CallToolResult:
-    """Return a bounded copy when the canonical textual result exceeds the limit."""
+    """Return a bounded copy when the canonical textual result exceeds the limit.
+
+    ``guidance`` replaces the default advice, for example with the location of a
+    retained copy of the complete result.
+    """
 
     canonical = canonicalize_tool_result_content_for_llm(result)
-    text = "\n".join(text for block in canonical if (text := get_text(block)) is not None)
     truncated = truncate_text_output(
-        text,
+        _canonical_text(canonical),
         byte_limit=byte_limit,
         label="Tool result",
-        guidance=_TOOL_RESULT_TRUNCATION_GUIDANCE,
+        guidance=guidance or _TOOL_RESULT_TRUNCATION_GUIDANCE,
     )
     if truncated is None:
         return result
