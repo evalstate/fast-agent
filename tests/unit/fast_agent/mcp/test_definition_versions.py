@@ -28,7 +28,7 @@ TOOL = Tool(name="search", input_schema={"type": "object"})
 def _config(tmp_path, *, include_instructions: bool = True) -> MCPServerSettings:
     return MCPServerSettings(
         command="server",
-        connection_policy="deferred",
+        connection_policy="lazy",
         include_instructions=include_instructions,
         tool_cache=MCPToolCacheSettings(directory=str(tmp_path), ttl_seconds=60),
     )
@@ -169,3 +169,79 @@ def test_unpartitioned_network_server_persists_only_digest_snapshots(tmp_path):
     )
     assert cache.save(digest)
     assert cache.load() == digest
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("policy", ["eager", "lazy"])
+async def test_snapshot_servers_never_hold_the_first_prompt(monkeypatch, tmp_path, policy):
+    import asyncio
+
+    config = MCPServerSettings(
+        command="server",
+        connection_policy=policy,
+        include_instructions=False,
+        tool_cache=MCPToolCacheSettings(directory=str(tmp_path)),
+    )
+    cache = ToolCatalogCache(config)
+    _save(cache, DefinitionVersions(tools="sha256:t"), age=3600)
+    registry = ServerRegistry()
+    registry.register_central("hf", config)
+    context = Context(server_registry=registry, background_mcp_startup=True)
+    aggregator = MCPAggregator(server_names=["hf"], connection_persistence=False, context=context)
+    release = asyncio.Event()
+    attached: list[str] = []
+
+    async def attach(*, server_name, server_config, options):
+        attached.append(server_name)
+        await release.wait()
+
+    monkeypatch.setattr(aggregator, "_attach_server_locked", attach)
+    await aggregator.__aenter__()
+    await asyncio.wait_for(context.mcp_startup.wait(), 1)
+    # The prompt gate is clear and the snapshot's tools are usable already.
+    assert not context.mcp_startup.pending
+    assert [tool.name for tool in (await aggregator.list_tools()).tools] == ["hf__search"]
+    await asyncio.sleep(0)
+    # Eager connects behind the snapshot; lazy waits for the first tool call.
+    assert attached == (["hf"] if policy == "eager" else [])
+    release.set()
+    await asyncio.gather(*aggregator._snapshot_connects)
+    assert ("hf" in aggregator._deferred_servers) is (policy == "lazy")
+    await aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_matching_discovery_digest_skips_tools_list(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    aggregator = _connected_aggregator(tmp_path)
+    versions = DefinitionVersions(tools="sha256:t", instructions="sha256:i")
+    aggregator._deferred_tool_definitions["hf"] = {"search": TOOL}
+    live = SimpleNamespace(definition_versions=versions, server_instructions=None)
+    aggregator._persistent_connection_manager = cast(
+        "Any", SimpleNamespace(running_servers={"hf": live})
+    )
+    listed = AsyncMock(return_value=ListToolsResult(tools=[TOOL]))
+    monkeypatch.setattr(aggregator, "_execute_on_server", listed)
+    assert await aggregator._fetch_server_tools("hf") == [TOOL]
+    listed.assert_not_awaited()
+    # A changed digest (or an explicit refresh) lists tools from the server.
+    live.definition_versions = DefinitionVersions(tools="sha256:new", instructions="sha256:i")
+    await aggregator._fetch_server_tools("hf")
+    listed.assert_awaited_once()
+
+
+def test_mcp_connect_option_applies_to_startup_targets():
+    from fast_agent.cli.runtime.request_builders import _materialize_startup_mcp_servers
+
+    merge = _materialize_startup_mcp_servers(
+        server_list=None,
+        urls=["https://huggingface.co/mcp?anon"],
+        auth=None,
+        client_metadata_url=None,
+        stdio_commands=None,
+        protocol_mode=None,
+        connection_policy="lazy",
+    )
+    assert merge.servers is not None
+    assert {config.connection_policy for config in merge.servers.values()} == {"lazy"}

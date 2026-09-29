@@ -43,7 +43,7 @@ def test_disk_opt_out_identity_expiry_and_corruption(tmp_path):
 async def test_paginated_snapshot_reused_without_connect_and_clear(tmp_path):
     config = MCPServerSettings(
         command="echo",
-        connection_policy="deferred",
+        connection_policy="lazy",
         include_instructions=False,
         tool_cache=MCPToolCacheSettings(enabled=True, directory=str(tmp_path)),
     )
@@ -81,7 +81,7 @@ async def test_paginated_snapshot_reused_without_connect_and_clear(tmp_path):
 async def test_deferred_changed_schema_never_executes(tmp_path):
     config = MCPServerSettings(
         command="echo",
-        connection_policy="deferred",
+        connection_policy="lazy",
         include_instructions=False,
         tool_cache=MCPToolCacheSettings(enabled=True, directory=str(tmp_path)),
     )
@@ -180,7 +180,7 @@ def test_disk_failure_is_optional(tmp_path):
 async def test_deferred_snapshot_renders_cached_instructions_but_not_app_tools(tmp_path):
     config = MCPServerSettings(
         command="server",
-        connection_policy="deferred",
+        connection_policy="lazy",
         tool_cache=MCPToolCacheSettings(enabled=True, directory=str(tmp_path)),
     )
     cache = ToolCatalogCache(config)
@@ -215,7 +215,7 @@ async def test_deferred_snapshot_renders_cached_instructions_but_not_app_tools(t
 async def test_clear_preserves_live_advertisements_and_bypasses_sdk_cache(tmp_path):
     config = MCPServerSettings(
         command="server",
-        connection_policy="deferred",
+        connection_policy="lazy",
         include_instructions=False,
         tool_cache=MCPToolCacheSettings(enabled=True, directory=str(tmp_path)),
     )
@@ -286,7 +286,7 @@ async def test_pagination_has_bound_even_for_unique_cursors():
 async def test_caller_arriving_during_hydration_cannot_use_new_schema(tmp_path):
     config = MCPServerSettings(
         command="server",
-        connection_policy="deferred",
+        connection_policy="lazy",
         include_instructions=False,
         tool_cache=MCPToolCacheSettings(enabled=True, directory=str(tmp_path)),
     )

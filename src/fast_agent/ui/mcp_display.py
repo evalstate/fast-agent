@@ -1050,6 +1050,23 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
 
     _status_console().print(meta_line)
 
+    if _awaiting_connection(status):
+        # Advertised from its snapshot: nothing is wrong, it just hasn't connected yet.
+        waiting_line = Text(indent + "  ")
+        waiting_line.append_text(
+            _build_aligned_field(
+                "connect",
+                "on first tool call (lazy)"
+                if status.connection_policy == "lazy"
+                else "in background (eager)",
+                value_style=Colours.TEXT_DIM,
+            )
+        )
+        _status_console().print(waiting_line)
+        _render_tool_cache_row(status, indent=indent)
+        _status_console().print()
+        return
+
     protocol_line = Text(indent + "  ")
     protocol = status.protocol_version or "unknown"
     if status.protocol_era:
@@ -1065,12 +1082,7 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
         )
     _status_console().print(protocol_line)
 
-    if status.tool_cache is not None:
-        tools_line = Text(indent + "  ")
-        tools_line.append_text(
-            _build_aligned_field("tools", build_tool_cache_text(status.tool_cache))
-        )
-        _status_console().print(tools_line)
+    _render_tool_cache_row(status, indent=indent)
 
     health_text = _build_health_text(status)
     if health_text is not None:
@@ -1079,6 +1091,22 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
         _status_console().print(health_line)
 
     _status_console().print()
+
+
+def _awaiting_connection(status: ServerStatus) -> bool:
+    return (
+        status.protocol_version is None
+        and status.tool_cache is not None
+        and status.tool_cache.source == "disk"
+    )
+
+
+def _render_tool_cache_row(status: ServerStatus, *, indent: str) -> None:
+    if status.tool_cache is None:
+        return
+    tools_line = Text(indent + "  ")
+    tools_line.append_text(_build_aligned_field("tools", build_tool_cache_text(status.tool_cache)))
+    _status_console().print(tools_line)
 
 
 def _build_server_state_segments(

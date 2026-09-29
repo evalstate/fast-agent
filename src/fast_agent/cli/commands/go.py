@@ -31,7 +31,7 @@ from fast_agent.cli.runtime.request_builders import (
     resolve_instruction_option as _resolve_instruction_option,
 )
 from fast_agent.cli.runtime.runner import run_request
-from fast_agent.cli.shared_options import CommonAgentOptions, McpProtocolOption
+from fast_agent.cli.shared_options import CommonAgentOptions, McpConnectOption, McpProtocolOption
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.core.agent_card_paths import AGENT_CARD_EXTENSIONS as _CARD_EXTENSIONS
 from fast_agent.core.exceptions import AgentConfigError, EnvironmentStartupError
@@ -255,6 +255,7 @@ def go(
     auth: str | None = CommonAgentOptions.auth(),
     client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
     mcp_protocol: McpProtocolOption | None = CommonAgentOptions.mcp_protocol(),
+    mcp_connect: McpConnectOption | None = CommonAgentOptions.mcp_connect(),
     model: str | None = CommonAgentOptions.model(),
     model_picker: bool = CommonAgentOptions.model_picker(),
     base_url: str | None = typer.Option(
@@ -474,6 +475,7 @@ def go(
         auth=auth,
         client_metadata_url=client_metadata_url,
         mcp_protocol=mcp_protocol.value if mcp_protocol is not None else None,
+        mcp_connect=mcp_connect.value if mcp_connect is not None else None,
         agent_cards=agent_cards,
         card_tools=card_tools,
         model=model,

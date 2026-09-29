@@ -671,7 +671,11 @@ class MCPServerSettings(BaseModel):
     cwd: str | None = None
     """Working directory for the executed server command."""
 
-    connection_policy: Literal["eager", "deferred"] = "eager"
+    connection_policy: Literal["eager", "lazy"] = "eager"
+    """Startup with a usable tool snapshot (digest-checked, or within its TTL): `eager`
+    advertises it and connects in the background; `lazy` connects on the first tool call.
+    Without a usable snapshot both connect at startup."""
+
     tool_cache: MCPToolCacheSettings = Field(default_factory=MCPToolCacheSettings)
 
     load_on_start: bool = True

@@ -251,7 +251,7 @@ async def test_first_prompt_gate_waits_for_startup_and_survives_waiter_cancel(
     registry.register_central("live", MCPServerSettings(command="unused"))
     cached = MCPServerSettings(
         command="unused",
-        connection_policy="deferred",
+        connection_policy="lazy",
         include_instructions=False,
         tool_cache=MCPToolCacheSettings(directory=str(tmp_path)),
     )

@@ -443,7 +443,7 @@ startup, `MCP ERR · /mcp` for errors, or `MCP AUTH · /mcp auth` for authentica
 waits. Errors take priority over authentication and progress. Successful retries
 update the indicator automatically; inspecting diagnostics does not clear it.
 Once startup settles without unresolved failures, the version label returns.
-Manual and successfully deferred servers are not counted as pending.
+Manual servers and servers usable from a snapshot are not counted as pending, and the first prompt does not wait for them.
 
 In the terminal, ACP, or harness slash-command tool, use `/mcp error` to inspect
 startup failures for the active agent, or `/mcp error <server>` to select one
@@ -471,7 +471,7 @@ Outside a session, `fast-agent auth mcp login <server> [--device]` performs the 
 logins. Also check `/mcp error`: not every authentication failure is classified as an
 authentication wait.
 
-### Tool catalog persistence and deferred connections
+### Tool catalog persistence and connection policy
 
 Private, atomic disk snapshots of raw MCP tools are enabled by default. Set
 `tool_cache.enabled: false` per server to disable persistence. Defaults (inside
@@ -494,9 +494,19 @@ and change it when switching accounts; without it, only digest-mode snapshots (b
 are persisted. Request-scoped bearer authentication
 never uses disk persistence.
 
-`connection_policy: deferred` reuses a fresh snapshot at startup, delaying connection
-until the first tool call. Missing/expired snapshots fall back to normal startup
-discovery. App metadata requires live validation and also falls back to discovery.
+Startup checks the snapshot first. A usable snapshot (digest mode, or within its TTL)
+advertises its tools and instructions immediately; `connection_policy` decides what
+happens next:
+
+- `eager` (default): connect in the background. When `server/discover` returns a
+  matching digest, the snapshot's tools are kept and `tools/list` is skipped.
+- `lazy`: stay disconnected until the first tool call. `/mcp` shows
+  `connect : on first tool call (lazy)`.
+
+Without a usable snapshot both policies connect at startup as usual. App metadata
+requires live validation and always falls back to discovery. `fast-agent go
+--mcp-connect eager|lazy` sets the policy for every startup `--url`/`--npx`/`--uvx`/`--stdio`
+target (for example `fast-agent go --url https://huggingface.co/mcp?anon --mcp-connect lazy`).
 Snapshots store server instructions with the tools, so `{{serverInstructions}}`
 renders the same prompt before the server connects. Prompts, resources, and
 server-provided skills are not restored from tool snapshots; they become available
@@ -506,8 +516,8 @@ or SDK TTL; persisted snapshots always come from fresh paginated discovery.
 For stdio credentials inherited outside `env`, set and rotate `auth_identity`
 when switching accounts.
 `load_on_start: false` still skips startup entirely; forced connection overrides
-deferral. This policy is unrelated to the provider `defer_loading` hint.
-Before executing a deferred tool, fast-agent connects and refreshes under the
+lazy connection. This policy is unrelated to the provider `defer_loading` hint.
+Before executing a tool of a server that has not connected yet, fast-agent connects under the
 existing attachment lock. Changed tool definitions are rejected without executing;
 the agent re-lists its tools (and re-renders server instructions) before the model's
 next call in the same turn. All discovery follows tools pagination.
@@ -536,7 +546,7 @@ Other servers and requests keep TTL-based reuse.
 
 Aggregator APIs (both accept a server name or `None` for all configured servers):
 
-- `await clear_tool_cache(server_name=None)`: delete snapshots and deferred advertisements,
+- `await clear_tool_cache(server_name=None)`: delete snapshots and snapshot-advertised tools of unconnected servers,
   retaining connected live tools and app metadata. SDK tool discovery is always refreshed.
 - `await refresh_tool_cache(server_name=None)`: connect as needed and refresh
   authoritative discovery using SDK `cache_mode="refresh"`. Errors propagate.
@@ -552,7 +562,7 @@ Aggregator APIs (both accept a server name or `None` for all configured servers)
   (`digest checked per call`, or `reusable for …`/`expired …` for saved TTL snapshots),
   and whether a snapshot is `saved` or `memory only`. For example
   `tools: 4 · live 8s ago · digest checked per call · saved`.
-- `/mcp cache clear [server|all]` removes snapshots and deferred advertisements while
+- `/mcp cache clear [server|all]` removes snapshots and snapshot-advertised tools of unconnected servers while
   retaining connected live tools without disconnecting servers. Omit the target to clear all attached servers.
 - `/mcp refresh [server|all]` connects if needed and replaces tool catalogs using
   authoritative server discovery. Omit the target to refresh all attached servers.

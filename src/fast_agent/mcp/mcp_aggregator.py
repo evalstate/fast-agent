@@ -323,7 +323,7 @@ DEFINITIONS_CHANGED_MESSAGE = (
 
 class ServerStatus(BaseModel):
     server_name: str
-    connection_policy: Literal["eager", "deferred"] = "eager"
+    connection_policy: Literal["eager", "lazy"] = "eager"
     tool_cache: ToolCacheInfo | None = None
     protocol_mode: Literal["auto", "modern", "legacy"] = "auto"
     implementation_name: str | None = None
@@ -523,6 +523,9 @@ class MCPAggregator(ContextDependent):
         self._lifecycle_lock = Lock()
         self._closed = False
         self._startup_task: asyncio.Task[None] | None = None
+        # Background connects for eager servers already usable from a snapshot; the
+        # first prompt does not wait for these.
+        self._snapshot_connects: set[asyncio.Task[None]] = set()
         self._startup = context.mcp_startup if context is not None else MCPStartup()
         self._startup_lock = Lock()
         self._entry_lock = Lock()
@@ -691,6 +694,10 @@ class MCPAggregator(ContextDependent):
         """
         Close all attached MCP client runtimes when the aggregator is deleted.
         """
+        for task in tuple(self._snapshot_connects):
+            task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await task
         if self._startup_task is not None:
             self._startup_task.cancel()
             # The task may already have finished with an error; shutdown must not re-raise it.
@@ -846,11 +853,15 @@ class MCPAggregator(ContextDependent):
             if not force_connect:
                 live_names = []
                 for name in names:
-                    if await self._restore_tool_catalog(name):
-                        # Deferred servers are usable from the snapshot without connecting.
-                        self._startup.set_status(self._attachment_owner, name, "ready")
-                    else:
+                    if not await self._restore_tool_catalog(name):
                         live_names.append(name)
+                        continue
+                    # Usable from the snapshot now; eager servers connect behind it.
+                    self._startup.set_status(self._attachment_owner, name, "ready")
+                    if self._connection_policy(name) == "eager":
+                        task = asyncio.create_task(self._connect_snapshot_server(name))
+                        self._snapshot_connects.add(task)
+                        task.add_done_callback(self._snapshot_connects.discard)
                 names = live_names
             for name in names:
                 self._startup.set_status(self._attachment_owner, name, "pending")
@@ -883,18 +894,51 @@ class MCPAggregator(ContextDependent):
     async def _start_server(self, server_name: str) -> None:
         # Status transitions are owned by _attach_server_with_status_locked; this only
         # contains failures so sibling servers keep starting.
+        options = await self._startup_attach_options(server_name)
+        with suppress(Exception):
+            await self.attach_server(server_name=server_name, options=options)
+
+    async def _connect_snapshot_server(self, server_name: str) -> None:
+        options = await self._startup_attach_options(server_name)
+        # Failures are recorded as status; the snapshot stays advertised and the
+        # first tool call retries the connection.
+        with suppress(Exception):
+            async with self._attachment_locks.setdefault(server_name, Lock()):
+                if server_name in self._deferred_servers:
+                    await self._connect_snapshot_server_locked(server_name, options)
+
+    async def _startup_attach_options(self, server_name: str) -> MCPAttachOptions:
         background = self.context.background_mcp_startup
         interactive_oauth = not background or await self._has_stored_oauth_tokens(server_name)
-        with suppress(Exception):
-            await self.attach_server(
-                server_name=server_name,
-                options=MCPAttachOptions(
-                    allow_oauth_paste_fallback=not background,
-                    # Background startup never begins a login: without stored tokens an
-                    # auth challenge records "auth" status for `/mcp auth <server>`.
-                    trigger_oauth=None if interactive_oauth else False,
-                ),
-            )
+        return MCPAttachOptions(
+            allow_oauth_paste_fallback=not background,
+            # Background startup never begins a login: without stored tokens an
+            # auth challenge records "auth" status for `/mcp auth <server>`.
+            trigger_oauth=None if interactive_oauth else False,
+        )
+
+    async def _connect_snapshot_server_locked(
+        self, server_name: str, options: MCPAttachOptions | None = None
+    ) -> None:
+        """Connect a server advertised from its snapshot; flag tools whose definitions moved."""
+        previous = (
+            self._deferred_tool_definitions.get(server_name, {})
+            if server_name in self._deferred_servers
+            else {}
+        )
+        await self._attach_server_with_status_locked(
+            server_name=server_name, server_config=None, options=options, refresh=True
+        )
+        current = {t.tool.name: t.tool for t in self._server_to_tool_map.get(server_name, [])}
+        self._changed_deferred_tools.update(
+            (server_name, name) for name, tool in previous.items() if current.get(name) != tool
+        )
+        self._deferred_servers.discard(server_name)
+        self._deferred_tool_definitions.pop(server_name, None)
+        self._deferred_instructions.pop(server_name, None)
+
+    def _connection_policy(self, server_name: str) -> Literal["eager", "lazy"]:
+        return (self._server_config(server_name) or MCPServerSettings()).connection_policy
 
     async def _has_stored_oauth_tokens(self, server_name: str) -> bool:
         config = self._server_config(server_name)
@@ -962,7 +1006,7 @@ class MCPAggregator(ContextDependent):
     async def _restore_tool_catalog(self, server_name: str) -> bool:
         config = self._server_config(server_name)
         cache = self._catalog_cache(server_name)
-        if config is None or config.connection_policy != "deferred" or cache is None:
+        if config is None or cache is None:
             return False
         snapshot = cache.load()
         # App tools require live resource/visibility validation, not only a tool snapshot.
@@ -1039,21 +1083,9 @@ class MCPAggregator(ContextDependent):
             raise RuntimeError("MCP aggregator is closed")
         for key in self._cache_targets(server_name):
             async with self._attachment_locks.setdefault(key, Lock()):
-                previous = (
-                    self._deferred_tool_definitions.get(key, {})
-                    if key in self._deferred_servers
-                    else {}
-                )
-                await self._attach_server_with_status_locked(
-                    server_name=key, server_config=None, options=None, refresh=True
-                )
-                current = {t.tool.name: t.tool for t in self._server_to_tool_map.get(key, [])}
-                self._changed_deferred_tools.update(
-                    (key, name) for name, tool in previous.items() if current.get(name) != tool
-                )
-                self._deferred_servers.discard(key)
-                self._deferred_tool_definitions.pop(key, None)
-                self._deferred_instructions.pop(key, None)
+                # An explicit refresh lists tools even when a digest would confirm them.
+                self._definition_versions.pop(key, None)
+                await self._connect_snapshot_server_locked(key)
 
     def _live_definitions(
         self, server_name: str, pages: list[ListToolsResult]
@@ -1069,12 +1101,30 @@ class MCPAggregator(ContextDependent):
             tools=tools_version, instructions=connection.definition_versions.instructions
         )
 
+    def _digest_confirmed_tools(self, server_name: str) -> list[Tool] | None:
+        """Snapshot tools that the live discovery digest confirms (saves a tools/list)."""
+        advertised = self._deferred_tool_definitions.get(server_name)
+        known = self._definition_versions.get(server_name)
+        manager = self._persistent_connection_manager
+        connection = manager.running_servers.get(server_name) if manager is not None else None
+        config = self._server_config(server_name)
+        if advertised is None or known is None or connection is None or config is None:
+            return None
+        live = connection.definition_versions
+        if not known.tools or live.tools != known.tools:
+            return None
+        if config.include_instructions and live.instructions != known.instructions:
+            return None
+        return list(advertised.values())
+
     async def _fetch_server_tools(
         self,
         server_name: str,
         *,
         cache_mode: CacheMode = "use",
     ) -> list[Tool]:
+        if cache_mode == "use" and (confirmed := self._digest_confirmed_tools(server_name)):
+            return confirmed
         supports_tools = await self.server_supports_feature(server_name, "tools")
         if not supports_tools:
             logger.debug(
@@ -3238,21 +3288,7 @@ class MCPAggregator(ContextDependent):
             advertised = self._deferred_tool_definitions.get(server_name, {}).get(local_tool_name)
             async with self._attachment_locks.setdefault(server_name, Lock()):
                 if server_name in self._deferred_servers:
-                    previous = self._deferred_tool_definitions.get(server_name, {})
-                    await self._attach_server_with_status_locked(
-                        server_name=server_name, server_config=None, options=None, refresh=True
-                    )
-                    current_tools = {
-                        t.tool.name: t.tool for t in self._server_to_tool_map.get(server_name, [])
-                    }
-                    self._changed_deferred_tools.update(
-                        (server_name, tool_name)
-                        for tool_name, tool in previous.items()
-                        if current_tools.get(tool_name) != tool
-                    )
-                    self._deferred_servers.discard(server_name)
-                    self._deferred_tool_definitions.pop(server_name, None)
-                    self._deferred_instructions.pop(server_name, None)
+                    await self._connect_snapshot_server_locked(server_name)
             current = next(
                 (
                     t.tool
