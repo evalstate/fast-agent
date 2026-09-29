@@ -1090,6 +1090,8 @@ async def test_write_text_file_auto_mode_prefers_apply_patch_for_codex_family_mo
         "sol",
         "luna",
         "gpt-6-sol",
+        "gpt-6.1-sol",
+        "sol6",
         "responses.gpt-6-luna?reasoning=none",
     ],
 )
@@ -1108,7 +1110,10 @@ async def test_gpt6_defaults_to_writer_editor_pair_with_shell_name(model_name: s
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("gpt6_model", ["codexresponses.gpt-6-sol", "codexresponses.gpt-6-astra"])
+@pytest.mark.parametrize(
+    "gpt6_model",
+    ["codexresponses.gpt-6.1-sol", "codexresponses.gpt-6-sol", "codexresponses.gpt-6-astra"],
+)
 async def test_gpt6_sol_astra_use_freeform_shell_with_folding_capability(gpt6_model: str) -> None:
     agents = [
         McpAgent(

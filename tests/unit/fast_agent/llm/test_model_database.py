@@ -126,6 +126,38 @@ def test_gpt_6_sol_luna_match_astra_contract_with_none_effort(model: str) -> Non
         assert routed.shell_tool_profile == params.shell_tool_profile
 
 
+def test_gpt_61_sol_uses_sol_layout_without_none_effort() -> None:
+    params = ModelDatabase.get_model_params("gpt-6.1-sol")
+    sol = ModelDatabase.get_model_params("gpt-6-sol")
+
+    assert params is not None and sol is not None
+    assert params.reasoning_effort_spec is not None
+    assert params.reasoning_effort_spec.allowed_efforts == ["low", "medium", "high", "xhigh", "max"]
+    assert params.reasoning_effort_spec.default == ReasoningEffortSetting(
+        kind="effort", value="medium"
+    )
+    layout = {
+        "context_window",
+        "max_output_tokens",
+        "json_mode",
+        "codex_responses_lite",
+        "response_transports",
+        "response_service_tiers",
+        "shell_tool_name",
+        "shell_tool_profile",
+        "shell_edit_tool",
+        "text_verbosity_spec",
+        "tokenizes",
+        "managed_process_poll_folding",
+    }
+    assert params.model_dump(include=layout) == sol.model_dump(include=layout)
+    assert params.fast is False
+    for provider, window in ((Provider.RESPONSES, 1_050_000), (Provider.CODEX_RESPONSES, 872_000)):
+        routed = ModelDatabase.get_model_params("gpt-6.1-sol", provider=provider)
+        assert routed is not None
+        assert routed.long_context_window == window
+
+
 @pytest.mark.parametrize("provider", [Provider.RESPONSES, Provider.CODEX_RESPONSES])
 @pytest.mark.parametrize("mime_type", [*DOCUMENT_MIME_TYPES, "image/png", "text/plain"])
 def test_astra_supports_documents_and_existing_modalities(

@@ -44,7 +44,7 @@ COPILOT_MODELS: Final[Mapping[str, CopilotModelSpec]] = MappingProxyType(
                     ("sse", "websocket"),
                     supports_web_search=True,
                 )
-                for model_id in ("gpt-6-sol", "gpt-6-luna")
+                for model_id in ("gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna")
             ),
             CopilotModelSpec(
                 "gpt-5.6-sol",

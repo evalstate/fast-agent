@@ -107,6 +107,7 @@ not canonical and has no alias; use `copilot.claude-opus-5`.
 | `copilot.gpt-5.6-terra` | Responses |
 | `copilot.gpt-5.6-sol` | Responses |
 | `copilot.gpt-6-astra` | Responses |
+| `copilot.gpt-6.1-sol` | Responses |
 | `copilot.gpt-6-sol` | Responses |
 | `copilot.gpt-6-luna` | Responses |
 
@@ -116,7 +117,7 @@ with `(cp)`; this does not change the model name used in configuration.
 
 ## Structured output
 
-GPT-6 Astra/Sol/Luna use Responses JSON schema (`text.format`).
+GPT-6 Astra/Sol/Luna and GPT-6.1 Sol use Responses JSON schema (`text.format`).
 Opus 5.5 and Sonnet 5.5 select Messages JSON schema (`output_config.format`)
 automatically, without direct Anthropic beta headers. Regular tools can coexist
 with the schema; explicit `structured_tool_policy` overrides remain supported.
@@ -127,6 +128,10 @@ on September 28, 2026, including the Sonnet 5.5 wire ID `claude-sonnet-5.5` and
 its `reasoning=off` setting. These results confirm access for the tested account;
 availability can still vary by account. Use `structured_schema()` for the tool
 loop. See the [credentialed smoke tests](anthropic.md#structured-output-current-models).
+
+GPT-6.1 Sol (`copilot.gpt-6.1-sol`) passed the same schema-only and
+tool-call-to-schema smoke tests on September 29, 2026 (also verified on the Codex
+OAuth route via `sol`).
 
 ## Claude 5.5 progress visibility
 

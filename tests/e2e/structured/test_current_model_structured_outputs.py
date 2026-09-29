@@ -21,11 +21,13 @@ class ArithmeticResult(BaseModel):
     "model_name",
     [
         "responses.gpt-6-astra",
+        "responses.gpt-6.1-sol",
         "responses.gpt-6-sol",
         "responses.gpt-6-luna",
         "opus55",
         "sonnet55",
         "copilot.gpt-6-astra",
+        "copilot.gpt-6.1-sol",
         "copilot.gpt-6-sol",
         "copilot.gpt-6-luna",
         "copilot.opus55",

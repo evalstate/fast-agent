@@ -9,6 +9,7 @@
 | `gpt-5.3-codex-spark` | `gpt-5.3-codex-spark` |
 | `luna` | `codexresponses.gpt-6-luna?reasoning=medium` |
 | `luna56` | `codexresponses.gpt-5.6-luna?reasoning=medium` |
-| `sol` | `codexresponses.gpt-6-sol?reasoning=medium` |
+| `sol` | `codexresponses.gpt-6.1-sol?reasoning=medium` |
 | `sol56` | `codexresponses.gpt-5.6-sol?reasoning=high` |
+| `sol6` | `codexresponses.gpt-6-sol?reasoning=medium` |
 | `terra` | `codexresponses.gpt-5.6-terra?reasoning=high` |
