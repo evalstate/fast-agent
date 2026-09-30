@@ -102,10 +102,7 @@ from fast_agent.mcp.tool_result_metadata import (
     tool_result_display_metadata,
 )
 from fast_agent.mcp.tool_result_spool import spool_tool_result
-from fast_agent.mcp.tool_result_truncation import (
-    tool_result_exceeds_byte_limit,
-    truncate_tool_result_for_llm,
-)
+from fast_agent.mcp.tool_result_truncation import bound_tool_result_for_llm
 from fast_agent.paths import resolve_home_paths
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
@@ -2273,29 +2270,17 @@ class McpAgent(ABC, ToolAgent):
         result: CallToolResult,
     ) -> tuple[CallToolResult, ToolResultDisplayMetadata]:
         if not call.is_local_shell:
-            result = await self._bound_tool_result_for_llm(call, result)
+            result = await bound_tool_result_for_llm(
+                result,
+                byte_limit=self._model_tool_output_byte_limit(),
+                retain=lambda: self._retain_full_tool_result(call, result),
+            )
         attach_read_text_file_display_metadata(
             result,
             display_tool_name=call.display_tool_name,
             tool_args=call.tool_args,
         )
         return result, tool_result_display_metadata(result)
-
-    async def _bound_tool_result_for_llm(
-        self,
-        call: PlannedMcpToolCall,
-        result: CallToolResult,
-    ) -> CallToolResult:
-        """Truncate oversized results, pointing the model at a retained full copy when possible."""
-
-        byte_limit = self._model_tool_output_byte_limit()
-        if not tool_result_exceeds_byte_limit(result, byte_limit=byte_limit):
-            return result
-        return truncate_tool_result_for_llm(
-            result,
-            byte_limit=byte_limit,
-            guidance=await self._retain_full_tool_result(call, result),
-        )
 
     async def _retain_full_tool_result(
         self,

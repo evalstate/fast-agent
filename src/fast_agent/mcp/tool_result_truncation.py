@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from mcp_types import CallToolResult, ContentBlock, TextContent
 
 from fast_agent.mcp.helpers.content_helpers import (
@@ -10,43 +12,37 @@ from fast_agent.mcp.helpers.content_helpers import (
 )
 from fast_agent.tools.output_truncation import truncate_text_output
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
 _TOOL_RESULT_TRUNCATION_GUIDANCE = (
     "Use a narrower query or request a smaller result to retain the relevant content."
 )
 
 
-def _canonical_text(canonical: list[ContentBlock]) -> str:
-    return "\n".join(text for block in canonical if (text := get_text(block)) is not None)
-
-
-def tool_result_exceeds_byte_limit(result: CallToolResult, *, byte_limit: int) -> bool:
-    """Return whether the canonical textual result would be truncated for the model."""
-
-    text = _canonical_text(canonicalize_tool_result_content_for_llm(result))
-    return len(text.encode("utf-8")) > byte_limit
-
-
-def truncate_tool_result_for_llm(
+async def bound_tool_result_for_llm(
     result: CallToolResult,
     *,
     byte_limit: int,
-    guidance: str | None = None,
+    retain: Callable[[], Awaitable[str | None]],
 ) -> CallToolResult:
     """Return a bounded copy when the canonical textual result exceeds the limit.
 
-    ``guidance`` replaces the default advice, for example with the location of a
-    retained copy of the complete result.
+    ``retain`` is awaited only when truncating; it may keep the complete result elsewhere
+    and return guidance pointing at it, replacing the default advice.
     """
 
     canonical = canonicalize_tool_result_content_for_llm(result)
+    text = "\n".join(text for block in canonical if (text := get_text(block)) is not None)
+    if len(text.encode("utf-8")) <= byte_limit:
+        return result
     truncated = truncate_text_output(
-        _canonical_text(canonical),
+        text,
         byte_limit=byte_limit,
         label="Tool result",
-        guidance=guidance or _TOOL_RESULT_TRUNCATION_GUIDANCE,
+        guidance=await retain() or _TOOL_RESULT_TRUNCATION_GUIDANCE,
     )
-    if truncated is None:
-        return result
+    assert truncated is not None
 
     content: list[ContentBlock] = [TextContent(type="text", text=truncated.text)]
     content.extend(block for block in canonical if get_text(block) is None)

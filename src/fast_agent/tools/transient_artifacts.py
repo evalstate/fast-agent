@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 TRANSIENT_ARTIFACT_MAX_BYTES = 2 * 1024 * 1024
 TOOL_RESULT_ARTIFACT_MAX_BYTES = 32 * 1024 * 1024
 TRANSIENT_ARTIFACT_QUOTA_MARKER = "\n[fast-agent temporary-file quota reached]\n"
+# Back up to a line boundary only when one is this close to the cut; long lines are cut mid-line.
+_LINE_BOUNDARY_WINDOW_BYTES = 64 * 1024
 _ARTIFACT_NAME_PART = re.compile(r"^[A-Za-z0-9._-]+$")
 logger = get_logger(__name__)
 
@@ -36,7 +38,7 @@ def temporary_text_payload(content: str) -> bytes:
 
 
 def bounded_temporary_text(content: str, *, max_bytes: int) -> tuple[bytes, bool]:
-    """Encode a bounded UTF-8 prefix, ending on a line boundary when one is available."""
+    """Encode a bounded UTF-8 prefix, ending on a nearby line boundary when one is available."""
 
     payload = temporary_text_payload(content)
     if len(payload) <= max_bytes:
@@ -45,7 +47,7 @@ def bounded_temporary_text(content: str, *, max_bytes: int) -> tuple[bytes, bool
     marker = TRANSIENT_ARTIFACT_QUOTA_MARKER.encode("utf-8")
     retained_limit = max(0, max_bytes - len(marker))
     retained = payload[:retained_limit]
-    last_newline = retained.rfind(b"\n")
+    last_newline = retained.rfind(b"\n", max(0, len(retained) - _LINE_BOUNDARY_WINDOW_BYTES))
     if last_newline >= 0:
         retained = retained[: last_newline + 1]
     while retained:

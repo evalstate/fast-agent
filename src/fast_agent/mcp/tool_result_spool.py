@@ -33,7 +33,9 @@ async def spool_tool_result(
         retained = await store.write_complete_text(
             producer=_PRODUCER,
             suffix=".json",
-            content=json.dumps(result.structured_content, ensure_ascii=False, indent=2),
+            content=json.dumps(
+                result.structured_content, ensure_ascii=False, indent=2, sort_keys=True
+            ),
             description=f"{tool_name} result",
             max_bytes=TOOL_RESULT_ARTIFACT_MAX_BYTES,
         )

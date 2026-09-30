@@ -202,6 +202,16 @@ def test_bounded_temporary_text_ends_on_a_line_boundary() -> None:
 
 
 @pytest.mark.unit
+def test_bounded_temporary_text_cuts_long_lines_mid_line() -> None:
+    limit = 1024 * 1024
+    payload, complete = bounded_temporary_text("header\n" + "x" * (2 * limit), max_bytes=limit)
+
+    assert not complete
+    assert len(payload) == limit
+    assert payload.endswith(TRANSIENT_ARTIFACT_QUOTA_MARKER.encode("utf-8"))
+
+
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_write_complete_text_skips_content_that_does_not_fit(tmp_path: Path) -> None:
     store = TransientArtifactStore(_local_environment(tmp_path))
