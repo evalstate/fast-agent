@@ -178,13 +178,95 @@
     return placements;
   }
 
+  function renderComparisonRows(comparison, data, sortOrder) {
+    var panel = element("div", "fa-bench-sheet");
+    var totals = comparison.results.map(function (entry) {
+      return entry.totalCost !== undefined ? entry.totalCost : entry.cost * data.taskCount;
+    });
+    var maxCost = Math.max.apply(null, totals);
+    var costStep = Math.pow(10, Math.floor(Math.log10(maxCost)));
+    var costCeiling = Math.ceil(maxCost / costStep) * costStep;
+    var headings = element("div", "fa-bench-sheet__head");
+    headings.appendChild(element("span", "", "Model / harness"));
+    var accuracyHeading = element("span", "", "Accuracy");
+    accuracyHeading.appendChild(element("small", "", "0–100% · higher is better"));
+    headings.appendChild(accuracyHeading);
+    var costHeading = element("span", "", "Cost");
+    costHeading.appendChild(element("small", "", "$0–$" + costCeiling + " total · lower is better"));
+    headings.appendChild(costHeading);
+    panel.appendChild(headings);
+    var entries = comparison.results.map(function (entry, index) {
+      return { entry: entry, total: totals[index], index: index };
+    });
+    entries.sort(function (first, second) {
+      return sortOrder === "cost" ? first.total - second.total : second.entry.score - first.entry.score;
+    });
+    entries.forEach(function (item) {
+      var entry = item.entry;
+      var row = element("article", "fa-bench-sheet__row");
+      row.style.setProperty("--run-color", ["var(--amber)", "var(--bench-teal)", "var(--orange)"][item.index % 3]);
+      var cells = element("div", "fa-bench-sheet__cells");
+      var identity = element("div", "fa-bench-sheet__identity");
+      identity.appendChild(element("h3", "", entry.model));
+      identity.appendChild(element("p", "", entry.harness + " · " + entry.date));
+      identity.appendChild(element("small", "", entry.attempts));
+      cells.appendChild(identity);
+      var accuracy = element("div", "fa-bench-sheet__metric");
+      accuracy.appendChild(element("span", "fa-bench-sheet__mobile-label", "Accuracy"));
+      accuracy.appendChild(element("strong", "fa-bench-sheet__value", entry.score.toFixed(1) + "%"));
+      var scoreBar = element("span", "fa-bench-sheet__track");
+      scoreBar.setAttribute("aria-hidden", "true");
+      var scoreFill = element("span");
+      scoreFill.style.width = entry.score + "%";
+      scoreBar.appendChild(scoreFill);
+      accuracy.appendChild(scoreBar);
+      cells.appendChild(accuracy);
+      var cost = element("div", "fa-bench-sheet__metric");
+      cost.appendChild(element("span", "fa-bench-sheet__mobile-label", "Total cost"));
+      cost.appendChild(element("strong", "fa-bench-sheet__value", (entry.costEstimate ? "~" : "") + "$" + item.total.toFixed(2)));
+      var costBar = element("span", "fa-bench-sheet__track");
+      costBar.setAttribute("aria-hidden", "true");
+      var costFill = element("span");
+      costFill.style.width = item.total / costCeiling * 100 + "%";
+      costBar.appendChild(costFill);
+      cost.appendChild(costBar);
+      cost.appendChild(element("small", "", formatResultCost(entry) + " / trial"));
+      cells.appendChild(cost);
+      row.appendChild(cells);
+      var evidence = element("details", "fa-bench-sheet__evidence");
+      evidence.appendChild(element("summary", "", "Run evidence & accounting"));
+      if (entry.note) evidence.appendChild(element("p", "", entry.note));
+      if (entry.disclaimer) evidence.appendChild(element("p", "", entry.disclaimer));
+      evidence.appendChild(element("p", "", entry.tokensIn + " input tokens · " + entry.tokensOut + " output tokens" + (entry.costBasis ? " · " + entry.costBasis : "")));
+      var source = element("a", "", "Open source run ↗");
+      source.href = entry.url || data.sourceUrl;
+      source.target = "_blank";
+      source.rel = "noopener";
+      evidence.appendChild(source);
+      row.appendChild(evidence);
+      panel.appendChild(row);
+    });
+    var note = element("p", "fa-bench-sheet__note", comparison.runTotalNote || "~ denotes estimated cost. Totals use submitted costs where available; otherwise cost per trial × " + data.taskCount + ".");
+    panel.appendChild(note);
+    return panel;
+  }
+
   function render(root, data) {
     var comparisons = data.comparisons.filter(function (comparison) {
       return comparison.visible !== false;
     });
     comparisons.sort(function (first, second) { return first.order - second.order; });
-    var selectedComparison = 0;
+    var sixHour = comparisons.find(function (comparison) { return comparison.id === "value"; });
+    var archivedComparisons = comparisons.filter(function (comparison) { return comparison.id !== "value"; });
+    comparisons = [
+      { id: "terminal-bench-4-subset", label: "Terminal-Bench 4-subset", results: [] },
+      Object.assign({}, sixHour, { label: "Terminal-Bench 2.1 (6hr)" }),
+      { id: "deepswe-1-1", label: "DeepSWE 1.1", results: [] }
+    ].concat(archivedComparisons);
+    var selectedComparison = 1;
     var selectedResult = 0;
+    var displayMode = "rows";
+    var sortOrder = "accuracy";
     var tablePreviewResult = -1;
 
     function selectResult(index) {
@@ -208,40 +290,110 @@
 
     function draw() {
       var comparison = comparisons[selectedComparison];
-      var result = comparison.results[selectedResult] || comparison.results[0];
-      var score = scoreDomain(comparison.results, comparison.axes && comparison.axes.score);
-      var cost = costDomain(comparison.results, comparison.axes && comparison.axes.cost);
+
 
       root.replaceChildren();
       root.setAttribute("aria-label", data.title + " benchmark comparisons");
 
-      var toolbar = element("div", "fa-benchmark__toolbar");
-      toolbar.appendChild(element("span", "fa-benchmark__eyebrow", "Accuracy vs cost"));
-      toolbar.appendChild(element("p", "fa-benchmark__claim", comparison.claim));
-
-      var comparisonBar = element("div", "fa-benchmark__comparison-bar");
-      comparisonBar.appendChild(element("span", "fa-benchmark__comparison-label", "Choose comparison"));
+      var comparisonBar = element("div", "fa-benchmark__series");
       var tabs = element("div", "fa-benchmark__tabs");
-      tabs.setAttribute("role", "tablist");
-      tabs.setAttribute("aria-label", "Benchmark comparison");
-      comparisons.forEach(function (item, index) {
-        var tab = element("button", "fa-benchmark__tab", item.label);
+      tabs.setAttribute("aria-label", "Benchmark series");
+      comparisons.slice(0, 3).forEach(function (item, index) {
+        var tab = element("button", "fa-benchmark__tab");
         tab.type = "button";
-        tab.title = "Show the " + item.label + " comparison";
-        tab.setAttribute("role", "tab");
-        tab.setAttribute("aria-selected", String(index === selectedComparison));
+        tab.setAttribute("aria-pressed", String(index === selectedComparison));
+        tab.appendChild(element("strong", "", item.label));
+        tab.appendChild(element("small", "", item.results.length ? item.results.length + " runs · explore results" : "Results to follow"));
         tab.addEventListener("click", function () {
           selectedComparison = index;
-          selectedResult = item.results.findIndex(function (entry) { return entry.fastAgent; });
-          if (selectedResult < 0) selectedResult = 0;
+          selectedResult = 0;
           tablePreviewResult = -1;
           draw();
+          root.querySelectorAll(".fa-benchmark__tab")[index].focus({ preventScroll: true });
         });
         tabs.appendChild(tab);
       });
       comparisonBar.appendChild(tabs);
-      root.appendChild(toolbar);
       root.appendChild(comparisonBar);
+
+      var toolbar = element("div", "fa-benchmark__toolbar");
+      toolbar.appendChild(element("span", "fa-benchmark__eyebrow", "Accuracy / cost"));
+      var archiveLabel = element("label", "fa-benchmark__archive", "Earlier comparisons ");
+      var archive = element("select");
+      archive.appendChild(element("option", "", "Browse archive"));
+      archivedComparisons.forEach(function (item, index) {
+        var option = element("option", "", item.label);
+        option.value = String(index + 3);
+        option.selected = selectedComparison === index + 3;
+        archive.appendChild(option);
+      });
+      archive.addEventListener("change", function () {
+        if (archive.selectedIndex === 0) return;
+        selectedComparison = Number(archive.value);
+        selectedResult = 0;
+        tablePreviewResult = -1;
+        draw();
+        root.querySelector("select").focus({ preventScroll: true });
+      });
+      archiveLabel.appendChild(archive);
+      toolbar.appendChild(archiveLabel);
+      root.appendChild(toolbar);
+
+      if (!comparison.results.length) {
+        var empty = element("div", "fa-benchmark__empty");
+        empty.appendChild(element("span", "fa-benchmark__empty-mark", "↗"));
+        empty.appendChild(element("h2", "", comparison.label));
+        empty.appendChild(element("p", "", "Results and source evidence will appear here when published."));
+        root.appendChild(empty);
+        return;
+      }
+      var result = comparison.results[selectedResult] || comparison.results[0];
+      var score = scoreDomain(comparison.results, comparison.axes && comparison.axes.score);
+      var cost = costDomain(comparison.results, comparison.axes && comparison.axes.cost);
+      var heading = element("div", "fa-benchmark__intro");
+      heading.appendChild(element("h2", "", comparison.label));
+      heading.appendChild(element("p", "", selectedComparison === 1
+        ? "89 tasks · 5 trials per task · six-hour agent timeout. Expand a row for source evidence and cost coverage."
+        : comparison.claim));
+      root.appendChild(heading);
+
+      var viewControls = element("div", "fa-bench-views");
+      var viewButtons = element("div", "fa-bench-views__buttons");
+      viewButtons.setAttribute("aria-label", "Chart view");
+      ["rows", "scatter"].forEach(function (mode) {
+        var button = element("button", "", mode === "rows" ? "Comparison rows" : "Accuracy / cost plot");
+        button.type = "button";
+        button.setAttribute("aria-pressed", String(displayMode === mode));
+        button.addEventListener("click", function () {
+          displayMode = mode;
+          draw();
+          root.querySelectorAll(".fa-bench-views__buttons button")[mode === "rows" ? 0 : 1].focus({ preventScroll: true });
+        });
+        viewButtons.appendChild(button);
+      });
+      viewControls.appendChild(viewButtons);
+      if (displayMode === "rows") {
+        var sortLabel = element("label", "", "Sort by ");
+        var sortSelect = element("select");
+        [["accuracy", "Accuracy"], ["cost", "Total cost"]].forEach(function (optionData) {
+          var option = element("option", "", optionData[1]);
+          option.value = optionData[0];
+          option.selected = sortOrder === optionData[0];
+          sortSelect.appendChild(option);
+        });
+        sortSelect.addEventListener("change", function () {
+          sortOrder = sortSelect.value;
+          draw();
+          root.querySelector(".fa-bench-views select").focus({ preventScroll: true });
+        });
+        sortLabel.appendChild(sortSelect);
+        viewControls.appendChild(sortLabel);
+      }
+      root.appendChild(viewControls);
+      if (displayMode === "rows") {
+        root.appendChild(renderComparisonRows(comparison, data, sortOrder));
+        return;
+      }
 
       var body = element("div", "fa-benchmark__body");
       var chartArea = element("div", "fa-benchmark__chart-area");
@@ -397,7 +549,7 @@
         badge.setAttribute("aria-label", badge.textContent + ": " + result.disclaimer);
         detailMain.appendChild(badge);
       }
-      var runLink = element("a", "", "View run ↗");
+      var runLink = element("a", "", "Source evidence ↗");
       runLink.href = result.url || data.sourceUrl;
       runLink.target = "_blank";
       runLink.rel = "noopener";
@@ -421,9 +573,9 @@
       body.appendChild(chartArea);
 
       var results = element("div", "fa-benchmark__results");
-      results.appendChild(element("h2", "fa-benchmark__results-title", data.title));
+      results.appendChild(element("h2", "fa-benchmark__results-title", "Compare runs"));
       var resultHeader = element("div", "fa-benchmark__result fa-benchmark__result--header");
-      ["Harness", "Score", "$/task", "Run"].forEach(function (label) {
+      ["Model / harness", "Score", "$/task", "Total $"].forEach(function (label) {
         resultHeader.appendChild(element("span", "", label));
       });
       results.appendChild(resultHeader);
@@ -434,8 +586,8 @@
         row.type = "button";
         row.setAttribute("data-result-index", String(index));
         var name = element("span", "fa-benchmark__result-name");
-        name.appendChild(element("strong", "", entry.harness));
-        name.appendChild(element("small", "", entry.model));
+        name.appendChild(element("strong", "", entry.model));
+        name.appendChild(element("small", "", entry.harness));
         row.appendChild(name);
         row.appendChild(element("span", "fa-benchmark__result-score", entry.score.toFixed(1)));
         row.appendChild(element(
@@ -470,25 +622,11 @@
       footer.appendChild(element("span", "fa-benchmark__legend", "other harnesses"));
       footer.appendChild(element("span", "", "Higher and further right is better."));
       var methodology = element("a", "", "Methodology & disclaimers");
-      methodology.href = data.methodologyUrl;
-      methodology.target = "_blank";
-      methodology.rel = "noopener";
+      methodology.href = "#benchmark-notes";
       footer.appendChild(methodology);
       root.appendChild(footer);
 
-      var stats = document.querySelector("[data-fa-benchmark-stats]");
-      if (!stats) {
-        stats = element("div", "fa-benchmark-stats");
-        stats.setAttribute("data-fa-benchmark-stats", "");
-        root.insertAdjacentElement("afterend", stats);
-      }
-      stats.replaceChildren();
-      comparison.stats.forEach(function (stat) {
-        var item = element("div", "fa-benchmark-stats__item");
-        item.appendChild(element("strong", "", stat.value));
-        item.appendChild(element("span", "", stat.label));
-        stats.appendChild(item);
-      });
+
     }
 
     draw();

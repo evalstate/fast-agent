@@ -7,8 +7,9 @@ repo_name = "evalstate/fast-agent"
 edit_uri = "edit/main/docs/docs"
 copyright = "© 2025-2026 llmindset.co.uk"
 extra_css = [
-  "stylesheets/fast-agent.css",
-  "stylesheets/forward.css",
+  "stylesheets/brand.css",
+  "stylesheets/home.css",
+  "stylesheets/benchmarks.css",
   "assets/vendor/asciinema-player/asciinema-player.css",
   "assets/vendor/asciinema-player/catppuccin.css",
 ]
