@@ -188,3 +188,52 @@ async def test_local_transient_store_cleans_resolved_path_from_symlinked_temp_ro
     assert not artifact_path.exists()
     assert not real_directory.exists()
     assert environment._temporary_artifact_directory is None
+
+
+@pytest.mark.unit
+def test_bounded_temporary_text_ends_on_a_line_boundary() -> None:
+    content = "first line\nsecond line\n" + "third line that is cut " * 10 + "\n"
+    limit = len("first line\nsecond line\nthird") + len(TRANSIENT_ARTIFACT_QUOTA_MARKER)
+
+    payload, complete = bounded_temporary_text(content, max_bytes=limit)
+
+    assert not complete
+    assert payload.decode("utf-8") == "first line\nsecond line\n" + TRANSIENT_ARTIFACT_QUOTA_MARKER
+
+
+@pytest.mark.unit
+def test_bounded_temporary_text_cuts_long_lines_mid_line() -> None:
+    limit = 1024 * 1024
+    payload, complete = bounded_temporary_text("header\n" + "x" * (2 * limit), max_bytes=limit)
+
+    assert not complete
+    assert len(payload) == limit
+    assert payload.endswith(TRANSIENT_ARTIFACT_QUOTA_MARKER.encode("utf-8"))
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_write_complete_text_skips_content_that_does_not_fit(tmp_path: Path) -> None:
+    store = TransientArtifactStore(_local_environment(tmp_path))
+    content = '{\n  "value": "' + "x" * 100 + '"\n}'
+
+    skipped = await store.write_complete_text(
+        producer="tool-result",
+        suffix=".json",
+        content=content,
+        description="tool result",
+        max_bytes=len(content) - 1,
+    )
+    written = await store.write_complete_text(
+        producer="tool-result",
+        suffix=".json",
+        content=content,
+        description="tool result",
+        max_bytes=len(content),
+    )
+
+    assert skipped is None
+    assert written is not None
+    assert written.artifact.complete
+    assert Path(written.artifact.path).read_text(encoding="utf-8") == content
+    await store.close()
