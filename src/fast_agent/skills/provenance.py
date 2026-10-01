@@ -53,7 +53,12 @@ def write_installed_skill_source(skill_dir: Path, source: InstalledSkillSource) 
         extra_payload["mcp_server_version"] = source.mcp_server_version
     if source.mcp_resources is not None:
         extra_payload["mcp_resources"] = [
-            {"uri": resource.uri, "digest": resource.digest} for resource in source.mcp_resources
+            {
+                "uri": resource.uri,
+                "digest": resource.digest,
+                **({"size": resource.size} if resource.size is not None else {}),
+            }
+            for resource in source.mcp_resources
         ]
 
     marketplace_provenance_io.write_installed_source_file(
@@ -302,5 +307,8 @@ def _parse_mcp_resources(value: object) -> tuple[McpSkillResource, ...] | None:
         digest = _optional_string(item.get("digest"))
         if uri is None or digest is None:
             raise ValueError("mcp_resources entries require uri and digest")
-        resources.append(McpSkillResource(uri=uri, digest=digest))
+        size = item.get("size")
+        if size is not None and (type(size) is not int or size < 0):
+            raise ValueError("mcp_resources size must be a nonnegative integer")
+        resources.append(McpSkillResource(uri=uri, digest=digest, size=size))
     return tuple(resources)

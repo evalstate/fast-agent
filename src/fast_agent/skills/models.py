@@ -58,6 +58,7 @@ class InstalledSkillSource:
 class McpSkillResource:
     uri: str
     digest: str
+    size: int | None = None
 
 
 @dataclass(frozen=True)

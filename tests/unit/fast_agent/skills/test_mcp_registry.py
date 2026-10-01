@@ -117,7 +117,11 @@ def _entry(
     uri = uri or f"skill://catalog/{name}/SKILL.md"
     files = {uri: content, **(extra or {})}
     resources = [
-        SkillResource(uri=resource_uri, digest=_digest(value))
+        SkillResource(
+            uri=resource_uri,
+            digest=_digest(value),
+            size=len(value.encode() if isinstance(value, str) else value),
+        )
         for resource_uri, value in files.items()
     ]
     return (
@@ -128,6 +132,11 @@ def _entry(
         ),
         files,
     )
+
+
+def _static_resources(entry: SkillEntry) -> list[SkillResource]:
+    assert isinstance(entry.resources, list)
+    return entry.resources
 
 
 @pytest.mark.asyncio
@@ -160,7 +169,9 @@ async def test_scan_returns_empty_registry_for_repeated_cursor_or_invalid_resour
     malformed = SkillEntry(
         uri=valid.uri,
         frontmatter=valid.frontmatter,
-        resources=[SkillResource(uri="skill://catalog/demo/../escape", digest=_digest("no"))],
+        resources=[
+            SkillResource(uri="skill://catalog/demo/../escape", digest=_digest("no"), size=2)
+        ],
     )
     for server in (
         _SkillsServer(
@@ -193,8 +204,8 @@ async def test_get_supports_unlisted_uri_and_install_verifies_complete_resource_
     assert (result.skill_dir / "GUIDE.md").read_text() == "guide"
     assert installed is not None
     assert installed.mcp_resources == tuple(
-        McpSkillResource(uri=resource.uri, digest=resource.digest)
-        for resource in entry.resources or []
+        McpSkillResource(uri=resource.uri, digest=resource.digest, size=resource.size)
+        for resource in _static_resources(entry)
     )
     assert server.calls[0] == ("get", entry.uri)
     assert server.calls[1] == ("get", entry.uri)  # install refreshes immediately before fetch
@@ -257,7 +268,7 @@ async def test_install_rejects_skill_changed_after_selection(tmp_path) -> None:
         uri=old_entry.uri,
         server_name="server",
         frontmatter=old_entry.frontmatter,
-        resources=tuple(old_entry.resources or []),
+        resources=tuple(_static_resources(old_entry)),
     )
 
     with pytest.raises(ValueError, match="changed since it was selected"):
@@ -320,7 +331,7 @@ async def test_update_rolls_back_and_resource_revision_is_order_invariant(tmp_pa
     reversed_entry = SkillEntry(
         uri=entry.uri,
         frontmatter=entry.frontmatter,
-        resources=list(reversed(entry.resources or [])),
+        resources=list(reversed(_static_resources(entry))),
     )
     files["skill://catalog/demo/GUIDE.md"] = "tampered"
     server = _SkillsServer(skills={entry.uri: entry}, resources=files)
@@ -331,7 +342,7 @@ async def test_update_rolls_back_and_resource_revision_is_order_invariant(tmp_pa
         uri=skill.uri,
         server_name=skill.server_name,
         frontmatter=skill.frontmatter,
-        resources=tuple(reversed_entry.resources or []),
+        resources=tuple(_static_resources(reversed_entry)),
     )
 
     with pytest.raises(ValueError, match="SHA256 mismatch"):
@@ -382,7 +393,7 @@ def test_duplicate_names_use_uri_selection_options() -> None:
             uri=entry.uri,
             server_name="server",
             frontmatter=entry.frontmatter,
-            resources=tuple(entry.resources or []),
+            resources=tuple(_static_resources(entry)),
         )
         for entry in (first, second)
     ]
@@ -413,7 +424,7 @@ async def test_explicit_uri_refreshes_stale_list_entry(tmp_path) -> None:
                     uri=listed.uri,
                     server_name="server",
                     frontmatter=listed.frontmatter,
-                    resources=tuple(listed.resources or []),
+                    resources=tuple(_static_resources(listed)),
                 )
             ],
         ),
@@ -436,7 +447,7 @@ def test_registry_rejects_invalid_or_reserved_skill_names(uri: str, name: str) -
     entry = SkillEntry(
         uri=uri,
         frontmatter={"name": name, "description": "description"},
-        resources=[SkillResource(uri=uri, digest=_digest(""))],
+        resources=[SkillResource(uri=uri, digest=_digest(""), size=0)],
     )
 
     with pytest.raises(ValueError, match="skill name"):
@@ -459,8 +470,8 @@ def test_registry_rejects_reserved_or_nonportable_resource_paths(resource_uri: s
         uri=uri,
         frontmatter={"name": "demo", "description": "description"},
         resources=[
-            SkillResource(uri=uri, digest=_digest("")),
-            SkillResource(uri=resource_uri, digest=_digest("")),
+            SkillResource(uri=uri, digest=_digest(""), size=0),
+            SkillResource(uri=resource_uri, digest=_digest(""), size=0),
         ],
     )
 
@@ -485,3 +496,87 @@ def test_frontmatter_comparison_preserves_json_scalar_types(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="frontmatter"):
         mcp_registry._verify_manifest(skill, skill_dir)
+
+
+@pytest.mark.parametrize("resources", [None, "unknown", {}])
+def test_wire_rejects_invalid_resource_manifests(resources: object) -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        SkillEntry.model_validate(
+            {"uri": "skill://demo/SKILL.md", "frontmatter": {}, "resources": resources}
+        )
+
+
+def test_wire_requires_resources_and_size_and_cacheable_get() -> None:
+    from mcp_types import CacheableResult
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        SkillEntry.model_validate({"uri": "skill://demo/SKILL.md", "frontmatter": {}})
+    with pytest.raises(ValidationError):
+        SkillResource.model_validate({"uri": "skill://demo/SKILL.md", "digest": _digest("")})
+    entry = SkillEntry(uri="skill://demo/SKILL.md", frontmatter={}, resources="dynamic")
+    result = GetSkillResult(skill=entry, ttl_ms=123, cache_scope="public")
+    assert isinstance(result, CacheableResult)
+    assert result.model_dump(by_alias=True)["ttlMs"] == 123
+    assert result.cache_scope == "public"
+
+
+@pytest.mark.parametrize("size", [-1, 1.5, True, "1"])
+def test_wire_rejects_non_integer_or_negative_sizes(size: object) -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        SkillResource.model_validate(
+            {"uri": "skill://demo/SKILL.md", "digest": _digest(""), "size": size}
+        )
+
+
+@pytest.mark.asyncio
+async def test_dynamic_skill_remains_listed_but_cannot_be_installed(tmp_path) -> None:
+    entry = SkillEntry(
+        uri="skill://demo/SKILL.md",
+        frontmatter={"name": "demo", "description": "demo description"},
+        resources="dynamic",
+    )
+    server = _SkillsServer(
+        pages={None: ListSkillsResult(skills=[entry])}, skills={entry.uri: entry}
+    )
+    registry = await scan_mcp_skill_registry(server, "server")
+    assert registry is not None
+    assert len(registry.skills) == 1
+    skill = registry.skills[0]
+    assert skill.resources == "dynamic"
+    assert skill.revision is None
+    with pytest.raises(ValueError, match="dynamic.*unsupported"):
+        await install_mcp_registry_skill(server, skill, destination_root=tmp_path)
+    assert not (tmp_path / "demo").exists()
+    assert all(method != "resource" for method, _ in server.calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("matching_digest", [True, False])
+async def test_install_checks_size_before_digest(tmp_path, matching_digest: bool) -> None:
+    body = "---\nname: demo\ndescription: demo description\n---\né\n"
+    entry, files = _entry("demo", body)
+    resource = _static_resources(entry)[0]
+    resource.size = len(body)  # Character count is not UTF-8 byte count.
+    if not matching_digest:
+        resource.digest = _digest("different")
+    server = _SkillsServer(skills={entry.uri: entry}, resources=files)
+    skill = await get_mcp_registry_skill(server, entry.uri, "server")
+    with pytest.raises(ValueError, match="size mismatch"):
+        await install_mcp_registry_skill(server, skill, destination_root=tmp_path)
+    assert not (tmp_path / "demo").exists()
+
+
+@pytest.mark.asyncio
+async def test_install_accepts_16_mib_skill_manifest(tmp_path) -> None:
+    header = "---\nname: demo\ndescription: demo description\n---\n"
+    body = header + "x" * (16 * 1_048_576 - len(header))
+    entry, files = _entry("demo", body)
+    server = _SkillsServer(skills={entry.uri: entry}, resources=files)
+    skill = await get_mcp_registry_skill(server, entry.uri, "server")
+    installed = await install_mcp_registry_skill(server, skill, destination_root=tmp_path)
+    assert (installed / "SKILL.md").stat().st_size == len(body)
