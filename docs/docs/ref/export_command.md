@@ -93,55 +93,9 @@ fast-agent export latest --privacy-filter --download-privacy-filter
 - `--format atif` is pinned to ATIF v1.7. Future schema versions require an
   explicit format implementation; existing ATIF output will not silently
   change versions.
-- ATIF canonical `final_metrics.total_*` values use complete-data semantics. If
-  any expected LLM call lacks usage telemetry, those totals remain unknown.
-  `final_metrics.extra` records expected and observed usage-call counts,
-  completeness, and explicitly named `observed_*_lower_bound` values. This is
-  an export-field distinction, **not a reason to exclude observed usage from
-  campaign totals**: include known usage, and label the aggregate as observed
-  accounting when some provider attempts are unmetered. Unknown usage is not zero.
-- `final_metrics.extra.accounting` is the structured accounting coverage extension:
-
-  ```json
-  {
-    "schema": "fast-agent.accounting/v1",
-    "scope": "observed",
-    "provider_usage_complete": false,
-    "observed_token_availability": {
-      "prompt_tokens": true,
-      "completion_tokens": true,
-      "cached_tokens": false
-    }
-  }
-  ```
-
-  `provider_usage_complete` equals `llm_usage_calls_complete`: expected provider
-  calls have usage records. It does **not** guarantee every token field is present.
-  Each availability flag means at least one value for that field was observed,
-  not that its accounting is complete. An observed zero is available; an absent
-  field is not. The numeric lower bounds remain sums of known observations,
-  including retry attempts and embedded subagent/compaction summary calls;
-  unavailable fields can still have a numeric lower bound of zero. Synthetic
-  fanout dispatch and copied context do not create usage observations.
-  Child complete-data summaries do not erase observations retained in steps.
-  Canonical totals keep their existing complete-data semantics.
-
-  This describes **accounting coverage, not history/context completeness**.
-  Retry metadata alone is not evidence of lost usage or context; the exporter
-  preserves the existing expected-versus-observed call comparison without
-  changing runtime retries. Summary-call coverage is also reported separately
-  in `summary_compaction_usage_complete`.
-
-  Harbor's updated fast-agent adapter puts observed token sums and available
-  reported costs or price-derived estimates into `AgentContext`, so Harbor includes
-  them in trial/job aggregates rather than dropping the trial's known usage.
-  Metadata preserves coverage and cost provenance: these aggregates are observed
-  accounting, not a guarantee of the complete provider bill. Canonical ATIF final
-  totals remain authoritative when present. That fallback also supports
-  historical traces from published fast-agent wheels that already contain
-  `observed_*_lower_bound` extras or step metrics, without this new extension.
-  The extension adds explicit zero-versus-unknown availability for new exports;
-  it cannot recover missing telemetry in old artifacts.
+- If a stream gets interrupted, fast-agent keeps the usage recorded for completed
+  attempts. Harbor's updated adapter includes that usage in run totals, with a
+  note that the interrupted attempt's usage is unknown.
 - If `--output` is omitted, fast-agent writes
   `{session_id}__{agent_name}__codex.jsonl` in the current working directory.
 - The corresponding default ATIF filename is
