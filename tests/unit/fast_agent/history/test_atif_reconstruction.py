@@ -447,5 +447,18 @@ def test_summary_call_is_embedded_and_accounted(tmp_path: Path):
     metrics = trajectory.final_metrics
     assert metrics is not None and metrics.extra is not None
     assert metrics.extra["subagent_prompt_tokens"] == 100
+    assert metrics.extra["observed_prompt_tokens_lower_bound"] == 100
+    assert metrics.extra["observed_completion_tokens_lower_bound"] == 20
+    assert metrics.extra["observed_cached_tokens_lower_bound"] == 0
+    assert metrics.extra["accounting"] == {
+        "schema": "fast-agent.accounting/v1",
+        "scope": "observed",
+        "provider_usage_complete": metrics.extra["llm_usage_calls_complete"],
+        "observed_token_availability": {
+            "prompt_tokens": True,
+            "completion_tokens": True,
+            "cached_tokens": True,
+        },
+    }
     assert metrics.extra["summary_compaction_usage_complete"] is True
     assert "accounting_scope" not in metrics.extra

@@ -521,6 +521,12 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
     assert child_reads == 1
     assert tool_step["metrics"]["cached_tokens"] == 7
     assert tool_step["metrics"]["extra"] == {
+        "observed_prompt_tokens_lower_bound": 35,
+        "observed_completion_tokens_lower_bound": 8,
+        "observed_cached_tokens_lower_bound": 7,
+        "observed_reasoning_tokens_lower_bound": 3,
+        "observed_tool_use_prompt_tokens_lower_bound": 2,
+        "observed_cost_usd_lower_bound": 0.01,
         "provider": "codexresponses",
         "usage_schema": "openai-responses",
         "model": "gpt-5.4",
@@ -740,6 +746,16 @@ def test_atif_final_metrics_require_complete_llm_step_usage() -> None:
     assert trajectory.final_metrics.extra["llm_usage_expected_call_count"] == 2
     assert trajectory.final_metrics.extra["llm_usage_observed_call_count"] == 1
     assert trajectory.final_metrics.extra["llm_usage_call_coverage_ratio"] == 0.5
+    assert trajectory.final_metrics.extra["accounting"] == {
+        "schema": "fast-agent.accounting/v1",
+        "scope": "observed",
+        "provider_usage_complete": False,
+        "observed_token_availability": {
+            "prompt_tokens": True,
+            "completion_tokens": True,
+            "cached_tokens": True,
+        },
+    }
     assert trajectory.final_metrics.extra["llm_usage_calls_complete"] is False
     assert trajectory.final_metrics.extra["observed_prompt_tokens_lower_bound"] == 10
     assert trajectory.final_metrics.extra["observed_completion_tokens_lower_bound"] == 2
@@ -854,6 +870,16 @@ def test_atif_retry_with_missing_attempt_keeps_known_usage_as_lower_bound() -> N
     assert trajectory.final_metrics.extra is not None
     assert trajectory.final_metrics.extra["llm_usage_expected_call_count"] == 2
     assert trajectory.final_metrics.extra["llm_usage_observed_call_count"] == 1
+    assert trajectory.final_metrics.extra["accounting"] == {
+        "schema": "fast-agent.accounting/v1",
+        "scope": "observed",
+        "provider_usage_complete": False,
+        "observed_token_availability": {
+            "prompt_tokens": True,
+            "completion_tokens": True,
+            "cached_tokens": True,
+        },
+    }
     assert trajectory.final_metrics.extra["llm_usage_calls_complete"] is False
     assert trajectory.final_metrics.extra["observed_prompt_tokens_lower_bound"] == 10
     assert trajectory.final_metrics.extra["observed_completion_tokens_lower_bound"] == 2
@@ -973,6 +999,16 @@ def test_atif_fanout_propagates_missing_usage_and_known_lower_bounds() -> None:
     assert trajectory.final_metrics.extra is not None
     assert trajectory.final_metrics.extra["llm_usage_expected_call_count"] == 2
     assert trajectory.final_metrics.extra["llm_usage_observed_call_count"] == 1
+    assert trajectory.final_metrics.extra["accounting"] == {
+        "schema": "fast-agent.accounting/v1",
+        "scope": "observed",
+        "provider_usage_complete": False,
+        "observed_token_availability": {
+            "prompt_tokens": True,
+            "completion_tokens": True,
+            "cached_tokens": True,
+        },
+    }
     assert trajectory.final_metrics.extra["llm_usage_calls_complete"] is False
     assert trajectory.final_metrics.extra["observed_prompt_tokens_lower_bound"] == 10
     assert trajectory.final_metrics.extra["observed_completion_tokens_lower_bound"] == 2
