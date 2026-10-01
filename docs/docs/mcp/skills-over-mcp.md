@@ -2,8 +2,8 @@
 title: Skills over MCP
 social:
   title: Skills over MCP
-  tagline: Install local skill copies over MCP with integrity checks.
-  description: Install local skill copies over MCP with integrity checks.
+  tagline: Use skills MCP Servers with integrity checks.
+  description: Use skills from MCP Servers with integrity checks.
   alt: fast-agent social card - Skills over MCP
 ---
 
@@ -12,15 +12,9 @@ social:
 `fast-agent` implements the stable
 [Skills Extension](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/seps/2640-skills-extension.md)
 (`io.modelcontextprotocol/skills`) wire shapes for its local-copy installer.
-This is mechanical wire compatibility, not full released-spec host conformance.
 
 It uses `skills/list` and `skills/get`, reading declared files with
-`resources/read`. Each resource requires a nonnegative integer `size` in bytes
-alongside its `uri` and `digest`. Skill `resources` must be an array or
-`"dynamic"`; omission is invalid. `skills/get` uses `CacheableResult`: cache hints
-are recognized, but the caching lifecycle remains pending, with no new automatic
-caching behavior. Legacy servers that publish
-`skill://index.json` entries as `skill-md` or archive artifacts are unsupported.
+`resources/read`. 
 
 When a connected MCP server advertises this capability, `fast-agent` shows it as
 an MCP-backed skills registry. Opening `/skills registry` calls the paginated
@@ -53,12 +47,6 @@ The selected MCP server confirms that URI through `skills/get`. Skills with
 unsupported: there is no complete manifest for integrity checks or update
 revisions.
 
-## SDK status
-
-The pinned MCP Python SDK does not yet provide typed Skills Extension request
-and result models. `fast-agent` therefore uses local wire models for
-`skills/list`, `skills/get`, and `resources/directory/read`. Those internal
-models may change when the SDK adds support.
 
 ## Trying it
 
@@ -114,9 +102,8 @@ Cast asset:
 This implementation uses MCP as an eager, integrity-checked local-copy installer.
 It does not expose MCP-served skill resources directly to the model or retain an
 active MCP resource reader after installation. Installed content is an explicit
-local copy, not a transparent MCP cache. Runtime origin tracking and approval
-limitations are unchanged; these wire fixes do not add origin-bound execution
-or per-use approval enforcement.
+local copy, not a transparent MCP cache. Only add trusted Skills from an MCP 
+Server. Installation signals your approval for running.
 
 `/skills update` calls `skills/get` and compares the complete resource-set
 revision with the installed revision. Any file addition, removal, URI change, or
