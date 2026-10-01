@@ -96,8 +96,10 @@ fast-agent export latest --privacy-filter --download-privacy-filter
 - ATIF canonical `final_metrics.total_*` values use complete-data semantics. If
   any expected LLM call lacks usage telemetry, those totals remain unknown.
   `final_metrics.extra` records expected and observed usage-call counts,
-  completeness, and explicitly named `observed_*_lower_bound` values without
-  promoting partial accounting to campaign totals.
+  completeness, and explicitly named `observed_*_lower_bound` values. This is
+  an export-field distinction, **not a reason to exclude observed usage from
+  campaign totals**: include known usage, and label the aggregate as observed
+  accounting when some provider attempts are unmetered. Unknown usage is not zero.
 - `final_metrics.extra.accounting` is the structured accounting coverage extension:
 
   ```json
@@ -130,9 +132,12 @@ fast-agent export latest --privacy-filter --download-privacy-filter
   changing runtime retries. Summary-call coverage is also reported separately
   in `summary_compaction_usage_complete`.
 
-  Harbor adapters supporting observed lower bounds and step sums can show
-  observed usage instead of blanks while retaining a partial-accounting marker;
-  canonical final totals remain authoritative. That fallback also supports
+  Harbor's updated fast-agent adapter puts observed token sums and available
+  reported costs or price-derived estimates into `AgentContext`, so Harbor includes
+  them in trial/job aggregates rather than dropping the trial's known usage.
+  Metadata preserves coverage and cost provenance: these aggregates are observed
+  accounting, not a guarantee of the complete provider bill. Canonical ATIF final
+  totals remain authoritative when present. That fallback also supports
   historical traces from published fast-agent wheels that already contain
   `observed_*_lower_bound` extras or step metrics, without this new extension.
   The extension adds explicit zero-versus-unknown availability for new exports;
