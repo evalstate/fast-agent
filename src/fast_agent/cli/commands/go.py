@@ -31,7 +31,7 @@ from fast_agent.cli.runtime.request_builders import (
     resolve_instruction_option as _resolve_instruction_option,
 )
 from fast_agent.cli.runtime.runner import run_request
-from fast_agent.cli.shared_options import CommonAgentOptions, McpProtocolOption
+from fast_agent.cli.shared_options import CommonAgentOptions, McpConnectOption, McpProtocolOption
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.core.agent_card_paths import AGENT_CARD_EXTENSIONS as _CARD_EXTENSIONS
 from fast_agent.core.exceptions import AgentConfigError, EnvironmentStartupError
@@ -255,7 +255,9 @@ def go(
     auth: str | None = CommonAgentOptions.auth(),
     client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
     mcp_protocol: McpProtocolOption | None = CommonAgentOptions.mcp_protocol(),
+    mcp_connect: McpConnectOption | None = CommonAgentOptions.mcp_connect(),
     model: str | None = CommonAgentOptions.model(),
+    model_picker: bool = CommonAgentOptions.model_picker(),
     base_url: str | None = typer.Option(
         None,
         "--base-url",
@@ -357,6 +359,18 @@ def go(
     ),
 ) -> None:
     """Run an interactive agent directly from the command line."""
+    from fast_agent.cli.runtime.run_request import validate_model_picker_options
+
+    try:
+        validate_model_picker_options(
+            model_picker=model_picker,
+            model=model,
+            resume=resume,
+            is_repl=message is None and prompt_file is None,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--model-picker") from exc
+
     if os.getenv(FAST_AGENT_SHELL_CHILD_ENV):
         typer.echo(
             "fast-agent is already running inside a fast-agent shell command. "
@@ -461,10 +475,12 @@ def go(
         auth=auth,
         client_metadata_url=client_metadata_url,
         mcp_protocol=mcp_protocol.value if mcp_protocol is not None else None,
+        mcp_connect=mcp_connect.value if mcp_connect is not None else None,
         agent_cards=agent_cards,
         card_tools=card_tools,
         model=model,
         model_base_url=base_url,
+        model_picker=model_picker,
         message=message,
         prompt_file=prompt_file,
         attachments=attach,

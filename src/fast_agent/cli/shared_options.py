@@ -11,6 +11,11 @@ class McpProtocolOption(StrEnum):
     LEGACY = "legacy"
 
 
+class McpConnectOption(StrEnum):
+    EAGER = "eager"
+    LAZY = "lazy"
+
+
 class CommonAgentOptions:
     """Shared options for agent commands to reduce duplication."""
 
@@ -92,6 +97,18 @@ class CommonAgentOptions:
         )
 
     @staticmethod
+    def mcp_connect():
+        return typer.Option(
+            None,
+            "--mcp-connect",
+            help=(
+                "Connection policy for every startup --url/--npx/--uvx/--stdio target: "
+                "eager (default) uses a cached tool catalog immediately and connects in the "
+                "background; lazy connects on the first tool call"
+            ),
+        )
+
+    @staticmethod
     def client_metadata_url():
         return typer.Option(
             None,
@@ -109,6 +126,15 @@ class CommonAgentOptions:
             "--model",
             "--models",
             help="Select a model for this run (e.g., haiku, sonnet, gpt-4)",
+        )
+
+    @staticmethod
+    def model_picker():
+        return typer.Option(
+            False,
+            "--model-picker",
+            "-mp",
+            help="Force the startup model selector (interactive terminal only; no --model or --resume)",
         )
 
     @staticmethod

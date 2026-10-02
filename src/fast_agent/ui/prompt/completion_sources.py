@@ -1241,15 +1241,34 @@ def _model_command_completions(
     )
 
 
+def _mcp_cache_targets(completer: "AgentCompleter", partial: str) -> list[Completion]:
+    matches = _complete_attached_mcp_servers(completer, partial)
+    if "all".startswith(partial):
+        matches.append(Completion("all", start_position=-len(partial)))
+    return matches
+
+
 def _mcp_prefix_completion(
     completer: "AgentCompleter",
     text: str,
     text_lower: str,
 ) -> list[Completion] | None:
     for prefix, completion_fn in (
+        ("/mcp error ", lambda owner, partial: owner._complete_configured_mcp_servers(partial)),
         ("/mcp attach ", lambda owner, partial: owner._complete_configured_mcp_servers(partial)),
+        ("/mcp auth ", lambda owner, partial: owner._complete_configured_mcp_servers(partial)),
         ("/mcp disconnect ", _complete_attached_mcp_servers),
         ("/mcp reconnect ", _complete_attached_mcp_servers),
+        ("/mcp cache clear ", _mcp_cache_targets),
+        ("/mcp refresh ", _mcp_cache_targets),
+        (
+            "/mcp cache ",
+            lambda owner, partial: (
+                [Completion("clear", start_position=-len(partial))]
+                if "clear".startswith(partial)
+                else []
+            ),
+        ),
         ("/mcp connect ", _mcp_connect_completions),
         (
             "/connect ",

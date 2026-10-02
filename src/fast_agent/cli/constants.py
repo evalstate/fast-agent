@@ -42,6 +42,7 @@ GO_SPECIFIC_OPTIONS = {
     "--pack-registry",
     "--url",
     "--mcp-protocol",
+    "--mcp-connect",
     "--model",
     "--models",
     "--agent",

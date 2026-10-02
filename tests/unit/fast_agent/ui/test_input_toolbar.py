@@ -603,3 +603,94 @@ def test_toolbar_agent_state_deduplicates_parallel_child_models() -> None:
     )
 
     assert result.state.model_display == "haiku,sonnet"
+
+
+@pytest.mark.parametrize("shell_enabled", [True, False])
+def test_toolbar_reads_live_startup_status_with_cached_agent_state(shell_enabled: bool) -> None:
+    from fast_agent.context import Context
+    from fast_agent.ui.prompt.status_bar.renderer import ShellToolbarState, render_input_toolbar
+
+    agent = ToolAgent(AgentConfig("dev", model="unknown.custom"), context=Context())
+    assert agent.context is not None
+    startup = agent.context.mcp_startup
+    provider = cast("AgentApp", _StubAgentProvider(agent))
+    cache = ToolbarRenderCache()
+
+    def render() -> str:
+        result = render_input_toolbar(
+            agent_name="dev",
+            show_agent_name=True,
+            toolbar_color="ansigreen",
+            agent_provider=provider,
+            multiline_mode=False,
+            shell_state=ShellToolbarState(enabled=shell_enabled, show_path_segment=True),
+            app_version="test-version",
+            copy_notice=None,
+            copy_notice_until=0,
+            shell_path_switch_delay_seconds=0,
+            cache=cache,
+        )
+        return "".join(fragment[1] for fragment in to_formatted_text(result.html))
+
+    startup.set_status("dev", "server", "pending")
+    assert "MCP 0/1" in render()
+    startup.set_status("dev", "server", "error")
+    assert "MCP ERR · /mcp" in render()
+    startup.set_status("dev", "server", "auth")
+    assert "MCP AUTH · /mcp auth" in render()
+    startup.set_status("dev", "server", "ready")
+    assert "MCP" not in render()
+    if not shell_enabled:
+        assert "fast-agent test-version" in render()
+
+
+def test_process_indicator_lifecycle_and_agent_isolation() -> None:
+    @dataclass
+    class Runtime:
+        active_process_count: int = 0
+        has_process_activity: bool = False
+
+    runtime = Runtime()
+    agent = _StubAgent(
+        config=_StubConfig(model="unknown.custom"),
+        message_history=[],
+        _llm=_MinimalToolbarLlm(),
+        shell_runtime=runtime,
+    )
+    provider = cast("AgentApp", _StubAgentProvider(agent))
+    cache = ToolbarRenderCache()
+
+    def indicator_style() -> str:
+        resolved = _resolve_toolbar_agent_state_cached("agent", provider, cache=cache)
+        middle = _build_middle_segment(resolved.state, shortcut_text="")
+        return next(
+            fragment[0] for fragment in to_formatted_text(HTML(middle)) if "↻" in fragment[1]
+        )
+
+    assert "bg:ansibrightblack" in indicator_style()
+    # A short-lived process may finish between toolbar refreshes (count stays zero).
+    runtime.has_process_activity = True
+    assert "bg:ansigreen" in indicator_style()
+    assert "fg:ansiblack" in indicator_style()
+    runtime.active_process_count = 1
+    assert "fg:ansiyellow" in indicator_style()
+    runtime.active_process_count = 0
+    assert "bg:ansigreen" in indicator_style()
+    assert "fg:ansiblack" in indicator_style()
+    runtime.active_process_count = 1
+    assert "fg:ansiyellow" in indicator_style()
+    runtime.active_process_count = 25
+    assert "fg:ansired" in indicator_style()
+
+    other_agent = _StubAgent(
+        config=_StubConfig(model="unknown.custom"),
+        message_history=[],
+        _llm=_MinimalToolbarLlm(),
+        shell_runtime=Runtime(),
+    )
+    provider = cast("AgentApp", _StubAgentProvider(other_agent))
+    assert "bg:ansibrightblack" in indicator_style()
+    runtime.active_process_count = 0
+    provider = cast("AgentApp", _StubAgentProvider(agent))
+    assert "bg:ansigreen" in indicator_style()
+    assert "fg:ansiblack" in indicator_style()

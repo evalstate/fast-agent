@@ -27,6 +27,7 @@ from fast_agent.commands.mcp_command_intents import (
     parse_mcp_no_args_tokens,
     parse_mcp_server_name_tokens,
 )
+from fast_agent.commands.mcp_diagnostics import render_mcp_diagnostics
 from fast_agent.commands.option_parsing import first_shell_token_end
 from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
 from fast_agent.commands.results import CommandMessage, CommandOutcome
@@ -255,6 +256,8 @@ def _mcp_usage_text() -> str:
             "Usage:",
             "- /mcp list",
             "- /mcp status",
+            "- /mcp error [server]",
+            "- /mcp auth",
             "- /mcp attach <server_name>",
             (
                 "- /mcp connect <target> [--name <server>] [--auth <token>] "
@@ -263,6 +266,8 @@ def _mcp_usage_text() -> str:
             ),
             "  Model-initiated OAuth is unavailable; use a user-facing command.",
             "- /mcp disconnect <server_name>",
+            "- /mcp cache [clear [server|all]]",
+            "- /mcp refresh [server|all]",
             "- /mcp reconnect <server_name>",
         )
     )
@@ -321,6 +326,9 @@ async def _execute_mcp_command(agent: ToolAgent, arguments: str) -> str:
     if is_help_flag(subcommand):
         return f"# mcp\n\n{_mcp_usage_text()}"
 
+    if subcommand in {"error", "auth"}:
+        return render_mcp_diagnostics(agent, split_commandline(args, syntax="posix"))
+
     if subcommand == "status":
         intent = parse_mcp_no_args_tokens(
             split_commandline(args, syntax="posix"),
@@ -334,6 +342,11 @@ async def _execute_mcp_command(agent: ToolAgent, arguments: str) -> str:
         raise AgentConfigError("Unsupported /mcp command", _mcp_usage_text())
 
     context, io = _command_context(agent)
+    if subcommand in {"cache", "refresh"}:
+        outcome = await mcp_runtime_handlers.handle_mcp_cache(
+            context, agent_name=agent.name, value=args
+        )
+        return _render_outcome(outcome, heading="mcp", io=io)
     manager = _mcp_manager(agent)
 
     if subcommand == "connect":

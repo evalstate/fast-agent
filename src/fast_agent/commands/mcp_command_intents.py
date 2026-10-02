@@ -7,12 +7,27 @@ from typing import Literal
 
 from fast_agent.utils.text import strip_to_none
 
-McpTopLevelAction = Literal["list", "status", "attach", "connect", "disconnect", "reconnect"]
+McpTopLevelAction = Literal[
+    "error",
+    "auth",
+    "list",
+    "status",
+    "attach",
+    "connect",
+    "disconnect",
+    "reconnect",
+    "cache",
+    "refresh",
+]
 McpServerNameAction = Literal["attach", "disconnect", "reconnect"]
 
 MCP_TOP_LEVEL_ACTIONS: tuple[McpTopLevelAction, ...] = (
+    "cache",
+    "refresh",
     "list",
     "status",
+    "error",
+    "auth",
     "attach",
     "connect",
     "disconnect",
@@ -24,6 +39,10 @@ MCP_SERVER_NAME_ACTIONS: tuple[McpServerNameAction, ...] = (
     "reconnect",
 )
 MCP_TOP_LEVEL_ACTION_DESCRIPTIONS: dict[str, str] = {
+    "cache": "Show or clear tool caches",
+    "refresh": "Refresh tool catalogs from servers",
+    "error": "Show startup failures and recovery guidance",
+    "auth": "Show auth diagnostics, or log in to a server (/mcp auth <server> [--device])",
     "list": "List configured and attached MCP servers",
     "status": "Show detailed MCP server status",
     "attach": "Attach a configured MCP server",
@@ -65,3 +84,53 @@ def parse_mcp_no_args_tokens(tokens: list[str], *, usage: str) -> McpNoArgsInten
     if len(tokens) != 1:
         return McpNoArgsIntent(error=usage)
     return McpNoArgsIntent(error=None)
+
+
+@dataclass(frozen=True, slots=True)
+class McpCacheIntent:
+    action: Literal["summary", "clear", "refresh"]
+    server_name: str | None = None
+    error: str | None = None
+
+
+def parse_mcp_cache_tokens(tokens: list[str]) -> McpCacheIntent:
+    tokens = [tokens[0].lower(), *tokens[1:]] if tokens else []
+    usage = "Usage: /mcp cache [clear [server|all]] or /mcp refresh [server|all]"
+    if tokens == ["cache"]:
+        return McpCacheIntent("summary")
+    if tokens and tokens[0] == "refresh" and len(tokens) <= 2:
+        action = "refresh"
+        targets = tokens[1:]
+    elif tokens[:2] == ["cache", "clear"] and len(tokens) <= 3:
+        action = "clear"
+        targets = tokens[2:]
+    else:
+        return McpCacheIntent("summary", error=usage)
+    target = targets[0] if targets else None
+    if target is not None and not target.strip():
+        return McpCacheIntent("summary", error=usage)
+    return McpCacheIntent(action, None if target == "all" else target)
+
+
+MCP_AUTH_USAGE = "Usage: /mcp auth [<server> [--device]]"
+
+
+@dataclass(frozen=True, slots=True)
+class McpAuthIntent:
+    """`/mcp auth` shows diagnostics; `/mcp auth <server>` logs in and connects."""
+
+    server_name: str | None = None
+    device: bool = False
+    error: str | None = None
+
+
+def parse_mcp_auth_tokens(tokens: list[str]) -> McpAuthIntent:
+    args = tokens[1:]
+    device = "--device" in args
+    names = [arg for arg in args if arg != "--device"]
+    if len(names) > 1 or any(name.startswith("--") for name in names):
+        return McpAuthIntent(error=MCP_AUTH_USAGE)
+    server_name = strip_to_none(names[0]) if names else None
+    if device and server_name is None:
+        return McpAuthIntent(error=MCP_AUTH_USAGE)
+    return McpAuthIntent(server_name=server_name, device=device)

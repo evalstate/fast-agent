@@ -14,12 +14,15 @@ MANAGED_PROCESS_CAPACITY_WARNING_FOREGROUND = "ansired"
 MANAGED_PROCESS_CAPACITY_WARNING_THRESHOLD = MAX_MANAGED_SHELL_PROCESSES * 0.75
 
 
-def render_managed_process_indicator(active_count: int) -> str:
-    """Render managed-process activity without exposing a numeric count."""
+def render_managed_process_indicator(
+    active_count: int, *, has_process_activity: bool = False
+) -> str:
+    """Render activity; green means none running after activity, not success."""
     if active_count <= 0:
         return render_glyph_indicator(
             glyph=f"{MANAGED_PROCESS_GLYPH} ",
-            color=MANAGED_PROCESS_IDLE_COLOR,
+            color="ansigreen" if has_process_activity else MANAGED_PROCESS_IDLE_COLOR,
+            foreground="ansiblack" if has_process_activity else None,
         )
     color = (
         MANAGED_PROCESS_CAPACITY_WARNING_COLOR

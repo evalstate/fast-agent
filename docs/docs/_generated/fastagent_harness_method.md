@@ -9,7 +9,8 @@
 fast.harness(
     *,
     model: str | None = None,
-    environment: "'EnvironmentSelection'" = None
+    environment: "'EnvironmentSelection'" = None,
+    background_mcp_startup: bool | None = None
 ) -> AgentHarness
 ```
 Creates a headless `AgentHarness` for typed, session-oriented Python usage.

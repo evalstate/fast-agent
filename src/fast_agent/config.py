@@ -585,6 +585,18 @@ class MCPRootSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class MCPToolCacheSettings(BaseModel):
+    enabled: bool = True
+    directory: str | None = None
+    """Override the cache directory; null uses <fast-agent home>/cache/mcp-tools."""
+    ttl_seconds: float = Field(default=3600, gt=0, allow_inf_nan=False)
+    auth_identity: str | None = None
+    """Explicit account partition required for network snapshots. Rotate on account
+    changes, including stdio credentials inherited outside configured env. Request
+    token forwarding never uses durable snapshots.
+    """
+
+
 class MCPServerSettings(BaseModel):
     """
     Represents the configuration for an individual server.
@@ -658,6 +670,13 @@ class MCPServerSettings(BaseModel):
 
     cwd: str | None = None
     """Working directory for the executed server command."""
+
+    connection_policy: Literal["eager", "lazy"] = "eager"
+    """Startup with a usable tool snapshot (digest-checked, or within its TTL): `eager`
+    advertises it and connects in the background; `lazy` connects on the first tool call.
+    Without a usable snapshot both connect at startup."""
+
+    tool_cache: MCPToolCacheSettings = Field(default_factory=MCPToolCacheSettings)
 
     load_on_start: bool = True
     """Whether to connect to this server automatically when the agent starts."""

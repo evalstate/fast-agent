@@ -36,6 +36,7 @@ class HarnessProvider(Protocol):
         self,
         *,
         environment: EnvironmentSelection = None,
+        background_mcp_startup: bool | None = None,
     ) -> AbstractAsyncContextManager[AgentHarness]: ...
 
     def _handle_error(self, e: Exception, error_type: str | None = None) -> None: ...
@@ -46,6 +47,7 @@ class CliRuntimeProvider(HarnessProvider, Protocol):
         self,
         *,
         environment: EnvironmentSelection = None,
+        background_mcp_startup: bool | None = None,
     ) -> AbstractAsyncContextManager[AgentApp]: ...
 
 
@@ -228,7 +230,10 @@ async def run_harness_cli_flow(
     session_id = initial_harness_session_id(request)
     disabled_resume, original_resume = _disable_core_resume_for_harness_startup(fast)
     try:
-        async with fast.harness(environment=request.environment) as harness:
+        async with fast.harness(
+            environment=request.environment,
+            background_mcp_startup=request.mode == "interactive" and request.is_repl,
+        ) as harness:
             if prepare is not None:
                 prepare()
             app = harness.app()
@@ -281,7 +286,10 @@ async def run_cli_flow(
     if prepare is not None:
         prepare()
     try:
-        async with fast.run(environment=request.environment) as agent_app:
+        async with fast.run(
+            environment=request.environment,
+            background_mcp_startup=request.mode == "interactive" and request.is_repl,
+        ) as agent_app:
             await flow(agent_app, request)
     except SessionBusyError as exc:
         fast._handle_error(exc)
@@ -298,7 +306,10 @@ async def run_harness_parallel_cli_flow(
     session_id = initial_harness_session_id(request)
     disabled_resume, original_resume = _disable_core_resume_for_harness_startup(fast)
     try:
-        async with fast.harness(environment=request.environment) as harness:
+        async with fast.harness(
+            environment=request.environment,
+            background_mcp_startup=request.mode == "interactive" and request.is_repl,
+        ) as harness:
             app = harness.app()
             async with app.open(
                 AppOpenRequest(session_id=session_id, agent=request.target_agent_name)
@@ -353,7 +364,10 @@ async def run_parallel_cli_flow(
         return
 
     try:
-        async with fast.run(environment=request.environment) as agent_app:
+        async with fast.run(
+            environment=request.environment,
+            background_mcp_startup=request.mode == "interactive" and request.is_repl,
+        ) as agent_app:
             await flow(agent_app, request, fan_out_agent_names)
     except SessionBusyError as exc:
         fast._handle_error(exc)

@@ -3626,6 +3626,38 @@ async def test_execute_emits_terminal_failed_progress_when_subprocess_start_fail
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("exit_code", [0, 1, None])
+async def test_process_activity_retained_after_completion(exit_code: int | None) -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+    )
+    try:
+        assert not runtime.has_process_activity
+        assert runtime.active_process_count == 0
+        await runtime.call_tool("Bash", {"command": "service", "run_in_background": True})
+        assert runtime.has_process_activity
+        assert runtime.active_process_count == 1
+        if exit_code is None:
+            await runtime.call_tool("Process", {"process_id": "process-1", "action": "stop"})
+        else:
+            environment.exit_code = exit_code
+            environment.release.set()
+            await runtime.call_tool("Process", {"process_id": "process-1", "action": "wait"})
+            environment.release.clear()
+        assert runtime.has_process_activity
+        assert runtime.active_process_count == 0
+        await runtime.call_tool("Bash", {"command": "service", "run_in_background": True})
+        assert runtime.has_process_activity
+        assert runtime.active_process_count == 1
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("configured_max", "expected_wait"),
     [(None, DEFAULT_PROCESS_POLL_MAX_WAIT_SECONDS), (600, 600)],

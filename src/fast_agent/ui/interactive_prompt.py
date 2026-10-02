@@ -266,6 +266,7 @@ class InteractivePrompt:
             agent_types: Dictionary mapping agent names to their types for display
         """
         self.agent_types: dict[str, AgentType] = agent_types or {}
+        self._reported_mcp_auth: set[tuple[str, str]] = set()
 
     def _get_agent_or_warn(self, prompt_provider: "AgentApp", agent_name: str) -> Any | None:
         try:
@@ -779,6 +780,7 @@ class InteractivePrompt:
             shell_cwd_policy=shell_cwd_policy,
         )
         self._emit_startup_warning_digest_once(runtime_state=runtime_state)
+        self._report_mcp_auth_required(prompt_provider, refreshed_state.current_agent)
         return PromptTurnPreparation(agent_state=refreshed_state)
 
     async def _collect_turn_input(
@@ -1015,8 +1017,15 @@ class InteractivePrompt:
             active_send_func = (
                 quiet_send_func if pending.hash_send_quiet and quiet_send_func else send_func
             )
+
+            async def startup_gated_send(
+                message: str | PromptMessage | PromptMessageExtended, target_agent: str
+            ) -> str:
+                await self._wait_for_mcp_startup(prompt_provider, target_agent)
+                return await active_send_func(message, target_agent)
+
             hash_send_execution = await self._execute_hash_send(
-                send_func=active_send_func,
+                send_func=startup_gated_send,
                 target_agent=pending.hash_send_target,
                 message=pending.hash_send_message,
                 quiet=pending.hash_send_quiet,
@@ -1214,6 +1223,7 @@ class InteractivePrompt:
         self._clear_progress_for_agent(agent_name)
         progress_display.resume()
         try:
+            await self._wait_for_mcp_startup(prompt_provider, agent_name)
             result = await send_func(prompt_payload, agent_name)
         except KeyboardInterrupt:
             write_interactive_trace("prompt.send.keyboard_interrupt", agent=agent_name)
@@ -1248,6 +1258,29 @@ class InteractivePrompt:
             set_last_copyable_output(result)
 
         return result
+
+    async def _wait_for_mcp_startup(self, prompt_provider: "AgentApp", agent_name: str) -> None:
+        context = prompt_provider._agent(agent_name).context
+        if context is None or not context.mcp_startup.pending:
+            return
+        rich_print("[dim]Waiting for MCP startup… (Ctrl+C to cancel)[/dim]")
+        await context.mcp_startup.wait()
+        self._report_mcp_auth_required(prompt_provider, agent_name)
+
+    def _report_mcp_auth_required(self, prompt_provider: "AgentApp", agent_name: str) -> None:
+        """Announce, once each, servers that startup left waiting for a login."""
+        context = prompt_provider._agent(agent_name).context
+        if context is None:
+            return
+        for status in context.mcp_startup.snapshot():
+            key = (status.owner, status.server_name)
+            if status.state != "auth" or key in self._reported_mcp_auth:
+                continue
+            self._reported_mcp_auth.add(key)
+            message = Text(f"MCP server '{status.server_name}' requires authentication · ")
+            message.append(f"/mcp auth {status.server_name}", style="bold")
+            message.append(" (--device without a browser)", style="dim")
+            rich_print(message)
 
     @staticmethod
     def _apply_pending_execution_result(

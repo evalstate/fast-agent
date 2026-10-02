@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 
 class _FakeAgent:
     agent_type = AgentType.BASIC
+    context = None
 
     def __init__(self) -> None:
         self.name = "test"
@@ -90,6 +91,9 @@ class _FakeAgentApp:
         self.loaded: list[str] = []
         self.no_home_mode = False
         self.missing_shell_cwd_policy_override: str | None = None
+
+    def _agent(self, agent_name: str | None) -> _FakeAgent:
+        return self._agents[agent_name or next(iter(self._agents))]
 
     async def refresh_if_needed(self) -> bool:
         return False

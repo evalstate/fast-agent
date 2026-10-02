@@ -99,6 +99,10 @@ class ServerInitializationError(FastAgentError):
         super().__init__(message, details)
 
 
+class ServerAuthenticationRequiredError(ServerInitializationError):
+    """A server challenged for credentials and no login was attempted."""
+
+
 class EnvironmentStartupError(FastAgentError):
     """Raised when an execution environment fails to start or attach."""
 

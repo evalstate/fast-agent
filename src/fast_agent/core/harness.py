@@ -523,9 +523,11 @@ class AgentHarness:
         *,
         model: str | None = None,
         environment: EnvironmentSelection = None,
+        background_mcp_startup: bool | None = None,
     ) -> None:
         self._fast_agent = fast_agent
         self._model = model
+        self._background_mcp_startup = background_mcp_startup
         self._environment_selection = environment
         self._sessions: HarnessSessions | None = None
         self._runtime: RunRuntime | None = None
@@ -562,6 +564,7 @@ class AgentHarness:
             self._lifecycle_state = await self._lifecycle.enter(
                 model_override=self._model,
                 force_headless=True,
+                background_mcp_startup=self._background_mcp_startup,
                 before_apply_skills=self._load_environment_agent_cards,
             )
             self._settings = self._lifecycle_state.settings

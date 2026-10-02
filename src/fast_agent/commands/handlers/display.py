@@ -518,3 +518,18 @@ async def handle_commands(
 
     outcome.add_message(content, right_info="commands", render_markdown=True)
     return outcome
+
+
+async def handle_mcp_diagnostics(
+    ctx: CommandContext, *, agent_name: str, value: str
+) -> CommandOutcome:
+    from fast_agent.commands.mcp_diagnostics import render_mcp_diagnostics
+
+    outcome = CommandOutcome()
+    outcome.add_message(
+        render_mcp_diagnostics(
+            ctx.agent_provider._agent(agent_name), split_commandline(value, syntax="posix")
+        ),
+        agent_name=agent_name,
+    )
+    return outcome

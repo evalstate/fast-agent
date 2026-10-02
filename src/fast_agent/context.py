@@ -16,6 +16,7 @@ from fast_agent.core.executor.executor import AsyncioExecutor, Executor
 from fast_agent.core.logging.events import EventFilter, StreamingExclusionFilter
 from fast_agent.core.logging.logger import LoggingConfig, get_logger
 from fast_agent.core.logging.transport import create_transport
+from fast_agent.mcp.startup import MCPStartup
 from fast_agent.mcp_server_registry import ServerRegistry
 from fast_agent.paths import resolve_log_file_path
 from fast_agent.skills import SkillRegistry
@@ -59,6 +60,8 @@ class Context(BaseModel):
     skill_registry: SkillRegistry | None = None
     runtime_mcp_server_names: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     no_shell: bool = False
+    background_mcp_startup: bool = False
+    mcp_startup: MCPStartup = Field(default_factory=MCPStartup)
 
     tracer: trace.Tracer | None = None
     _connection_manager: "MCPConnectionManager | None" = None

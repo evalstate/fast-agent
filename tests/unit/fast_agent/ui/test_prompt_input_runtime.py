@@ -127,3 +127,31 @@ async def test_run_prompt_once_converts_eof_to_eof_command() -> None:
     )
 
     assert isinstance(result, EOFCommand)
+
+
+def test_prompt_redraws_on_mcp_startup_change_without_periodic_refresh() -> None:
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import DummyInput
+    from prompt_toolkit.output import DummyOutput
+
+    from fast_agent.mcp.startup import MCPStartup
+
+    with create_app_session(input=DummyInput(), output=DummyOutput()):
+        prompt = input_runtime.create_prompt_session(
+            history=None,
+            completer=None,
+            lexer=None,
+            multiline_filter=False,
+            toolbar=lambda: "MCP 0/1",
+            style=None,
+        )
+    # Idle prompts must not repaint on a timer (terminal/CPU cost for the whole session).
+    assert not prompt.app.refresh_interval
+    startup = MCPStartup()
+    redraws: list[None] = []
+    unsubscribe = startup.subscribe(lambda: redraws.append(None))
+    startup.set_status("agent", "server", "pending")
+    startup.set_status("agent", "server", "ready")
+    unsubscribe()
+    startup.set_status("agent", "server", "pending")
+    assert len(redraws) == 2

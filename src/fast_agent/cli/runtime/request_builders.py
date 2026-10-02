@@ -365,6 +365,7 @@ def _materialize_startup_mcp_servers(
     client_metadata_url: str | None,
     stdio_commands: list[str] | None,
     protocol_mode: McpProtocolMode | None,
+    connection_policy: Literal["eager", "lazy"] | None = None,
 ) -> StartupMcpMerge:
     url_values = _expand_startup_urls(urls)
     auth_token: str | None = None
@@ -420,6 +421,8 @@ def _materialize_startup_mcp_servers(
     common_overrides: dict[str, Any] = {}
     if protocol_mode is not None:
         common_overrides["protocol_mode"] = protocol_mode
+    if connection_policy is not None:
+        common_overrides["connection_policy"] = connection_policy
 
     for source, target, target_auth, input_url in targets:
         server_name = _allocate_startup_server_name(infer_server_name(target), selected_names)
@@ -466,6 +469,7 @@ def build_agent_run_request(
     auth: str | None,
     client_metadata_url: str | None,
     mcp_protocol: McpProtocolMode | None = None,
+    mcp_connect: Literal["eager", "lazy"] | None = None,
     agent_cards: list[str] | None,
     card_tools: list[str] | None,
     model: str | None,
@@ -506,6 +510,7 @@ def build_agent_run_request(
     subagents: bool | None = None,
     subagent_model: str | None = None,
     model_base_url: str | None = None,
+    model_picker: bool = False,
 ) -> AgentRunRequest:
     """Build a normalized runtime request from legacy CLI kwargs."""
     validate_no_home_conflicts(
@@ -537,6 +542,7 @@ def build_agent_run_request(
         client_metadata_url=client_metadata_url,
         stdio_commands=stdio_commands,
         protocol_mode=mcp_protocol,
+        connection_policy=mcp_connect,
     )
     server_list = mcp_merge.server_list
 
@@ -569,6 +575,7 @@ def build_agent_run_request(
         agent_cards=merged_agent_cards,
         card_tools=merged_card_tools,
         model=model,
+        model_picker=model_picker,
         message=message,
         prompt_file=prompt_file,
         attachments=attachments,
@@ -635,6 +642,7 @@ def build_command_run_request(
     auth: str | None,
     client_metadata_url: str | None,
     mcp_protocol: McpProtocolMode | None = None,
+    mcp_connect: Literal["eager", "lazy"] | None = None,
     agent_cards: list[str] | None,
     card_tools: list[str] | None,
     model: str | None,
@@ -676,6 +684,7 @@ def build_command_run_request(
     subagents: bool | None = None,
     subagent_model: str | None = None,
     model_base_url: str | None = None,
+    model_picker: bool = False,
 ) -> AgentRunRequest:
     """Build a normalized request directly from command option values."""
     validate_no_home_conflicts(
@@ -702,9 +711,11 @@ def build_command_run_request(
         auth=auth,
         client_metadata_url=client_metadata_url,
         mcp_protocol=mcp_protocol,
+        mcp_connect=mcp_connect,
         agent_cards=agent_cards,
         card_tools=card_tools,
         model=model,
+        model_picker=model_picker,
         message=message,
         prompt_file=prompt_file,
         attachments=attachments,
