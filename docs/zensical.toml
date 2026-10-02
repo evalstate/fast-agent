@@ -9,15 +9,13 @@ copyright = "© 2025-2026 llmindset.co.uk"
 extra_css = [
   "stylesheets/brand.css",
   "stylesheets/home.css",
-  "stylesheets/benchmarks.css",
   "assets/vendor/asciinema-player/asciinema-player.css",
   "assets/vendor/asciinema-player/catppuccin.css",
 ]
 extra_javascript = [
   "assets/vendor/asciinema-player/asciinema-player.min.js",
   "javascripts/asciinema-demos.js",
-  "javascripts/benchmark-data.js",
-  "javascripts/benchmarks.js",
+  "javascripts/benchmarks-loader.js",
   "javascripts/migration-command-converter.js",
 ]
 nav = [

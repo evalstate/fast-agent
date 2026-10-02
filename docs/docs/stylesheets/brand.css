@@ -259,3 +259,8 @@ a:focus-visible, button:focus-visible { outline: 3px solid var(--teal); outline-
 .fa-command-converter__actions span { margin-left: 4px; color: var(--fa-ink-muted); font-size: 12px; }
 .md-typeset .fa-command-converter pre { margin: 16px 0 0; }
 .md-typeset .fa-command-converter pre code { min-height: 54px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Benchmarks pages render their own headline; drop the theme's page title and actions.
+   Global so the title never flashes while benchmarks.css loads on demand. */
+body:has(.fb-page) .md-content__inner > h1,
+body:has(.fb-page) .md-content__button { display: none; }
