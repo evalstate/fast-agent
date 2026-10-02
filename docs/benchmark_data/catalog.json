@@ -1,0 +1,370 @@
+{
+  "$comment": "Curated presentation layer for the benchmarks page. Per-trial facts live in runs/*.json (fetch_runs.py); this file adds families, display names, pricing adjustments, vendor claims and curated comparisons. Rebuild the page data with: uv run --no-project python docs/generate_benchmark_data.py",
+  "updated": "2026-09-30",
+  "families": [
+    {
+      "id": "gpt-6",
+      "name": "GPT-6",
+      "maker": "OpenAI",
+      "mark": "openai.svg"
+    },
+    {
+      "id": "gpt-5.6",
+      "name": "GPT-5.6",
+      "maker": "OpenAI",
+      "mark": "openai.svg"
+    },
+    {
+      "id": "grok",
+      "name": "Grok",
+      "maker": "xAI",
+      "mark": "xai.svg"
+    },
+    {
+      "id": "glm",
+      "name": "GLM-5.3",
+      "maker": "Z.ai",
+      "mark": "zai.svg"
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek V4",
+      "maker": "DeepSeek",
+      "mark": "deepseek.svg"
+    },
+    {
+      "id": "anthropic",
+      "name": "Claude",
+      "maker": "Anthropic",
+      "mark": "anthropic.svg"
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini",
+      "maker": "Google",
+      "mark": "googlegemini.svg"
+    }
+  ],
+  "pricing": {
+    "sol-2026-08": {
+      "label": "current Sol prices",
+      "multiplier": 0.8,
+      "note": "OpenAI cut GPT-5.6 Sol token prices by 20% on 24 August 2026 (all bands). Estimated cost applies the new rates to recorded usage; the recorded total is kept.",
+      "url": "https://openai.com/api/pricing/"
+    }
+  },
+  "runs": {
+    "fa-sol-high": {
+      "family": "gpt-5.6",
+      "pricing": "sol-2026-08",
+      "status": "Provisional"
+    },
+    "fa-sol-medium": {
+      "family": "gpt-5.6",
+      "pricing": "sol-2026-08",
+      "status": "Provisional"
+    },
+    "fa-terra-high": {
+      "family": "gpt-5.6",
+      "status": "Provisional"
+    },
+    "luna-max-6h": {
+      "family": "gpt-5.6",
+      "status": "6h timeout"
+    },
+    "fa-grok46-medium": {
+      "family": "grok",
+      "status": "Provisional"
+    },
+    "fa-grok46-high": {
+      "family": "grok",
+      "status": "Provisional"
+    },
+    "glm53-flash-max-6h": {
+      "family": "glm",
+      "status": "6h timeout"
+    },
+    "fa-deepseek-v4-flash-max": {
+      "family": "deepseek",
+      "status": "Provisional",
+      "costFrom": "published"
+    },
+    "deepseek-v4-flash-vision-max-6h": {
+      "family": "deepseek",
+      "model": "DeepSeek V4 Flash Vision",
+      "status": "6h timeout"
+    },
+    "cc-fable5-xhigh": {
+      "family": "anthropic",
+      "costFrom": "published"
+    },
+    "cc-opus48-high": {
+      "family": "anthropic",
+      "costFrom": "published"
+    },
+    "cc-sonnet5-high": {
+      "family": "anthropic",
+      "costFrom": "published"
+    },
+    "terminus2-fable5-high": {
+      "family": "anthropic",
+      "costFrom": "published"
+    },
+    "codex-terra-max": {
+      "family": "gpt-5.6",
+      "costFrom": "published",
+      "harnessVersion": "0.144.x"
+    }
+  },
+  "claims": [
+    {
+      "id": "openai-sol-high",
+      "family": "gpt-5.6",
+      "source": "OpenAI",
+      "sourceKind": "vendor",
+      "title": "GPT-5.6 launch post",
+      "url": "https://openai.com/index/gpt-5-6/",
+      "model": "GPT-5.6 Sol",
+      "effort": "high",
+      "score": 84.7,
+      "costPerTask": 1.09,
+      "pricing": "sol-2026-08",
+      "date": "2026-07-30",
+      "note": "Score and API cost per task read from OpenAI's launch chart. Harness, attempts and run selection not stated.",
+      "pairsWith": "fa-sol-high"
+    },
+    {
+      "id": "openai-sol-medium",
+      "family": "gpt-5.6",
+      "source": "OpenAI",
+      "sourceKind": "vendor",
+      "title": "GPT-5.6 launch post",
+      "url": "https://openai.com/index/gpt-5-6/",
+      "model": "GPT-5.6 Sol",
+      "effort": "medium",
+      "score": 81.8,
+      "costPerTask": 0.89,
+      "pricing": "sol-2026-08",
+      "date": "2026-07-30",
+      "note": "Score and API cost per task read from OpenAI's launch chart. Harness, attempts and run selection not stated.",
+      "pairsWith": "fa-sol-medium"
+    },
+    {
+      "id": "openai-terra-high",
+      "family": "gpt-5.6",
+      "source": "OpenAI",
+      "sourceKind": "vendor",
+      "title": "GPT-5.6 launch post",
+      "url": "https://openai.com/index/gpt-5-6/",
+      "model": "GPT-5.6 Terra",
+      "effort": "high",
+      "score": 76.67,
+      "costPerTask": 0.63,
+      "date": "2026-07-30",
+      "note": "Score and API cost per task from OpenAI's interactive Terminal-Bench 2.1 cost chart. Harness, attempts and run selection not stated.",
+      "pairsWith": "fa-terra-high"
+    }
+  ],
+  "comparisons": [
+    {
+      "id": "gpt56-vs-openai",
+      "kind": "pairs",
+      "title": "GPT-5.6: our runs vs OpenAI's chart",
+      "claim": "At all three settings OpenAI charted, fast-agent scored higher and cost less per task.",
+      "pairs": [
+        [
+          "fa-sol-high",
+          "openai-sol-high"
+        ],
+        [
+          "fa-sol-medium",
+          "openai-sol-medium"
+        ],
+        [
+          "fa-terra-high",
+          "openai-terra-high"
+        ]
+      ],
+      "caveat": "OpenAI's figures are launch-chart claims without trial data; ours are 445 trials each, submitted but not on the official leaderboard."
+    },
+    {
+      "id": "sol-vs-fable",
+      "kind": "h2h",
+      "title": "Sol high on fast-agent vs Fable 5 on Claude Code",
+      "claim": "Same 89 tasks, five attempts each. fast-agent + Sol high scores 4.4 points higher at less than half the published cost.",
+      "a": "fa-sol-high",
+      "b": "cc-fable5-xhigh",
+      "caveat": "Different models and reasoning settings; this compares complete configurations, not harnesses."
+    },
+    {
+      "id": "value-6h",
+      "kind": "set",
+      "title": "Six-hour value runs",
+      "claim": "Three low-cost models, 82–85% with a six-hour agent timeout, for $30–$78 a run.",
+      "runs": [
+        "glm53-flash-max-6h",
+        "deepseek-v4-flash-vision-max-6h",
+        "luna-max-6h"
+      ],
+      "caveat": "Non-standard six-hour timeout. Not comparable with standard-timeout leaderboard rows."
+    },
+    {
+      "id": "grok-vs-opus",
+      "kind": "h2h",
+      "title": "Grok 4.6 medium vs Opus 4.8 on Claude Code",
+      "claim": "Grok 4.6 medium on fast-agent solves 39 more trials than Opus 4.8 on Claude Code, for about two-thirds of the cost.",
+      "a": "fa-grok46-medium",
+      "b": "cc-opus48-high",
+      "caveat": "Different models; compares complete configurations."
+    },
+    {
+      "id": "tb4-astra",
+      "kind": "h2h",
+      "benchmark": "terminal-bench-4.0-subset",
+      "title": "TB4 subset: GPT-6 Astra on fast-agent vs Codex",
+      "claim": "SAMPLE DATA. Same model and effort, same 19 tasks: where the harness makes the difference.",
+      "a": "tb4-sample-fast-agent-gpt-6-astra-high",
+      "b": "tb4-codex-gpt-6-astra-high",
+      "caveat": "The fast-agent side is synthesised sample data for layout review."
+    },
+    {
+      "id": "tb4-glm",
+      "kind": "set",
+      "benchmark": "terminal-bench-4.0-subset",
+      "title": "TB4 subset: GLM-5.3 max",
+      "claim": "SAMPLE DATA. GLM-5.3 at max reasoning on fast-agent and on Claude Code, on the same 19 tasks.",
+      "runs": [
+        "tb4-sample-fast-agent-glm-5-3-max",
+        "tb4-claude-code-glm-5-3-max"
+      ],
+      "caveat": "The fast-agent row is synthesised sample data for layout review."
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "terminal-bench-2.1",
+      "short": "Terminal-Bench 2.1",
+      "name": "Terminal-Bench 2.1",
+      "attempts": 5,
+      "url": "https://hub.harborframework.com/datasets/terminal-bench/terminal-bench-2-1/6?tab=leaderboard&leaderboard=main",
+      "dir": ".",
+      "blurb": "89 tasks, five attempts each, with every trial published.",
+      "slug": "tb2.1",
+      "taskLabel": "89 tasks × 5 attempts",
+      "cheapBand": 60,
+      "methodology": {
+        "title": "How we ran and scored Terminal-Bench 2.1.",
+        "page": "methodology/terminal-bench-2-1/",
+        "points": [
+          {
+            "title": "Scoring",
+            "text": "Every run is 89 tasks × 5 attempts. Scores count all 445 slots, so a missing or errored attempt scores zero. ± is one standard error, clustered by task."
+          },
+          {
+            "title": "Our runs",
+            "text": "Submitted to the Terminal-Bench 2.1 leaderboard, which closed community submissions before review, so they're provisional. Every trial is public on the Harbor Hub."
+          },
+          {
+            "title": "Comparators and claims",
+            "text": "Leaderboard rows use the trials the official row lists and its published score and cost. Vendor claims are shown as published, with no trials behind them."
+          },
+          {
+            "title": "Costs",
+            "text": "Our costs are Harbor's recorded token costs, not billed spend; ~ marks an estimate. Six-hour runs use a non-standard 21,600-second timeout and aren't comparable with standard rows."
+          }
+        ]
+      }
+    },
+    {
+      "id": "terminal-bench-4.0-subset",
+      "short": "Terminal-Bench 4 · subset",
+      "name": "Terminal-Bench 4.0 · 19-task subset",
+      "attempts": 5,
+      "url": "https://hub.harborframework.com/datasets/terminal-bench/terminal-bench/leaderboards/4-0-0",
+      "dir": "tb4",
+      "subset": "subset.json",
+      "full": {
+        "name": "Terminal-Bench 4.0",
+        "short": "full 66-task run"
+      },
+      "blurb": "19 of Terminal-Bench 4.0's 66 tasks, five attempts each. Leaderboard rows are cut to the same 19 tasks; their full 66-task runs are on each run page.",
+      "slug": "tb4",
+      "taskLabel": "19 tasks × 5 attempts",
+      "methodology": {
+        "title": "Why 19 tasks, and how far to trust them.",
+        "page": "methodology/terminal-bench-4-subset/",
+        "points": [
+          {
+            "title": "The subset",
+            "text": "19 of Terminal-Bench 4.0's 66 tasks, five attempts each. Every task runs in a single container without a GPU on HF Jobs, and none drew a safety refusal on the leaderboard."
+          },
+          {
+            "title": "Representative?",
+            "text": "On 26 leaderboard rows, subset scores land within ±5 points of the full score for 22 and rank runs in nearly the same order (Spearman 0.93). Only 6% of random 19-task picks track it more closely."
+          },
+          {
+            "title": "Cost",
+            "text": "A subset run costs about 15% of a full run; a full run costs a median 6.4× as much. Comparator costs here are the recorded trial costs on the 19 tasks."
+          },
+          {
+            "title": "Caveats",
+            "text": "The subset was chosen with this leaderboard in view, so agreement is optimistic for a new model. Subset error bars are wide: about ±10 points."
+          }
+        ]
+      }
+    }
+  ],
+  "familyByModel": {
+    "GPT-6": "gpt-6",
+    "GPT-5.6": "gpt-5.6",
+    "Grok": "grok",
+    "GLM": "glm",
+    "DeepSeek": "deepseek",
+    "Fable": "anthropic",
+    "Opus": "anthropic",
+    "Sonnet": "anthropic",
+    "Gemini": "gemini"
+  },
+  "samples": [
+    {
+      "$comment": "SAMPLE DATA for layout review only. Synthesised from the matching leaderboard row; delete before launch.",
+      "id": "tb4-sample-fast-agent-gpt-6-astra-high",
+      "benchmark": "terminal-bench-4.0-subset",
+      "basedOn": "tb4-codex-gpt-6-astra-high",
+      "harness": "fast-agent",
+      "harnessVersion": "0.10.41",
+      "model": "GPT-6 Astra",
+      "effort": "high",
+      "date": "2026-09-29",
+      "lift": 0.08,
+      "costFactor": 0.58,
+      "seed": 41
+    },
+    {
+      "id": "tb4-sample-fast-agent-glm-5-3-max",
+      "benchmark": "terminal-bench-4.0-subset",
+      "basedOn": "tb4-claude-code-glm-5-3-max",
+      "harness": "fast-agent",
+      "harnessVersion": "0.10.41",
+      "model": "GLM-5.3",
+      "effort": "max",
+      "date": "2026-09-29",
+      "lift": 0.06,
+      "costFactor": 0.45,
+      "seed": 53
+    },
+    {
+      "id": "tb4-sample-fast-agent-grok-4-7-xhigh",
+      "benchmark": "terminal-bench-4.0-subset",
+      "basedOn": "tb4-grok-build-grok-4-7-xhigh",
+      "harness": "fast-agent",
+      "harnessVersion": "0.10.41",
+      "model": "Grok 4.7",
+      "effort": "xhigh",
+      "date": "2026-09-30",
+      "lift": 0.1,
+      "costFactor": 0.7,
+      "seed": 47
+    }
+  ]
+}

@@ -1,0 +1,266 @@
+{
+  "benchmark": "terminal-bench-2.1",
+  "task_count": 89,
+  "attempts_per_task": 5,
+  "tasks_from_jobs": [
+    "aea81782-d18a-44ca-9417-9f6793342a1b",
+    "c368f3bb-2a37-447e-9769-dfa6f1f1cd8a"
+  ],
+  "leaderboard": "terminal-bench/terminal-bench-2-1/main",
+  "leaderboard_repo": "harbor-framework/terminal-bench-2-1",
+  "runs": [
+    {
+      "id": "glm53-flash-max-6h",
+      "harness": "fast-agent",
+      "model": "GLM-5.3-Flash",
+      "effort": "max",
+      "date": "2026-08-27",
+      "timeout": "6h",
+      "jobs": [
+        "aea81782-d18a-44ca-9417-9f6793342a1b",
+        "c368f3bb-2a37-447e-9769-dfa6f1f1cd8a"
+      ],
+      "expected": {"passes": 376, "total_cost_usd": 77.53, "trials_with_cost": 432},
+      "published": {"score": 84.49, "total_cost": 77.53, "source_url": null},
+      "notes": ["Six-hour agent timeout (override_timeout_sec=21600); not a leaderboard-eligible configuration."],
+      "scan": true
+    },
+    {
+      "id": "deepseek-v4-flash-vision-max-6h",
+      "harness": "fast-agent",
+      "model": "DeepSeek V4 Flash Vision (exp)",
+      "effort": "max",
+      "date": "2026-08-28",
+      "timeout": "6h",
+      "jobs": [
+        "852e75c9-ca0e-4551-9393-21835a9857e2",
+        "5cf4a449-18d4-4f14-80be-3f57581b7f16",
+        "4359bceb-7ca0-478e-9c27-44a19d4d4568"
+      ],
+      "exclude_trials": [
+        {
+          "id": "25fd3399-9b17-45a3-9a2f-dfb9cf57cd8a",
+          "reason": "AgentSetupTimeoutError (infrastructure); replaced by the merge-diff-arc-agi-task trial in replacement job 4359bceb. Excluded from score/coverage, cost still counted."
+        }
+      ],
+      "expected": {"passes": 370, "total_cost_usd": 53.68, "trials_with_cost": 386},
+      "published": {"score": 83.15, "total_cost": 53.68, "source_url": null},
+      "notes": ["Six-hour agent timeout (override_timeout_sec=21600); not a leaderboard-eligible configuration."],
+      "scan": true
+    },
+    {
+      "id": "luna-max-6h",
+      "harness": "fast-agent",
+      "model": "GPT-5.6 Luna",
+      "effort": "max",
+      "date": "2026-08-28",
+      "timeout": "6h",
+      "jobs": [
+        "059f8d77-1de3-40ea-953e-3261675843cb",
+        "ae7acad7-64e4-4834-867b-d8c96f12e52c",
+        "37e6871b-a41d-4e49-adfd-b30206d5c2c0"
+      ],
+      "exclude_trials": [
+        {
+          "id": "3566a1e0-3572-47c1-85ed-c62afcee8687",
+          "reason": "RuntimeError (infrastructure); replaced by the winning-avg-corewars trial in replacement job 37e6871b. Excluded from score/coverage, cost still counted."
+        }
+      ],
+      "expected": {"passes": 366, "total_cost_usd": 29.54, "trials_with_cost": 424},
+      "published": {"score": 82.25, "total_cost": 29.54, "source_url": null},
+      "notes": ["Six-hour agent timeout (override_timeout_sec=21600); not a leaderboard-eligible configuration."],
+      "scan": true
+    },
+    {
+      "id": "cc-fable5-xhigh",
+      "harness": "Claude Code",
+      "model": "Fable 5",
+      "effort": "xhigh",
+      "timeout": "standard",
+      "leaderboard_row": "40dbe33d-e8af-475b-8eba-7d5d8f70054c",
+      "submission_file": "leaderboard/submissions/2026-06-07-anthropic-claude-fable-5-xhigh-claude-code.json",
+      "expected": {"passes": 373, "errors": {"AgentTimeoutError": 33}, "harness_version": "2.1.167"},
+      "cost_reconciles": false,
+      "notes": [
+        "Published total ($552.67) back-fills null Fable cost_usd at list rates (PR #79, cost-fixed job 830e4b9c, not publicly readable). The public scrubbed Hub job records only LiteLLM-priced trials, so the recorded total here is lower and mixes pricing bases. Recorded as-is."
+      ],
+      "scan": true
+    },
+    {
+      "id": "cc-opus48-high",
+      "harness": "Claude Code",
+      "model": "Opus 4.8",
+      "effort": "high",
+      "timeout": "standard",
+      "leaderboard_row": "dcd48d03-9df9-46ab-bc4c-ade6dc35b8da",
+      "submission_file": "leaderboard/submissions/2026-07-09-anthropic-claude-opus-4-8-high-claude-code.json",
+      "expected": {"passes": 351, "total_cost_usd": 286.94, "errors": {"AgentTimeoutError": 34, "UnknownApiError": 1}, "harness_version": "2.1.205"},
+      "scan": true
+    },
+    {
+      "id": "cc-sonnet5-high",
+      "harness": "Claude Code",
+      "model": "Sonnet 5",
+      "effort": "high",
+      "timeout": "standard",
+      "leaderboard_row": "d7540f21-67af-4b3a-ad31-b81b85fef895",
+      "submission_file": "leaderboard/submissions/2026-07-09-anthropic-claude-sonnet-5-high-claude-code.json",
+      "expected": {"passes": 332, "total_cost_usd": 288.18, "errors": {"AgentTimeoutError": 42, "UnknownApiError": 6}, "harness_version": "2.1.205"},
+      "scan": true
+    },
+    {
+      "id": "codex-terra-max",
+      "harness": "Codex",
+      "model": "GPT-5.6 Terra",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "23ab6a14-4b2d-461d-9171-f8109f5692f1",
+      "submission_file": "leaderboard/submissions/2026-07-11-openai-gpt-5-6-terra-max-codex.json",
+      "expected": {"passes": 349, "total_cost_usd": 421.15, "errors": {"AgentTimeoutError": 12}, "harness_version": "0.144.1"},
+      "notes": [
+        "Public scrubbed Hub job 77fc16b9 holds both the Terra and Luna Codex runs; trials are selected by the leaderboard row's trial associations.",
+        "The leaderboard row's trial associations (re-set 2026-08-12) resolve to a mix of Codex 0.144.0 / 0.144.1 / unknown Terra trials whose error mix (15 timeouts, 12 non-zero exits, setup/verifier timeouts) differs from PR #115's submitted set (Codex 0.144.1, 12 AgentTimeoutError only). The submitted source job dd8bc272 is not publicly readable. Pass count still matches (350 rewarded, 349 after one DQ), but the per-trial set is not the submitted one.",
+        "Recorded cost of these public trials ($406.51, 434 of 445 costed) is below the published $421.15."
+      ],
+      "scan": false
+    },
+    {
+      "id": "terminus2-fable5-high",
+      "harness": "Terminus 2",
+      "model": "Fable 5",
+      "effort": "high",
+      "timeout": "standard",
+      "leaderboard_row": "ce0677b9-0fea-46ce-b8de-893c4d68e77a",
+      "submission_file": "leaderboard/submissions/2026-06-05-anthropic-claude-fable-5-high-terminus-2.json",
+      "expected": {"passes": 358, "errors": {"AgentTimeoutError": 46}, "harness_version": "2.0.0"},
+      "cost_reconciles": false,
+      "notes": [
+        "Published total ($438.64) back-fills null Fable cost_usd at list rates (PR #79, cost-fixed job b65a33b9, not publicly readable). The public scrubbed Hub job records cost only for Opus-fallback calls (79 of 445 trials). Recorded as-is.",
+        "Run uses Anthropic server-side fallback to Opus (anthropic-beta server-side-fallback-2026-06-02)."
+      ],
+      "scan": true
+    },
+    {
+      "id": "fa-sol-high",
+      "harness": "fast-agent",
+      "model": "GPT-5.6 Sol",
+      "effort": "high",
+      "date": "2026-07-26",
+      "timeout": "standard",
+      "pr": 174,
+      "jobs": [
+        "3bf916e7-c459-5538-a3d1-cf93421455db",
+        "a5d5b93c-cfa2-45f8-84e9-1545eefc77b1"
+      ],
+      "expected": {"passes": 393, "total_cost_usd": 270.13526},
+      "published": {"score": 88.31, "total_cost": 270.13526, "source_url": "https://github.com/harbor-framework/terminal-bench-2-1/pull/174"},
+      "notes": ["PR closed unmerged (community submissions closed); not on the official leaderboard."],
+      "scan": true
+    },
+    {
+      "id": "fa-sol-medium",
+      "harness": "fast-agent",
+      "model": "GPT-5.6 Sol",
+      "effort": "medium",
+      "date": "2026-07-23",
+      "timeout": "standard",
+      "pr": 170,
+      "jobs": [
+        "79ac4cfd-717c-4871-a15c-4d958c5daea9",
+        "4aebc840-a08b-4f17-9857-62659e82e2a8"
+      ],
+      "expected": {"passes": 365, "total_cost_usd": 211.321445},
+      "published": {"score": 82.02, "total_cost": 211.321445, "source_url": "https://github.com/harbor-framework/terminal-bench-2-1/pull/170"},
+      "notes": ["PR closed unmerged (community submissions closed); not on the official leaderboard."],
+      "scan": true
+    },
+    {
+      "id": "fa-grok46-medium",
+      "harness": "fast-agent",
+      "model": "Grok 4.6",
+      "effort": "medium",
+      "date": "2026-08-24",
+      "timeout": "standard",
+      "pr": 221,
+      "jobs": [
+        "f479fade-c370-415d-98a7-1caaf9286a48",
+        "3c6ffc62-d61f-5932-8aee-dd8c25324e6e",
+        "7d400392-528f-4d45-9b88-61e3f199eb89",
+        "f77cf10c-48db-42e1-b10f-9d3d1b658eea",
+        "6235546b-63bf-4164-84be-e373b78447fa",
+        "96f6c7e4-ee7c-4c64-8533-309042ebde91"
+      ],
+      "expected": {"passes": 390, "total_cost_usd": 193.4, "errors": {"AgentTimeoutError": 19, "NonZeroAgentExitCodeError": 4}},
+      "published": {"score": 87.64, "total_cost": 193.4, "source_url": "https://github.com/harbor-framework/terminal-bench-2-1/pull/221"},
+      "notes": [
+        "Source jobs from the submitter PR #220 (promoted to #221). Shard 02 is a filtered public mirror carrying two infrastructure replacements for merge-diff-arc-agi-task.",
+        "PR closed unmerged (community submissions closed); not on the official leaderboard."
+      ],
+      "scan": true
+    },
+    {
+      "id": "fa-grok46-high",
+      "harness": "fast-agent",
+      "model": "Grok 4.6",
+      "effort": "high",
+      "date": "2026-08-16",
+      "timeout": "standard",
+      "pr": 212,
+      "jobs": [
+        "fe3e5da8-1520-45bb-a8c2-41bfde29bb8d",
+        "3f204b69-9598-4d13-831c-193825dcc027",
+        "a41185d2-abb9-4fc4-b13f-1b6ea59542a5",
+        "023e8d6e-a167-54a1-a6f1-f5ce4a85920d",
+        "6d688af9-80a4-41fd-8ed6-a5230d199234",
+        "0918b50c-a9f6-5e07-b7b3-987fabccd272"
+      ],
+      "expected": {"passes": 388, "total_cost_usd": 238.316166, "errors": {"AgentTimeoutError": 26, "NonZeroAgentExitCodeError": 6}},
+      "published": {"score": 87.19, "total_cost": 238.32, "source_url": "https://github.com/harbor-framework/terminal-bench-2-1/pull/212"},
+      "notes": [
+        "Source jobs from the final head of submitter PR #211 (promoted to #212), which includes two 'selected' mirrors carrying authorized infrastructure replacements.",
+        "PR closed unmerged (community submissions closed); not on the official leaderboard."
+      ],
+      "scan": true
+    },
+    {
+      "id": "fa-deepseek-v4-flash-max",
+      "harness": "fast-agent",
+      "model": "DeepSeek V4 Flash",
+      "effort": "max",
+      "date": "2026-08-02",
+      "timeout": "standard",
+      "pr": 189,
+      "jobs": [
+        "1e338a36-0d7e-432c-8178-fc434457fcda",
+        "a210c698-2274-4f51-8a08-747e9cfd06df"
+      ],
+      "expected": {"passes": 336, "total_cost_usd": 8.73520228},
+      "published": {"score": 75.51, "total_cost": 8.73520228, "source_url": "https://github.com/harbor-framework/terminal-bench-2-1/pull/189"},
+      "notes": [
+        "PR closed unmerged (community submissions closed); not on the official leaderboard.",
+        "Hub records $8.571 over 434 costed trials; the PR states a calculated trial cost of $8.73520228. The 11 uncosted trials (timeouts / non-zero exits) also have no Hub token counts, so the $0.164 difference is not reproducible from Hub records."
+      ],
+      "scan": true
+    },
+    {
+      "id": "fa-terra-high",
+      "harness": "fast-agent",
+      "model": "GPT-5.6 Terra",
+      "effort": "high",
+      "date": "2026-07-18",
+      "timeout": "standard",
+      "pr": 160,
+      "jobs": [
+        "2d5b74f0-3fee-51fd-a479-50ce8e5b569b",
+        "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
+      ],
+      "expected": {"passes": 346, "total_cost_usd": 133.81, "errors": {"AgentTimeoutError": 6, "NonZeroAgentExitCodeError": 1}},
+      "published": {"score": 77.75, "total_cost": 133.81, "source_url": "https://github.com/harbor-framework/terminal-bench-2-1/pull/160"},
+      "notes": [
+        "Source jobs from submitter PR #159 (promoted to #160): a filtered public Daytona mirror plus the unchanged local partition.",
+        "PR closed unmerged (community submissions closed); not on the official leaderboard."
+      ],
+      "scan": true
+    }
+  ]
+}

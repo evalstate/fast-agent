@@ -15,7 +15,7 @@ body:has(.forward-home) .md-header__topic + .md-header__topic { display: none; }
 .fa-background-sparks span:nth-child(3) { left: 39%; bottom: 18px; width: 34px; height: 34px; transform: rotate(-12deg); }
 
 /* ── Top row ──────────────────────────────────────────────────────────── */
-.fa-front-grid { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 3fr) minmax(0, 3fr); gap: 22px; margin-bottom: 36px; }
+.fa-front-grid { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 3fr) minmax(0, 3fr); gap: 0 22px; margin-bottom: 36px; }
 
 /* Wordmark splash and typed tagline. */
 .fa-brand-splash { position: relative; container-type: inline-size; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; padding: 10px 12px; text-align: center; }
@@ -41,12 +41,15 @@ body:has(.forward-home) .md-header__topic + .md-header__topic { display: none; }
 @keyframes fa-cursor-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 @keyframes fa-cursor-fade { to { opacity: 0; } }
 
-/* Shared card frame for the top row: ivory stock with a petrol keyline (ivory on petrol). */
-.fa-campaign, .fa-start { display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; color: var(--petrol); border: 2px solid var(--petrol); border-radius: 10px; }
+/* Shared card frame for the top row: ivory stock with a petrol keyline (ivory on petrol).
+   Both cards are an illustration panel over a coloured footer; a subgrid shares the
+   two rows between them so the panels and footers line up at the same heights. */
+.fa-brand-splash { grid-row: span 2; }
+.fa-campaign, .fa-start { display: grid; grid-row: span 2; grid-template-rows: subgrid; row-gap: 0; overflow: hidden; color: var(--petrol); border: 2px solid var(--petrol); border-radius: 10px; }
 [data-md-color-scheme="slate"] :is(.fa-campaign, .fa-start, .fa-support-card) { border-color: var(--ivory); }
 
 /* Campaign card: presenter with an illustrative chart; the caption links to the data. */
-.forward-home a.fa-atomic-campaign { position: relative; border: 0; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 12px; color: var(--petrol); background: #fdfae9; text-decoration: none; }
+.forward-home a.fa-atomic-campaign { position: relative; border: 0; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 14px 12px 18px; color: var(--petrol); background: #fdfae9; text-decoration: none; }
 .fa-atomic-campaign:focus-visible { outline: 3px solid var(--teal); outline-offset: -5px; }
 .fa-approved-character { position: relative; width: 68%; max-width: 205px; aspect-ratio: 450 / 500; overflow: hidden; }
 .fa-approved-character img { position: absolute; left: -13%; top: -1.6%; width: 341.333%; max-width: none; height: auto; }
@@ -55,24 +58,32 @@ body:has(.forward-home) .md-header__topic + .md-header__topic { display: none; }
 .fa-atomic-message { padding-top: 8px; text-align: center; }
 .forward-home .fa-atomic-message h2 { font-size: clamp(24px, 2.1vw, 30px); letter-spacing: -.045em; }
 .fa-atomic-rule { display: block; width: 72%; height: 8px; margin: 10px auto 0; background: var(--amber); border-radius: 6px; }
-.fa-atomic-spark { position: absolute; left: 14px; top: 22px; width: 28px; height: 28px; }
-.fa-live-burst { position: absolute; top: 12px; right: 8px; display: grid; place-items: center; width: 78px; height: 78px; color: var(--ivory); background: url('../assets/forward/assets/burst-star.svg') center / contain no-repeat; filter: drop-shadow(3px 3px 0 var(--amber)); font: 16px/1 var(--font-shout); transform: rotate(-8deg); animation: fa-home-burst-pop var(--dur-pop) var(--ease-pop) 100ms backwards; transition: transform var(--dur-ui) var(--ease-pop); }
+/* Corner furniture mirrors across the pair: burst outside corners, sparks inside. */
+.fa-atomic-spark { position: absolute; right: 16px; top: 20px; width: 28px; height: 28px; }
+.fa-live-burst { position: absolute; top: 8px; left: 8px; display: grid; place-items: center; width: 70px; height: 70px; color: var(--ivory); background: url('../assets/forward/assets/burst-star.svg') center / contain no-repeat; filter: drop-shadow(3px 3px 0 var(--amber)); font: 16px/1 var(--font-shout); transform: rotate(-8deg); animation: fa-home-burst-pop var(--dur-pop) var(--ease-pop) 100ms backwards; transition: transform var(--dur-ui) var(--ease-pop); }
 @media (hover: hover) { .fa-atomic-campaign:hover .fa-live-burst { transform: scale(1.08) rotate(-3deg); } }
 .fa-atomic-campaign:focus-visible .fa-live-burst { transform: scale(1.08) rotate(-3deg); }
 @keyframes fa-home-burst-pop { from { opacity: 0; transform: scale(.65) rotate(-22deg); } to { opacity: 1; transform: scale(1) rotate(-8deg); } }
-.fa-campaign-caption { padding: 14px 18px; background: var(--amber); border-top: 2px solid var(--petrol); }
+.fa-campaign-caption { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 18px; background: var(--amber); border-top: 2px solid var(--petrol); text-align: center; }
 .forward-home .fa-campaign-caption p { margin: 0; color: var(--petrol); font-size: 15px; }
 .forward-home .fa-campaign-caption a { display: inline-block; border: 0; margin-top: 10px; color: var(--petrol); font-size: 14px; font-weight: 800; text-decoration: underline 2px; text-underline-offset: 5px; }
 
 /* Install card: retro workstation, then the command on a petrol strip. */
 .fa-start { background: #fdfae9; }
-.fa-start-copy { position: relative; min-height: 76px; padding: 24px 86px 8px 20px; }
-.forward-home .fa-start h2 { font-size: clamp(28px, 2.6vw, 36px); letter-spacing: -.035em; white-space: nowrap; }
-.forward-home a.fa-uv-burst { position: absolute; top: 8px; right: 9px; isolation: isolate; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 70px; height: 70px; color: var(--petrol); font-size: 10px; font-weight: 700; line-height: 1.1; text-align: center; text-decoration: none; border: 0; transform: rotate(7deg); transition: transform 180ms ease; }
+/* Illustration fills the panel; the headline and rule sit on the panel's floor so
+   both cards' rules share a baseline whatever the headline length. */
+.fa-start-top { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 14px 12px 18px; }
+.fa-start-top .fa-space-workstation, .fa-atomic-campaign .fa-approved-character { margin-top: auto; }
+.fa-start-spark { position: absolute; left: 16px; top: 20px; width: 28px; height: 28px; }
+.fa-start-message { padding-top: 8px; text-align: center; }
+.forward-home .fa-start h2 { font-size: clamp(24px, 2.1vw, 30px); letter-spacing: -.045em; white-space: nowrap; }
+.fa-start-message .fa-atomic-rule { width: 100%; }
+.forward-home a.fa-uv-burst { position: absolute; top: 8px; right: 8px; z-index: 1; isolation: isolate; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 80px; height: 80px; color: var(--petrol); font-size: 10px; font-weight: 700; line-height: 1.1; text-align: center; text-decoration: none; border: 0; transform: rotate(7deg); transition: transform 180ms ease; }
 .fa-uv-burst::before, .fa-uv-burst::after { content: ''; position: absolute; inset: 0; z-index: -1; mask: url('../assets/forward/assets/burst-score.svg') center / contain no-repeat; }
 .fa-uv-burst::before { background: var(--petrol); transform: translate(2px, 4px); transition: transform 180ms ease; }
 .fa-uv-burst::after { background: var(--amber); }
-.md-typeset .fa-uv-burst strong { display: flex; align-items: center; gap: 3px; color: var(--petrol); font-size: 25px; }
+.fa-uv-burst span { font-size: 10px; line-height: 1.05; }
+.md-typeset .fa-uv-burst strong { display: flex; align-items: center; gap: 3px; margin-top: 1px; color: var(--petrol); font-size: 25px; line-height: .9; }
 .fa-uv-burst small { font: 700 11px/1 sans-serif; }
 .forward-home a.fa-uv-burst:hover { color: var(--petrol); transform: translateY(-3px) rotate(0deg); }
 .fa-uv-burst:hover::before { transform: translate(3px, 6px); }
@@ -80,14 +91,14 @@ body:has(.forward-home) .md-header__topic + .md-header__topic { display: none; }
 .fa-uv-burst:active::before { transform: translate(1px, 1px); }
 .forward-home a.fa-uv-burst:focus-visible { outline: 2px solid var(--teal); outline-offset: 4px; border-radius: 50%; }
 
-.fa-space-workstation { position: relative; width: 84%; margin: 0 auto 4px; }
+.fa-space-workstation { position: relative; width: 84%; max-width: 290px; margin: 0 auto 4px; }
 .fa-space-terminal { display: block; width: 100%; height: auto; }
 .fa-terminal-lamps { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .fa-terminal-lamps circle { fill: var(--petrol); opacity: .72; animation: fa-panel-lamp var(--lamp-period) ease-in-out var(--lamp-delay) infinite; }
 @keyframes fa-panel-lamp { 0%, 36%, 100% { opacity: .72; } 42%, 62% { opacity: 0; } 70%, 82% { opacity: .5; } }
 
-.fa-install-stage { container-type: inline-size; }
-.fa-start-terminal { padding: 12px 12px 14px; color: var(--ivory); background: var(--petrol); }
+.fa-install-stage { container-type: inline-size; display: flex; }
+.fa-start-terminal { display: flex; flex: 1; flex-direction: column; justify-content: center; padding: 12px 12px 14px; color: var(--ivory); background: var(--petrol); }
 .forward-home .fa-run-caption { margin: 0 0 10px; color: var(--ivory); font-size: 13px; text-align: center; }
 .md-typeset .fa-start-terminal pre { position: relative; display: flex; align-items: center; justify-content: center; min-height: 64px; margin: 0; padding: 16px 46px 16px 8px; border: 1px solid var(--ivory); border-radius: 7px; }
 .md-typeset .fa-start-terminal pre > code { flex: none; overflow: visible; padding: 0 !important; color: var(--ivory) !important; background: transparent !important; border: 0; border-radius: 0; font-weight: 500; text-align: center; font-size: clamp(12px, 4.2cqi, 20px); line-height: 1.5; letter-spacing: -.025em; white-space: pre; }
@@ -146,10 +157,11 @@ body:has(.forward-home) .md-header__topic + .md-header__topic { display: none; }
   .fa-front-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .fa-brand-splash { grid-column: 1 / -1; }
   .forward-home .fa-brand-splash h1 { width: 300px; font-size: 94px; }
+  .fa-brand-splash { margin-bottom: 22px; }
 }
 @media (max-width: 760px) {
   .fa-front-grid, .fa-editorial-cards { grid-template-columns: minmax(0, 1fr); }
-  .fa-campaign { display: block; }
+  .fa-front-grid { row-gap: 22px; }
   .fa-background-sparks span:nth-child(1) { left: auto; right: 0; top: 240px; width: 30px; height: 30px; }
   .fa-background-sparks span:nth-child(n + 2) { display: none; }
   .fa-toolkit { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }

@@ -16,8 +16,8 @@ extra_css = [
 extra_javascript = [
   "assets/vendor/asciinema-player/asciinema-player.min.js",
   "javascripts/asciinema-demos.js",
-  "javascripts/homepage-benchmark-data.js",
-  "javascripts/homepage-benchmark.js",
+  "javascripts/benchmark-data.js",
+  "javascripts/benchmarks.js",
   "javascripts/migration-command-converter.js",
 ]
 nav = [
