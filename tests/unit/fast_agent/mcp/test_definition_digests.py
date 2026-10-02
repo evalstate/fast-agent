@@ -1,4 +1,4 @@
-"""Digest mode: server definition versions replace the snapshot TTL and gate tool calls."""
+"""Digest mode: server definition digests replace the snapshot TTL and gate tool calls."""
 
 import time
 from typing import Any, cast
@@ -11,11 +11,15 @@ from mcp_types import CallToolResult, ListToolsResult, TextContent, Tool
 from fast_agent.config import MCPServerSettings, MCPToolCacheSettings
 from fast_agent.context import Context
 from fast_agent.mcp.common import create_namespaced_name
-from fast_agent.mcp.definition_versions import (
-    DEFINITION_VERSION_MISMATCH,
-    KNOWN_DEFINITION_VERSIONS_META,
-    DefinitionVersions,
-    stale_definitions,
+from fast_agent.mcp.definition_digests import (
+    DIGEST_MISMATCH,
+    KNOWN_DIGESTS_META,
+    SERVER_DISCOVER,
+    STALE_DIGESTS_META,
+    TOOLS_LIST,
+    Digests,
+    rejected_digests,
+    signalled_digests,
 )
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.mcp_aggregator import DEFINITIONS_CHANGED_MESSAGE, MCPAggregator, NamespacedTool
@@ -34,42 +38,49 @@ def _config(tmp_path, *, include_instructions: bool = True) -> MCPServerSettings
     )
 
 
-def _save(cache: ToolCatalogCache, versions: DefinitionVersions, *, age: float) -> None:
+FULL: Digests = {TOOLS_LIST: "sha256:t", SERVER_DISCOVER: "sha256:d"}
+
+
+def _save(cache: ToolCatalogCache, digests: Digests, *, age: float) -> None:
     cache.save(
         ToolSnapshot(
             key=cache.key,
             fetched_at=time.time() - age,
             tools=[TOOL],
             instructions="Use search.",
-            definition_versions=versions,
+            digests=digests,
         )
     )
 
 
 def test_digest_snapshot_ignores_ttl_only_when_it_covers_rendered_definitions(tmp_path):
     cache = ToolCatalogCache(_config(tmp_path))
-    full = DefinitionVersions(tools="sha256:t", instructions="sha256:i")
-    _save(cache, full, age=3600)
+    _save(cache, FULL, age=3600)
     assert cache.load() is not None
-    # Instructions are rendered from the snapshot, so they need a digest too.
-    _save(cache, DefinitionVersions(tools="sha256:t"), age=3600)
+    # Instructions are rendered from the snapshot, so they need the discovery digest too.
+    _save(cache, {TOOLS_LIST: "sha256:t"}, age=3600)
     assert cache.load() is None
-    _save(cache, DefinitionVersions(), age=3600)
+    _save(cache, {}, age=3600)
     assert cache.load() is None
     tools_only = ToolCatalogCache(_config(tmp_path, include_instructions=False))
-    _save(tools_only, DefinitionVersions(tools="sha256:t"), age=3600)
+    _save(tools_only, {TOOLS_LIST: "sha256:t"}, age=3600)
     assert tools_only.load() is not None
 
 
-def test_mismatch_errors_name_stale_targets_and_default_to_everything():
-    named = MCPError(DEFINITION_VERSION_MISMATCH, "changed", {"stale": ["instructions"]})
-    assert stale_definitions(named) == {"instructions"}
-    assert stale_definitions(MCPError(DEFINITION_VERSION_MISMATCH, "changed")) == {
-        "tools",
-        "instructions",
-    }
-    assert stale_definitions(MCPError(-32602, "invalid params")) is None
-    assert stale_definitions(RuntimeError("boom")) is None
+def test_stale_digests_name_methods_and_rejections_default_to_everything():
+    named = MCPError(DIGEST_MISMATCH, "changed", {"staleDigests": [SERVER_DISCOVER]})
+    assert rejected_digests(named) == {SERVER_DISCOVER}
+    # Methods we never sent (or no list at all) still mean our view is stale.
+    for data in (None, {"staleDigests": ["skills/list"]}):
+        assert rejected_digests(MCPError(DIGEST_MISMATCH, "changed", data)) == {
+            TOOLS_LIST,
+            SERVER_DISCOVER,
+        }
+    assert rejected_digests(MCPError(-32602, "invalid params")) is None
+    assert rejected_digests(RuntimeError("boom")) is None
+    # A served result only flags what it names.
+    assert signalled_digests({STALE_DIGESTS_META: [TOOLS_LIST, "skills/list"]}) == {TOOLS_LIST}
+    assert signalled_digests(None) == frozenset()
 
 
 def _connected_aggregator(tmp_path) -> MCPAggregator:
@@ -84,9 +95,7 @@ def _connected_aggregator(tmp_path) -> MCPAggregator:
     )
     aggregator._server_to_tool_map["hf"] = [namespaced]
     aggregator._namespaced_tool_map[namespaced.namespaced_tool_name] = namespaced
-    aggregator._definition_versions["hf"] = DefinitionVersions(
-        tools="sha256:t", instructions="sha256:i"
-    )
+    aggregator._definition_digests["hf"] = dict(FULL)
     return aggregator
 
 
@@ -101,7 +110,7 @@ async def test_calls_echo_known_versions_and_mismatch_refreshes_without_executin
     async def execute(**kwargs: Any) -> CallToolResult:
         sent.append(kwargs["method_args"])
         if mismatch:
-            raise MCPError(DEFINITION_VERSION_MISMATCH, "changed", {"stale": ["tools"]})
+            raise MCPError(DIGEST_MISMATCH, "changed", {"staleDigests": [TOOLS_LIST]})
         return CallToolResult(content=[TextContent(type="text", text="ran")])
 
     refresh = AsyncMock()
@@ -111,9 +120,7 @@ async def test_calls_echo_known_versions_and_mismatch_refreshes_without_executin
 
     result = await aggregator.call_tool("hf__search", {"q": "x"})
 
-    assert sent[0]["meta"] == {
-        KNOWN_DEFINITION_VERSIONS_META: {"tools": "sha256:t", "instructions": "sha256:i"}
-    }
+    assert sent[0]["meta"] == {KNOWN_DIGESTS_META: FULL}
     assert result.is_error
     assert get_text(result.content[0]) == DEFINITIONS_CHANGED_MESSAGE
     refresh.assert_awaited_once_with("hf")
@@ -122,6 +129,26 @@ async def test_calls_echo_known_versions_and_mismatch_refreshes_without_executin
     mismatch = False
     result = await aggregator.call_tool("hf__search", {"q": "x"})
     assert not result.is_error
+
+
+@pytest.mark.asyncio
+async def test_signalled_stale_digests_keep_the_result_and_refresh(monkeypatch, tmp_path):
+    aggregator = _connected_aggregator(tmp_path)
+    served = CallToolResult(
+        content=[TextContent(type="text", text="ran")],
+        _meta={STALE_DIGESTS_META: [TOOLS_LIST]},
+    )
+    refresh = AsyncMock()
+    monkeypatch.setattr(aggregator, "_execute_on_server", AsyncMock(return_value=served))
+    monkeypatch.setattr(aggregator, "_refresh_server_tools", refresh)
+    generation = aggregator.definitions_generation
+
+    result = await aggregator.call_tool("hf__search", {"q": "x"})
+
+    assert not result.is_error
+    assert get_text(result.content[0]) == "ran"
+    refresh.assert_awaited_once_with("hf")
+    assert aggregator.definitions_generation > generation
 
 
 @pytest.mark.asyncio
@@ -162,11 +189,7 @@ def test_unpartitioned_network_server_persists_only_digest_snapshots(tmp_path):
     ttl_only = ToolSnapshot(key=cache.key, fetched_at=time.time(), tools=[TOOL])
     assert not cache.save(ttl_only)
     assert cache.load() is None
-    digest = ttl_only.model_copy(
-        update={
-            "definition_versions": DefinitionVersions(tools="sha256:t", instructions="sha256:i")
-        }
-    )
+    digest = ttl_only.model_copy(update={"digests": dict(FULL)})
     assert cache.save(digest)
     assert cache.load() == digest
 
@@ -183,7 +206,7 @@ async def test_snapshot_servers_never_hold_the_first_prompt(monkeypatch, tmp_pat
         tool_cache=MCPToolCacheSettings(directory=str(tmp_path)),
     )
     cache = ToolCatalogCache(config)
-    _save(cache, DefinitionVersions(tools="sha256:t"), age=3600)
+    _save(cache, {TOOLS_LIST: "sha256:t"}, age=3600)
     registry = ServerRegistry()
     registry.register_central("hf", config)
     context = Context(server_registry=registry, background_mcp_startup=True)
@@ -215,9 +238,11 @@ async def test_matching_discovery_digest_skips_tools_list(monkeypatch, tmp_path)
     from types import SimpleNamespace
 
     aggregator = _connected_aggregator(tmp_path)
-    versions = DefinitionVersions(tools="sha256:t", instructions="sha256:i")
     aggregator._deferred_tool_definitions["hf"] = {"search": TOOL}
-    live = SimpleNamespace(definition_versions=versions, server_instructions=None)
+    # Discovery only vouches for instructions; tools are checked on every call.
+    live = SimpleNamespace(
+        definition_digests={SERVER_DISCOVER: "sha256:d"}, server_instructions=None
+    )
     aggregator._persistent_connection_manager = cast(
         "Any", SimpleNamespace(running_servers={"hf": live})
     )
@@ -225,10 +250,37 @@ async def test_matching_discovery_digest_skips_tools_list(monkeypatch, tmp_path)
     monkeypatch.setattr(aggregator, "_execute_on_server", listed)
     assert await aggregator._fetch_server_tools("hf") == [TOOL]
     listed.assert_not_awaited()
-    # A changed digest (or an explicit refresh) lists tools from the server.
-    live.definition_versions = DefinitionVersions(tools="sha256:new", instructions="sha256:i")
+    # Changed instructions (or an explicit refresh) list tools from the server.
+    live.definition_digests = {SERVER_DISCOVER: "sha256:new"}
     await aggregator._fetch_server_tools("hf")
     listed.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_listing_restarts_when_pages_disagree_on_the_digest(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    aggregator = _connected_aggregator(tmp_path)
+    live = SimpleNamespace(definition_digests={}, server_instructions=None)
+    aggregator._persistent_connection_manager = cast(
+        "Any", SimpleNamespace(running_servers={"hf": live})
+    )
+    # First pass changes between pages; the restarted pass is consistent.
+    pages = iter(
+        [("sha256:a", "next"), ("sha256:b", None), ("sha256:b", "next"), ("sha256:b", None)]
+    )
+    cursors: list[str | None] = []
+
+    async def execute(**kwargs: Any) -> ListToolsResult:
+        cursors.append(kwargs["method_args"].get("cursor"))
+        digest, next_cursor = next(pages)
+        live.definition_digests = {TOOLS_LIST: digest}
+        return ListToolsResult(tools=[TOOL], next_cursor=next_cursor)
+
+    monkeypatch.setattr(aggregator, "_execute_on_server", execute)
+    tools, digest = await aggregator._list_all_tools("hf", "refresh")
+    assert cursors == [None, "next", None, "next"]
+    assert (len(tools), digest) == (2, "sha256:b")
 
 
 def test_mcp_connect_option_applies_to_startup_targets():

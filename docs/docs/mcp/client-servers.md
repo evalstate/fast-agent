@@ -498,8 +498,9 @@ Startup checks the snapshot first. A usable snapshot (digest mode, or within its
 advertises its tools and instructions immediately; `connection_policy` decides what
 happens next:
 
-- `eager` (default): connect in the background. When `server/discover` returns a
-  matching digest, the snapshot's tools are kept and `tools/list` is skipped.
+- `eager` (default): connect in the background. For a digest-mode snapshot whose
+  `server/discover` digest still matches (or that renders no instructions), the
+  snapshot's tools are kept and `tools/list` is skipped; each tool call is checked instead.
 - `lazy`: stay disconnected until the first tool call. `/mcp` shows
   `connect : on first tool call (lazy)`.
 
@@ -522,20 +523,26 @@ existing attachment lock. Changed tool definitions are rejected without executin
 the agent re-lists its tools (and re-renders server instructions) before the model's
 next call in the same turn. All discovery follows tools pagination.
 
-#### Digest mode (definition versions)
+#### Digest mode (definition digests)
 
-Some servers advertise digests of their tool list and instructions (currently the
-Hugging Face MCP server, as a prototype of the MCP Definition Versions proposal:
-`_meta["huggingface.co/definition-versions"]` on `tools/list` and `server/discover`).
-When a snapshot carries a tools digest, plus an instructions digest if
-`include_instructions` is enabled, it is in **digest mode**:
+Some servers put a `digest` on their `server/discover` and `tools/list` results, following
+the draft Definition Digests SEP (currently the Hugging Face MCP server). A `tools/list`
+digest covers the complete tool list; a `server/discover` digest covers instructions,
+capabilities, and supported versions. When a snapshot carries a `tools/list` digest, plus
+a `server/discover` digest if `include_instructions` is enabled, it is in **digest mode**:
 
 - The snapshot TTL is ignored; the snapshot is reused until the server reports a change.
-- Every tool call echoes the known digests. The server rejects stale calls before
-  executing them (JSON-RPC error `-32987`); fast-agent refreshes what the server
-  reported stale (tools, or reconnects for instructions), returns a "definitions
-  changed" result to the model, and re-lists tools and re-renders instructions before
-  the next model call.
+- Every tool call sends the digests it holds in
+  `_meta["io.modelcontextprotocol/knownDigests"]`, keyed by method. A server that rejects
+  a stale call (JSON-RPC error `-32987`, `data.staleDigests`) does so before executing it;
+  fast-agent refreshes what the server reported stale (tools, or reconnects for
+  `server/discover`), returns a "definitions changed" result to the model, and re-lists
+  tools and re-renders instructions before the next model call.
+- A server may instead serve the call and name stale methods in result
+  `_meta["io.modelcontextprotocol/staleDigests"]`; the result is kept and definitions
+  are refreshed before the next model call.
+- A paginated listing is only used with a digest when every page carries the same one;
+  otherwise the listing restarts from the first page.
 - Digest snapshots are persisted even without `tool_cache.auth_identity` (for
   example `fast-agent go --url https://huggingface.co/mcp?anon`): a snapshot from
   another account or deployment is rejected by the server before any tool runs.

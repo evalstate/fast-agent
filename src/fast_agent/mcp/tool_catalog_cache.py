@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, SecretBytes, SecretStr, ValidationError
 
 from fast_agent.config import MCPServerSettings, Settings
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.definition_versions import DefinitionVersions
+from fast_agent.mcp.definition_digests import Digests, covers
 from fast_agent.paths import resolve_home_dir
 
 logger = get_logger(__name__)
@@ -33,16 +33,17 @@ class ToolCacheInfo(BaseModel):
 
 
 class ToolSnapshot(BaseModel):
-    version: Literal[2] = 2
+    version: Literal[3] = 3
     key: str
     fetched_at: float
     tools: list[Tool] = Field(default_factory=list)
     instructions: str | None = None
-    definition_versions: DefinitionVersions = Field(default_factory=DefinitionVersions)
+    digests: Digests = Field(default_factory=dict)
+    """Server definition digests keyed by the method that produced them."""
 
     def digest_mode(self, *, include_instructions: bool) -> bool:
         """Server digests cover everything cached: ignore the TTL, detect change on call."""
-        return self.definition_versions.validates(instructions=include_instructions)
+        return covers(self.digests, instructions=include_instructions)
 
 
 def _identity_value(value: object) -> object:

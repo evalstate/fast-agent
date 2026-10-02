@@ -41,10 +41,6 @@ from fast_agent.mcp.client_gateway import (
 from fast_agent.mcp.client_gateway import (
     resolve_oauth_mode as _resolve_oauth_mode,
 )
-from fast_agent.mcp.definition_versions import (
-    DefinitionVersions,
-    parse_definition_versions,
-)
 from fast_agent.mcp.oauth_client import (
     OAuthEvent,
     OAuthEventHandler,
@@ -62,7 +58,7 @@ from fast_agent.utils.text import strip_casefold
 from fast_agent.utils.transports import is_mcp_client_transport
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from mcp_types import Implementation, ServerCapabilities
 
@@ -141,8 +137,6 @@ class ServerConnection:
 
         # Server instructions from initialization
         self.server_instructions: str | None = None
-        # Advisory digests advertised by server/discover (tools and instructions).
-        self.definition_versions = DefinitionVersions()
         self.server_capabilities: ServerCapabilities | None = None
         self.server_implementation: Implementation | None = None
         self.protocol_version: str | None = None
@@ -171,6 +165,11 @@ class ServerConnection:
         self._oauth_abort_event = threading.Event()
         self._stdio_stderr_lines: deque[str] = deque(maxlen=STDIO_STDERR_BUFFER_LINES)
         self._lifecycle_cancel_scope: CancelScope | None = None
+
+    @property
+    def definition_digests(self) -> Mapping[str, str]:
+        """Latest digests this connection received, keyed by method."""
+        return self.client.digests.latest if self.client is not None else {}
 
     def is_healthy(self) -> bool:
         """Check if the server connection is healthy and ready to use."""
@@ -225,9 +224,6 @@ class ServerConnection:
             )
         self.supported_protocol_versions = (
             tuple(discover_result.supported_versions) if discover_result is not None else ()
-        )
-        self.definition_versions = parse_definition_versions(
-            discover_result.meta if discover_result is not None else None
         )
         self.server_capabilities = self.client.server_capabilities
         self.server_implementation = self.client.server_info
