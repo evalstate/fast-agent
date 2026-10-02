@@ -101,7 +101,8 @@ from fast_agent.mcp.tool_result_metadata import (
     ToolResultDisplayMetadata,
     tool_result_display_metadata,
 )
-from fast_agent.mcp.tool_result_truncation import truncate_tool_result_for_llm
+from fast_agent.mcp.tool_result_spool import spool_tool_result
+from fast_agent.mcp.tool_result_truncation import bound_tool_result_for_llm
 from fast_agent.paths import resolve_home_paths
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
@@ -2156,7 +2157,7 @@ class McpAgent(ABC, ToolAgent):
                 call,
                 request_params=request_params,
             )
-            result, display_metadata = self._prepare_planned_tool_result(call, result)
+            result, display_metadata = await self._prepare_planned_tool_result(call, result)
             try:
                 display_request = await self._planned_tool_result_display_request(
                     call,
@@ -2281,7 +2282,7 @@ class McpAgent(ABC, ToolAgent):
         tool_results: dict[str, CallToolResult],
         tool_timings: dict[str, ToolTimingInfo],
     ) -> ToolResultDisplayRequest | None:
-        result, display_metadata = self._prepare_planned_tool_result(call, result)
+        result, display_metadata = await self._prepare_planned_tool_result(call, result)
         self._store_planned_tool_result(
             call,
             result,
@@ -2297,15 +2298,16 @@ class McpAgent(ABC, ToolAgent):
             display_metadata=display_metadata,
         )
 
-    def _prepare_planned_tool_result(
+    async def _prepare_planned_tool_result(
         self,
         call: PlannedMcpToolCall,
         result: CallToolResult,
     ) -> tuple[CallToolResult, ToolResultDisplayMetadata]:
         if not call.is_local_shell:
-            result = truncate_tool_result_for_llm(
+            result = await bound_tool_result_for_llm(
                 result,
                 byte_limit=self._model_tool_output_byte_limit(),
+                retain=lambda: self._retain_full_tool_result(call, result),
             )
         attach_read_text_file_display_metadata(
             result,
@@ -2313,6 +2315,23 @@ class McpAgent(ABC, ToolAgent):
             tool_args=call.tool_args,
         )
         return result, tool_result_display_metadata(result)
+
+    async def _retain_full_tool_result(
+        self,
+        call: PlannedMcpToolCall,
+        result: CallToolResult,
+    ) -> str | None:
+        store = self.transient_artifact_store()
+        if store is None:
+            return None
+        try:
+            return await spool_tool_result(store, result, tool_name=call.display_tool_name)
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to retain full tool result",
+                data={"tool_name": call.display_tool_name, "error": str(exc)},
+            )
+            return None
 
     @staticmethod
     def _store_planned_tool_result(

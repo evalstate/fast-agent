@@ -900,7 +900,7 @@ wheels = [
 
 [[package]]
 name = "fast-agent-acp"
-version = "0.6.10"
+version = "0.10.42"
 source = { editable = "publish/fast-agent-acp" }
 dependencies = [
     { name = "fast-agent-mcp" },
@@ -911,7 +911,7 @@ requires-dist = [{ name = "fast-agent-mcp", editable = "." }]
 
 [[package]]
 name = "fast-agent-mcp"
-version = "0.10.38"
+version = "0.10.42"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk" },
@@ -1037,7 +1037,7 @@ requires-dist = [
     { name = "nvidia-cudnn-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'privacy-gpu'", specifier = ">=9" },
     { name = "onnxruntime", marker = "extra == 'privacy'", specifier = ">=1.25" },
     { name = "onnxruntime-gpu", marker = "extra == 'privacy-gpu'", specifier = ">=1.25" },
-    { name = "openai", extras = ["aiohttp", "realtime"], specifier = "==3.19.2" },
+    { name = "openai", extras = ["aiohttp", "realtime"], specifier = "==3.21.0" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = "==1.44.0" },
     { name = "opentelemetry-instrumentation-anthropic", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = "==0.62.3" },
     { name = "opentelemetry-instrumentation-google-genai", specifier = "==1.1b1" },
@@ -1372,7 +1372,7 @@ wheels = [
 
 [[package]]
 name = "hf-inference-acp"
-version = "0.6.10"
+version = "0.10.42"
 source = { editable = "publish/hf-inference-acp" }
 dependencies = [
     { name = "fast-agent-mcp" },
@@ -2295,7 +2295,7 @@ wheels = [
 
 [[package]]
 name = "openai"
-version = "3.19.2"
+version = "3.21.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -2305,9 +2305,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7c/91/2d5722388a50cc86e162779df5fbfe0afa652a6e2d5c9ee616e081a82098/openai-3.19.2.tar.gz", hash = "sha256:de185f9834ad064d965ec42bd0766731cf66bceea16a7670294a835d207019e6", size = 1716953, upload-time = "2026-09-24T00:06:07.315Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ae/8d/52cfa8ed2edbe3ec14c0e9ca4f6258a234129b0846fa7e5779d8aba3d791/openai-3.21.0.tar.gz", hash = "sha256:b3da56a0693953fa1851d554579e8904d0166f524d004048b636c548e0b7ef8f", size = 1746642, upload-time = "2026-09-29T17:41:17.609Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bd/20/4fe123e60525375878c67d1d8d051c9c5dec81cc56a579ba9304ca743303/openai-3.19.2-py3-none-any.whl", hash = "sha256:66247fcd07266e72536e90656dc27f3b0bb1e9d8696d4013fc55402c0b96a5c2", size = 2071459, upload-time = "2026-09-24T00:06:05.416Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/ad/1a1424ffc597cda66dabff0ca99da3f06c7218d679e3183a4bb55e8d0369/openai-3.21.0-py3-none-any.whl", hash = "sha256:28040df2ca1ffcb358c22d574aa3c339f37309650df972de0511fa1df8b09184", size = 2082977, upload-time = "2026-09-29T17:41:15.572Z" },
 ]
 
 [package.optional-dependencies]

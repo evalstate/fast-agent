@@ -45,11 +45,26 @@ def contains_type(value: object, types: set[str]) -> bool:
 
 
 def reject_files(value: object) -> None:
+    """Reject hosted file references, not inline document content."""
     if isinstance(value, Mapping):
         kind = value.get("type")
-        if kind in ("input_file", "file", "document") or (
-            kind == "input_image" and value.get("file_id")
+        if kind == "input_file" and (
+            not value.get("file_data") or value.get("file_id") or value.get("file_url")
         ):
+            raise ValueError(
+                "Copilot files require inline file_data; file IDs/URLs are unsupported."
+            )
+        if kind == "document":
+            source = value.get("source")
+            if not isinstance(source, Mapping) or source.get("type") not in (
+                "base64",
+                "text",
+                "content",
+            ):
+                raise ValueError(
+                    "Copilot documents require inline content; file IDs/URLs are unsupported."
+                )
+        if kind == "file" or (kind == "input_image" and value.get("file_id")):
             raise ValueError("Copilot provider file APIs are not supported.")
         # Traverse wire content, not arbitrary local tool arguments (which may
         # legitimately contain a field named file_id or type="file").

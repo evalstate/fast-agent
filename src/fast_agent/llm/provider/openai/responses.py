@@ -828,7 +828,7 @@ class ResponsesLLM(
         req_params = self.get_request_params(request_params)
 
         last_message = multipart_messages[-1]
-        if last_message.role == "assistant":
+        if last_message.role == "assistant" and last_message.stop_reason != LlmStopReason.CONTINUE:
             return last_message
 
         cache_state = None
@@ -1188,6 +1188,8 @@ class ResponsesLLM(
     def _responses_diagnostics_channels(
         self,
         channels: dict[str, list[ContentBlock]] | None,
+        *,
+        end_turn: bool | None = None,
     ) -> dict[str, list[ContentBlock]] | None:
         tool_call_diagnostics = self._consume_tool_call_diagnostics()
         diagnostics_payload = dict(tool_call_diagnostics) if tool_call_diagnostics else None
@@ -1200,6 +1202,9 @@ class ResponsesLLM(
         ):
             diagnostics_payload = transport_diagnostics
 
+        if end_turn is not None:
+            diagnostics_payload = diagnostics_payload or {}
+            diagnostics_payload["end_turn"] = end_turn
         if not diagnostics_payload:
             return channels
         return self._add_response_channel(
@@ -1268,7 +1273,11 @@ class ResponsesLLM(
             None if stop_reason == LlmStopReason.SAFETY else self._extract_tool_calls(response)
         )
         channels, message_phase = self._responses_raw_item_channels(response, channels)
-        channels = self._responses_diagnostics_channels(channels)
+        # end_turn is a provider extension, not a typed SDK Response field.
+        end_turn = getattr(response, "end_turn", None)
+        channels = self._responses_diagnostics_channels(
+            channels, end_turn=end_turn if isinstance(end_turn, bool) else None
+        )
         channels = self._responses_server_tool_channels(response, channels)
 
         if getattr(response, "usage", None):

@@ -9,7 +9,7 @@ from dataclasses import dataclass, replace
 from functools import cache
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, TypedDict, cast
 from urllib.parse import parse_qs, urlparse
 
 from mcp_types import CallToolResult, ImageContent, TextContent
@@ -157,6 +157,22 @@ def _usage_report(message: PromptMessageExtended) -> UsageReport | None:
         return None
 
 
+class ObservedAccounting(TypedDict):
+    schema: Literal["fast-agent.accounting/v1"]
+    scope: Literal["observed"]
+    provider_usage_complete: bool
+    observed_token_availability: dict[str, bool]
+
+
+def _accounting(complete: bool, availability: dict[str, bool]) -> ObservedAccounting:
+    return {
+        "schema": "fast-agent.accounting/v1",
+        "scope": "observed",
+        "provider_usage_complete": complete,
+        "observed_token_availability": availability,
+    }
+
+
 def _usage(message: PromptMessageExtended) -> AtifMetrics | None:
     report = _usage_report(message)
     if report is None:
@@ -169,9 +185,26 @@ def _usage(message: PromptMessageExtended) -> AtifMetrics | None:
         if all(cost is not None for cost in costs)
         else None
     )
+    observed = {
+        "prompt_tokens": _sum_known_optional_int(a.prompt.total for a in report.provider_attempts),
+        "completion_tokens": _sum_known_optional_int(
+            a.completion.total for a in report.provider_attempts
+        ),
+        "cached_tokens": _sum_known_optional_int(
+            a.prompt.cache_read for a in report.provider_attempts
+        ),
+        "reasoning_tokens": _sum_known_optional_int(
+            a.completion.reasoning for a in report.provider_attempts
+        ),
+        "tool_use_prompt_tokens": _sum_known_optional_int(
+            a.prompt.tool_use for a in report.provider_attempts
+        ),
+        "cost_usd": _sum_known_optional_float(costs),
+    }
     metric_extra = {
         key: value
         for key, value in {
+            **{f"observed_{key}_lower_bound": value for key, value in observed.items()},
             "provider": turn.provider.value,
             "upstream_provider": turn.upstream_provider,
             "usage_schema": turn.usage_schema.value,
@@ -618,7 +651,9 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
                 ),
                 message=_atif_content(list(message.content)),
                 reasoning_content=(
-                    _channel_text(message, REASONING) if step_source == "agent" else None
+                    _channel_text(message, REASONING)
+                    if step_source == "agent" and not copied
+                    else None
                 ),
                 tool_calls=calls,
                 # Copied steps restate earlier interactions: they carry no new
@@ -862,6 +897,7 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
                 "folded_process_poll_steps": folded_polls or None,
                 "process_poll_context_rewrites": context_boundary_count or None,
                 **usage_coverage,
+                "accounting": _accounting(bool(usage_calls_complete), _token_availability(steps)),
                 **(
                     {
                         "summary_compactions": summary_boundaries,
@@ -978,19 +1014,58 @@ def _usage_coverage_extra(steps: Iterable[AtifStep]) -> dict[str, int | float | 
         "llm_usage_observed_call_count": observed_calls,
         "llm_usage_call_coverage_ratio": coverage_ratio,
         "llm_usage_calls_complete": usage_complete,
-        "observed_prompt_tokens_lower_bound": sum(item.prompt_tokens or 0 for item in metrics),
-        "observed_completion_tokens_lower_bound": sum(
-            item.completion_tokens or 0 for item in metrics
-        ),
-        "observed_cached_tokens_lower_bound": sum(item.cached_tokens or 0 for item in metrics),
-        "observed_cost_usd_lower_bound": sum(item.cost_usd or 0.0 for item in metrics),
-        "observed_reasoning_tokens_lower_bound": sum(
-            _metric_extra_int(item, "reasoning_tokens") or 0 for item in metrics
-        ),
-        "observed_tool_use_prompt_tokens_lower_bound": sum(
-            _metric_extra_int(item, "tool_use_prompt_tokens") or 0 for item in metrics
-        ),
+        **{
+            f"observed_{key}_lower_bound": sum(_observed_metric(item, key) or 0 for item in metrics)
+            for key in (
+                "prompt_tokens",
+                "completion_tokens",
+                "cached_tokens",
+                "cost_usd",
+                "reasoning_tokens",
+                "tool_use_prompt_tokens",
+            )
+        },
     }
+
+
+def _observed_metric(metrics: AtifMetrics, key: str) -> int | float | None:
+    observed = (metrics.extra or {}).get(f"observed_{key}_lower_bound")
+    if isinstance(observed, (int, float)) and not isinstance(observed, bool):
+        return observed
+    canonical = {
+        "prompt_tokens": metrics.prompt_tokens,
+        "completion_tokens": metrics.completion_tokens,
+        "cached_tokens": metrics.cached_tokens,
+        "cost_usd": metrics.cost_usd,
+        "reasoning_tokens": _metric_extra_int(metrics, "reasoning_tokens"),
+        "tool_use_prompt_tokens": _metric_extra_int(metrics, "tool_use_prompt_tokens"),
+    }
+    return canonical[key]
+
+
+def _token_availability(steps: Iterable[AtifStep]) -> dict[str, bool]:
+    metrics = [
+        step.metrics
+        for step in steps
+        if step.source == "agent" and (step.llm_call_count or 0) > 0 and step.metrics is not None
+    ]
+    return {
+        key: any(_observed_metric(item, key) is not None for item in metrics)
+        for key in ("prompt_tokens", "completion_tokens", "cached_tokens")
+    }
+
+
+def _trajectory_token_availability(trajectory: AtifTrajectory) -> dict[str, bool]:
+    extra = (trajectory.final_metrics.extra if trajectory.final_metrics else None) or {}
+    accounting = extra.get("accounting")
+    if isinstance(accounting, dict):
+        availability = accounting.get("observed_token_availability")
+        if isinstance(availability, dict):
+            return {
+                key: availability.get(key) is True
+                for key in ("prompt_tokens", "completion_tokens", "cached_tokens")
+            }
+    return _token_availability(trajectory.steps)
 
 
 def _metrics_observed_call_count(metrics: AtifMetrics | None) -> int:
@@ -1361,6 +1436,21 @@ def _final_metrics_from_usage_summary(
         observed_calls,
     )
     usage_complete = observed_calls == expected_calls
+    availability = _token_availability(steps)
+    summary_tokens = {
+        "prompt_tokens": usage.prompt.total,
+        "completion_tokens": usage.completion.total,
+        "cached_tokens": usage.prompt.cache_read,
+        "reasoning_tokens": usage.completion.reasoning,
+        "tool_use_prompt_tokens": usage.prompt.tool_use,
+    }
+    # The summary covers the same calls, not additional consumption. Complete
+    # summary fields supersede step sums; absent fields must not erase evidence.
+    for key, value in summary_tokens.items():
+        if value is not None:
+            coverage[f"observed_{key}_lower_bound"] = value
+            if key in availability:
+                availability[key] = True
     coverage.update(
         {
             "llm_usage_expected_call_count": expected_calls,
@@ -1369,11 +1459,6 @@ def _final_metrics_from_usage_summary(
                 observed_calls / expected_calls if expected_calls else 1.0
             ),
             "llm_usage_calls_complete": usage_complete,
-            "observed_prompt_tokens_lower_bound": usage.prompt.total or 0,
-            "observed_completion_tokens_lower_bound": usage.completion.total or 0,
-            "observed_cached_tokens_lower_bound": usage.prompt.cache_read or 0,
-            "observed_reasoning_tokens_lower_bound": usage.completion.reasoning or 0,
-            "observed_tool_use_prompt_tokens_lower_bound": usage.prompt.tool_use or 0,
         }
     )
     return AtifFinalMetrics(
@@ -1387,6 +1472,7 @@ def _final_metrics_from_usage_summary(
                 "total_reasoning_tokens": (usage.completion.reasoning if usage_complete else None),
                 "total_tool_use_tokens": (usage.prompt.tool_use if usage_complete else None),
                 **coverage,
+                "accounting": _accounting(usage_complete, availability),
             }.items()
             if value is not None
         },
@@ -1479,10 +1565,15 @@ def _include_subagent_metrics(
     if not usage_complete:
         total_reasoning_tokens = None
         total_tool_use_tokens = None
+    availability = _trajectory_token_availability(root)
+    for child in embedded:
+        for key, observed in _trajectory_token_availability(child).items():
+            availability[key] |= observed
     root_metrics.extra = {
         key: value
         for key, value in {
             **(root_metrics.extra or {}),
+            "accounting": _accounting(usage_complete, availability),
             "total_reasoning_tokens": total_reasoning_tokens,
             "total_tool_use_tokens": total_tool_use_tokens,
             "root_prompt_tokens": root_prompt_tokens,

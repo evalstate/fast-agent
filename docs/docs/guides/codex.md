@@ -86,6 +86,19 @@ If you prefer, you can also run model setup explicitly:
 uvx fast-agent-mcp@latest model setup
 ```
 
+## Provider-requested continuation
+
+For OpenAI and Codex Responses (SSE or WebSocket), a completed response with
+explicit `end_turn: false` requests another inference, even without tool calls.
+fast-agent preserves the assistant output and continues without inventing a
+user prompt or tool result. These follow-ups share the agent's `max_iterations`
+budget with tool calls; cancellation and terminal errors still stop the turn.
+
+An absent or true `end_turn` retains normal stopping behavior. Commentary phase
+or text acknowledging unfinished work does not itself request continuation.
+Boolean `end_turn` values are retained in the `fast-agent-provider-diagnostics`
+history channel.
+
 ## Web search
 
 Use `fast-agent go --model 'astra?web_search=true'` to enable hosted web search;

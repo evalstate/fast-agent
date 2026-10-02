@@ -1,11 +1,11 @@
-"""Provisional local wire models for SEP-2640 Draft d7490ecd.
+"""Local wire models for the stable MCP Skills extension.
 
 The pinned MCP SDK does not yet provide Skills Extension request/result types.
 """
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from mcp_types import (
     CacheableResult,
@@ -13,7 +13,6 @@ from mcp_types import (
     PaginatedResult,
     Request,
     RequestParams,
-    Result,
 )
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -25,16 +24,17 @@ class SkillResource(BaseModel):
 
     uri: str = Field(alias="uri")
     digest: str = Field(alias="digest")
+    size: Annotated[int, Field(strict=True, ge=0)]
 
 
 class SkillEntry(BaseModel):
-    """A skill's metadata and optional complete resource manifest."""
+    """A skill's metadata and complete or dynamic resource manifest."""
 
     model_config = ConfigDict(populate_by_name=True)
 
     uri: str = Field(alias="uri")
     frontmatter: dict[str, Any] = Field(alias="frontmatter")
-    resources: list[SkillResource] | None = Field(default=None, alias="resources")
+    resources: list[SkillResource] | Literal["dynamic"] = Field(alias="resources")
 
 
 class ListSkillsRequestParams(PaginatedRequestParams):
@@ -68,7 +68,7 @@ class GetSkillRequest(Request[GetSkillRequestParams, Literal["skills/get"]]):
     params: GetSkillRequestParams
 
 
-class GetSkillResult(Result):
+class GetSkillResult(CacheableResult):
     """The response to ``skills/get``."""
 
     skill: SkillEntry = Field(alias="skill")

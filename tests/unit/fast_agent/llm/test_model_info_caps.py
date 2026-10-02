@@ -9,29 +9,8 @@ Testing notes:
   database coverage.
 """
 
-import pathlib
-import sys
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
-
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / "src"))
-
-if "a2a" not in sys.modules:
-
-    class AgentCard:  # minimal stub for imports
-        pass
-
-    class A2ATypesModule(ModuleType):
-        AgentCard = AgentCard
-
-    class A2AModule(ModuleType):
-        types: ModuleType
-
-    types_module = A2ATypesModule("a2a.types")
-    a2a_module = A2AModule("a2a")
-    a2a_module.types = types_module
-    sys.modules["a2a"] = a2a_module
-    sys.modules["a2a.types"] = types_module
 
 from fast_agent.llm.model_factory import ModelConfig
 from fast_agent.llm.model_info import ModelInfo

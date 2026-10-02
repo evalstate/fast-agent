@@ -575,7 +575,7 @@ def test_codexresponses_fast_service_tier_query_requires_model_support(
         ModelFactory.parse_model_string(f"codexresponses.{model_name}?service_tier=fast")
 
 
-@pytest.mark.parametrize("model_name", ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"])
+@pytest.mark.parametrize("model_name", ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"])
 def test_responses_gpt6_flex_service_tier_query(model_name: str) -> None:
     config = ModelFactory.parse_model_string(f"responses.{model_name}?service_tier=flex")
 
@@ -1583,7 +1583,7 @@ def test_long_context_false_overrides_preset(default: str) -> None:
 
 
 # One Codex alias and one Responses route; alias resolution is covered by the catalog tests.
-@pytest.mark.parametrize("model", ["astra", "responses.gpt-6-astra"])
+@pytest.mark.parametrize("model", ["astra", "responses.gpt-6-astra", "sol"])
 @pytest.mark.parametrize(("query", "expected"), [("", "medium"), ("?reasoning=low", "low")])
 def test_astra_reasoning_default_and_override(model: str, query: str, expected: str) -> None:
     llm = ModelFactory.create_factory(f"{model}{query}")(LlmAgent(AgentConfig(name="test")))
@@ -1592,7 +1592,7 @@ def test_astra_reasoning_default_and_override(model: str, query: str, expected: 
     assert llm._resolve_reasoning_effort() == expected
 
 
-@pytest.mark.parametrize("model", ["sol", "responses.gpt-6-luna"])
+@pytest.mark.parametrize("model", ["sol6", "responses.gpt-6-luna"])
 @pytest.mark.parametrize(("query", "expected"), [("", "medium"), ("?reasoning=none", "none")])
 def test_gpt_6_sol_luna_reasoning_default_and_none(model: str, query: str, expected: str) -> None:
     llm = ModelFactory.create_factory(f"{model}{query}")(LlmAgent(AgentConfig(name="test")))

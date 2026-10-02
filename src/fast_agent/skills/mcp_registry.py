@@ -12,7 +12,7 @@ import tempfile
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any, Iterable, Mapping, Protocol
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Protocol
 from urllib.parse import unquote, urlsplit
 
 import frontmatter
@@ -69,8 +69,8 @@ SKILLS_EXTENSION = "io.modelcontextprotocol/skills"
 MAX_LIST_PAGES = 1_000
 MAX_LIST_ENTRIES = 10_000
 MAX_SKILL_RESOURCES = 10_000
-MAX_SKILL_MD_BYTES = 262_144
-MAX_RESOURCE_BYTES = 10 * 1_048_576
+MAX_SKILL_MD_BYTES = 16 * 1_048_576
+MAX_RESOURCE_BYTES = 16 * 1_048_576
 MAX_SKILL_BYTES = 50 * 1_048_576
 MAX_SERVER_SKILL_BYTES = 200 * 1_048_576
 MAX_RESOURCE_PATH_LENGTH = 1_024
@@ -92,7 +92,7 @@ class McpRegistrySkill:
     server_name: str
     server_version: str | None = None
     frontmatter: dict[str, Any] = field(default_factory=dict)
-    resources: tuple["SkillResource", ...] | None = None
+    resources: tuple["SkillResource", ...] | Literal["dynamic"] = "dynamic"
 
     @property
     def source_url(self) -> str:
@@ -100,11 +100,14 @@ class McpRegistrySkill:
 
     @property
     def revision(self) -> str | None:
-        if self.resources is None:
+        if self.resources == "dynamic":
             return None
         payload = sorted(
-            ({"uri": resource.uri, "digest": resource.digest} for resource in self.resources),
-            key=lambda item: item["uri"],
+            (
+                {"uri": resource.uri, "digest": resource.digest, "size": resource.size}
+                for resource in self.resources
+            ),
+            key=lambda item: str(item["uri"]),
         )
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return f"sha256:{hashlib.sha256(canonical.encode()).hexdigest()}"
@@ -224,12 +227,11 @@ def _registry_skill(
     _validate_skill_name(name)
     uri = entry.uri
     root = _skill_root(uri, name)
+    resources: tuple[SkillResource, ...] | Literal["dynamic"]
     resources_value = entry.resources
-    if resources_value is None:
-        resources = None
+    if resources_value == "dynamic":
+        resources = "dynamic"
     else:
-        if not isinstance(resources_value, (list, tuple)):
-            raise ValueError("skill resources must be a list or null")
         resources = tuple(resources_value)
         _validate_resource_set(uri, root, resources)
     return McpRegistrySkill(
@@ -414,8 +416,8 @@ async def _refresh_before_fetch(
         skill.server_name,
         server_version=skill.server_version,
     )
-    if fresh.resources is None:
-        raise ValueError("MCP skill omitted its resource set and cannot be installed")
+    if fresh.resources == "dynamic":
+        raise ValueError("Installing dynamic MCP skills is unsupported")
     if fresh.revision != skill.revision or _canonical_frontmatter(
         fresh.frontmatter
     ) != _canonical_frontmatter(skill.frontmatter):
@@ -431,7 +433,7 @@ async def _stage_verified_mcp_skill(
     managed_dir: Path,
     exclude: Path | None = None,
 ) -> None:
-    assert skill.resources is not None
+    assert skill.resources != "dynamic"
     files: list[tuple[str, bytes]] = []
     total = 0
     root = _skill_root(skill.uri, skill.name)
@@ -447,6 +449,8 @@ async def _stage_verified_mcp_skill(
         total += len(content)
         if total > MAX_SKILL_BYTES:
             raise ValueError("MCP skill resource set exceeds total-size limit")
+        if len(content) != resource.size:
+            raise ValueError(f"MCP resource size mismatch: {resource.uri}")
         digest = f"sha256:{hashlib.sha256(content).hexdigest()}"
         if digest != resource.digest:
             raise ValueError(f"MCP resource SHA256 mismatch: {resource.uri}")
@@ -462,7 +466,7 @@ async def _stage_verified_mcp_skill(
         _strip_permission_widening_frontmatter(install_dir)
         fingerprint = compute_skill_content_fingerprint(install_dir)
         resources = tuple(
-            McpSkillResource(uri=resource.uri, digest=resource.digest)
+            McpSkillResource(uri=resource.uri, digest=resource.digest, size=resource.size)
             for resource in skill.resources
         )
         revision = skill.revision

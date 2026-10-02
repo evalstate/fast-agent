@@ -3175,3 +3175,68 @@ async def test_nested_response_failure_persists_code_without_enabling_reconnect(
         assert "secret.invalid" not in persisted
     finally:
         await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_class", [ResponsesLLM, CodexResponsesLLM])
+async def test_websocket_end_turn_false_follows_up_with_retained_assistant_history(
+    monkeypatch: pytest.MonkeyPatch,
+    provider_class: type[ResponsesLLM],
+) -> None:
+    from fast_agent.agents.agent_types import AgentConfig
+    from fast_agent.agents.tool_agent import ToolAgent
+
+    frames = []
+    for index in (1, 2):
+        item = {
+            "type": "message",
+            "id": f"msg_{index}",
+            "role": "assistant",
+            "status": "completed",
+            "phase": "commentary" if index == 1 else "final_answer",
+            "content": [{"type": "output_text", "text": f"step-{index}", "annotations": []}],
+        }
+        frames.extend(
+            [
+                _ws_event({"type": "response.output_item.done", "output_index": 0, "item": item}),
+                _ws_event(
+                    {
+                        "type": "response.completed",
+                        "response": {
+                            "id": f"resp_{index}",
+                            "status": "completed",
+                            "output": [],
+                            "end_turn": index == 2,
+                        },
+                    }
+                ),
+            ]
+        )
+    socket = _FakeWebSocket(frames)
+    llm = provider_class(
+        context=Context(config=Settings()), model="gpt-5.3-codex", transport="websocket"
+    )
+    monkeypatch.setattr(llm, "_responses_client", _FakeResponsesClient)
+    monkeypatch.setattr(llm, "_build_websocket_headers", lambda: {})
+
+    async def connect(
+        url: str, headers: dict[str, str], timeout_seconds: float | None
+    ) -> ManagedWebSocketConnection:
+        return ManagedWebSocketConnection(session=_FakeSession(), websocket=socket)
+
+    monkeypatch.setattr(llm, "_create_websocket_connection", connect)
+    agent = ToolAgent(AgentConfig("ws-continuation"), [])
+    agent._llm = llm
+    try:
+        result = await agent.generate("go", RequestParams(max_iterations=2))
+        assert result.last_text() == "step-2"
+        assert result.stop_reason == LlmStopReason.END_TURN
+        assert len(socket.sent_payloads) == 2
+        # The planner conservatively uses full history when no new client item
+        # remains after replayed assistant output; that is a valid continuation.
+        followup = json.loads(socket.sent_payloads[1])
+        assert [i.get("role") for i in followup["input"]] == ["user", "assistant"]
+        assert followup["input"][-1]["content"][0]["text"] == "step-1"
+        assert [m.role for m in agent.message_history] == ["user", "assistant", "assistant"]
+    finally:
+        await llm.close()

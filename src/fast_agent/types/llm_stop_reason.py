@@ -20,6 +20,7 @@ class LlmStopReason(str, Enum):
     PAUSE = "pause"
 
     # Custom extensions for fast-agent
+    CONTINUE = "continue"  # Provider explicitly requests another inference without tools
     ERROR = "error"  # Used when there's an error in generation
     CANCELLED = "cancelled"  # Used when generation is cancelled by user
 

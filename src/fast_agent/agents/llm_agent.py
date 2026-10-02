@@ -369,7 +369,7 @@ class LlmAgent(LlmDecorator):
     ) -> list[Text]:
         segments: list[Text] = []
         stop_reason = message.stop_reason
-        if stop_reason in (None, LlmStopReason.END_TURN):
+        if stop_reason in (None, LlmStopReason.END_TURN, LlmStopReason.CONTINUE):
             return segments
         if stop_reason == LlmStopReason.TOOL_USE:
             tool_use_message = build_tool_use_additional_message(
@@ -839,7 +839,7 @@ class LlmAgent(LlmDecorator):
         *,
         request_params: RequestParams | None,
     ) -> None:
-        if messages[-1].role != "user":
+        if not messages or messages[-1].role != "user":
             return
 
         trailing_users: list[PromptMessageExtended] = []

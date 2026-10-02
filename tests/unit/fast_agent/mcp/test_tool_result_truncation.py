@@ -1,3 +1,4 @@
+import pytest
 from mcp_types import (
     CallToolResult,
     EmbeddedResource,
@@ -7,23 +8,33 @@ from mcp_types import (
 )
 
 from fast_agent.mcp.helpers.content_helpers import canonicalize_tool_result_content_for_llm
-from fast_agent.mcp.tool_result_truncation import truncate_tool_result_for_llm
+from fast_agent.mcp.tool_result_truncation import bound_tool_result_for_llm
 
 
-def test_tool_result_within_budget_is_unchanged() -> None:
+async def _no_retained_copy() -> None:
+    return None
+
+
+async def _bound(result: CallToolResult, byte_limit: int) -> CallToolResult:
+    return await bound_tool_result_for_llm(result, byte_limit=byte_limit, retain=_no_retained_copy)
+
+
+@pytest.mark.asyncio
+async def test_tool_result_within_budget_is_unchanged() -> None:
     result = CallToolResult(content=[TextContent(type="text", text="small")])
 
-    assert truncate_tool_result_for_llm(result, byte_limit=5) is result
+    assert await _bound(result, 5) is result
 
 
-def test_tool_result_truncates_canonical_structured_content() -> None:
+@pytest.mark.asyncio
+async def test_tool_result_truncates_canonical_structured_content() -> None:
     image = ImageContent(type="image", data="aGVsbG8=", mime_type="image/png")
     result = CallToolResult(
         content=[TextContent(type="text", text="ignored"), image],
         structured_content={"value": "x" * 100},
     )
 
-    truncated = truncate_tool_result_for_llm(result, byte_limit=40)
+    truncated = await _bound(result, 40)
     canonical = canonicalize_tool_result_content_for_llm(truncated)
 
     assert truncated is not result
@@ -36,7 +47,8 @@ def test_tool_result_truncates_canonical_structured_content() -> None:
     assert canonical[1] == image
 
 
-def test_tool_result_uses_one_budget_across_text_blocks() -> None:
+@pytest.mark.asyncio
+async def test_tool_result_uses_one_budget_across_text_blocks() -> None:
     result = CallToolResult(
         content=[
             TextContent(type="text", text="a" * 30),
@@ -44,7 +56,7 @@ def test_tool_result_uses_one_budget_across_text_blocks() -> None:
         ]
     )
 
-    truncated = truncate_tool_result_for_llm(result, byte_limit=40)
+    truncated = await _bound(result, 40)
 
     assert len(truncated.content) == 1
     content = truncated.content[0]
@@ -54,7 +66,8 @@ def test_tool_result_uses_one_budget_across_text_blocks() -> None:
     assert "of 61 bytes" in content.text
 
 
-def test_tool_result_truncates_embedded_text_resources() -> None:
+@pytest.mark.asyncio
+async def test_tool_result_truncates_embedded_text_resources() -> None:
     resource = EmbeddedResource(
         type="resource",
         resource=TextResourceContents(
@@ -65,10 +78,25 @@ def test_tool_result_truncates_embedded_text_resources() -> None:
     )
     result = CallToolResult(content=[resource])
 
-    truncated = truncate_tool_result_for_llm(result, byte_limit=40)
+    truncated = await _bound(result, 40)
 
     assert len(truncated.content) == 1
     content = truncated.content[0]
     assert isinstance(content, TextContent)
     assert "[Tool result truncated:" in content.text
     assert "of 100 bytes" in content.text
+
+
+@pytest.mark.asyncio
+async def test_retained_copy_guidance_replaces_default_advice() -> None:
+    result = CallToolResult(content=[TextContent(type="text", text="x" * 100)])
+
+    async def retain() -> str:
+        return "The complete result is at /tmp/full.txt."
+
+    truncated = await bound_tool_result_for_llm(result, byte_limit=40, retain=retain)
+
+    content = truncated.content[0]
+    assert isinstance(content, TextContent)
+    assert "The complete result is at /tmp/full.txt." in content.text
+    assert "narrower query" not in content.text

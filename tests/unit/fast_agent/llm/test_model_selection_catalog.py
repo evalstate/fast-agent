@@ -117,7 +117,8 @@ def test_metaai_muse_aliases_select_the_current_and_contributor_tiers() -> None:
 def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() -> None:
     expected = {
         "astra": "codexresponses.gpt-6-astra?reasoning=medium",
-        "sol": "codexresponses.gpt-6-sol?reasoning=medium",
+        "sol": "codexresponses.gpt-6.1-sol?reasoning=medium",
+        "sol6": "codexresponses.gpt-6-sol?reasoning=medium",
         "luna": "codexresponses.gpt-6-luna?reasoning=medium",
         "sol56": "codexresponses.gpt-5.6-sol?reasoning=high",
         "luna56": "codexresponses.gpt-5.6-luna?reasoning=medium",
@@ -139,9 +140,16 @@ def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() ->
         ) == ModelFactory.parse_model_string(model_spec)
 
 
-@pytest.mark.parametrize("name", ["astra", "sol", "luna"])
-def test_gpt_6_models_are_available_through_codex_and_api_routes(name: str) -> None:
-    model = f"gpt-6-{name}"
+@pytest.mark.parametrize(
+    ("name", "model"),
+    [
+        ("astra", "gpt-6-astra"),
+        ("sol", "gpt-6.1-sol"),
+        ("sol6", "gpt-6-sol"),
+        ("luna", "gpt-6-luna"),
+    ],
+)
+def test_gpt_6_models_are_available_through_codex_and_api_routes(name: str, model: str) -> None:
     assert BUILTIN_MODEL_ALIASES[name] == f"codexresponses.{model}?reasoning=medium"
     assert BUILTIN_MODEL_ALIASES[model] == f"responses.{model}?reasoning=medium"
     assert name in ModelSelectionCatalog.list_current_aliases(Provider.CODEX_RESPONSES)

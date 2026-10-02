@@ -97,6 +97,7 @@ from fast_agent.mcp.transport_tracking import TransportSnapshot
 from fast_agent.skills.mcp_registry import (
     McpSkillRegistry,
     scan_mcp_skill_registry,
+    server_supports_directory_read,
     server_supports_mcp_skills,
 )
 from fast_agent.ui.tool_call_ids import format_tool_call_id
@@ -4261,8 +4262,8 @@ class MCPAggregator(ContextDependent):
     ) -> ListResourcesResult:
         """List the direct children of a directory resource via SEP-2640.
 
-        Routes ``resources/directory/read`` to the named server. Callers should
-        only invoke this against servers that declared ``directoryRead``.
+        Routes ``resources/directory/read`` only to servers that declared
+        ``directoryRead: true`` and the resources capability.
 
         ``server_name`` is required: a walk is scoped to the one server hosting
         the skill. Unlike ``get_resource`` we don't fan out, since a same-named
@@ -4276,6 +4277,8 @@ class MCPAggregator(ContextDependent):
         server_name = self._resolve_server_key(server_name)
         if server_name not in self.server_names:
             raise ValueError(f"Server '{server_name}' not found")
+        if not server_supports_directory_read(await self.get_capabilities(server_name)):
+            raise ValueError(f"Server '{server_name}' does not support directoryRead")
         return await self._read_directory_from_server(server_name, uri, cursor=cursor)
 
     async def list_skills(
@@ -4290,6 +4293,10 @@ class MCPAggregator(ContextDependent):
         server_name = self._resolve_server_key(server_name)
         if server_name not in self.server_names:
             raise ValueError(f"Server '{server_name}' not found")
+        if not server_supports_mcp_skills(await self.get_capabilities(server_name)):
+            raise ValueError(f"Server '{server_name}' does not support the skills extension")
+        if not await self.server_supports_feature(server_name, "resources"):
+            raise ValueError(f"Server '{server_name}' does not support resources")
         return await self._list_skills_from_server(server_name, cursor=cursor)
 
     async def _list_skills_from_server(
@@ -4316,6 +4323,10 @@ class MCPAggregator(ContextDependent):
         server_name = self._resolve_server_key(server_name)
         if server_name not in self.server_names:
             raise ValueError(f"Server '{server_name}' not found")
+        if not server_supports_mcp_skills(await self.get_capabilities(server_name)):
+            raise ValueError(f"Server '{server_name}' does not support the skills extension")
+        if not await self.server_supports_feature(server_name, "resources"):
+            raise ValueError(f"Server '{server_name}' does not support resources")
         return await self._get_skill_from_server(server_name, uri)
 
     async def _get_skill_from_server(self, server_name: str, uri: str) -> GetSkillResult:

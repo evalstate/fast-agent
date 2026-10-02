@@ -923,7 +923,9 @@ def test_codexresponses_provider_defaults_to_websocket_preferred_transport() -> 
     assert llm.configured_transport == "auto"
 
 
-@pytest.mark.parametrize("model_name", ["gpt-5.6-luna", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"])
+@pytest.mark.parametrize(
+    "model_name", ["gpt-5.6-luna", "gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"]
+)
 def test_codexresponses_lite_uses_internal_request_contract(model_name: str) -> None:
     llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name=model_name, lite=True)
     input_items = [
@@ -1068,7 +1070,15 @@ async def test_codexresponses_inlines_local_pdf_without_files_api(tmp_path: Path
 @pytest.mark.parametrize(
     "model_name",
     # Lite-capable models also use the standard contract unless `lite=on` is set.
-    ["gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra", "gpt-6-sol"],
+    [
+        "gpt-5.5",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-6-astra",
+        "gpt-6.1-sol",
+        "gpt-6-sol",
+    ],
 )
 def test_codexresponses_standard_model_omits_lite_contract(model_name: str) -> None:
     llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name=model_name)
