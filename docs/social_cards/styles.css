@@ -154,7 +154,7 @@ html, body { margin: 0; padding: 0; }
   position: relative;
   margin: 0;
   color: var(--petrol);
-  font: 900 118px/0.86 var(--font-voice);
+  font: 900 168px/0.86 var(--font-voice);
   font-variation-settings: var(--voice-settings);
   letter-spacing: -0.065em;
   text-shadow: 3px 4px 0 var(--ivory);
