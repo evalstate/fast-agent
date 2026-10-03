@@ -1,0 +1,184 @@
+/* Homepage (docs/index.md). The top row is splash, campaign and install;
+   below it sit the provider and protocol cards, then the toolkit links. */
+
+body:has(.forward-home) .md-header__topic:first-child { transform: none; opacity: 1; }
+body:has(.forward-home) .md-header__topic + .md-header__topic { display: none; }
+
+.forward-home { position: relative; isolation: isolate; padding-bottom: 40px; }
+.forward-home :is(h1, h2) { margin: 0; padding: 0; border: 0; color: inherit; font-weight: 900; line-height: 1.08; }
+
+/* Atomic sparkles behind the content. */
+.fa-background-sparks { position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.fa-background-sparks span { position: absolute; display: block; background: url('../assets/forward/assets/sparkle-atomic.svg') center / contain no-repeat; opacity: .2; }
+.fa-background-sparks span:nth-child(1) { left: 35%; top: 64px; width: 42px; height: 42px; transform: rotate(12deg); }
+.fa-background-sparks span:nth-child(2) { right: 53%; top: 390px; width: 40px; height: 40px; }
+.fa-background-sparks span:nth-child(3) { left: 39%; bottom: 18px; width: 34px; height: 34px; transform: rotate(-12deg); }
+
+/* ── Top row ──────────────────────────────────────────────────────────── */
+.fa-front-grid { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 3fr) minmax(0, 3fr); gap: 0 22px; margin-bottom: 36px; }
+
+/* Wordmark splash and typed tagline. */
+.fa-brand-splash { position: relative; container-type: inline-size; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; padding: 10px 12px; text-align: center; }
+.fa-brand-splash::before, .fa-brand-splash::after { content: ''; position: absolute; width: 30px; height: 30px; background: var(--teal); mask: url('../assets/forward/assets/sparkle-atomic.svg') center / contain no-repeat; opacity: .65; pointer-events: none; }
+.fa-brand-splash::before { left: 4%; top: 14%; }
+.fa-brand-splash::after { right: 3%; bottom: 33%; }
+.forward-home .fa-brand-splash h1 { position: relative; isolation: isolate; display: grid; place-items: center; width: 77%; max-width: 390px; aspect-ratio: 1; margin: 0 auto 18px; color: var(--petrol); font-size: clamp(64px, 23.5cqi, 125px); line-height: .86; letter-spacing: -.065em; white-space: nowrap; text-shadow: 3px 4px 0 var(--ivory); }
+.fa-brand-splash h1::before { content: ''; position: absolute; inset: 0; z-index: -1; background: var(--amber); mask: url('../assets/forward/assets/burst-score.svg') center / contain no-repeat; transform: rotate(28deg); animation: fa-score-swing 1.35s ease backwards; transition: rotate 260ms ease, scale 260ms ease; }
+.fa-brand-splash h1 > span { display: block; transform: rotate(-7deg) scale(1.5); transition: transform 240ms ease; }
+@media (hover: hover) {
+  .fa-brand-splash h1:hover > span { transform: translateY(-3px) rotate(-10deg) scale(1.54); }
+  .fa-brand-splash h1:hover::before { rotate: 8deg; scale: 1.025; }
+}
+.forward-home .fa-home-deck { width: 100%; max-width: none; margin: 16px 0 0; font-size: clamp(16px, 5.7cqi, 30px); font-weight: 600; line-height: 1.15; letter-spacing: -.025em; white-space: nowrap; }
+.fa-terminal-line { position: relative; display: block; width: fit-content; margin-inline: auto; padding-right: .5em; text-align: left; }
+.fa-terminal-text { display: block; animation: fa-tagline-reveal 2.6s linear 1.5s both; }
+.fa-terminal-line i { position: absolute; top: .1em; width: .4em; height: .95em; background: var(--orange); animation: fa-cursor-travel 2.6s linear 1.5s both, fa-cursor-blink .6s step-end 4.1s 3, fa-cursor-fade .7s ease 5.9s forwards; }
+[data-md-color-scheme="slate"] .forward-home .fa-brand-splash h1 { color: var(--ivory); text-shadow: -2px -2px 0 var(--petrol), 2px -2px 0 var(--petrol), -2px 2px 0 var(--petrol), 2px 2px 0 var(--petrol), 5px 6px 0 var(--petrol); }
+[data-md-color-scheme="slate"] .fa-brand-splash::before, [data-md-color-scheme="slate"] .fa-brand-splash::after { background: var(--amber); }
+@keyframes fa-score-swing { 0% { opacity: 0; transform: scale(.4) rotate(-18deg); } 48% { opacity: 1; transform: scale(1.05) rotate(-18deg); } 82% { transform: rotate(35deg); } 100% { transform: rotate(28deg); } }
+@keyframes fa-tagline-reveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0); } }
+@keyframes fa-cursor-travel { 0% { left: 0; opacity: 0; } 1% { opacity: 1; } 100% { left: calc(100% - .45em); opacity: 1; } }
+@keyframes fa-cursor-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes fa-cursor-fade { to { opacity: 0; } }
+
+/* Shared card frame for the top row: ivory stock with a petrol keyline (ivory on petrol).
+   Both cards are an illustration panel over a coloured footer; a subgrid shares the
+   two rows between them so the panels and footers line up at the same heights. */
+.fa-brand-splash { grid-row: span 2; }
+.fa-campaign, .fa-start { display: grid; grid-row: span 2; grid-template-rows: subgrid; row-gap: 0; overflow: hidden; color: var(--petrol); border: 2px solid var(--petrol); border-radius: 10px; }
+[data-md-color-scheme="slate"] :is(.fa-campaign, .fa-start, .fa-support-card) { border-color: var(--ivory); }
+
+/* Campaign card: presenter with an illustrative chart; the caption links to the data. */
+.forward-home a.fa-atomic-campaign { position: relative; border: 0; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 14px 12px 18px; color: var(--petrol); background: #fdfae9; text-decoration: none; }
+.fa-atomic-campaign:focus-visible { outline: 3px solid var(--teal); outline-offset: -5px; }
+.fa-approved-character { position: relative; width: 68%; max-width: 205px; aspect-ratio: 450 / 500; overflow: hidden; }
+.fa-approved-character img { position: absolute; left: -13%; top: -1.6%; width: 341.333%; max-width: none; height: auto; }
+.fa-board-chart { position: absolute; left: 51%; top: 42%; width: 38%; height: 27%; overflow: visible; }
+.fa-campaign { min-width: 0; background: var(--ivory); }
+.fa-atomic-message { padding-top: 8px; text-align: center; }
+.forward-home .fa-atomic-message h2 { font-size: clamp(24px, 2.1vw, 30px); letter-spacing: -.045em; }
+.fa-atomic-rule { display: block; width: 72%; height: 8px; margin: 10px auto 0; background: var(--amber); border-radius: 6px; }
+/* Corner furniture mirrors across the pair: burst outside corners, sparks inside. */
+.fa-atomic-spark { position: absolute; right: 16px; top: 20px; width: 28px; height: 28px; }
+.fa-live-burst { position: absolute; top: 8px; left: 8px; display: grid; place-items: center; width: 70px; height: 70px; color: var(--ivory); background: url('../assets/forward/assets/burst-star.svg') center / contain no-repeat; filter: drop-shadow(3px 3px 0 var(--amber)); font: 16px/1 var(--font-shout); transform: rotate(-8deg); animation: fa-home-burst-pop var(--dur-pop) var(--ease-pop) 100ms backwards; transition: transform var(--dur-ui) var(--ease-pop); }
+@media (hover: hover) { .fa-atomic-campaign:hover .fa-live-burst { transform: scale(1.08) rotate(-3deg); } }
+.fa-atomic-campaign:focus-visible .fa-live-burst { transform: scale(1.08) rotate(-3deg); }
+@keyframes fa-home-burst-pop { from { opacity: 0; transform: scale(.65) rotate(-22deg); } to { opacity: 1; transform: scale(1) rotate(-8deg); } }
+.fa-campaign-caption { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 18px; background: var(--amber); border-top: 2px solid var(--petrol); text-align: center; }
+.forward-home .fa-campaign-caption p { margin: 0; color: var(--petrol); font-size: 15px; }
+.forward-home .fa-campaign-caption a { display: inline-block; border: 0; margin-top: 10px; color: var(--petrol); font-size: 14px; font-weight: 800; text-decoration: underline 2px; text-underline-offset: 5px; }
+
+/* Install card: retro workstation, then the command on a petrol strip. */
+.fa-start { background: #fdfae9; }
+/* Illustration fills the panel; the headline and rule sit on the panel's floor so
+   both cards' rules share a baseline whatever the headline length. */
+.fa-start-top { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 14px 12px 18px; }
+.fa-start-top .fa-space-workstation, .fa-atomic-campaign .fa-approved-character { margin-top: auto; }
+.fa-start-spark { position: absolute; left: 16px; top: 20px; width: 28px; height: 28px; }
+.fa-start-message { padding-top: 8px; text-align: center; }
+.forward-home .fa-start h2 { font-size: clamp(24px, 2.1vw, 30px); letter-spacing: -.045em; white-space: nowrap; }
+.fa-start-message .fa-atomic-rule { width: 100%; }
+.forward-home a.fa-uv-burst { position: absolute; top: 8px; right: 8px; z-index: 1; isolation: isolate; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 80px; height: 80px; color: var(--petrol); font-size: 10px; font-weight: 700; line-height: 1.1; text-align: center; text-decoration: none; border: 0; transform: rotate(7deg); transition: transform 180ms ease; }
+.fa-uv-burst::before, .fa-uv-burst::after { content: ''; position: absolute; inset: 0; z-index: -1; mask: url('../assets/forward/assets/burst-score.svg') center / contain no-repeat; }
+.fa-uv-burst::before { background: var(--petrol); transform: translate(2px, 4px); transition: transform 180ms ease; }
+.fa-uv-burst::after { background: var(--amber); }
+.fa-uv-burst span { font-size: 10px; line-height: 1.05; }
+.md-typeset .fa-uv-burst strong { display: flex; align-items: center; gap: 3px; margin-top: 1px; color: var(--petrol); font-size: 25px; line-height: .9; }
+.fa-uv-burst small { font: 700 11px/1 sans-serif; }
+.forward-home a.fa-uv-burst:hover { color: var(--petrol); transform: translateY(-3px) rotate(0deg); }
+.fa-uv-burst:hover::before { transform: translate(3px, 6px); }
+.forward-home a.fa-uv-burst:active { transform: translateY(2px) rotate(2deg); }
+.fa-uv-burst:active::before { transform: translate(1px, 1px); }
+.forward-home a.fa-uv-burst:focus-visible { outline: 2px solid var(--teal); outline-offset: 4px; border-radius: 50%; }
+
+.fa-space-workstation { position: relative; width: 84%; max-width: 290px; margin: 0 auto 4px; }
+.fa-space-terminal { display: block; width: 100%; height: auto; }
+.fa-terminal-lamps { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.fa-terminal-lamps circle { fill: var(--petrol); opacity: .72; animation: fa-panel-lamp var(--lamp-period) ease-in-out var(--lamp-delay) infinite; }
+@keyframes fa-panel-lamp { 0%, 36%, 100% { opacity: .72; } 42%, 62% { opacity: 0; } 70%, 82% { opacity: .5; } }
+
+.fa-install-stage { container-type: inline-size; display: flex; }
+.fa-start-terminal { display: flex; flex: 1; flex-direction: column; justify-content: center; padding: 12px 12px 14px; color: var(--ivory); background: var(--petrol); }
+.forward-home .fa-run-caption { margin: 0 0 10px; color: var(--ivory); font-size: 13px; text-align: center; }
+.md-typeset .fa-start-terminal pre { position: relative; display: flex; align-items: center; justify-content: center; min-height: 64px; margin: 0; padding: 16px 46px 16px 8px; border: 1px solid var(--ivory); border-radius: 7px; }
+.md-typeset .fa-start-terminal pre > code { flex: none; overflow: visible; padding: 0 !important; color: var(--ivory) !important; background: transparent !important; border: 0; border-radius: 0; font-weight: 500; text-align: center; font-size: clamp(12px, 4.2cqi, 20px); line-height: 1.5; letter-spacing: -.025em; white-space: pre; }
+.fa-start-terminal .md-code__nav { position: static; flex: 0 0 0; width: 0; height: 0; background: none; }
+.fa-start-terminal .md-code__button { position: absolute; top: 50%; right: 6px; z-index: 3; width: 36px; height: 38px; color: var(--ivory); background: var(--orange); border: 0; border-radius: 6px; box-shadow: 2px 2px 0 #031d23; opacity: 1; transform: translateY(-50%); }
+.fa-start-terminal .md-code__button::after { background-color: var(--ivory); }
+.fa-start-terminal .md-code__button:hover { background: #d83b13; }
+.fa-start-terminal .md-code__button:focus-visible { outline: 2px solid var(--ivory); outline-offset: 3px; }
+.fa-terminal-guides { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 24px; margin-top: 10px; }
+.forward-home a.fa-space-setup { display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; color: var(--ivory); font-size: 12px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.forward-home a.fa-space-setup:hover { color: var(--amber); }
+
+/* ── Provider and protocol cards ──────────────────────────────────────── */
+.fa-editorial-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.fa-support-card { display: flex; flex-direction: column; gap: 12px; padding: 22px 24px; color: var(--petrol); border: 2px solid var(--petrol); border-radius: 10px; }
+.fa-destination--build { color: var(--ivory); background: var(--orange); }
+.fa-destination--migrate { background: var(--ivory-deep); }
+.forward-home .fa-support-card h2 { font-size: clamp(26px, 2.6vw, 36px); letter-spacing: -.035em; }
+.forward-home .fa-support-card > p { max-width: none; margin: 0; color: inherit; font-size: 14px; line-height: 1.5; }
+.fa-support-card a:focus-visible { outline: 3px solid var(--petrol); outline-offset: 3px; }
+
+/* Keyline chips on ivory keep petrol text in either theme. */
+.forward-home :is(.fa-provider-logos a, .fa-local-models, .fa-protocol-rows > a) { color: var(--petrol); background: var(--ivory); border: 1px solid var(--petrol); border-radius: 6px; }
+.fa-provider-logos a, .fa-protocol-rows > a { transition: transform 150ms ease, box-shadow 150ms ease; }
+.fa-provider-logos a:hover, .fa-protocol-rows > a:hover { transform: translateY(-2px); box-shadow: 2px 3px 0 var(--petrol); }
+.forward-home .fa-provider-logos a { text-decoration: none; }
+.fa-provider-logos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fa-provider-logos a { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 0; padding: 7px 6px; font-size: 12px; font-weight: 700; }
+.fa-provider-logos img { width: 22px; height: 22px; object-fit: contain; }
+
+.fa-local-models { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 12px; }
+.forward-home .fa-local-models a { color: var(--petrol); font-size: 13px; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+.forward-home .fa-local-models a:hover { color: var(--teal); }
+.forward-home .fa-local-models a.fa-local-brand { display: inline-flex; align-items: center; gap: 9px; font-size: 16px; text-decoration: none; }
+.fa-local-brand img { width: 28px; height: 28px; object-fit: contain; }
+
+.fa-protocol-rows { display: grid; gap: 8px; }
+.forward-home .fa-protocol-rows > a { display: grid; grid-template-columns: 145px minmax(0, 1fr) 14px; align-items: center; gap: 12px; min-height: 64px; padding: 12px; font-size: 13px; line-height: 1.4; text-decoration: none; }
+.fa-protocol-name { display: flex; align-items: center; gap: 8px; }
+.md-typeset .fa-protocol-name strong { color: var(--petrol); font-size: 17px; white-space: nowrap; }
+.fa-protocol-name img { width: 28px; height: 28px; object-fit: contain; }
+.fa-protocol-name img.fa-acp-wordmark { width: 76px; height: 29px; }
+
+.forward-home .fa-support-link { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; padding-top: 4px; color: inherit; font-size: 14px; font-weight: 800; text-decoration: underline; text-underline-offset: 4px; }
+.forward-home .fa-support-link:hover { color: inherit; text-decoration-thickness: 3px; }
+.fa-support-link span { font-size: 24px; }
+
+/* ── Toolkit links ────────────────────────────────────────────────────── */
+.fa-toolkit { display: flex; flex-wrap: wrap; align-items: center; gap: 24px 40px; margin-top: 40px; padding: 24px 0; border-block: 2px solid var(--fa-keyline); }
+.fa-toolkit .fa-eyebrow { margin-right: auto; font: 700 12px/1.4 var(--font-read); letter-spacing: .14em; text-transform: uppercase; }
+.forward-home .fa-toolkit a { color: var(--fa-ink); border: 0; font-weight: 700; text-decoration: none; }
+.forward-home .fa-toolkit a:hover { text-decoration: underline; }
+
+/* ── Responsive ───────────────────────────────────────────────────────── */
+@media (max-width: 1100px) and (min-width: 761px) {
+  .fa-front-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .fa-brand-splash { grid-column: 1 / -1; }
+  .forward-home .fa-brand-splash h1 { width: 300px; font-size: 94px; }
+  .fa-brand-splash { margin-bottom: 22px; }
+}
+@media (max-width: 760px) {
+  .fa-front-grid, .fa-editorial-cards { grid-template-columns: minmax(0, 1fr); }
+  .fa-front-grid { row-gap: 22px; }
+  .fa-background-sparks span:nth-child(1) { left: auto; right: 0; top: 240px; width: 30px; height: 30px; }
+  .fa-background-sparks span:nth-child(n + 2) { display: none; }
+  .fa-toolkit { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .fa-toolkit .fa-eyebrow { grid-column: 1 / -1; }
+}
+@media (max-width: 450px) {
+  .forward-home .fa-protocol-rows > a { grid-template-columns: 116px minmax(0, 1fr) 12px; gap: 8px; padding: 10px; font-size: 12px; }
+  .fa-protocol-name { gap: 6px; }
+  .md-typeset .fa-protocol-name strong { font-size: 14px; }
+  .fa-protocol-name img { width: 23px; height: 23px; }
+}
+@media (max-width: 400px) {
+  .fa-provider-logos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fa-brand-splash h1::before, .fa-terminal-text, .fa-live-burst { animation: none; }
+  .fa-terminal-line i { display: none; }
+  .fa-terminal-lamps circle { animation: none; opacity: .18; }
+  .fa-live-burst, .forward-home a.fa-uv-burst, .fa-uv-burst::before, .fa-provider-logos a, .fa-protocol-rows > a { transition: none; }
+}

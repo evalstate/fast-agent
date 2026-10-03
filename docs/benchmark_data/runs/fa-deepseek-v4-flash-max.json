@@ -1,0 +1,551 @@
+{
+  "id": "fa-deepseek-v4-flash-max",
+  "benchmark": "terminal-bench-2.1",
+  "harness": "fast-agent",
+  "harness_version": "0.9.30",
+  "model": "DeepSeek V4 Flash",
+  "effort": "max",
+  "model_string": "deepseek.deepseek-v4-flash?reasoning=max&temperature=1.0&top_p=0.95",
+  "date": "2026-08-02",
+  "timeout": "standard",
+  "jobs": [
+    {
+      "id": "1e338a36-0d7e-432c-8178-fc434457fcda",
+      "name": "tb21-deepseek-v4-flash-max-r3-t1p095-c22-0930-daytona-20260801-222647",
+      "url": "https://hub.harborframework.com/jobs/1e338a36-0d7e-432c-8178-fc434457fcda"
+    },
+    {
+      "id": "a210c698-2274-4f51-8a08-747e9cfd06df",
+      "name": "tb21-deepseek-v4-flash-max-r3-t1p095-c22-0930-local-20260801-222647",
+      "url": "https://hub.harborframework.com/jobs/a210c698-2274-4f51-8a08-747e9cfd06df"
+    }
+  ],
+  "excluded_trials": [],
+  "disqualified_trials": [],
+  "slots": 445,
+  "passes": 336,
+  "score": 75.51,
+  "tasks": {
+    "adaptive-rejection-sampler": "tt111",
+    "bn-fit-modify": "01111",
+    "break-filter-js-from-html": "1t111",
+    "build-cython-ext": "11111",
+    "build-pmars": "11111",
+    "build-pov-ray": "01011",
+    "caffe-cifar-10": "11111",
+    "cancel-async-tasks": "11111",
+    "chess-best-move": "t101t",
+    "circuit-fibsqrt": "11111",
+    "cobol-modernization": "111t1",
+    "code-from-image": "11t11",
+    "compile-compcert": "11111",
+    "configure-git-webserver": "11011",
+    "constraints-scheduling": "11111",
+    "count-dataset-tokens": "11111",
+    "crack-7z-hash": "11111",
+    "custom-memory-heap-crash": "11111",
+    "db-wal-recovery": "011tt",
+    "distribution-search": "11111",
+    "dna-assembly": "tt10t",
+    "dna-insert": "01111",
+    "extract-elf": "11111",
+    "extract-moves-from-video": "tttee",
+    "feal-differential-cryptanalysis": "11111",
+    "feal-linear-cryptanalysis": "11111",
+    "filter-js-from-html": "00000",
+    "financial-document-processor": "11111",
+    "fix-code-vulnerability": "11111",
+    "fix-git": "11111",
+    "fix-ocaml-gc": "11111",
+    "gcode-to-text": "ttt0t",
+    "git-leak-recovery": "11111",
+    "git-multibranch": "11111",
+    "gpt2-codegolf": "ttttt",
+    "headless-terminal": "11011",
+    "hf-model-inference": "11111",
+    "install-windows-3.11": "t1t11",
+    "kv-store-grpc": "11111",
+    "large-scale-text-editing": "11111",
+    "largest-eigenval": "1t111",
+    "llm-inference-batching-scheduler": "11111",
+    "log-summary-date-ranges": "11111",
+    "mailman": "11111",
+    "make-doom-for-mips": "ttttt",
+    "make-mips-interpreter": "tttt1",
+    "mcmc-sampling-stan": "11111",
+    "merge-diff-arc-agi-task": "11111",
+    "model-extraction-relu-logits": "11tt1",
+    "modernize-scientific-stack": "11111",
+    "mteb-leaderboard": "11111",
+    "mteb-retrieve": "11111",
+    "multi-source-data-merger": "11110",
+    "nginx-request-logging": "11111",
+    "openssl-selfsigned-cert": "11111",
+    "overfull-hbox": "11101",
+    "password-recovery": "11110",
+    "path-tracing": "1t1t1",
+    "path-tracing-reverse": "t11tt",
+    "polyglot-c-py": "11111",
+    "polyglot-rust-c": "t11t1",
+    "portfolio-optimization": "11111",
+    "protein-assembly": "00111",
+    "prove-plus-comm": "11111",
+    "pypi-server": "11111",
+    "pytorch-model-cli": "01000",
+    "pytorch-model-recovery": "11111",
+    "qemu-alpine-ssh": "11111",
+    "qemu-startup": "11111",
+    "query-optimize": "11011",
+    "raman-fitting": "tttt0",
+    "regex-chess": "11101",
+    "regex-log": "11111",
+    "reshard-c4-data": "11111",
+    "rstan-to-pystan": "t1tee",
+    "sam-cell-seg": "01101",
+    "sanitize-git-repo": "10010",
+    "schemelike-metacircular-eval": "11111",
+    "sparql-university": "11111",
+    "sqlite-db-truncate": "11111",
+    "sqlite-with-gcov": "11111",
+    "torch-pipeline-parallelism": "ttttt",
+    "torch-tensor-parallelism": "t1101",
+    "train-fasttext": "ttttt",
+    "tune-mjcf": "t1111",
+    "video-processing": "00000",
+    "vulnerable-secret": "11111",
+    "winning-avg-corewars": "111t1",
+    "write-compressor": "1t1tt"
+  },
+  "errors": {
+    "AgentTimeoutError": 92,
+    "NonZeroAgentExitCodeError": 4
+  },
+  "cost": {
+    "total_usd": 8.57,
+    "total_usd_exact": 8.571025,
+    "trials_with_cost": 434,
+    "trials": 445,
+    "excluded_trials_with_cost": 0,
+    "basis": "sum of Harbor recorded cost_usd over selected trials",
+    "matches_published": false
+  },
+  "tokens": {
+    "input": 792232915,
+    "cached": 782508928,
+    "output": 17923720,
+    "basis": "Harbor per-trial input_tokens (includes cached), cache_tokens, output_tokens"
+  },
+  "per_trial_cost": {
+    "median": 0.0126,
+    "p90": 0.0466,
+    "max": 0.1379
+  },
+  "published": {
+    "score": 75.51,
+    "total_cost": 8.73520228,
+    "source_url": "https://github.com/harbor-framework/terminal-bench-2-1/pull/189"
+  },
+  "reconciled": true,
+  "notes": [
+    "PR closed unmerged (community submissions closed); not on the official leaderboard.",
+    "Hub records $8.571 over 434 costed trials; the PR states a calculated trial cost of $8.73520228. The 11 uncosted trials (timeouts / non-zero exits) also have no Hub token counts, so the $0.164 difference is not reproducible from Hub records.",
+    "Reconciliation: cost $8.57 != expected $8.74."
+  ],
+  "scan": {
+    "version": "0.4.0",
+    "scope": "all trials in the run's jobs",
+    "trials": 445,
+    "rewarded": 336,
+    "accuracy": 75.51,
+    "accuracy_se": 1.42,
+    "findings_medium_plus": {
+      "trials": 62,
+      "rewarded": 46,
+      "by_highest_priority": {
+        "critical": 6,
+        "high": 6,
+        "medium": 50,
+        "low": 58,
+        "info": 215,
+        "none": 100,
+        "unavailable": 10
+      },
+      "top": [
+        {
+          "check": "lookup.benchmark_content_obtained",
+          "title": "Benchmark content retrieved after a lookup",
+          "priority": "critical",
+          "trials": 6,
+          "rewarded": 6
+        },
+        {
+          "check": "access.benchmark_material_received",
+          "title": "Benchmark material reached the agent",
+          "priority": "high",
+          "trials": 6,
+          "rewarded": 6
+        },
+        {
+          "check": "lookup.benchmark_source",
+          "title": "Benchmark repository or mirror looked up",
+          "priority": "high",
+          "trials": 6,
+          "rewarded": 6
+        },
+        {
+          "check": "lookup.benchmark_task_files",
+          "title": "Benchmark task files looked up",
+          "priority": "high",
+          "trials": 5,
+          "rewarded": 5
+        },
+        {
+          "check": "lookup.own_task_files",
+          "title": "This task's solution or test files looked up",
+          "priority": "high",
+          "trials": 5,
+          "rewarded": 5
+        },
+        {
+          "check": "tb21.fix_code_vulnerability.git_history_answer",
+          "title": "Answer read from git (fix-code-vulnerability)",
+          "priority": "high",
+          "trials": 4,
+          "rewarded": 4
+        },
+        {
+          "check": "code.verifier_path_reference",
+          "title": "Written code references verifier paths",
+          "priority": "high",
+          "trials": 1,
+          "rewarded": 1
+        },
+        {
+          "check": "lookup.benchmark_solution_url",
+          "title": "Benchmark solution or test URL looked up",
+          "priority": "high",
+          "trials": 1,
+          "rewarded": 1
+        },
+        {
+          "check": "tb21.path_tracing_reverse.pixel_special_case",
+          "title": "Pixels special-cased (path-tracing-reverse)",
+          "priority": "high",
+          "trials": 1,
+          "rewarded": 0
+        },
+        {
+          "check": "observation.credentials_exposed",
+          "title": "Credential-shaped value in the trace",
+          "priority": "medium",
+          "trials": 32,
+          "rewarded": 23
+        }
+      ]
+    },
+    "review": {
+      "dq_threshold": "high",
+      "high_or_critical_rewarded": 11,
+      "other_model_trials": 0,
+      "incomplete_evidence_rewarded": 11,
+      "accuracy_if_flagged_failed": 73.03
+    },
+    "awareness": {
+      "trials": 79,
+      "stages": {
+        "noticed": {
+          "trials": 79,
+          "rewarded": 50
+        },
+        "named": {
+          "trials": 34,
+          "rewarded": 23
+        },
+        "recalled": {
+          "trials": 15,
+          "rewarded": 8
+        },
+        "searched": {
+          "trials": 9,
+          "rewarded": 7
+        },
+        "obtained": {
+          "trials": 6,
+          "rewarded": 6
+        }
+      },
+      "verifier_talk": {
+        "trials": 136,
+        "rewarded": 105
+      }
+    },
+    "evidence": {
+      "planned": 445,
+      "errored": 96,
+      "error_types": {
+        "AgentTimeoutError": 92,
+        "NonZeroAgentExitCodeError": 4
+      },
+      "compacted_history": 27,
+      "without_trajectory": 10,
+      "incomplete_scans": 117,
+      "unmetered_trials": 0
+    },
+    "cost": {
+      "recorded": 8.57,
+      "trials_missing_cost": 11,
+      "estimated_unpriced": 0.01,
+      "estimated_unmetered": null,
+      "estimated_total": 8.58
+    },
+    "tokens": {
+      "uncached_input": 9736074,
+      "cached_input": 783334144,
+      "output": 17950124
+    },
+    "walltime_hours": {
+      "trial_sum": 107.5,
+      "agent_sum": null
+    },
+    "overrides": [],
+    "flagged_tasks": {
+      "break-filter-js-from-html": {
+        "trials": 5,
+        "rewarded": 4,
+        "max_priority": "high"
+      },
+      "build-cython-ext": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "caffe-cifar-10": {
+        "trials": 3,
+        "rewarded": 3,
+        "max_priority": "medium"
+      },
+      "crack-7z-hash": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "db-wal-recovery": {
+        "trials": 4,
+        "rewarded": 1,
+        "max_priority": "critical"
+      },
+      "dna-assembly": {
+        "trials": 2,
+        "rewarded": 0,
+        "max_priority": "medium"
+      },
+      "extract-elf": {
+        "trials": 4,
+        "rewarded": 4,
+        "max_priority": "critical"
+      },
+      "financial-document-processor": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "critical"
+      },
+      "fix-code-vulnerability": {
+        "trials": 5,
+        "rewarded": 5,
+        "max_priority": "high"
+      },
+      "fix-ocaml-gc": {
+        "trials": 5,
+        "rewarded": 5,
+        "max_priority": "medium"
+      },
+      "gpt2-codegolf": {
+        "trials": 1,
+        "rewarded": 0,
+        "max_priority": "medium"
+      },
+      "headless-terminal": {
+        "trials": 3,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "install-windows-3.11": {
+        "trials": 3,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "make-mips-interpreter": {
+        "trials": 5,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "mteb-leaderboard": {
+        "trials": 3,
+        "rewarded": 3,
+        "max_priority": "medium"
+      },
+      "mteb-retrieve": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "openssl-selfsigned-cert": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "password-recovery": {
+        "trials": 5,
+        "rewarded": 4,
+        "max_priority": "medium"
+      },
+      "path-tracing": {
+        "trials": 4,
+        "rewarded": 3,
+        "max_priority": "medium"
+      },
+      "path-tracing-reverse": {
+        "trials": 4,
+        "rewarded": 1,
+        "max_priority": "high"
+      },
+      "protein-assembly": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "regex-chess": {
+        "trials": 5,
+        "rewarded": 4,
+        "max_priority": "medium"
+      },
+      "sam-cell-seg": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "sanitize-git-repo": {
+        "trials": 5,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "schemelike-metacircular-eval": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "torch-pipeline-parallelism": {
+        "trials": 3,
+        "rewarded": 0,
+        "max_priority": "medium"
+      },
+      "torch-tensor-parallelism": {
+        "trials": 3,
+        "rewarded": 3,
+        "max_priority": "critical"
+      },
+      "video-processing": {
+        "trials": 5,
+        "rewarded": 0,
+        "max_priority": "medium"
+      },
+      "winning-avg-corewars": {
+        "trials": 1,
+        "rewarded": 0,
+        "max_priority": "medium"
+      }
+    },
+    "cells": {
+      "adaptive-rejection-sampler": "lllll",
+      "bn-fit-modify": "lllll",
+      "break-filter-js-from-html": "mmmhm",
+      "build-cython-ext": "lllml",
+      "build-pmars": "lllll",
+      "build-pov-ray": "lllll",
+      "caffe-cifar-10": "mmlml",
+      "cancel-async-tasks": "lllll",
+      "chess-best-move": "lllll",
+      "circuit-fibsqrt": "lllll",
+      "cobol-modernization": "lllll",
+      "code-from-image": "lllll",
+      "compile-compcert": "lllll",
+      "configure-git-webserver": "lllll",
+      "constraints-scheduling": "lllll",
+      "count-dataset-tokens": "lllll",
+      "crack-7z-hash": "lllml",
+      "custom-memory-heap-crash": "lllll",
+      "db-wal-recovery": "mclmm",
+      "distribution-search": "lllll",
+      "dna-assembly": "l?lmm",
+      "dna-insert": "lllll",
+      "extract-elf": "ccmcl",
+      "extract-moves-from-video": "?l???",
+      "feal-differential-cryptanalysis": "lllll",
+      "feal-linear-cryptanalysis": "lllll",
+      "filter-js-from-html": "lllll",
+      "financial-document-processor": "llcll",
+      "fix-code-vulnerability": "hhhhm",
+      "fix-git": "lllll",
+      "fix-ocaml-gc": "mmmmm",
+      "gcode-to-text": "lllll",
+      "git-leak-recovery": "lllll",
+      "git-multibranch": "lllll",
+      "gpt2-codegolf": "m?lll",
+      "headless-terminal": "lmmml",
+      "hf-model-inference": "lllll",
+      "install-windows-3.11": "mllmm",
+      "kv-store-grpc": "lllll",
+      "large-scale-text-editing": "lllll",
+      "largest-eigenval": "lllll",
+      "llm-inference-batching-scheduler": "lllll",
+      "log-summary-date-ranges": "lllll",
+      "mailman": "lllll",
+      "make-doom-for-mips": "lllll",
+      "make-mips-interpreter": "mmmmm",
+      "mcmc-sampling-stan": "lllll",
+      "merge-diff-arc-agi-task": "lllll",
+      "model-extraction-relu-logits": "lllll",
+      "modernize-scientific-stack": "lllll",
+      "mteb-leaderboard": "mmllm",
+      "mteb-retrieve": "lllml",
+      "multi-source-data-merger": "lllll",
+      "nginx-request-logging": "lllll",
+      "openssl-selfsigned-cert": "mmlll",
+      "overfull-hbox": "lllll",
+      "password-recovery": "mmmmm",
+      "path-tracing": "mmmlm",
+      "path-tracing-reverse": "mmlhm",
+      "polyglot-c-py": "lllll",
+      "polyglot-rust-c": "lllll",
+      "portfolio-optimization": "lllll",
+      "protein-assembly": "lllml",
+      "prove-plus-comm": "lllll",
+      "pypi-server": "lllll",
+      "pytorch-model-cli": "lllll",
+      "pytorch-model-recovery": "lllll",
+      "qemu-alpine-ssh": "lllll",
+      "qemu-startup": "lllll",
+      "query-optimize": "lllll",
+      "raman-fitting": "lllll",
+      "regex-chess": "mmmmm",
+      "regex-log": "lllll",
+      "reshard-c4-data": "lllll",
+      "rstan-to-pystan": "lllll",
+      "sam-cell-seg": "llllm",
+      "sanitize-git-repo": "mmmmm",
+      "schemelike-metacircular-eval": "llmll",
+      "sparql-university": "lllll",
+      "sqlite-db-truncate": "lllll",
+      "sqlite-with-gcov": "lllll",
+      "torch-pipeline-parallelism": "llmmm",
+      "torch-tensor-parallelism": "lmmlc",
+      "train-fasttext": "?l???",
+      "tune-mjcf": "lllll",
+      "video-processing": "mmmmm",
+      "vulnerable-secret": "lllll",
+      "winning-avg-corewars": "lllml",
+      "write-compressor": "lllll"
+    }
+  },
+  "pr": "https://github.com/harbor-framework/terminal-bench-2-1/pull/189"
+}

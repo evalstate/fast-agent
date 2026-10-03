@@ -1,0 +1,20 @@
+<!-- @dsCard group="Components" viewport="700x420" name="Display" subtitle="Card, Tag, Sticker, Burst, Table, CodeBlock, FootnoteMark, Wordmark" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0;background:var(--ivory);color:var(--petrol);font-family:var(--font-read);-webkit-font-smoothing:antialiased}.w{padding:20px 24px;display:flex;flex-direction:column;gap:16px}.row{display:flex;align-items:center;gap:20px;flex-wrap:wrap}.lab{font-size:11px;font-weight:800;letter-spacing:var(--track-label);text-transform:uppercase;width:80px;flex:none}</style></head><body><div id="root"></div>
+<script type="text/babel">
+const NSO = window.FastAgentDesignSystem_3898e4;
+const { Card, Tag, Sticker, Burst, Table, CodeBlock, FootnoteMark, Wordmark } = NSO;
+function App(){return <div className="w">
+<div className="row" style={{justifyContent:'space-between'}}><Wordmark size={28} assetBase="../../assets/"/><div className="row" style={{gap:8}}><Tag>v0.3.2</Tag><Tag variant="accent">fast-agent</Tag><Tag variant="inverse">MCP</Tag><Tag variant="muted">Beta</Tag></div></div>
+<div style={{display:'grid',gridTemplateColumns:'1.2fr 1fr',gap:16}}>
+<Card style={{position:'relative'}}><div style={{fontFamily:'var(--font-voice)',fontWeight:900,fontVariationSettings:'var(--voice-settings)',letterSpacing:'var(--track-voice)',fontSize:28,lineHeight:1.05}}>Same model, better results.</div><p style={{fontSize:14,lineHeight:1.6,margin:'8px 0 0'}}>Pass rate 71.4%<FootnoteMark n={1} sprite="../../assets/sprite.svg"/> against a 64.0% baseline.</p><div style={{position:'absolute',top:-10,right:14}}><Sticker>New!</Sticker></div></Card>
+<CodeBlock title="Install" lines={[{text:'uv tool install fast-agent-mcp',cmd:true},{text:'Installed 1 executable: fast-agent'},{text:'fast-agent go',cmd:true}]}/>
+</div>
+<Table columns={[{key:'h',label:'Harness'},{key:'p',label:'Pass',numeric:true},{key:'t',label:'Tokens / task',numeric:true}]} rows={[{h:'fast-agent 0.3.2',p:'71.4%',t:'18,204'},{h:'Baseline harness',p:'64.0%',t:'24,911'}]} highlight={0} footnote="n = 500 tasks · 12 Sep 2026 · same model and temperature · example data."/>
+</div>}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script></body></html>

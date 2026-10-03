@@ -1,0 +1,18 @@
+<!-- @dsCard group="Components" viewport="700x340" name="Feedback" subtitle="Loader, Toast, Tooltip, Dialog" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0;background:var(--ivory);color:var(--petrol);font-family:var(--font-read);-webkit-font-smoothing:antialiased}.w{padding:20px 24px;display:flex;flex-direction:column;gap:16px}.row{display:flex;align-items:center;gap:20px;flex-wrap:wrap}.lab{font-size:11px;font-weight:800;letter-spacing:var(--track-label);text-transform:uppercase;width:80px;flex:none}</style></head><body><div id="root"></div>
+<script type="text/babel">
+const NSO = window.FastAgentDesignSystem_3898e4;
+const { Loader, Toast, Tooltip, Dialog, Button } = NSO;
+function App(){return <div className="w">
+<div className="row" style={{gap:36}}><Loader assetBase="../../assets/" label="Running evals…"/><Loader kind="caret"/><Loader kind="chase" assetBase="../../assets/"/><div style={{paddingTop:34}}><Tooltip open content="Harness v0.3.2 · 12 Sep 2026"><span style={{fontWeight:900,fontVariantNumeric:'tabular-nums',fontSize:20}}>71.4%</span></Tooltip></div></div>
+<div className="row" style={{alignItems:'flex-start'}}>
+<div style={{display:'flex',flexDirection:'column',gap:10}}><Toast action="Undo" onClose={()=>{}}>Config saved.</Toast><Toast tone="danger" action="Retry">Run failed: provider timed out.</Toast></div>
+<Dialog inline width={330} title="Delete this run?" onClose={()=>{}} actions={<><Button variant="secondary" size="sm">Keep it</Button><Button size="sm">Delete run</Button></>}>The transcript and scores go with it.</Dialog>
+</div></div>}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script></body></html>
