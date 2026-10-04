@@ -1,0 +1,15 @@
+<!-- @dsCard group="Brand" viewport="700x200" subtitle="One sprite, colour set by CSS" name="Sprite usage" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>body{margin:0;background:var(--ivory);color:var(--petrol);font-family:var(--font-read)}.w{padding:20px 24px}svg.i{width:56px;height:56px}code{font-family:var(--font-code);font-size:12px}</style></head><body><div class="w">
+<div style="display:flex;gap:18px;align-items:center">
+<svg class="i" style="color:var(--amber)"><use href="../assets/sprite.svg#fa-burst"/></svg>
+<svg class="i" style="color:var(--orange)"><use href="../assets/sprite.svg#fa-burst"/></svg>
+<svg class="i" style="color:var(--amber);--keyline:var(--petrol)"><use href="../assets/sprite.svg#fa-burst-keyline"/></svg>
+<svg class="i" style="color:var(--petrol)"><use href="../assets/sprite.svg#fa-chevron"/></svg>
+<svg class="i" style="color:var(--teal)"><use href="../assets/sprite.svg#fa-sparkle"/></svg>
+<svg class="i" style="color:var(--orange)"><use href="../assets/sprite.svg#fa-star"/></svg>
+<svg class="i"><use href="../assets/sprite.svg#fa-tile"/></svg>
+<svg class="i" style="--tile-bg:var(--amber);--tile-fg:var(--petrol)"><use href="../assets/sprite.svg#fa-tile"/></svg>
+</div>
+<div style="margin-top:14px;font-size:12.5px;line-height:1.6"><code>&lt;svg style="color:var(--amber)"&gt;&lt;use href="assets/sprite.svg#fa-burst"/&gt;&lt;/svg&gt;</code><br>Marks take <code>color</code>. Tiles take <code>--tile-bg</code> and <code>--tile-fg</code>, and the keyline burst takes <code>--keyline</code>. For &lt;img&gt;, Figma and email, use the fixed-colour files in <code>assets/</code>.</div>
+</div></body></html>

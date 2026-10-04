@@ -1,40 +1,52 @@
+# Social card themes. Precedence: default < sections < pages < page frontmatter `social:`.
+#
+# design:  hero | sparkles | burst | presenter | terminal
+# scheme:  ivory | petrol
+# badge:   small uppercase section label in the header
+# burst:   word shouted inside the burst (burst design; defaults to badge)
+# pose:    board | palm (presenter design; board shows an illustrative chart)
+
 default:
-  accent: "#f5a400"
-  accent_soft: "#ffc649"
+  design: sparkles
+  scheme: ivory
   badge: "DOCS"
-  motif: "protocol-grid"
-  background: "glyph"
-  bg_intensity: 12
 
 sections:
+  a2a:
+    badge: "A2A"
+    design: burst
   acp:
     badge: "ACP"
-    motif: "protocol-lines"
+    design: burst
   agents:
     badge: "AGENTS"
-    motif: "workflow"
+  benchmarks:
+    badge: "BENCHMARKS"
+    design: presenter
+    pose: board
   getting_started:
     badge: "START"
-    motif: "terminal"
+    design: terminal
   guides:
     badge: "GUIDE"
-    motif: "terminal"
+    design: terminal
   mcp:
     badge: "MCP"
-    motif: "protocol-lines"
+    design: burst
   models:
     badge: "MODELS"
-    motif: "model-orbits"
+    design: presenter
+    pose: palm
   ref:
     badge: "REFERENCE"
-    motif: "index"
+    scheme: petrol
   welcome:
-    badge: "FAST-AGENT"
+    badge: "WELCOME"
 
 pages:
   index.md:
-    badge: "FAST-AGENT"
-    description: "MCP-native agents, workflows, and servers."
-    tagline: "Simple, extendable agents."
-    variant: "hero"
-    bg_intensity: 7
+    design: hero
+    tagline: "The harness your model deserves."
+  getting_started.md:
+    badge: "START"
+    design: terminal

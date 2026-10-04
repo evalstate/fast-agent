@@ -214,7 +214,7 @@ mcp:
 
 See [Configuration Reference](../../ref/config_file/#mcp-server-configuration)
 for the MCP server schema and
-[Agent Cards](../../agents/defining/agent_cards/#runtime-mcp-targets-mcp_connect)
+[Agent Cards](../../agents/defining/agent_cards.md#configure-mcp-servers-and-filters)
 for card-scoped runtime targets.
 
 

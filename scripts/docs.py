@@ -11,7 +11,7 @@ Usage:
     uv run scripts/docs.py social-contact-sheet
                                       # Generate social card review sheet
     uv run scripts/docs.py social-variants
-                                      # Generate CRT social card variant previews
+                                      # Generate social card design previews
     uv run scripts/docs.py benchmark-social
                                       # Render Terminal-Bench campaign storyboard
     uv run scripts/docs.py benchmark-social --variant spotlight --high-quality
@@ -133,7 +133,7 @@ def social_contact_sheet() -> int:
 
 
 def social_variants() -> int:
-    """Generate local HTML previews for CRT card design variants."""
+    """Generate local HTML previews of each social card design and scheme."""
     result = subprocess.run(
         [sys.executable, str(DOCS_DIR / "generate_social_cards.py"), "--variant-previews"],
         cwd=ROOT,
