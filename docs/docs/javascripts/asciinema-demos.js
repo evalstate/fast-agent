@@ -1,5 +1,32 @@
 (function () {
   var players = new WeakMap();
+  var assetBase = new URL("../assets/vendor/asciinema-player/", document.currentScript.src);
+  var assets;
+
+  function loadAssets() {
+    if (!assets) {
+      assets = Promise.all([
+        "asciinema-player.css", "catppuccin.css", "asciinema-player.min.js"
+      ].map(function (file) {
+        return new Promise(function (resolve, reject) {
+          var script = file.endsWith(".js");
+          var element = document.createElement(script ? "script" : "link");
+          var url = new URL(file, assetBase).href;
+          if (script) {
+            element.src = url;
+          } else {
+            element.rel = "stylesheet";
+            element.href = url;
+          }
+          element.onload = resolve;
+          element.onerror = function () { reject(new Error("Failed to load " + url)); };
+          // Instant navigation rebuilds <head>; keep styles outside the swapped content.
+          document.body.appendChild(element);
+        });
+      }));
+    }
+    return assets;
+  }
 
   function colorScheme() {
     return (
@@ -87,9 +114,13 @@
   }
 
   function renderAll(force) {
-    document.querySelectorAll("[data-fa-asciinema-cast]").forEach(function (container) {
-      renderDemo(container, force);
-    });
+    if (!document.querySelector("[data-fa-asciinema-cast]")) return;
+    loadAssets().then(function () {
+      // Query after loading: instant navigation may have replaced the page meanwhile.
+      document.querySelectorAll("[data-fa-asciinema-cast]").forEach(function (container) {
+        renderDemo(container, force);
+      });
+    }).catch(function (error) { console.error(error); });
   }
 
   function observeTheme(target) {

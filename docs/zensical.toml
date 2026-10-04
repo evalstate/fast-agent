@@ -9,11 +9,8 @@ copyright = "© 2025-2026 llmindset.co.uk"
 extra_css = [
   "stylesheets/brand.css",
   "stylesheets/home.css",
-  "assets/vendor/asciinema-player/asciinema-player.css",
-  "assets/vendor/asciinema-player/catppuccin.css",
 ]
 extra_javascript = [
-  "assets/vendor/asciinema-player/asciinema-player.min.js",
   "javascripts/asciinema-demos.js",
   "javascripts/benchmarks-loader.js",
   "javascripts/migration-command-converter.js",
@@ -219,3 +216,6 @@ emoji_generator = "zensical.extensions.emoji.to_svg"
 alternate_style = true
 
 [project.plugins.search]
+
+# Exclude standalone include fragments from search via _generated/.meta.yml.
+[project.plugins.meta]

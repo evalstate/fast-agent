@@ -23,7 +23,6 @@
   })();
   var BENCH_ROOT = SITE_ROOT + "benchmarks/";
   var MARKS = SITE_ROOT + "assets/forward/assets/providers/";
-  var ILLUSTRATION = SITE_ROOT + "assets/forward/assets/illustration/presenter-approved-poses.png";
   var ATIF_SCAN_URL = "https://github.com/evalstate/atif-scan";
 
   /* Cell codes, bottom-to-top stacking order inside a task column. */
@@ -150,6 +149,7 @@
       data.benchmarks.filter(function (b) {
         return b.id === benchId || b.slug === benchId;
       })[0] || data.benchmarks[0];
+    if (!bench.tasks) return { bench: bench }; // announced, no data yet
     var mine = function (e) {
       return e.benchmark === bench.id;
     };
@@ -319,20 +319,6 @@
     if (!entry.status) return null;
     var cls = entry.sample ? "fb-status fb-status--sample" : entry.timeout === "6h" ? "fb-status fb-status--timeout" : "fb-status";
     return el("span", cls, entry.status);
-  }
-  function presenter(pose, cls, label) {
-    var frame = el("div", "fb-presenter fb-presenter--" + pose + (cls ? " " + cls : ""));
-    frame.setAttribute("aria-hidden", label ? "false" : "true");
-    if (label) {
-      frame.setAttribute("role", "img");
-      frame.setAttribute("aria-label", label);
-    }
-    var img = el("img");
-    img.src = ILLUSTRATION;
-    img.alt = "";
-    img.loading = "lazy";
-    frame.appendChild(img);
-    return frame;
   }
   function runHref(id) {
     return BENCH_ROOT + "run/?id=" + encodeURIComponent(id);
@@ -935,16 +921,15 @@
     var intro = el("section", "fb-intro");
     var copy = el("div", "fb-intro__copy");
     copy.appendChild(el("p", "fb-kicker", "Benchmarks · updated " + date(data.updated)));
-    copy.appendChild(el("h1", "", "Results. With receipts."));
+    copy.appendChild(el("h1", "", "Benchmarks and Comparisons"));
     copy.appendChild(
       el(
         "p",
         "fb-lede",
-        "Every result is drawn trial by trial, and every trial is published. Hover any column for the task; open a run for its jobs, costs and atif-scan review."
+        "Results are drawn trial by trial. Hover any column for the task; open a run for its jobs, costs and atif-scan review."
       )
     );
     intro.appendChild(copy);
-    intro.appendChild(presenter("b", "fb-intro__presenter"));
     root.appendChild(intro);
 
     var tabs = el("nav", "fb-bench-tabs");
@@ -961,7 +946,8 @@
         window.history.replaceState(window.history.state, "", url);
       }
       slot.innerHTML = "";
-      renderBench(slot, m);
+      if (m.bench.comingSoon) renderComingSoon(slot, m.bench);
+      else renderBench(slot, m);
     }
     data.benchmarks.forEach(function (b) {
       var ours = data.runs.filter(function (r) {
@@ -974,7 +960,7 @@
       btn.type = "button";
       btn.dataset.slug = b.slug;
       btn.appendChild(el("span", "fb-bench-tab__name", b.short));
-      btn.appendChild(el("span", "fb-bench-tab__meta", b.taskLabel + " · " + ours + " ours, " + (total - ours) + " comparators"));
+      btn.appendChild(el("span", "fb-bench-tab__meta", b.comingSoon ? "Coming soon" : b.taskLabel));
       btn.addEventListener("click", function () {
         show(b.slug, true);
       });
@@ -985,14 +971,23 @@
     show(benchParam(), false);
   }
 
-  function renderBench(root, m) {
+  /* The tab names the benchmark; the head carries its blurb and leaderboard link. */
+  function benchHead(bench, note) {
     var head = el("div", "fb-bench-head");
-    var hl = el("div");
-    hl.appendChild(el("h2", "", m.bench.name));
-    hl.appendChild(el("p", "", m.bench.blurb));
-    head.appendChild(hl);
-    head.appendChild(external(m.bench.url, "Leaderboard"));
-    root.appendChild(head);
+    head.appendChild(el("p", "", note ? bench.blurb + " " + note : bench.blurb));
+    if (bench.url) head.appendChild(external(bench.url, "Leaderboard"));
+    return head;
+  }
+
+  /* Announced benchmark: what it is, and the methodology if written; results to follow. */
+  function renderComingSoon(root, bench) {
+    root.appendChild(benchHead(bench));
+    root.appendChild(el("div", "fb-soon", "Results coming soon."));
+    if (bench.methodology) root.appendChild(methodologySummary({ bench: bench }));
+  }
+
+  function renderBench(root, m) {
+    root.appendChild(benchHead(m.bench, "Each square is one attempt. Our passes are amber, other harnesses' are dark blue; a column is one task, easiest on the left. Click on a run for more detail."));
     if (m.runs.some(function (r) { return r.sample; })) root.appendChild(sampleBanner());
 
     var state = { family: "all", leaderboard: true, claims: true, long: true, sort: "family" };
@@ -1001,14 +996,13 @@
       boardSlot.innerHTML = "";
       boardSlot.appendChild(scoreboard(m, state));
     };
-    root.appendChild(sectionHead("The ledger", "Every run, every trial.", "Each square is one attempt. Our passes are amber, other harnesses' are ink; a column is one task, easiest on the left. Rows open a run's page."));
     root.appendChild(boardSlot);
     state.redraw();
 
-    root.appendChild(sectionHead("Score for the money", "Where each run lands.", "Higher and further left is better. The cost scale is logarithmic."));
+    root.appendChild(sectionHead("", "Score / Cost Chart", "Higher and further left is better. The cost scale is logarithmic."));
     root.appendChild(frontier(m));
 
-    root.appendChild(sectionHead("Task by task", "Where every model breaks.", "One row per run, one column per task, darker is more attempts passed. Hard tasks sit on the right for everyone."));
+    root.appendChild(sectionHead("", "Task Difficulty.", "One row per run, one column per task, darker is more attempts passed. Hard tasks sit on the right."));
     root.appendChild(matrix(m));
 
     root.appendChild(methodologySummary(m));
@@ -1228,7 +1222,7 @@
     root.appendChild(sectionHead("Receipts", "What atif-scan found.", null));
     root.appendChild(scanPanel(m, run));
 
-    root.appendChild(sectionHead("Sources", "Follow the evidence.", null));
+    root.appendChild(sectionHead("Source data", "Download traces.", null));
     root.appendChild(sources(m, run));
 
     var same = m.runs.concat(m.claims).filter(function (e) {

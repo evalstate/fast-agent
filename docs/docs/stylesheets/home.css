@@ -52,7 +52,7 @@ body:has(.forward-home) .md-header__topic + .md-header__topic { display: none; }
 .forward-home a.fa-atomic-campaign { position: relative; border: 0; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 14px 12px 18px; color: var(--petrol); background: #fdfae9; text-decoration: none; }
 .fa-atomic-campaign:focus-visible { outline: 3px solid var(--teal); outline-offset: -5px; }
 .fa-approved-character { position: relative; width: 68%; max-width: 205px; aspect-ratio: 450 / 500; overflow: hidden; }
-.fa-approved-character img { position: absolute; left: -13%; top: -1.6%; width: 341.333%; max-width: none; height: auto; }
+.fa-approved-character img { display: block; width: 100%; height: auto; }
 .fa-board-chart { position: absolute; left: 51%; top: 42%; width: 38%; height: 27%; overflow: visible; }
 .fa-campaign { min-width: 0; background: var(--ivory); }
 .fa-atomic-message { padding-top: 8px; text-align: center; }

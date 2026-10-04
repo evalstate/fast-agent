@@ -1,7 +1,7 @@
 # Benchmark data
 
 `catalog.json` lists the benchmarks, model families, per-run curation, vendor claims,
-comparisons and (temporarily) synthesised sample runs. `generate_benchmark_data.py`
+comparisons and, optionally, synthesised `samples` for layout review. `generate_benchmark_data.py`
 turns everything here into `docs/docs/javascripts/benchmark-data.js`.
 
 ## Terminal-Bench 4.0 subset (`tb4/`)
@@ -14,9 +14,9 @@ cost is the sum of the recorded trial costs on the 19 tasks. A new benchmark wit
 subset (TB5: 20–21 tasks) needs the same three files and a `benchmarks` entry with
 `subset`.
 
-`samples` in `catalog.json` are synthesised fast-agent rows for layout review, flagged
-`SAMPLE` everywhere they appear. Delete them (and the two `tb4-*` sample comparisons)
-once real runs exist.
+TB4 is marked `comingSoon` until our own subset runs land: its tab shows the methodology
+and no results, and no ledger is generated. The leaderboard rows still feed the subset
+calibration chart on the methodology page. Remove `comingSoon` once real runs exist.
 
 # Terminal-Bench 2.1 benchmark data
 
