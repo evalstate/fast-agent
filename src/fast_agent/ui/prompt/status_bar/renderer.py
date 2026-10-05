@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 from html import escape as escape_html
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 from prompt_toolkit.formatted_text import HTML
 
@@ -58,6 +58,7 @@ from fast_agent.ui.prompt.status_bar.formatting import (
     _toolbar_markup_width,
 )
 from fast_agent.ui.prompt.status_bar.managed_process import render_managed_process_indicator
+from fast_agent.ui.prompt.status_bar.mcp_startup import render_mcp_startup_status
 from fast_agent.ui.prompt.status_bar.model_chip import render_model_chip
 from fast_agent.ui.prompt.status_bar.service_tier import render_service_tier_indicator
 from fast_agent.ui.prompt.status_bar.web_fetch import render_web_fetch_indicator
@@ -124,6 +125,7 @@ class ToolbarAgentState:
     web_fetch_indicator: str | None = None
     capability_mode: AgentCapabilityMode | None = None
     active_process_count: int = 0
+    has_process_activity: bool = False
 
 
 @dataclass(slots=True)
@@ -235,13 +237,20 @@ def render_input_toolbar(
         copy_notice_until,
         mode.style,
     )
+    agent = _resolve_current_agent(agent_provider, agent_name)
+    startup_status = (
+        render_mcp_startup_status(agent.context.mcp_startup.snapshot())
+        if agent is not None and agent.context is not None
+        else None
+    )
     toolbar_identity_segment = _resolve_toolbar_identity_segment(
         shell_state=shell_state,
         middle=middle,
         agent_identity_segment=agent_identity_segment,
         mode_style=mode.style,
         mode_text=mode.text,
-        version_segment=f"fast-agent {app_version}",
+        version_segment=startup_status or f"fast-agent {app_version}",
+        preserve_status=startup_status is not None,
         notification_segment=notification_segment,
         copy_notice_segment=copy_notice_segment.html,
         shell_path_switch_delay_seconds=shell_path_switch_delay_seconds,
@@ -419,6 +428,7 @@ def _build_toolbar_agent_state(
             resolve_agent_capability_mode(agent) if agent_capability_mode_supported(agent) else None
         ),
         active_process_count=_active_process_count_for_agent(agent),
+        has_process_activity=_has_process_activity_for_agent(agent),
     )
 
 
@@ -456,6 +466,7 @@ def _build_toolbar_agent_state_cache_key(
         _safe_cache_value(resolve_web_fetch_enabled(llm)),
         (resolve_agent_capability_mode(agent) if agent_capability_mode_supported(agent) else None),
         _active_process_count_for_agent(agent),
+        _has_process_activity_for_agent(agent),
         _parallel_fan_out_model_cache_key(agent),
     )
 
@@ -496,6 +507,25 @@ def _resolve_current_agent(
         return cast("AgentProtocol", agent_provider._agent(agent_name))
     except Exception:
         return None
+
+
+@runtime_checkable
+class _AgentWithShellRuntime(Protocol):
+    @property
+    def shell_runtime(self) -> object: ...
+
+
+@runtime_checkable
+class _ProcessActivityRuntime(Protocol):
+    @property
+    def has_process_activity(self) -> bool: ...
+
+
+def _has_process_activity_for_agent(agent: object) -> bool:
+    if not isinstance(agent, _AgentWithShellRuntime):
+        return False
+    runtime = agent.shell_runtime
+    return isinstance(runtime, _ProcessActivityRuntime) and runtime.has_process_activity
 
 
 def _active_process_count_for_agent(agent: object) -> int:
@@ -725,7 +755,10 @@ def _build_middle_segment(
             model_prefix = f"(cp) {model_prefix}"
         model_label = f"{model_prefix}{agent_state.model_display}"
         attachment_indicator = render_attachment_indicator(attachment_summary)
-        process_indicator = render_managed_process_indicator(agent_state.active_process_count)
+        process_indicator = render_managed_process_indicator(
+            agent_state.active_process_count,
+            has_process_activity=agent_state.has_process_activity,
+        )
         capability_indicator = (
             render_agent_capability_indicator(agent_state.capability_mode)
             if agent_state.capability_mode is not None
@@ -801,8 +834,9 @@ def _resolve_toolbar_identity_segment(
     notification_segment: str,
     copy_notice_segment: str,
     shell_path_switch_delay_seconds: float,
+    preserve_status: bool = False,
 ) -> ToolbarIdentitySegment:
-    if not shell_state.enabled:
+    if preserve_status or not shell_state.enabled:
         return ToolbarIdentitySegment(
             html=version_segment,
             show_shell_path_segment=shell_state.show_path_segment,

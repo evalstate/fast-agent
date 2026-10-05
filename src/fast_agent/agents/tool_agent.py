@@ -479,9 +479,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                         },
                     )
 
-            if tools is None:
-                tools = (await self.list_tools()).tools
-
+            # tools=None lets the runner list (and re-list on definition changes) itself.
             runner = ToolRunner(
                 agent=self,
                 messages=messages,
@@ -604,6 +602,11 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             after_tool_call=merge(base.after_tool_call, extra.after_tool_call),
             after_turn_complete=merge(base.after_turn_complete, extra.after_turn_complete),
         )
+
+    @property
+    def tool_definitions_generation(self) -> int:
+        """Changes when list_tools() may return different definitions mid-turn."""
+        return 0
 
     async def _tool_runner_llm_step(
         self,

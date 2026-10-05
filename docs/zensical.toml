@@ -96,6 +96,7 @@ nav = [
     { "Migrate MCP Configuration" = "mcp/migration.md" },
     { "Client" = [
       { "Connect to Servers" = "mcp/client-servers.md" },
+      { "Diagnose a Server" = "mcp/diagnose.md" },
       { "Connect with OAuth" = "mcp/mcp-oauth.md" },
       { "Inspect MCP Transports" = "mcp/mcp-inspect-transport.md" },
     ] },

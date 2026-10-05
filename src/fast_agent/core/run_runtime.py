@@ -261,6 +261,7 @@ class FastAgentRunMixin:
         self,
         *,
         environment: "EnvironmentSelection" = None,
+        background_mcp_startup: bool | None = None,
     ) -> AsyncIterator["AgentApp"]:
         """
         Context manager for running the application.
@@ -273,7 +274,7 @@ class FastAgentRunMixin:
         lifecycle = FastAgentRunLifecycle(cast("FastAgent", self))
         lifecycle_state = None
         try:
-            lifecycle_state = await lifecycle.enter()
+            lifecycle_state = await lifecycle.enter(background_mcp_startup=background_mcp_startup)
             lifecycle_state.runtime.shell_environment = cast(
                 "FastAgent", self
             ).environments.resolve(environment)

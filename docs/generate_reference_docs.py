@@ -724,6 +724,20 @@ def generate_copilot_config_snippet() -> str:
     return "".join(lines)
 
 
+def generate_mcp_tool_cache_config_snippet() -> str:
+    """Generate per-server tool cache defaults from the settings model."""
+    from fast_agent.config import MCPToolCacheSettings
+
+    lines = [
+        "<!-- GENERATED FILE — DO NOT EDIT. Source: MCPToolCacheSettings -->\n\n",
+        "```yaml\ntool_cache:\n",
+    ]
+    for name, field in MCPToolCacheSettings.model_fields.items():
+        lines.append(f"  {name}: {_yaml_scalar(field.default)}\n")
+    lines.append("```\n")
+    return "".join(lines)
+
+
 def generate_compaction_settings_reference() -> str:
     """Generate the compaction settings table from CompactionSettings fields."""
     from fast_agent.config import CompactionSettings
@@ -1579,6 +1593,10 @@ def main() -> int:
         _write(GENERATED_DIR / "tui_runtime_reference.md", generate_tui_runtime_reference())
         _write(GENERATED_DIR / "compaction_config_snippet.md", generate_compaction_config_snippet())
         _write(GENERATED_DIR / "copilot_config_snippet.md", generate_copilot_config_snippet())
+        _write(
+            GENERATED_DIR / "mcp_tool_cache_config_snippet.md",
+            generate_mcp_tool_cache_config_snippet(),
+        )
         _write(
             GENERATED_DIR / "compaction_settings_reference.md",
             generate_compaction_settings_reference(),

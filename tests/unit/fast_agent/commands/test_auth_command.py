@@ -401,6 +401,53 @@ def test_mcp_login_reports_its_outer_timeout(
     assert "Increase --timeout" in result.output
 
 
+def test_mcp_login_device_shows_code_and_reports_failures(
+    memory_keyring: MemoryKeyring,
+    isolated_auth_environment: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del memory_keyring, isolated_auth_environment
+    from fast_agent.mcp import oauth_device
+
+    outcomes: list[Exception | None] = [
+        None,
+        oauth_device.MCPDeviceAuthorizationUnsupportedError("no device endpoint"),
+    ]
+
+    async def fake_login(
+        server_config: object,
+        *,
+        on_user_code: oauth_device.DeviceCodeHandler,
+    ) -> None:
+        del server_config
+        await on_user_code(
+            oauth_device.MCPDeviceCode(
+                server_name="docs",
+                user_code="WXYZ-1234",
+                verification_uri="https://auth.test/device",
+                verification_uri_complete=None,
+                expires_in=300,
+                interval=5,
+            )
+        )
+        outcome = outcomes.pop(0)
+        if outcome is not None:
+            raise outcome
+
+    monkeypatch.setattr(oauth_device, "login_mcp_server_with_device_code", fake_login)
+    args = ["mcp", "login", "--endpoint", "https://example.test/mcp", "--device"]
+
+    succeeded = CliRunner().invoke(auth_command.app, args)
+    failed = CliRunner().invoke(auth_command.app, args)
+
+    assert succeeded.exit_code == 0, succeeded.output
+    assert "https://auth.test/device" in succeeded.output
+    assert "WXYZ-1234" in succeeded.output
+    assert "Authenticated" in succeeded.output
+    assert failed.exit_code == 1
+    assert "no device endpoint" in failed.output
+
+
 def test_destructive_commands_require_yes_when_noninteractive(
     memory_keyring: MemoryKeyring,
     isolated_auth_environment: Path,

@@ -432,3 +432,146 @@ mcp:
 ```
 
 Read more about the model string and settings [here](../models/). Sampling requests support vision - try [`@llmindset/mcp-webcam`](https://github.com/evalstate/mcp-webcam) for an example.
+
+
+### Startup and diagnostics
+
+Interactive CLI sessions make the input UI available while MCP servers start in
+parallel. One server's failure does not cancel other servers. Non-interactive
+callers still wait for startup to settle. The version area shows `MCP 2/4` during
+startup, `MCP ERR · /mcp` for errors, or `MCP AUTH · /mcp auth` for authentication
+waits. Errors take priority over authentication and progress. Successful retries
+update the indicator automatically; inspecting diagnostics does not clear it.
+Once startup settles without unresolved failures, the version label returns.
+Manual servers and servers usable from a snapshot are not counted as pending, and the first prompt does not wait for them.
+
+In the terminal, ACP, or harness slash-command tool, use `/mcp error` to inspect
+startup failures for the active agent, or `/mcp error <server>` to select one
+server (quote names containing spaces). Details include recorded failure text,
+redacted credentials, recovery guidance, and an indication when startup is still
+pending. These commands do not wait for startup or retry connections.
+
+Background startup never begins an interactive login. A remote server without stored
+OAuth tokens that answers with an authentication challenge is recorded as needing
+authentication instead of opening a browser: the status bar shows `MCP AUTH · /mcp auth`
+and the prompt announces `MCP server '<server>' requires authentication` once. Servers
+with stored tokens connect (and refresh) as usual; other servers keep starting.
+
+- `/mcp auth` shows recorded authentication waits and failures.
+- `/mcp auth <server>` logs in and connects: it runs `/mcp connect <server> --oauth`
+  for the configured server, printing the authorization link and waiting for the
+  browser callback (Ctrl+C cancels). Server instructions are re-rendered on success.
+- `/mcp auth <server> --device` first runs a [device login](mcp-oauth.md#device-login-no-browser),
+  showing a code to enter on any device, then connects with the stored token. It needs
+  `auth.persist: keyring` (the default).
+
+Static credentials (headers, tokens) are corrected outside chat; then use
+`/mcp attach <server>`, or `/mcp reconnect <server>` for an attached server.
+Outside a session, `fast-agent auth mcp login <server> [--device]` performs the same
+logins. Also check `/mcp error`: not every authentication failure is classified as an
+authentication wait.
+
+### Tool catalog persistence and connection policy
+
+Private, atomic disk snapshots of raw MCP tools are enabled by default. Set
+`tool_cache.enabled: false` per server to disable persistence. Defaults (inside
+`mcp.servers.<name>`):
+
+--8<-- "_generated/mcp_tool_cache_config_snippet.md"
+
+A null `directory` uses `<fast-agent home>/cache/mcp-tools`, normally
+`./.fast-agent/cache/mcp-tools`, respecting `--home` and `FAST_AGENT_HOME`.
+An explicit directory overrides that location. With `--no-home`, disk persistence
+is disabled unless an explicit cache directory is configured. Snapshots carry
+fetch timestamps and a version; expired, corrupt, or mismatched snapshots are
+not reused. Keys hash server configuration, authentication identity and explicit configured
+environment (not the inherited process environment); credentials are not serialized,
+but because configured header and environment values feed the key hash, the cache file
+name could in principle be matched against guessed low-entropy secrets. Tool descriptions themselves may
+contain sensitive server data, so use a trusted private cache directory.
+For network servers set `tool_cache.auth_identity` to a stable principal identifier
+and change it when switching accounts; without it, only digest-mode snapshots (below)
+are persisted. Request-scoped bearer authentication
+never uses disk persistence.
+
+Startup checks the snapshot first. A usable snapshot (digest mode, or within its TTL)
+advertises its tools and instructions immediately; `connection_policy` decides what
+happens next:
+
+- `eager` (default): connect in the background. For a digest-mode snapshot whose
+  `server/discover` digest still matches (or that renders no instructions), the
+  snapshot's tools are kept and `tools/list` is skipped; each tool call is checked instead.
+- `lazy`: stay disconnected until the first tool call. `/mcp` shows
+  `connect : on first tool call (lazy)`.
+
+Without a usable snapshot both policies connect at startup as usual. App metadata
+requires live validation and always falls back to discovery. `fast-agent go
+--mcp-connect eager|lazy` sets the policy for every startup `--url`/`--npx`/`--uvx`/`--stdio`
+target (for example `fast-agent go --url https://huggingface.co/mcp?anon --mcp-connect lazy`).
+Snapshots store server instructions with the tools, so `{{serverInstructions}}`
+renders the same prompt before the server connects. Prompts, resources, and
+server-provided skills are not restored from tool snapshots; they become available
+after connection.
+Snapshot TTL is a local reuse policy, not a server
+or SDK TTL; persisted snapshots always come from fresh paginated discovery.
+For stdio credentials inherited outside `env`, set and rotate `auth_identity`
+when switching accounts.
+`load_on_start: false` still skips startup entirely; forced connection overrides
+lazy connection. This policy is unrelated to the provider `defer_loading` hint.
+Before executing a tool of a server that has not connected yet, fast-agent connects under the
+existing attachment lock. Changed tool definitions are rejected without executing;
+the agent re-lists its tools (and re-renders server instructions) before the model's
+next call in the same turn. All discovery follows tools pagination.
+
+#### Digest mode (definition digests)
+
+Some servers put a `digest` on their `server/discover` and `tools/list` results, following
+the draft Definition Digests SEP (currently the Hugging Face MCP server). A `tools/list`
+digest covers the complete tool list; a `server/discover` digest covers instructions,
+capabilities, and supported versions. When a snapshot carries a `tools/list` digest, plus
+a `server/discover` digest if `include_instructions` is enabled, it is in **digest mode**:
+
+- The snapshot TTL is ignored; the snapshot is reused until the server reports a change.
+- Every tool call sends the digests it holds in
+  `_meta["io.modelcontextprotocol/knownDigests"]`, keyed by method. A server that rejects
+  a stale call (JSON-RPC error `-32987`, `data.staleDigests`) does so before executing it;
+  fast-agent refreshes what the server reported stale (tools, or reconnects for
+  `server/discover`), returns a "definitions changed" result to the model, and re-lists
+  tools and re-renders instructions before the next model call.
+- A server may instead serve the call and name stale methods in result
+  `_meta["io.modelcontextprotocol/staleDigests"]`; the result is kept and definitions
+  are refreshed before the next model call.
+- A paginated listing is only used with a digest when every page carries the same one;
+  otherwise the listing restarts from the first page.
+- Digest snapshots are persisted even without `tool_cache.auth_identity` (for
+  example `fast-agent go --url https://huggingface.co/mcp?anon`): a snapshot from
+  another account or deployment is rejected by the server before any tool runs.
+
+Servers only advertise digests where the complete tool list is cheap to compute; for
+Hugging Face that is anonymous access (`?anon`) or a named bouquet other than `all`.
+Other servers and requests keep TTL-based reuse.
+
+Aggregator APIs (both accept a server name or `None` for all configured servers):
+
+- `await clear_tool_cache(server_name=None)`: delete snapshots and snapshot-advertised tools of unconnected servers,
+  retaining connected live tools and app metadata. SDK tool discovery is always refreshed.
+- `await refresh_tool_cache(server_name=None)`: connect as needed and refresh
+  authoritative discovery using SDK `cache_mode="refresh"`. Errors propagate.
+- `await collect_server_status()`: `ServerStatus.tool_cache` reports source
+  (`live`/`disk`), fetch/expiry Unix timestamps, and raw tool count;
+  `connection_policy` reports the configured policy. Connection status remains
+  separate from catalog availability.
+
+### Tool catalog cache commands
+
+- `/mcp cache` shows one line per server, also shown as the `tools` row in `/mcp`:
+  tool count, origin (`live` or `disk`) and age, how changes are detected
+  (`digest checked per call`, or `reusable for …`/`expired …` for saved TTL snapshots),
+  and whether a snapshot is `saved` or `memory only`. For example
+  `tools: 4 · live 8s ago · digest checked per call · saved`.
+- `/mcp cache clear [server|all]` removes snapshots and snapshot-advertised tools of unconnected servers while
+  retaining connected live tools without disconnecting servers. Omit the target to clear all attached servers.
+- `/mcp refresh [server|all]` connects if needed and replaces tool catalogs using
+  authoritative server discovery. Omit the target to refresh all attached servers.
+
+These commands are available in the TUI, ACP, and harness command surface.

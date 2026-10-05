@@ -19,6 +19,7 @@ from fast_agent.mcp.connect_targets import (
     McpConnectMode,
     ParsedMcpConnectRequest,
     build_server_config_from_target,
+    parse_connect_command_text,
     redact_mcp_url,
     render_normalized_target,
     resolve_connect_auth_token,
@@ -27,6 +28,7 @@ from fast_agent.mcp.failures import (
     MCPFailureSurface,
     classify_mcp_failure,
     render_mcp_failure,
+    safe_mcp_diagnostic_text,
 )
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
 from fast_agent.skills.source_resolver import mcp_registry_source
@@ -833,3 +835,95 @@ async def handle_mcp_reconnect(
         outcome.add_message(warning, channel="warning", right_info="mcp", agent_name=agent_name)
 
     return outcome
+
+
+async def handle_mcp_cache(ctx: CommandContext, *, agent_name: str, value: str) -> CommandOutcome:
+    from fast_agent.agents.mcp_agent import McpAgent
+    from fast_agent.commands.mcp_command_intents import parse_mcp_cache_tokens
+    from fast_agent.ui.mcp_display import format_tool_cache
+    from fast_agent.utils.commandline import split_commandline
+
+    outcome = CommandOutcome()
+    try:
+        intent = parse_mcp_cache_tokens(split_commandline(value, syntax="posix"))
+        if intent.error:
+            outcome.add_message(intent.error, channel="error")
+            return outcome
+        agent = ctx.agent_provider._agent(agent_name)
+        if not isinstance(agent, McpAgent):
+            outcome.add_message("MCP tool cache is not available for this agent.", channel="error")
+            return outcome
+        aggregator = agent.aggregator
+        if intent.action == "summary":
+            statuses = await aggregator.collect_server_status()
+            outcome.add_message(
+                "\n".join(
+                    f"{name}: {format_tool_cache(status.tool_cache)}"
+                    for name, status in statuses.items()
+                )
+                or "No MCP servers attached."
+            )
+        else:
+            if intent.action == "clear":
+                await aggregator.clear_tool_cache(intent.server_name)
+            else:
+                await aggregator.refresh_tool_cache(intent.server_name)
+            outcome.add_message(
+                f"Tool cache {'cleared' if intent.action == 'clear' else 'refreshed'}: "
+                f"{intent.server_name or 'all servers'}."
+            )
+    except Exception as exc:
+        outcome.add_message(
+            f"MCP tool cache operation failed: {safe_mcp_diagnostic_text(str(exc))}",
+            channel="error",
+        )
+    return outcome
+
+
+def mcp_auth_connect_request(server_name: str) -> ParsedMcpConnectRequest:
+    """`/mcp auth <server>` is `/mcp connect <configured server> --oauth`."""
+    return parse_connect_command_text(
+        join_commandline([server_name, "--oauth"], syntax="posix"),
+        syntax="posix",
+        resolve_configured_name=True,
+    )
+
+
+async def handle_mcp_device_login(
+    ctx: CommandContext,
+    *,
+    server_name: str,
+    on_user_code: Callable[[str], Awaitable[None]],
+) -> str | None:
+    """Device-code login for a configured server; returns an error message, or None."""
+    from fast_agent.mcp.oauth_device import (
+        MCPDeviceAuthorizationError,
+        MCPDeviceCode,
+        login_mcp_server_with_device_code,
+    )
+
+    mcp_settings = ctx.resolve_settings().mcp
+    config = mcp_settings.servers.get(server_name) if mcp_settings is not None else None
+    if config is None:
+        return f"Unknown MCP server '{server_name}'. Use /mcp list to see configured servers."
+    if config.auth is not None and config.auth.persist == "memory":
+        # The server isn't connected, so there is no live in-memory store to share.
+        return (
+            f"Device login needs persisted credentials; '{server_name}' uses "
+            "auth.persist: memory. Use /mcp auth without --device."
+        )
+
+    async def show(code: MCPDeviceCode) -> None:
+        link = code.verification_uri_complete or code.verification_uri
+        await on_user_code(
+            f"To authorize '{server_name}', open {link} and enter code {code.user_code} "
+            f"(expires in {int(code.expires_in // 60)} min)."
+        )
+
+    try:
+        await login_mcp_server_with_device_code(
+            config.model_copy(update={"name": server_name}), on_user_code=show
+        )
+    except MCPDeviceAuthorizationError as exc:
+        return str(exc)
+    return None

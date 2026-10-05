@@ -1960,7 +1960,8 @@ def test_mcp_connect_context_ignores_inline_value_flags_as_target(flag: str) -> 
     assert context.partial == "--"
 
 
-def test_get_completions_for_mcp_attach_configured_servers(monkeypatch) -> None:
+@pytest.mark.parametrize("action", ["attach", "error"])
+def test_get_completions_for_mcp_attach_configured_servers(monkeypatch, action: str) -> None:
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     settings = Settings(
         mcp=MCPSettings(
@@ -1974,7 +1975,7 @@ def test_get_completions_for_mcp_attach_configured_servers(monkeypatch) -> None:
 
     completer = AgentCompleter(agents=["agent1"])
 
-    doc = Document("/mcp attach d", cursor_position=len("/mcp attach d"))
+    doc = Document(f"/mcp {action} d", cursor_position=len(f"/mcp {action} d"))
     completions = list(completer.get_completions(doc, None))
     names = [c.text for c in completions]
     docs_completion = next((c for c in completions if c.text == "docs"), None)

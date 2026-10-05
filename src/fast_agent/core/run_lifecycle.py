@@ -36,6 +36,7 @@ class FastAgentRunLifecycle:
         *,
         model_override: str | None = None,
         force_headless: bool = False,
+        background_mcp_startup: bool | None = None,
         before_apply_skills: Callable[[], None] | None = None,
     ) -> FastAgentRunLifecycleState:
         exit_stack = AsyncExitStack()
@@ -48,6 +49,13 @@ class FastAgentRunLifecycle:
             span_context = trace.get_tracer(__name__).start_as_current_span(self._fast_agent.name)
             exit_stack.enter_context(span_context)
             await exit_stack.enter_async_context(self._fast_agent.app.run())
+            if background_mcp_startup is not None:
+                context = self._fast_agent.context
+                original_background_startup = context.background_mcp_startup
+                context.background_mcp_startup = background_mcp_startup
+                exit_stack.callback(
+                    setattr, context, "background_mcp_startup", original_background_startup
+                )
             default_skills = self._fast_agent._load_default_skills_for_run()
             if before_apply_skills is not None:
                 before_apply_skills()

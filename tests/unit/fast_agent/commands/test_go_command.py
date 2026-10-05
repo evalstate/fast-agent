@@ -813,3 +813,34 @@ def test_go_quiet_skips_update_notice(monkeypatch: pytest.MonkeyPatch) -> None:
     result = runner.invoke(go_command.app, ["--quiet"])
 
     assert result.exit_code == 0, result.output
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--model", "haiku"],
+        ["--models", "haiku,sonnet"],
+        ["--resume", "latest"],
+        ["--message", "hello"],
+        ["--prompt-file", "prompt.txt"],
+    ],
+)
+def test_go_model_picker_rejects_conflicts(args: list[str]) -> None:
+    result = CliRunner().invoke(go_command.app, ["--model-picker", *args])
+    assert result.exit_code == 2
+    assert "--model-picker" in result.output
+    assert "cannot be combined" in result.output or "requires an interactive" in result.output
+
+
+@pytest.mark.parametrize("flag", ["--model-picker", "-mp"])
+def test_go_model_picker_reaches_runtime(monkeypatch: pytest.MonkeyPatch, flag: str) -> None:
+    from fast_agent.cli.runtime.run_request import AgentRunRequest
+
+    requests: list[AgentRunRequest] = []
+    monkeypatch.setattr(go_command, "run_request", requests.append)
+    result = CliRunner().invoke(go_command.app, [flag])
+    assert result.exit_code == 0, result.output
+    assert len(requests) == 1
+    assert isinstance(requests[0], AgentRunRequest)
+    assert requests[0].model_picker
+    assert requests[0].to_agent_setup_kwargs()["model_picker"] is True

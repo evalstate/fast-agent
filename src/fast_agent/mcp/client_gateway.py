@@ -15,7 +15,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp_types import JSONRPCMessage, JSONRPCRequest
 from pydantic import TypeAdapter, ValidationError
 
-from fast_agent.core.exceptions import walk_exception_chain
+from fast_agent.core.exceptions import ServerAuthenticationRequiredError, walk_exception_chain
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.home import build_child_environment
 from fast_agent.mcp.client_connection import MCPClientConnection
@@ -142,9 +142,12 @@ def is_http_auth_challenge(
     """Classify an HTTP auth challenge without discarding structured causes."""
     exceptions = list(walk_exception_chain(error)) if isinstance(error, BaseException) else []
     if any(
-        isinstance(exc, HTTPStatusError)
-        and exc.response is not None
-        and exc.response.status_code == 401
+        isinstance(exc, ServerAuthenticationRequiredError)
+        or (
+            isinstance(exc, HTTPStatusError)
+            and exc.response is not None
+            and exc.response.status_code == 401
+        )
         for exc in exceptions
     ):
         return True

@@ -29,6 +29,21 @@ def resolve_execution_mode(
     return "repl"
 
 
+def validate_model_picker_options(
+    *, model_picker: bool, model: str | None, resume: str | None, is_repl: bool
+) -> None:
+    if not model_picker:
+        return
+    if model is not None:
+        raise ValueError("--model-picker cannot be combined with --model/--models")
+    if resume is not None:
+        raise ValueError("--model-picker cannot be combined with --resume")
+    if not is_repl:
+        raise ValueError(
+            "--model-picker requires an interactive REPL (no --message or --prompt-file)"
+        )
+
+
 @dataclass(slots=True)
 class AgentRunRequest:
     """Normalized request used by the CLI runtime."""
@@ -80,12 +95,19 @@ class AgentRunRequest:
     subagents: bool | None = None
     subagent_model: str | None = None
     model_base_url: str | None = None
+    model_picker: bool = False
 
     def __post_init__(self) -> None:
         self._validate_environment_options()
         self._validate_timeout()
         self._validate_model_base_url()
         self._resolve_execution_mode()
+        validate_model_picker_options(
+            model_picker=self.model_picker,
+            model=self.model,
+            resume=self.resume,
+            is_repl=self.mode == "interactive" and self.is_repl,
+        )
         self._validate_structured_options()
 
     def _validate_environment_options(self) -> None:
@@ -174,6 +196,7 @@ class AgentRunRequest:
             "agent_cards": self.agent_cards,
             "card_tools": self.card_tools,
             "model": self.model,
+            "model_picker": self.model_picker,
             "message": self.message,
             "prompt_file": self.prompt_file,
             "attachments": self.attachments,

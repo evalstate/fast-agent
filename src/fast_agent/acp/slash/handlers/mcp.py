@@ -16,9 +16,11 @@ from fast_agent.commands.mcp_command_intents import (
     MCP_TOP_LEVEL_ACTIONS,
     McpServerNameIntent,
     is_mcp_top_level_action,
+    parse_mcp_auth_tokens,
     parse_mcp_no_args_tokens,
     parse_mcp_server_name_tokens,
 )
+from fast_agent.commands.mcp_diagnostics import render_mcp_diagnostics
 from fast_agent.mcp.connect_targets import (
     parse_connect_command_text,
     render_connect_request,
@@ -27,7 +29,7 @@ from fast_agent.mcp.connect_targets import (
 from fast_agent.mcp.failures import MCPFailure, render_mcp_failure
 from fast_agent.ui.mcp_display import render_mcp_status_text
 from fast_agent.utils.action_normalization import is_help_flag
-from fast_agent.utils.commandline import split_commandline
+from fast_agent.utils.commandline import join_commandline, split_commandline
 from fast_agent.utils.slash_commands import split_subcommand_and_remainder
 from fast_agent.utils.text import strip_casefold, strip_to_none
 
@@ -124,12 +126,16 @@ def _mcp_usage_text(heading: str) -> str:
         "Usage:\n"
         "- /mcp list\n"
         "- /mcp status\n"
+        "- /mcp error [server]\n"
+        "- /mcp auth [<server> [--device]]\n"
         "- /mcp attach <server_name>\n"
         "- /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
         "[--protocol auto|modern|legacy] "
         "[--oauth|--no-oauth] [--reconnect|--no-reconnect]\n"
         '  Example: /mcp connect "C:\\Program Files\\Tool\\tool.exe" --flag\n'
         "- /mcp disconnect <server_name>\n"
+        "- /mcp cache [clear [server|all]]\n"
+        "- /mcp refresh [server|all]\n"
         "- /mcp reconnect <server_name>"
     )
 
@@ -337,6 +343,23 @@ async def _handle_mcp_list_command(
     outcome = await mcp_runtime_handlers.handle_mcp_list(
         manager=manager,
         agent_name=handler.current_agent_name,
+    )
+    return handler._format_outcome_as_markdown(outcome, heading, io=io)
+
+
+async def _handle_mcp_cache_command(
+    handler: "SlashCommandHandler",
+    *,
+    heading: str,
+    ctx,
+    io: "ACPCommandIO",
+    manager,
+    tokens: list[str],
+) -> str:
+    import shlex
+
+    outcome = await mcp_runtime_handlers.handle_mcp_cache(
+        ctx, agent_name=handler.current_agent_name, value=shlex.join(tokens)
     )
     return handler._format_outcome_as_markdown(outcome, heading, io=io)
 
@@ -551,8 +574,44 @@ async def _handle_mcp_reconnect_command(
     return handler._format_outcome_as_markdown(outcome, heading, io=io)
 
 
+async def _handle_mcp_diagnostics_command(
+    handler: "SlashCommandHandler", *, heading: str, ctx, io, manager, tokens: list[str]
+) -> str:
+    return render_mcp_diagnostics(handler._get_current_agent(), tokens)
+
+
+async def _handle_mcp_auth_command(
+    handler: "SlashCommandHandler", *, heading: str, ctx, io, manager, tokens: list[str]
+) -> str:
+    """`/mcp auth` shows diagnostics; `/mcp auth <server> [--device]` logs in and connects."""
+    intent = parse_mcp_auth_tokens(tokens)
+    if intent.error:
+        return f"{heading}\n\n{intent.error}"
+    if intent.server_name is None:
+        return render_mcp_diagnostics(handler._get_current_agent(), tokens)
+    if intent.device:
+        error = await mcp_runtime_handlers.handle_mcp_device_login(
+            ctx, server_name=intent.server_name, on_user_code=handler._send_progress_update
+        )
+        if error is not None:
+            return f"{heading}\n\n{error}"
+    return await _handle_mcp_connect_command(
+        handler,
+        heading=heading,
+        resolve_configured_name=True,
+        ctx=ctx,
+        io=io,
+        manager=manager,
+        remainder=join_commandline([intent.server_name, "--oauth"], syntax="posix"),
+    )
+
+
 _MCP_COMMAND_HANDLERS: dict[str, "_McpCommandHandler"] = {
+    "error": _handle_mcp_diagnostics_command,
+    "auth": _handle_mcp_auth_command,
     "list": _handle_mcp_list_command,
+    "cache": _handle_mcp_cache_command,
+    "refresh": _handle_mcp_cache_command,
     "status": _handle_mcp_status_command,
     "attach": _handle_mcp_attach_command,
     "disconnect": _handle_mcp_disconnect_command,

@@ -1240,3 +1240,95 @@ async def test_run_agent_request_does_not_use_last_used_for_noninteractive_start
         config_module._settings = old_settings
 
     assert request.model is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["config", "environment", "card"])
+async def test_forced_picker_overrides_existing_model(
+    source: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import AsyncMock, Mock
+
+    settings = Settings(default_model="haiku" if source == "config" else None)
+    if source == "environment":
+        monkeypatch.setenv("FAST_AGENT_MODEL", "haiku")
+    card = tmp_path / "agent.md"
+    card.write_text("---\nname: agent\nmodel: haiku\n---\nHelp.\n")
+    request = _make_request(agent_cards=[str(card)] if source == "card" else None)
+    request.model_picker = True
+    prefix = "fast_agent.cli.runtime.agent_setup."
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr(prefix + "_load_request_settings", lambda request: settings)
+    picker = AsyncMock(return_value="gpt-4.1-mini")
+    persist = Mock()
+    monkeypatch.setattr(prefix + "_select_model_from_picker", picker)
+    monkeypatch.setattr(prefix + "_persist_model_picker_last_used_selection", persist)
+
+    assert await _select_startup_model_if_needed(request) == "model picker"
+    assert request.model == "gpt-4.1-mini"
+    picker.assert_awaited_once()
+    persist.assert_called_once_with(request, settings=settings, model_spec=request.model)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stdin_tty,stdout_tty", [(False, True), (True, False), (False, False)])
+async def test_forced_picker_requires_terminal(
+    stdin_tty: bool, stdout_tty: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import typer
+
+    request = _make_request()
+    request.model_picker = True
+    monkeypatch.setattr("sys.stdin.isatty", lambda: stdin_tty)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: stdout_tty)
+    with pytest.raises(typer.BadParameter, match="TTY stdin and stdout"):
+        await _select_startup_model_if_needed(request)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"model": "haiku"},
+        {"resume": "latest"},
+        {"message": "hello", "execution_mode": None},
+        {"prompt_file": "prompt.txt", "execution_mode": None},
+        {"mode": "serve"},
+    ],
+)
+def test_model_picker_request_rejects_incompatible_modes(changes) -> None:
+    from dataclasses import replace
+
+    with pytest.raises(ValueError, match="--model-picker"):
+        replace(_make_request(), model_picker=True, **changes)
+
+
+@pytest.mark.asyncio
+async def test_forced_picker_cancellation_does_not_select_or_persist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import AsyncMock, Mock
+
+    import typer
+
+    request = _make_request(config_path=str(tmp_path / "fast-agent.yaml"))
+    request.model_picker = True
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr(
+        "fast_agent.cli.runtime.agent_setup._load_request_settings",
+        lambda request: Settings(default_model="haiku"),
+    )
+    monkeypatch.setattr(
+        "fast_agent.ui.model_picker.run_model_picker_async", AsyncMock(return_value=None)
+    )
+    persist = Mock()
+    monkeypatch.setattr(
+        "fast_agent.cli.runtime.agent_setup._persist_model_picker_last_used_selection", persist
+    )
+
+    with pytest.raises(typer.Exit) as exc:
+        await _select_startup_model_if_needed(request)
+    assert exc.value.exit_code == 1
+    assert request.model is None
+    persist.assert_not_called()

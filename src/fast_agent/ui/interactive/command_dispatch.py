@@ -72,7 +72,10 @@ from fast_agent.ui.command_payloads import (
     LoadHistoryCommand,
     LoadPromptCommand,
     McpAttachCommand,
+    McpAuthCommand,
+    McpCacheCommand,
     McpConnectCommand,
+    McpDiagnosticsCommand,
     McpDisconnectCommand,
     McpListCommand,
     McpReconnectCommand,
@@ -120,7 +123,7 @@ from fast_agent.ui.prompt.attachment_tokens import (
 from fast_agent.utils.slash_commands import parse_slash_command_line
 
 from .command_context import build_command_context, emit_command_outcome
-from .mcp_connect_flow import handle_mcp_connect
+from .mcp_connect_flow import handle_mcp_connect, run_mcp_device_login
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -255,6 +258,18 @@ _COMMAND_OUTCOME_ROUTES: tuple[_CommandOutcomeRoute, ...] = (
         "display",
         "agent_name",
         display_handlers.handle_show_markdown,
+    ),
+    _CommandOutcomeRoute(
+        McpCacheCommand,
+        "display",
+        "value",
+        mcp_runtime_handlers.handle_mcp_cache,
+    ),
+    _CommandOutcomeRoute(
+        McpDiagnosticsCommand,
+        "display",
+        "value",
+        display_handlers.handle_mcp_diagnostics,
     ),
     _CommandOutcomeRoute(
         ShowMcpStatusCommand,
@@ -1197,6 +1212,20 @@ async def _dispatch_mcp_payload(
         case McpConnectCommand():
             return await _dispatch_mcp_connect_command(
                 payload,
+                prompt_provider=prompt_provider,
+                agent=agent,
+                session_manager=session_manager,
+            )
+        case McpAuthCommand():
+            context = build_command_context(prompt_provider, agent, session_manager=session_manager)
+            if payload.device and not await run_mcp_device_login(context, payload.server_name):
+                return result
+            return await _dispatch_mcp_connect_command(
+                McpConnectCommand(
+                    request=mcp_runtime_handlers.mcp_auth_connect_request(payload.server_name),
+                    error=None,
+                    resolve_configured_name=True,
+                ),
                 prompt_provider=prompt_provider,
                 agent=agent,
                 session_manager=session_manager,

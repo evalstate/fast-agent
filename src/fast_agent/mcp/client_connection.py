@@ -30,6 +30,7 @@ from mcp_types import (
 from mcp_types.version import LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS
 
 from fast_agent.core.exceptions import ServerSessionTerminatedError
+from fast_agent.mcp.definition_digests import DigestTracker, digest_tracking_transport
 from fast_agent.mcp.skills_extension import (
     DirectoryReadRequest,
     DirectoryReadRequestParams,
@@ -105,9 +106,10 @@ class MCPClientConnection:
         protocol_mode: Literal["auto", "modern", "legacy"] = "auto",
     ) -> None:
         self.callbacks = callbacks
+        self.digests = DigestTracker()
         client_type = _ForcedModernClient if protocol_mode == "modern" else Client
         self.client = client_type(
-            transport,
+            digest_tracking_transport(transport, self.digests),
             mode=sdk_connect_mode(protocol_mode),
             read_timeout_seconds=read_timeout_seconds,
             sampling_callback=callbacks.sampling_callback,

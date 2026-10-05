@@ -15,9 +15,17 @@ if TYPE_CHECKING:
 
 class _FakeAgent:
     agent_type = AgentType.BASIC
+    context = None
 
 
-class _FakeAgentApp:
+class _FakeAppBase:
+    _agents: dict[str, _FakeAgent]
+
+    def _agent(self, agent_name: str) -> _FakeAgent:
+        return self._agents[agent_name]
+
+
+class _FakeAgentApp(_FakeAppBase):
     def __init__(self) -> None:
         self._agents: dict[str, _FakeAgent] = {"vertex-rag": _FakeAgent()}
         self._refreshed = False
@@ -58,7 +66,7 @@ class _FakeAgentApp:
         return False
 
 
-class _FakeAgentAppRemove:
+class _FakeAgentAppRemove(_FakeAppBase):
     def __init__(self) -> None:
         self._agents: dict[str, _FakeAgent] = {
             "vertex-rag": _FakeAgent(),
@@ -102,7 +110,7 @@ class _FakeAgentAppRemove:
         return False
 
 
-class _FakeToolOnlyAgentApp:
+class _FakeToolOnlyAgentApp(_FakeAppBase):
     def __init__(self) -> None:
         self._agents: dict[str, _FakeAgent] = {
             "tool-only": _FakeAgent(),

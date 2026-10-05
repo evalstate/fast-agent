@@ -406,7 +406,7 @@ class SlashCommandHandler:
                 description="Manage runtime MCP servers and MCP data-layer sessions",
                 handler=self._handle_mcp,
                 input_hint=(
-                    "list | status | attach <server> | "
+                    "list | status | error [server] | auth | attach <server> | "
                     "connect <target> [--name <server>] [--auth <token>] "
                     "[--timeout <seconds>] [--oauth|--no-oauth] "
                     "[--reconnect|--no-reconnect] | session [list|jar|new|use|clear] | "

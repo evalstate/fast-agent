@@ -18,6 +18,7 @@ from fast_agent.utils.time import format_compact_duration, format_two_unit_durat
 
 if TYPE_CHECKING:
     from fast_agent.mcp.mcp_aggregator import ServerStatus
+    from fast_agent.mcp.tool_catalog_cache import ToolCacheInfo
 
 
 @runtime_checkable
@@ -1049,6 +1050,23 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
 
     _status_console().print(meta_line)
 
+    if _awaiting_connection(status):
+        # Advertised from its snapshot: nothing is wrong, it just hasn't connected yet.
+        waiting_line = Text(indent + "  ")
+        waiting_line.append_text(
+            _build_aligned_field(
+                "connect",
+                "on first tool call (lazy)"
+                if status.connection_policy == "lazy"
+                else "in background (eager)",
+                value_style=Colours.TEXT_DIM,
+            )
+        )
+        _status_console().print(waiting_line)
+        _render_tool_cache_row(status, indent=indent)
+        _status_console().print()
+        return
+
     protocol_line = Text(indent + "  ")
     protocol = status.protocol_version or "unknown"
     if status.protocol_era:
@@ -1064,6 +1082,8 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
         )
     _status_console().print(protocol_line)
 
+    _render_tool_cache_row(status, indent=indent)
+
     health_text = _build_health_text(status)
     if health_text is not None:
         health_line = Text(indent + "  ")
@@ -1071,6 +1091,22 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
         _status_console().print(health_line)
 
     _status_console().print()
+
+
+def _awaiting_connection(status: ServerStatus) -> bool:
+    return (
+        status.protocol_version is None
+        and status.tool_cache is not None
+        and status.tool_cache.source == "disk"
+    )
+
+
+def _render_tool_cache_row(status: ServerStatus, *, indent: str) -> None:
+    if status.tool_cache is None:
+        return
+    tools_line = Text(indent + "  ")
+    tools_line.append_text(_build_aligned_field("tools", build_tool_cache_text(status.tool_cache)))
+    _status_console().print(tools_line)
 
 
 def _build_server_state_segments(
@@ -1245,3 +1281,34 @@ async def render_mcp_status_text(agent, *, width: int = 100) -> str:
     )
     await render_mcp_status(agent, output_console=output_console)
     return buffer.getvalue().strip()
+
+
+def build_tool_cache_text(info: ToolCacheInfo) -> Text:
+    """One line: count · origin and age · how change is detected · where it lives."""
+    now = datetime.now(timezone.utc).timestamp()
+    separator = (" · ", Colours.TEXT_DIM)
+    text = Text()
+    text.append(str(info.tool_count), style=Colours.TEXT_DEFAULT)
+    text.append(*separator)
+    text.append(info.source, style=Colours.TEXT_DEFAULT)
+    text.append(f" {format_compact_duration(max(0, now - info.fetched_at))} ago", Colours.TEXT_DIM)
+    if info.digest:
+        text.append(*separator)
+        text.append("digest checked per call", style=Colours.TEXT_SUCCESS)
+    elif info.persisted and info.expires_at is not None:
+        text.append(*separator)
+        remaining = format_compact_duration(abs(info.expires_at - now))
+        if info.expires_at > now:
+            text.append(f"reusable for {remaining}", style=Colours.TEXT_DIM)
+        else:
+            text.append(f"expired {remaining} ago", style=Colours.TEXT_WARNING)
+    text.append(*separator)
+    text.append("saved" if info.persisted else "memory only", style=Colours.TEXT_DIM)
+    return text
+
+
+def format_tool_cache(info: ToolCacheInfo | None) -> str:
+    """Plain-text catalog provenance for command output."""
+    if info is None:
+        return "no tool catalog recorded"
+    return f"tools: {build_tool_cache_text(info).plain}"

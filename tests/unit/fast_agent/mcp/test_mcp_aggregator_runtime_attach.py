@@ -47,7 +47,7 @@ class _RecordingAggregator(MCPAggregator):
         super().__init__(**kwargs)
         self.attach_calls: list[str] = []
 
-    async def attach_server(self, *, server_name: str, server_config=None, options=None):
+    async def _attach_server_locked(self, *, server_name: str, server_config=None, options=None):
         self.attach_calls.append(server_name)
         if server_name not in self._attached_server_names:
             self._attached_server_names.append(server_name)
@@ -67,10 +67,10 @@ class _FailingStartupAggregator(_RecordingAggregator):
         super().__init__(**kwargs)
         self.detach_calls: list[str] = []
 
-    async def attach_server(self, *, server_name: str, server_config=None, options=None):
+    async def _attach_server_locked(self, *, server_name: str, server_config=None, options=None):
         if server_name == "beta":
             raise RuntimeError("beta failed")
-        return await super().attach_server(
+        return await super()._attach_server_locked(
             server_name=server_name,
             server_config=server_config,
             options=options,
@@ -116,7 +116,7 @@ async def test_load_servers_routes_startup_connections_through_attach_server() -
 
 
 @pytest.mark.asyncio
-async def test_load_servers_rolls_back_cli_owned_startup_batch() -> None:
+async def test_load_servers_preserves_successful_siblings() -> None:
     registry = ServerRegistry()
     configs = {
         name: MCPServerSettings(name=name, transport="stdio", command="echo")
@@ -129,12 +129,14 @@ async def test_load_servers_rolls_back_cli_owned_startup_batch() -> None:
         context=Context(server_registry=registry),
     )
 
-    with pytest.raises(RuntimeError, match="beta failed"):
-        await aggregator.load_servers()
+    await aggregator.load_servers()
 
-    assert aggregator.detach_calls == ["alpha"]
-    assert aggregator.list_attached_servers() == []
-    assert registry.registry == {}
+    assert aggregator.detach_calls == []
+    assert aggregator.list_attached_servers() == ["alpha"]
+    errors = aggregator.get_startup_errors("beta")
+    assert len(errors) == 1
+    assert errors[0].failure_detail == "beta failed"
+    assert aggregator.startup_status[0].state == "ready"
 
 
 @pytest.mark.asyncio
@@ -334,6 +336,9 @@ async def test_attachment_discovery_failure_rolls_back_transaction(
     disconnected: list[str] = []
 
     class _Manager:
+        def __init__(self) -> None:
+            self.running_servers: dict[str, object] = {}
+
         async def disconnect_server(self, server_name: str) -> None:
             disconnected.append(server_name)
 
