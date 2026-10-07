@@ -42,6 +42,8 @@ BUILTIN_MODEL_ALIASES: Final[dict[str, str]] = {
     "claude": "claude-sonnet-5-5",
     "haiku": "claude-haiku-5-5",
     "haiku55": "claude-haiku-5-5",
+    "copilot.haiku": "copilot.claude-haiku-5.5",
+    "copilot.haiku55": "copilot.claude-haiku-5.5",
     "haiku45": "claude-haiku-4-5",
     "opus": "claude-opus-5-5",
     "opus55": "claude-opus-5-5",

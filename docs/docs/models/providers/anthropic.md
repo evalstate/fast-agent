@@ -82,6 +82,8 @@ Haiku 4.5.
 ```bash
 # Uses ANTHROPIC_API_KEY (or anthropic.api_key in configuration).
 uv run fast-agent go --model haiku55
+# Uses the existing Copilot login, not your Anthropic API key.
+uv run fast-agent go --model copilot.haiku55
 ```
 
 Haiku 5.5 is the fast, low-cost model for high-volume work such as
@@ -96,8 +98,8 @@ thinking). Native JSON-schema structured output is supported.
 
 Pricing is tiered on prompt size: $0.10/$0.50 per million input/output tokens up
 to 100K prompt tokens, and $0.50/$2.50 above. The new tokenizer counts about 30%
-more tokens than Haiku 4.5 for the same text. Haiku 5.5 is not yet offered on the
-Copilot route.
+more tokens than Haiku 4.5 for the same text. On Copilot the wire ID is
+`claude-haiku-5.5`, with the same 1M context and 128K output limits.
 
 See Anthropic's [Haiku 5.5 overview](https://platform.claude.com/docs/en/models/haiku-5-5/overview)
 and [migration guide](https://platform.claude.com/docs/en/models/haiku-5-5/migration-guide).

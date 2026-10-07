@@ -20,6 +20,7 @@ from fast_agent.llm.provider_types import Provider
 
 PUBLIC_IDS = {
     "claude-haiku-4.5",
+    "claude-haiku-5.5",
     "claude-sonnet-5",
     "claude-sonnet-5.5",
     "claude-opus-4-8",

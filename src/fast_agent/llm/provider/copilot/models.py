@@ -28,6 +28,7 @@ COPILOT_MODELS: Final[Mapping[str, CopilotModelSpec]] = MappingProxyType(
             CopilotModelSpec("claude-opus-5", "messages", True, ("sse",)),
             CopilotModelSpec("claude-sonnet-5", "messages", True, ("sse",)),
             CopilotModelSpec("claude-haiku-4.5", "messages", True, ("sse",)),
+            CopilotModelSpec("claude-haiku-5.5", "messages", True, ("sse",)),
             CopilotModelSpec("claude-fable-5", "messages", True, ("sse",)),
             CopilotModelSpec(
                 "gpt-6-astra",
