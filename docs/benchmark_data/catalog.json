@@ -80,6 +80,10 @@
       "family": "grok",
       "status": "Provisional"
     },
+    "grok47-medium-6h": {
+      "family": "grok",
+      "status": "6h timeout"
+    },
     "glm53-flash-max-6h": {
       "family": "glm",
       "status": "6h timeout"

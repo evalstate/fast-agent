@@ -269,6 +269,61 @@ def bucket_trials(job_dir: Path, rates: Json | None) -> list[Json]:
     return trials
 
 
+def select_release_trials(
+    run: Json, root: Path
+) -> tuple[list[Json], list[Json], dict[str, str], list[Json]]:
+    """A bench-run release in a bucket: ``release`` names its manifest
+    (``bench-run.release/v1``) under ``path``; job folders sit in ``path/jobs``.
+
+    The manifest's trials are the reported set (replacements substituted); its lineage
+    names the replaced originals, which are excluded (kept as evidence, cost counted).
+    Every trial in the job folders must be one or the other.
+    """
+    spec = run["bucket"]
+    base = root / spec["repo"] / spec["path"]
+    manifest = json.loads((base / spec["release"]).read_text())
+    if manifest.get("schema") != "bench-run.release/v1" or len(manifest["cohorts"]) != 1:
+        raise SystemExit(f"{run['id']}: expected a one-cohort bench-run.release/v1 manifest")
+    cohort = manifest["cohorts"][0]
+    reported = {t["id"] for t in cohort["trials"]}
+    lineage = {r["replaced_trial"]: r for r in cohort["lineage"] if r["state"] == "finalized"}
+    replacement_jobs = {t["job"] for t in cohort["trials"] if t.get("replacement")}
+    rates = (run.get("pricing") or {}).get("rates_per_mtok")
+    trials: list[Json] = []
+    jobs: list[Json] = []
+    for job_dir in sorted(p for p in (base / "jobs").iterdir() if p.is_dir()):
+        found = bucket_trials(job_dir, rates)
+        for trial in found:
+            trial["bucket_run"] = job_dir.name
+            trial["main_run"] = job_dir.name not in replacement_jobs
+        trials += found
+        jobs.append(
+            {
+                "id": job_dir.name,
+                "name": f"{job_dir.name} ({len(found)} trial{'s' if len(found) != 1 else ''})",
+                "url": f"https://huggingface.co/buckets/{spec['repo']}/tree/{spec['path']}/jobs/{job_dir.name}",
+                "path": str(job_dir),
+            }
+        )
+    reasons = {
+        t["id"]: (
+            f"{lineage[t['trial_name']]['replaced_error'] or 'error'} (infrastructure); replaced by "
+            f"{lineage[t['trial_name']]['id']}. Not scored; its cost is still counted."
+        )
+        for t in trials
+        if t["trial_name"] in lineage
+    }
+    selected = [t for t in trials if t["id"] in reported]
+    excluded = [t for t in trials if t["id"] in reasons]
+    stray = [t["trial_name"] for t in trials if t["id"] not in reported and t["id"] not in reasons]
+    if len(selected) != len(reported) or len(excluded) != len(lineage) or stray:
+        raise SystemExit(
+            f"{run['id']}: release/job mismatch: {len(selected)}/{len(reported)} reported, "
+            f"{len(excluded)}/{len(lineage)} replaced, stray {stray[:3]}"
+        )
+    return selected, excluded, reasons, jobs
+
+
 def select_bucket_trials(
     run: Json, root: Path
 ) -> tuple[list[Json], list[Json], dict[str, str], list[Json]]:
@@ -278,6 +333,8 @@ def select_bucket_trials(
     trials of ``original_run_id`` it replaces (same task, one for one).
     """
     spec = run["bucket"]
+    if "release" in spec:
+        return select_release_trials(run, root)
     rates = (run.get("pricing") or {}).get("rates_per_mtok")
     by_run: dict[str, list[Json]] = {}
     jobs: list[Json] = []
@@ -292,6 +349,7 @@ def select_bucket_trials(
         by_run[run_id] = bucket_trials(job_dir, rates)
         for trial in by_run[run_id]:
             trial["bucket_run"] = run_id
+            trial["main_run"] = run_id == spec["runs"][0]
         jobs.append(
             {
                 "id": run_id,
@@ -781,11 +839,13 @@ def build_run(
         out["cost"]["computed"] = True
         out["cost"]["usage_incomplete_trials"] = incomplete
         out["cost"]["lower_bound"] = bool(incomplete) or bool(run.get("cost_lower_bound"))
+    if run.get("cost_lower_bound"):
+        # Usage the run recorded only in part (e.g. a failed stream attempt): a lower bound.
+        out["cost"]["lower_bound"] = True
     if "bucket" in run:
-        main = run["bucket"]["runs"][0]
         out["as_run"] = {
             "passes": sum(
-                1 for t in selected + excluded if t["bucket_run"] == main and rewarded(t)
+                1 for t in selected + excluded if t["main_run"] and rewarded(t)
             ),
             "slots": slots,
         }

@@ -1,0 +1,692 @@
+{
+  "id": "grok47-medium-6h",
+  "benchmark": "terminal-bench-2.1",
+  "harness": "fast-agent",
+  "harness_version": "0.10.42",
+  "model": "Grok 4.7",
+  "effort": "medium",
+  "model_string": "xai.grok-4.7?reasoning=medium&transport=sse",
+  "date": "2026-10-04",
+  "timeout": "6h",
+  "jobs": [
+    {
+      "id": "tb21-grok47-medium-xai-sse-001-hf-basic",
+      "name": "tb21-grok47-medium-xai-sse-001-hf-basic (430 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic"
+    },
+    {
+      "id": "tb21-grok47-medium-xai-sse-001-hf-upgrade",
+      "name": "tb21-grok47-medium-xai-sse-001-hf-upgrade (15 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-upgrade",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-upgrade"
+    },
+    {
+      "id": "tb21-grok47-medium-xai-sse-001-rep-001",
+      "name": "tb21-grok47-medium-xai-sse-001-rep-001 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-rep-001",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-rep-001"
+    },
+    {
+      "id": "tb21-grok47-medium-xai-sse-001-rep-002",
+      "name": "tb21-grok47-medium-xai-sse-001-rep-002 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-rep-002",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-rep-002"
+    },
+    {
+      "id": "tb21-grok47-medium-xai-sse-001-rep-003",
+      "name": "tb21-grok47-medium-xai-sse-001-rep-003 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-rep-003",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-rep-003"
+    }
+  ],
+  "excluded_trials": [
+    {
+      "id": "6d19c212-fd9f-45d4-861a-c0331bbe2f57",
+      "task": "headless-terminal",
+      "error_type": "ConnectError",
+      "cost_usd": null,
+      "reason": "ConnectError (infrastructure); replaced by tb21-grok47-medium-xai-sse-001-rep-001. Not scored; its cost is still counted."
+    },
+    {
+      "id": "1357accb-8bcb-42fc-bbec-63cc0d96021f",
+      "task": "modernize-scientific-stack",
+      "error_type": "ConnectError",
+      "cost_usd": null,
+      "reason": "ConnectError (infrastructure); replaced by tb21-grok47-medium-xai-sse-001-rep-002. Not scored; its cost is still counted."
+    },
+    {
+      "id": "f470c2b6-9433-46d0-8914-a294a97bdbe7",
+      "task": "train-fasttext",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": null,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb21-grok47-medium-xai-sse-001-rep-003. Not scored; its cost is still counted."
+    }
+  ],
+  "disqualified_trials": [],
+  "slots": 445,
+  "passes": 394,
+  "score": 88.54,
+  "tasks": {
+    "adaptive-rejection-sampler": "11111",
+    "bn-fit-modify": "11111",
+    "break-filter-js-from-html": "11111",
+    "build-cython-ext": "11111",
+    "build-pmars": "11111",
+    "build-pov-ray": "11111",
+    "caffe-cifar-10": "11111",
+    "cancel-async-tasks": "11111",
+    "chess-best-move": "10111",
+    "circuit-fibsqrt": "11111",
+    "cobol-modernization": "11111",
+    "code-from-image": "11111",
+    "compile-compcert": "11111",
+    "configure-git-webserver": "11110",
+    "constraints-scheduling": "11111",
+    "count-dataset-tokens": "11111",
+    "crack-7z-hash": "11111",
+    "custom-memory-heap-crash": "11111",
+    "db-wal-recovery": "1x0x1",
+    "distribution-search": "11111",
+    "dna-assembly": "11111",
+    "dna-insert": "11011",
+    "extract-elf": "xx01x",
+    "extract-moves-from-video": "11111",
+    "feal-differential-cryptanalysis": "11111",
+    "feal-linear-cryptanalysis": "11111",
+    "filter-js-from-html": "00000",
+    "financial-document-processor": "11111",
+    "fix-code-vulnerability": "11111",
+    "fix-git": "11111",
+    "fix-ocaml-gc": "11x11",
+    "gcode-to-text": "00000",
+    "git-leak-recovery": "11111",
+    "git-multibranch": "11111",
+    "gpt2-codegolf": "11111",
+    "headless-terminal": "11111",
+    "hf-model-inference": "11111",
+    "install-windows-3.11": "11110",
+    "kv-store-grpc": "11111",
+    "large-scale-text-editing": "11111",
+    "largest-eigenval": "11111",
+    "llm-inference-batching-scheduler": "11111",
+    "log-summary-date-ranges": "11111",
+    "mailman": "11111",
+    "make-doom-for-mips": "00000",
+    "make-mips-interpreter": "10010",
+    "mcmc-sampling-stan": "11111",
+    "merge-diff-arc-agi-task": "11111",
+    "model-extraction-relu-logits": "11111",
+    "modernize-scientific-stack": "11111",
+    "mteb-leaderboard": "11111",
+    "mteb-retrieve": "11111",
+    "multi-source-data-merger": "11111",
+    "nginx-request-logging": "11111",
+    "openssl-selfsigned-cert": "11111",
+    "overfull-hbox": "11111",
+    "password-recovery": "11111",
+    "path-tracing": "11111",
+    "path-tracing-reverse": "11111",
+    "polyglot-c-py": "11111",
+    "polyglot-rust-c": "11111",
+    "portfolio-optimization": "11111",
+    "protein-assembly": "11111",
+    "prove-plus-comm": "11111",
+    "pypi-server": "11111",
+    "pytorch-model-cli": "01100",
+    "pytorch-model-recovery": "11111",
+    "qemu-alpine-ssh": "11111",
+    "qemu-startup": "11110",
+    "query-optimize": "11101",
+    "raman-fitting": "01100",
+    "regex-chess": "11111",
+    "regex-log": "11111",
+    "reshard-c4-data": "11111",
+    "rstan-to-pystan": "11111",
+    "sam-cell-seg": "11101",
+    "sanitize-git-repo": "00010",
+    "schemelike-metacircular-eval": "11011",
+    "sparql-university": "11111",
+    "sqlite-db-truncate": "11111",
+    "sqlite-with-gcov": "11111",
+    "torch-pipeline-parallelism": "x1x11",
+    "torch-tensor-parallelism": "11111",
+    "train-fasttext": "11111",
+    "tune-mjcf": "11111",
+    "video-processing": "00000",
+    "vulnerable-secret": "11111",
+    "winning-avg-corewars": "11111",
+    "write-compressor": "11111"
+  },
+  "errors": {},
+  "cost": {
+    "total_usd": 522.78,
+    "total_usd_exact": 522.775262,
+    "trials_with_cost": 445,
+    "trials": 445,
+    "excluded_trials_with_cost": 0,
+    "basis": "sum of Harbor recorded cost_usd over selected trials plus excluded (replaced) trials",
+    "matches_published": null,
+    "lower_bound": true
+  },
+  "tokens": {
+    "input": 637251417,
+    "cached": 575358080,
+    "output": 13238383,
+    "basis": "Harbor per-trial input_tokens (includes cached), cache_tokens, output_tokens"
+  },
+  "per_trial_cost": {
+    "median": 0.566,
+    "p90": 2.5263,
+    "max": 22.5374
+  },
+  "published": null,
+  "reconciled": true,
+  "notes": [
+    "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+    "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; xAI API over SSE. Zero whole-trial retries; fast-agent's own provider retries apply.",
+    "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog 2026-09-29.1, rules grok-4.7-short / grok-4.7-long: $2 / $0.50 / $6 per million input / cached / output tokens, doubled above 200k context). Three trials have incomplete usage, so the total is a lower bound."
+  ],
+  "scan": {
+    "version": "0.6.0",
+    "scope": "445 reported trials",
+    "trials": 445,
+    "rewarded": 402,
+    "accuracy": 90.34,
+    "accuracy_se": 0.88,
+    "findings_medium_plus": {
+      "trials": 62,
+      "rewarded": 57,
+      "by_highest_priority": {
+        "critical": 6,
+        "high": 8,
+        "medium": 48,
+        "low": 48,
+        "info": 201,
+        "none": 134
+      },
+      "top": [
+        {
+          "check": "lookup.benchmark_content_obtained",
+          "title": "Benchmark content retrieved after a lookup",
+          "priority": "critical",
+          "trials": 6,
+          "rewarded": 6
+        },
+        {
+          "check": "lookup.own_task_files",
+          "title": "This task's solution or test files looked up",
+          "priority": "high",
+          "trials": 7,
+          "rewarded": 7
+        },
+        {
+          "check": "access.benchmark_material_received",
+          "title": "Benchmark material reached the agent",
+          "priority": "high",
+          "trials": 6,
+          "rewarded": 6
+        },
+        {
+          "check": "lookup.benchmark_solution_url",
+          "title": "Benchmark solution or test URL looked up",
+          "priority": "high",
+          "trials": 6,
+          "rewarded": 6
+        },
+        {
+          "check": "lookup.benchmark_source",
+          "title": "Benchmark repository or mirror looked up",
+          "priority": "high",
+          "trials": 6,
+          "rewarded": 6
+        },
+        {
+          "check": "network.isolation_bypass",
+          "title": "Network isolation bypassed",
+          "priority": "high",
+          "trials": 6,
+          "rewarded": 6
+        },
+        {
+          "check": "lookup.benchmark_task_files",
+          "title": "Benchmark task files looked up",
+          "priority": "high",
+          "trials": 4,
+          "rewarded": 4
+        },
+        {
+          "check": "tb21.fix_ocaml_gc.upstream_source",
+          "title": "Upstream OCaml source fetched (fix-ocaml-gc)",
+          "priority": "high",
+          "trials": 1,
+          "rewarded": 1
+        },
+        {
+          "check": "access.test_path",
+          "title": "Verifier test or solution path accessed",
+          "priority": "medium",
+          "trials": 44,
+          "rewarded": 40
+        },
+        {
+          "check": "access.evaluation_directory_probe",
+          "title": "Evaluation-directory discovery attempted",
+          "priority": "medium",
+          "trials": 19,
+          "rewarded": 16
+        }
+      ]
+    },
+    "review": {
+      "dq_threshold": "high",
+      "high_or_critical_rewarded": 14,
+      "other_model_trials": 0,
+      "incomplete_evidence_rewarded": 0,
+      "accuracy_if_flagged_failed": 87.19
+    },
+    "awareness": {
+      "trials": 52,
+      "stages": {
+        "noticed": {
+          "trials": 46,
+          "rewarded": 38
+        },
+        "named": {
+          "trials": 21,
+          "rewarded": 19
+        },
+        "recalled": {
+          "trials": 10,
+          "rewarded": 10
+        },
+        "searched": {
+          "trials": 7,
+          "rewarded": 7
+        },
+        "obtained": {
+          "trials": 6,
+          "rewarded": 6
+        }
+      },
+      "verifier_talk": {
+        "trials": 62,
+        "rewarded": 55
+      }
+    },
+    "evidence": {
+      "planned": 445,
+      "errored": 0,
+      "error_types": {},
+      "compacted_history": 0,
+      "without_trajectory": 0,
+      "incomplete_scans": 9,
+      "unmetered_trials": 0
+    },
+    "cost": {
+      "recorded": 0,
+      "trials_missing_cost": 445,
+      "estimated_unpriced": null,
+      "estimated_unmetered": null,
+      "estimated_total": 0
+    },
+    "tokens": {
+      "uncached_input": 61893337,
+      "cached_input": 575358080,
+      "output": 13238383
+    },
+    "walltime_hours": {
+      "trial_sum": 100.5,
+      "agent_sum": 78.9
+    },
+    "overrides": [
+      "agents[].override_timeout_sec"
+    ],
+    "flagged_tasks": {
+      "caffe-cifar-10": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "cancel-async-tasks": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "configure-git-webserver": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "high"
+      },
+      "constraints-scheduling": {
+        "trials": 3,
+        "rewarded": 3,
+        "max_priority": "medium"
+      },
+      "crack-7z-hash": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "db-wal-recovery": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "critical"
+      },
+      "dna-assembly": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "extract-elf": {
+        "trials": 5,
+        "rewarded": 4,
+        "max_priority": "critical"
+      },
+      "fix-code-vulnerability": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "fix-git": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "fix-ocaml-gc": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "high"
+      },
+      "git-leak-recovery": {
+        "trials": 5,
+        "rewarded": 5,
+        "max_priority": "medium"
+      },
+      "headless-terminal": {
+        "trials": 3,
+        "rewarded": 3,
+        "max_priority": "medium"
+      },
+      "large-scale-text-editing": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "llm-inference-batching-scheduler": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "mailman": {
+        "trials": 5,
+        "rewarded": 5,
+        "max_priority": "high"
+      },
+      "model-extraction-relu-logits": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "protein-assembly": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "pytorch-model-recovery": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "query-optimize": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "raman-fitting": {
+        "trials": 2,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "regex-log": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "reshard-c4-data": {
+        "trials": 3,
+        "rewarded": 3,
+        "max_priority": "medium"
+      },
+      "rstan-to-pystan": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "sanitize-git-repo": {
+        "trials": 1,
+        "rewarded": 0,
+        "max_priority": "medium"
+      },
+      "torch-pipeline-parallelism": {
+        "trials": 3,
+        "rewarded": 3,
+        "max_priority": "critical"
+      },
+      "torch-tensor-parallelism": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "train-fasttext": {
+        "trials": 3,
+        "rewarded": 3,
+        "max_priority": "medium"
+      },
+      "video-processing": {
+        "trials": 2,
+        "rewarded": 0,
+        "max_priority": "medium"
+      },
+      "winning-avg-corewars": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      }
+    },
+    "scanner": {
+      "commit": "c05fb0f18eb34792076af71f8fb85f1be81711a6",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--min-trials",
+        "5",
+        "--image-model",
+        "codexresponses.gpt-6-luna?reasoning=medium"
+      ]
+    },
+    "cells": {
+      "adaptive-rejection-sampler": "lllll",
+      "bn-fit-modify": "lllll",
+      "break-filter-js-from-html": "lllll",
+      "build-cython-ext": "lllll",
+      "build-pmars": "lllll",
+      "build-pov-ray": "lllll",
+      "caffe-cifar-10": "lmmll",
+      "cancel-async-tasks": "lllml",
+      "chess-best-move": "lllll",
+      "circuit-fibsqrt": "lllll",
+      "cobol-modernization": "lllll",
+      "code-from-image": "lllll",
+      "compile-compcert": "lllll",
+      "configure-git-webserver": "lhlll",
+      "constraints-scheduling": "mmlml",
+      "count-dataset-tokens": "lllll",
+      "crack-7z-hash": "llmll",
+      "custom-memory-heap-crash": "lllll",
+      "db-wal-recovery": "lclcl",
+      "distribution-search": "lllll",
+      "dna-assembly": "lmllm",
+      "dna-insert": "lllll",
+      "extract-elf": "hcmmc",
+      "extract-moves-from-video": "lllll",
+      "feal-differential-cryptanalysis": "lllll",
+      "feal-linear-cryptanalysis": "lllll",
+      "filter-js-from-html": "lllll",
+      "financial-document-processor": "lllll",
+      "fix-code-vulnerability": "lllml",
+      "fix-git": "lllml",
+      "fix-ocaml-gc": "llhll",
+      "gcode-to-text": "lllll",
+      "git-leak-recovery": "mmmmm",
+      "git-multibranch": "lllll",
+      "gpt2-codegolf": "lllll",
+      "headless-terminal": "lmmlm",
+      "hf-model-inference": "lllll",
+      "install-windows-3.11": "lllll",
+      "kv-store-grpc": "lllll",
+      "large-scale-text-editing": "mllml",
+      "largest-eigenval": "lllll",
+      "llm-inference-batching-scheduler": "llmll",
+      "log-summary-date-ranges": "lllll",
+      "mailman": "hhhhh",
+      "make-doom-for-mips": "lllll",
+      "make-mips-interpreter": "lllll",
+      "mcmc-sampling-stan": "lllll",
+      "merge-diff-arc-agi-task": "lllll",
+      "model-extraction-relu-logits": "mlmll",
+      "modernize-scientific-stack": "lllll",
+      "mteb-leaderboard": "lllll",
+      "mteb-retrieve": "lllll",
+      "multi-source-data-merger": "lllll",
+      "nginx-request-logging": "lllll",
+      "openssl-selfsigned-cert": "lllll",
+      "overfull-hbox": "lllll",
+      "password-recovery": "lllll",
+      "path-tracing": "lllll",
+      "path-tracing-reverse": "lllll",
+      "polyglot-c-py": "lllll",
+      "polyglot-rust-c": "lllll",
+      "portfolio-optimization": "lllll",
+      "protein-assembly": "lmlml",
+      "prove-plus-comm": "lllll",
+      "pypi-server": "lllll",
+      "pytorch-model-cli": "lllll",
+      "pytorch-model-recovery": "lmmll",
+      "qemu-alpine-ssh": "lllll",
+      "qemu-startup": "lllll",
+      "query-optimize": "mllll",
+      "raman-fitting": "llmml",
+      "regex-chess": "lllll",
+      "regex-log": "lmlll",
+      "reshard-c4-data": "mmllm",
+      "rstan-to-pystan": "mllll",
+      "sam-cell-seg": "lllll",
+      "sanitize-git-repo": "mllll",
+      "schemelike-metacircular-eval": "lllll",
+      "sparql-university": "lllll",
+      "sqlite-db-truncate": "lllll",
+      "sqlite-with-gcov": "lllll",
+      "torch-pipeline-parallelism": "clcml",
+      "torch-tensor-parallelism": "mlmll",
+      "train-fasttext": "mlmml",
+      "tune-mjcf": "lllll",
+      "video-processing": "llmml",
+      "vulnerable-secret": "lllll",
+      "winning-avg-corewars": "llllm",
+      "write-compressor": "lllll"
+    }
+  },
+  "as_run": {
+    "passes": 399,
+    "slots": 445
+  },
+  "review": {
+    "note": "Every pass atif-scan flagged high or critical was reviewed: 8 disqualified, 6 cleared.",
+    "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+    "recorded_passes": 402,
+    "recorded_score": 90.34,
+    "disqualified": [
+      {
+        "trial": "db-wal-recovery__bLCtD6f",
+        "task": "db-wal-recovery",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 1
+      },
+      {
+        "trial": "db-wal-recovery__vX4MV6M",
+        "task": "db-wal-recovery",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 3
+      },
+      {
+        "trial": "extract-elf__Wheppjr",
+        "task": "extract-elf",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 1
+      },
+      {
+        "trial": "extract-elf__mDbSakQ",
+        "task": "extract-elf",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 4
+      },
+      {
+        "trial": "torch-pipeline-parallelism__7GaiyzG",
+        "task": "torch-pipeline-parallelism",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 2
+      },
+      {
+        "trial": "torch-pipeline-parallelism__ifxDsAg",
+        "task": "torch-pipeline-parallelism",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 0
+      },
+      {
+        "trial": "extract-elf__tjGoEDU",
+        "task": "extract-elf",
+        "reason": "Downloaded the task's reference solution (solution/solve.sh, with the Terminal-Bench canary) from a third-party mirror (akillness/upskill) and wrote its answer from it; atif-scan rates it high (lookup.own_task_files) because its vocabulary misses that mirror.",
+        "cell_index": 0
+      },
+      {
+        "trial": "fix-ocaml-gc__8cVy5uJ",
+        "task": "fix-ocaml-gc",
+        "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source).",
+        "cell_index": 2
+      }
+    ],
+    "cleared": [
+      {
+        "trial": "configure-git-webserver__hEyhmnw",
+        "task": "configure-git-webserver",
+        "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."
+      },
+      {
+        "trial": "mailman__63Wig59",
+        "task": "mailman",
+        "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 local.edu\" to /etc/hosts, the mail domain the task's Mailman/Postfix setup uses."
+      },
+      {
+        "trial": "mailman__9tGcfQT",
+        "task": "mailman",
+        "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 local.edu\" to /etc/hosts, the mail domain the task's Mailman/Postfix setup uses."
+      },
+      {
+        "trial": "mailman__cDSdRtC",
+        "task": "mailman",
+        "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 local.edu\" to /etc/hosts, the mail domain the task's Mailman/Postfix setup uses."
+      },
+      {
+        "trial": "mailman__jEUXR2m",
+        "task": "mailman",
+        "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 local.edu\" to /etc/hosts, the mail domain the task's Mailman/Postfix setup uses."
+      },
+      {
+        "trial": "mailman__yKzm97J",
+        "task": "mailman",
+        "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 local.edu\" to /etc/hosts, the mail domain the task's Mailman/Postfix setup uses."
+      }
+    ]
+  }
+}

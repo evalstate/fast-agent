@@ -203,7 +203,8 @@ def _tb21_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[str,
         else:
             cost["total"] = round(recorded, 2)
             cost["basis"] = "recorded Harbor cost"
-            cost["estimate"] = raw["cost"]["trials_with_cost"] < raw["slots"]
+            cost["lowerBound"] = raw["cost"].get("lower_bound", False)
+            cost["estimate"] = cost["lowerBound"] or raw["cost"]["trials_with_cost"] < raw["slots"]
 
         runs.append(
             {

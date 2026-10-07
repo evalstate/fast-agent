@@ -323,6 +323,47 @@
       "scan": true
     },
     {
+      "id": "grok47-medium-6h",
+      "harness": "fast-agent",
+      "model": "Grok 4.7",
+      "effort": "medium",
+      "model_string": "xai.grok-4.7?reasoning=medium&transport=sse",
+      "date": "2026-10-04",
+      "timeout": "6h",
+      "bucket": {"repo": "evalstate/published-benchmarks", "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h", "release": "release/manifest.json", "source": "bench-run release tb21-grok47-medium-r1 (cohort tb21-grok47-medium-xai-sse-001)"},
+      "expected": {"passes": 402},
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical was reviewed: 8 disqualified, 6 cleared.",
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [
+          {"trial": "configure-git-webserver__hEyhmnw", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
+          {"trial": "mailman__63Wig59", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 local.edu\" to /etc/hosts, the mail domain the task's Mailman/Postfix setup uses."},
+          {"trial": "mailman__9tGcfQT", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 local.edu\" to /etc/hosts, the mail domain the task's Mailman/Postfix setup uses."},
+          {"trial": "mailman__cDSdRtC", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 local.edu\" to /etc/hosts, the mail domain the task's Mailman/Postfix setup uses."},
+          {"trial": "mailman__jEUXR2m", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 local.edu\" to /etc/hosts, the mail domain the task's Mailman/Postfix setup uses."},
+          {"trial": "mailman__yKzm97J", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 local.edu\" to /etc/hosts, the mail domain the task's Mailman/Postfix setup uses."}
+        ],
+        "disqualified": [
+          {"trial": "db-wal-recovery__bLCtD6f", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "db-wal-recovery__vX4MV6M", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "extract-elf__Wheppjr", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "extract-elf__mDbSakQ", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "torch-pipeline-parallelism__7GaiyzG", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "torch-pipeline-parallelism__ifxDsAg", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "extract-elf__tjGoEDU", "reason": "Downloaded the task's reference solution (solution/solve.sh, with the Terminal-Bench canary) from a third-party mirror (akillness/upskill) and wrote its answer from it; atif-scan rates it high (lookup.own_task_files) because its vocabulary misses that mirror."},
+          {"trial": "fix-ocaml-gc__8cVy5uJ", "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."}
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; xAI API over SSE. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog 2026-09-29.1, rules grok-4.7-short / grok-4.7-long: $2 / $0.50 / $6 per million input / cached / output tokens, doubled above 200k context). Three trials have incomplete usage, so the total is a lower bound."
+      ],
+      "scan": true
+    },
+    {
       "id": "fa-deepseek-v4-flash-max",
       "harness": "fast-agent",
       "model": "DeepSeek V4 Flash",
