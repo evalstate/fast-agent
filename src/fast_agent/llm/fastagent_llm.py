@@ -83,7 +83,7 @@ from fast_agent.llm.text_verbosity import (
     TextVerbositySpec,
     validate_text_verbosity,
 )
-from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
+from fast_agent.llm.usage_tracking import InferenceTiming, TurnUsage, UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.provider_management import ProviderManagedMCPState
@@ -1040,14 +1040,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         finally:
             _mcp_metadata_var.reset(mcp_metadata_token)
             cleanup_timing_capture()
-        end_time = time.perf_counter()
-        self._add_timing_channel(
-            assistant_response,
-            timing_capture.start_time,
-            end_time,
-            ttft_ms=timing_capture.ttft_ms,
-            time_to_response_ms=timing_capture.time_to_response_ms,
-        )
+        self._record_request_timing(assistant_response, timing_capture, usage_start_index)
 
         self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
         self._append_usage_channel(assistant_response, start_index=usage_start_index)
@@ -1081,6 +1074,29 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             end_time,
             ttft_ms=ttft_ms,
             time_to_response_ms=time_to_response_ms,
+        )
+
+    def _record_request_timing(
+        self,
+        response: PromptMessageExtended,
+        capture: RequestTimingCapture,
+        usage_start_index: int,
+    ) -> None:
+        end_time = time.perf_counter()
+        self._add_timing_channel(
+            response,
+            capture.start_time,
+            end_time,
+            ttft_ms=capture.ttft_ms,
+            time_to_response_ms=capture.time_to_response_ms,
+        )
+        self.usage_accumulator.record_timing(
+            InferenceTiming(
+                duration_ms=round((end_time - capture.start_time) * 1000, 2),
+                ttft_ms=capture.ttft_ms,
+                time_to_response_ms=capture.time_to_response_ms,
+            ),
+            start_index=usage_start_index,
         )
 
     def _start_request_timing_capture(self) -> tuple[RequestTimingCapture, Callable[[], None]]:
@@ -1157,14 +1173,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         else:
             result, assistant_response = result_or_response
 
-        end_time = time.perf_counter()
-        self._add_timing_channel(
-            assistant_response,
-            timing_capture.start_time,
-            end_time,
-            ttft_ms=timing_capture.ttft_ms,
-            time_to_response_ms=timing_capture.time_to_response_ms,
-        )
+        self._record_request_timing(assistant_response, timing_capture, usage_start_index)
 
         self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
         self._append_usage_channel(assistant_response, start_index=usage_start_index)

@@ -15,6 +15,7 @@ from fast_agent.llm.response_telemetry import build_usage_payload
 from fast_agent.llm.usage_tracking import (
     CharacterUsage,
     CompletionTokenUsage,
+    InferenceTiming,
     PromptTokenUsage,
     TurnUsage,
     UsageAccumulator,
@@ -344,6 +345,7 @@ def test_versioned_usage_payload_has_no_legacy_fields() -> None:
         model="gpt",
         prompt=PromptTokenUsage(total=10, cache_read=0),
         completion=CompletionTokenUsage(total=2, reasoning=0),
+        timing=InferenceTiming(duration_ms=1500.0, ttft_ms=400.0),
         raw_usage={"prompt_tokens": 10},
     )
     payload = build_usage_payload(UsageAccumulator(turns=[turn]))
@@ -370,6 +372,7 @@ def test_versioned_usage_payload_has_no_legacy_fields() -> None:
                 "service_tier": None,
                 "cost_usd": None,
                 "timestamp": turn.timestamp,
+                "timing": {"duration_ms": 1500.0, "ttft_ms": 400.0, "time_to_response_ms": None},
                 "raw_usage": {"prompt_tokens": 10},
                 "total": 12,
             },
