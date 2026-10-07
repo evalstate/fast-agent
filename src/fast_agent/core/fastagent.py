@@ -56,6 +56,7 @@ from fast_agent.core.run_runtime import FastAgentRunMixin
 from fast_agent.core.subagent_policy import SubagentRuntimePolicy
 from fast_agent.core.validation import validate_server_references, validate_workflow_references
 from fast_agent.mcp.prompts.prompt_load import load_prompt
+from fast_agent.session.locking import SessionBusyError
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest, SkillRegistry, SkillsDefault
 from fast_agent.tools.environment_registry import UnknownEnvironmentError
 from fast_agent.ui.console import configure_console_stream
@@ -1237,6 +1238,8 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
                 "Environment Selection Error",
                 "Choose one of the configured environments or update your 'fast-agent.yaml' configuration file.",
             )
+        elif isinstance(e, SessionBusyError):
+            handle_error(e, "Session In Use")
         elif isinstance(e, PromptExitError):
             handle_error(
                 e,

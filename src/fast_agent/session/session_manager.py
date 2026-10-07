@@ -1190,9 +1190,11 @@ class SessionManager:
         )
 
     def load_latest_session(self, *, require_content: bool = False) -> Session | None:
-        """Load the most recently used session."""
+        """Load the most recently used session not owned by another process."""
         sessions = self.list_sessions()
         for info in sessions:
+            if self.owned_elsewhere(info.name):
+                continue
             if not require_content:
                 return self.load_session(info.name)
             session = self.get_session(info.name)
@@ -1537,6 +1539,10 @@ class SessionManager:
     def owns_session(self, session_id: str) -> bool:
         """Return whether this manager retains the session owner lease."""
         return session_id in self._owner_leases
+
+    def owned_elsewhere(self, session_id: str) -> bool:
+        """Return whether another manager or process holds the session owner lease."""
+        return session_id not in self._owner_leases and self._locks.is_owned(session_id)
 
     def release_session(self, session_id: str) -> None:
         """Release one retained session owner lease."""
