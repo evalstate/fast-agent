@@ -170,7 +170,7 @@ def _modify_file_credential(
 
 def _read_keyring_credential(provider: str) -> OAuthCredential | None:
     try:
-        maybe_print_keyring_access_notice(purpose="loading provider OAuth credentials")
+        maybe_print_keyring_access_notice(purpose="loading OAuth credentials")
         import keyring
 
         payload = keyring.get_password(AUTH_KEYRING_SERVICE, provider)
@@ -180,7 +180,7 @@ def _read_keyring_credential(provider: str) -> OAuthCredential | None:
 
 
 def _write_keyring_credential(provider: str, credential: OAuthCredential) -> None:
-    maybe_print_keyring_access_notice(purpose="saving provider OAuth credentials")
+    maybe_print_keyring_access_notice(purpose="saving OAuth credentials")
     import keyring
 
     keyring.set_password(AUTH_KEYRING_SERVICE, provider, credential.model_dump_json())
@@ -188,7 +188,7 @@ def _write_keyring_credential(provider: str, credential: OAuthCredential) -> Non
 
 def _delete_keyring_credential(provider: str) -> bool:
     try:
-        maybe_print_keyring_access_notice(purpose="clearing provider OAuth credentials")
+        maybe_print_keyring_access_notice(purpose="clearing OAuth credentials")
         import keyring
 
         keyring.delete_password(AUTH_KEYRING_SERVICE, provider)

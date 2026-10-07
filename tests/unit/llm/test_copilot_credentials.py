@@ -59,7 +59,7 @@ async def test_native_endpoints_and_picker_credentials_need_no_network(
     assert messages.model_id == CLAUDE
     assert messages.wire_api == "messages"
     assert messages.transport == "sse"
-    assert messages.headers["anthropic-beta"] == "interleaved-thinking-2025-05-14"
+    assert "anthropic-beta" not in messages.headers
     assert responses.model_id == GPT
     assert responses.wire_api == "responses"
     assert responses.transport == "websocket"
@@ -308,7 +308,7 @@ def test_nested_environment_configures_gateway(monkeypatch: pytest.MonkeyPatch) 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("extra_body", [False, True])
-async def test_messages_adapter_uses_broker_auth_and_disables_eager_tool_streaming(
+async def test_messages_adapter_uses_broker_auth_and_keeps_eager_tool_streaming(
     monkeypatch: pytest.MonkeyPatch, broker: CopilotBroker, extra_body: bool
 ) -> None:
     monkeypatch.setattr(broker_module, "get_copilot_broker", Mock(return_value=broker))
@@ -332,7 +332,7 @@ async def test_messages_adapter_uses_broker_auth_and_disables_eager_tool_streami
             base["tools"] = [tool]
         arguments = llm.prepare_provider_arguments(base, params)
         tools = arguments["extra_body"]["tools"] if extra_body else arguments["tools"]
-        assert tools == [{"name": "local", "input_schema": {"type": "object"}}]
+        assert tools == [tool]
     finally:
         await client.close()
 

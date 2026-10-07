@@ -58,6 +58,7 @@ from fast_agent.ui.message_display_helpers import (
     tool_use_requests_process_poll,
     tool_use_requests_shell_access,
 )
+from fast_agent.ui.streaming import StreamContextBaseline
 from fast_agent.utils.count_display import format_count
 from fast_agent.utils.type_narrowing import is_str_object_dict
 from fast_agent.workflow_telemetry import (
@@ -537,6 +538,15 @@ class LlmAgent(LlmDecorator):
 
         return display_model
 
+    def _stream_context_baseline(self) -> StreamContextBaseline | None:
+        usage = self.usage_accumulator
+        if usage is None:
+            return None
+        tokens, window = usage.current_context_tokens, usage.context_window_size
+        if tokens is None or not window:
+            return None
+        return StreamContextBaseline(tokens=tokens, window=window)
+
     def _resolve_websocket_turn_indicator(
         self,
         message: PromptMessageExtended,
@@ -889,6 +899,7 @@ class LlmAgent(LlmDecorator):
                 name=display_name,
                 model=display_model,
                 tool_metadata_resolver=self.resolve_stream_tool_metadata,
+                context_baseline=self._stream_context_baseline(),
             ) as stream_handle:
                 self._active_stream_handle = stream_handle
                 write_interactive_trace(

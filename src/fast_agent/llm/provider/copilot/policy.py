@@ -135,16 +135,6 @@ def apply_policy(
             allowed.add("web_search")
         if tool.get("type") not in allowed:
             raise ValueError(f"Copilot provider-hosted tool is not supported for {spec.model_id}.")
-    if spec.wire_api == "messages" and tools:
-        # The Copilot Messages gateway rejects this Anthropic tool field.
-        updated = [
-            {key: value for key, value in tool.items() if key != "eager_input_streaming"}
-            for tool in tools
-        ]
-        if "tools" in extra:
-            arguments["extra_body"] = {**extra, "tools": updated}
-        else:
-            arguments["tools"] = updated
     input_key = "messages" if spec.wire_api == "messages" else "input"
     payload = effective.get(input_key)
     reject_files(payload)

@@ -501,6 +501,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         params = self._get_model_params(model_name)
         return params.anthropic_thinking_field_required if params is not None else True
 
+    def _get_model_anthropic_thinking_display_supported(self, model_name: str | None) -> bool:
+        params = self._get_model_params(model_name)
+        return bool(params.anthropic_thinking_display_supported) if params is not None else False
+
     def _get_model_anthropic_thinking_disable_supported(self, model_name: str | None) -> bool:
         params = self._get_model_params(model_name)
         return bool(params.anthropic_thinking_disable_supported) if params is not None else False

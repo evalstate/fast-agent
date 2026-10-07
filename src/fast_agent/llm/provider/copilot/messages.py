@@ -126,7 +126,8 @@ class CopilotMessagesLLM(AnthropicLLM):
         return False
 
     def supports_direct_anthropic_beta(self, feature: str) -> bool:
-        return False
+        # Verified against the gateway; other betas are accepted but untested or inert.
+        return feature == "interleaved_thinking"
 
     def _supports_native_json_schema(self, model: str) -> bool:
         # These models cannot use the legacy forced-tool structured-output fallback.

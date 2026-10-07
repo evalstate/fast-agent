@@ -138,6 +138,12 @@ class ModelParameters(BaseModel):
     anthropic_thinking_disable_supported: bool = False
     """Whether the model accepts thinking: {type: "disabled"}."""
 
+    anthropic_thinking_display_supported: bool = False
+    """Whether adaptive thinking accepts ``display``; fast-agent requests "summarized".
+
+    These models default to "omitted", which streams thinking blocks with empty text.
+    """
+
     google_search_supported: bool = False
     """Whether Grounding with Google Search is supported for this model."""
 
@@ -738,6 +744,7 @@ class ModelDatabase:
         update={
             "reasoning_effort_spec": ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC_OPUS47,
             "anthropic_task_budget_supported": True,
+            "anthropic_thinking_display_supported": True,
         }
     )
     ANTHROPIC_OPUS_48 = ANTHROPIC_OPUS_47.model_copy(
@@ -840,6 +847,7 @@ class ModelDatabase:
             "reasoning_effort_spec": ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC_OPUS47,
             "anthropic_thinking_field_required": False,
             "anthropic_thinking_disable_supported": True,
+            "anthropic_thinking_display_supported": True,
         }
     )
 

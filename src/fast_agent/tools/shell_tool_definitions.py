@@ -209,7 +209,8 @@ def build_poll_process_tool(
             "returns are debounced until output has been quiet for "
             f"{PROCESS_OUTPUT_DEBOUNCE_SECONDS:g} seconds, while continuous output "
             "remains buffered until completion or the deadline. Repeated polls return "
-            "only output not returned previously."
+            "only output not returned previously. Parallel polls of one process do not "
+            "extend the wait; poll again after one returns."
         ),
         input_schema={
             "type": "object",
@@ -348,7 +349,8 @@ def build_minimal_process_tool(
         description=(
             f"Manage processes returned by {shell_tool_name}. `list` needs no process "
             "ID; `status` returns immediately; `wait` defaults to "
-            f"{default_wait_seconds} seconds.{completion_guidance} `stop` terminates "
+            f"{default_wait_seconds} seconds; parallel waits on one process do not extend "
+            f"it, so wait again after it returns.{completion_guidance} `stop` terminates "
             "the process group. `read_output` reads only that process's bounded "
             "retained output, not arbitrary files."
         ),

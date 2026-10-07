@@ -875,7 +875,7 @@ OAuthClientProvider = _ProtectedResourceDiscoveryOAuthClientProvider
 def keyring_token_present(identity: str, service: str = "fast-agent-mcp") -> bool:
     """Return True when a stored OAuth token exists for the given identity."""
     try:
-        maybe_print_keyring_access_notice(purpose="checking stored MCP OAuth tokens")
+        maybe_print_keyring_access_notice(purpose="checking MCP OAuth tokens")
         import keyring
 
         token_key = f"oauth:tokens:{identity}"
@@ -1309,7 +1309,7 @@ def list_keyring_tokens(service: str = "fast-agent-mcp") -> list[str]:
     Returns only identities that currently have a corresponding token entry.
     """
     try:
-        maybe_print_keyring_access_notice(purpose="listing stored MCP OAuth tokens")
+        maybe_print_keyring_access_notice(purpose="listing MCP OAuth tokens")
         import keyring
 
         identities = _read_index(service)
@@ -1326,7 +1326,7 @@ def list_keyring_tokens(service: str = "fast-agent-mcp") -> list[str]:
 def list_keyring_credentials(service: str = "fast-agent-mcp") -> list[str]:
     """List indexed resources containing tokens or OAuth client registration."""
     try:
-        maybe_print_keyring_access_notice(purpose="listing stored MCP OAuth credentials")
+        maybe_print_keyring_access_notice(purpose="listing MCP OAuth credentials")
         import keyring
 
         present: list[str] = []
@@ -1343,7 +1343,7 @@ def list_keyring_credentials(service: str = "fast-agent-mcp") -> list[str]:
 def keyring_credential_present(resource: str, service: str = "fast-agent-mcp") -> bool:
     """Return whether a resource has tokens or OAuth client registration."""
     try:
-        maybe_print_keyring_access_notice(purpose="checking stored MCP OAuth credentials")
+        maybe_print_keyring_access_notice(purpose="checking MCP OAuth credentials")
         import keyring
 
         return bool(
@@ -1361,7 +1361,7 @@ def clear_keyring_token(identity: str, service: str = "fast-agent-mcp") -> bool:
     """
     removed = False
     try:
-        maybe_print_keyring_access_notice(purpose="clearing stored MCP OAuth tokens")
+        maybe_print_keyring_access_notice(purpose="clearing MCP OAuth tokens")
         import keyring
 
         tok_key = f"oauth:tokens:{identity}"

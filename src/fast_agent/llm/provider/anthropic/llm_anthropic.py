@@ -961,13 +961,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
     def _uses_summarized_thinking_display(self, model: str) -> bool:
         """Return True when summarized thinking should be requested explicitly."""
-        return self._normalize_model_name(model) in {
-            "claude-opus-4-7",
-            "claude-opus-5-5",
-            "claude-opus-5.5",
-            "claude-sonnet-5-5",
-            "claude-sonnet-5.5",
-        }
+        return self._get_model_anthropic_thinking_display_supported(model)
 
     def _requires_explicit_thinking_field(self, model: str) -> bool:
         return self._get_model_anthropic_thinking_field_required(model)
@@ -1171,6 +1165,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             )
             for tool in tools or []
         ]
+        if self._eager_tool_input_streaming():
+            for tool_param in regular_tools:
+                tool_param["eager_input_streaming"] = True
         if (structured_model or structured_schema) and structured_mode == "tool_use":
             if auto_tool_use_fallback and regular_tools:
                 logger.warning(
@@ -1201,6 +1198,13 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if structured_model or structured_schema:
             return regular_tools
         return regular_tools
+
+    def _eager_tool_input_streaming(self) -> bool:
+        """Stream client tool inputs as generated via the per-tool ``eager_input_streaming``.
+
+        Routes that cannot accept the field fall back to the fine-grained streaming beta.
+        """
+        return True
 
     def _prepare_web_tools(self, model: str) -> tuple[list[BetaToolParam], tuple[str, ...]]:
         if not self.supports_web_tools():
@@ -2248,7 +2252,11 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             beta_flags.append(INTERLEAVED_THINKING_BETA)
         if self._long_context and self.supports_direct_anthropic_beta("long_context"):
             beta_flags.append(LONG_CONTEXT_BETA)
-        if request_tools and self.supports_direct_anthropic_beta("fine_grained_tool_streaming"):
+        if (
+            request_tools
+            and not self._eager_tool_input_streaming()
+            and self.supports_direct_anthropic_beta("fine_grained_tool_streaming")
+        ):
             beta_flags.append(FINE_GRAINED_TOOL_STREAMING_BETA)
         if self.supports_direct_anthropic_beta("web_tools"):
             beta_flags.extend(web_tool_betas)

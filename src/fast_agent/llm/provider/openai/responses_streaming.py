@@ -169,10 +169,11 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         event: Any,
         *,
         model: str,
-    ) -> None:
+    ) -> bool:
+        """Log and announce safety buffering; return True when the event carried it."""
         buffering = snapshot_json_value(getattr(event, "safety_buffering", None))
         if not isinstance(buffering, dict) or not buffering:
-            return
+            return False
 
         reasons = buffering.get("reasons")
         use_cases = buffering.get("use_cases")
@@ -199,6 +200,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             },
         )
         self._notify_stream_listeners(StreamChunk(text=_SAFETY_BUFFERING_NOTICE, is_reasoning=True))
+        return True
 
     def _tool_family_for_responses_item(
         self,
@@ -757,6 +759,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         stream_event_index = 0
         tool_input_limit = self._tool_input_stream_delta_limit(model)
         tool_input_deltas: dict[object, list[int]] = {}
+        safety_buffered = False
 
         async for event in stream:
             _save_stream_chunk(capture_filename, event)
@@ -768,10 +771,9 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     counters=tool_input_deltas,
                     limit=tool_input_limit,
                 )
-            self._handle_safety_buffering_event(
-                event,
-                model=model,
-            )
+            # Buffered streams repeat ``safety_buffering`` on every event; announce once.
+            if not safety_buffered:
+                safety_buffered = self._handle_safety_buffering_event(event, model=model)
             if event_type == "response.output_item.done":
                 record_completed_output_item(
                     completed_output_items,
