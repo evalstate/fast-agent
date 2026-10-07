@@ -138,6 +138,7 @@
   }
   function otherScore(entry) {
     if (!entry.review) return null;
+    if (!entry.review.disqualified) return "none disqualified";
     return scoreMode() === "recorded"
       ? "after review " + pct(entry.review.reviewedScore)
       : "recorded " + pct(entry.review.recordedScore);
@@ -1293,7 +1294,7 @@
       pct(run.score),
       run.review ? (scoreMode() === "recorded" ? "recorded score" : "score after review") : "score",
       "±" + run.se.toFixed(1) + " pts, one standard error by task" +
-        (run.review ? " · " + otherScore(run) + ", " + run.review.disqualified + " disqualified on review" : ""),
+        (run.review ? (run.review.disqualified ? " · " + otherScore(run) + ", " + run.review.disqualified + " disqualified on review" : " · reviewed, none disqualified") : ""),
       "fb-kpi--hero"
     );
     var errors = run.errors ? Object.keys(run.errors) : [];

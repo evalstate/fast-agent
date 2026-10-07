@@ -195,13 +195,13 @@
     "accuracy": 90.34,
     "accuracy_se": 0.88,
     "findings_medium_plus": {
-      "trials": 62,
-      "rewarded": 57,
+      "trials": 66,
+      "rewarded": 61,
       "by_highest_priority": {
         "critical": 6,
         "high": 8,
-        "medium": 48,
-        "low": 48,
+        "medium": 52,
+        "low": 44,
         "info": 201,
         "none": 134
       },
@@ -364,8 +364,8 @@
         "max_priority": "medium"
       },
       "crack-7z-hash": {
-        "trials": 1,
-        "rewarded": 1,
+        "trials": 2,
+        "rewarded": 2,
         "max_priority": "medium"
       },
       "db-wal-recovery": {
@@ -404,8 +404,8 @@
         "max_priority": "medium"
       },
       "headless-terminal": {
-        "trials": 3,
-        "rewarded": 3,
+        "trials": 5,
+        "rewarded": 5,
         "max_priority": "medium"
       },
       "large-scale-text-editing": {
@@ -454,8 +454,8 @@
         "max_priority": "medium"
       },
       "reshard-c4-data": {
-        "trials": 3,
-        "rewarded": 3,
+        "trials": 4,
+        "rewarded": 4,
         "max_priority": "medium"
       },
       "rstan-to-pystan": {
@@ -501,9 +501,12 @@
       "args": [
         "--min-trials",
         "5",
+        "--rules",
+        "docs/benchmark_data/atif-rules.json",
         "--image-model",
         "codexresponses.gpt-6-luna?reasoning=medium"
-      ]
+      ],
+      "rules_sha256": "d0efe44a7b61f7eb80cfc4493175e7e2d5f47781b380c980ca13da830ecee854"
     },
     "cells": {
       "adaptive-rejection-sampler": "lllll",
@@ -522,7 +525,7 @@
       "configure-git-webserver": "lhlll",
       "constraints-scheduling": "mmlml",
       "count-dataset-tokens": "lllll",
-      "crack-7z-hash": "llmll",
+      "crack-7z-hash": "lmmll",
       "custom-memory-heap-crash": "lllll",
       "db-wal-recovery": "lclcl",
       "distribution-search": "lllll",
@@ -541,7 +544,7 @@
       "git-leak-recovery": "mmmmm",
       "git-multibranch": "lllll",
       "gpt2-codegolf": "lllll",
-      "headless-terminal": "lmmlm",
+      "headless-terminal": "mmmmm",
       "hf-model-inference": "lllll",
       "install-windows-3.11": "lllll",
       "kv-store-grpc": "lllll",
@@ -579,7 +582,7 @@
       "raman-fitting": "llmml",
       "regex-chess": "lllll",
       "regex-log": "lmlll",
-      "reshard-c4-data": "mmllm",
+      "reshard-c4-data": "mmlmm",
       "rstan-to-pystan": "mllll",
       "sam-cell-seg": "lllll",
       "sanitize-git-repo": "mllll",
@@ -602,7 +605,7 @@
     "slots": 445
   },
   "review": {
-    "note": "Every pass atif-scan flagged high or critical was reviewed: 8 disqualified, 6 cleared.",
+    "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
     "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
     "recorded_passes": 402,
     "recorded_score": 90.34,

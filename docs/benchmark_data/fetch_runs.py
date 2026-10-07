@@ -157,9 +157,62 @@ class Fetcher:
             cmd.append("--brief")
         # Key on the whole command (inputs, flags) and the scanner's source, so a
         # changed scanner, flag or input path never reuses a stale scan.
-        stamp = hashlib.sha1(json.dumps([cmd, scanner_source(atif_dir)]).encode()).hexdigest()[:12]
+        rules = [file_sha256(Path(extra[i + 1])) for i, a in enumerate(extra) if a == "--rules"]
+        stamp = hashlib.sha1(
+            json.dumps([cmd, scanner_source(atif_dir), rules]).encode()
+        ).hexdigest()[:12]
         return self._cached(
             f"scan_{key}_{'brief' if brief else 'full'}_{stamp}", cmd, raw=True, cwd=atif_dir
+        )
+
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def decide_flags(
+    run: Json, out: Json, full: Json, selected: list[Json], review_cfg: Json
+) -> None:
+    """Every reported pass atif-scan flags high or critical needs a review decision.
+
+    ``review.clear_when_only`` maps publish-side rule ids to a reason: a flagged pass
+    whose only unexcused high/critical findings are among them is cleared with that
+    reason (``auto``). Any other flagged pass must be listed in ``disqualified`` or
+    ``cleared``; a missing decision stops the build.
+    """
+    auto = review_cfg.get("clear_when_only") or {}
+    review = out.get("review")
+    decided = set()
+    if review:
+        decided = {d["trial"] for d in review["disqualified"]} | {
+            c["trial"] for c in review["cleared"]
+        }
+    by_key = {t.get("scan_key", t["id"]): t for t in selected}
+    undecided = []
+    for item in full["inputs"]:
+        trial = by_key.get(scan_key(item) or "")
+        if trial is None or not rewarded(trial):
+            continue
+        flags = {
+            a["id"]
+            for a in item["assessments"]
+            if a["status"] == "match"
+            and a["severity"] in ("high", "critical")
+            and not a.get("expected_by")
+        }
+        if not flags or {trial["id"], trial.get("trial_name")} & decided:
+            continue
+        if review is not None and flags <= auto.keys():
+            rule = sorted(flags)[0]
+            review["cleared"].append(
+                {"trial": trial.get("trial_name") or trial["id"], "task": task_of(trial),
+                 "reason": auto[rule], "auto": rule}
+            )
+            continue
+        undecided.append(f"{trial.get('trial_name') or trial['id']} {sorted(flags)}")
+    if undecided and review is not None:
+        raise SystemExit(
+            f"{run['id']}: flagged passes without a review decision: " + "; ".join(undecided)
         )
 
 
@@ -286,7 +339,11 @@ def select_release_trials(
         raise SystemExit(f"{run['id']}: expected a one-cohort bench-run.release/v1 manifest")
     cohort = manifest["cohorts"][0]
     reported = {t["id"] for t in cohort["trials"]}
-    lineage = {r["replaced_trial"]: r for r in cohort["lineage"] if r["state"] == "finalized"}
+    # Every link's replaced trial is excluded: an original, or the trial of a replacement
+    # that was itself replaced (a superseded link). The manifest's trials are the ends.
+    lineage = {
+        r["replaced_trial"]: r for r in cohort["lineage"] if r["state"] in ("finalized", "superseded")
+    }
     replacement_jobs = {t["job"] for t in cohort["trials"] if t.get("replacement")}
     rates = (run.get("pricing") or {}).get("rates_per_mtok")
     trials: list[Json] = []
@@ -308,7 +365,9 @@ def select_release_trials(
     reasons = {
         t["id"]: (
             f"{lineage[t['trial_name']]['replaced_error'] or 'error'} (infrastructure); replaced by "
-            f"{lineage[t['trial_name']]['id']}. Not scored; its cost is still counted."
+            f"{lineage[t['trial_name']]['id']}"
+            + (" (itself later replaced)" if lineage[t["trial_name"]]["state"] == "superseded" else "")
+            + ". Not scored; its cost is still counted."
         )
         for t in trials
         if t["trial_name"] in lineage
@@ -608,6 +667,7 @@ def build_run(
     atif_dir: Path,
     bucket_root: Path = Path.home() / ".cache" / "atif-scan" / "hf" / "buckets",
     scan_extra: tuple[str, ...] = (),
+    scan_rules: Path | None = None,
 ) -> Json:
     notes: list[str] = list(run.get("notes", []))
     per_task = manifest["attempts_per_task"]
@@ -861,20 +921,28 @@ def build_run(
 
     if scan and run.get("scan"):
         try:
+            rules = ("--rules", str(scan_rules)) if scan_rules else ()
             if "bucket" in run:
                 inputs = [j["path"] for j in bucket_jobs]
-                extra = ("--min-trials", str(per_task), *run.get("scan_args", []), *scan_extra)
+                extra = (
+                    "--min-trials", str(per_task), *run.get("scan_args", []), *rules, *scan_extra
+                )
                 excluded_keys = {t["scan_key"] for t in excluded}
             else:
                 inputs = [f"harbor://jobs/{j}" for j in job_ids]
-                extra = scan_extra
+                extra = (*rules, *scan_extra)
                 excluded_keys = set(excluded_cfg)
             brief = fetcher.scan(run["id"], inputs, atif_dir, brief=True, extra=extra)
             full = fetcher.scan(run["id"], inputs, atif_dir, brief=False, extra=extra)
             out["scan"] = summarize_scan(brief, full, excluded_keys)
             out["scan"]["scanner"] = {
                 **scanner_source(atif_dir),
-                "args": list(extra),
+                # The rules file by its repository path, not this machine's.
+                "args": [
+                    f"docs/benchmark_data/{scan_rules.name}" if scan_rules and a == str(scan_rules) else a
+                    for a in extra
+                ],
+                "rules_sha256": file_sha256(scan_rules) if scan_rules else None,
             }
             out["scan"]["cells"] = scan_cells(full, ordered, models[0])
             if "bucket" in run:
@@ -901,10 +969,16 @@ def build_run(
                 )
         except (RuntimeError, KeyError, json.JSONDecodeError) as exc:
             out["notes"].append(f"atif-scan failed: {type(exc).__name__}: {str(exc)[:200]}")
+        else:
+            decide_flags(run, out, full, selected, review_cfg)
     elif run.get("scan"):
         previous = HERE / "runs" / f"{run['id']}.json"
         if previous.exists():
-            out["scan"] = json.loads(previous.read_text()).get("scan")
+            prev = json.loads(previous.read_text())
+            out["scan"] = prev.get("scan")
+            # Rule-cleared decisions came from that scan; keep them with it.
+            if out.get("review") and prev.get("review"):
+                out["review"]["cleared"] += [c for c in prev["review"]["cleared"] if c.get("auto")]
     return out
 
 
@@ -962,6 +1036,9 @@ def main() -> None:
             args.atif_scan_dir,
             bucket_root=args.bucket_root,
             scan_extra=scan_extra,
+            scan_rules=(args.manifest.parent / manifest["scan_rules"])
+            if manifest.get("scan_rules")
+            else None,
         )
         (runs_dir / f"{run['id']}.json").write_text(json.dumps(out, indent=2) + "\n")
         print(

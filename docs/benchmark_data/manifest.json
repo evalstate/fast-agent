@@ -8,6 +8,7 @@
   ],
   "leaderboard": "terminal-bench/terminal-bench-2-1/main",
   "leaderboard_repo": "harbor-framework/terminal-bench-2-1",
+  "scan_rules": "atif-rules.json",
   "runs": [
     {
       "id": "glm53-flash-max-6h",
@@ -23,7 +24,8 @@
       "expected": {"passes": 376, "total_cost_usd": 77.53, "trials_with_cost": 432},
       "published": {"score": 84.49, "total_cost": 77.53, "source_url": null},
       "review": {
-        "note": "Every pass atif-scan flagged high or critical was reviewed: 9 disqualified, 5 cleared.",
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {"review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
         "cleared": [
           {"trial": "ef12d018-bafd-4d0f-aaad-bbcaaff4b91a", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
           {"trial": "0a61413d-dcb3-4b9c-a11e-68d8e335079d", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
@@ -83,7 +85,8 @@
       "expected": {"passes": 423},
       "published": null,
       "review": {
-        "note": "Every pass atif-scan flagged high or critical was reviewed: 48 disqualified, 3 cleared.",
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {"review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
         "coverage": "Every pass has complete evidence except video-processing__2uf3afv: its history before compaction was archived inside the sandbox, never collected, and can't be reviewed. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [
           {"trial": "configure-git-webserver__DWQzNFW", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
@@ -335,7 +338,8 @@
       "cost_lower_bound": true,
       "published": null,
       "review": {
-        "note": "Every pass atif-scan flagged high or critical was reviewed: 8 disqualified, 6 cleared.",
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {"review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [
           {"trial": "configure-git-webserver__hEyhmnw", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
@@ -360,6 +364,62 @@
         "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
         "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; xAI API over SSE. Zero whole-trial retries; fast-agent's own provider retries apply.",
         "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog 2026-09-29.1, rules grok-4.7-short / grok-4.7-long: $2 / $0.50 / $6 per million input / cached / output tokens, doubled above 200k context). Three trials have incomplete usage, so the total is a lower bound."
+      ],
+      "scan": true
+    },
+    {
+      "id": "opus55-high-6h",
+      "harness": "fast-agent",
+      "model": "Opus 5.5",
+      "effort": "high",
+      "model_string": "copilot.claude-opus-5.5?reasoning=high",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {"repo": "evalstate/published-benchmarks", "path": "tb21/qemu-fixed-6h-v1/opus55-high-6h", "release": "release/manifest.json", "source": "bench-run release tb21-opus55-high-r1 (cohort tb21-opus55-high-copilot-001)"},
+      "expected": {"passes": 394},
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {"review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; Claude Opus 5.5 (high reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "Safety stops: 35 trials ended with AgentSafetyStopError, the provider's safety classifier stopping the run. They score 0 unless the verifier still passed. Every attempt at seven tasks was stopped: crack-7z-hash, password-recovery, vulnerable-secret and break-filter-js-from-html (security) and dna-insert, dna-assembly and protein-assembly (biology).",
+        "Four infrastructure failures (setup read timeout, a dropped verifier stream, two sandboxes not ready) were rerun as replacements; the originals are kept as evidence.",
+        "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog 2026-09-29.1, rule claude-opus-5-5-standard: $4 / $0.20 / $20 per million input / cached / output tokens; cache writes not priced separately). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed."
+      ],
+      "scan": true
+    },
+    {
+      "id": "opus55-medium-6h",
+      "harness": "fast-agent",
+      "model": "Opus 5.5",
+      "effort": "medium",
+      "model_string": "copilot.claude-opus-5.5?reasoning=medium",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {"repo": "evalstate/published-benchmarks", "path": "tb21/qemu-fixed-6h-v1/opus55-medium-6h", "release": "release/manifest.json", "source": "bench-run release tb21-opus55-medium-r1 (cohort tb21-opus55-medium-copilot-001)"},
+      "expected": {"passes": 386},
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {"review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; Claude Opus 5.5 (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "Safety stops: 36 trials ended with AgentSafetyStopError, the provider's safety classifier stopping the run. They score 0 unless the verifier still passed. Every attempt at seven tasks was stopped: crack-7z-hash, password-recovery, vulnerable-secret and break-filter-js-from-html (security) and dna-insert, dna-assembly and protein-assembly (biology).",
+        "Seven replacements: three Harbor or sandbox infrastructure failures, and three agent exits with code -1 recorded as verified crashes (no provider error in fast-agent's log; a lost HF exec stream), one of them replacing an earlier replacement. Originals are kept as evidence.",
+        "One safety-stopped trial (fix-code-vulnerability) still passed its verifier and counts as a pass here, as rewarded timeouts do on this page; bench-run's stricter rule counts it 0 (385/445).",
+        "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog 2026-09-29.1, rule claude-opus-5-5-standard: $4 / $0.20 / $20 per million input / cached / output tokens; cache writes not priced separately). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have incomplete usage, so the total is a lower bound."
       ],
       "scan": true
     },

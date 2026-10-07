@@ -84,6 +84,14 @@
       "family": "grok",
       "status": "6h timeout"
     },
+    "opus55-high-6h": {
+      "family": "anthropic",
+      "status": "6h timeout"
+    },
+    "opus55-medium-6h": {
+      "family": "anthropic",
+      "status": "6h timeout"
+    },
     "glm53-flash-max-6h": {
       "family": "glm",
       "status": "6h timeout"
