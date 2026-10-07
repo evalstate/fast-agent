@@ -68,6 +68,25 @@ Plugin registries are used for direct plugin installs and updates. Card-pack
 dependencies use the card-pack registry that supplied the selected pack; see
 [Card Packs](#card-packs) for the coupling rule.
 
+### Bundles and update notices
+
+Marketplaces can group plugins into `plugin_bundles`. Install a whole bundle in
+one step; plugins that are already installed are just enabled:
+
+```bash
+fast-agent plugins add --bundle recommended --global
+```
+
+The first time `fast-agent go` starts interactively with no plugins installed,
+it offers the `recommended` bundle once (globally). The question is not asked
+again after you answer it, and never in CI, non-TTY or `--message` runs.
+
+The daily startup update check also reports installed plugins whose published
+contents changed, comparing each marketplace entry's `path_oid` with the
+version you installed (one fetch, no git). Updates whose `requires_fast_agent`
+is not met are listed with the fast-agent version they need. `--no-update-check`
+disables these checks and the bundle offer.
+
 ## Global Plugins
 
 Global plugin installs write to `FAST_AGENT_HOME` when it is set; otherwise
@@ -119,6 +138,7 @@ A plugin is a directory containing `plugin.yaml`:
 schema_version: 1
 name: agent-finder
 version: 0.1.0
+requires_fast_agent: ">=0.7.3"  # optional; published to the marketplace
 description: Discover skills and MCP servers.
 commands:
   find:

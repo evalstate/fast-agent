@@ -22,7 +22,11 @@ from fast_agent.cli.codex_oauth_display import (
     codex_oauth_source_label,
 )
 from fast_agent.cli.home_helpers import resolve_home_option
-from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
+from fast_agent.cli.update_check import (
+    check_for_update_notice,
+    default_plugin_roots,
+    should_run_update_check,
+)
 from fast_agent.constants import DEFAULT_HOME_DIR
 from fast_agent.core.agent_card_validation import AgentCardScanResult, scan_agent_card_directory
 from fast_agent.core.exceptions import ModelConfigError
@@ -2315,7 +2319,7 @@ def _resolve_check_update_notice(
     if not should_run_update_check(disabled=no_update_check):
         return None
 
-    return check_for_update_notice(home=home)
+    return check_for_update_notice(home=home, plugin_roots=default_plugin_roots(home))
 
 
 @app.command("models")

@@ -98,6 +98,12 @@ class MarketplacePlugin:
     repo_path: str
     source_url: str | None = None
     bundle_name: str | None = None
+    version: str | None = None
+    path_oid: str | None = None
+    """Git tree id of ``repo_path`` at the published revision."""
+    requires_fast_agent: str | None = None
+    bundles: tuple[str, ...] = ()
+    """Names of marketplace ``plugin_bundles`` that include this plugin."""
 
     @property
     def repo_subdir(self) -> str:

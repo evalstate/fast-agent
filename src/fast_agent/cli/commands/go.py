@@ -194,13 +194,59 @@ def _resolve_request_update_notice(
     no_update_check_value = context_payload.get("no_update_check")
     no_update_check = no_update_check_value if isinstance(no_update_check_value, bool) else False
 
-    from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
+    from fast_agent.cli.update_check import (
+        check_for_update_notice,
+        default_plugin_roots,
+        should_run_update_check,
+    )
 
     if not should_run_update_check(
         disabled=no_update_check,
     ):
         return None
-    return check_for_update_notice(home=home)
+    return check_for_update_notice(home=home, plugin_roots=default_plugin_roots(home))
+
+
+def _maybe_offer_recommended_plugins(ctx: typer.Context, request: AgentRunRequest) -> None:
+    """First interactive run only: offer the recommended plugin bundle (asked once)."""
+    import sys
+
+    if not request.is_repl or request.quiet or request.no_home or os.getenv("CI"):
+        return
+    if ensure_context_object(ctx).get("no_update_check") is True:
+        return
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return
+
+    from functools import partial
+
+    from fast_agent.cli.command_support import get_settings_or_exit
+    from fast_agent.cli.plugin_offer import offer_recommended_plugins
+    from fast_agent.cli.update_check import (
+        DEFAULT_TIMEOUT_SECONDS,
+        default_plugin_roots,
+        fetch_marketplace_payload,
+    )
+    from fast_agent.config import resolve_global_plugin_home_path
+    from fast_agent.plugins.configuration import get_marketplace_url
+
+    try:
+        global_home = resolve_global_plugin_home_path(
+            fast_agent_home=os.getenv("FAST_AGENT_HOME"), home=Path.home(), cwd=Path.cwd()
+        )
+    except RuntimeError:
+        return
+    if global_home is None:
+        return
+    settings = get_settings_or_exit(request.config_path, home=request.home)
+    offer_recommended_plugins(
+        global_home=global_home,
+        plugin_roots=default_plugin_roots(request.home),
+        marketplace_url=get_marketplace_url(settings),
+        fetch_payload=partial(fetch_marketplace_payload, timeout_seconds=DEFAULT_TIMEOUT_SECONDS),
+        confirm=lambda prompt: typer.confirm(prompt, default=True),
+        echo=typer.echo,
+    )
 
 
 def _resolve_model_base_url_option(
@@ -519,6 +565,7 @@ def go(
         timeout_seconds=timeout,
     )
 
+    _maybe_offer_recommended_plugins(ctx, request)
     update_notice = _resolve_request_update_notice(
         ctx=ctx,
         request=request,

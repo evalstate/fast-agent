@@ -31,6 +31,7 @@ from fast_agent.marketplace.formatting import (
 )
 from fast_agent.paths import resolve_home_paths
 from fast_agent.plugins import operations as plugin_ops
+from fast_agent.plugins.bundles import install_plugin_bundle
 from fast_agent.plugins.configuration import (
     disable_plugin_in_config,
     enable_plugin_in_config,
@@ -38,6 +39,7 @@ from fast_agent.plugins.configuration import (
     get_marketplace_url,
 )
 from fast_agent.plugins.manifest import load_plugin_manifest
+from fast_agent.plugins.marketplace import plugin_bundle_names
 from fast_agent.plugins.provenance import format_revision_short
 from fast_agent.ui.console import console
 from fast_agent.utils.text import strip_to_none
@@ -47,7 +49,7 @@ if TYPE_CHECKING:
 
     from typer._click.core import Context
 
-    from fast_agent.plugins.models import LocalPlugin
+    from fast_agent.plugins.models import LocalPlugin, MarketplacePlugin
 
 RegistryOption = Annotated[
     str | None,
@@ -283,20 +285,38 @@ def plugins_add(
         typer.Option("--project", help="Install and enable only in the active project."),
     ] = False,
     force: Annotated[bool, typer.Option("--force", help="Replace an existing plugin.")] = False,
+    bundle: Annotated[
+        str | None,
+        typer.Option(
+            "--bundle",
+            help="Install and enable every plugin in a marketplace bundle (e.g. recommended).",
+        ),
+    ] = None,
 ) -> None:
     """Install and enable a command plugin."""
     if global_install and project_install:
         typer.echo("Choose one install scope: --global or --project.", err=True)
         raise typer.Exit(1)
+    if bundle and selector:
+        typer.echo("Choose a plugin or --bundle, not both.", err=True)
+        raise typer.Exit(1)
     destination_root, config_path = _target_install_context(ctx, global_install=global_install)
     marketplace_input = _resolve_registry_input(ctx, registry)
     plugins, source = plugin_ops.fetch_marketplace_plugins_with_source_sync(marketplace_input)
+    if bundle:
+        _install_bundle(plugins, bundle, destination_root=destination_root, config_path=config_path)
+        return
     if not selector:
         print_detail_section(
             console, "Marketplace Plugins", [DetailDisplayRow(label="marketplace", value=source)]
         )
         _print_marketplace_plugins(plugins)
         print_hint(console, "Install with: fast-agent plugins add <number|name>")
+        if bundles := plugin_bundle_names(plugins):
+            print_hint(
+                console,
+                f"Bundles: {', '.join(bundles)} (fast-agent plugins add --bundle <name>)",
+            )
         raise typer.Exit(0)
 
     selected = plugin_ops.select_plugin_by_name_or_index(plugins, selector)
@@ -322,6 +342,37 @@ def plugins_add(
         [
             DetailDisplayRow(label="name", value=plugin_name),
             DetailDisplayRow(label="location", value=format_display_path(plugin_dir)),
+            DetailDisplayRow(label="config", value=format_display_path(config_path)),
+        ],
+        color="green",
+    )
+
+
+def _install_bundle(
+    plugins: Sequence[MarketplacePlugin],
+    bundle: str,
+    *,
+    destination_root: Path,
+    config_path: Path,
+) -> None:
+    try:
+        results = install_plugin_bundle(
+            plugins, bundle, destination_root=destination_root, config_path=config_path
+        )
+    except Exception as exc:
+        typer.echo(f"Failed to install plugin bundle: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    print_detail_section(
+        console,
+        f"Plugin Bundle Installed: {bundle}",
+        [
+            *(
+                DetailDisplayRow(
+                    label=result.name,
+                    value="installed" if result.installed else "already installed (enabled)",
+                )
+                for result in results
+            ),
             DetailDisplayRow(label="config", value=format_display_path(config_path)),
         ],
         color="green",
