@@ -477,6 +477,25 @@ def test_go_attach_requires_one_shot_mode() -> None:
     assert "--attach requires --message or --prompt-file" in strip_ansi(result.output)
 
 
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        (["--isolated"], "--isolated requires --message or --prompt-file"),
+        (
+            ["--isolated", "-m", "hi", "--shell", "--skills-dir", "skills", "--card", "a.md"],
+            "Cannot combine --isolated with --shell, --card, --skills-dir.",
+        ),
+    ],
+)
+def test_go_isolated_rejects_extensions_and_interactive_mode(
+    arguments: list[str], expected: str
+) -> None:
+    result = CliRunner().invoke(go_command.app, arguments, env={"COLUMNS": "400"})
+
+    assert result.exit_code == 2
+    assert expected in " ".join(strip_ansi(result.output).split())
+
+
 def test_go_pack_installs_then_runs(tmp_path: Path, monkeypatch) -> None:
     _, marketplace_path = _build_pack_repo(tmp_path)
     home_root = tmp_path / ".fast-agent-demo"

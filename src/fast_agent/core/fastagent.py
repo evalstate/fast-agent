@@ -181,6 +181,7 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         skills_directory: str | pathlib.Path | Sequence[str | pathlib.Path] | None = None,
         no_home: bool = False,
         workspace: str | pathlib.Path | None = None,
+        isolated: bool = False,
         **kwargs,
     ) -> None:
         """
@@ -195,6 +196,8 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
                             Set to False when embedding FastAgent in another framework
                             (like FastAPI/Uvicorn) that handles its own arguments.
             quiet: If True, disable progress display, tool and message logging for cleaner output
+            isolated: If True, read config from home but disable skills, plugins, session
+                      history, file logging and telemetry regardless of configuration.
         """
 
         self.args = argparse.Namespace()  # Initialize args always
@@ -207,6 +210,9 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         if parse_cli_args:
             self._parse_constructor_cli_args(ignore_unknown_args=ignore_unknown_args)
         self._apply_constructor_runtime_flags(no_home=no_home)
+        self._isolated = isolated
+        if isolated:
+            self._skills_directory_override = []
 
         self.name = name
         self.config_path = config_path
@@ -427,6 +433,9 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
 
         if self._skills_directory_override is not None:
             settings.skills.directories = [str(path) for path in self._skills_directory_override]
+
+        if self._isolated:
+            config.apply_isolation(settings)
 
     def _stop_progress_display_if_quiet(self) -> None:
         if not self._programmatic_quiet:

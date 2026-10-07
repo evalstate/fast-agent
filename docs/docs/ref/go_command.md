@@ -66,6 +66,7 @@ not need to inspect Fast-Agent session files or private message channels.
 - `--workspace <path>`: Override the workspace root; when `--home` is omitted, the home defaults to `<workspace>/.fast-agent`
 - `--home <path>`: Use `<path>` as the `.fast-agent` home itself (cards load from `<path>/agent-cards/`); relative paths resolve under the selected workspace
 - `--no-home`: Run in ephemeral mode (disable implicit home card loading, session persistence/resume, and permission-store side effects)
+- `--isolated`: Embedded one-shot mode. Config, secrets, credentials and model references are still read from the home, but nothing is written there (no sessions, no log file, no telemetry), and shell/filesystem tools, subagents, skills, AgentCards, plugins and hooks are disabled regardless of config. Only MCP servers named with `--servers` or passed via `--url`/`--stdio`/`--npx`/`--uvx` are attached. Requires `--message` or `--prompt-file`; combining it with options that would re-enable any of the above (`--shell`, `--card`, `--skills-dir`, `--resume`, `--no-home`, ...) is an error
 - `--resume <id|latest>`: Resume the latest session (or a specific session id) and restore its saved model, web-search/web-fetch state, Delegate/Orchestrate/Harness capability mode, and per-agent shell availability without opening the startup picker. Saved shell access is restored only in the same local workspace; `--no-shell` disables it and `--shell` explicitly enables it. ACP-originated sessions do not inherit shell access. Older sessions without saved shell state require `--shell`. A session already active in another process is rejected; use `fast-agent session fork <id>` to branch its latest committed checkpoint.
 - `--subagents`: Enable the built-in `subagent` tool for the selected or generated agent
 - `--subagent-model <model_string>`: Enable built-in subagents and force every one to use this model
@@ -132,6 +133,9 @@ FAST_AGENT_MODEL=haiku fast-agent go --message="Summarize this report"
 
 # Attach files or URLs to a one-shot message
 fast-agent go --message "Summarize these" --attach ./report.pdf --attach https://example.com/chart.png --model=haiku
+
+# Embedded run: home config is read, nothing is written, only the named MCP server is attached
+fast-agent go --isolated --servers docs --message "Find the retry policy" --results ./out.json
 
 # Machine-readable structured one-shot output
 fast-agent go --no-home --model haiku --message "What is the weather in London?" --json-schema ./schema.json

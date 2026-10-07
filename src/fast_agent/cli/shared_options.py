@@ -169,6 +169,18 @@ class CommonAgentOptions:
         )
 
     @staticmethod
+    def isolated():
+        return typer.Option(
+            False,
+            "--isolated",
+            help=(
+                "One-shot run that reads config, secrets and model aliases from home but writes "
+                "nothing there and loads no shell, filesystem, subagent, skill, card, plugin or "
+                "hook extensions. Only MCP servers from --servers/--url/--stdio/--npx/--uvx."
+            ),
+        )
+
+    @staticmethod
     def skills_dir():
         return typer.Option(
             None, "--skills-dir", "--skills", help="Override the default skills directory"

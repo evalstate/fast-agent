@@ -23,6 +23,7 @@ from fast_agent.cli.runtime.request_builders import (
     build_command_run_request,
     build_run_agent_kwargs,
     merge_card_sources,
+    validate_isolated_conflicts,
 )
 from fast_agent.cli.runtime.request_builders import (
     collect_stdio_commands as _collect_stdio_commands,
@@ -328,6 +329,7 @@ def go(
     workspace: Path | None = CommonAgentOptions.workspace(),
     home: Path | None = CommonAgentOptions.home(),
     no_home: bool = CommonAgentOptions.no_home(),
+    isolated: bool = CommonAgentOptions.isolated(),
     skills_dir: Path | None = CommonAgentOptions.skills_dir(),
     npx: str | None = CommonAgentOptions.npx(),
     uvx: str | None = CommonAgentOptions.uvx(),
@@ -364,6 +366,26 @@ def go(
             err=True,
         )
         raise typer.Exit(1)
+
+    validate_isolated_conflicts(
+        isolated=isolated,
+        one_shot=message is not None or prompt_file is not None,
+        conflicts={
+            "--no-home": no_home,
+            "--shell": shell,
+            "--environment": environment is not None,
+            "--card": bool(agent_cards),
+            "--card-tool": bool(card_tools),
+            "--pack": pack is not None,
+            "--a2a": bool(a2a),
+            "--skills-dir": skills_dir is not None,
+            "--subagents": subagents is True,
+            "--subagent-model": subagent_model is not None,
+            "--resume": resume is not None,
+            "--reload": reload,
+            "--watch": watch,
+        },
+    )
 
     base_url = _resolve_model_base_url_option(
         base_url,
@@ -484,6 +506,7 @@ def go(
         home=effective_home,
         workspace=resolved_workspace,
         no_home=no_home,
+        isolated=isolated,
         shell_enabled=shell,
         no_shell=no_shell,
         subagents=subagents,
