@@ -17,6 +17,7 @@ from fast_agent.constants import (
     FAST_AGENT_TOOL_TIMING,
     FAST_AGENT_USAGE,
 )
+from fast_agent.history.process_poll_fold_audit import restore_process_poll_history
 from fast_agent.history.process_poll_folding import (
     fold_managed_process_poll_history as fold_completed_process_poll_history,
 )
@@ -1444,3 +1445,50 @@ def test_runner_style_repeated_folds_keep_audit_linear_and_lossless() -> None:
     assert [step.tool_calls[0].tool_call_id for step in poll_steps if step.tool_calls] == [
         f"call-{index}" for index in range(1, polls + 1)
     ]
+
+
+def test_restore_returns_exact_unfolded_exchanges_with_timing_channels() -> None:
+    def with_timing(message: PromptMessageExtended, index: int) -> PromptMessageExtended:
+        message.channels = {
+            FAST_AGENT_TIMING: [
+                TextContent(type="text", text=json.dumps({"duration_ms": 1_000.0 + index}))
+            ]
+        }
+        return message
+
+    polls = 12
+    history: list[PromptMessageExtended] = [
+        PromptMessageExtended(role="user", content=[TextContent(type="text", text="build")])
+    ]
+    unfolded = list(history)
+    for index in range(1, polls + 1):
+        request = with_timing(_poll_request(index), index)
+        status = "completed" if index == polls else "running"
+        result = _poll_result(index, status=status, output_line_count=0)
+        _add_tool_timing(result, index)
+        unfolded += [request, result]
+        folded = fold_completed_process_poll_history([*history, request], result)
+        history = (
+            [*history, request, result]
+            if folded is None
+            else [
+                *folded.history,
+                folded.tool_message,
+            ]
+        )
+
+    restored = restore_process_poll_history(history)
+
+    assert len(history) < len(unfolded)
+    assert [message.tool_calls for message in restored] == [
+        message.tool_calls for message in unfolded
+    ]
+    assert [set(message.tool_results or {}) for message in restored] == [
+        set(message.tool_results or {}) for message in unfolded
+    ]
+    for original, restored_message in zip(unfolded, restored, strict=True):
+        for channel in (FAST_AGENT_TIMING, FAST_AGENT_TOOL_TIMING):
+            assert (restored_message.channels or {}).get(channel) == (original.channels or {}).get(
+                channel
+            )
+    assert restore_process_poll_history(unfolded) == unfolded

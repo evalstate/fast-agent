@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
     from fast_agent.command_actions.models import PluginCommandActionSpec
     from fast_agent.llm.usage_tracking import TurnUsage
+    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 DEFAULT_PLUGIN_REGISTRIES = [
     "https://github.com/fast-agent-ai/card-packs",
@@ -71,6 +72,9 @@ class PluginPostUserTurnContext:
     turn_usage: tuple[TurnUsage, ...]
     session_usage: tuple[TurnUsage, ...]
     config: Mapping[str, object]
+    turn_messages: tuple[PromptMessageExtended, ...] = ()
+    """The completed turn in the selected agent's history, as stored (process polls
+    may be folded; see ``restore_process_poll_history``)."""
 
 
 class PluginPostUserTurnFunction(Protocol):

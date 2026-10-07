@@ -202,10 +202,17 @@ The context contains:
 
 - `plugin_name` — manifest plugin name.
 - `agent_name` — top-level agent selected by the user.
-- `turn_usage` — canonical provider attempts for the completed user turn.
+- `turn_usage` — canonical provider attempts for the completed user turn. The
+  final attempt of each LLM request carries `timing` (`duration_ms`, `ttft_ms`,
+  `time_to_response_ms`) as observed by the client; failed retry attempts and
+  usage recorded by earlier fast-agent versions leave it `None`.
 - `session_usage` — cumulative canonical provider attempts for the selected
   agent or parallel workflow.
 - `config` — the plugin's mapping from `plugins.config.<plugin-name>`.
+- `turn_messages` — the completed turn from the selected agent's message history,
+  starting at the user message. Managed-process polling may be folded; use
+  `fast_agent.history.process_poll_fold_audit.restore_process_poll_history` to
+  restore the exact archived poll exchanges, including their timing channels.
 
 Handlers run in enabled-plugin order. A load or execution failure is logged and
 does not fail the completed agent turn or prevent later display plugins from

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
+from mcp_types import CallToolResult
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
@@ -18,6 +19,8 @@ from fast_agent.llm.usage_tracking import (
     UsageAccumulator,
     UsageSchema,
 )
+from fast_agent.mcp.prompt import Prompt
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.plugins.models import PluginPostUserTurnSpec
 from fast_agent.ui.turn_usage_display import (
     TurnUsageDisplay,
@@ -56,7 +59,9 @@ def _turn(
 
 
 def _agent(usage_accumulator: UsageAccumulator):
-    return SimpleNamespace(name="assistant", usage_accumulator=usage_accumulator)
+    return SimpleNamespace(
+        name="assistant", usage_accumulator=usage_accumulator, message_history=[]
+    )
 
 
 def test_regular_agent_usage_displays_last_turn_when_no_turn_start_index() -> None:
@@ -239,6 +244,49 @@ async def test_interactive_send_runs_post_user_turn_plugin_once_and_quiet_send_s
     assert marker.read_text(encoding="utf-8") == "1:1\n"
     assert len(app.user_turn_usage) == 1
     assert reported_usage == ["$0.0123"]
+
+
+@pytest.mark.asyncio
+async def test_post_user_turn_plugin_receives_only_the_completed_turn_messages(
+    tmp_path: Path,
+) -> None:
+    marker = tmp_path / "turns.txt"
+    hook = tmp_path / "hook.py"
+    hook.write_text(
+        "def display(ctx):\n"
+        f"    with open({marker.as_posix()!r}, 'a', encoding='utf-8') as stream:\n"
+        "        texts = [message.first_text() for message in ctx.turn_messages]\n"
+        "        stream.write('|'.join(texts) + '\\n')\n",
+        encoding="utf-8",
+    )
+    usage = UsageAccumulator()
+    agent = _agent(usage)
+    app = AgentApp(
+        {"assistant": agent},
+        plugin_post_user_turn=[PluginPostUserTurnSpec("marker", f"{hook}:display")],
+    )
+
+    async def send(message, _request_params) -> str:
+        usage.add_turn(_turn(prompt_tokens=10, completion_tokens=1))
+        agent.message_history += [
+            Prompt.user(message),
+            Prompt.assistant("calling tool"),
+            PromptMessageExtended(role="user", tool_results={"call-1": CallToolResult(content=[])}),
+            Prompt.assistant(f"answer to {message}"),
+        ]
+        return "done"
+
+    agent.send = send
+
+    for message in ("first", "second"):
+        await app._send_interactive_message(
+            message, "assistant", request_params=None, show_usage=True
+        )
+
+    assert marker.read_text(encoding="utf-8").splitlines() == [
+        "first|calling tool|<no text>|answer to first",
+        "second|calling tool|<no text>|answer to second",
+    ]
 
 
 def test_regular_agent_usage_displays_cache_percentage_and_ttl() -> None:
