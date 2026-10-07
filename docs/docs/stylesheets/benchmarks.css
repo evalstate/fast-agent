@@ -103,6 +103,9 @@
 .fb-status { background: var(--fa-inset); color: var(--fa-ink-muted); }
 .fb-status--timeout { background: var(--teal); color: var(--ivory); }
 .fb-status--sample { background: var(--fb-warn-bg); color: var(--fb-warn-ink); }
+.fb-scoremode { display: flex; align-items: center; gap: 0; margin: 12px 0 0; }
+.fb-scoremode .fb-seg { margin-left: 0; }
+.fb-scoremode__k { margin-right: 8px; font: 800 11px/1.2 var(--font-read); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--fa-ink-muted); }
 .fb-scanlevel { display: inline-block; padding: 1px 6px; border-radius: 4px; font: 800 10px/1.4 var(--font-read); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; box-shadow: inset 0 0 0 1.5px var(--fa-ink-muted); color: var(--fa-ink-muted); }
 .fb-scanlevel--images { box-shadow: inset 0 0 0 1.5px var(--teal); color: var(--teal); }
 .fb-scanlevel--full { background: var(--teal); box-shadow: none; color: var(--ivory); }

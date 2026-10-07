@@ -1,6 +1,6 @@
 {
   "$comment": "Curated presentation layer for the benchmarks page. Per-trial facts live in runs/*.json (fetch_runs.py); this file adds families, display names, pricing adjustments, vendor claims and curated comparisons. Rebuild the page data with: uv run --no-project python docs/generate_benchmark_data.py",
-  "updated": "2026-09-30",
+  "updated": "2026-10-07",
   "families": [
     {
       "id": "gpt-6",

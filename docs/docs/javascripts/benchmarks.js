@@ -67,6 +67,81 @@
   function floor1(x) {
     return Math.floor(x * 10 + 1e-9) / 10;
   }
+  /* ── Primary score: after our review (default) or as recorded ──────── */
+  var SCORE_MODES = { reviewed: "After review", recorded: "Recorded" };
+  function scoreMode() {
+    var p = new URLSearchParams(window.location.search).get("score");
+    if (SCORE_MODES[p]) return p;
+    try {
+      var saved = window.localStorage.getItem("faBenchScore");
+      if (SCORE_MODES[saved]) return saved;
+    } catch (e) {}
+    return "reviewed";
+  }
+  /* Task-clustered standard error (percentage points), as generate_benchmark_data.py. */
+  function clusteredSe(cells, attempts, passCodes) {
+    var scores = [];
+    for (var i = 0; i < cells.length; i += attempts) {
+      var n = 0;
+      for (var j = i; j < i + attempts; j++) if (passCodes.indexOf(cells[j]) >= 0) n++;
+      scores.push(n / attempts);
+    }
+    var mean = scores.reduce(function (a, b) { return a + b; }, 0) / scores.length;
+    var v = scores.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / (scores.length - 1);
+    return Math.round(Math.sqrt(v / scores.length) * 10000) / 100;
+  }
+  /* Every page reads one primary score; reviewed runs keep both figures in .review. */
+  function withScoreMode(data) {
+    var mode = scoreMode();
+    var attempts = {};
+    data.benchmarks.forEach(function (b) { attempts[b.id] = b.attempts; });
+    var runs = data.runs.map(function (r) {
+      if (!r.review) return r;
+      var review = Object.assign({}, r.review, { reviewedScore: r.score, reviewedPasses: r.passes, reviewedSe: r.se });
+      if (mode !== "recorded") return Object.assign({}, r, { review: review });
+      return Object.assign({}, r, {
+        review: review,
+        score: r.review.recordedScore,
+        passes: r.review.recordedPasses,
+        se: clusteredSe(r.cells, attempts[r.benchmark], "1x"),
+      });
+    });
+    return Object.assign({}, data, { runs: runs, scoreMode: mode });
+  }
+  /* "Score: After review | Recorded": re-renders the page and remembers the choice. */
+  function scoreToggle() {
+    var mode = scoreMode();
+    var wrap = el("div", "fb-scoremode");
+    wrap.appendChild(el("span", "fb-scoremode__k", "Score"));
+    var seg = el("div", "fb-seg");
+    seg.setAttribute("role", "group");
+    seg.setAttribute("aria-label", "Primary score");
+    wrap.appendChild(seg);
+    Object.keys(SCORE_MODES).forEach(function (k) {
+      var b = el("button", "", SCORE_MODES[k]);
+      b.type = "button";
+      b.setAttribute("aria-pressed", String(k === mode));
+      b.title = k === "reviewed"
+        ? "Passes disqualified on our review are removed (runs without a review are unchanged)"
+        : "Every verified pass counts, as recorded (after infrastructure replacements)";
+      b.addEventListener("click", function () {
+        try { window.localStorage.setItem("faBenchScore", k); } catch (e) {}
+        var url = new URL(window.location.href);
+        if (k === "reviewed") url.searchParams.delete("score");
+        else url.searchParams.set("score", k);
+        window.history.replaceState(window.history.state, "", url);
+        restart();
+      });
+      seg.appendChild(b);
+    });
+    return wrap;
+  }
+  function otherScore(entry) {
+    if (!entry.review) return null;
+    return scoreMode() === "recorded"
+      ? "after review " + pct(entry.review.reviewedScore)
+      : "recorded " + pct(entry.review.recordedScore);
+  }
   function pct(x) {
     return floor1(x).toFixed(1) + "%";
   }
@@ -633,7 +708,7 @@
       score.appendChild(el("span", "fb-score__v", pct(entry.score)));
       score.appendChild(el("span", "fb-score__n", entry.tier === "claim" ? "reported" : entry.passes + "/" + entry.slots + " · ±" + entry.se.toFixed(1)));
       if (entry.review) {
-        var rec = el("span", "fb-score__full", "recorded " + pct(entry.review.recordedScore));
+        var rec = el("span", "fb-score__full", otherScore(entry));
         rec.title = entry.review.disqualified + " passing trials disqualified on review";
         score.appendChild(rec);
       }
@@ -957,6 +1032,7 @@
       )
     );
     intro.appendChild(copy);
+    if (data.runs.some(function (r) { return r.review; })) intro.appendChild(scoreToggle());
     root.appendChild(intro);
 
     var tabs = el("nav", "fb-bench-tabs");
@@ -1187,6 +1263,7 @@
     }
     var m = model(data, run.benchmark);
     root.appendChild(runPicker(m, run));
+    if (run.review) root.appendChild(scoreToggle());
 
     var head = el("header", "fb-dossier__head");
     head.appendChild(familyMark(m, run.family, "lg"));
@@ -1214,9 +1291,9 @@
     }
     kpi(
       pct(run.score),
-      run.review ? "score after review" : "score",
+      run.review ? (scoreMode() === "recorded" ? "recorded score" : "score after review") : "score",
       "±" + run.se.toFixed(1) + " pts, one standard error by task" +
-        (run.review ? " · recorded " + pct(run.review.recordedScore) + ", " + run.review.disqualified + " disqualified on review" : ""),
+        (run.review ? " · " + otherScore(run) + ", " + run.review.disqualified + " disqualified on review" : ""),
       "fb-kpi--hero"
     );
     var errors = run.errors ? Object.keys(run.errors) : [];
@@ -1604,7 +1681,7 @@
       var r = run.review;
       var review = [
         r.disqualified + " passing trials disqualified" + (r.cleared ? ", " + r.cleared + " flagged passes cleared" : "") + ": " +
-          pct(run.score) + " after review, " + pct(r.recordedScore) + " recorded (" + r.recordedPasses + "/" + run.slots + ")." +
+          pct(r.reviewedScore) + " after review (" + r.reviewedPasses + "/" + run.slots + "), " + pct(r.recordedScore) + " recorded (" + r.recordedPasses + "/" + run.slots + ")." +
           (r.note ? " " + r.note : ""),
       ];
       r.reasons.forEach(function (x) {
@@ -1991,13 +2068,20 @@
 
   function start() {
     if (!window.faBench) return;
+    var data = withScoreMode(window.faBench);
     document.querySelectorAll("[data-fa-bench]").forEach(function (root) {
       if (root.dataset.faBenchReady === window.location.href) return;
       root.dataset.faBenchReady = window.location.href;
       root.innerHTML = "";
       root.classList.add("fb");
-      RENDERERS[root.dataset.faBench](root, window.faBench);
+      RENDERERS[root.dataset.faBench](root, data);
     });
+  }
+  function restart() {
+    document.querySelectorAll("[data-fa-bench]").forEach(function (root) {
+      delete root.dataset.faBenchReady;
+    });
+    start();
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
