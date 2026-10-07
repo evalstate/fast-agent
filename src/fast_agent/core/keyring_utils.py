@@ -29,13 +29,8 @@ _KEYRING_ACCESS_NOTICE_SHOWN = False
 
 def format_keyring_access_notice(*, purpose: str | None = None) -> str:
     """Return the standard one-time keyring access notice."""
-    message = (
-        "fast-agent is accessing the OS keyring for stored tokens. "
-        "Some platforms may pause and show a prompt."
-    )
-    if purpose:
-        return f"{message} ({purpose})"
-    return message
+    action = f"{purpose} via" if purpose else "accessing"
+    return f"fast-agent is {action} the OS keyring. Some platforms show a prompt."
 
 
 def _keyring_access_notice_enabled() -> bool:
@@ -90,7 +85,7 @@ def maybe_print_keyring_access_notice(*, purpose: str | None = None) -> None:
 
 def _probe_keyring_write(service: str) -> bool:
     try:
-        maybe_print_keyring_access_notice(purpose="checking keyring availability")
+        maybe_print_keyring_access_notice(purpose="testing write access")
         import keyring
 
         probe_key = f"probe:{secrets.token_urlsafe(8)}"
@@ -125,7 +120,7 @@ def _load_keyring_module() -> ModuleType | None:
 
 
 def get_keyring_status() -> KeyringStatus:
-    maybe_print_keyring_access_notice(purpose="checking keyring backend")
+    maybe_print_keyring_access_notice(purpose="checking access")
     keyring = _load_keyring_module()
     if keyring is None:
         return KeyringStatus(name="unavailable", available=False, writable=False)

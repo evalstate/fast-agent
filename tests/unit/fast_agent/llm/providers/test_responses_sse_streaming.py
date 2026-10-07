@@ -71,6 +71,18 @@ class _DelayedResponsesSseStream:
         return self
 
     async def __anext__(self) -> Any:
+        # Buffered Codex streams repeat ``safety_buffering`` on every event.
+        buffering = (
+            {
+                "safety_buffering": {
+                    "use_cases": ["cyber"],
+                    "reasons": ["policy-check"],
+                    "retry_model": "gpt-test-fast",
+                }
+            }
+            if self.safety_buffering
+            else {}
+        )
         if self.safety_buffering and self._index == 0:
             self._index += 1
             return ResponseCreatedEvent.model_validate(
@@ -78,24 +90,23 @@ class _DelayedResponsesSseStream:
                     "response": self.final_response,
                     "sequence_number": 0,
                     "type": "response.created",
-                    "safety_buffering": {
-                        "use_cases": ["cyber"],
-                        "reasons": ["policy-check"],
-                        "retry_model": "gpt-test-fast",
-                    },
+                    **buffering,
                 }
             )
         stream_index = self._index - int(self.safety_buffering)
         if stream_index == 0:
             self._index += 1
-            return ResponseTextDeltaEvent(
-                content_index=0,
-                delta="hello ",
-                item_id="msg_1",
-                logprobs=[],
-                output_index=0,
-                sequence_number=1,
-                type="response.output_text.delta",
+            return ResponseTextDeltaEvent.model_validate(
+                {
+                    "content_index": 0,
+                    "delta": "hello ",
+                    "item_id": "msg_1",
+                    "logprobs": [],
+                    "output_index": 0,
+                    "sequence_number": 1,
+                    "type": "response.output_text.delta",
+                    **buffering,
+                }
             )
         if stream_index == 1:
             self._index += 1
@@ -262,6 +273,7 @@ async def test_safety_buffering_notice_reaches_listener_before_response_complete
 
     harness.sse_stream.release_terminal.set()
     response = await asyncio.wait_for(completion, timeout=1.0)
+    assert sum("Waiting for the original stream" in chunk.text for chunk in chunks) == 1
     assert response.stop_reason == (LlmStopReason.SAFETY if refusal else LlmStopReason.END_TURN)
     assert response.last_text() == ("I cannot help with that." if refusal else "hello world")
     assert not response.tool_calls

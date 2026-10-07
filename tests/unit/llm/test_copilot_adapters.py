@@ -295,7 +295,7 @@ async def test_parent_sse_loop_fresh_binding_and_payload(
                 "type": "url",
                 "url": uploaded_url,
             }
-            assert "eager_input_streaming" not in body["tools"][0]
+            assert body["tools"][0]["eager_input_streaming"] is True
         else:
             assert body["input"][0]["output"][0]["image_url"] == uploaded_url
             assert body["store"] is False
@@ -370,7 +370,6 @@ async def test_always_on_policy_and_thinking_preservation(
     assert arguments["thinking"] == base["thinking"]
     assert arguments["messages"] == base["messages"]
     assert arguments["max_tokens"] == 123
-    assert "eager_input_streaming" not in arguments["tools"][0]
     for metadata in (
         {"tool_choice": {"type": "tool", "name": "local"}},
         {"extra_body": {"tool_choice": {"type": "any"}}},
@@ -1298,7 +1297,7 @@ def test_factory_opus48_high_reasoning(context: Context) -> None:
     assert llm.default_request_params.model == "claude-opus-4-8"
     arguments, enabled = llm._resolve_thinking_arguments("claude-opus-4-8", 4096, None)
     assert enabled
-    assert arguments["thinking"] == {"type": "adaptive"}
+    assert arguments["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert arguments["output_config"]["effort"] == "high"
 
 
@@ -1452,7 +1451,7 @@ async def test_claude55_json_output_wire_contract(
     assert schema == original
     if copilot:
         assert "anthropic-beta" not in requests[0].headers
-        assert all("eager_input_streaming" not in tool for tool in body.get("tools", []))
+        assert all(tool["eager_input_streaming"] for tool in body.get("tools", []))
         assert "x-api-key" not in requests[0].headers
 
 
@@ -1727,3 +1726,23 @@ async def test_responses_inline_file_normalization_is_idempotent(
     assert once[0][slot][1] == before[0][slot][1]
     assert twice == once
     assert original == before
+
+
+@pytest.mark.parametrize(
+    ("model", "expected"), [("claude-haiku-4.5", True), ("claude-opus-5", False)]
+)
+def test_interleaved_thinking_beta_only_for_budget_thinking_with_tools(
+    context: Context, model: str, expected: bool
+) -> None:
+    from fast_agent.llm.provider.anthropic.llm_anthropic import INTERLEAVED_THINKING_BETA
+
+    llm = CopilotMessagesLLM(context=context, model=model)
+    beta_flags = llm._resolve_anthropic_beta_flags(
+        model=model,
+        structured_mode=None,
+        thinking_enabled=True,
+        request_tools=[{"name": "demo", "input_schema": {"type": "object"}}],
+        web_tool_betas=[],
+    )
+    # Adaptive-thinking models interleave natively; only budget thinking needs the beta.
+    assert beta_flags == ([INTERLEAVED_THINKING_BETA] if expected else [])

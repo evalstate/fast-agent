@@ -44,6 +44,7 @@ from fast_agent.ui.streaming import (
     NullStreamingHandle as _NullStreamingHandle,
 )
 from fast_agent.ui.streaming import (
+    StreamContextBaseline,
     StreamingHandle,
 )
 from fast_agent.ui.streaming import (
@@ -1483,6 +1484,7 @@ class ConsoleDisplay:
         model: str | None = None,
         show_hook_indicator: bool = False,
         tool_metadata_resolver: Callable[[str], Mapping[str, Any] | None] | None = None,
+        context_baseline: StreamContextBaseline | None = None,
     ) -> Iterator[StreamingHandle]:
         """Create a streaming context for assistant messages."""
         if not self._chat_output_enabled():
@@ -1529,6 +1531,7 @@ class ConsoleDisplay:
             use_plain_text=use_plain_text,
             header_left=left,
             header_right=right_info,
+            context_baseline=context_baseline,
             tool_header_name=name,
             tool_metadata_resolver=tool_metadata_resolver,
             stream_edit_previews=stream_edit_previews,

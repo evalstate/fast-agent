@@ -100,8 +100,6 @@ class CopilotBroker:
             raise ProviderKeyError("Requested Copilot transport is not supported for this model.")
         headers = self._headers(await self._access_token(self._settings.runtime_timeout_seconds))
         headers["x-interaction-id"] = owner_id
-        if spec.wire_api == "messages":
-            headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
         return CopilotEndpoint(
             model_id=model_id,
             wire_api=spec.wire_api,

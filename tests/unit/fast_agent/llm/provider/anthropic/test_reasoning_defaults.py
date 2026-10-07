@@ -151,7 +151,7 @@ def test_opus_47_supports_xhigh_effort():
 
 
 @pytest.mark.parametrize("model", ["claude-fable-5", "claude-fable-5-1"])
-def test_fable_5_omits_thinking_field_and_uses_provider_default_effort(model: str):
+def test_fable_5_requests_summarized_thinking_and_uses_provider_default_effort(model: str):
     llm = _make_llm(model)
 
     args, thinking_enabled = llm._resolve_thinking_arguments(
@@ -161,7 +161,7 @@ def test_fable_5_omits_thinking_field_and_uses_provider_default_effort(model: st
     )
 
     assert thinking_enabled
-    assert "thinking" not in args
+    assert args["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert "output_config" not in args
     assert args["max_tokens"] == 16000
 
@@ -177,12 +177,12 @@ def test_fable_5_does_not_allow_reasoning_disable(model: str):
     )
 
     assert thinking_enabled
-    assert "thinking" not in args
+    assert args["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert "output_config" not in args
 
 
 @pytest.mark.parametrize("model", ["claude-fable-5", "claude-fable-5-1"])
-def test_fable_5_supports_xhigh_effort_without_thinking_field(model: str):
+def test_fable_5_supports_xhigh_effort_with_summarized_thinking(model: str):
     llm = _make_llm(model, reasoning="xhigh")
 
     args, thinking_enabled = llm._resolve_thinking_arguments(
@@ -192,7 +192,7 @@ def test_fable_5_supports_xhigh_effort_without_thinking_field(model: str):
     )
 
     assert thinking_enabled
-    assert "thinking" not in args
+    assert args["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert args["output_config"] == {"effort": "xhigh"}
 
 
@@ -206,11 +206,11 @@ def test_fable_5_tool_forced_structured_output_keeps_always_on_thinking():
     )
 
     assert thinking_enabled
-    assert "thinking" not in args
+    assert args["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert "output_config" not in args
 
 
-def test_sonnet_5_omits_thinking_field_for_default_adaptive_thinking():
+def test_sonnet_5_requests_summarized_adaptive_thinking():
     llm = _make_llm("claude-sonnet-5")
 
     args, thinking_enabled = llm._resolve_thinking_arguments(
@@ -220,7 +220,7 @@ def test_sonnet_5_omits_thinking_field_for_default_adaptive_thinking():
     )
 
     assert thinking_enabled
-    assert "thinking" not in args
+    assert args["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert "output_config" not in args
     assert args["max_tokens"] == 16000
 
@@ -239,7 +239,7 @@ def test_sonnet_5_can_disable_adaptive_thinking():
     assert args["max_tokens"] == 16000
 
 
-def test_sonnet_5_supports_xhigh_effort_without_thinking_field():
+def test_sonnet_5_supports_xhigh_effort_with_summarized_thinking():
     llm = _make_llm("claude-sonnet-5", reasoning="xhigh")
 
     args, thinking_enabled = llm._resolve_thinking_arguments(
@@ -249,11 +249,11 @@ def test_sonnet_5_supports_xhigh_effort_without_thinking_field():
     )
 
     assert thinking_enabled
-    assert "thinking" not in args
+    assert args["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert args["output_config"] == {"effort": "xhigh"}
 
 
-def test_opus_5_omits_thinking_field_for_default_adaptive_thinking():
+def test_opus_5_requests_summarized_adaptive_thinking():
     llm = _make_llm("claude-opus-5")
 
     args, thinking_enabled = llm._resolve_thinking_arguments(
@@ -263,7 +263,7 @@ def test_opus_5_omits_thinking_field_for_default_adaptive_thinking():
     )
 
     assert thinking_enabled
-    assert "thinking" not in args
+    assert args["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert "output_config" not in args
     assert args["max_tokens"] == 16000
 
@@ -1123,7 +1123,8 @@ def test_structured_output_modes_still_preserve_other_beta_flags() -> None:
         web_tool_betas=["web-beta"],
     )
 
-    assert FINE_GRAINED_TOOL_STREAMING_BETA in beta_flags
+    # Direct Anthropic streams tool input via per-tool eager_input_streaming instead.
+    assert FINE_GRAINED_TOOL_STREAMING_BETA not in beta_flags
     assert STRUCTURED_OUTPUT_BETA in beta_flags
     assert "web-beta" in beta_flags
 
@@ -1154,7 +1155,7 @@ def test_fable_51_max_effort_and_native_structured_output() -> None:
         model="claude-fable-5-1", max_tokens=128000, structured_mode="json"
     )
     assert enabled
-    assert "thinking" not in args
+    assert args["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert args["output_config"] == {"effort": "max"}
 
 
@@ -1320,3 +1321,22 @@ def test_sonnet_55_drops_sampling(model: str) -> None:
         RequestParams(),
     )
     assert not {"temperature", "top_p", "top_k", "extra_body"} & result.keys()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("vertex", [False, True])
+async def test_tool_input_streaming_uses_eager_field_or_vertex_beta(vertex: bool) -> None:
+    llm = _make_vertex_llm("claude-sonnet-4-6") if vertex else _make_llm("claude-sonnet-4-6")
+    tools = await llm._prepare_tools(
+        "claude-sonnet-4-6", tools=[Tool(name="demo", input_schema={"type": "object"})]
+    )
+    beta_flags = llm._resolve_anthropic_beta_flags(
+        model="claude-sonnet-4-6",
+        structured_mode=None,
+        thinking_enabled=False,
+        request_tools=tools,
+        web_tool_betas=[],
+    )
+
+    assert ("eager_input_streaming" in tools[0]) is not vertex
+    assert (FINE_GRAINED_TOOL_STREAMING_BETA in beta_flags) is vertex

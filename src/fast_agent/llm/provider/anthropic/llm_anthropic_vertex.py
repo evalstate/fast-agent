@@ -80,6 +80,10 @@ class AnthropicVertexLLM(AnthropicLLM):
     def supports_web_tools(self) -> bool:
         return True
 
+    def _eager_tool_input_streaming(self) -> bool:
+        # Some Vertex deployments reject the per-tool field; keep the beta header.
+        return False
+
     def supports_direct_anthropic_beta(self, feature: str) -> bool:
         return feature in {
             "interleaved_thinking",

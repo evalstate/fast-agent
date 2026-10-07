@@ -3659,3 +3659,28 @@ async def test_process_wait_request_is_clamped_to_cache_warm_ceiling(
     assert metadata is not None
     assert metadata["poll_wait_sec"] == expected_wait
     assert metadata["process_status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_parallel_waits_on_one_process_run_once() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=_ActiveManagedShellEnvironment(),
+    )
+    await runtime.execute({"command": "chatty-build", "background": True})
+    wait = {"process_id": "process-1", "wait_sec": 1}
+
+    started = time.monotonic()
+    first, duplicate = await asyncio.gather(runtime.poll_process(wait), runtime.poll_process(wait))
+    assert time.monotonic() - started < 1.9  # not queued end to end
+
+    texts = [r.content[0].text for r in (first, duplicate) if isinstance(r.content[0], TextContent)]
+    assert "Skipped: another wait on process-1" not in texts[0]
+    assert texts[1].startswith("Skipped: another wait on process-1")
+    assert duplicate.is_error is False
+
+    follow_up = await runtime.poll_process(wait)  # sequential waits still run
+    assert isinstance(follow_up.content[0], TextContent)
+    assert "Skipped" not in follow_up.content[0].text
+    await runtime.terminate_process({"process_id": "process-1"})

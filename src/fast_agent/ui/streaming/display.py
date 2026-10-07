@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import sys
 import time
@@ -23,6 +24,7 @@ from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.tool_activity_presentation import tool_activity_family_uses_status_body
 from fast_agent.ui import console
 from fast_agent.ui.apply_patch_preview import style_apply_patch_preview_text
+from fast_agent.ui.context_usage_display import format_compact_context_usage_percent
 from fast_agent.ui.markdown.content import prepare_markdown_content
 from fast_agent.ui.markdown.renderables import (
     build_markdown_renderable,
@@ -175,6 +177,51 @@ class _StreamCursorBlink:
 
     def reset(self, now: float) -> None:
         self.last_activity_at = now
+
+
+class _TokenRate:
+    """Smoothed tokens/sec estimate (chars/4) for the streaming header.
+
+    Arrivals are sampled every ``TICK_SECONDS`` and folded into an exponential
+    moving average so provider bursts and silent gaps ease in and out rather
+    than flicking between extremes.
+    """
+
+    TICK_SECONDS = 0.5
+    SMOOTHING_SECONDS = 2.0
+
+    def __init__(self) -> None:
+        self.total = 0.0
+        self._pending = 0.0
+        self._tick_at: float | None = None
+        self._rate: float | None = None
+
+    def record(self, chars: int, now: float) -> None:
+        if not chars:
+            return
+        if self._tick_at is None:
+            self._tick_at = now
+        self._pending += chars / 4
+        self.total += chars / 4
+
+    def label(self, now: float) -> str:
+        if self._tick_at is not None and (elapsed := now - self._tick_at) >= self.TICK_SECONDS:
+            sample = self._pending / elapsed
+            weight = 1 - math.exp(-elapsed / self.SMOOTHING_SECONDS)
+            self._rate = (
+                sample if self._rate is None else self._rate + weight * (sample - self._rate)
+            )
+            self._pending = 0.0
+            self._tick_at = now
+        return "" if self._rate is None else f"~{self._rate:.0f} tok/s"
+
+
+@dataclass(frozen=True)
+class StreamContextBaseline:
+    """Context tokens known before the stream starts, used for a live fill estimate."""
+
+    tokens: int
+    window: int
 
 
 @dataclass(frozen=True)
@@ -713,6 +760,7 @@ class StreamingMessageHandle:
         use_plain_text: bool = False,
         header_left: str = "",
         header_right: str = "",
+        context_baseline: StreamContextBaseline | None = None,
         tool_header_name: str | None = None,
         tool_metadata_resolver: Callable[[str], Mapping[str, Any] | None] | None = None,
         stream_edit_previews: bool = True,
@@ -723,6 +771,7 @@ class StreamingMessageHandle:
         self._use_plain_text = use_plain_text
         self._header_left = header_left
         self._header_right = header_right
+        self._context_baseline = context_baseline
         self._tool_header_prefix: Text | None = None
         self._tool_header_prefix_plain = ""
         self._tool_header_color: str | None = None
@@ -805,7 +854,7 @@ class StreamingMessageHandle:
         self._pre_scroll_throttle_started = False
         self._scroll_indicator_visible = False
         self._scroll_indicator_pending_since: float | None = None
-        self._header_cache: dict[tuple[int, bool], Text] = {}
+        self._header_cache: dict[tuple[int, bool, str], Text] = {}
         self._next_render_deadline: float | None = None
 
     def _setup_async_worker(self) -> None:
@@ -846,6 +895,8 @@ class StreamingMessageHandle:
         self._finalized = False
         self._show_stream_cursor = True
         self._stream_cursor_visible = True
+        self._token_rate = _TokenRate()
+        self._rendered_live = ""
         self._stream_cursor_blink = _StreamCursorBlink()
         self._max_render_height = 0
         self._preserve_final_frame = False
@@ -908,14 +959,29 @@ class StreamingMessageHandle:
             }
             self._render_sync_if_due()
 
+    def _live_label(self) -> str:
+        """Live context fill and token rate, shown while the stream is active."""
+        if not self._show_stream_cursor:
+            return ""
+        parts: list[str] = []
+        if (baseline := self._context_baseline) is not None:
+            pct = (baseline.tokens + self._token_rate.total) / baseline.window * 100
+            parts.append(f"({format_compact_context_usage_percent(pct)})")
+        if rate := self._token_rate.label(time.monotonic()):
+            parts.append(rate)
+        return " ".join(parts)
+
     def _build_header(self) -> Text:
         width = console.console.size.width
-        cache_key = (width, self._scroll_indicator_visible)
+        live = self._rendered_live = self._live_label()
+        cache_key = (width, self._scroll_indicator_visible, live)
         cached = self._header_cache.get(cache_key)
         if cached is not None:
             return cached
 
         right_content = self._header_right.strip()
+        if live:
+            right_content = f"{right_content} [dim]{live}[/dim]".strip()
         if self._scroll_indicator_visible:
             indicator = "[black on blue]scrolling[/black on blue]"
             right_content = f"{right_content} {indicator}" if right_content else indicator
@@ -931,6 +997,8 @@ class StreamingMessageHandle:
 
         display_model = resolve_model_display_name(model)
         self._header_right = f"[dim]{display_model}[/dim]" if display_model else ""
+        # The completed label carries authoritative context usage.
+        self._context_baseline = None
         self._header_cache.clear()
         if self._active and self._live_started:
             self._render_current_buffer()
@@ -1178,10 +1246,17 @@ class StreamingMessageHandle:
 
     def _handle_stream_chunk(self, chunk: StreamChunk) -> bool:
         """Process a typed stream chunk with explicit reasoning flag."""
+        self._token_rate.record(len(chunk.text), time.monotonic())
         return self._segment_assembler.handle_stream_chunk(chunk)
 
     def _handle_chunk(self, chunk: str) -> bool:
+        self._token_rate.record(len(chunk), time.monotonic())
         return self._segment_assembler.handle_text(chunk)
+
+    def _handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None) -> bool:
+        if event_type == "delta" and info:
+            self._token_rate.record(len(str(info.get("chunk") or "")), time.monotonic())
+        return self._segment_assembler.handle_tool_event(event_type, info)
 
     def _cursor_suffix(self, *, segment_index: int, total_segments: int) -> str:
         if not self._show_stream_cursor:
@@ -1200,7 +1275,7 @@ class StreamingMessageHandle:
         if not self._show_stream_cursor:
             return
         visible = self._stream_cursor_blink.visible_at(now)
-        if visible == self._stream_cursor_visible:
+        if visible == self._stream_cursor_visible and self._live_label() == self._rendered_live:
             return
         self._stream_cursor_visible = visible
         self._render_current_buffer()
@@ -1715,13 +1790,7 @@ class StreamingMessageHandle:
         if isinstance(payload, str):
             return self._handle_chunk(payload), len(payload)
         if isinstance(payload, _ToolStreamEvent):
-            return (
-                self._segment_assembler.handle_tool_event(
-                    payload.event_type,
-                    payload.info,
-                ),
-                0,
-            )
+            return self._handle_tool_stream_event(payload.event_type, payload.info), 0
         return False, 0
 
     def _stream_batch_meta(
@@ -1772,7 +1841,7 @@ class StreamingMessageHandle:
                 self._enqueue_chunk(event)
                 return
 
-            if self._segment_assembler.handle_tool_event(event_type, info):
+            if self._handle_tool_stream_event(event_type, info):
                 now = time.perf_counter()
                 self._pending_batch_meta = {
                     "batch_size": 1,
@@ -1801,6 +1870,7 @@ __all__ = [
     "PLAIN_STREAM_REFRESH_PER_SECOND",
     "PLAIN_STREAM_TARGET_RATIO",
     "NullStreamingHandle",
+    "StreamContextBaseline",
     "StreamingHandle",
     "StreamingMessageHandle",
 ]
