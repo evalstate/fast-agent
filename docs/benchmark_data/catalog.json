@@ -72,6 +72,10 @@
       "family": "gpt-5.6",
       "status": "6h timeout"
     },
+    "sol61-medium-6h": {
+      "family": "gpt-6",
+      "status": "6h timeout"
+    },
     "fa-grok46-medium": {
       "family": "grok",
       "status": "Provisional"

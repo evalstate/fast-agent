@@ -424,6 +424,34 @@
       "scan": true
     },
     {
+      "id": "sol61-medium-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6.1 Sol",
+      "effort": "medium",
+      "model_string": "copilot.gpt-6.1-sol?reasoning=medium",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {"repo": "evalstate/published-benchmarks", "path": "tb21/qemu-fixed-6h-v1/sol61-medium-6h", "release": "release/manifest.json", "source": "bench-run release tb21-sol61-medium-r1 (cohort tb21-sol61-medium-copilot-001)"},
+      "expected": {"passes": 364},
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {"review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6.1 Sol (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. Three infrastructure failures (a sandbox error, two connection errors) were rerun as replacements; the originals are kept as evidence.",
+        "Safety refusals: 10 trials ended with AgentSafetyRefusalError (model-extraction-relu-logits ×3, vulnerable-secret ×4, break-filter-js-from-html ×3) and score 0, except one break-filter-js-from-html trial whose verifier still passed: it counts as a pass here; bench-run's stricter rule counts it 0 (363/445).",
+        "Eleven trials hit fast-agent's 150 s stream-idle timeout on a model call and recovered on retry; none failed from it.",
+        "Cost is Harbor's recorded cost at the cohort's configured OpenAI list rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6.1-sol-standard-short / -long: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Stalled attempts recorded no usage, so the total is a lower bound."
+      ],
+      "scan": true
+    },
+    {
       "id": "fa-deepseek-v4-flash-max",
       "harness": "fast-agent",
       "model": "DeepSeek V4 Flash",
