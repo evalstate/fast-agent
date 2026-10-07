@@ -137,7 +137,7 @@ async def configure_otel(config: "Settings") -> None:
     trace.set_tracer_provider(tracer_provider)
     _otel_tracer_provider = tracer_provider
 
-    # OpenLLMetry through 0.62.1 still uses asyncio.iscoroutinefunction while
+    # OpenLLMetry (verified through 0.62.4) still uses asyncio.iscoroutinefunction while
     # importing its instrumentations. Keep that Python 3.14 deprecation local to
     # the third-party import; importing fast-agent with telemetry disabled stays clean.
     with warnings.catch_warnings():

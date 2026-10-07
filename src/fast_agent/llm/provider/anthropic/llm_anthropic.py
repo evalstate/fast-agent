@@ -1,16 +1,14 @@
 import asyncio
 import base64
 import hashlib
-import inspect
 import json
 import os
 from collections.abc import AsyncIterator, Mapping, Sequence
-from contextlib import AbstractAsyncContextManager, nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, ClassVar, Literal, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, cast, runtime_checkable
 
 from anthropic import (
     APIError,
@@ -53,12 +51,6 @@ from mcp_types import (
     EmbeddedResource,
     TextContent,
 )
-from opentelemetry import trace
-from opentelemetry.semconv._incubating.attributes import (
-    gen_ai_attributes as GenAIAttributes,
-)
-from opentelemetry.semconv_ai import LLMRequestTypeValues, SpanAttributes
-from opentelemetry.trace import Span, Status, StatusCode
 from pydantic import BaseModel
 
 from fast_agent.config import AnthropicSettings
@@ -131,6 +123,9 @@ from fast_agent.utils.reasoning_chunk_join import ReasoningTextAccumulator
 from fast_agent.utils.text import casefold_text, strip_casefold
 from fast_agent.utils.type_narrowing import is_str_object_dict
 
+if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
+
 DEFAULT_ANTHROPIC_MODEL = "sonnet"
 STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
 STRUCTURED_OUTPUT_BETA = "structured-outputs-2025-11-13"
@@ -159,7 +154,6 @@ CacheTTL = Literal["5m", "1h"]
 
 logger = get_logger(__name__)
 
-_OTEL_STREAM_WRAPPER_WARNED = False
 _UNSET_TASK_BUDGET = object()
 
 
@@ -348,104 +342,6 @@ def _save_stream_request(filename_base: Path | None, arguments: dict[str, Any]) 
             json.dump(payload, f, indent=2, sort_keys=True)
     except Exception as e:
         logger.debug(f"Failed to save stream request: {e}")
-
-
-def _start_fallback_stream_span(model: str) -> Span:
-    tracer = trace.get_tracer(__name__)
-    span = tracer.start_span("anthropic.chat")
-    if span.is_recording():
-        span.set_attribute(GenAIAttributes.GEN_AI_SYSTEM, "Anthropic")
-        span.set_attribute(GenAIAttributes.GEN_AI_REQUEST_MODEL, model)
-        span.set_attribute(
-            SpanAttributes.LLM_REQUEST_TYPE,
-            LLMRequestTypeValues.COMPLETION.value,
-        )
-    return span
-
-
-def _finalize_fallback_stream_span(
-    span: Span,
-    response: BetaMessage | None,
-    had_error: bool,
-) -> None:
-    if not span.is_recording():
-        span.end()
-        return
-    if response is not None:
-        span.set_attribute(GenAIAttributes.GEN_AI_RESPONSE_ID, response.id)
-        span.set_attribute(GenAIAttributes.GEN_AI_RESPONSE_MODEL, response.model)
-        if response.usage:
-            usage = usage_from_anthropic(
-                response.usage,
-                provider=Provider.ANTHROPIC,
-                model=response.model,
-            )
-            if usage.prompt.total is not None:
-                span.set_attribute(
-                    GenAIAttributes.GEN_AI_USAGE_INPUT_TOKENS,
-                    usage.prompt.total,
-                )
-            if usage.completion.total is not None:
-                span.set_attribute(
-                    GenAIAttributes.GEN_AI_USAGE_OUTPUT_TOKENS,
-                    usage.completion.total,
-                )
-            if usage.total is not None:
-                span.set_attribute(SpanAttributes.LLM_USAGE_TOTAL_TOKENS, usage.total)
-    if not had_error:
-        span.set_status(Status(StatusCode.OK))
-    span.end()
-
-
-def _otel_stream_wrapper_uses_awrap(wrapper: Any) -> bool:
-    closure = getattr(wrapper, "__closure__", None)
-    if not isinstance(closure, tuple):
-        return False
-    for cell in closure:
-        candidate = cell.cell_contents
-        module_name = getattr(candidate, "__module__", None)
-        if (
-            getattr(candidate, "__name__", None) == "_awrap"
-            and isinstance(module_name, str)
-            and module_name.startswith("opentelemetry.instrumentation.anthropic")
-        ):
-            return True
-    return False
-
-
-def _maybe_unwrap_otel_beta_stream(stream_method: Any) -> Any:
-    """Bypass a broken OTel anthropic wrapper for beta async streaming.
-
-    The opentelemetry-instrumentation-anthropic wrapper uses an async wrapper
-    that awaits the sync beta stream method, which raises
-    `TypeError: object BetaAsyncMessageStreamManager can't be used in 'await' expression`.
-    If detected, fall back to the original stream method to avoid the error.
-    """
-
-    wrapper = getattr(stream_method, "_self_wrapper", None)
-    if wrapper is None:
-        return stream_method
-    wrapper_module = getattr(wrapper, "__module__", None)
-    if not isinstance(wrapper_module, str):
-        return stream_method
-    if wrapper_module != "opentelemetry.instrumentation.anthropic":
-        return stream_method
-
-    wrapped = getattr(stream_method, "__wrapped__", None)
-    if wrapped is None or inspect.iscoroutinefunction(wrapped):
-        return stream_method
-    if not _otel_stream_wrapper_uses_awrap(wrapper):
-        return stream_method
-
-    global _OTEL_STREAM_WRAPPER_WARNED
-    if not _OTEL_STREAM_WRAPPER_WARNED:
-        logger.warning(
-            "Detected OpenTelemetry anthropic beta stream wrapper that awaits a sync "
-            "method. Falling back to the unwrapped stream call to avoid runtime errors."
-        )
-        _OTEL_STREAM_WRAPPER_WARNED = True
-
-    return wrapped
 
 
 def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
@@ -2349,21 +2245,17 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         capture_filename: Path | None,
         timeout_seconds: float | None,
     ) -> tuple[BetaMessage, list[str], list[str]]:
-        otel_span: Span | None = None
-        otel_span_error = False
         response: BetaMessage | None = None
         timed_stream: _IdleTimeoutAsyncStream[Any] | None = None
 
         try:
-            stream_method = _maybe_unwrap_otel_beta_stream(anthropic.beta.messages.stream)
-            if stream_method is not anthropic.beta.messages.stream:
-                otel_span = _start_fallback_stream_span(model)
-
             # The SDK filters SSE pings before yielding parsed events. Enforce
             # idleness on HTTP reads instead, preserving the other client limits.
             request_timeout = Timeout(anthropic.timeout)
             request_timeout.read = timeout_seconds
-            stream_call = stream_method(**{**arguments, "timeout": request_timeout})
+            stream_call = anthropic.beta.messages.stream(
+                **{**arguments, "timeout": request_timeout}
+            )
             stream_manager = (
                 await await_stream_start(
                     stream_call,
@@ -2376,34 +2268,24 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             stream_manager = cast(
                 "AbstractAsyncContextManager[_AnthropicMessageStream]", stream_manager
             )
-            span_context = (
-                trace.use_span(otel_span, end_on_exit=False)
-                if otel_span is not None
-                else nullcontext()
-            )
-            with span_context:
-                async with enter_stream_with_timeout(
-                    stream_manager,
-                    timeout_seconds=timeout_seconds,
-                    timeout_message=f"Anthropic stream did not start within {timeout_seconds} seconds.",
-                ) as raw_stream:
-                    timed_stream = with_stream_idle_timeout(
-                        raw_stream,
-                        idle_timeout_seconds=None,
-                    )
-                    # Keep parsed-event timing and forward get_final_message, but
-                    # do not terminate healthy streams between parsed events.
-                    stream = cast("_AnthropicMessageStream", timed_stream)
-                    (
-                        response,
-                        thinking_segments,
-                        streamed_text_segments,
-                    ) = await self._process_stream(stream, model, capture_filename)
+            async with enter_stream_with_timeout(
+                stream_manager,
+                timeout_seconds=timeout_seconds,
+                timeout_message=f"Anthropic stream did not start within {timeout_seconds} seconds.",
+            ) as raw_stream:
+                timed_stream = with_stream_idle_timeout(
+                    raw_stream,
+                    idle_timeout_seconds=None,
+                )
+                # Keep parsed-event timing and forward get_final_message, but
+                # do not terminate healthy streams between parsed events.
+                stream = cast("_AnthropicMessageStream", timed_stream)
+                (
+                    response,
+                    thinking_segments,
+                    streamed_text_segments,
+                ) = await self._process_stream(stream, model, capture_filename)
         except Exception as error:
-            if otel_span is not None and otel_span.is_recording():
-                otel_span.record_exception(error)
-                otel_span.set_status(Status(StatusCode.ERROR))
-                otel_span_error = True
             if isinstance(error, APIError):
                 logger.error("Streaming APIError during Anthropic completion", exc_info=error)
             self._record_stream_outcome(
@@ -2413,9 +2295,6 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 timeout_seconds=timeout_seconds,
             )
             raise
-        finally:
-            if otel_span is not None:
-                _finalize_fallback_stream_span(otel_span, response, otel_span_error)
 
         if response is None or timed_stream is None:
             raise RuntimeError("Anthropic stream completed without a final message.")

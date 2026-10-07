@@ -2700,8 +2700,29 @@ async def test_connect_websocket_owns_supplied_client(
         await connection.session.close()
     assert client.is_closed()
     manager.__aexit__.assert_awaited_once()
-    assert str(client.websocket_base_url).startswith("wss://example.test")
-    assert connect.call_args.kwargs["extra_query"] == {"q": "1"}
+    assert str(client.websocket_base_url) == "wss://example.test/v1?q=1"
+
+
+@pytest.mark.asyncio
+async def test_connect_websocket_dials_responses_path_with_query() -> None:
+    from websockets.asyncio.server import ServerConnection, serve
+
+    paths: list[str] = []
+
+    async def handler(websocket: ServerConnection) -> None:
+        assert websocket.request is not None
+        paths.append(websocket.request.path)
+        await websocket.wait_closed()
+
+    async with serve(handler, "127.0.0.1", 0) as server:
+        port = next(iter(server.sockets)).getsockname()[1]
+        connection = await connect_websocket(
+            url=f"ws://127.0.0.1:{port}/v1/responses?api-version=x&a=1&a=2",
+            headers={"Authorization": "Bearer test"},
+        )
+        await connection.session.close()
+
+    assert paths == ["/v1/responses?api-version=x&a=1&a=2"]
 
 
 @dataclass

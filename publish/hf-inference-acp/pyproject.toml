@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hf-inference-acp"
-version = "0.10.42"
+version = "0.10.43"
 description = "Hugging Face inference agent with ACP support, powered by fast-agent-mcp"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -18,7 +18,7 @@ classifiers = [
 ]
 requires-python = ">=3.12,<3.15"
 dependencies = [
-    "fast-agent-mcp==0.10.42",
+    "fast-agent-mcp==0.10.43",
     "huggingface_hub>=1.11.0",
 ]
 

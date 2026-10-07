@@ -194,11 +194,8 @@ class TestOpenTelemetryCompatibility:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("with_span", [False, True])
 @pytest.mark.parametrize("outcome", ["success", "error", "api_error", "cancel", "idle_timeout"])
-async def test_stream_execution_contract(with_span: bool, outcome: str):
-    from contextlib import nullcontext
-
+async def test_stream_execution_contract(outcome: str):
     import httpx2
     from anthropic import APIError
 
@@ -232,18 +229,8 @@ async def test_stream_execution_contract(with_span: bool, outcome: str):
 
     stream = Stream(message)
     client = MagicMock()
-    stream_method = client.beta.messages.stream
-    stream_method.return_value = stream
-    span = MagicMock()
-    span.is_recording.return_value = True
-    # A distinct method triggers the fallback span, as an unwrapped OTel method does.
-    selected_method = MagicMock(return_value=stream) if with_span else stream_method
-    with (
-        patch.object(provider, "_maybe_unwrap_otel_beta_stream", return_value=selected_method),
-        patch.object(provider, "_start_fallback_stream_span", return_value=span),
-        patch.object(provider.trace, "use_span", return_value=nullcontext()) as use_span,
-        patch.object(provider.logger, "error") as log_error,
-    ):
+    client.beta.messages.stream.return_value = stream
+    with patch.object(provider.logger, "error") as log_error:
         task = asyncio.create_task(
             llm._execute_anthropic_stream(
                 anthropic=client,
@@ -272,16 +259,6 @@ async def test_stream_execution_contract(with_span: bool, outcome: str):
 
         assert stream._entered and stream._exited
         assert iterator_closed.is_set()
-        if with_span:
-            use_span.assert_called_once_with(span, end_on_exit=False)
-            span.end.assert_called_once()
-            if outcome in {"error", "api_error", "idle_timeout"}:
-                span.record_exception.assert_called_once()
-            else:
-                span.record_exception.assert_not_called()
-        else:
-            use_span.assert_not_called()
-            span.end.assert_not_called()
         if outcome == "api_error":
             assert any(
                 call.args == ("Streaming APIError during Anthropic completion",)

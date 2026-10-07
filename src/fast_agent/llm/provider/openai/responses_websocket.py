@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
-from urllib.parse import parse_qs, urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse
 
 from aiohttp import WSMsgType
 from openai import AsyncOpenAI
@@ -541,7 +541,7 @@ async def connect_websocket(
     connection closes. Its websocket_base_url is set from url; callers must not
     share the supplied client. Omission preserves the default OpenAI client.
     """
-    websocket_base_url, extra_query = _responses_websocket_connection_parts(url)
+    websocket_base_url = _responses_websocket_base_url(url)
     if client is None:
         client = AsyncOpenAI(
             api_key=_authorization_token(headers) or "unused",
@@ -564,7 +564,6 @@ async def connect_websocket(
         if "ping_timeout" in keepalive_options:
             websocket_options["ping_timeout"] = keepalive_options["ping_timeout"]
     manager = client.responses.connect(
-        extra_query=extra_query,
         extra_headers=dict(headers),
         # The SDK forwards these options to websockets.connect but its generated
         # TypedDict doesn't yet include open_timeout or Ping keepalive options.
@@ -648,16 +647,11 @@ async def _close_connection_attempt(
         await client.close()
 
 
-def _responses_websocket_connection_parts(url: str) -> tuple[str, dict[str, object]]:
+def _responses_websocket_base_url(url: str) -> str:
+    """Strip the /responses suffix; the SDK re-appends it and keeps the base URL query."""
     parsed = urlparse(url)
-    path = (parsed.path or "").rstrip("/")
-    if path.endswith("/responses"):
-        path = path[: -len("/responses")]
-    base_url = urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
-    query: dict[str, object] = {}
-    for key, values in parse_qs(parsed.query, keep_blank_values=True).items():
-        query[key] = values[0] if len(values) == 1 else values
-    return base_url, query
+    path = parsed.path.rstrip("/").removesuffix("/responses")
+    return urlunparse(parsed._replace(path=path, fragment=""))
 
 
 def _authorization_token(headers: Mapping[str, str]) -> str | None:
