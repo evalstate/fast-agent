@@ -48,8 +48,19 @@ uv run --no-project python docs/benchmark_data/fetch_runs.py --run luna-max-6h -
 ```
 
 Raw CLI responses are cached in `/tmp/bench/cache` (`--cache-dir`); `--refresh`
-re-fetches. Without `--scan`, an existing `scan` block in `runs/<id>.json` is kept.
-First scans of uncached jobs sync traces to `~/.cache/atif-scan` and take minutes.
+re-fetches. Scans are cached per full command and atif-scan source (commit plus a digest
+of local changes), so a changed scanner, flag or input path rescans. Without `--scan`,
+an existing `scan` block in `runs/<id>.json` is kept. First scans of uncached jobs sync
+traces to `~/.cache/atif-scan` and take minutes.
+
+`--image-model MODEL` passes the same flag to atif-scan: images that leave a check
+unknown are sent to MODEL (via fast-agent) for transcription. It is the only option that
+makes model calls; answers are cached privately in `~/.cache/atif-scan/images/`. The
+published scans used `--image-model 'codexresponses.gpt-6-luna?reasoning=medium'`.
+
+Bucket runs read a local mirror of the bucket (`--bucket-root`, default atif-scan's
+`~/.cache/atif-scan/hf/buckets`); they need no Hub access. Sync one with
+`uv run atif-scan hf://buckets/<repo>/<path>/<run>/ --sync`, or download it.
 
 ## How trials are selected
 
@@ -61,25 +72,42 @@ First scans of uncached jobs sync traces to `~/.cache/atif-scan` and take minute
   the public "scrubbed" Hub jobs. Published score/cost/date come from the row.
   `disqualified_trials` come from the merged submission file in
   `harbor-framework/terminal-bench-2-1`.
+- **Bucket runs** (`bucket` in the manifest): harbor-hf runs in a Hugging Face bucket,
+  `{"repo", "path" (default "runs"), "runs": [main, replacement...]}`. Each later run's
+  `run.json` `operator_selection` names the trials of the main run it replaces; those
+  originals are excluded (and kept as evidence). Published runs live in
+  `evalstate/published-benchmarks` under `<benchmark>/<revision>/<run id>/`, with a
+  `manifest.json` of file digests and the payload policy; `source` records where they
+  were copied from. A `pricing` block computes cost from tokens when the run recorded
+  none (`cost.computed`, a lower bound when any trial's usage is incomplete).
+- **Our review** (`review`): the publication decision on every pass atif-scan flags high
+  or critical. `disqualified` lists exact trials (id or folder name) with a reason; they
+  show as `x` and leave the score. `cleared` lists flagged passes that were kept, with the
+  reason (e.g. a detector false positive), so every flag has a recorded decision.
+  `recorded_passes` keeps the score before review; `coverage` notes evidence gaps.
 - A score counts 445 slots (89 tasks × 5). Missing or errored trials score 0.
 
 ## Cell codes (`tasks`)
 
 One character per trial, ordered by `started_at`:
 `1` rewarded · `0` failed without an error · `t` AgentTimeoutError (unrewarded) ·
-`e` other error (unrewarded) · `x` rewarded but disqualified by the leaderboard judge ·
+`e` other error (unrewarded) · `x` rewarded but disqualified (leaderboard judge or our review) ·
 `-` missing slot. A timed-out trial that was still rewarded shows as `1`.
 
 ## Scan block
 
-`scan` summarises `atif-scan --brief --format json` (v0.4.0) over the run's full jobs.
+`scan` summarises `atif-scan --brief --format json` over the run's full jobs; `scan.version`
+and `scan.scanner` (commit, local changes, flags) record what produced it. Runs scanned
+before 2026-10-07 used v0.4.0 and have no `scanner` block.
 `scan.cells` holds one code per selected trial, in the same order as `tasks`, from the
 full scan's per-trial results: `c`/`h`/`m`/`l` is the trial's highest unexcused priority
 (critical, high, medium, or low/info/none), upper case means the trial's steps used a
 model other than the run's (fallback), and `?` means no scan result. The page marks
 attempts from these codes, so its counts match `review.high_or_critical_rewarded` and
-`review.other_model_trials`. Findings are review priorities, not verdicts. For runs with
-excluded trials, the other scan totals still include them (e.g. 446 trials).
+`review.other_model_trials`. Findings are review priorities, not verdicts. For Hub runs
+with excluded trials, the other scan totals still include them (e.g. 446 trials). Bucket
+runs report the review, evidence and trial counts over the reported trials (`scan.scope`);
+finding tallies still include scanned replaced originals.
 
 ## Caveats and runs not fully reconciled
 

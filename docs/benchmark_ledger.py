@@ -377,6 +377,10 @@ def row(b: Bench, entry: Entry, dom: CostDomain, root: str, scanned: bool) -> st
     tier = entry["tier"]
     meta = f'<span class="fb-tier fb-tier--{tier}">{TIER_LABEL[tier]}</span>'
     meta += f'<span class="fb-harness">{escape(harness_line(entry))}</span>{status_badge(entry)}'
+    if level := (entry.get("scan") or {}).get("level"):
+        meta += f'<span class="fb-scanlevel fb-scanlevel--{level["name"]}">atif-scan {escape(level["label"])}</span>'
+    if entry.get("review"):
+        meta += '<span class="fb-scanlevel fb-scanlevel--reviewed">reviewed</span>'
     if scanned and tier != "claim" and not entry.get("sample") and not entry.get("scan"):
         meta += '<span class="fb-noscan">not scanned</span>'
     strip = claim_strip(b, entry) if tier == "claim" else task_strip(b, entry)
@@ -388,8 +392,6 @@ def row(b: Bench, entry: Entry, dom: CostDomain, root: str, scanned: bool) -> st
     score = f'<span class="fb-score__v">{pct(entry["score"])}</span><span class="fb-score__n">{detail}</span>'
     if review := entry.get("review"):
         label = f"recorded {pct(review['recordedScore'])}"
-        if review["status"] == "pending":
-            label += " · review pending"
         score += f'<span class="fb-score__full">{escape(label)}</span>'
     if b.bench.get("full"):
         full = entry.get("full")

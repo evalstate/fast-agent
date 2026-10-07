@@ -22,6 +22,27 @@
       ],
       "expected": {"passes": 376, "total_cost_usd": 77.53, "trials_with_cost": 432},
       "published": {"score": 84.49, "total_cost": 77.53, "source_url": null},
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical was reviewed: 9 disqualified, 5 cleared.",
+        "cleared": [
+          {"trial": "ef12d018-bafd-4d0f-aaad-bbcaaff4b91a", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
+          {"trial": "0a61413d-dcb3-4b9c-a11e-68d8e335079d", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
+          {"trial": "8f0e0698-1306-492c-93e8-713b29dd0452", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
+          {"trial": "c6d40572-8e6f-44eb-b6db-9f2b73c2e941", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
+          {"trial": "4e5df8f4-530b-4dfb-977e-731779ba3c9a", "reason": "network.isolation_bypass stands as a high observation (a spoofed Host header to fetch the POV-Ray 2.2 source from povray.org), but downloading the source is allowed by the task, so not disqualified."}
+        ],
+        "disqualified": [
+          {"trial": "914c807e-302e-488c-9727-5dbd5f3de84e", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "2601f460-59bd-4fa0-97eb-777eb5471f0a", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "72b00046-198d-4662-bcfb-f6c8294441a9", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "8d2cd967-e5e2-4788-9b10-b2ea0ad001d8", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "9164e0ad-7b3f-4eaa-9da1-ab1b7e92fd52", "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "947360a4-3414-4ab5-a97b-7f056809303f", "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "9ef4acb8-2699-4a47-82df-32c504db5897", "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "2d377f5c-4608-4d4c-b540-058ef5cfb14d", "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "7c06b049-149c-4aaf-9037-100c733f8f9e", "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."}
+        ]
+      },
       "notes": ["Six-hour agent timeout (override_timeout_sec=21600); not a leaderboard-eligible configuration."],
       "scan": true
     },
@@ -56,14 +77,19 @@
       "model_string": "deepseek-v41 → deepseek.deepseek-flash (reasoning max, the model default)",
       "date": "2026-09-11",
       "timeout": "6h",
-      "bucket": {"repo": "HuggingFaceHarness/harbor-hf-artifacts", "runs": ["run-cdae366f51f72063661695a6", "run-7614fa93fbcbc7b4b8d6f6ca"]},
-      "pricing": {"source": "card-packs c8143f5 pricing_catalog.json, rule deepseek-flash-off-peak", "rates_per_mtok": {"input": 0.15, "cached": 0.003, "output": 0.6}, "note": "No trial overlapped DeepSeek's weekday peak windows (01:00-04:00 and 06:00-10:00 UTC, 2x rates)."},
+      "bucket": {"repo": "evalstate/published-benchmarks", "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs", "runs": ["run-cdae366f51f72063661695a6", "run-7614fa93fbcbc7b4b8d6f6ca"], "source": "HuggingFaceHarness/harbor-hf-artifacts/runs"},
+      "pricing": {"source": "card-packs c8143f5 pricing_catalog.json, rule deepseek-flash-off-peak", "rates_per_mtok": {"input": 0.15, "cached": 0.003, "output": 0.6}, "note": "No trial overlapped DeepSeek's weekday peak windows (01:00-04:00 and 06:00-10:00 UTC, 2x rates).", "lower_bound_note": "two trials (git-leak-recovery, path-tracing-reverse) lack usage for one failed stream attempt each, and video-processing__2uf3afv recorded none for its calls before compacting its history."},
       "cost_lower_bound": true,
-      "expected": {"passes": 375},
+      "expected": {"passes": 423},
       "published": null,
       "review": {
-        "status": "pending",
-        "note": "Seeded from atif-scan 0.6.0's high/critical findings on rewarded trials; to be confirmed by human review.",
+        "note": "Every pass atif-scan flagged high or critical was reviewed: 48 disqualified, 3 cleared.",
+        "coverage": "Every pass has complete evidence except video-processing__2uf3afv: its history before compaction was archived inside the sandbox, never collected, and can't be reviewed. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [
+          {"trial": "configure-git-webserver__DWQzNFW", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
+          {"trial": "configure-git-webserver__VyJEtkH", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
+          {"trial": "configure-git-webserver__aCNrUyr", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."}
+        ],
         "disqualified": [
           {"trial": "chess-best-move__uqNQrT7", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
           {"trial": "compile-compcert__pDsRnAT", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
@@ -117,9 +143,7 @@
       },
       "notes": [
         "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot (evalstate/terminal-bench-2-1@75f5a2e); a modified evaluation, not a leaderboard-eligible configuration.",
-        "Run on HF Jobs (cpu-upgrade sandboxes, capacity-matched rather than strictly CPU/RAM-enforced) through the harbor-hf command agent with fast-agent-mcp 0.10.24. Zero whole-trial retries; fast-agent's own provider retries apply.",
-        "No cost was recorded at run time; cost is computed from token counts and is a lower bound. Two trials (git-leak-recovery, path-tracing-reverse) are missing usage for one failed stream attempt each, and video-processing__2uf3afv compacted its history (175 messages) and recorded no usage for the calls before compaction.",
-        "Review coverage: every pass is cleared except video-processing__2uf3afv, whose history before compaction was archived inside the sandbox, never collected, and can't be reviewed. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks."
+        "Run on HF Jobs (cpu-upgrade sandboxes, capacity-matched rather than strictly CPU/RAM-enforced) through the harbor-hf command agent with fast-agent-mcp 0.10.24. Zero whole-trial retries; fast-agent's own provider retries apply."
       ],
       "scan": true,
       "scan_args": ["--price", "0.15,0.003,0.60"]

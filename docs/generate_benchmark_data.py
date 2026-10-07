@@ -61,6 +61,33 @@ def _summary(cells: str, attempts: int) -> dict[str, Any]:
     }
 
 
+def _scan_level(scan: dict[str, Any]) -> dict[str, Any]:
+    """How deep the scan went, from the flags it ran with (``scan.scanner.args``).
+
+    basic: atif-scan's deterministic detectors only, no model calls. + images: images
+    that blocked a check were transcribed by a model. full: the LLM trace questions
+    (``atif-scan hunt``) were answered and applied (``--answers``). Scans from before
+    the scanner was recorded are basic.
+    """
+    args = (scan.get("scanner") or {}).get("args") or []
+
+    def value(flag: str) -> str | None:
+        return (
+            args[args.index(flag) + 1]
+            if flag in args and args.index(flag) + 1 < len(args)
+            else None
+        )
+
+    image_model = value("--image-model")
+    if "--answers" in args:
+        name, label = "full", "full"
+    elif image_model:
+        name, label = "images", "basic + images"
+    else:
+        name, label = "basic", "basic"
+    return {"name": name, "label": label, "imageModel": image_model}
+
+
 def _scan_summary(scan: dict[str, Any] | None, tasks: list[str]) -> dict[str, Any] | None:
     """Run-level atif-scan summary plus one code per trial, aligned with ``cells``.
 
@@ -74,6 +101,8 @@ def _scan_summary(scan: dict[str, Any] | None, tasks: list[str]) -> dict[str, An
     return {
         "version": scan["version"],
         "trials": scan["trials"],
+        "scope": scan.get("scope"),
+        "level": _scan_level(scan),
         "rewarded": scan["rewarded"],
         "findings": {
             "trials": findings["trials"],
@@ -100,16 +129,22 @@ def _review(raw: dict[str, Any]) -> dict[str, Any] | None:
     review = raw.get("review")
     if not review:
         return None
-    reasons: dict[str, int] = {}
-    for dq in review["disqualified"]:
-        reasons[dq["reason"]] = reasons.get(dq["reason"], 0) + 1
+
+    def tally(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        counts: dict[str, int] = {}
+        for item in items:
+            counts[item["reason"]] = counts.get(item["reason"], 0) + 1
+        return [{"reason": r, "trials": n} for r, n in counts.items()]
+
     return {
-        "status": review["status"],
         "note": review.get("note"),
+        "coverage": review.get("coverage"),
         "recordedPasses": review["recorded_passes"],
         "recordedScore": review["recorded_score"],
         "disqualified": len(review["disqualified"]),
-        "reasons": [{"reason": r, "trials": n} for r, n in reasons.items()],
+        "reasons": tally(review["disqualified"]),
+        "cleared": len(review.get("cleared", [])),
+        "clearedReasons": tally(review.get("cleared", [])),
     }
 
 
@@ -154,6 +189,7 @@ def _tb21_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[str,
                 "rates": pricing_doc["rates_per_mtok"],
                 "source": pricing_doc.get("source"),
                 "note": pricing_doc.get("note"),
+                "lowerBoundNote": pricing_doc.get("lower_bound_note"),
                 "usageIncomplete": raw["cost"].get("usage_incomplete_trials", []),
             }
         elif curation.get("costFrom") == "published":

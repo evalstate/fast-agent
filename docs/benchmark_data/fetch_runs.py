@@ -155,14 +155,37 @@ class Fetcher:
         ]
         if brief:
             cmd.append("--brief")
+        # Key on the whole command (inputs, flags) and the scanner's source, so a
+        # changed scanner, flag or input path never reuses a stale scan.
+        stamp = hashlib.sha1(json.dumps([cmd, scanner_source(atif_dir)]).encode()).hexdigest()[:12]
         return self._cached(
-            f"scan_{key}_{'brief' if brief else 'full'}", cmd, raw=True, cwd=atif_dir
+            f"scan_{key}_{'brief' if brief else 'full'}_{stamp}", cmd, raw=True, cwd=atif_dir
         )
 
 
-def bucket_job_dir(root: Path, repo: str, run_id: str) -> Path:
-    """Local mirror of one harbor-hf run's job folder (atif-scan's sync layout)."""
-    return root / repo / "runs" / run_id / "job"
+def scanner_source(atif_dir: Path) -> Json:
+    """The atif-scan checkout behind a scan: commit, and a digest of any local changes."""
+
+    def git(*args: str) -> str:
+        proc = subprocess.run(
+            ["git", "-C", str(atif_dir), *args], capture_output=True, text=True, check=False
+        )
+        return proc.stdout.strip()
+
+    diff = git("diff", "HEAD") + git("ls-files", "--others", "--exclude-standard")
+    return {
+        "commit": git("rev-parse", "HEAD") or None,
+        "dirty": bool(diff),
+        "diff_sha1": hashlib.sha1(diff.encode()).hexdigest()[:12] if diff else None,
+    }
+
+
+def bucket_job_dir(root: Path, spec: Json, run_id: str) -> Path:
+    """Local mirror of one harbor-hf run's job folder (atif-scan's sync layout).
+
+    ``spec["path"]`` is the folder holding the runs inside the bucket (default
+    ``runs``, the harbor-hf layout)."""
+    return root / spec["repo"] / spec.get("path", "runs") / run_id / "job"
 
 
 def _trial_usage(trial_dir: Path, agent_result: Json) -> tuple[Json, bool | None]:
@@ -259,11 +282,12 @@ def select_bucket_trials(
     by_run: dict[str, list[Json]] = {}
     jobs: list[Json] = []
     for run_id in spec["runs"]:
-        job_dir = bucket_job_dir(root, spec["repo"], run_id)
+        job_dir = bucket_job_dir(root, spec, run_id)
+        remote = f"{spec['repo']}/{spec.get('path', 'runs')}/{run_id}"
         if not job_dir.is_dir():
             raise SystemExit(
                 f"{run['id']}: no local mirror at {job_dir}; sync it with "
-                f"`uv run atif-scan hf://buckets/{spec['repo']}/runs/{run_id}/ --sync`"
+                f"`uv run atif-scan hf://buckets/{remote}/ --sync`"
             )
         by_run[run_id] = bucket_trials(job_dir, rates)
         for trial in by_run[run_id]:
@@ -272,15 +296,13 @@ def select_bucket_trials(
             {
                 "id": run_id,
                 "name": f"{run_id} ({len(by_run[run_id])} trials)",
-                "url": f"https://huggingface.co/buckets/{spec['repo']}/tree/runs/{run_id}",
+                "url": f"https://huggingface.co/buckets/{spec['repo']}/tree/{spec.get('path', 'runs')}/{run_id}",
                 "path": str(job_dir),
             }
         )
     reasons: dict[str, str] = {}
     for run_id in spec["runs"][1:]:
-        meta = json.loads(
-            (bucket_job_dir(root, spec["repo"], run_id).parent / "run.json").read_text()
-        )
+        meta = json.loads((bucket_job_dir(root, spec, run_id).parent / "run.json").read_text())
         selection = meta["operator_selection"]
         original = {t["id"]: t for t in by_run[selection["original_run_id"]]}
         replacements = {task_of(t): t for t in by_run[run_id]}
@@ -290,8 +312,8 @@ def select_bucket_trials(
             if task not in replacements:
                 raise SystemExit(f"{run['id']}: no replacement for {task} in {run_id}")
             reasons[trial_id] = (
-                f"{replaced['error_type'] or 'error'} (infrastructure); replaced by the {task} "
-                f"trial in {run_id}. Excluded from score/coverage, cost still counted."
+                f"{replaced['error_type'] or 'error'} (infrastructure); replaced by the rerun "
+                f"in {run_id}. Not scored; its cost is still counted."
             )
     trials = [t for ts in by_run.values() for t in ts]
     excluded = [t for t in trials if t["id"] in reasons]
@@ -392,16 +414,34 @@ def scan_key(item: Json) -> str | None:
     return parts[0] if parts[0] else None
 
 
-def reported_review(full: Json, keys: set[str], slots: int) -> Json:
-    """The review block over exactly the reported trials (replaced originals left out)."""
+def reported_review(brief: Json, full: Json, keys: set[str], slots: int) -> Json:
+    """Scan figures over exactly the reported trials (replaced originals left out)."""
     inputs = [i for i in full["inputs"] if scan_key(i) in keys]
     rewarded = [i for i in inputs if (i["reward"] or 0) > 0]
     flagged = [i for i in rewarded if i["severity"] in ("high", "critical")]
+    errors = Counter(i["error_type"] for i in inputs if i.get("error_type"))
     return {
         "trials": len(inputs),
         "rewarded": len(rewarded),
         "high_or_critical_rewarded": len(flagged),
+        # atif-scan's own uncleared list, cut to the reported trials.
+        "incomplete_evidence_rewarded": sum(
+            1
+            for x in (brief["overview"]["disqualification"] or {}).get(
+                "rewarded_not_cleared_ids", []
+            )
+            if x.split("/")[0] in keys
+        ),
         "accuracy_if_flagged_failed": round(100 * (len(rewarded) - len(flagged)) / slots, 2),
+        "evidence": {
+            "planned": slots,
+            "errored": sum(errors.values()),
+            "error_types": dict(sorted(errors.items())),
+            "compacted_history": sum(1 for i in inputs if i["compacted"]),
+            "without_trajectory": slots
+            - sum(1 for i in inputs if i["input_status"] == "available"),
+            "incomplete_scans": sum(1 for i in inputs if i["incomplete"]),
+        },
     }
 
 
@@ -619,6 +659,22 @@ def build_run(
         review_dq.append(
             {"trial": dq["trial"], "task": task, "reason": dq["reason"], "cell_index": idx}
         )
+    # Flagged passes the review kept: recorded with a reason, so every flag has a decision.
+    review_cleared: list[Json] = []
+    for item in review_cfg.get("cleared", []):
+        hits = [
+            t
+            for trials in ordered.values()
+            for t in trials
+            if item["trial"] in (t["id"], t.get("trial_name"))
+        ]
+        if len(hits) != 1 or not rewarded(hits[0]):
+            raise SystemExit(f"{run['id']}: cleared trial {item['trial']} is not one reported pass")
+        if item["trial"] in {d["trial"] for d in review_dq}:
+            raise SystemExit(f"{run['id']}: {item['trial']} is both disqualified and cleared")
+        review_cleared.append(
+            {"trial": item["trial"], "task": task_of(hits[0]), "reason": item["reason"]}
+        )
 
     passes = sum(c.count("1") for c in cells.values())
     slots = len(tasks) * per_task
@@ -629,9 +685,10 @@ def build_run(
 
     expected = run.get("expected", {})
     checks: list[str] = []
-    if "passes" in expected and expected["passes"] != passes:
+    # Expected passes reconcile the source data, so compare before our review.
+    if "passes" in expected and expected["passes"] != recorded_passes:
         reconciled = False
-        checks.append(f"passes {passes} != expected {expected['passes']}")
+        checks.append(f"passes {recorded_passes} != expected {expected['passes']}")
     if "trials_with_cost" in expected and expected["trials_with_cost"] != selected_costed:
         checks.append(
             f"trials_with_cost {selected_costed} != expected {expected['trials_with_cost']}"
@@ -734,11 +791,12 @@ def build_run(
         }
     if review_cfg or review_dq:
         out["review"] = {
-            "status": review_cfg.get("status", "confirmed"),
             "note": review_cfg.get("note"),
+            "coverage": review_cfg.get("coverage"),
             "recorded_passes": recorded_passes,
             "recorded_score": round(100 * recorded_passes / slots, 2),
             "disqualified": review_dq,
+            "cleared": review_cleared,
         }
 
     if scan and run.get("scan"):
@@ -754,17 +812,33 @@ def build_run(
             brief = fetcher.scan(run["id"], inputs, atif_dir, brief=True, extra=extra)
             full = fetcher.scan(run["id"], inputs, atif_dir, brief=False, extra=extra)
             out["scan"] = summarize_scan(brief, full, excluded_keys)
+            out["scan"]["scanner"] = {
+                **scanner_source(atif_dir),
+                "args": list(extra),
+            }
             out["scan"]["cells"] = scan_cells(full, ordered, models[0])
             if "bucket" in run:
                 keys = {t["scan_key"] for t in selected}
-                reported = reported_review(full, keys, slots)
-                out["scan"]["review"].update(
-                    {
-                        k: reported[k]
-                        for k in ("high_or_critical_rewarded", "accuracy_if_flagged_failed")
-                    }
+                # Report the scan over the reported trials, like the score. Replaced
+                # originals are still scanned (kept as evidence) but not counted here.
+                reported = reported_review(brief, full, keys, slots)
+                scanned = out["scan"]["trials"]
+                out["scan"]["trials"] = reported["trials"]
+                out["scan"]["rewarded"] = reported["rewarded"]
+                for k in (
+                    "high_or_critical_rewarded",
+                    "incomplete_evidence_rewarded",
+                    "accuracy_if_flagged_failed",
+                ):
+                    out["scan"]["review"][k] = reported[k]
+                out["scan"]["evidence"].update(reported["evidence"])
+                extra = scanned - reported["trials"]
+                out["scan"]["scope"] = f"{reported['trials']} reported trials" + (
+                    f" (findings also include {extra} replaced original"
+                    f"{'s' if extra != 1 else ''}, kept as evidence)"
+                    if extra
+                    else ""
                 )
-                out["scan"]["review"]["scope"] = f"reported trials ({reported['trials']})"
         except (RuntimeError, KeyError, json.JSONDecodeError) as exc:
             out["notes"].append(f"atif-scan failed: {type(exc).__name__}: {str(exc)[:200]}")
     elif run.get("scan"):
