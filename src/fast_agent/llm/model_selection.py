@@ -82,9 +82,9 @@ class ModelSelectionCatalog:
             _builtin_entry("fable"),
             _builtin_entry("opus"),
             _builtin_entry("sonnet"),
+            _builtin_entry("haiku", fast=True),
             _builtin_entry("opus48"),
             _builtin_entry("opus46"),
-            _builtin_entry("haiku", fast=True),
             _builtin_entry("haiku45", fast=True),
         ),
         Provider.ANTHROPIC_VERTEX: (
