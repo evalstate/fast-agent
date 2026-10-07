@@ -29,7 +29,7 @@
   var CELL_ORDER = { "1": 0, x: 1, "0": 2, t: 3, e: 4, "-": 5 };
   var CELL_LABEL = {
     "1": "pass",
-    x: "pass, disqualified by the leaderboard judge",
+    x: "pass, disqualified (leaderboard judge or our review)",
     "0": "fail",
     t: "agent timeout",
     e: "error",
@@ -84,6 +84,7 @@
   }
   function costText(entry, exact) {
     var text = (exact ? moneyExact : money)(entry.cost.total);
+    if (entry.cost.lowerBound) return "≥" + text;
     return entry.cost.estimate ? "~" + text : text;
   }
   function tokens(n) {
@@ -319,6 +320,11 @@
     if (!entry.status) return null;
     var cls = entry.sample ? "fb-status fb-status--sample" : entry.timeout === "6h" ? "fb-status fb-status--timeout" : "fb-status";
     return el("span", cls, entry.status);
+  }
+  /* Our own review: pending until a person has confirmed the disqualified trials. */
+  function reviewBadge(entry) {
+    if (!entry.review || entry.review.status !== "pending") return null;
+    return el("span", "fb-status fb-status--pending", "review pending");
   }
   function runHref(id) {
     return BENCH_ROOT + "run/?id=" + encodeURIComponent(id);
@@ -598,6 +604,8 @@
       meta.appendChild(el("span", "fb-harness", harnessLine(entry)));
       var status = statusBadge(entry);
       if (status) meta.appendChild(status);
+      var pending = reviewBadge(entry);
+      if (pending) meta.appendChild(pending);
       if (scanned && entry.tier !== "claim" && !entry.sample && !entry.scan) meta.appendChild(el("span", "fb-noscan", "not scanned"));
       names.appendChild(meta);
       who.appendChild(names);
@@ -610,6 +618,11 @@
       var score = el("span", "fb-score");
       score.appendChild(el("span", "fb-score__v", pct(entry.score)));
       score.appendChild(el("span", "fb-score__n", entry.tier === "claim" ? "reported" : entry.passes + "/" + entry.slots + " · ±" + entry.se.toFixed(1)));
+      if (entry.review) {
+        var rec = el("span", "fb-score__full", "recorded " + pct(entry.review.recordedScore));
+        rec.title = entry.review.disqualified + " passing trials disqualified on review" + (entry.review.status === "pending" ? " (pending confirmation)" : "");
+        score.appendChild(rec);
+      }
       if (m.full) {
         score.appendChild(
           el("span", "fb-score__full", entry.full ? "full run " + pct(entry.full.publishedScore) : "subset only")
@@ -669,7 +682,7 @@
       ["fb-sw fb-sw--fail", "fail"],
       timeouts && ["fb-sw fb-sw--t", "timeout"],
       errors && ["fb-sw fb-sw--e", "error"],
-      dq && ["fb-sw fb-sw--x", "judge DQ"],
+      dq && ["fb-sw fb-sw--x", "disqualified"],
       scan.flagged && ["fb-sw fb-sw--flag", "atif-scan: high or critical finding"],
       scan.flagged && columnMarks && ["fb-sw fb-sw--flagcol", "task has a flagged attempt"],
       scan.fallback && ["fb-sw fb-sw--fallback", "ran on another model"],
@@ -1169,6 +1182,8 @@
     meta.appendChild(el("span", "fb-harness", harnessLine(run) + " · " + date(run.date)));
     var status = statusBadge(run);
     if (status) meta.appendChild(status);
+    var pending = reviewBadge(run);
+    if (pending) meta.appendChild(pending);
     h.appendChild(meta);
     h.appendChild(el("h1", "", title(run)));
     h.appendChild(el("p", "fb-mono", m.bench.name + " · " + run.modelString));
@@ -1184,7 +1199,13 @@
       if (note) d.appendChild(el("span", "fb-kpi__n", note));
       kpis.appendChild(d);
     }
-    kpi(pct(run.score), "score", "±" + run.se.toFixed(1) + " pts, one standard error by task", "fb-kpi--hero");
+    kpi(
+      pct(run.score),
+      run.review ? "score after review" : "score",
+      "±" + run.se.toFixed(1) + " pts, one standard error by task" +
+        (run.review ? " · recorded " + pct(run.review.recordedScore) + ", " + run.review.disqualified + " disqualified on review" + (run.review.status === "pending" ? " (pending)" : "") : ""),
+      "fb-kpi--hero"
+    );
     var errors = run.errors ? Object.keys(run.errors) : [];
     kpi(
       run.passes + " / " + run.slots,
@@ -1383,7 +1404,7 @@
     if (s.review.scoreIfFlaggedFailed !== null) {
       var range = el("div", "fb-range");
       var lo = s.review.scoreIfFlaggedFailed;
-      var hi = run.score;
+      var hi = run.review ? run.review.recordedScore : run.score;
       var scale = function (v) {
         return ((v - 60) / 40) * 100 + "%";
       };
@@ -1486,7 +1507,8 @@
   function sources(m, run) {
     var box = el("div", "fb-sources");
     var jobs = el("div", "fb-sources__col");
-    jobs.appendChild(el("h3", "", "Harbor jobs"));
+    var fromBucket = run.jobs.length && run.jobs[0].url.indexOf("huggingface.co/buckets/") >= 0;
+    jobs.appendChild(el("h3", "", fromBucket ? "Hugging Face bucket runs" : "Harbor jobs"));
     var ul = el("ul", "fb-joblist");
     run.jobs.forEach(function (j) {
       var li = el("li");
@@ -1508,6 +1530,29 @@
     if (run.cost.pricing) lines.unshift(m.data.pricing[run.cost.pricing].note);
     if (run.cost.basis === "published leaderboard total" && run.cost.recorded !== run.cost.published) {
       lines.unshift("Cost shown is the published total (" + moneyExact(run.cost.published) + "); the public Hub job records " + moneyExact(run.cost.recorded) + " over " + run.cost.coverage + " trials.");
+    }
+    if (run.cost.computed) {
+      var c = run.cost.computed;
+      lines.unshift(
+        "No cost was recorded at run time. Cost is computed from recorded tokens at $" + c.rates.input + " / $" + c.rates.cached + " / $" + c.rates.output +
+          " per million input / cached / output tokens" + (c.source ? " (" + c.source + ")" : "") + "." + (c.note ? " " + c.note : "") +
+          (run.cost.lowerBound ? " It is a lower bound." : "")
+      );
+    }
+    if (run.review) {
+      lines.push(
+        "Review" + (run.review.status === "pending" ? " (pending confirmation)" : "") + ": " + run.review.disqualified + " passing trials disqualified, so the score is " +
+          pct(run.score) + " against " + pct(run.review.recordedScore) + " recorded (" + run.review.recordedPasses + "/" + run.slots + ")." +
+          (run.review.note ? " " + run.review.note : "")
+      );
+      run.review.reasons.forEach(function (r) {
+        lines.push("Disqualified (" + r.trials + "): " + r.reason);
+      });
+    }
+    if (run.asRun && run.excluded.length) {
+      lines.push(
+        "As run, before " + run.excluded.length + " infrastructure replacements: " + run.asRun.passes + "/" + run.asRun.slots + " (" + pct((100 * run.asRun.passes) / run.asRun.slots) + ")."
+      );
     }
     run.excluded.forEach(function (x) {
       lines.push("Excluded trial " + x.id.slice(0, 8) + " (" + x.task + "): " + x.reason);

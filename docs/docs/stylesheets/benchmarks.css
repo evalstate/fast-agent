@@ -103,6 +103,7 @@
 .fb-status { background: var(--fa-inset); color: var(--fa-ink-muted); }
 .fb-status--timeout { background: var(--teal); color: var(--ivory); }
 .fb-status--sample { background: var(--fb-warn-bg); color: var(--fb-warn-ink); }
+.fb-status--pending { background: var(--fb-warn-bg); color: var(--fb-warn-ink); }
 
 /* Ledger */
 .fb-ledger { border: 2px solid var(--fa-keyline); border-radius: 14px; background: var(--fa-raised); overflow: hidden; }

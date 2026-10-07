@@ -95,6 +95,24 @@ def _scan_summary(scan: dict[str, Any] | None, tasks: list[str]) -> dict[str, An
     }
 
 
+def _review(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """Our own review outcome: recorded vs reviewed score and the disqualified trials."""
+    review = raw.get("review")
+    if not review:
+        return None
+    reasons: dict[str, int] = {}
+    for dq in review["disqualified"]:
+        reasons[dq["reason"]] = reasons.get(dq["reason"], 0) + 1
+    return {
+        "status": review["status"],
+        "note": review.get("note"),
+        "recordedPasses": review["recorded_passes"],
+        "recordedScore": review["recorded_score"],
+        "disqualified": len(review["disqualified"]),
+        "reasons": [{"reason": r, "trials": n} for r, n in reasons.items()],
+    }
+
+
 def _family(catalog: dict[str, Any], model: str) -> str:
     for prefix, family in catalog["familyByModel"].items():
         if model.startswith(prefix):
@@ -119,13 +137,26 @@ def _tb21_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[str,
             raise ValueError(f"{run_id}: scan cells do not align with trial cells")
 
         recorded = raw["cost"]["total_usd_exact"]
-        published = raw["published"]["total_cost"]
+        published = (raw.get("published") or {}).get("total_cost")
         cost: dict[str, Any] = {
             "recorded": round(recorded, 2),
-            "published": round(published, 2),
+            "published": round(published, 2) if published is not None else None,
             "coverage": raw["cost"]["trials_with_cost"],
         }
-        if curation.get("costFrom") == "published":
+        if raw["cost"].get("computed"):
+            # No cost recorded at run time: computed from tokens at stated rates.
+            pricing_doc = raw["cost"]["pricing"]
+            cost["total"] = round(recorded, 2)
+            cost["basis"] = "computed from recorded tokens"
+            cost["estimate"] = True
+            cost["lowerBound"] = raw["cost"].get("lower_bound", False)
+            cost["computed"] = {
+                "rates": pricing_doc["rates_per_mtok"],
+                "source": pricing_doc.get("source"),
+                "note": pricing_doc.get("note"),
+                "usageIncomplete": raw["cost"].get("usage_incomplete_trials", []),
+            }
+        elif curation.get("costFrom") == "published":
             cost["total"] = round(published, 2)
             cost["basis"] = "published leaderboard total"
         elif price_id := curation.get("pricing"):
@@ -165,7 +196,9 @@ def _tb21_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[str,
                 "jobs": [{"id": j["id"], "name": j["name"], "url": j["url"]} for j in raw["jobs"]],
                 "excluded": raw["excluded_trials"],
                 "disqualified": len(raw["disqualified_trials"]),
-                "source": raw["published"]["source_url"],
+                "source": (raw.get("published") or {}).get("source_url"),
+                "review": _review(raw),
+                "asRun": raw.get("as_run"),
                 # "Reconciliation:" lines are fetch diagnostics that restate the human notes.
                 "notes": [n for n in raw["notes"] if not n.startswith("Reconciliation:")],
                 "scan": _scan_summary(raw.get("scan"), tasks),

@@ -23,7 +23,7 @@ type Entry = dict[str, Any]
 CELL_ORDER = {"1": 0, "x": 1, "0": 2, "t": 3, "e": 4, "-": 5}
 CELL_LABEL = {
     "1": "pass",
-    "x": "pass, disqualified by the leaderboard judge",
+    "x": "pass, disqualified (leaderboard judge or our review)",
     "0": "fail",
     "t": "agent timeout",
     "e": "error",
@@ -51,6 +51,8 @@ def money(x: float) -> str:
 
 def cost_text(entry: Entry) -> str:
     text = money(entry["cost"]["total"])
+    if entry["cost"].get("lowerBound"):
+        return "≥" + text
     return "~" + text if entry["cost"].get("estimate") else text
 
 
@@ -384,6 +386,11 @@ def row(b: Bench, entry: Entry, dom: CostDomain, root: str, scanned: bool) -> st
         else f"{entry['passes']}/{entry['slots']} · ±{entry['se']:.1f}"
     )
     score = f'<span class="fb-score__v">{pct(entry["score"])}</span><span class="fb-score__n">{detail}</span>'
+    if review := entry.get("review"):
+        label = f"recorded {pct(review['recordedScore'])}"
+        if review["status"] == "pending":
+            label += " · review pending"
+        score += f'<span class="fb-score__full">{escape(label)}</span>'
     if b.bench.get("full"):
         full = entry.get("full")
         label = f"full run {pct(full['publishedScore'])}" if full else "subset only"

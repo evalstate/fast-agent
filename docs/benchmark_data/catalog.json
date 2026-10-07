@@ -94,6 +94,10 @@
       "model": "DeepSeek V4 Flash Vision",
       "status": "6h timeout"
     },
+    "deepseek-v41-flash-max-6h": {
+      "family": "deepseek",
+      "status": "6h timeout"
+    },
     "cc-fable5-xhigh": {
       "family": "anthropic",
       "costFrom": "published"
