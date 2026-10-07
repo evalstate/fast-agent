@@ -4,8 +4,9 @@ from typing import TYPE_CHECKING
 
 import httpx2 as httpx
 import pytest
-from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse
+from starlette.applications import Starlette
+from starlette.responses import JSONResponse, Response
+from starlette.routing import Route
 
 from fast_agent.config import MCPServerSettings, MCPSettings, Settings
 from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
@@ -14,6 +15,8 @@ from fast_agent.mcp_server_registry import ServerRegistry
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
+
+    from starlette.requests import Request
 
 
 class _BearerAuth(httpx.Auth):
@@ -24,20 +27,14 @@ class _BearerAuth(httpx.Auth):
         yield request
 
 
-def _build_app() -> tuple[FastAPI, list[str | None]]:
-    app = FastAPI()
+def _build_app() -> tuple[Starlette, list[str | None]]:
     initialize_auth_headers: list[str | None] = []
 
-    @app.get("/mcp")
-    async def get_mcp() -> Response:
-        return Response(status_code=405)
-
-    @app.delete("/mcp")
-    async def delete_mcp() -> Response:
-        return Response(status_code=204)
-
-    @app.post("/mcp")
-    async def post_mcp(request: Request) -> Response:
+    async def mcp(request: Request) -> Response:
+        if request.method == "GET":
+            return Response(status_code=405)
+        if request.method == "DELETE":
+            return Response(status_code=204)
         payload = await request.json()
         method = payload.get("method")
         authorization = request.headers.get("authorization")
@@ -95,6 +92,7 @@ def _build_app() -> tuple[FastAPI, list[str | None]]:
             status_code=200,
         )
 
+    app = Starlette(routes=[Route("/mcp", mcp, methods=["GET", "DELETE", "POST"])])
     return app, initialize_auth_headers
 
 

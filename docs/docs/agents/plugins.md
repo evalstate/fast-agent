@@ -68,6 +68,25 @@ Plugin registries are used for direct plugin installs and updates. Card-pack
 dependencies use the card-pack registry that supplied the selected pack; see
 [Card Packs](#card-packs) for the coupling rule.
 
+### Bundles and update notices
+
+Marketplaces can group plugins into `plugin_bundles`. Install a whole bundle in
+one step; plugins that are already installed are just enabled:
+
+```bash
+fast-agent plugins add --bundle recommended --global
+```
+
+The first time `fast-agent go` starts interactively with no plugins installed,
+it offers the `recommended` bundle once (globally). The question is not asked
+again after you answer it, and never in CI, non-TTY or `--message` runs.
+
+The daily startup update check also reports installed plugins whose published
+contents changed, comparing each marketplace entry's `path_oid` with the
+version you installed (one fetch, no git). Updates whose `requires_fast_agent`
+is not met are listed with the fast-agent version they need. `--no-update-check`
+disables these checks and the bundle offer.
+
 ## Global Plugins
 
 Global plugin installs write to `FAST_AGENT_HOME` when it is set; otherwise
@@ -119,6 +138,7 @@ A plugin is a directory containing `plugin.yaml`:
 schema_version: 1
 name: agent-finder
 version: 0.1.0
+requires_fast_agent: ">=0.7.3"  # optional; published to the marketplace
 description: Discover skills and MCP servers.
 commands:
   find:
@@ -202,10 +222,17 @@ The context contains:
 
 - `plugin_name` — manifest plugin name.
 - `agent_name` — top-level agent selected by the user.
-- `turn_usage` — canonical provider attempts for the completed user turn.
+- `turn_usage` — canonical provider attempts for the completed user turn. The
+  final attempt of each LLM request carries `timing` (`duration_ms`, `ttft_ms`,
+  `time_to_response_ms`) as observed by the client; failed retry attempts and
+  usage recorded by earlier fast-agent versions leave it `None`.
 - `session_usage` — cumulative canonical provider attempts for the selected
   agent or parallel workflow.
 - `config` — the plugin's mapping from `plugins.config.<plugin-name>`.
+- `turn_messages` — the completed turn from the selected agent's message history,
+  starting at the user message. Managed-process polling may be folded; use
+  `fast_agent.history.process_poll_fold_audit.restore_process_poll_history` to
+  restore the exact archived poll exchanges, including their timing channels.
 
 Handlers run in enabled-plugin order. A load or execution failure is logged and
 does not fail the completed agent turn or prevent later display plugins from

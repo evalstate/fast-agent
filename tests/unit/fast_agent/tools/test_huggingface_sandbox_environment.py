@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import inspect
 import logging
 import re
 import sys
@@ -702,59 +703,22 @@ async def test_list_dir_returns_session_file_entries() -> None:
     assert sandbox.commands[-1][-1] == "/workspace/skills"
 
 
-def test_create_sandbox_adds_fast_agent_version_label(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured_update: dict[str, Any] | None = None
+def _install_fake_hub(
+    monkeypatch: pytest.MonkeyPatch, error: Exception | None = None
+) -> dict[str, Any]:
+    """Stand in for huggingface_hub, binding create() against the real Sandbox signature."""
+    from huggingface_hub import Sandbox
+
+    captured: dict[str, Any] = {}
 
     class FakeSandbox:
         @staticmethod
-        def create(
-            image: str = "python:3.12",
-            *,
-            flavor: str = "cpu-basic",
-            idle_timeout: int | float | str | None = None,
-            env: dict[str, Any] | None = None,
-            secrets: dict[str, Any] | None = None,
-            volumes: list[Any] | None = None,
-            namespace: str | None = None,
-            forward_hf_token: bool = False,
-            start_timeout: float = 120.0,
-            token: str | None = None,
-        ) -> _Sandbox:
-            del (
-                image,
-                flavor,
-                idle_timeout,
-                env,
-                secrets,
-                volumes,
-                namespace,
-                forward_hf_token,
-                start_timeout,
-                token,
-            )
+        def create(**kwargs: Any) -> _Sandbox:
+            inspect.signature(Sandbox.create).bind(**kwargs)
+            captured.update(kwargs)
+            if error is not None:
+                raise error
             return _Sandbox()
-
-    class FakeHfApi:
-        def __init__(self, token: str | None = None) -> None:
-            self.token = token
-
-        def update_job_labels(
-            self,
-            *,
-            job_id: str,
-            labels: dict[str, str],
-            namespace: str | None = None,
-            token: str | None = None,
-        ) -> None:
-            nonlocal captured_update
-            captured_update = {
-                "job_id": job_id,
-                "labels": labels,
-                "namespace": namespace,
-                "token": token,
-            }
 
     class FakeVolume:
         def __init__(self, **kwargs: Any) -> None:
@@ -763,90 +727,37 @@ def test_create_sandbox_adds_fast_agent_version_label(
     monkeypatch.setitem(
         sys.modules,
         "huggingface_hub",
-        SimpleNamespace(HfApi=FakeHfApi, Sandbox=FakeSandbox, Volume=FakeVolume),
+        SimpleNamespace(Sandbox=FakeSandbox, Volume=FakeVolume),
     )
+    return captured
+
+
+def test_create_sandbox_adds_fast_agent_version_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = _install_fake_hub(monkeypatch)
     monkeypatch.setattr(hf_sandbox_environment, "version", lambda package: "0.9.0")
 
-    environment = HuggingFaceSandboxEnvironment(namespace="test-org", token="hf_test")
+    HuggingFaceSandboxEnvironment(namespace="test-org", token="hf_test")._create_sandbox()
 
-    environment._create_sandbox()
-
-    assert captured_update == {
-        "job_id": "sandbox-job-123",
-        "labels": {FAST_AGENT_HF_SANDBOX_LABEL: "0_9_0"},
-        "namespace": "test-org",
-        "token": "hf_test",
-    }
+    assert captured["labels"] == {FAST_AGENT_HF_SANDBOX_LABEL: "0_9_0"}
+    assert captured["namespace"] == "test-org"
+    assert captured["token"] == "hf_test"
 
 
 def test_create_sandbox_resolves_hf_token_reference_from_hub_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured_token: str | None = None
-
-    class FakeSandbox:
-        @staticmethod
-        def create(
-            image: str = "python:3.12",
-            *,
-            flavor: str = "cpu-basic",
-            idle_timeout: int | float | str | None = None,
-            env: dict[str, Any] | None = None,
-            secrets: dict[str, Any] | None = None,
-            volumes: list[Any] | None = None,
-            namespace: str | None = None,
-            forward_hf_token: bool = False,
-            start_timeout: float = 120.0,
-            token: str | None = None,
-        ) -> _Sandbox:
-            del (
-                image,
-                flavor,
-                idle_timeout,
-                env,
-                secrets,
-                volumes,
-                namespace,
-                forward_hf_token,
-                start_timeout,
-            )
-            nonlocal captured_token
-            captured_token = token
-            return _Sandbox()
-
-    class FakeHfApi:
-        def __init__(self, token: str | None = None) -> None:
-            self.token = token
-
-        def update_job_labels(
-            self,
-            *,
-            job_id: str,
-            labels: dict[str, str],
-            namespace: str | None = None,
-            token: str | None = None,
-        ) -> None:
-            del job_id, labels, namespace, token
-
-    class FakeVolume:
-        def __init__(self, **kwargs: Any) -> None:
-            self.kwargs = kwargs
-
-    monkeypatch.setitem(
-        sys.modules,
-        "huggingface_hub",
-        SimpleNamespace(HfApi=FakeHfApi, Sandbox=FakeSandbox, Volume=FakeVolume),
-    )
+    captured = _install_fake_hub(monkeypatch)
     monkeypatch.setattr(
         hf_sandbox_environment,
         "get_huggingface_hub_token",
         lambda: "hf_cached_token",
     )
-    environment = HuggingFaceSandboxEnvironment(token="${HF_TOKEN}")
 
-    environment._create_sandbox()
+    HuggingFaceSandboxEnvironment(token="${HF_TOKEN}")._create_sandbox()
 
-    assert captured_token == "hf_cached_token"
+    assert captured["token"] == "hf_cached_token"
 
 
 def test_create_sandbox_rejects_unresolved_token_env_reference(
@@ -865,48 +776,7 @@ def test_create_sandbox_rejects_unresolved_token_env_reference(
 def test_create_sandbox_wraps_huggingface_auth_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class FakeSandbox:
-        @staticmethod
-        def create(
-            image: str = "python:3.12",
-            *,
-            flavor: str = "cpu-basic",
-            idle_timeout: int | float | str | None = None,
-            env: dict[str, Any] | None = None,
-            secrets: dict[str, Any] | None = None,
-            volumes: list[Any] | None = None,
-            namespace: str | None = None,
-            forward_hf_token: bool = False,
-            start_timeout: float = 120.0,
-            token: str | None = None,
-        ) -> _Sandbox:
-            del (
-                image,
-                flavor,
-                idle_timeout,
-                env,
-                secrets,
-                volumes,
-                namespace,
-                forward_hf_token,
-                start_timeout,
-                token,
-            )
-            raise RuntimeError("Invalid user token.")
-
-    class FakeHfApi:
-        def __init__(self, token: str | None = None) -> None:
-            self.token = token
-
-    class FakeVolume:
-        def __init__(self, **kwargs: Any) -> None:
-            self.kwargs = kwargs
-
-    monkeypatch.setitem(
-        sys.modules,
-        "huggingface_hub",
-        SimpleNamespace(HfApi=FakeHfApi, Sandbox=FakeSandbox, Volume=FakeVolume),
-    )
+    _install_fake_hub(monkeypatch, error=RuntimeError("Invalid user token."))
     environment = HuggingFaceSandboxEnvironment(token="bad-token")
 
     with pytest.raises(EnvironmentStartupError) as exc_info:
@@ -919,61 +789,7 @@ def test_create_sandbox_wraps_huggingface_auth_failure(
 def test_create_sandbox_passes_configured_hf_volume_mounts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured_volumes: list[Any] | None = None
-
-    class FakeSandbox:
-        @staticmethod
-        def create(
-            image: str = "python:3.12",
-            *,
-            flavor: str = "cpu-basic",
-            idle_timeout: int | float | str | None = None,
-            env: dict[str, Any] | None = None,
-            secrets: dict[str, Any] | None = None,
-            volumes: list[Any] | None = None,
-            namespace: str | None = None,
-            forward_hf_token: bool = False,
-            start_timeout: float = 120.0,
-            token: str | None = None,
-        ) -> _Sandbox:
-            del (
-                image,
-                flavor,
-                idle_timeout,
-                env,
-                secrets,
-                namespace,
-                forward_hf_token,
-                start_timeout,
-                token,
-            )
-            nonlocal captured_volumes
-            captured_volumes = volumes
-            return _Sandbox()
-
-    class FakeHfApi:
-        def __init__(self, token: str | None = None) -> None:
-            self.token = token
-
-        def update_job_labels(
-            self,
-            *,
-            job_id: str,
-            labels: dict[str, str],
-            namespace: str | None = None,
-            token: str | None = None,
-        ) -> None:
-            del job_id, labels, namespace, token
-
-    class FakeVolume:
-        def __init__(self, **kwargs: Any) -> None:
-            self.kwargs = kwargs
-
-    monkeypatch.setitem(
-        sys.modules,
-        "huggingface_hub",
-        SimpleNamespace(HfApi=FakeHfApi, Sandbox=FakeSandbox, Volume=FakeVolume),
-    )
+    captured = _install_fake_hub(monkeypatch)
 
     environment = HuggingFaceSandboxEnvironment(
         volume_mounts=(
@@ -990,8 +806,7 @@ def test_create_sandbox_passes_configured_hf_volume_mounts(
 
     environment._create_sandbox()
 
-    assert captured_volumes is not None
-    assert [volume.kwargs for volume in captured_volumes] == [
+    assert [volume.kwargs for volume in captured["volumes"]] == [
         {
             "type": "dataset",
             "source": "org/data",

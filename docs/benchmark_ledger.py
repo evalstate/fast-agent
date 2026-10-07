@@ -23,7 +23,7 @@ type Entry = dict[str, Any]
 CELL_ORDER = {"1": 0, "x": 1, "0": 2, "t": 3, "e": 4, "-": 5}
 CELL_LABEL = {
     "1": "pass",
-    "x": "pass, disqualified by the leaderboard judge",
+    "x": "pass, disqualified (leaderboard judge or our review)",
     "0": "fail",
     "t": "agent timeout",
     "e": "error",
@@ -51,6 +51,8 @@ def money(x: float) -> str:
 
 def cost_text(entry: Entry) -> str:
     text = money(entry["cost"]["total"])
+    if entry["cost"].get("lowerBound"):
+        return "≥" + text
     return "~" + text if entry["cost"].get("estimate") else text
 
 
@@ -375,6 +377,10 @@ def row(b: Bench, entry: Entry, dom: CostDomain, root: str, scanned: bool) -> st
     tier = entry["tier"]
     meta = f'<span class="fb-tier fb-tier--{tier}">{TIER_LABEL[tier]}</span>'
     meta += f'<span class="fb-harness">{escape(harness_line(entry))}</span>{status_badge(entry)}'
+    if level := (entry.get("scan") or {}).get("level"):
+        meta += f'<span class="fb-scanlevel fb-scanlevel--{level["name"]}">atif-scan {escape(level["label"])}</span>'
+    if entry.get("review"):
+        meta += '<span class="fb-scanlevel fb-scanlevel--reviewed">reviewed</span>'
     if scanned and tier != "claim" and not entry.get("sample") and not entry.get("scan"):
         meta += '<span class="fb-noscan">not scanned</span>'
     strip = claim_strip(b, entry) if tier == "claim" else task_strip(b, entry)
@@ -384,6 +390,9 @@ def row(b: Bench, entry: Entry, dom: CostDomain, root: str, scanned: bool) -> st
         else f"{entry['passes']}/{entry['slots']} · ±{entry['se']:.1f}"
     )
     score = f'<span class="fb-score__v">{pct(entry["score"])}</span><span class="fb-score__n">{detail}</span>'
+    if review := entry.get("review"):
+        label = f"recorded {pct(review['recordedScore'])}"
+        score += f'<span class="fb-score__full">{escape(label)}</span>'
     if b.bench.get("full"):
         full = entry.get("full")
         label = f"full run {pct(full['publishedScore'])}" if full else "subset only"

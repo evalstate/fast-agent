@@ -155,6 +155,18 @@ class SessionLockStore:
             raise
         return SessionOwnerLease(session_id, owner, lock, metadata_path)
 
+    def is_owned(self, session_id: str) -> bool:
+        """Return whether any lease (including this process's) currently owns the session."""
+        lock = FileLock(
+            self.directory / f"{_lock_key(session_id)}.owner.lock", timeout=0, thread_local=False
+        )
+        try:
+            lock.acquire()
+        except Timeout:
+            return True
+        lock.release()
+        return False
+
     def auxiliary(self, session_id: str, role: str, *, timeout: float = 0) -> FileLock:
         """Return a transient lock kept outside the session directory."""
         key = _lock_key(session_id)

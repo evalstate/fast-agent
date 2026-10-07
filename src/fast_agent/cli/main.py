@@ -18,7 +18,11 @@ from fast_agent.cli.constants import normalize_convenience_flag_args, normalize_
 from fast_agent.cli.display import print_section_header
 from fast_agent.cli.home_helpers import resolve_workspace_and_home_options
 from fast_agent.cli.terminal import Application
-from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
+from fast_agent.cli.update_check import (
+    check_for_update_notice,
+    default_plugin_roots,
+    should_run_update_check,
+)
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.ui.console import console as shared_console
 
@@ -215,7 +219,7 @@ def main(
     no_update_check: bool = typer.Option(
         False,
         "--no-update-check",
-        help="Skip checking PyPI for newer fast-agent releases",
+        help="Skip startup network checks (fast-agent/plugin updates, recommended plugins)",
     ),
     workspace: Path | None = typer.Option(
         None,
@@ -268,7 +272,9 @@ def main(
             disabled=no_update_check,
         )
     ):
-        update_notice = check_for_update_notice(home=resolved_home)
+        update_notice = check_for_update_notice(
+            home=resolved_home, plugin_roots=default_plugin_roots(resolved_home)
+        )
 
     # Handle version flag
     if version:

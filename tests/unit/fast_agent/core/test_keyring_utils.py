@@ -124,3 +124,12 @@ def test_get_keyring_status_treats_fail_backend_as_unavailable(
         available=False,
         writable=False,
     )
+
+
+def test_format_keyring_access_notice_reads_as_sentence() -> None:
+    assert keyring_utils.format_keyring_access_notice(purpose="loading OAuth credentials") == (
+        "fast-agent is loading OAuth credentials via the OS keyring. Some platforms show a prompt."
+    )
+    assert keyring_utils.format_keyring_access_notice() == (
+        "fast-agent is accessing the OS keyring. Some platforms show a prompt."
+    )

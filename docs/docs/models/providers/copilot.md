@@ -95,6 +95,7 @@ not canonical and has no alias; use `copilot.claude-opus-5`.
 
 | Model | Wire API |
 | --- | --- |
+| `copilot.claude-haiku-5.5` (`copilot.haiku`, `copilot.haiku55`) | Messages |
 | `copilot.claude-haiku-4.5` | Messages |
 | `copilot.claude-sonnet-5.5` (`copilot.sonnet`, `copilot.sonnet55`) | Messages |
 | `copilot.claude-sonnet-5` (pinned older version) | Messages |

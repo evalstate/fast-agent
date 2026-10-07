@@ -1032,6 +1032,7 @@ def _build_fast_agent(request: AgentRunRequest):
         home=request.home,
         workspace=request.workspace,
         no_home=request.no_home,
+        isolated=request.isolated,
     )
 
 

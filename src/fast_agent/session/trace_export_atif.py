@@ -35,7 +35,9 @@ from fast_agent.history.atif_reconstruction import (
 )
 from fast_agent.history.process_poll_fold_audit import (
     ArchivedContextRewrite,
+    HistoryMessage,
     ProcessPollFoldAudit,
+    expand_process_poll_folds,
 )
 from fast_agent.llm.usage_tracking import UsageReport, UsageSummary
 from fast_agent.mcp.prompt import Prompt
@@ -379,17 +381,6 @@ def _process_poll_folds(
     ]
 
 
-def _parse_process_poll_fold_audit(
-    fold: dict[str, object],
-) -> ProcessPollFoldAudit:
-    if "audit" not in fold:
-        raise ValueError("Managed-process poll fold is missing its audit archive")
-    try:
-        return ProcessPollFoldAudit.model_validate(fold.get("audit"))
-    except ValueError as exc:
-        raise ValueError("Managed-process poll fold audit archive is invalid") from exc
-
-
 def _context_rewrite(
     rewrite: ArchivedContextRewrite,
     *,
@@ -411,10 +402,7 @@ def _reconstruct_process_poll_audit_items(
 ) -> list[_AuditHistoryItem]:
     items: list[_AuditHistoryItem] = []
     rewrite_index = 0
-    exchanges = [
-        *audit.removed_exchanges,
-        *audit.retained_exchanges,
-    ]
+    exchanges = audit.exchanges
     for index, exchange in enumerate(exchanges):
         next_request_timestamp = (
             exchanges[index + 1].request.timestamp if index + 1 < len(exchanges) else None
@@ -457,56 +445,20 @@ def _expand_process_poll_folds(
     source: AtifRunSource,
 ) -> list[_AuditHistoryItem]:
     items: list[_AuditHistoryItem] = []
-    history = source.history
-    index = 0
-
-    while index < len(history):
-        message = history[index]
-        timestamp = source.message_timestamps[index]
-        if index + 1 >= len(history):
-            items.append(_AuditMessage(message=message, timestamp=timestamp))
-            index += 1
+    for segment in expand_process_poll_folds(source.history):
+        if isinstance(segment, HistoryMessage):
+            timestamp = source.message_timestamps[segment.index]
+            items.append(_AuditMessage(message=segment.message, timestamp=timestamp))
             continue
-
-        result_message = history[index + 1]
-        fold = _json_channel_mapping(result_message, FAST_AGENT_PROCESS_POLL_FOLD)
-        if fold is None:
-            items.append(_AuditMessage(message=message, timestamp=timestamp))
-            index += 1
-            continue
-        audit = _parse_process_poll_fold_audit(fold)
-        retained_call_ids = [exchange.call_id for exchange in audit.retained_exchanges]
-        retained_call_id = retained_call_ids[-1]
-        if retained_call_id not in (message.tool_calls or {}) or retained_call_id not in (
-            result_message.tool_results or {}
-        ):
-            raise ValueError("Managed-process poll fold retained exchange is invalid")
-
-        earlier_retained_call_ids = retained_call_ids[:-1]
-        retained_suffix_items = len(earlier_retained_call_ids) * 2
-        if retained_suffix_items > len(items):
-            raise ValueError("Managed-process poll fold retained-step archive is inconsistent")
-        if earlier_retained_call_ids:
-            suffix = items[-retained_suffix_items:]
-            suffix_call_ids = [
-                call_id
-                for archived_item in suffix
-                if isinstance(archived_item, _AuditMessage)
-                for call_id in (archived_item.message.tool_calls or {})
-            ]
-            if suffix_call_ids != earlier_retained_call_ids:
-                raise ValueError("Managed-process poll fold retained call IDs are inconsistent")
-            del items[-retained_suffix_items:]
-
-        fallback_timestamp = result_message.timestamp or source.message_timestamps[index + 1]
+        result_message = source.history[segment.index]
         items.extend(
             _reconstruct_process_poll_audit_items(
-                audit,
-                fallback_timestamp=fallback_timestamp,
+                segment.audit,
+                fallback_timestamp=(
+                    result_message.timestamp or source.message_timestamps[segment.index]
+                ),
             )
         )
-        index += 2
-
     return items
 
 

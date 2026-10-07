@@ -138,6 +138,12 @@ class ModelParameters(BaseModel):
     anthropic_thinking_disable_supported: bool = False
     """Whether the model accepts thinking: {type: "disabled"}."""
 
+    anthropic_thinking_display_supported: bool = False
+    """Whether adaptive thinking accepts ``display``; fast-agent requests "summarized".
+
+    These models default to "omitted", which streams thinking blocks with empty text.
+    """
+
     google_search_supported: bool = False
     """Whether Grounding with Google Search is supported for this model."""
 
@@ -738,6 +744,7 @@ class ModelDatabase:
         update={
             "reasoning_effort_spec": ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC_OPUS47,
             "anthropic_task_budget_supported": True,
+            "anthropic_thinking_display_supported": True,
         }
     )
     ANTHROPIC_OPUS_48 = ANTHROPIC_OPUS_47.model_copy(
@@ -840,7 +847,13 @@ class ModelDatabase:
             "reasoning_effort_spec": ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC_OPUS47,
             "anthropic_thinking_field_required": False,
             "anthropic_thinking_disable_supported": True,
+            "anthropic_thinking_display_supported": True,
         }
+    )
+
+    # https://platform.claude.com/docs/en/models/haiku-5-5/overview
+    ANTHROPIC_HAIKU_55 = ANTHROPIC_SONNET_5.model_copy(
+        update={"anthropic_task_budget_supported": True}
     )
 
     ANTHROPIC_SONNET_55 = ANTHROPIC_SONNET_5.model_copy(
@@ -1452,6 +1465,7 @@ class ModelDatabase:
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),
+        "claude-haiku-5-5": _with_fast(ANTHROPIC_HAIKU_55),
         # DeepSeek Models
         "deepseek-flash": _with_fast(DEEPSEEK_V41_FLASH),
         # Retired native IDs redirect to V4.1 Flash; HF snapshots above stay historical.
@@ -2254,6 +2268,7 @@ for _copilot_spec in COPILOT_MODELS.values():
         "claude-fable-5.1": "claude-fable-5-1",
         "claude-opus-5.5": "claude-opus-5-5",
         "claude-sonnet-5.5": "claude-sonnet-5-5",
+        "claude-haiku-5.5": "claude-haiku-5-5",
     }.get(_copilot_spec.model_id, _copilot_spec.model_id)
     _base_params = ModelDatabase.MODELS.get(_base_name)
     if _base_params is not None:

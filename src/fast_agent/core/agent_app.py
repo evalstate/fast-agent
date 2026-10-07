@@ -871,9 +871,12 @@ class AgentApp:
 
         from fast_agent.integrations.herdr_lifecycle import report_session_usage
         from fast_agent.plugins.post_user_turn import run_plugin_post_user_turn
+        from fast_agent.types.conversation_summary import split_into_turns
         from fast_agent.ui.turn_usage_display import display_plugin_post_user_turn
 
         turn_usage, session_usage = self._collect_plugin_usage(agent, turn_start_indices)
+        # The last turn, not a start offset: poll folding rewrites history mid-turn.
+        turns = split_into_turns(agent.message_history)
         await run_plugin_post_user_turn(
             self._plugin_post_user_turn,
             agent_name=agent_name,
@@ -882,6 +885,7 @@ class AgentApp:
             config=self._plugin_config,
             display=display_plugin_post_user_turn,
             report_session_usage=report_session_usage,
+            turn_messages=tuple(turns[-1]) if turns else (),
         )
 
     @staticmethod

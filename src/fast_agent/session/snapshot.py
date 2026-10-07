@@ -491,7 +491,7 @@ def session_info_from_snapshot(snapshot: SessionSnapshot) -> "SessionInfo":
     from fast_agent.session.session_manager import SessionInfo
 
     history_files, history_map = _history_files_from_snapshot(snapshot)
-    metadata: dict[str, JsonValue] = dict(snapshot.metadata.extras)
+    metadata = snapshot.metadata.extras.copy()
     metadata.update(_metadata_fields_from_snapshot(snapshot))
     if history_map:
         metadata["last_history_by_agent"] = history_map

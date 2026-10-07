@@ -630,9 +630,9 @@ def test_initial_harness_session_id_uses_latest_resume_alias(
     request = _make_request(result_file=None, message=None)
     request.home = tmp_path
     request.resume = resume
+    manager.close()
 
     assert initial_harness_session_id(request) == "2607032031-AiS7lt"
-    manager.close()
 
 
 def test_initial_harness_session_id_skips_latest_without_assistant_preview(

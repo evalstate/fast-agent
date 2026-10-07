@@ -23,6 +23,7 @@ from fast_agent.cli.runtime.request_builders import (
     build_command_run_request,
     build_run_agent_kwargs,
     merge_card_sources,
+    validate_isolated_conflicts,
 )
 from fast_agent.cli.runtime.request_builders import (
     collect_stdio_commands as _collect_stdio_commands,
@@ -193,13 +194,59 @@ def _resolve_request_update_notice(
     no_update_check_value = context_payload.get("no_update_check")
     no_update_check = no_update_check_value if isinstance(no_update_check_value, bool) else False
 
-    from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
+    from fast_agent.cli.update_check import (
+        check_for_update_notice,
+        default_plugin_roots,
+        should_run_update_check,
+    )
 
     if not should_run_update_check(
         disabled=no_update_check,
     ):
         return None
-    return check_for_update_notice(home=home)
+    return check_for_update_notice(home=home, plugin_roots=default_plugin_roots(home))
+
+
+def _maybe_offer_recommended_plugins(ctx: typer.Context, request: AgentRunRequest) -> None:
+    """First interactive run only: offer the recommended plugin bundle (asked once)."""
+    import sys
+
+    if not request.is_repl or request.quiet or request.no_home or os.getenv("CI"):
+        return
+    if ensure_context_object(ctx).get("no_update_check") is True:
+        return
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return
+
+    from functools import partial
+
+    from fast_agent.cli.command_support import get_settings_or_exit
+    from fast_agent.cli.plugin_offer import offer_recommended_plugins
+    from fast_agent.cli.update_check import (
+        DEFAULT_TIMEOUT_SECONDS,
+        default_plugin_roots,
+        fetch_marketplace_payload,
+    )
+    from fast_agent.config import resolve_global_plugin_home_path
+    from fast_agent.plugins.configuration import get_marketplace_url
+
+    try:
+        global_home = resolve_global_plugin_home_path(
+            fast_agent_home=os.getenv("FAST_AGENT_HOME"), home=Path.home(), cwd=Path.cwd()
+        )
+    except RuntimeError:
+        return
+    if global_home is None:
+        return
+    settings = get_settings_or_exit(request.config_path, home=request.home)
+    offer_recommended_plugins(
+        global_home=global_home,
+        plugin_roots=default_plugin_roots(request.home),
+        marketplace_url=get_marketplace_url(settings),
+        fetch_payload=partial(fetch_marketplace_payload, timeout_seconds=DEFAULT_TIMEOUT_SECONDS),
+        confirm=lambda prompt: typer.confirm(prompt, default=True),
+        echo=typer.echo,
+    )
 
 
 def _resolve_model_base_url_option(
@@ -328,6 +375,7 @@ def go(
     workspace: Path | None = CommonAgentOptions.workspace(),
     home: Path | None = CommonAgentOptions.home(),
     no_home: bool = CommonAgentOptions.no_home(),
+    isolated: bool = CommonAgentOptions.isolated(),
     skills_dir: Path | None = CommonAgentOptions.skills_dir(),
     npx: str | None = CommonAgentOptions.npx(),
     uvx: str | None = CommonAgentOptions.uvx(),
@@ -364,6 +412,26 @@ def go(
             err=True,
         )
         raise typer.Exit(1)
+
+    validate_isolated_conflicts(
+        isolated=isolated,
+        one_shot=message is not None or prompt_file is not None,
+        conflicts={
+            "--no-home": no_home,
+            "--shell": shell,
+            "--environment": environment is not None,
+            "--card": bool(agent_cards),
+            "--card-tool": bool(card_tools),
+            "--pack": pack is not None,
+            "--a2a": bool(a2a),
+            "--skills-dir": skills_dir is not None,
+            "--subagents": subagents is True,
+            "--subagent-model": subagent_model is not None,
+            "--resume": resume is not None,
+            "--reload": reload,
+            "--watch": watch,
+        },
+    )
 
     base_url = _resolve_model_base_url_option(
         base_url,
@@ -484,6 +552,7 @@ def go(
         home=effective_home,
         workspace=resolved_workspace,
         no_home=no_home,
+        isolated=isolated,
         shell_enabled=shell,
         no_shell=no_shell,
         subagents=subagents,
@@ -496,6 +565,7 @@ def go(
         timeout_seconds=timeout,
     )
 
+    _maybe_offer_recommended_plugins(ctx, request)
     update_notice = _resolve_request_update_notice(
         ctx=ctx,
         request=request,

@@ -91,6 +91,7 @@ from fast_agent.tools.shell_tool_definitions import (
     FREEFORM_SHELL_PRAGMA,
     PROCESS_OUTPUT_DEBOUNCE_SECONDS,
     MinimalProcessReadOutputArguments,
+    PollProcessArguments,
     ShellExecuteArguments,
     build_execute_tool,
     build_freeform_shell_tool,
@@ -288,6 +289,7 @@ class ShellRuntime:
         self._durable_observed_output_bytes: dict[str, int] = {}
         self._durable_last_output_times: dict[str, float] = {}
         self._durable_poll_locks: dict[str, asyncio.Lock] = {}
+        self._waiting_process_ids: set[str] = set()
         self._session_id_provider = session_id_provider
         self._next_process_id = 1
         self._processes_lock = asyncio.Lock()
@@ -2297,6 +2299,41 @@ class ShellRuntime:
         except ValueError as exc:
             return _text_result(str(exc), is_error=True)
 
+        if parsed.wait_sec == 0:
+            return await self._poll_parsed_process(
+                parsed,
+                poll_started_at=poll_started_at,
+                progress_tool_use_id=progress_tool_use_id,
+                output_preview_limit=output_preview_limit,
+            )
+        # Polls on one process serialize, so parallel waits would queue end to end and
+        # split the output between them. Let the first wait run; the rest return at once.
+        if parsed.process_id in self._waiting_process_ids:
+            return _text_result(
+                f"Skipped: another wait on {parsed.process_id} is already in progress. "
+                "Parallel waits do not extend the wait; use that call's result, then "
+                "wait again if needed.",
+                is_error=False,
+            )
+        self._waiting_process_ids.add(parsed.process_id)
+        try:
+            return await self._poll_parsed_process(
+                parsed,
+                poll_started_at=poll_started_at,
+                progress_tool_use_id=progress_tool_use_id,
+                output_preview_limit=output_preview_limit,
+            )
+        finally:
+            self._waiting_process_ids.discard(parsed.process_id)
+
+    async def _poll_parsed_process(
+        self,
+        parsed: PollProcessArguments,
+        *,
+        poll_started_at: float,
+        progress_tool_use_id: str | None,
+        output_preview_limit: int | None,
+    ) -> CallToolResult:
         process = await self._get_managed_process(parsed.process_id)
         if process is None:
             async with self._processes_lock:

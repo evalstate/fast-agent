@@ -29,8 +29,8 @@ from a2a.types import (
     TaskState,
     TaskStatus,
 )
-from fastapi import FastAPI
 from google.protobuf.json_format import ParseDict
+from starlette.applications import Starlette
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -314,7 +314,7 @@ async def a2a_test_server(unused_tcp_port: int, wait_for_port) -> AsyncIterator[
         agent_card=card,
     )
 
-    app = FastAPI()
+    app = Starlette()
     app.routes.extend(create_agent_card_routes(agent_card=card))
     app.routes.extend(
         create_jsonrpc_routes(request_handler=request_handler, rpc_url="/a2a/jsonrpc")

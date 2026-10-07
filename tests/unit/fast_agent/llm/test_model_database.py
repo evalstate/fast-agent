@@ -219,6 +219,7 @@ def test_anthropic_file_creation_guidance_is_limited_to_older_models(provider: P
         "claude-sonnet-5",
         "claude-sonnet-5-5",
         "claude-fable-5",
+        "claude-haiku-5-5",
         "claude-fable-5-1",
     }
     anthropic_models = {model for model in ModelDatabase.MODELS if model.startswith("claude-")}

@@ -837,14 +837,9 @@ def _skip_sql_block_comment(query: str, index: int) -> int:
 
 
 def _duckdb_secret_statements() -> list[str]:
-    token = os.getenv("HF_TOKEN")
-    if not token:
-        try:
-            from huggingface_hub.utils import get_token
+    from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
 
-            token = get_token()
-        except Exception:
-            token = None
+    token = get_huggingface_hub_token()
     if not token:
         return []
     escaped = token.replace("'", "''")

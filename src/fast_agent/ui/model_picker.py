@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
     from prompt_toolkit.formatted_text import StyleAndTextTuples
 
+from fast_agent.core.keyring_utils import maybe_print_keyring_access_notice
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.model_picker_common import (
     GENERIC_CUSTOM_MODEL_SENTINEL,
@@ -768,6 +769,9 @@ async def run_model_picker_async(
         initial_provider=initial_provider,
         initial_model_spec=initial_model_spec,
     )
+    # The preflight may touch the OS keyring; print its one-time notice now, since
+    # writing to stderr once the picker is drawn corrupts the display.
+    maybe_print_keyring_access_notice(purpose="checking Copilot credentials")
     # Probe native auth alongside the picker so it draws immediately. Until the
     # check resolves, Copilot shows "auth on select" and uses the activation flow.
     picker.schedule_copilot_preflight(_preflight_copilot_auth(config_payload))

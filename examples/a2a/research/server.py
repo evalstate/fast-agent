@@ -33,7 +33,7 @@ from a2a.types import (
     TaskState,
     TaskStatus,
 )
-from fastapi import FastAPI
+from starlette.applications import Starlette
 
 from fast_agent import AgentHarness, AgentRequest, FastAgent, RequestParams
 from fast_agent.a2a.server import (
@@ -459,7 +459,7 @@ async def main() -> None:
             agent_card=card,
         )
         context_builder = A2AServerCallContextBuilder()
-        app = FastAPI(title=card.name)
+        app = Starlette()
         app.routes.extend(create_agent_card_routes(agent_card=card))
         app.routes.extend(
             create_jsonrpc_routes(

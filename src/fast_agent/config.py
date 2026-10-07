@@ -2966,6 +2966,21 @@ def _enabled_plugins_from_config(config_path: Path) -> list[str]:
     return enabled
 
 
+def apply_isolation(settings: Settings) -> None:
+    """Override configuration so a run loads no extensions and records nothing.
+
+    Config, secrets and model references stay as loaded; everything that would
+    load extension code or persist conversation content is switched off.
+    """
+    settings.session_history = False
+    settings.logger.type = "none"
+    settings.otel = None
+    settings.skills.directories = []
+    settings.plugins.enabled = []
+    settings.commands = None
+    settings._plugin_post_user_turn = ()
+
+
 def update_global_settings(settings: Settings) -> None:
     """Update the global settings instance.
 

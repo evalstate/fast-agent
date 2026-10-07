@@ -26,7 +26,6 @@ from a2a.types import (
     SendMessageRequest,
     TaskState,
 )
-from fastapi.testclient import TestClient
 from fastmcp.server.auth import AccessToken
 from google.protobuf.json_format import MessageToDict
 from mcp_types import (
@@ -37,6 +36,7 @@ from mcp_types import (
     TextContent,
     TextResourceContents,
 )
+from starlette.testclient import TestClient
 
 from fast_agent.a2a.config import A2AAgentConfig
 from fast_agent.a2a.remote_agent import A2ARemoteAgent

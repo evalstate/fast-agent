@@ -80,6 +80,7 @@ class _FakeLLM:
         self.model_name = "fake-model"
         self.resolved_model = None
         self.websocket_turn_indicator = None
+        self.usage_accumulator = None
 
     def add_stream_listener(self, _listener):
         return lambda: None

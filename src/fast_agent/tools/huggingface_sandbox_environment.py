@@ -245,12 +245,11 @@ class HuggingFaceSandboxEnvironment:
     def _create_sandbox(self) -> _Sandbox:
         token = _resolve_huggingface_token(self._token)
         try:
-            from huggingface_hub import HfApi, Sandbox, Volume
+            from huggingface_hub import Sandbox, Volume
         except ImportError as exc:
             raise RuntimeError(
                 "Hugging Face sandbox support requires huggingface_hub with Sandbox support."
             ) from exc
-        api = HfApi(token=token)
         volume_cls: _VolumeClass = Volume
 
         idle_timeout = (
@@ -279,6 +278,7 @@ class HuggingFaceSandboxEnvironment:
                 volumes=volumes,
                 namespace=self._namespace,
                 forward_hf_token=self._forward_hf_token,
+                labels=_fast_agent_sandbox_labels(),
                 start_timeout=self._start_timeout,
                 token=token,
             )
@@ -289,23 +289,11 @@ class HuggingFaceSandboxEnvironment:
                     (
                         "Hugging Face rejected the configured token. "
                         "Check the environment token setting, set HF_TOKEN, "
-                        "or run `huggingface-cli login` to use the local token cache."
+                        "or run `hf auth login` to use the local token cache."
                     ),
                 ) from exc
             raise
         self._emit_startup_stage(f"sandbox created {sandbox.id}")
-        try:
-            self._emit_startup_stage("applying fast-agent sandbox labels")
-            api.update_job_labels(
-                job_id=sandbox.id,
-                labels=_fast_agent_sandbox_labels(),
-                namespace=self._namespace,
-                token=token,
-            )
-        except Exception:
-            self._emit_startup_stage("label update failed; killing sandbox")
-            sandbox.kill()
-            raise
         return cast("_Sandbox", sandbox)
 
     @property
@@ -871,7 +859,7 @@ def _resolve_huggingface_token(configured_token: str | None) -> str | None:
             details = (
                 "Environment variable HF_TOKEN is not set and no Hugging Face "
                 "token was found in the local token cache. Set HF_TOKEN or run "
-                "`huggingface-cli login`."
+                "`hf auth login`."
             )
         else:
             details = (

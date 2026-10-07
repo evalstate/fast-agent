@@ -61,6 +61,33 @@ def _summary(cells: str, attempts: int) -> dict[str, Any]:
     }
 
 
+def _scan_level(scan: dict[str, Any]) -> dict[str, Any]:
+    """How deep the scan went, from the flags it ran with (``scan.scanner.args``).
+
+    basic: atif-scan's deterministic detectors only, no model calls. + images: images
+    that blocked a check were transcribed by a model. full: the LLM trace questions
+    (``atif-scan hunt``) were answered and applied (``--answers``). Scans from before
+    the scanner was recorded are basic.
+    """
+    args = (scan.get("scanner") or {}).get("args") or []
+
+    def value(flag: str) -> str | None:
+        return (
+            args[args.index(flag) + 1]
+            if flag in args and args.index(flag) + 1 < len(args)
+            else None
+        )
+
+    image_model = value("--image-model")
+    if "--answers" in args:
+        name, label = "full", "full"
+    elif image_model:
+        name, label = "images", "basic + images"
+    else:
+        name, label = "basic", "basic"
+    return {"name": name, "label": label, "imageModel": image_model}
+
+
 def _scan_summary(scan: dict[str, Any] | None, tasks: list[str]) -> dict[str, Any] | None:
     """Run-level atif-scan summary plus one code per trial, aligned with ``cells``.
 
@@ -74,6 +101,8 @@ def _scan_summary(scan: dict[str, Any] | None, tasks: list[str]) -> dict[str, An
     return {
         "version": scan["version"],
         "trials": scan["trials"],
+        "scope": scan.get("scope"),
+        "level": _scan_level(scan),
         "rewarded": scan["rewarded"],
         "findings": {
             "trials": findings["trials"],
@@ -92,6 +121,30 @@ def _scan_summary(scan: dict[str, Any] | None, tasks: list[str]) -> dict[str, An
         "cost": scan["cost"],
         "walltimeHours": scan["walltime_hours"]["trial_sum"],
         "cells": "".join(scan["cells"][task] for task in tasks),
+    }
+
+
+def _review(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """Our own review outcome: recorded vs reviewed score and the disqualified trials."""
+    review = raw.get("review")
+    if not review:
+        return None
+
+    def tally(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        counts: dict[str, int] = {}
+        for item in items:
+            counts[item["reason"]] = counts.get(item["reason"], 0) + 1
+        return [{"reason": r, "trials": n} for r, n in counts.items()]
+
+    return {
+        "note": review.get("note"),
+        "coverage": review.get("coverage"),
+        "recordedPasses": review["recorded_passes"],
+        "recordedScore": review["recorded_score"],
+        "disqualified": len(review["disqualified"]),
+        "reasons": tally(review["disqualified"]),
+        "cleared": len(review.get("cleared", [])),
+        "clearedReasons": tally(review.get("cleared", [])),
     }
 
 
@@ -119,13 +172,27 @@ def _tb21_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[str,
             raise ValueError(f"{run_id}: scan cells do not align with trial cells")
 
         recorded = raw["cost"]["total_usd_exact"]
-        published = raw["published"]["total_cost"]
+        published = (raw.get("published") or {}).get("total_cost")
         cost: dict[str, Any] = {
             "recorded": round(recorded, 2),
-            "published": round(published, 2),
+            "published": round(published, 2) if published is not None else None,
             "coverage": raw["cost"]["trials_with_cost"],
         }
-        if curation.get("costFrom") == "published":
+        if raw["cost"].get("computed"):
+            # No cost recorded at run time: computed from tokens at stated rates.
+            pricing_doc = raw["cost"]["pricing"]
+            cost["total"] = round(recorded, 2)
+            cost["basis"] = "computed from recorded tokens"
+            cost["estimate"] = True
+            cost["lowerBound"] = raw["cost"].get("lower_bound", False)
+            cost["computed"] = {
+                "rates": pricing_doc["rates_per_mtok"],
+                "source": pricing_doc.get("source"),
+                "note": pricing_doc.get("note"),
+                "lowerBoundNote": pricing_doc.get("lower_bound_note"),
+                "usageIncomplete": raw["cost"].get("usage_incomplete_trials", []),
+            }
+        elif curation.get("costFrom") == "published":
             cost["total"] = round(published, 2)
             cost["basis"] = "published leaderboard total"
         elif price_id := curation.get("pricing"):
@@ -165,7 +232,9 @@ def _tb21_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[str,
                 "jobs": [{"id": j["id"], "name": j["name"], "url": j["url"]} for j in raw["jobs"]],
                 "excluded": raw["excluded_trials"],
                 "disqualified": len(raw["disqualified_trials"]),
-                "source": raw["published"]["source_url"],
+                "source": (raw.get("published") or {}).get("source_url"),
+                "review": _review(raw),
+                "asRun": raw.get("as_run"),
                 # "Reconciliation:" lines are fetch diagnostics that restate the human notes.
                 "notes": [n for n in raw["notes"] if not n.startswith("Reconciliation:")],
                 "scan": _scan_summary(raw.get("scan"), tasks),

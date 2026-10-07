@@ -15,6 +15,8 @@ from fast_agent.plugins.provenance import normalize_repo_path
 from fast_agent.utils.action_normalization import normalize_action_token
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from pydantic import ValidationInfo
 
 _CARD_PACK_ENTRY_KINDS = frozenset(("card", "card_pack", "card-pack", "bundle"))
@@ -25,6 +27,10 @@ def _is_card_pack_marketplace_entry(kind: str | None) -> bool:
 
 
 class MarketplacePluginEntryModel(MarketplaceEntryFieldsModel):
+    version: str | None = None
+    path_oid: str | None = None
+    requires_fast_agent: str | None = None
+
     @model_validator(mode="before")
     @classmethod
     def _normalize_entry(cls, data: Any, info: ValidationInfo) -> Any:
@@ -93,6 +99,11 @@ class MarketplacePluginEntryModel(MarketplaceEntryFieldsModel):
             "repo_path": repo_path,
             "source_url": source_url or context.get("source_url"),
             "bundle_name": marketplace_source_urls.first_nonempty_str(data, "bundle_name"),
+            "version": marketplace_source_urls.first_nonempty_str(data, "version"),
+            "path_oid": marketplace_source_urls.first_nonempty_str(data, "path_oid"),
+            "requires_fast_agent": marketplace_source_urls.first_nonempty_str(
+                data, "requires_fast_agent"
+            ),
         }
 
 
@@ -122,6 +133,7 @@ def parse_marketplace_plugins(
         payload,
         context=source_context.as_validation_context(),
     )
+    bundles = _bundles_by_plugin(payload)
     plugins: list[MarketplacePlugin] = []
     for entry in model.entries:
         if _is_card_pack_marketplace_entry(entry.kind):
@@ -143,9 +155,36 @@ def parse_marketplace_plugins(
                 repo_path=repo_path,
                 source_url=entry.source_url,
                 bundle_name=entry.bundle_name,
+                version=entry.version,
+                path_oid=entry.path_oid,
+                requires_fast_agent=entry.requires_fast_agent,
+                bundles=bundles.get(name, ()),
             )
         )
     return plugins
+
+
+def _bundles_by_plugin(payload: Any) -> dict[str, tuple[str, ...]]:
+    """Map plugin name to the ``plugin_bundles`` that list it."""
+    raw_bundles = payload.get("plugin_bundles") if isinstance(payload, dict) else None
+    if not isinstance(raw_bundles, list):
+        return {}
+    members: dict[str, list[str]] = {}
+    for bundle in raw_bundles:
+        if not isinstance(bundle, dict):
+            continue
+        name = marketplace_source_urls.first_nonempty_str(bundle, "name")
+        plugins = bundle.get("plugins")
+        if name is None or not isinstance(plugins, list):
+            continue
+        for plugin in plugins:
+            if isinstance(plugin, str):
+                members.setdefault(plugin, []).append(name)
+    return {plugin: tuple(names) for plugin, names in members.items()}
+
+
+def plugin_bundle_names(plugins: Sequence[MarketplacePlugin]) -> list[str]:
+    return sorted({bundle for plugin in plugins for bundle in plugin.bundles})
 
 
 def _extract_marketplace_entries(payload: Any) -> list[dict[str, Any]]:

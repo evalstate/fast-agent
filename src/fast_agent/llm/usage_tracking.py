@@ -84,6 +84,19 @@ class UsageSchema(StrEnum):
     BEDROCK = "bedrock"
 
 
+DurationMs = Annotated[float, Field(ge=0)]
+
+
+class InferenceTiming(BaseModel):
+    """Client-observed latency for the request that produced a provider attempt."""
+
+    duration_ms: DurationMs
+    ttft_ms: DurationMs | None = None
+    """First streamed activity: reasoning, text, or tool-call start."""
+    time_to_response_ms: DurationMs | None = None
+    """First non-reasoning activity: text or tool-call start."""
+
+
 class TurnUsage(BaseModel):
     """Canonical usage observation for one completed provider inference."""
 
@@ -99,6 +112,8 @@ class TurnUsage(BaseModel):
     service_tier: str | None = None
     cost_usd: CostUsd | None = None
     timestamp: float = Field(default_factory=time.time)
+    timing: InferenceTiming | None = None
+    """Set on the final attempt of each request; failed retries leave it unset."""
     raw_usage: JsonValue = None
 
     @field_validator("raw_usage", mode="before")
@@ -611,6 +626,11 @@ class UsageAccumulator(BaseModel):
     def count_tools(self, tool_calls: int) -> None:
         if self.turns:
             self.turns[-1].tool_calls = tool_calls
+
+    def record_timing(self, timing: InferenceTiming, *, start_index: int) -> None:
+        """Attach request timing to the final attempt recorded since ``start_index``."""
+        if len(self.turns) > start_index:
+            self.turns[-1].timing = timing
 
     @property
     def summary(self) -> UsageSummary:

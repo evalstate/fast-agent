@@ -126,12 +126,13 @@ class CopilotMessagesLLM(AnthropicLLM):
         return False
 
     def supports_direct_anthropic_beta(self, feature: str) -> bool:
-        return False
+        # Verified against the gateway; other betas are accepted but untested or inert.
+        return feature == "interleaved_thinking"
 
     def _supports_native_json_schema(self, model: str) -> bool:
         # These models cannot use the legacy forced-tool structured-output fallback.
         # Native output_config.format does not require direct Anthropic beta headers.
-        return model in {"claude-opus-5.5", "claude-sonnet-5.5"}
+        return model in {"claude-opus-5.5", "claude-sonnet-5.5", "claude-haiku-5.5"}
 
     def _get_cache_mode(self) -> str:
         return copilot_settings(self.context).cache_mode

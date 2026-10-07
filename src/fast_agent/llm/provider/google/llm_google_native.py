@@ -68,6 +68,7 @@ _GOOGLE_FINISH_REASON_MAP: dict[str, LlmStopReason] = {
     "STOP": LlmStopReason.END_TURN,
     "MAX_TOKENS": LlmStopReason.MAX_TOKENS,
     "LENGTH": LlmStopReason.MAX_TOKENS,
+    "CONTINUATION": LlmStopReason.MAX_TOKENS,
     "PROHIBITED_CONTENT": LlmStopReason.SAFETY,
     "SAFETY": LlmStopReason.SAFETY,
     "RECITATION": LlmStopReason.SAFETY,
@@ -561,9 +562,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 timeout_seconds=timeout_seconds,
                 timeout_message=f"Google stream did not start within {timeout_seconds} seconds.",
             )
-        except AttributeError:
-            # Older SDKs might not expose streaming; fall back to non-streaming.
-            return None
         except TimeoutError:
             raise
         except errors.APIError:

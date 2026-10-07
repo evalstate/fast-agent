@@ -33,7 +33,6 @@ from a2a.types import (
     SecurityScheme,
     StringList,
 )
-from fastapi import FastAPI
 from google.protobuf.json_format import MessageToDict
 from mcp_types import (
     BlobResourceContents,
@@ -42,6 +41,7 @@ from mcp_types import (
     ResourceLink,
     TextContent,
 )
+from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 
 from fast_agent.a2a.content import part_from_content
@@ -645,8 +645,8 @@ class AgentA2AServer:
             push_sender=push_sender,
         )
 
-    def asgi_app(self) -> FastAPI:
-        app = FastAPI(title=self.agent_card.name)
+    def asgi_app(self) -> Starlette:
+        app = Starlette()
         context_builder = A2AServerCallContextBuilder()
         app.routes.extend(_agent_card_routes(self.agent_card, host=self._host, port=self._port))
         app.routes.extend(
