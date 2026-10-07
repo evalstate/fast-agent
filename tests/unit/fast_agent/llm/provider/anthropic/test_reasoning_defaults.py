@@ -1340,3 +1340,21 @@ async def test_tool_input_streaming_uses_eager_field_or_vertex_beta(vertex: bool
 
     assert ("eager_input_streaming" in tools[0]) is not vertex
     assert (FINE_GRAINED_TOOL_STREAMING_BETA in beta_flags) is vertex
+
+
+def test_haiku_55_summarized_adaptive_thinking_strips_sampling_and_allows_forced_tools():
+    llm = _make_llm("claude-haiku-5-5", reasoning="xhigh")
+    args, thinking_enabled = llm._resolve_thinking_arguments(
+        model="claude-haiku-5-5", max_tokens=16000, structured_mode=None
+    )
+    assert thinking_enabled
+    assert args["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert args["output_config"] == {"effort": "xhigh"}
+
+    forced = {"type": "tool", "name": "lookup"}
+    result = llm.prepare_provider_arguments(
+        {"model": "claude-haiku-5-5", "messages": [], "max_tokens": 1000, "tool_choice": forced},
+        RequestParams(temperature=0.2),
+    )
+    assert "temperature" not in result
+    assert result["tool_choice"] == forced

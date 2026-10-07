@@ -85,6 +85,7 @@ class ModelSelectionCatalog:
             _builtin_entry("opus48"),
             _builtin_entry("opus46"),
             _builtin_entry("haiku", fast=True),
+            _builtin_entry("haiku45", fast=True),
         ),
         Provider.ANTHROPIC_VERTEX: (
             CatalogModelEntry(alias="opus", model="anthropic-vertex.claude-opus-4-7"),

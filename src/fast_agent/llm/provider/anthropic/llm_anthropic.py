@@ -2101,6 +2101,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             "claude-sonnet-5",
             "claude-sonnet-5-5",
             "claude-sonnet-5.5",
+            "claude-haiku-5-5",
+            "claude-haiku-5.5",
         }:
             removed = list(sampling)
             for key in sampling_keys:
