@@ -1988,9 +1988,12 @@
       row("Computed cost", costText(run, true));
       row("Usage incomplete", String(run.cost.computed.usageIncomplete.length), run.cost.computed.usageIncomplete.length > 0);
     } else {
-      row("Trials without cost", String(s.cost.trials_missing_cost), s.cost.trials_missing_cost > 0);
-      row("Recorded cost", moneyExact(s.cost.recorded));
-      if (s.cost.estimated_total && s.cost.estimated_total !== s.cost.recorded) row("Est. with missing trials", "~" + moneyExact(s.cost.estimated_total));
+      // The run's own accounting (Harbor's recorded per-trial cost over the reported trials),
+      // not the scan's: atif-scan doesn't read cost from local bench-run job folders.
+      var uncosted = run.slots - run.cost.coverage;
+      row("Trials without cost", String(uncosted), uncosted > 0);
+      row("Recorded cost", (run.cost.lowerBound ? "≥" : "") + moneyExact(run.cost.recorded));
+      if (s.cost.recorded > 0 && s.cost.estimated_total && s.cost.estimated_total !== s.cost.recorded) row("Est. with missing trials", "~" + moneyExact(s.cost.estimated_total));
     }
     if (s.walltimeHours) row("Trial walltime", Math.round(s.walltimeHours) + " h summed");
     ev.appendChild(dl);
