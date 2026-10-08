@@ -108,8 +108,8 @@ trials Harbor ended with `AgentSafetyRefusalError` or `AgentSafetyStopError`; th
 `e` in `tasks`. The page marks them as safety stops. `safety-allowance.json` defines the optional *Safety allowance* scenario: a refused trial
 counts as a pass when its task is easy for the run's reference model, i.e. the reference
 passed at least `minPasses` (4) of its 5 attempts. Anthropic runs use Claude Haiku 5.5
-high (a per-task pass table from an unpublished bench-run cohort, with its source); every
-other run uses our GPT-6 Luna high run (passes after review). The generator emits `safety.refused` / `safety.reference` / `safety.allowance` per run and
+high (our `haiku55-high-6h` run); every other run uses our GPT-6 Luna high run (both counted
+after review). The generator emits `safety.refused` / `safety.reference` / `safety.allowance` per run and
 `safetyAllowance` per benchmark; the page applies it only when switched on
 (`?safety=allow`) and labels it a scenario. A run with safety errors but no
 `safety_cells` stops the generator.

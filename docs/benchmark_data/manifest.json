@@ -733,6 +733,117 @@
       "scan": true
     },
     {
+      "id": "haiku55-low-6h",
+      "harness": "fast-agent",
+      "model": "Haiku 5.5",
+      "effort": "low",
+      "model_string": "copilot.claude-haiku-5.5?reasoning=low",
+      "date": "2026-10-08",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-low-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-haiku55-low-r1 (cohort tb21-haiku55-low-copilot-001)"
+      },
+      "expected": {
+        "passes": 356
+      },
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": [
+          {
+            "trial": "pytorch-model-cli__zcAt4uD",
+            "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; Claude Haiku 5.5 (low reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No infrastructure failures, so no replacements. One gpt2-codegolf trial whose agent process was killed without explanation is kept as an outcome, as is one verifier timeout.",
+        "Safety stops: 4 trials ended with AgentSafetyStopError, all sparql-university; the verifier still passed all four, so they count as passes here (bench-run's stricter rule counts them 0: 352/445).",
+        "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog, rules claude-haiku-5-5-standard-short / -long: $0.10 / $0.01 / $0.50 per million input / cached / output tokens; $0.50 / $0.05 / $2.50 above 100k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed."
+      ],
+      "scan": true
+    },
+    {
+      "id": "haiku55-medium-6h",
+      "harness": "fast-agent",
+      "model": "Haiku 5.5",
+      "effort": "medium",
+      "model_string": "copilot.claude-haiku-5.5?reasoning=medium",
+      "date": "2026-10-08",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-haiku55-medium-r1 (cohort tb21-haiku55-medium-copilot-001)"
+      },
+      "expected": {
+        "passes": 368
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; Claude Haiku 5.5 (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. Five infrastructure failures (two sandbox setup timeouts, two read timeouts, a dropped connection) were rerun as replacements; the originals are kept as evidence.",
+        "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog, rules claude-haiku-5-5-standard-short / -long: $0.10 / $0.01 / $0.50 per million input / cached / output tokens; $0.50 / $0.05 / $2.50 above 100k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+      ],
+      "scan": true
+    },
+    {
+      "id": "haiku55-high-6h",
+      "harness": "fast-agent",
+      "model": "Haiku 5.5",
+      "effort": "high",
+      "model_string": "copilot.claude-haiku-5.5?reasoning=high",
+      "date": "2026-10-08",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-high-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-haiku55-high-r1 (cohort tb21-haiku55-high-copilot-001)"
+      },
+      "expected": {
+        "passes": 370
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence except overfull-hbox__bceZ2te, where atif-scan could not read one background-process stop call; a manual check of that trajectory found no network access and no benchmark material. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; Claude Haiku 5.5 (high reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No infrastructure failures, so no replacements.",
+        "Safety stops: one protein-assembly trial ended with AgentSafetyStopError and scores 0.",
+        "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog, rules claude-haiku-5-5-standard-short / -long: $0.10 / $0.01 / $0.50 per million input / cached / output tokens; $0.50 / $0.05 / $2.50 above 100k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+      ],
+      "scan": true
+    },
+    {
       "id": "fa-deepseek-v4-flash-max",
       "harness": "fast-agent",
       "model": "DeepSeek V4 Flash",

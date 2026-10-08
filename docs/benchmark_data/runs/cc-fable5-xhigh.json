@@ -118,6 +118,7 @@
     "winning-avg-corewars": "ttttt",
     "write-compressor": "11111"
   },
+  "safety_cells": {},
   "errors": {
     "AgentTimeoutError": 33
   },
@@ -152,21 +153,21 @@
     "Disqualified trials are identified by leaderboard-clone trial id, which does not map to the public scrubbed Hub trial ids; the page marks the first passing attempt of that task, which may not be the disqualified one."
   ],
   "scan": {
-    "version": "0.4.0",
+    "version": "0.7.0",
     "scope": "all trials in the run's jobs",
     "trials": 445,
     "rewarded": 374,
     "accuracy": 84.04,
     "accuracy_se": 1.15,
     "findings_medium_plus": {
-      "trials": 26,
-      "rewarded": 21,
+      "trials": 6,
+      "rewarded": 2,
       "by_highest_priority": {
         "critical": 1,
-        "medium": 25,
-        "low": 14,
-        "info": 212,
-        "none": 193
+        "medium": 5,
+        "low": 10,
+        "info": 233,
+        "none": 196
       },
       "top": [
         {
@@ -179,6 +180,13 @@
         {
           "check": "access.benchmark_material_received",
           "title": "Benchmark material reached the agent",
+          "priority": "high",
+          "trials": 1,
+          "rewarded": 1
+        },
+        {
+          "check": "lookup.benchmark_lookup_answered",
+          "title": "Benchmark lookup returned content",
           "priority": "high",
           "trials": 1,
           "rewarded": 1
@@ -205,31 +213,24 @@
           "rewarded": 1
         },
         {
-          "check": "observation.credentials_exposed",
-          "title": "Credential-shaped value in the trace",
-          "priority": "medium",
-          "trials": 12,
-          "rewarded": 9
-        },
-        {
-          "check": "access.test_path",
-          "title": "Verifier test or solution path accessed",
-          "priority": "medium",
-          "trials": 5,
-          "rewarded": 5
-        },
-        {
-          "check": "tb21.fix_code_vulnerability.working_tree_diff",
-          "title": "Fix shown by git diff (fix-code-vulnerability)",
-          "priority": "medium",
-          "trials": 5,
-          "rewarded": 5
-        },
-        {
           "check": "side_channel.harness_introspection",
           "title": "Sandbox control plane or harness files probed",
           "priority": "medium",
           "trials": 3,
+          "rewarded": 0
+        },
+        {
+          "check": "lookup.git_unreachable_objects",
+          "title": "Git objects outside the branch history searched",
+          "priority": "medium",
+          "trials": 1,
+          "rewarded": 0
+        },
+        {
+          "check": "side_channel.agent_history_probe",
+          "title": "Stored agent sessions listed or searched",
+          "priority": "medium",
+          "trials": 1,
           "rewarded": 0
         },
         {
@@ -249,15 +250,15 @@
       "accuracy_if_flagged_failed": 66.07
     },
     "awareness": {
-      "trials": 5,
+      "trials": 1,
       "stages": {
         "noticed": {
-          "trials": 5,
-          "rewarded": 4
+          "trials": 0,
+          "rewarded": 0
         },
         "named": {
-          "trials": 5,
-          "rewarded": 4
+          "trials": 0,
+          "rewarded": 0
         },
         "recalled": {
           "trials": 0,
@@ -302,15 +303,10 @@
     },
     "walltime_hours": {
       "trial_sum": 71.7,
-      "agent_sum": null
+      "agent_sum": 63.5
     },
     "overrides": [],
     "flagged_tasks": {
-      "break-filter-js-from-html": {
-        "trials": 5,
-        "rewarded": 5,
-        "max_priority": "medium"
-      },
       "db-wal-recovery": {
         "trials": 3,
         "rewarded": 0,
@@ -321,36 +317,33 @@
         "rewarded": 1,
         "max_priority": "medium"
       },
-      "fix-code-vulnerability": {
-        "trials": 5,
-        "rewarded": 5,
-        "max_priority": "medium"
-      },
       "mteb-retrieve": {
         "trials": 1,
         "rewarded": 1,
         "max_priority": "critical"
       },
-      "openssl-selfsigned-cert": {
-        "trials": 1,
-        "rewarded": 1,
-        "max_priority": "medium"
-      },
-      "password-recovery": {
-        "trials": 5,
-        "rewarded": 5,
-        "max_priority": "medium"
-      },
       "sanitize-git-repo": {
-        "trials": 5,
-        "rewarded": 3,
+        "trials": 1,
+        "rewarded": 0,
         "max_priority": "medium"
       }
+    },
+    "scanner": {
+      "commit": "e97330326b355b8fe65209dba8672b62c83b657d",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--rules",
+        "docs/benchmark_data/atif-rules.json",
+        "--image-model",
+        "codexresponses.gpt-6-luna?reasoning=medium"
+      ],
+      "rules_sha256": "d0efe44a7b61f7eb80cfc4493175e7e2d5f47781b380c980ca13da830ecee854"
     },
     "cells": {
       "adaptive-rejection-sampler": "lllll",
       "bn-fit-modify": "lllll",
-      "break-filter-js-from-html": "MMMMM",
+      "break-filter-js-from-html": "LLLLL",
       "build-cython-ext": "lllll",
       "build-pmars": "lllll",
       "build-pov-ray": "lllll",
@@ -376,7 +369,7 @@
       "feal-linear-cryptanalysis": "LLLLL",
       "filter-js-from-html": "LlllL",
       "financial-document-processor": "lllll",
-      "fix-code-vulnerability": "mmmmm",
+      "fix-code-vulnerability": "lllll",
       "fix-git": "lllll",
       "fix-ocaml-gc": "lllll",
       "gcode-to-text": "llLll",
@@ -402,9 +395,9 @@
       "mteb-retrieve": "cllll",
       "multi-source-data-merger": "lllll",
       "nginx-request-logging": "lllll",
-      "openssl-selfsigned-cert": "lllml",
+      "openssl-selfsigned-cert": "lllll",
       "overfull-hbox": "lllll",
-      "password-recovery": "MMMMM",
+      "password-recovery": "LLLLL",
       "path-tracing": "lllll",
       "path-tracing-reverse": "LLLLL",
       "polyglot-c-py": "lllll",
@@ -424,7 +417,7 @@
       "reshard-c4-data": "lllll",
       "rstan-to-pystan": "lllll",
       "sam-cell-seg": "LLLLL",
-      "sanitize-git-repo": "mmmmm",
+      "sanitize-git-repo": "mllll",
       "schemelike-metacircular-eval": "lllll",
       "sparql-university": "lllll",
       "sqlite-db-truncate": "lllll",

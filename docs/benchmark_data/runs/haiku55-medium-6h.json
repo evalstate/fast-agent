@@ -1,0 +1,468 @@
+{
+  "id": "haiku55-medium-6h",
+  "benchmark": "terminal-bench-2.1",
+  "harness": "fast-agent",
+  "harness_version": "0.10.43",
+  "model": "Haiku 5.5",
+  "effort": "medium",
+  "model_string": "copilot.claude-haiku-5.5?reasoning=medium",
+  "date": "2026-10-08",
+  "timeout": "6h",
+  "jobs": [
+    {
+      "id": "tb21-haiku55-medium-copilot-001-hf-basic",
+      "name": "tb21-haiku55-medium-copilot-001-hf-basic (430 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic"
+    },
+    {
+      "id": "tb21-haiku55-medium-copilot-001-hf-upgrade",
+      "name": "tb21-haiku55-medium-copilot-001-hf-upgrade (15 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-upgrade",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-upgrade"
+    },
+    {
+      "id": "tb21-haiku55-medium-copilot-001-rep-001",
+      "name": "tb21-haiku55-medium-copilot-001-rep-001 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-rep-001",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-rep-001"
+    },
+    {
+      "id": "tb21-haiku55-medium-copilot-001-rep-002",
+      "name": "tb21-haiku55-medium-copilot-001-rep-002 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-rep-002",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-rep-002"
+    },
+    {
+      "id": "tb21-haiku55-medium-copilot-001-rep-003",
+      "name": "tb21-haiku55-medium-copilot-001-rep-003 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-rep-003",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-rep-003"
+    },
+    {
+      "id": "tb21-haiku55-medium-copilot-001-rep-004",
+      "name": "tb21-haiku55-medium-copilot-001-rep-004 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-rep-004",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-rep-004"
+    },
+    {
+      "id": "tb21-haiku55-medium-copilot-001-rep-005",
+      "name": "tb21-haiku55-medium-copilot-001-rep-005 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-rep-005",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-rep-005"
+    }
+  ],
+  "excluded_trials": [
+    {
+      "id": "9b7dcbef-760f-4aec-a797-9ee57b29abd2",
+      "task": "compile-compcert",
+      "error_type": "AgentSetupTimeoutError",
+      "cost_usd": null,
+      "reason": "AgentSetupTimeoutError (infrastructure); replaced by tb21-haiku55-medium-copilot-001-rep-002. Not scored; its cost is still counted."
+    },
+    {
+      "id": "ba57eef6-20ba-4e43-b295-07cb06881360",
+      "task": "feal-linear-cryptanalysis",
+      "error_type": "ReadTimeout",
+      "cost_usd": 0.01830222,
+      "reason": "ReadTimeout (infrastructure); replaced by tb21-haiku55-medium-copilot-001-rep-004. Not scored; its cost is still counted."
+    },
+    {
+      "id": "9a057572-262f-48e2-9862-385ed0c12496",
+      "task": "overfull-hbox",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": 0.018608999999999997,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb21-haiku55-medium-copilot-001-rep-005. Not scored; its cost is still counted."
+    },
+    {
+      "id": "05d7d672-af45-448e-8642-7aa63ce0f06d",
+      "task": "regex-chess",
+      "error_type": "ReadTimeout",
+      "cost_usd": 0.04668121,
+      "reason": "ReadTimeout (infrastructure); replaced by tb21-haiku55-medium-copilot-001-rep-003. Not scored; its cost is still counted."
+    },
+    {
+      "id": "a34dead6-4b4d-44fb-9ab4-a41f8ae9ea96",
+      "task": "regex-log",
+      "error_type": "AgentSetupTimeoutError",
+      "cost_usd": null,
+      "reason": "AgentSetupTimeoutError (infrastructure); replaced by tb21-haiku55-medium-copilot-001-rep-001. Not scored; its cost is still counted."
+    }
+  ],
+  "disqualified_trials": [],
+  "slots": 445,
+  "passes": 368,
+  "score": 82.7,
+  "tasks": {
+    "adaptive-rejection-sampler": "10111",
+    "bn-fit-modify": "11111",
+    "break-filter-js-from-html": "11111",
+    "build-cython-ext": "11111",
+    "build-pmars": "11110",
+    "build-pov-ray": "11111",
+    "caffe-cifar-10": "11111",
+    "cancel-async-tasks": "11111",
+    "chess-best-move": "10100",
+    "circuit-fibsqrt": "11111",
+    "cobol-modernization": "11111",
+    "code-from-image": "11111",
+    "compile-compcert": "11111",
+    "configure-git-webserver": "11111",
+    "constraints-scheduling": "11111",
+    "count-dataset-tokens": "11111",
+    "crack-7z-hash": "11101",
+    "custom-memory-heap-crash": "11111",
+    "db-wal-recovery": "10011",
+    "distribution-search": "11111",
+    "dna-assembly": "11010",
+    "dna-insert": "01011",
+    "extract-elf": "00000",
+    "extract-moves-from-video": "00000",
+    "feal-differential-cryptanalysis": "11111",
+    "feal-linear-cryptanalysis": "11111",
+    "filter-js-from-html": "00000",
+    "financial-document-processor": "11111",
+    "fix-code-vulnerability": "11111",
+    "fix-git": "11111",
+    "fix-ocaml-gc": "11111",
+    "gcode-to-text": "00100",
+    "git-leak-recovery": "11111",
+    "git-multibranch": "11011",
+    "gpt2-codegolf": "11111",
+    "headless-terminal": "11111",
+    "hf-model-inference": "11111",
+    "install-windows-3.11": "11110",
+    "kv-store-grpc": "11110",
+    "large-scale-text-editing": "10111",
+    "largest-eigenval": "11111",
+    "llm-inference-batching-scheduler": "11111",
+    "log-summary-date-ranges": "11111",
+    "mailman": "11111",
+    "make-doom-for-mips": "00000",
+    "make-mips-interpreter": "01111",
+    "mcmc-sampling-stan": "01111",
+    "merge-diff-arc-agi-task": "11111",
+    "model-extraction-relu-logits": "01110",
+    "modernize-scientific-stack": "11111",
+    "mteb-leaderboard": "00101",
+    "mteb-retrieve": "10110",
+    "multi-source-data-merger": "11111",
+    "nginx-request-logging": "11111",
+    "openssl-selfsigned-cert": "11111",
+    "overfull-hbox": "11111",
+    "password-recovery": "11111",
+    "path-tracing": "11111",
+    "path-tracing-reverse": "11111",
+    "polyglot-c-py": "11111",
+    "polyglot-rust-c": "11111",
+    "portfolio-optimization": "11111",
+    "protein-assembly": "11101",
+    "prove-plus-comm": "11111",
+    "pypi-server": "11111",
+    "pytorch-model-cli": "11111",
+    "pytorch-model-recovery": "11111",
+    "qemu-alpine-ssh": "11111",
+    "qemu-startup": "11111",
+    "query-optimize": "11011",
+    "raman-fitting": "00000",
+    "regex-chess": "11111",
+    "regex-log": "11111",
+    "reshard-c4-data": "11111",
+    "rstan-to-pystan": "11111",
+    "sam-cell-seg": "11110",
+    "sanitize-git-repo": "01001",
+    "schemelike-metacircular-eval": "11111",
+    "sparql-university": "11111",
+    "sqlite-db-truncate": "11111",
+    "sqlite-with-gcov": "11111",
+    "torch-pipeline-parallelism": "00000",
+    "torch-tensor-parallelism": "10111",
+    "train-fasttext": "00000",
+    "tune-mjcf": "11111",
+    "video-processing": "00110",
+    "vulnerable-secret": "11111",
+    "winning-avg-corewars": "00110",
+    "write-compressor": "11111"
+  },
+  "safety_cells": {},
+  "errors": {},
+  "cost": {
+    "total_usd": 18.27,
+    "total_usd_exact": 18.274003,
+    "trials_with_cost": 445,
+    "trials": 445,
+    "excluded_trials_with_cost": 3,
+    "basis": "sum of Harbor recorded cost_usd over selected trials plus excluded (replaced) trials",
+    "matches_published": null,
+    "lower_bound": true
+  },
+  "tokens": {
+    "input": 302797595,
+    "cached": 287435632,
+    "output": 8795101,
+    "basis": "Harbor per-trial input_tokens (includes cached), cache_tokens, output_tokens"
+  },
+  "per_trial_cost": {
+    "median": 0.0072,
+    "p90": 0.0467,
+    "max": 1.6091
+  },
+  "published": null,
+  "reconciled": true,
+  "notes": [
+    "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+    "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; Claude Haiku 5.5 (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. Five infrastructure failures (two sandbox setup timeouts, two read timeouts, a dropped connection) were rerun as replacements; the originals are kept as evidence.",
+    "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog, rules claude-haiku-5-5-standard-short / -long: $0.10 / $0.01 / $0.50 per million input / cached / output tokens; $0.50 / $0.05 / $2.50 above 100k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+  ],
+  "scan": {
+    "version": "0.7.0",
+    "scope": "445 reported trials (findings also include 3 replaced originals, kept as evidence)",
+    "trials": 445,
+    "rewarded": 368,
+    "accuracy": 82.14,
+    "accuracy_se": 1.25,
+    "findings_medium_plus": {
+      "trials": 6,
+      "rewarded": 6,
+      "by_highest_priority": {
+        "medium": 6,
+        "low": 11,
+        "info": 216,
+        "none": 215
+      },
+      "top": [
+        {
+          "check": "side_channel.agent_history_probe",
+          "title": "Stored agent sessions listed or searched",
+          "priority": "medium",
+          "trials": 3,
+          "rewarded": 3
+        },
+        {
+          "check": "access.test_path",
+          "title": "Verifier test or solution path accessed",
+          "priority": "medium",
+          "trials": 1,
+          "rewarded": 1
+        },
+        {
+          "check": "tb21.caffe.dataset_label_rewrite",
+          "title": "CIFAR labels rewritten (caffe-cifar-10)",
+          "priority": "medium",
+          "trials": 1,
+          "rewarded": 1
+        },
+        {
+          "check": "tb21.path_tracing.orig_binary_analysis",
+          "title": "Leftover binary disassembled (path-tracing)",
+          "priority": "medium",
+          "trials": 1,
+          "rewarded": 1
+        }
+      ]
+    },
+    "review": {
+      "dq_threshold": "high",
+      "high_or_critical_rewarded": 0,
+      "other_model_trials": 0,
+      "incomplete_evidence_rewarded": 0,
+      "accuracy_if_flagged_failed": 82.7
+    },
+    "awareness": {
+      "trials": 0,
+      "stages": {
+        "noticed": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "named": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "searched": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "obtained": {
+          "trials": 0,
+          "rewarded": 0
+        }
+      },
+      "verifier_talk": {
+        "trials": 16,
+        "rewarded": 14
+      }
+    },
+    "evidence": {
+      "planned": 445,
+      "errored": 0,
+      "error_types": {},
+      "compacted_history": 0,
+      "without_trajectory": 0,
+      "incomplete_scans": 8,
+      "unmetered_trials": 0
+    },
+    "cost": {
+      "recorded": 0,
+      "trials_missing_cost": 448,
+      "estimated_unpriced": null,
+      "estimated_unmetered": null,
+      "estimated_total": 0
+    },
+    "tokens": {
+      "uncached_input": 15361963,
+      "cached_input": 287435632,
+      "output": 8795101
+    },
+    "walltime_hours": {
+      "trial_sum": 51.5,
+      "agent_sum": 40.9
+    },
+    "overrides": [
+      "agents[].override_timeout_sec"
+    ],
+    "flagged_tasks": {
+      "break-filter-js-from-html": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "caffe-cifar-10": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "path-tracing-reverse": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "pytorch-model-recovery": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      }
+    },
+    "scanner": {
+      "commit": "e97330326b355b8fe65209dba8672b62c83b657d",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--min-trials",
+        "5",
+        "--rules",
+        "docs/benchmark_data/atif-rules.json",
+        "--image-model",
+        "codexresponses.gpt-6-luna?reasoning=medium"
+      ],
+      "rules_sha256": "d0efe44a7b61f7eb80cfc4493175e7e2d5f47781b380c980ca13da830ecee854"
+    },
+    "cells": {
+      "adaptive-rejection-sampler": "lllll",
+      "bn-fit-modify": "lllll",
+      "break-filter-js-from-html": "lmlll",
+      "build-cython-ext": "lllll",
+      "build-pmars": "lllll",
+      "build-pov-ray": "lllll",
+      "caffe-cifar-10": "lllml",
+      "cancel-async-tasks": "lllll",
+      "chess-best-move": "lllll",
+      "circuit-fibsqrt": "lllll",
+      "cobol-modernization": "lllll",
+      "code-from-image": "lllll",
+      "compile-compcert": "lllll",
+      "configure-git-webserver": "lllll",
+      "constraints-scheduling": "lllll",
+      "count-dataset-tokens": "lllll",
+      "crack-7z-hash": "lllll",
+      "custom-memory-heap-crash": "lllll",
+      "db-wal-recovery": "lllll",
+      "distribution-search": "lllll",
+      "dna-assembly": "lllll",
+      "dna-insert": "lllll",
+      "extract-elf": "lllll",
+      "extract-moves-from-video": "lllll",
+      "feal-differential-cryptanalysis": "lllll",
+      "feal-linear-cryptanalysis": "lllll",
+      "filter-js-from-html": "lllll",
+      "financial-document-processor": "lllll",
+      "fix-code-vulnerability": "lllll",
+      "fix-git": "lllll",
+      "fix-ocaml-gc": "lllll",
+      "gcode-to-text": "lllll",
+      "git-leak-recovery": "lllll",
+      "git-multibranch": "lllll",
+      "gpt2-codegolf": "lllll",
+      "headless-terminal": "lllll",
+      "hf-model-inference": "lllll",
+      "install-windows-3.11": "lllll",
+      "kv-store-grpc": "lllll",
+      "large-scale-text-editing": "lllll",
+      "largest-eigenval": "lllll",
+      "llm-inference-batching-scheduler": "lllll",
+      "log-summary-date-ranges": "lllll",
+      "mailman": "lllll",
+      "make-doom-for-mips": "lllll",
+      "make-mips-interpreter": "lllll",
+      "mcmc-sampling-stan": "lllll",
+      "merge-diff-arc-agi-task": "lllll",
+      "model-extraction-relu-logits": "lllll",
+      "modernize-scientific-stack": "lllll",
+      "mteb-leaderboard": "lllll",
+      "mteb-retrieve": "lllll",
+      "multi-source-data-merger": "lllll",
+      "nginx-request-logging": "lllll",
+      "openssl-selfsigned-cert": "lllll",
+      "overfull-hbox": "lllll",
+      "password-recovery": "lllll",
+      "path-tracing": "lllll",
+      "path-tracing-reverse": "mmlll",
+      "polyglot-c-py": "lllll",
+      "polyglot-rust-c": "lllll",
+      "portfolio-optimization": "lllll",
+      "protein-assembly": "lllll",
+      "prove-plus-comm": "lllll",
+      "pypi-server": "lllll",
+      "pytorch-model-cli": "lllll",
+      "pytorch-model-recovery": "mmlll",
+      "qemu-alpine-ssh": "lllll",
+      "qemu-startup": "lllll",
+      "query-optimize": "lllll",
+      "raman-fitting": "lllll",
+      "regex-chess": "lllll",
+      "regex-log": "lllll",
+      "reshard-c4-data": "lllll",
+      "rstan-to-pystan": "lllll",
+      "sam-cell-seg": "lllll",
+      "sanitize-git-repo": "lllll",
+      "schemelike-metacircular-eval": "lllll",
+      "sparql-university": "lllll",
+      "sqlite-db-truncate": "lllll",
+      "sqlite-with-gcov": "lllll",
+      "torch-pipeline-parallelism": "lllll",
+      "torch-tensor-parallelism": "lllll",
+      "train-fasttext": "lllll",
+      "tune-mjcf": "lllll",
+      "video-processing": "lllll",
+      "vulnerable-secret": "lllll",
+      "winning-avg-corewars": "lllll",
+      "write-compressor": "lllll"
+    }
+  },
+  "as_run": {
+    "passes": 363,
+    "slots": 445
+  },
+  "review": {
+    "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+    "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+    "recorded_passes": 368,
+    "recorded_score": 82.7,
+    "disqualified": [],
+    "cleared": []
+  }
+}

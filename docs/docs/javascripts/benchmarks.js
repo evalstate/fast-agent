@@ -800,9 +800,9 @@
       lab.appendChild(el("span", "", label));
       return lab;
     }
+    if (m.runs.some(function (r) { return r.tier === "ours"; })) toggles.appendChild(toggle("ours", "Our runs", "Every fast-agent run of ours: standard-timeout submissions and six-hour runs"));
     toggles.appendChild(toggle("leaderboard", "Leaderboard runs"));
     if (m.claims.length) toggles.appendChild(toggle("claims", "Vendor claims"));
-    if (m.runs.some(function (r) { return r.timeout === "6h"; })) toggles.appendChild(toggle("long", "Our runs", "Our six-hour bench-run results: fixed-QEMU TB2.1 with a 21,600 s agent timeout"));
     var sort = el("div", "fb-seg");
     sort.setAttribute("role", "group");
     sort.setAttribute("aria-label", "Order");
@@ -833,7 +833,7 @@
       if (state.family !== "all" && e.family !== state.family) return false;
       if (e.tier === "leaderboard" && !state.leaderboard) return false;
       if (e.tier === "claim" && !state.claims) return false;
-      if (e.timeout === "6h" && !state.long) return false;
+      if (e.tier === "ours" && !state.ours) return false;
       return true;
     });
     var byScore = function (a, b) {
@@ -1341,7 +1341,7 @@
     return new URLSearchParams(window.location.search).get("b");
   }
   /* Ledger filters live in the URL (?fam=&sort=&hide=&task=) so a view can be shared. */
-  var HIDEABLE = ["leaderboard", "claims", "long"];
+  var HIDEABLE = ["ours", "leaderboard", "claims"];
   function viewState(m) {
     var q = new URLSearchParams(window.location.search);
     var hide = (q.get("hide") || "").split(",");
