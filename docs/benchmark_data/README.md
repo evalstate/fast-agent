@@ -125,9 +125,9 @@ One character per trial, ordered by `started_at`:
 
 `scan` summarises `atif-scan --brief --format json` over the run's full jobs; `scan.version`
 and `scan.scanner` (commit, local changes, flags) record what produced it. On 2026-10-08
-every fast-agent run was rescanned with atif-scan 0.7.0 (`e973303`) and `--image-model
-'codexresponses.gpt-6-luna?reasoning=medium'`; the leaderboard comparators keep their v0.4.0
-scans (no `scanner` block).
+every scanned run (ours and the Claude Code / Terminus 2 comparators) was rescanned with
+atif-scan 0.7.0 (`e973303`) and `--image-model 'codexresponses.gpt-6-luna?reasoning=medium'`.
+`codex-terra-max` has no scan (see below).
 `scan.cells` holds one code per selected trial, in the same order as `tasks`, from the
 full scan's per-trial results: `c`/`h`/`m`/`l` is the trial's highest unexcused priority
 (critical, high, medium, or low/info/none), upper case means the trial's steps used a
