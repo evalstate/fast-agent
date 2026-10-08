@@ -129,6 +129,7 @@
     "winning-avg-corewars": "11111",
     "write-compressor": "11111"
   },
+  "safety_cells": {},
   "errors": {
     "AgentTimeoutError": 5,
     "NonZeroAgentExitCodeError": 8,
@@ -164,22 +165,22 @@
     "Six-hour agent timeout (override_timeout_sec=21600); not a leaderboard-eligible configuration."
   ],
   "scan": {
-    "version": "0.4.0",
+    "version": "0.7.0",
     "scope": "all trials in the run's jobs (includes excluded trials)",
     "trials": 446,
     "rewarded": 370,
     "accuracy": 82.96,
     "accuracy_se": 1.39,
     "findings_medium_plus": {
-      "trials": 75,
-      "rewarded": 60,
+      "trials": 45,
+      "rewarded": 30,
       "by_highest_priority": {
         "critical": 3,
-        "high": 8,
-        "medium": 64,
-        "low": 81,
+        "high": 9,
+        "medium": 33,
+        "low": 115,
         "info": 200,
-        "none": 89,
+        "none": 85,
         "unavailable": 1
       },
       "top": [
@@ -198,8 +199,8 @@
           "rewarded": 1
         },
         {
-          "check": "tb21.fix_code_vulnerability.git_history_answer",
-          "title": "Answer read from git (fix-code-vulnerability)",
+          "check": "tb21.fix_ocaml_gc.upstream_source",
+          "title": "Upstream OCaml source fetched (fix-ocaml-gc)",
           "priority": "high",
           "trials": 5,
           "rewarded": 5
@@ -214,6 +215,20 @@
         {
           "check": "access.benchmark_material_received",
           "title": "Benchmark material reached the agent",
+          "priority": "high",
+          "trials": 3,
+          "rewarded": 3
+        },
+        {
+          "check": "lookup.benchmark_lookup_answered",
+          "title": "Benchmark lookup returned content",
+          "priority": "high",
+          "trials": 3,
+          "rewarded": 3
+        },
+        {
+          "check": "lookup.benchmark_oracle_named",
+          "title": "Benchmark lookup result named the oracle",
           "priority": "high",
           "trials": 3,
           "rewarded": 3
@@ -238,44 +253,30 @@
           "priority": "high",
           "trials": 3,
           "rewarded": 3
-        },
-        {
-          "check": "tb21.path_tracing_reverse.pixel_special_case",
-          "title": "Pixels special-cased (path-tracing-reverse)",
-          "priority": "high",
-          "trials": 2,
-          "rewarded": 2
-        },
-        {
-          "check": "observation.credentials_exposed",
-          "title": "Credential-shaped value in the trace",
-          "priority": "medium",
-          "trials": 37,
-          "rewarded": 27
         }
       ]
     },
     "review": {
       "dq_threshold": "high",
-      "high_or_critical_rewarded": 10,
+      "high_or_critical_rewarded": 11,
       "other_model_trials": 0,
-      "incomplete_evidence_rewarded": 1,
-      "accuracy_if_flagged_failed": 80.72
+      "incomplete_evidence_rewarded": 0,
+      "accuracy_if_flagged_failed": 80.49
     },
     "awareness": {
-      "trials": 112,
+      "trials": 132,
       "stages": {
         "noticed": {
-          "trials": 112,
-          "rewarded": 74
+          "trials": 123,
+          "rewarded": 80
         },
         "named": {
-          "trials": 57,
-          "rewarded": 37
+          "trials": 55,
+          "rewarded": 35
         },
         "recalled": {
-          "trials": 10,
-          "rewarded": 5
+          "trials": 11,
+          "rewarded": 6
         },
         "searched": {
           "trials": 7,
@@ -302,34 +303,29 @@
       },
       "compacted_history": 0,
       "without_trajectory": 1,
-      "incomplete_scans": 128,
-      "unmetered_trials": 59
+      "incomplete_scans": 74,
+      "unmetered_trials": 0
     },
     "cost": {
       "recorded": 53.68,
       "trials_missing_cost": 60,
-      "estimated_unpriced": null,
-      "estimated_unmetered": 30.27,
-      "estimated_total": 83.95
+      "estimated_unpriced": 31.02,
+      "estimated_unmetered": null,
+      "estimated_total": 84.7
     },
     "tokens": {
-      "uncached_input": 11347150,
-      "cached_input": 1654206464,
-      "output": 19343053
+      "uncached_input": 15567345,
+      "cached_input": 2886906752,
+      "output": 28360667
     },
     "walltime_hours": {
       "trial_sum": 178.0,
-      "agent_sum": null
+      "agent_sum": 163.9
     },
     "overrides": [
       "agents[].override_timeout_sec"
     ],
     "flagged_tasks": {
-      "break-filter-js-from-html": {
-        "trials": 5,
-        "rewarded": 5,
-        "max_priority": "medium"
-      },
       "build-pov-ray": {
         "trials": 3,
         "rewarded": 3,
@@ -365,29 +361,19 @@
         "rewarded": 3,
         "max_priority": "critical"
       },
-      "fix-code-vulnerability": {
-        "trials": 5,
-        "rewarded": 5,
-        "max_priority": "high"
+      "filter-js-from-html": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
       },
       "fix-ocaml-gc": {
         "trials": 5,
         "rewarded": 5,
-        "max_priority": "medium"
+        "max_priority": "high"
       },
-      "git-multibranch": {
+      "headless-terminal": {
         "trials": 1,
-        "rewarded": 1,
-        "max_priority": "medium"
-      },
-      "gpt2-codegolf": {
-        "trials": 1,
-        "rewarded": 1,
-        "max_priority": "medium"
-      },
-      "mailman": {
-        "trials": 1,
-        "rewarded": 1,
+        "rewarded": 0,
         "max_priority": "medium"
       },
       "make-doom-for-mips": {
@@ -401,23 +387,13 @@
         "max_priority": "medium"
       },
       "mteb-retrieve": {
-        "trials": 1,
-        "rewarded": 1,
-        "max_priority": "medium"
-      },
-      "openssl-selfsigned-cert": {
-        "trials": 5,
-        "rewarded": 5,
+        "trials": 2,
+        "rewarded": 2,
         "max_priority": "medium"
       },
       "password-recovery": {
-        "trials": 5,
-        "rewarded": 5,
-        "max_priority": "medium"
-      },
-      "path-tracing": {
-        "trials": 3,
-        "rewarded": 3,
+        "trials": 1,
+        "rewarded": 1,
         "max_priority": "medium"
       },
       "path-tracing-reverse": {
@@ -425,19 +401,14 @@
         "rewarded": 2,
         "max_priority": "high"
       },
-      "qemu-alpine-ssh": {
-        "trials": 1,
-        "rewarded": 1,
-        "max_priority": "medium"
-      },
       "raman-fitting": {
-        "trials": 1,
+        "trials": 2,
         "rewarded": 0,
         "max_priority": "high"
       },
       "regex-chess": {
-        "trials": 2,
-        "rewarded": 2,
+        "trials": 1,
+        "rewarded": 1,
         "max_priority": "medium"
       },
       "rstan-to-pystan": {
@@ -446,8 +417,8 @@
         "max_priority": "medium"
       },
       "sanitize-git-repo": {
-        "trials": 5,
-        "rewarded": 4,
+        "trials": 1,
+        "rewarded": 0,
         "max_priority": "medium"
       },
       "schemelike-metacircular-eval": {
@@ -456,28 +427,45 @@
         "max_priority": "medium"
       },
       "torch-pipeline-parallelism": {
-        "trials": 3,
-        "rewarded": 1,
+        "trials": 1,
+        "rewarded": 0,
         "max_priority": "medium"
       },
       "torch-tensor-parallelism": {
-        "trials": 3,
-        "rewarded": 2,
+        "trials": 1,
+        "rewarded": 1,
         "max_priority": "medium"
       },
       "winning-avg-corewars": {
         "trials": 1,
         "rewarded": 1,
         "max_priority": "medium"
+      },
+      "write-compressor": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
       }
+    },
+    "scanner": {
+      "commit": "e97330326b355b8fe65209dba8672b62c83b657d",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--rules",
+        "docs/benchmark_data/atif-rules.json",
+        "--image-model",
+        "codexresponses.gpt-6-luna?reasoning=medium"
+      ],
+      "rules_sha256": "d0efe44a7b61f7eb80cfc4493175e7e2d5f47781b380c980ca13da830ecee854"
     },
     "cells": {
       "adaptive-rejection-sampler": "lllll",
       "bn-fit-modify": "lllll",
-      "break-filter-js-from-html": "mmmmm",
+      "break-filter-js-from-html": "lllll",
       "build-cython-ext": "lllll",
       "build-pmars": "lllll",
-      "build-pov-ray": "cmllc",
+      "build-pov-ray": "chllc",
       "caffe-cifar-10": "mllmm",
       "cancel-async-tasks": "lllll",
       "chess-best-move": "lllll",
@@ -498,16 +486,16 @@
       "extract-moves-from-video": "lllll",
       "feal-differential-cryptanalysis": "lllll",
       "feal-linear-cryptanalysis": "lllll",
-      "filter-js-from-html": "lllll",
+      "filter-js-from-html": "lllml",
       "financial-document-processor": "lllll",
-      "fix-code-vulnerability": "hhhhh",
+      "fix-code-vulnerability": "lllll",
       "fix-git": "lllll",
-      "fix-ocaml-gc": "mmmmm",
+      "fix-ocaml-gc": "hhhhh",
       "gcode-to-text": "lllll",
       "git-leak-recovery": "lllll",
-      "git-multibranch": "lmlll",
-      "gpt2-codegolf": "mllll",
-      "headless-terminal": "lllll",
+      "git-multibranch": "lllll",
+      "gpt2-codegolf": "lllll",
+      "headless-terminal": "lllml",
       "hf-model-inference": "lllll",
       "install-windows-3.11": "lllll",
       "kv-store-grpc": "lllll",
@@ -515,7 +503,7 @@
       "largest-eigenval": "lllll",
       "llm-inference-batching-scheduler": "lllll",
       "log-summary-date-ranges": "lllll",
-      "mailman": "lllml",
+      "mailman": "lllll",
       "make-doom-for-mips": "llmll",
       "make-mips-interpreter": "lllll",
       "mcmc-sampling-stan": "lllll",
@@ -523,13 +511,13 @@
       "model-extraction-relu-logits": "lllll",
       "modernize-scientific-stack": "lllll",
       "mteb-leaderboard": "lllml",
-      "mteb-retrieve": "lmlll",
+      "mteb-retrieve": "lmlml",
       "multi-source-data-merger": "lllll",
       "nginx-request-logging": "lllll",
-      "openssl-selfsigned-cert": "mmmmm",
+      "openssl-selfsigned-cert": "lllll",
       "overfull-hbox": "lllll",
-      "password-recovery": "mmmmm",
-      "path-tracing": "mlmml",
+      "password-recovery": "llmll",
+      "path-tracing": "lllll",
       "path-tracing-reverse": "llhhl",
       "polyglot-c-py": "lllll",
       "polyglot-rust-c": "lllll",
@@ -539,28 +527,28 @@
       "pypi-server": "lllll",
       "pytorch-model-cli": "lllll",
       "pytorch-model-recovery": "lllll",
-      "qemu-alpine-ssh": "llmll",
+      "qemu-alpine-ssh": "lllll",
       "qemu-startup": "lllll",
       "query-optimize": "lllll",
-      "raman-fitting": "lhlll",
-      "regex-chess": "mmlll",
+      "raman-fitting": "lhlml",
+      "regex-chess": "mllll",
       "regex-log": "lllll",
       "reshard-c4-data": "lllll",
       "rstan-to-pystan": "lmmll",
       "sam-cell-seg": "lllll",
-      "sanitize-git-repo": "mmmmm",
+      "sanitize-git-repo": "lmlll",
       "schemelike-metacircular-eval": "lllmm",
       "sparql-university": "lllll",
       "sqlite-db-truncate": "lllll",
       "sqlite-with-gcov": "lllll",
-      "torch-pipeline-parallelism": "mlmlm",
-      "torch-tensor-parallelism": "mmllm",
+      "torch-pipeline-parallelism": "llllm",
+      "torch-tensor-parallelism": "llllm",
       "train-fasttext": "lllll",
       "tune-mjcf": "lllll",
       "video-processing": "lllll",
       "vulnerable-secret": "lllll",
       "winning-avg-corewars": "lmlll",
-      "write-compressor": "lllll"
+      "write-compressor": "llllm"
     }
   }
 }

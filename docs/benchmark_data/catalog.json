@@ -76,6 +76,26 @@
       "family": "gpt-6",
       "status": "6h timeout"
     },
+    "luna6-low-6h": {
+      "family": "gpt-6",
+      "status": "6h timeout"
+    },
+    "luna6-medium-6h": {
+      "family": "gpt-6",
+      "status": "6h timeout"
+    },
+    "luna6-high-6h": {
+      "family": "gpt-6",
+      "status": "6h timeout"
+    },
+    "luna6-xhigh-6h": {
+      "family": "gpt-6",
+      "status": "6h timeout"
+    },
+    "luna6-max-6h": {
+      "family": "gpt-6",
+      "status": "6h timeout"
+    },
     "fa-grok46-medium": {
       "family": "grok",
       "status": "Provisional"
@@ -269,6 +289,10 @@
           {
             "title": "Costs",
             "text": "Our costs are Harbor's recorded token costs, not billed spend; ~ marks an estimate. Six-hour runs use a non-standard 21,600-second timeout and aren't comparable with standard rows."
+          },
+          {
+            "title": "Safety allowance",
+            "text": "An optional scenario, off by default: trials a provider safety stop or refusal ended count as passes when a reference model passed that task at least 4 times in 5: Claude Haiku 5.5 high for Anthropic models, GPT-6 Luna high for the rest. It is a what-if, never a measured score, and is marked wherever it is on."
           }
         ]
       }

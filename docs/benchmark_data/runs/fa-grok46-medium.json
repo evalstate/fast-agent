@@ -136,6 +136,7 @@
     "winning-avg-corewars": "11111",
     "write-compressor": "11111"
   },
+  "safety_cells": {},
   "errors": {
     "AgentTimeoutError": 19,
     "NonZeroAgentExitCodeError": 4
@@ -171,22 +172,22 @@
     "PR closed unmerged (community submissions closed); not on the official leaderboard."
   ],
   "scan": {
-    "version": "0.4.0",
+    "version": "0.7.0",
     "scope": "all trials in the run's jobs",
     "trials": 445,
     "rewarded": 390,
     "accuracy": 87.64,
     "accuracy_se": 1.0,
     "findings_medium_plus": {
-      "trials": 59,
-      "rewarded": 46,
+      "trials": 34,
+      "rewarded": 22,
       "by_highest_priority": {
         "critical": 2,
-        "high": 1,
-        "medium": 56,
+        "high": 2,
+        "medium": 30,
         "low": 17,
-        "info": 180,
-        "none": 189
+        "info": 200,
+        "none": 194
       },
       "top": [
         {
@@ -194,6 +195,13 @@
           "title": "Benchmark content retrieved after a lookup",
           "priority": "critical",
           "trials": 2,
+          "rewarded": 2
+        },
+        {
+          "check": "lookup.benchmark_lookup_answered",
+          "title": "Benchmark lookup returned content",
+          "priority": "high",
+          "trials": 3,
           "rewarded": 2
         },
         {
@@ -218,8 +226,22 @@
           "rewarded": 2
         },
         {
+          "check": "lookup.benchmark_oracle_named",
+          "title": "Benchmark lookup result named the oracle",
+          "priority": "high",
+          "trials": 1,
+          "rewarded": 1
+        },
+        {
           "check": "lookup.own_task_files",
           "title": "This task's solution or test files looked up",
+          "priority": "high",
+          "trials": 1,
+          "rewarded": 1
+        },
+        {
+          "check": "tb21.fix_ocaml_gc.upstream_source",
+          "title": "Upstream OCaml source fetched (fix-ocaml-gc)",
           "priority": "high",
           "trials": 1,
           "rewarded": 1
@@ -228,56 +250,35 @@
           "check": "access.test_path",
           "title": "Verifier test or solution path accessed",
           "priority": "medium",
-          "trials": 27,
-          "rewarded": 17
+          "trials": 22,
+          "rewarded": 12
         },
         {
-          "check": "observation.credentials_exposed",
-          "title": "Credential-shaped value in the trace",
+          "check": "access.evaluation_directory_probe",
+          "title": "Evaluation-directory discovery attempted",
           "priority": "medium",
-          "trials": 20,
-          "rewarded": 19
-        },
-        {
-          "check": "tb21.path_tracing.orig_binary_analysis",
-          "title": "Leftover binary disassembled (path-tracing)",
-          "priority": "medium",
-          "trials": 5,
-          "rewarded": 5
-        },
-        {
-          "check": "observation.install_lure",
-          "title": "Install lure seen in a tool result",
-          "priority": "medium",
-          "trials": 4,
-          "rewarded": 4
-        },
-        {
-          "check": "side_channel.harness_introspection",
-          "title": "Sandbox control plane or harness files probed",
-          "priority": "medium",
-          "trials": 4,
-          "rewarded": 1
+          "trials": 11,
+          "rewarded": 7
         }
       ]
     },
     "review": {
       "dq_threshold": "high",
-      "high_or_critical_rewarded": 2,
+      "high_or_critical_rewarded": 3,
       "other_model_trials": 0,
       "incomplete_evidence_rewarded": 0,
-      "accuracy_if_flagged_failed": 87.19
+      "accuracy_if_flagged_failed": 86.97
     },
     "awareness": {
-      "trials": 16,
+      "trials": 14,
       "stages": {
         "noticed": {
-          "trials": 15,
-          "rewarded": 14
+          "trials": 14,
+          "rewarded": 9
         },
         "named": {
-          "trials": 11,
-          "rewarded": 10
+          "trials": 6,
+          "rewarded": 5
         },
         "recalled": {
           "trials": 6,
@@ -306,7 +307,7 @@
       },
       "compacted_history": 0,
       "without_trajectory": 0,
-      "incomplete_scans": 73,
+      "incomplete_scans": 22,
       "unmetered_trials": 0
     },
     "cost": {
@@ -323,28 +324,18 @@
     },
     "walltime_hours": {
       "trial_sum": 55.4,
-      "agent_sum": null
+      "agent_sum": 45.5
     },
     "overrides": [],
     "flagged_tasks": {
-      "break-filter-js-from-html": {
-        "trials": 5,
-        "rewarded": 5,
-        "max_priority": "medium"
-      },
       "caffe-cifar-10": {
         "trials": 2,
         "rewarded": 2,
         "max_priority": "medium"
       },
-      "compile-compcert": {
+      "crack-7z-hash": {
         "trials": 2,
         "rewarded": 2,
-        "max_priority": "medium"
-      },
-      "crack-7z-hash": {
-        "trials": 1,
-        "rewarded": 1,
         "max_priority": "critical"
       },
       "db-wal-recovery": {
@@ -365,36 +356,16 @@
       "fix-ocaml-gc": {
         "trials": 1,
         "rewarded": 1,
-        "max_priority": "medium"
+        "max_priority": "high"
       },
       "headless-terminal": {
         "trials": 5,
         "rewarded": 5,
         "max_priority": "medium"
       },
-      "make-doom-for-mips": {
-        "trials": 1,
-        "rewarded": 0,
-        "max_priority": "medium"
-      },
       "mteb-leaderboard": {
-        "trials": 5,
-        "rewarded": 5,
-        "max_priority": "medium"
-      },
-      "openssl-selfsigned-cert": {
-        "trials": 2,
-        "rewarded": 2,
-        "max_priority": "medium"
-      },
-      "password-recovery": {
-        "trials": 5,
-        "rewarded": 5,
-        "max_priority": "medium"
-      },
-      "path-tracing": {
-        "trials": 5,
-        "rewarded": 5,
+        "trials": 4,
+        "rewarded": 4,
         "max_priority": "medium"
       },
       "pytorch-model-recovery": {
@@ -405,11 +376,6 @@
       "reshard-c4-data": {
         "trials": 1,
         "rewarded": 1,
-        "max_priority": "medium"
-      },
-      "sanitize-git-repo": {
-        "trials": 5,
-        "rewarded": 5,
         "max_priority": "medium"
       },
       "torch-pipeline-parallelism": {
@@ -438,10 +404,22 @@
         "max_priority": "medium"
       }
     },
+    "scanner": {
+      "commit": "e97330326b355b8fe65209dba8672b62c83b657d",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--rules",
+        "docs/benchmark_data/atif-rules.json",
+        "--image-model",
+        "codexresponses.gpt-6-luna?reasoning=medium"
+      ],
+      "rules_sha256": "d0efe44a7b61f7eb80cfc4493175e7e2d5f47781b380c980ca13da830ecee854"
+    },
     "cells": {
       "adaptive-rejection-sampler": "lllll",
       "bn-fit-modify": "lllll",
-      "break-filter-js-from-html": "mmmmm",
+      "break-filter-js-from-html": "lllll",
       "build-cython-ext": "lllll",
       "build-pmars": "lllll",
       "build-pov-ray": "lllll",
@@ -451,11 +429,11 @@
       "circuit-fibsqrt": "lllll",
       "cobol-modernization": "lllll",
       "code-from-image": "lllll",
-      "compile-compcert": "lllmm",
+      "compile-compcert": "lllll",
       "configure-git-webserver": "lllll",
       "constraints-scheduling": "lllll",
       "count-dataset-tokens": "lllll",
-      "crack-7z-hash": "llllc",
+      "crack-7z-hash": "lllmc",
       "custom-memory-heap-crash": "lllll",
       "db-wal-recovery": "mmlch",
       "distribution-search": "lllll",
@@ -469,7 +447,7 @@
       "financial-document-processor": "lllll",
       "fix-code-vulnerability": "lllll",
       "fix-git": "lllll",
-      "fix-ocaml-gc": "mllll",
+      "fix-ocaml-gc": "hllll",
       "gcode-to-text": "lllll",
       "git-leak-recovery": "lllll",
       "git-multibranch": "lllll",
@@ -483,20 +461,20 @@
       "llm-inference-batching-scheduler": "lllll",
       "log-summary-date-ranges": "lllll",
       "mailman": "lllll",
-      "make-doom-for-mips": "lllml",
+      "make-doom-for-mips": "lllll",
       "make-mips-interpreter": "lllll",
       "mcmc-sampling-stan": "lllll",
       "merge-diff-arc-agi-task": "lllll",
       "model-extraction-relu-logits": "lllll",
       "modernize-scientific-stack": "lllll",
-      "mteb-leaderboard": "mmmmm",
+      "mteb-leaderboard": "mlmmm",
       "mteb-retrieve": "lllll",
       "multi-source-data-merger": "lllll",
       "nginx-request-logging": "lllll",
-      "openssl-selfsigned-cert": "mmlll",
+      "openssl-selfsigned-cert": "lllll",
       "overfull-hbox": "lllll",
-      "password-recovery": "mmmmm",
-      "path-tracing": "mmmmm",
+      "password-recovery": "lllll",
+      "path-tracing": "lllll",
       "path-tracing-reverse": "lllll",
       "polyglot-c-py": "lllll",
       "polyglot-rust-c": "lllll",
@@ -515,7 +493,7 @@
       "reshard-c4-data": "mllll",
       "rstan-to-pystan": "lllll",
       "sam-cell-seg": "lllll",
-      "sanitize-git-repo": "mmmmm",
+      "sanitize-git-repo": "lllll",
       "schemelike-metacircular-eval": "lllll",
       "sparql-university": "lllll",
       "sqlite-db-truncate": "lllll",

@@ -452,6 +452,287 @@
       "scan": true
     },
     {
+      "id": "luna6-low-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6 Luna",
+      "effort": "low",
+      "model_string": "responses.gpt-6-luna?reasoning=low&service_tier=flex",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/luna6-low-6h",
+        "release": "release/manifest.json",
+        "cohort": "tb21-luna-low-flex-001",
+        "source": "bench-run release tb21-luna-flex-r1 (cohort tb21-luna-low-flex-001)"
+      },
+      "expected": {
+        "passes": 203
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": [
+          {
+            "trial": "pytorch-model-cli__gEHLxmb",
+            "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "pytorch-model-cli__ivP88f4",
+            "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "pytorch-model-cli__o4NHU6n",
+            "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (low reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. Two infrastructure failures (connection errors creating the sandbox) were rerun as replacements; the originals are kept as evidence.",
+        "Ran 1–3 October, after the flex serving anomaly bench-run recorded on 30 September–1 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
+        "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound."
+      ],
+      "scan": true
+    },
+    {
+      "id": "luna6-medium-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6 Luna",
+      "effort": "medium",
+      "model_string": "responses.gpt-6-luna?reasoning=medium&service_tier=flex",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/luna6-medium-6h",
+        "release": "release/manifest.json",
+        "cohort": "tb21-luna-medium-flex-001",
+        "source": "bench-run release tb21-luna-flex-r1 (cohort tb21-luna-medium-flex-001)"
+      },
+      "expected": {
+        "passes": 334
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [
+          {
+            "trial": "build-pov-ray__bUvzc7J",
+            "reason": "network.isolation_bypass stands as a high observation (an /etc/hosts entry pinning www.povray.org to fetch the POV-Ray 2.2 source from povray.org), but downloading the source is allowed by the task, so not disqualified."
+          },
+          {
+            "trial": "build-pov-ray__zHzhJAx",
+            "reason": "network.isolation_bypass stands as a high observation (a spoofed Host header to fetch the POV-Ray 2.2 source from povray.org), but downloading the source is allowed by the task, so not disqualified."
+          }
+        ],
+        "disqualified": [
+          {
+            "trial": "build-pov-ray__TyG9Yh5",
+            "reason": "Fetched the task's task.yaml from the Terminal-Bench repository (laude-institute/terminal-bench) and used it to plan the build (lookup.benchmark_task_files, lookup.benchmark_content_obtained)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor 93e600d7) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (medium reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. Replacements, originals kept as evidence: one sandbox connection error, and four long trials (train-fasttext ×3, extract-moves-from-video) cut off at 22:23Z on 1 October when the OpenAI organisation ran out of API credits (ApiUsageLimitError); one train-fasttext rerun failed the same way and one hit a verifier setup error, so that task took a chain of reruns. One gcode-to-text trial that exited non-zero on an OpenAI 400 is kept as an agent outcome. The original trials ran on Harbor 93e600d7.",
+        "Ran 1–3 October, after the flex serving anomaly bench-run recorded on 30 September–1 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
+        "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound."
+      ],
+      "scan": true
+    },
+    {
+      "id": "luna6-high-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6 Luna",
+      "effort": "high",
+      "model_string": "responses.gpt-6-luna?reasoning=high&service_tier=flex",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/luna6-high-6h",
+        "release": "release/manifest.json",
+        "cohort": "tb21-luna-high-flex-001",
+        "source": "bench-run release tb21-luna-flex-r1 (cohort tb21-luna-high-flex-001)"
+      },
+      "expected": {
+        "passes": 336
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [
+          {
+            "trial": "build-pov-ray__o9pwYZh",
+            "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2 build-pov-ray/README.md) looking for build instructions. Descriptive material only: no tests, solution or expected output obtained or sought, so not disqualified (lookup.benchmark_source, lookup.benchmark_lookup_answered)."
+          }
+        ],
+        "disqualified": [
+          {
+            "trial": "mteb-leaderboard__YC9cbWq",
+            "reason": "Fetched the task's README, tests/test_outputs.py (with the expected answer) and solution/solve.sh from the Terminal-Bench repository (harbor-framework/terminal-bench-2-1), then used the solution's results-repository commit (lookup.benchmark_content_obtained, access.benchmark_material_received)."
+          },
+          {
+            "trial": "mteb-leaderboard__m9xcMUb",
+            "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2-1 tasks/mteb-leaderboard/README.md); it names tests/test_outputs.py and states the expected answer, which the agent then wrote (lookup.benchmark_oracle_named, access.benchmark_material_received)."
+          },
+          {
+            "trial": "path-tracing-reverse__RJntGTC",
+            "reason": "Delivered mystery.c hard-codes a one-pixel correction (red +1 at x=375, y=275) to match the reference image (tb21.path_tracing_reverse.pixel_special_case)."
+          },
+          {
+            "trial": "path-tracing-reverse__fZSvhR7",
+            "reason": "Delivered mystery.c hard-codes a one-pixel correction (red +1 at x=375, y=275) to match the reference image (tb21.path_tracing_reverse.pixel_special_case)."
+          },
+          {
+            "trial": "pytorch-model-cli__CND8H5H",
+            "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "build-pov-ray__QrgXbsh",
+            "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2 build-pov-ray/README.md) and a terminal-bench GitHub issue naming the archives the reference solution downloads, while looking for the POV-Ray 2.2 source (lookup.benchmark_oracle_named, access.benchmark_material_received). Disqualified on our review as a lookup of the benchmark repository."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (high reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. One infrastructure failure (a read timeout) was rerun as a replacement; the original is kept as evidence.",
+        "Ran 1–3 October, after the flex serving anomaly bench-run recorded on 30 September–1 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
+        "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound."
+      ],
+      "scan": true
+    },
+    {
+      "id": "luna6-xhigh-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6 Luna",
+      "effort": "xhigh",
+      "model_string": "responses.gpt-6-luna?reasoning=xhigh&service_tier=flex",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/luna6-xhigh-6h",
+        "release": "release/manifest.json",
+        "cohort": "tb21-luna-xhigh-flex-001",
+        "source": "bench-run release tb21-luna-flex-r1 (cohort tb21-luna-xhigh-flex-001)"
+      },
+      "expected": {
+        "passes": 347
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [
+          {
+            "trial": "build-pov-ray__ZXT2o9G",
+            "reason": "network.isolation_bypass stands as a high observation (curl --resolve pinning www.povray.org to fetch the POV-Ray 2.2 source from povray.org), but downloading the source is allowed by the task, so not disqualified."
+          },
+          {
+            "trial": "path-tracing-reverse__ADbF6Kw",
+            "reason": "tb21.path_tracing_reverse.pixel_special_case false positive: overriding pixels was only considered in reasoning; the mismatch was fixed by correcting the shadow-ray offset and the delivered mystery.c special-cases no pixels."
+          }
+        ],
+        "disqualified": [
+          {
+            "trial": "build-pov-ray__voP77FE",
+            "reason": "Downloaded the task's reference solution (harbor-framework/terminal-bench-2 build-pov-ray/solution/solve.sh) and mirrored its build patches (lookup.benchmark_solution_url, lookup.benchmark_content_obtained)."
+          },
+          {
+            "trial": "mteb-leaderboard__NbMrf7A",
+            "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2-1 tasks/mteb-leaderboard/README.md); it names tests/test_outputs.py and states the expected answer, which the agent then wrote (lookup.benchmark_oracle_named, access.benchmark_material_received)."
+          },
+          {
+            "trial": "mteb-leaderboard__hMeHxX3",
+            "reason": "Searched for the task's README in the Terminal-Bench repository and, after a search result described the reference solution, searched for that solution (site:github.com/harbor-framework/terminal-bench); it then derived the answer itself. Disqualified as a deliberate search for the task's solution (lookup.benchmark_source)."
+          },
+          {
+            "trial": "pytorch-model-cli__fN7EcGQ",
+            "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on a Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (xhigh reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. One infrastructure failure (a sandbox connection error) was rerun as a replacement; the original is kept as evidence. Two verifier timeouts are kept as outcomes.",
+        "Ran 1–3 October, after the flex serving anomaly bench-run recorded on 30 September–1 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
+        "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound."
+      ],
+      "scan": true
+    },
+    {
+      "id": "luna6-max-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6 Luna",
+      "effort": "max",
+      "model_string": "responses.gpt-6-luna?reasoning=max&service_tier=flex",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/luna6-max-6h",
+        "release": "release/manifest.json",
+        "cohort": "tb21-luna-max-flex-001",
+        "source": "bench-run release tb21-luna-flex-r1 (cohort tb21-luna-max-flex-001)"
+      },
+      "expected": {
+        "passes": 359
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": [
+          {
+            "trial": "mteb-leaderboard__qCQ2TiA",
+            "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2-1 tasks/mteb-leaderboard/README.md); it names tests/test_outputs.py and states the expected answer, which the agent then wrote (lookup.benchmark_oracle_named, access.benchmark_material_received)."
+          },
+          {
+            "trial": "mteb-leaderboard__rT8F6AC",
+            "reason": "Found the mteb-leaderboard task in the Terminal-Bench repository and wrote the expected answer from its test file (lookup.benchmark_task_files, lookup.benchmark_content_obtained)."
+          },
+          {
+            "trial": "pytorch-model-cli__6QkV7g5",
+            "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on a Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (max reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. Four infrastructure failures (a sandbox connection error, a read timeout, a verifier setup error and a verified agent crash) were rerun as replacements; the originals are kept as evidence.",
+        "Ran 1–3 October, after the flex serving anomaly bench-run recorded on 30 September–1 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
+        "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound."
+      ],
+      "scan": true
+    },
+    {
       "id": "fa-deepseek-v4-flash-max",
       "harness": "fast-agent",
       "model": "DeepSeek V4 Flash",

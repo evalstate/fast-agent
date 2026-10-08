@@ -23,15 +23,19 @@
   })();
   var BENCH_ROOT = SITE_ROOT + "benchmarks/";
   var MARKS = SITE_ROOT + "assets/forward/assets/providers/";
-  var ATIF_SCAN_URL = "https://github.com/evalstate/atif-scan";
+  var ATIF_SCAN_URL = "https://github.com/huggingface/atif-scan";
 
   /* Cell codes, bottom-to-top stacking order inside a task column. */
-  var CELL_ORDER = { "1": 0, x: 1, "0": 2, t: 3, e: 4, "-": 5 };
+  /* r = a provider safety stop or refusal (an error); a = such a trial counted as a
+     pass under the safety-allowance scenario (never a measured pass). */
+  var CELL_ORDER = { "1": 0, a: 1, x: 2, "0": 3, t: 4, r: 5, e: 6, "-": 7 };
   var CELL_LABEL = {
     "1": "pass",
+    a: "safety stop/refusal, counted as a pass under the safety allowance (scenario)",
     x: "pass, disqualified (leaderboard judge or our review)",
     "0": "fail",
     t: "agent timeout",
+    r: "safety stop/refusal",
     e: "error",
     "-": "missing",
   };
@@ -90,23 +94,163 @@
     var v = scores.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / (scores.length - 1);
     return Math.round(Math.sqrt(v / scores.length) * 10000) / 100;
   }
+  /* ── Safety allowance: a scenario, off by default ────────────────────
+     Trials a provider safety stop or refusal ended are always marked "r". With the
+     allowance on, those on tasks a reference model passed (benchmark.safetyAllowance)
+     count as passes ("a"), on top of the chosen primary score. Hypothetical, so every
+     view that shows it says so. */
+  function safetyOn() {
+    var p = new URLSearchParams(window.location.search).get("safety");
+    if (p === "allow") return true;
+    if (p === "off") return false;
+    try {
+      return window.localStorage.getItem("faBenchSafety") === "allow";
+    } catch (e) {
+      return false;
+    }
+  }
+  function withCodes(cells, indices, code) {
+    var out = cells.split("");
+    indices.forEach(function (i) { out[i] = code; });
+    return out.join("");
+  }
   /* Every page reads one primary score; reviewed runs keep both figures in .review. */
   function withScoreMode(data) {
     var mode = scoreMode();
+    var allow = safetyOn();
     var attempts = {};
     data.benchmarks.forEach(function (b) { attempts[b.id] = b.attempts; });
     var runs = data.runs.map(function (r) {
-      if (!r.review) return r;
-      var review = Object.assign({}, r.review, { reviewedScore: r.score, reviewedPasses: r.passes, reviewedSe: r.se });
-      if (mode !== "recorded") return Object.assign({}, r, { review: review });
+      if (r.review) {
+        var review = Object.assign({}, r.review, { reviewedScore: r.score, reviewedPasses: r.passes, reviewedSe: r.se });
+        r = mode !== "recorded"
+          ? Object.assign({}, r, { review: review })
+          : Object.assign({}, r, {
+              review: review,
+              score: r.review.recordedScore,
+              passes: r.review.recordedPasses,
+              se: clusteredSe(r.cells, attempts[r.benchmark], "1x"),
+            });
+      }
+      if (!r.safety) return r;
+      r = Object.assign({}, r, { cells: withCodes(r.cells, r.safety.refused, "r") });
+      var extra = r.safety.allowance || [];
+      if (!allow || !extra.length) return r;
+      var passes = r.passes + extra.length;
       return Object.assign({}, r, {
-        review: review,
-        score: r.review.recordedScore,
-        passes: r.review.recordedPasses,
-        se: clusteredSe(r.cells, attempts[r.benchmark], "1x"),
+        cells: withCodes(r.cells, extra, "a"),
+        passes: passes,
+        score: Math.round((passes / r.slots) * 10000) / 100,
+        se: clusteredSe(withCodes(r.cells, extra, "a"), attempts[r.benchmark], mode === "recorded" ? "1xa" : "1a"),
+        allowance: { added: extra.length, baseScore: r.score, basePasses: r.passes, baseSe: r.se },
       });
     });
-    return Object.assign({}, data, { runs: runs, scoreMode: mode });
+    return Object.assign({}, data, { runs: runs, scoreMode: mode, safetyOn: allow });
+  }
+  /* A labelled segmented control that re-renders the page and remembers the choice. */
+  function modeSwitch(label, aria, options, current, onPick, cls) {
+    var wrap = el("div", "fb-scoremode" + (cls ? " " + cls : ""));
+    wrap.appendChild(el("span", "fb-scoremode__k", label));
+    var seg = el("div", "fb-seg");
+    seg.setAttribute("role", "group");
+    seg.setAttribute("aria-label", aria);
+    wrap.appendChild(seg);
+    options.forEach(function (opt) {
+      var b = el("button", "", opt.label);
+      b.type = "button";
+      b.title = opt.title;
+      b.setAttribute("aria-pressed", String(opt.key === current));
+      b.addEventListener("click", function () {
+        if (opt.key === current) return;
+        onPick(opt.key);
+        restart();
+      });
+      seg.appendChild(b);
+    });
+    return wrap;
+  }
+  function setParam(name, value, storageKey, stored) {
+    try { window.localStorage.setItem(storageKey, stored); } catch (e) {}
+    var url = new URL(window.location.href);
+    if (value === null) url.searchParams.delete(name);
+    else url.searchParams.set(name, value);
+    window.history.replaceState(window.history.state, "", url);
+  }
+  function safetyToggle(bench) {
+    var sa = bench && bench.safetyAllowance;
+    var rule = sa ? sa.rule : "";
+    return modeSwitch(
+      "Safety allowance",
+      "Safety allowance scenario",
+      [
+        { key: "off", label: "Off", title: "Measured scores: a safety stop or refusal scores 0" },
+        {
+          key: "allow",
+          label: "On · scenario",
+          title: "Hypothetical: count safety stops/refusals as passes on easy tasks. " + rule,
+        },
+      ],
+      safetyOn() ? "allow" : "off",
+      function (k) {
+        setParam("safety", k === "allow" ? "allow" : null, "faBenchSafety", k);
+      },
+      "fb-scoremode--scenario"
+    );
+  }
+  /* The score switches for a page: review mode for reviewed runs, the safety scenario
+     where any shown run has a safety stop/refusal on an easy task. */
+  function modeBar(runs, bench) {
+    var bar = el("div", "fb-modes");
+    if (runs.some(function (r) { return r.review; })) bar.appendChild(scoreToggle());
+    if (bench && bench.safetyAllowance && runs.some(function (r) { return r.safety && r.safety.allowance && r.safety.allowance.length; })) {
+      bar.appendChild(safetyToggle(bench));
+    }
+    return bar.children.length ? bar : null;
+  }
+  /* Shown wherever the scenario changes the figures. */
+  function scenarioBanner(m, runs) {
+    var sa = m.bench.safetyAllowance;
+    if (!sa || !m.data.safetyOn) return null;
+    var hit = runs.filter(function (r) { return r.allowance; });
+    if (!hit.length) return null;
+    var added = hit.reduce(function (n, r) { return n + r.allowance.added; }, 0);
+    var box = el("div", "fb-scenario");
+    box.setAttribute("role", "note");
+    var p = el("p");
+    p.appendChild(el("strong", "", "Scenario, not a measured score. "));
+    p.appendChild(
+      document.createTextNode(
+        "Safety allowance is on: " + plural(added, "trial") + " across " + plural(hit.length, "run") +
+          " that a provider safety stop or refusal ended count as passes, because their task is easy for the run's reference model. " + sa.rule +
+          " Those attempts are drawn hatched; every other figure is as measured."
+      )
+    );
+    box.appendChild(p);
+    var refs = el("ul", "fb-scenario__refs");
+    sa.references.forEach(function (r) {
+      var li = el("li");
+      li.appendChild(el("strong", "", r.label + ": "));
+      li.appendChild(document.createTextNode(r.note || ""));
+      if (r.source) li.title = r.source;
+      refs.appendChild(li);
+    });
+    box.appendChild(refs);
+    return box;
+  }
+  /* "GPT-6 Luna 25/25 · Claude Haiku 5.5 5/5" for one task, if any attempt was refused. */
+  function safetyEvidence(m, run, index) {
+    var sa = m.bench.safetyAllowance;
+    if (!sa || !run.safety) return [];
+    var cells = taskCells(run, index, m.attempts);
+    if (!/[ra]/.test(cells)) return [];
+    var ref = sa.references.filter(function (r) { return r.id === run.safety.reference; })[0];
+    if (!ref) return [];
+    var refs = ref.label + " passed " + ref.passes[index] + "/" + ref.attempts;
+    var easy = ref.easy.indexOf(index) >= 0;
+    return [
+      (easy ? "Easy for the safety allowance: " : "Not easy enough for the safety allowance (needs " + sa.minPasses + "/" + ref.attempts + "): ") + refs,
+      easy && !m.data.safetyOn ? "Safety allowance (scenario) would count the refused attempts as passes" : null,
+    ].filter(Boolean);
   }
   /* "Score: After review | Recorded": re-renders the page and remembers the choice. */
   function scoreToggle() {
@@ -268,7 +412,7 @@
   function taskPasses(run, index, attempts) {
     var cells = taskCells(run, index, attempts);
     var n = 0;
-    for (var i = 0; i < cells.length; i++) if (cells[i] === "1") n++;
+    for (var i = 0; i < cells.length; i++) if (cells[i] === "1" || cells[i] === "a") n++;
     return n;
   }
   function stacked(cells) {
@@ -323,7 +467,7 @@
     if (!run.scan) return ["atif-scan: this run hasn't been scanned"];
     var list = attemptsOf(run, index, attempts);
     var flagged = list.filter(function (a) { return isFlagged(a.s); });
-    var passed = flagged.filter(function (a) { return a.c === "1" || a.c === "x"; }).length;
+    var passed = flagged.filter(function (a) { return a.c === "1" || a.c === "x" || a.c === "a"; }).length;
     var fallback = list.filter(function (a) { return isFallback(a.s); }).length;
     var medium = list.filter(function (a) { return a.s.toLowerCase() === "m"; }).length;
     var missing = list.filter(function (a) { return a.s === "?"; }).length;
@@ -466,6 +610,10 @@
       role: "img",
       "aria-label": title(run) + " on " + run.harness + ": " + run.passes + " of " + run.slots + " trials passed",
     });
+    if (opts.task !== undefined && opts.task !== null) {
+      var hc = m.order.indexOf(opts.task);
+      if (hc >= 0) svg("rect", { x: hc * (cell + colGap) - colGap, y: 0, width: cell + 2 * colGap, height: height, rx: 1, class: "fb-strip__hl" }, root);
+    }
     m.order.forEach(function (taskIndex, col) {
       var x = col * (cell + colGap);
       var list = attemptsOf(run, taskIndex, m.attempts);
@@ -486,8 +634,9 @@
       var name = m.tasks[taskIndex];
       var cells = taskCells(run, taskIndex, m.attempts);
       var passes = taskPasses(run, taskIndex, m.attempts);
-      var lines = [name, passes + " of " + m.attempts + " attempts passed"];
-      var other = cells.replace(/[10]/g, "");
+      var scenario = (cells.match(/a/g) || []).length;
+      var lines = [name, passes + " of " + m.attempts + " attempts passed" + (scenario ? " (" + scenario + " only under the safety allowance)" : "")];
+      var other = cells.replace(/[10a]/g, "");
       if (other) {
         lines.push(
           other
@@ -498,6 +647,7 @@
             .join(", ")
         );
       }
+      lines = lines.concat(safetyEvidence(m, run, taskIndex));
       lines = lines.concat(scanLines(run, taskIndex, m.attempts));
       lines.push("All runs: " + Math.round(m.difficulty[taskIndex] * 100) + "% of attempts pass");
       showTip(evt, lines);
@@ -602,9 +752,43 @@
     });
     controls.appendChild(families);
 
+    // Find a task: highlights its column in every strip and shows each run's passes.
+    var finder = el("div", "fb-taskpick");
+    var listId = "fb-tasks-" + m.bench.slug;
+    var input = el("input", "fb-taskpick__in");
+    input.type = "search";
+    input.placeholder = "Find a task…";
+    input.setAttribute("aria-label", "Highlight a task");
+    input.setAttribute("list", listId);
+    if (state.task !== null) input.value = m.tasks[state.task];
+    var dl = el("datalist");
+    dl.id = listId;
+    m.tasks.slice().sort().forEach(function (t) { var o = el("option"); o.value = t; dl.appendChild(o); });
+    function pickTask() {
+      var i = m.tasks.indexOf(input.value.trim());
+      if (input.value.trim() === "") i = -1;
+      if (i < 0 && input.value.trim() !== "") return;
+      state.task = i < 0 ? null : i;
+      state.redraw();
+    }
+    input.addEventListener("change", pickTask);
+    input.addEventListener("search", pickTask);
+    finder.appendChild(input);
+    finder.appendChild(dl);
+    if (state.task !== null) {
+      var d = m.difficulty[state.task];
+      finder.appendChild(el("span", "fb-taskpick__info", "All runs: " + Math.round(d * 100) + "% of attempts pass · rank " + (m.order.indexOf(state.task) + 1) + " of " + m.tasks.length + " by ease"));
+      var clear = el("button", "fb-taskpick__x", "Clear");
+      clear.type = "button";
+      clear.addEventListener("click", function () { state.task = null; state.redraw(); });
+      finder.appendChild(clear);
+    }
+    controls.appendChild(finder);
+
     var toggles = el("div", "fb-toggles");
-    function toggle(key, label) {
+    function toggle(key, label, hint) {
       var lab = el("label", "fb-toggle");
+      if (hint) lab.title = hint;
       var input = el("input");
       input.type = "checkbox";
       input.checked = state[key];
@@ -618,7 +802,7 @@
     }
     toggles.appendChild(toggle("leaderboard", "Leaderboard runs"));
     if (m.claims.length) toggles.appendChild(toggle("claims", "Vendor claims"));
-    if (m.runs.some(function (r) { return r.timeout === "6h"; })) toggles.appendChild(toggle("long", "Six-hour runs"));
+    if (m.runs.some(function (r) { return r.timeout === "6h"; })) toggles.appendChild(toggle("long", "Our runs", "Our six-hour bench-run results: fixed-QEMU TB2.1 with a 21,600 s agent timeout"));
     var sort = el("div", "fb-seg");
     sort.setAttribute("role", "group");
     sort.setAttribute("aria-label", "Order");
@@ -636,8 +820,13 @@
       });
       sort.appendChild(b);
     });
+    // Score switches sit with the other table controls; they re-render the whole page.
+    var modes = modeBar(m.runs, m.bench);
+    if (modes) toggles.appendChild(modes);
     toggles.appendChild(sort);
     controls.appendChild(toggles);
+    var banner = scenarioBanner(m, m.runs);
+    if (banner) controls.appendChild(banner);
     wrap.appendChild(controls);
 
     var entries = m.runs.concat(m.claims).filter(function (e) {
@@ -702,12 +891,22 @@
       r.appendChild(who);
 
       var strip = el("span", "fb-cell-strip");
-      strip.appendChild(entry.tier === "claim" ? claimStrip(m, entry) : taskStrip(m, entry));
+      strip.appendChild(entry.tier === "claim" ? claimStrip(m, entry) : taskStrip(m, entry, { task: state.task }));
+      if (state.task !== null && entry.tier !== "claim") {
+        var tp = taskPasses(entry, state.task, m.attempts);
+        strip.appendChild(el("span", "fb-taskpick__n", m.tasks[state.task] + ": " + tp + "/" + m.attempts));
+      }
       r.appendChild(strip);
 
       var score = el("span", "fb-score");
       score.appendChild(el("span", "fb-score__v", pct(entry.score)));
       score.appendChild(el("span", "fb-score__n", entry.tier === "claim" ? "reported" : entry.passes + "/" + entry.slots + " · ±" + entry.se.toFixed(1)));
+      if (entry.allowance) {
+        var sc = el("span", "fb-score__full fb-score__scenario", "scenario +" + entry.allowance.added + " · was " + pct(entry.allowance.baseScore));
+        sc.title = "Safety allowance (scenario): " + entry.allowance.added + " safety stops/refusals on easy tasks counted as passes; measured score " + pct(entry.allowance.baseScore);
+        score.appendChild(sc);
+        score.classList.add("fb-score--scenario");
+      }
       if (entry.review) {
         var rec = el("span", "fb-score__full", otherScore(entry));
         rec.title = entry.review.disqualified + " passing trials disqualified on review";
@@ -765,6 +964,8 @@
     runs.forEach(function (r) { tiers[r.tier] = true; });
     var dq = runs.some(function (r) { return r.cells && r.cells.indexOf("x") >= 0; });
     var errors = runs.some(function (r) { return r.cells && r.cells.indexOf("e") >= 0; });
+    var refused = runs.some(function (r) { return r.cells && r.cells.indexOf("r") >= 0; });
+    var allowed = runs.some(function (r) { return r.cells && r.cells.indexOf("a") >= 0; });
     var timeouts = runs.some(function (r) { return r.cells && r.cells.indexOf("t") >= 0; });
     [
       tiers.ours && ["fb-sw fb-sw--ours", "our pass"],
@@ -772,6 +973,8 @@
       ["fb-sw fb-sw--fail", "fail"],
       timeouts && ["fb-sw fb-sw--t", "timeout"],
       errors && ["fb-sw fb-sw--e", "error"],
+      refused && ["fb-sw fb-sw--r", "safety stop/refusal"],
+      allowed && ["fb-sw fb-sw--a", "counted by the safety allowance (scenario)"],
       dq && ["fb-sw fb-sw--x", "disqualified"],
       scan.flagged && ["fb-sw fb-sw--flag", "atif-scan: high or critical finding"],
       scan.flagged && columnMarks && ["fb-sw fb-sw--flagcol", "task has a flagged attempt"],
@@ -791,6 +994,49 @@
   }
 
   /* ── Frontier: score vs run cost (log) ─────────────────────────────── */
+  /* Log cost axis for a zoomed window: 1–9 × 10^k ticks, thinned to at most six. */
+  function zoomDomain(min, max) {
+    var ticks = [];
+    for (var k = -3; k < 6; k++) {
+      for (var f = 1; f <= 9; f++) {
+        var v = Math.round(f * Math.pow(10, k) * 1e6) / 1e6;
+        if (v > min && v < max) ticks.push(v);
+      }
+    }
+    var stride = Math.ceil(ticks.length / 6);
+    ticks = ticks.filter(function (_, i) { return i % stride === 0; });
+    return { min: min, max: max, ticks: ticks, all: ticks };
+  }
+  /* The score/cost chart with drag-to-zoom and a reset; the window lives in ?zoom=. */
+  function frontierPanel(m) {
+    var wrap = el("div", "fb-zoomable");
+    function readView() {
+      var z = (new URLSearchParams(window.location.search).get("zoom") || "").split(",").map(Number);
+      return z.length === 4 && z.every(function (v) { return isFinite(v); }) && z[0] > 0 && z[1] > z[0] && z[3] > z[2]
+        ? { cMin: z[0], cMax: z[1], sMin: z[2], sMax: z[3] }
+        : null;
+    }
+    function draw(view) {
+      var url = new URL(window.location.href);
+      if (view) url.searchParams.set("zoom", [view.cMin, view.cMax, view.sMin, view.sMax].map(function (v) { return +v.toPrecision(4); }).join(","));
+      else url.searchParams.delete("zoom");
+      window.history.replaceState(window.history.state, "", url);
+      wrap.innerHTML = "";
+      if (view) {
+        var bar = el("div", "fb-zoombar");
+        bar.appendChild(el("span", "", "Zoomed to " + money(view.cMin) + "–" + money(view.cMax) + " · " + view.sMin.toFixed(1) + "–" + view.sMax.toFixed(1) + "%"));
+        var reset = el("button", "fb-taskpick__x", "Reset zoom");
+        reset.type = "button";
+        reset.addEventListener("click", function () { draw(null); });
+        bar.appendChild(reset);
+        wrap.appendChild(bar);
+      }
+      wrap.appendChild(frontier(m, { view: view, onZoom: draw }));
+    }
+    draw(readView());
+    return wrap;
+  }
+
   function frontier(m, opts) {
     opts = opts || {};
     var entries = (opts.entries || m.runs.concat(m.claims)).slice();
@@ -810,6 +1056,21 @@
       sMax = Math.ceil(sMax / 10) * 10;
     }
     var dom = costDomain(entries);
+    // Zoomed: the chosen window; the frontier line still comes from every entry.
+    var all = entries;
+    var view = opts.view;
+    if (view) {
+      sMin = view.sMin;
+      sMax = view.sMax;
+      var span = sMax - sMin;
+      sStep = span > 32 ? 10 : span > 16 ? 4 : span > 8 ? 2 : span > 3 ? 1 : 0.5;
+      sMin = Math.floor(sMin / sStep) * sStep;
+      sMax = Math.ceil(sMax / sStep) * sStep;
+      dom = zoomDomain(view.cMin, view.cMax);
+      entries = entries.filter(function (e) {
+        return e.cost.total >= dom.min && e.cost.total <= dom.max && e.score >= sMin && e.score <= sMax;
+      });
+    }
     function X(c) {
       return pad.l + costX(c, iw, dom);
     }
@@ -817,16 +1078,20 @@
       return pad.t + (1 - (s - sMin) / (sMax - sMin)) * ih;
     }
     var root = svg("svg", { class: "fb-frontier", viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Score against run cost for every run and claim" });
+    var clipId = "fb-plot-" + Math.random().toString(36).slice(2, 8);
+    var defs = svg("defs", {}, root);
+    var clip = svg("clipPath", { id: clipId }, defs);
+    svg("rect", { x: pad.l, y: pad.t, width: iw, height: ih }, clip);
     // Cheap band — the one allowed flat tint.
-    if (m.bench.cheapBand) {
-      svg("rect", { x: pad.l, y: pad.t, width: X(m.bench.cheapBand) - pad.l, height: ih, class: "fb-band" }, root);
+    if (m.bench.cheapBand && m.bench.cheapBand > dom.min) {
+      svg("rect", { x: pad.l, y: pad.t, width: Math.min(X(m.bench.cheapBand), W - pad.r) - pad.l, height: ih, class: "fb-band" }, root);
       var bandLabel = svg("text", { x: pad.l + 8, y: H - pad.b - 8, class: "fb-band__label" }, root);
       bandLabel.textContent = "UNDER $" + m.bench.cheapBand + " A RUN";
     }
-    for (var s = sMin; s <= sMax; s += sStep) {
+    for (var s = sMin; s <= sMax + 1e-9; s += sStep) {
       svg("line", { x1: pad.l, x2: W - pad.r, y1: Y(s), y2: Y(s), class: "fb-grid" }, root);
       var t = svg("text", { x: pad.l - 10, y: Y(s) + 4, "text-anchor": "end", class: "fb-axis" }, root);
-      t.textContent = s + "%";
+      t.textContent = (sStep < 1 ? s.toFixed(1) : String(Math.round(s))) + "%";
     }
     dom.all.forEach(function (c) {
       svg("line", { x1: X(c), x2: X(c), y1: pad.t, y2: H - pad.b, class: "fb-grid fb-grid--v" }, root);
@@ -838,8 +1103,52 @@
     var yl = svg("text", { x: 12, y: pad.t - 8, class: "fb-axis fb-axis--title" }, root);
     yl.textContent = "↑ score";
 
+    // Brush: drag across the plot to zoom (under the points, so they keep their tooltips).
+    if (opts.onZoom) {
+      var area = svg("rect", { x: pad.l, y: pad.t, width: iw, height: ih, class: "fb-brush-area" }, root);
+      var sel = null;
+      var start = null;
+      var toSvg = function (evt) {
+        var pt = root.createSVGPoint();
+        pt.x = evt.clientX;
+        pt.y = evt.clientY;
+        var q = pt.matrixTransform(root.getScreenCTM().inverse());
+        return { x: Math.max(pad.l, Math.min(W - pad.r, q.x)), y: Math.max(pad.t, Math.min(H - pad.b, q.y)) };
+      };
+      area.addEventListener("pointerdown", function (evt) {
+        evt.preventDefault();
+        start = toSvg(evt);
+        sel = svg("rect", { x: start.x, y: start.y, width: 0, height: 0, class: "fb-brush" }, root);
+        root.setPointerCapture(evt.pointerId);
+      });
+      root.addEventListener("pointermove", function (evt) {
+        if (!start) return;
+        var q = toSvg(evt);
+        sel.setAttribute("x", Math.min(start.x, q.x));
+        sel.setAttribute("y", Math.min(start.y, q.y));
+        sel.setAttribute("width", Math.abs(q.x - start.x));
+        sel.setAttribute("height", Math.abs(q.y - start.y));
+      });
+      root.addEventListener("pointerup", function (evt) {
+        if (!start) return;
+        var q = toSvg(evt);
+        var a = start;
+        start = null;
+        sel.remove();
+        if (Math.abs(q.x - a.x) < 12 || Math.abs(q.y - a.y) < 12) return; // a click, not a drag
+        var costAt = function (x) { return dom.min * Math.pow(dom.max / dom.min, (x - pad.l) / iw); };
+        var scoreAt = function (y) { return sMin + (1 - (y - pad.t) / ih) * (sMax - sMin); };
+        opts.onZoom({
+          cMin: costAt(Math.min(a.x, q.x)),
+          cMax: costAt(Math.max(a.x, q.x)),
+          sMin: scoreAt(Math.max(a.y, q.y)),
+          sMax: scoreAt(Math.min(a.y, q.y)),
+        });
+      });
+    }
+
     // Pareto frontier across runs with trial data.
-    var withTrials = entries
+    var withTrials = all
       .filter(function (e) {
         return e.tier !== "claim";
       })
@@ -860,7 +1169,7 @@
           return (i ? "L" : "M") + X(e.cost.total).toFixed(1) + " " + Y(e.score).toFixed(1);
         })
         .join(" ");
-      svg("path", { d: d, class: "fb-pareto" }, root);
+      svg("path", { d: d, class: "fb-pareto", "clip-path": "url(#" + clipId + ")" }, root);
     }
 
     // Claim → our run connectors.
@@ -887,7 +1196,7 @@
     }
     function attachTip(g, e) {
       g.addEventListener("mousemove", function (evt) {
-        showTip(evt, [title(e), harnessLine(e), pct(e.score) + (e.tier === "claim" ? " reported" : " · " + e.passes + "/" + e.slots), costText(e, true) + " per run" + (e.cost.basis ? " · " + e.cost.basis : "")]);
+        showTip(evt, [title(e), harnessLine(e), pct(e.score) + (e.tier === "claim" ? " reported" : " · " + e.passes + "/" + e.slots), e.allowance ? "Scenario: measured " + pct(e.allowance.baseScore) + ", +" + e.allowance.added + " by the safety allowance" : null, costText(e, true) + " per run" + (e.cost.basis ? " · " + e.cost.basis : "")].filter(Boolean));
       });
       g.addEventListener("mouseleave", hideTip);
       if (e.tier !== "claim") {
@@ -899,11 +1208,17 @@
     order.forEach(function (e) {
       var cx = X(e.cost.total);
       var cy = Y(e.score);
-      var g = svg("g", { class: "fb-pt fb-pt--" + e.tier, tabindex: "0" }, root);
+      var g = svg("g", { class: "fb-pt fb-pt--" + e.tier + (e.allowance ? " fb-pt--scenario" : ""), tabindex: "0" }, root);
+      if (e.allowance) {
+        // Measured score as a ghost, joined to the scenario point.
+        var by = Y(e.allowance.baseScore);
+        svg("line", { x1: cx, x2: cx, y1: by, y2: cy, class: "fb-scenario-line" }, g);
+        svg("rect", { x: cx - 9, y: by - 5.5, width: 18, height: 11, rx: 5.5, class: "fb-marker fb-marker--ghost" }, g);
+      }
       if (e.tier !== "claim") {
         var top = Math.max(pad.t, Y(e.score + 1.96 * e.se));
         var bottom = Math.min(H - pad.b, Y(e.score - 1.96 * e.se));
-        svg("line", { x1: cx, x2: cx, y1: bottom, y2: top, class: "fb-ci" }, g);
+        svg("line", { x1: cx, x2: cx, y1: bottom, y2: top, class: "fb-ci", "clip-path": "url(#" + clipId + ")" }, g);
       }
       var at = svg("g", { transform: "translate(" + cx + " " + cy + ")" }, g);
       if (e.tier === "ours") {
@@ -947,11 +1262,17 @@
       label.textContent = text;
       attachTip(g, e);
     });
+    if (view && !entries.length) {
+      var none = svg("text", { x: pad.l + iw / 2, y: pad.t + ih / 2, "text-anchor": "middle", class: "fb-axis fb-axis--title" }, root);
+      none.textContent = "No runs in this window";
+    }
     var fig = el("figure", "fb-figure");
     fig.appendChild(root);
     var cap = el("figcaption", "fb-caption");
     cap.textContent =
-      "Capsules: our runs · dots: leaderboard runs · dashed rings: vendor claims (no trials) · whiskers: 95% interval, clustered by task · line: best score at or below each cost.";
+      (opts.onZoom ? (view ? "Zoomed: " + entries.length + " of " + all.length + " shown. " : "Drag across the chart to zoom in. ") : "") +
+      "Capsules: our runs · dots: leaderboard runs · dashed rings: vendor claims (no trials) · whiskers: 95% interval, clustered by task · line: best score at or below each cost." +
+      (entries.some(function (e) { return e.allowance; }) ? " Hatched capsules: safety-allowance scenario, joined to the measured score (faint)." : "");
     fig.appendChild(cap);
     return fig;
   }
@@ -1019,6 +1340,47 @@
   function benchParam() {
     return new URLSearchParams(window.location.search).get("b");
   }
+  /* Ledger filters live in the URL (?fam=&sort=&hide=&task=) so a view can be shared. */
+  var HIDEABLE = ["leaderboard", "claims", "long"];
+  function viewState(m) {
+    var q = new URLSearchParams(window.location.search);
+    var hide = (q.get("hide") || "").split(",");
+    var fam = q.get("fam");
+    var sort = q.get("sort");
+    var task = m.tasks.indexOf(q.get("task"));
+    var state = {
+      family: fam && m.data.families.some(function (f) { return f.id === fam; }) ? fam : "all",
+      sort: ["family", "score", "cost"].indexOf(sort) >= 0 ? sort : "family",
+      task: task >= 0 ? task : null,
+    };
+    HIDEABLE.forEach(function (k) { state[k] = hide.indexOf(k) < 0; });
+    return state;
+  }
+  function saveViewState(state, m) {
+    var url = new URL(window.location.href);
+    var set = function (k, v) { if (v) url.searchParams.set(k, v); else url.searchParams.delete(k); };
+    set("fam", state.family !== "all" ? state.family : null);
+    set("sort", state.sort !== "family" ? state.sort : null);
+    set("hide", HIDEABLE.filter(function (k) { return !state[k]; }).join(",") || null);
+    set("task", state.task !== null ? m.tasks[state.task] : null);
+    window.history.replaceState(window.history.state, "", url);
+  }
+  /* In-page jump links for the benchmark view. */
+  function jumpNav(items) {
+    var nav = el("nav", "fb-jump");
+    nav.setAttribute("aria-label", "On this page");
+    items.forEach(function (it) {
+      var a = link("#" + it[0], "fb-jump__a", it[1]);
+      a.addEventListener("click", function (evt) {
+        var target = document.getElementById(it[0]);
+        if (!target) return;
+        evt.preventDefault();
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+      nav.appendChild(a);
+    });
+    return nav;
+  }
 
   function renderIndex(root, data) {
     var intro = el("section", "fb-intro");
@@ -1033,7 +1395,6 @@
       )
     );
     intro.appendChild(copy);
-    if (data.runs.some(function (r) { return r.review; })) intro.appendChild(scoreToggle());
     root.appendChild(intro);
 
     var tabs = el("nav", "fb-bench-tabs");
@@ -1094,22 +1455,31 @@
     root.appendChild(benchHead(m.bench, "Each square is one attempt. Our passes are amber, other harnesses' are dark blue; a column is one task, easiest on the left. Click on a run for more detail."));
     if (m.runs.some(function (r) { return r.sample; })) root.appendChild(sampleBanner());
 
-    var state = { family: "all", leaderboard: true, claims: true, long: true, sort: "family" };
+    var state = viewState(m);
     var boardSlot = el("div");
+    boardSlot.id = "results";
     state.redraw = function () {
       boardSlot.innerHTML = "";
       boardSlot.appendChild(scoreboard(m, state));
+      saveViewState(state, m);
     };
+    root.appendChild(jumpNav([["results", "Results"], ["score-cost", "Score / cost"], ["difficulty", "Task difficulty"], ["methodology", "Methodology"]].concat(m.comparisons.length ? [] : [])));
     root.appendChild(boardSlot);
     state.redraw();
 
-    root.appendChild(sectionHead("", "Score / Cost Chart", "Higher and further left is better. The cost scale is logarithmic."));
-    root.appendChild(frontier(m));
+    var sc = sectionHead("", "Score / Cost Chart", "Higher and further left is better. The cost scale is logarithmic.");
+    sc.id = "score-cost";
+    root.appendChild(sc);
+    root.appendChild(frontierPanel(m));
 
-    root.appendChild(sectionHead("", "Task Difficulty.", "One row per run, one column per task, darker is more attempts passed. Hard tasks sit on the right."));
+    var td = sectionHead("", "Task Difficulty.", "One row per run, one column per task, darker is more attempts passed. Hard tasks sit on the right.");
+    td.id = "difficulty";
+    root.appendChild(td);
     root.appendChild(matrix(m));
 
-    root.appendChild(methodologySummary(m));
+    var meth = methodologySummary(m);
+    meth.id = "methodology";
+    root.appendChild(meth);
   }
 
   /* Per-benchmark fine print: key points from the catalog and a link to the full page. */
@@ -1264,7 +1634,8 @@
     }
     var m = model(data, run.benchmark);
     root.appendChild(runPicker(m, run));
-    if (run.review) root.appendChild(scoreToggle());
+    var modes = modeBar([run], m.bench);
+    if (modes) root.appendChild(modes);
 
     var head = el("header", "fb-dossier__head");
     head.appendChild(familyMark(m, run.family, "lg"));
@@ -1281,6 +1652,8 @@
     head.appendChild(h);
     root.appendChild(head);
     if (run.sample) root.appendChild(sampleBanner());
+    var banner = scenarioBanner(m, [run]);
+    if (banner) root.appendChild(banner);
 
     var kpis = el("div", "fb-kpis");
     function kpi(v, k, note, cls) {
@@ -1290,12 +1663,14 @@
       if (note) d.appendChild(el("span", "fb-kpi__n", note));
       kpis.appendChild(d);
     }
+    var scoreName = run.review ? (scoreMode() === "recorded" ? "recorded score" : "score after review") : "score";
     kpi(
       pct(run.score),
-      run.review ? (scoreMode() === "recorded" ? "recorded score" : "score after review") : "score",
+      run.allowance ? scoreName + " + safety allowance (scenario)" : scoreName,
       "±" + run.se.toFixed(1) + " pts, one standard error by task" +
+        (run.allowance ? " · measured " + pct(run.allowance.baseScore) + ", +" + run.allowance.added + " refused trials on easy tasks counted" : "") +
         (run.review ? (run.review.disqualified ? " · " + otherScore(run) + ", " + run.review.disqualified + " disqualified on review" : " · reviewed, none disqualified") : ""),
-      "fb-kpi--hero"
+      "fb-kpi--hero" + (run.allowance ? " fb-kpi--scenario" : "")
     );
     var errors = run.errors ? Object.keys(run.errors) : [];
     kpi(
@@ -1378,7 +1753,25 @@
     select.addEventListener("change", function () {
       window.location.href = runHref(select.value);
     });
-    bar.appendChild(select);
+    // Previous / next run in the picker's order (family, then as listed).
+    var seq = [];
+    m.data.families.forEach(function (f) {
+      m.runs.forEach(function (r) { if (r.family === f.id) seq.push(r); });
+    });
+    var at = seq.map(function (r) { return r.id; }).indexOf(current.id);
+    var step = el("span", "fb-picker__step");
+    [[at - 1, "‹ Previous", "previous"], [at + 1, "Next ›", "next"]].forEach(function (s) {
+      var r = seq[s[0]];
+      if (!r) return;
+      var a = link(runHref(r.id), "fb-picker__nav", s[1]);
+      a.title = (r.tier === "ours" ? "" : r.harness + " · ") + title(r);
+      a.rel = s[2] === "next" ? "next" : "prev";
+      step.appendChild(a);
+    });
+    var right = el("span", "fb-picker__right");
+    right.appendChild(step);
+    right.appendChild(select);
+    bar.appendChild(right);
     return bar;
   }
 
@@ -1428,7 +1821,7 @@
           var sum = others.reduce(function (a, b) {
             return a + b;
           }, 0);
-          var lines = [name, p + " of " + m.attempts + " passed here"].concat(scanLines(run, ti, m.attempts));
+          var lines = [name, p + " of " + m.attempts + " passed here"].concat(safetyEvidence(m, run, ti), scanLines(run, ti, m.attempts));
           lines.push("Other " + others.length + " runs: " + sum + " of " + others.length * m.attempts + " attempts passed");
           showTip(evt, lines);
         });
@@ -1725,6 +2118,14 @@
     if (!comparison) custom.setAttribute("aria-current", "page");
     tabs.appendChild(custom);
     root.appendChild(tabs);
+    var ids = comparison
+      ? comparison.pairs ? [].concat.apply([], comparison.pairs) : comparison.runs || [comparison.a, comparison.b]
+      : [params.get("a"), params.get("b")];
+    var shown = ids.map(function (id) { return m.byId[id]; }).filter(function (e) { return e && e.tier !== "claim"; });
+    var modes = modeBar(shown, m.bench);
+    if (modes) root.appendChild(modes);
+    var banner = scenarioBanner(m, shown);
+    if (banner) root.appendChild(banner);
 
     if (comparison && comparison.kind === "pairs") return renderPairs(root, m, comparison);
     if (comparison && comparison.kind === "set") return renderSet(root, m, comparison);

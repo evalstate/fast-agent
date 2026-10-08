@@ -97,6 +97,23 @@ Bucket runs read a local mirror of the bucket (`--bucket-root`, default atif-sca
   decision stops `fetch_runs.py`, so a reviewed run never shows an undecided flag.
 - A score counts 445 slots (89 tasks × 5). Missing or errored trials score 0.
 
+- **Multi-cohort releases**: a bench-run release may hold several cohorts (the GPT-6 Luna
+  effort sweep `tb21-luna-flex-r1`). `bucket.cohort` names the run's cohort; the run's
+  folder holds that cohort's jobs and a copy of the full release manifest.
+
+## Safety stops and the safety allowance
+
+`safety_cells` lists, per task, the attempt indices (aligned with `tasks`) of unrewarded
+trials Harbor ended with `AgentSafetyRefusalError` or `AgentSafetyStopError`; they stay
+`e` in `tasks`. The page marks them as safety stops. `safety-allowance.json` defines the optional *Safety allowance* scenario: a refused trial
+counts as a pass when its task is easy for the run's reference model, i.e. the reference
+passed at least `minPasses` (4) of its 5 attempts. Anthropic runs use Claude Haiku 5.5
+high (a per-task pass table from an unpublished bench-run cohort, with its source); every
+other run uses our GPT-6 Luna high run (passes after review). The generator emits `safety.refused` / `safety.reference` / `safety.allowance` per run and
+`safetyAllowance` per benchmark; the page applies it only when switched on
+(`?safety=allow`) and labels it a scenario. A run with safety errors but no
+`safety_cells` stops the generator.
+
 ## Cell codes (`tasks`)
 
 One character per trial, ordered by `started_at`:
@@ -107,8 +124,10 @@ One character per trial, ordered by `started_at`:
 ## Scan block
 
 `scan` summarises `atif-scan --brief --format json` over the run's full jobs; `scan.version`
-and `scan.scanner` (commit, local changes, flags) record what produced it. Runs scanned
-before 2026-10-07 used v0.4.0 and have no `scanner` block.
+and `scan.scanner` (commit, local changes, flags) record what produced it. On 2026-10-08
+every fast-agent run was rescanned with atif-scan 0.7.0 (`e973303`) and `--image-model
+'codexresponses.gpt-6-luna?reasoning=medium'`; the leaderboard comparators keep their v0.4.0
+scans (no `scanner` block).
 `scan.cells` holds one code per selected trial, in the same order as `tasks`, from the
 full scan's per-trial results: `c`/`h`/`m`/`l` is the trial's highest unexcused priority
 (critical, high, medium, or low/info/none), upper case means the trial's steps used a

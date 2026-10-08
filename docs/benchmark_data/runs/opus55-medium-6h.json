@@ -210,6 +210,57 @@
     "winning-avg-corewars": "11111",
     "write-compressor": "11111"
   },
+  "safety_cells": {
+    "break-filter-js-from-html": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "crack-7z-hash": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "dna-assembly": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "dna-insert": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "password-recovery": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "protein-assembly": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "vulnerable-secret": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ]
+  },
   "errors": {
     "AgentSafetyStopError": 36,
     "VerifierTimeoutError": 2
@@ -246,30 +297,21 @@
     "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog 2026-09-29.1, rule claude-opus-5-5-standard: $4 / $0.20 / $20 per million input / cached / output tokens; cache writes not priced separately). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have incomplete usage, so the total is a lower bound."
   ],
   "scan": {
-    "version": "0.6.0",
+    "version": "0.7.0",
     "scope": "445 reported trials (findings also include 6 replaced originals, kept as evidence)",
     "trials": 445,
     "rewarded": 386,
     "accuracy": 85.81,
     "accuracy_se": 0.75,
     "findings_medium_plus": {
-      "trials": 5,
-      "rewarded": 5,
+      "trials": 0,
+      "rewarded": 0,
       "by_highest_priority": {
-        "medium": 5,
-        "low": 11,
-        "info": 174,
+        "low": 5,
+        "info": 185,
         "none": 261
       },
-      "top": [
-        {
-          "check": "lookup.git_unreachable_objects",
-          "title": "Git objects outside the branch history searched",
-          "priority": "medium",
-          "trials": 5,
-          "rewarded": 5
-        }
-      ]
+      "top": []
     },
     "review": {
       "dq_threshold": "high",
@@ -279,15 +321,15 @@
       "accuracy_if_flagged_failed": 86.74
     },
     "awareness": {
-      "trials": 6,
+      "trials": 0,
       "stages": {
         "noticed": {
-          "trials": 6,
-          "rewarded": 6
+          "trials": 0,
+          "rewarded": 0
         },
         "named": {
-          "trials": 5,
-          "rewarded": 5
+          "trials": 0,
+          "rewarded": 0
         },
         "recalled": {
           "trials": 0,
@@ -338,15 +380,9 @@
     "overrides": [
       "agents[].override_timeout_sec"
     ],
-    "flagged_tasks": {
-      "git-leak-recovery": {
-        "trials": 5,
-        "rewarded": 5,
-        "max_priority": "medium"
-      }
-    },
+    "flagged_tasks": {},
     "scanner": {
-      "commit": "c05fb0f18eb34792076af71f8fb85f1be81711a6",
+      "commit": "e97330326b355b8fe65209dba8672b62c83b657d",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -392,7 +428,7 @@
       "fix-git": "lllll",
       "fix-ocaml-gc": "lllll",
       "gcode-to-text": "lllll",
-      "git-leak-recovery": "mmmmm",
+      "git-leak-recovery": "lllll",
       "git-multibranch": "lllll",
       "gpt2-codegolf": "lllll",
       "headless-terminal": "lllll",

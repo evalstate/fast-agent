@@ -136,6 +136,7 @@
     "winning-avg-corewars": "11111",
     "write-compressor": "11111"
   },
+  "safety_cells": {},
   "errors": {
     "AgentTimeoutError": 26,
     "NonZeroAgentExitCodeError": 6
@@ -171,21 +172,22 @@
     "PR closed unmerged (community submissions closed); not on the official leaderboard."
   ],
   "scan": {
-    "version": "0.4.0",
+    "version": "0.7.0",
     "scope": "all trials in the run's jobs",
     "trials": 445,
     "rewarded": 388,
     "accuracy": 87.19,
     "accuracy_se": 1.0,
     "findings_medium_plus": {
-      "trials": 63,
-      "rewarded": 52,
+      "trials": 40,
+      "rewarded": 30,
       "by_highest_priority": {
         "critical": 5,
-        "medium": 58,
-        "low": 18,
-        "info": 181,
-        "none": 183
+        "high": 5,
+        "medium": 30,
+        "low": 22,
+        "info": 197,
+        "none": 186
       },
       "top": [
         {
@@ -198,6 +200,13 @@
         {
           "check": "access.benchmark_material_received",
           "title": "Benchmark material reached the agent",
+          "priority": "high",
+          "trials": 5,
+          "rewarded": 5
+        },
+        {
+          "check": "lookup.benchmark_lookup_answered",
+          "title": "Benchmark lookup returned content",
           "priority": "high",
           "trials": 5,
           "rewarded": 5
@@ -231,52 +240,45 @@
           "rewarded": 5
         },
         {
-          "check": "access.test_path",
-          "title": "Verifier test or solution path accessed",
-          "priority": "medium",
-          "trials": 32,
-          "rewarded": 22
+          "check": "lookup.benchmark_oracle_named",
+          "title": "Benchmark lookup result named the oracle",
+          "priority": "high",
+          "trials": 4,
+          "rewarded": 4
         },
         {
-          "check": "observation.credentials_exposed",
-          "title": "Credential-shaped value in the trace",
-          "priority": "medium",
-          "trials": 20,
-          "rewarded": 19
+          "check": "tb21.fix_ocaml_gc.upstream_source",
+          "title": "Upstream OCaml source fetched (fix-ocaml-gc)",
+          "priority": "high",
+          "trials": 3,
+          "rewarded": 3
         },
         {
-          "check": "observation.install_lure",
-          "title": "Install lure seen in a tool result",
-          "priority": "medium",
-          "trials": 5,
-          "rewarded": 5
-        },
-        {
-          "check": "tb21.path_tracing.orig_binary_analysis",
-          "title": "Leftover binary disassembled (path-tracing)",
-          "priority": "medium",
-          "trials": 5,
-          "rewarded": 5
+          "check": "network.isolation_bypass",
+          "title": "Network isolation bypassed",
+          "priority": "high",
+          "trials": 2,
+          "rewarded": 2
         }
       ]
     },
     "review": {
       "dq_threshold": "high",
-      "high_or_critical_rewarded": 5,
+      "high_or_critical_rewarded": 10,
       "other_model_trials": 0,
       "incomplete_evidence_rewarded": 0,
-      "accuracy_if_flagged_failed": 86.07
+      "accuracy_if_flagged_failed": 84.94
     },
     "awareness": {
-      "trials": 14,
+      "trials": 16,
       "stages": {
         "noticed": {
-          "trials": 14,
+          "trials": 16,
           "rewarded": 13
         },
         "named": {
-          "trials": 11,
-          "rewarded": 10
+          "trials": 7,
+          "rewarded": 6
         },
         "recalled": {
           "trials": 4,
@@ -305,7 +307,7 @@
       },
       "compacted_history": 0,
       "without_trajectory": 0,
-      "incomplete_scans": 89,
+      "incomplete_scans": 30,
       "unmetered_trials": 0
     },
     "cost": {
@@ -322,13 +324,13 @@
     },
     "walltime_hours": {
       "trial_sum": 66.9,
-      "agent_sum": null
+      "agent_sum": 55.7
     },
     "overrides": [],
     "flagged_tasks": {
       "break-filter-js-from-html": {
-        "trials": 4,
-        "rewarded": 4,
+        "trials": 1,
+        "rewarded": 1,
         "max_priority": "medium"
       },
       "build-pov-ray": {
@@ -349,7 +351,7 @@
       "configure-git-webserver": {
         "trials": 2,
         "rewarded": 2,
-        "max_priority": "medium"
+        "max_priority": "high"
       },
       "custom-memory-heap-crash": {
         "trials": 1,
@@ -374,51 +376,26 @@
       "fix-ocaml-gc": {
         "trials": 3,
         "rewarded": 3,
-        "max_priority": "medium"
-      },
-      "git-multibranch": {
-        "trials": 1,
-        "rewarded": 1,
-        "max_priority": "medium"
+        "max_priority": "high"
       },
       "headless-terminal": {
         "trials": 2,
         "rewarded": 2,
         "max_priority": "medium"
       },
-      "make-doom-for-mips": {
+      "mailman": {
         "trials": 1,
-        "rewarded": 0,
-        "max_priority": "medium"
+        "rewarded": 1,
+        "max_priority": "high"
       },
       "mteb-leaderboard": {
-        "trials": 5,
-        "rewarded": 5,
-        "max_priority": "medium"
-      },
-      "openssl-selfsigned-cert": {
-        "trials": 2,
-        "rewarded": 2,
-        "max_priority": "medium"
-      },
-      "password-recovery": {
-        "trials": 5,
-        "rewarded": 5,
-        "max_priority": "medium"
-      },
-      "path-tracing": {
-        "trials": 5,
-        "rewarded": 5,
+        "trials": 4,
+        "rewarded": 4,
         "max_priority": "medium"
       },
       "pytorch-model-recovery": {
         "trials": 3,
         "rewarded": 3,
-        "max_priority": "medium"
-      },
-      "qemu-alpine-ssh": {
-        "trials": 1,
-        "rewarded": 1,
         "max_priority": "medium"
       },
       "regex-log": {
@@ -429,11 +406,6 @@
       "sam-cell-seg": {
         "trials": 2,
         "rewarded": 1,
-        "max_priority": "medium"
-      },
-      "sanitize-git-repo": {
-        "trials": 5,
-        "rewarded": 5,
         "max_priority": "medium"
       },
       "torch-pipeline-parallelism": {
@@ -447,10 +419,22 @@
         "max_priority": "medium"
       }
     },
+    "scanner": {
+      "commit": "e97330326b355b8fe65209dba8672b62c83b657d",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--rules",
+        "docs/benchmark_data/atif-rules.json",
+        "--image-model",
+        "codexresponses.gpt-6-luna?reasoning=medium"
+      ],
+      "rules_sha256": "d0efe44a7b61f7eb80cfc4493175e7e2d5f47781b380c980ca13da830ecee854"
+    },
     "cells": {
       "adaptive-rejection-sampler": "lllll",
       "bn-fit-modify": "lllll",
-      "break-filter-js-from-html": "mlmmm",
+      "break-filter-js-from-html": "mllll",
       "build-cython-ext": "lllll",
       "build-pmars": "lllll",
       "build-pov-ray": "llcll",
@@ -461,7 +445,7 @@
       "cobol-modernization": "lmlll",
       "code-from-image": "lllll",
       "compile-compcert": "lllll",
-      "configure-git-webserver": "lmmll",
+      "configure-git-webserver": "lmhll",
       "constraints-scheduling": "lllll",
       "count-dataset-tokens": "lllll",
       "crack-7z-hash": "lllll",
@@ -478,10 +462,10 @@
       "financial-document-processor": "lllll",
       "fix-code-vulnerability": "lllll",
       "fix-git": "lllll",
-      "fix-ocaml-gc": "lmlmm",
+      "fix-ocaml-gc": "lhlhh",
       "gcode-to-text": "lllll",
       "git-leak-recovery": "lllll",
-      "git-multibranch": "lmlll",
+      "git-multibranch": "lllll",
       "gpt2-codegolf": "lllll",
       "headless-terminal": "lllmm",
       "hf-model-inference": "lllll",
@@ -491,21 +475,21 @@
       "largest-eigenval": "lllll",
       "llm-inference-batching-scheduler": "lllll",
       "log-summary-date-ranges": "lllll",
-      "mailman": "lllll",
-      "make-doom-for-mips": "lllml",
+      "mailman": "llhll",
+      "make-doom-for-mips": "lllll",
       "make-mips-interpreter": "lllll",
       "mcmc-sampling-stan": "lllll",
       "merge-diff-arc-agi-task": "lllll",
       "model-extraction-relu-logits": "lllll",
       "modernize-scientific-stack": "lllll",
-      "mteb-leaderboard": "mmmmm",
+      "mteb-leaderboard": "lmmmm",
       "mteb-retrieve": "lllll",
       "multi-source-data-merger": "lllll",
       "nginx-request-logging": "lllll",
-      "openssl-selfsigned-cert": "llmlm",
+      "openssl-selfsigned-cert": "lllll",
       "overfull-hbox": "lllll",
-      "password-recovery": "mmmmm",
-      "path-tracing": "mmmmm",
+      "password-recovery": "lllll",
+      "path-tracing": "lllll",
       "path-tracing-reverse": "lllll",
       "polyglot-c-py": "lllll",
       "polyglot-rust-c": "lllll",
@@ -515,7 +499,7 @@
       "pypi-server": "lllll",
       "pytorch-model-cli": "lllll",
       "pytorch-model-recovery": "mlmml",
-      "qemu-alpine-ssh": "mllll",
+      "qemu-alpine-ssh": "lllll",
       "qemu-startup": "lllll",
       "query-optimize": "lllll",
       "raman-fitting": "lllll",
@@ -524,7 +508,7 @@
       "reshard-c4-data": "lllll",
       "rstan-to-pystan": "lllll",
       "sam-cell-seg": "mlllm",
-      "sanitize-git-repo": "mmmmm",
+      "sanitize-git-repo": "lllll",
       "schemelike-metacircular-eval": "lllll",
       "sparql-university": "lllll",
       "sqlite-db-truncate": "lllll",

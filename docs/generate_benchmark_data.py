@@ -170,6 +170,7 @@ def _tb21_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[str,
             raise ValueError(f"{run_id}: expected {len(tasks) * attempts} cells")
         if raw.get("scan") and len("".join(raw["scan"]["cells"].values())) != len(cells):
             raise ValueError(f"{run_id}: scan cells do not align with trial cells")
+        safety = _safety_cells(run_id, raw, tasks, attempts, cells)
 
         recorded = raw["cost"]["total_usd_exact"]
         published = (raw.get("published") or {}).get("total_cost")
@@ -239,9 +240,104 @@ def _tb21_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[str,
                 # "Reconciliation:" lines are fetch diagnostics that restate the human notes.
                 "notes": [n for n in raw["notes"] if not n.startswith("Reconciliation:")],
                 "scan": _scan_summary(raw.get("scan"), tasks),
+                "safety": {"refused": safety} if safety else None,
             }
         )
     return runs
+
+
+SAFETY_ERRORS = ("AgentSafetyRefusalError", "AgentSafetyStopError")
+
+
+def _safety_cells(
+    run_id: str, raw: dict[str, Any], tasks: list[str], attempts: int, cells: str
+) -> list[int]:
+    """Cell indices of unrewarded trials a provider safety stop or refusal ended."""
+    if "safety_cells" not in raw:
+        if any(e in raw["errors"] for e in SAFETY_ERRORS):
+            raise ValueError(f"{run_id}: safety errors but no safety_cells; rerun fetch_runs.py")
+        return []
+    out = [
+        tasks.index(task) * attempts + i
+        for task, idx in raw["safety_cells"].items()
+        for i in idx
+    ]
+    if any(cells[i] in "1x" for i in out):
+        raise ValueError(f"{run_id}: a safety cell is a pass")
+    return sorted(out)
+
+
+def _safety_allowance(runs: list[dict[str, Any]], bench: dict[str, Any]) -> dict[str, Any] | None:
+    """The safety-allowance scenario (safety-allowance.json) for one benchmark.
+
+    Each run has one reference model: the first reference listing the run's family,
+    else the default. A task is easy for that run when the reference passed at least
+    ``minPasses`` attempts (a site run's "1" cells, after review, or an external per-task
+    pass table). Each run gets the refused cells on its easy tasks as
+    ``safety.allowance``; the page counts them only when the scenario is switched on.
+    """
+    path = DATA_DIR / "safety-allowance.json"
+    if not path.exists():
+        return None
+    cfg = _load(path)
+    if cfg["benchmark"] != bench["id"]:
+        return None
+    tasks, attempts, need = bench["tasks"], bench["attempts"], cfg["minPasses"]
+    by_id = {r["id"]: r for r in runs}
+    refs = []
+    for ref in cfg["references"]:
+        if "runs" in ref:
+            missing = [rid for rid in ref["runs"] if rid not in by_id]
+            if missing:
+                raise ValueError(f"safety allowance: reference runs not on the page: {missing}")
+            passes = [
+                sum(
+                    by_id[rid]["cells"][t * attempts : (t + 1) * attempts].count("1")
+                    for rid in ref["runs"]
+                )
+                for t in range(len(tasks))
+            ]
+            total = attempts * len(ref["runs"])
+        else:
+            if set(ref["passes"]) != set(tasks):
+                raise ValueError(f"safety allowance: {ref['id']} does not cover the task list")
+            passes = [ref["passes"][t] for t in tasks]
+            total = ref["attempts"]
+        if total != attempts:
+            raise ValueError(f"safety allowance: {ref['id']} must have {attempts} attempts per task")
+        refs.append(
+            {
+                "id": ref["id"],
+                "label": ref["label"],
+                "families": ref.get("families", []),
+                "default": bool(ref.get("default")),
+                "note": ref.get("note"),
+                "source": ref.get("source"),
+                "runs": ref.get("runs"),
+                "attempts": total,
+                "passes": passes,
+                "easy": [t for t in range(len(tasks)) if passes[t] >= need],
+            }
+        )
+    defaults = [r for r in refs if r["default"]]
+    if len(defaults) != 1:
+        raise ValueError("safety allowance: exactly one reference must be the default")
+    for run in runs:
+        if run["benchmark"] != bench["id"] or not run.get("safety"):
+            continue
+        ref = next((r for r in refs if run["family"] in r["families"]), defaults[0])
+        easy = set(ref["easy"])
+        run["safety"]["reference"] = ref["id"]
+        run["safety"]["allowance"] = [
+            i for i in run["safety"]["refused"] if i // attempts in easy
+        ]
+    return {
+        "label": cfg["label"],
+        "rule": cfg["rule"],
+        "minPasses": need,
+        "errorTypes": cfg["errorTypes"],
+        "references": refs,
+    }
 
 
 def _subset_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[str, Any]]:
@@ -379,6 +475,8 @@ def build() -> dict[str, Any]:
             )
         del bench["dir"]
         bench.pop("subset", None)
+        if allowance := _safety_allowance(real, bench):
+            bench["safetyAllowance"] = allowance
 
     pricing = catalog["pricing"]
     default_bench = catalog["benchmarks"][0]["id"]

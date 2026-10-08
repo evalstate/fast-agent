@@ -328,16 +328,24 @@ def select_release_trials(
     """A bench-run release in a bucket: ``release`` names its manifest
     (``bench-run.release/v1``) under ``path``; job folders sit in ``path/jobs``.
 
-    The manifest's trials are the reported set (replacements substituted); its lineage
+    A multi-cohort release names its cohort in ``cohort``; the run's folder holds only that
+    cohort's jobs. The manifest's trials are the reported set (replacements substituted); its lineage
     names the replaced originals, which are excluded (kept as evidence, cost counted).
     Every trial in the job folders must be one or the other.
     """
     spec = run["bucket"]
     base = root / spec["repo"] / spec["path"]
     manifest = json.loads((base / spec["release"]).read_text())
-    if manifest.get("schema") != "bench-run.release/v1" or len(manifest["cohorts"]) != 1:
-        raise SystemExit(f"{run['id']}: expected a one-cohort bench-run.release/v1 manifest")
-    cohort = manifest["cohorts"][0]
+    if manifest.get("schema") != "bench-run.release/v1":
+        raise SystemExit(f"{run['id']}: expected a bench-run.release/v1 manifest")
+    # A release may hold several cohorts (e.g. an effort sweep); ``cohort`` picks one.
+    picked = [c for c in manifest["cohorts"] if c["cohort"] == spec.get("cohort", c["cohort"])]
+    if len(picked) != 1:
+        raise SystemExit(
+            f"{run['id']}: release has {len(manifest['cohorts'])} cohorts; "
+            "name exactly one with bucket.cohort"
+        )
+    cohort = picked[0]
     reported = {t["id"] for t in cohort["trials"]}
     # Every link's replaced trial is excluded: an original, or the trial of a replacement
     # that was itself replaced (a superseded link). The manifest's trials are the ends.
@@ -444,6 +452,25 @@ def task_of(trial: Json) -> str:
 
 def rewarded(trial: Json) -> bool:
     return (trial["reward"] or 0) > 0
+
+
+# Harbor's provider safety outcomes: a stop (generation cut off, refusal not confirmed) or
+# a refusal (request blocked). Neither is retried; both score 0 unless the verifier passed.
+SAFETY_ERRORS = ("AgentSafetyRefusalError", "AgentSafetyStopError")
+
+
+def safety_cells(ordered: dict[str, list[Json]]) -> dict[str, list[int]]:
+    """Attempt indices (aligned with ``tasks``) of unrewarded trials a provider safety
+    stop or refusal ended. Rewarded ones already count as passes."""
+    out = {
+        task: [
+            i
+            for i, t in enumerate(trials)
+            if t["error_type"] in SAFETY_ERRORS and not rewarded(t)
+        ]
+        for task, trials in ordered.items()
+    }
+    return {task: idx for task, idx in out.items() if idx}
 
 
 def cell(trial: Json) -> str:
@@ -858,6 +885,7 @@ def build_run(
         "passes": passes,
         "score": round(100 * passes / slots, 2),
         "tasks": {task: "".join(c) for task, c in cells.items()},
+        "safety_cells": safety_cells(ordered),
         "errors": errors,
         "cost": {
             "total_usd": round(total_cost, 2),

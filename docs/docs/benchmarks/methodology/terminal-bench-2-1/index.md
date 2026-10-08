@@ -62,7 +62,7 @@ attempts or run selection behind them, so they can't be compared task by task.
 ## atif-scan review
 
 Our runs and the leaderboard comparators (all but Codex · GPT-5.6 Terra max) are scanned with
-[atif-scan](https://github.com/evalstate/atif-scan), which checks every trajectory for
+[atif-scan](https://github.com/huggingface/atif-scan), which checks every trajectory for
 benchmark lookups, test-file access, evidence gaps and model fallback.
 
 - An orange corner marks an attempt with a high or critical finding; in the ledger, a

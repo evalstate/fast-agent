@@ -1,0 +1,450 @@
+{
+  "id": "luna6-low-6h",
+  "benchmark": "terminal-bench-2.1",
+  "harness": "fast-agent",
+  "harness_version": "0.10.42",
+  "model": "GPT-6 Luna",
+  "effort": "low",
+  "model_string": "responses.gpt-6-luna?reasoning=low&service_tier=flex",
+  "date": "2026-10-03",
+  "timeout": "6h",
+  "jobs": [
+    {
+      "id": "tb21-luna-low-flex-001-hf-basic",
+      "name": "tb21-luna-low-flex-001-hf-basic (430 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-low-6h/jobs/tb21-luna-low-flex-001-hf-basic",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/luna6-low-6h/jobs/tb21-luna-low-flex-001-hf-basic"
+    },
+    {
+      "id": "tb21-luna-low-flex-001-hf-upgrade",
+      "name": "tb21-luna-low-flex-001-hf-upgrade (15 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-low-6h/jobs/tb21-luna-low-flex-001-hf-upgrade",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/luna6-low-6h/jobs/tb21-luna-low-flex-001-hf-upgrade"
+    },
+    {
+      "id": "tb21-luna-low-flex-001-rep-001",
+      "name": "tb21-luna-low-flex-001-rep-001 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-low-6h/jobs/tb21-luna-low-flex-001-rep-001",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/luna6-low-6h/jobs/tb21-luna-low-flex-001-rep-001"
+    },
+    {
+      "id": "tb21-luna-low-flex-001-rep-002",
+      "name": "tb21-luna-low-flex-001-rep-002 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-low-6h/jobs/tb21-luna-low-flex-001-rep-002",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/luna6-low-6h/jobs/tb21-luna-low-flex-001-rep-002"
+    }
+  ],
+  "excluded_trials": [
+    {
+      "id": "881e2b71-44e3-4407-ad6f-0294c56ddb07",
+      "task": "mteb-leaderboard",
+      "error_type": "ConnectError",
+      "cost_usd": null,
+      "reason": "ConnectError (infrastructure); replaced by tb21-luna-low-flex-001-rep-002. Not scored; its cost is still counted."
+    },
+    {
+      "id": "80837660-c60a-4104-b4d8-ddfac6cdb187",
+      "task": "regex-log",
+      "error_type": "ConnectError",
+      "cost_usd": null,
+      "reason": "ConnectError (infrastructure); replaced by tb21-luna-low-flex-001-rep-001. Not scored; its cost is still counted."
+    }
+  ],
+  "disqualified_trials": [],
+  "slots": 445,
+  "passes": 200,
+  "score": 44.94,
+  "tasks": {
+    "adaptive-rejection-sampler": "01000",
+    "bn-fit-modify": "00110",
+    "break-filter-js-from-html": "00000",
+    "build-cython-ext": "00000",
+    "build-pmars": "11111",
+    "build-pov-ray": "00001",
+    "caffe-cifar-10": "11111",
+    "cancel-async-tasks": "00000",
+    "chess-best-move": "00000",
+    "circuit-fibsqrt": "00000",
+    "cobol-modernization": "10111",
+    "code-from-image": "11111",
+    "compile-compcert": "10111",
+    "configure-git-webserver": "11110",
+    "constraints-scheduling": "11111",
+    "count-dataset-tokens": "11111",
+    "crack-7z-hash": "01001",
+    "custom-memory-heap-crash": "00110",
+    "db-wal-recovery": "10110",
+    "distribution-search": "11111",
+    "dna-assembly": "00000",
+    "dna-insert": "00000",
+    "extract-elf": "00000",
+    "extract-moves-from-video": "10000",
+    "feal-differential-cryptanalysis": "00000",
+    "feal-linear-cryptanalysis": "01011",
+    "filter-js-from-html": "00000",
+    "financial-document-processor": "00000",
+    "fix-code-vulnerability": "11111",
+    "fix-git": "11111",
+    "fix-ocaml-gc": "10001",
+    "gcode-to-text": "00000",
+    "git-leak-recovery": "11111",
+    "git-multibranch": "11101",
+    "gpt2-codegolf": "00000",
+    "headless-terminal": "11111",
+    "hf-model-inference": "10111",
+    "install-windows-3.11": "00000",
+    "kv-store-grpc": "11011",
+    "large-scale-text-editing": "11111",
+    "largest-eigenval": "01011",
+    "llm-inference-batching-scheduler": "00000",
+    "log-summary-date-ranges": "00000",
+    "mailman": "01110",
+    "make-doom-for-mips": "00000",
+    "make-mips-interpreter": "00000",
+    "mcmc-sampling-stan": "10000",
+    "merge-diff-arc-agi-task": "11111",
+    "model-extraction-relu-logits": "00000",
+    "modernize-scientific-stack": "11111",
+    "mteb-leaderboard": "00000",
+    "mteb-retrieve": "01110",
+    "multi-source-data-merger": "11111",
+    "nginx-request-logging": "11110",
+    "openssl-selfsigned-cert": "11111",
+    "overfull-hbox": "00000",
+    "password-recovery": "11000",
+    "path-tracing": "00000",
+    "path-tracing-reverse": "00000",
+    "polyglot-c-py": "10011",
+    "polyglot-rust-c": "00000",
+    "portfolio-optimization": "11111",
+    "protein-assembly": "00000",
+    "prove-plus-comm": "11111",
+    "pypi-server": "11111",
+    "pytorch-model-cli": "1x1xx",
+    "pytorch-model-recovery": "11111",
+    "qemu-alpine-ssh": "00000",
+    "qemu-startup": "01111",
+    "query-optimize": "00000",
+    "raman-fitting": "00000",
+    "regex-chess": "00000",
+    "regex-log": "10110",
+    "reshard-c4-data": "11101",
+    "rstan-to-pystan": "10111",
+    "sam-cell-seg": "11111",
+    "sanitize-git-repo": "01001",
+    "schemelike-metacircular-eval": "00000",
+    "sparql-university": "10010",
+    "sqlite-db-truncate": "11111",
+    "sqlite-with-gcov": "11111",
+    "torch-pipeline-parallelism": "00000",
+    "torch-tensor-parallelism": "00000",
+    "train-fasttext": "00000",
+    "tune-mjcf": "00101",
+    "video-processing": "00100",
+    "vulnerable-secret": "11111",
+    "winning-avg-corewars": "00010",
+    "write-compressor": "00000"
+  },
+  "safety_cells": {},
+  "errors": {},
+  "cost": {
+    "total_usd": 0.57,
+    "total_usd_exact": 0.567082,
+    "trials_with_cost": 445,
+    "trials": 445,
+    "excluded_trials_with_cost": 0,
+    "basis": "sum of Harbor recorded cost_usd over selected trials plus excluded (replaced) trials",
+    "matches_published": null,
+    "lower_bound": true
+  },
+  "tokens": {
+    "input": 32795248,
+    "cached": 28414355,
+    "output": 823862,
+    "basis": "Harbor per-trial input_tokens (includes cached), cache_tokens, output_tokens"
+  },
+  "per_trial_cost": {
+    "median": 0.0009,
+    "p90": 0.0024,
+    "max": 0.0107
+  },
+  "published": null,
+  "reconciled": true,
+  "notes": [
+    "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+    "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (low reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. Two infrastructure failures (connection errors creating the sandbox) were rerun as replacements; the originals are kept as evidence.",
+    "Ran 1\u20133 October, after the flex serving anomaly bench-run recorded on 30 September\u20131 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
+    "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound."
+  ],
+  "scan": {
+    "version": "0.7.0",
+    "scope": "445 reported trials",
+    "trials": 445,
+    "rewarded": 203,
+    "accuracy": 45.62,
+    "accuracy_se": 1.39,
+    "findings_medium_plus": {
+      "trials": 8,
+      "rewarded": 7,
+      "by_highest_priority": {
+        "high": 4,
+        "medium": 4,
+        "low": 8,
+        "info": 164,
+        "none": 265
+      },
+      "top": [
+        {
+          "check": "tb21.pytorch_model_cli.script_not_binary",
+          "title": "Script instead of binary (pytorch-model-cli)",
+          "priority": "high",
+          "trials": 3,
+          "rewarded": 3
+        },
+        {
+          "check": "lookup.benchmark_source",
+          "title": "Benchmark repository or mirror looked up",
+          "priority": "high",
+          "trials": 1,
+          "rewarded": 0
+        },
+        {
+          "check": "tb21.configure_git_webserver.rewarded_without_ssh",
+          "title": "Rewarded, no SSH setup (configure-git-webserver)",
+          "priority": "medium",
+          "trials": 4,
+          "rewarded": 4
+        },
+        {
+          "check": "access.benchmark_material_requested_only",
+          "title": "Benchmark material requested, none received",
+          "priority": "medium",
+          "trials": 1,
+          "rewarded": 0
+        }
+      ]
+    },
+    "review": {
+      "dq_threshold": "high",
+      "high_or_critical_rewarded": 3,
+      "other_model_trials": 0,
+      "incomplete_evidence_rewarded": 0,
+      "accuracy_if_flagged_failed": 44.94
+    },
+    "awareness": {
+      "trials": 1,
+      "stages": {
+        "noticed": {
+          "trials": 1,
+          "rewarded": 0
+        },
+        "named": {
+          "trials": 1,
+          "rewarded": 0
+        },
+        "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "searched": {
+          "trials": 1,
+          "rewarded": 0
+        },
+        "obtained": {
+          "trials": 0,
+          "rewarded": 0
+        }
+      },
+      "verifier_talk": {
+        "trials": 0,
+        "rewarded": 0
+      }
+    },
+    "evidence": {
+      "planned": 445,
+      "errored": 0,
+      "error_types": {},
+      "compacted_history": 0,
+      "without_trajectory": 0,
+      "incomplete_scans": 7,
+      "unmetered_trials": 0
+    },
+    "cost": {
+      "recorded": 0,
+      "trials_missing_cost": 445,
+      "estimated_unpriced": null,
+      "estimated_unmetered": null,
+      "estimated_total": 0
+    },
+    "tokens": {
+      "uncached_input": 4380893,
+      "cached_input": 28414355,
+      "output": 823862
+    },
+    "walltime_hours": {
+      "trial_sum": 23.8,
+      "agent_sum": 14.7
+    },
+    "overrides": [
+      "agents[].override_timeout_sec"
+    ],
+    "flagged_tasks": {
+      "configure-git-webserver": {
+        "trials": 4,
+        "rewarded": 4,
+        "max_priority": "medium"
+      },
+      "mteb-leaderboard": {
+        "trials": 1,
+        "rewarded": 0,
+        "max_priority": "high"
+      },
+      "pytorch-model-cli": {
+        "trials": 3,
+        "rewarded": 3,
+        "max_priority": "high"
+      },
+      "regex-chess": {
+        "trials": 1,
+        "rewarded": 0,
+        "max_priority": "medium"
+      }
+    },
+    "scanner": {
+      "commit": "e97330326b355b8fe65209dba8672b62c83b657d",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--min-trials",
+        "5",
+        "--rules",
+        "docs/benchmark_data/atif-rules.json",
+        "--image-model",
+        "codexresponses.gpt-6-luna?reasoning=medium"
+      ],
+      "rules_sha256": "d0efe44a7b61f7eb80cfc4493175e7e2d5f47781b380c980ca13da830ecee854"
+    },
+    "cells": {
+      "adaptive-rejection-sampler": "lllll",
+      "bn-fit-modify": "lllll",
+      "break-filter-js-from-html": "lllll",
+      "build-cython-ext": "lllll",
+      "build-pmars": "lllll",
+      "build-pov-ray": "lllll",
+      "caffe-cifar-10": "lllll",
+      "cancel-async-tasks": "lllll",
+      "chess-best-move": "lllll",
+      "circuit-fibsqrt": "lllll",
+      "cobol-modernization": "lllll",
+      "code-from-image": "lllll",
+      "compile-compcert": "lllll",
+      "configure-git-webserver": "mmmml",
+      "constraints-scheduling": "lllll",
+      "count-dataset-tokens": "lllll",
+      "crack-7z-hash": "lllll",
+      "custom-memory-heap-crash": "lllll",
+      "db-wal-recovery": "lllll",
+      "distribution-search": "lllll",
+      "dna-assembly": "lllll",
+      "dna-insert": "lllll",
+      "extract-elf": "lllll",
+      "extract-moves-from-video": "lllll",
+      "feal-differential-cryptanalysis": "lllll",
+      "feal-linear-cryptanalysis": "lllll",
+      "filter-js-from-html": "lllll",
+      "financial-document-processor": "lllll",
+      "fix-code-vulnerability": "lllll",
+      "fix-git": "lllll",
+      "fix-ocaml-gc": "lllll",
+      "gcode-to-text": "lllll",
+      "git-leak-recovery": "lllll",
+      "git-multibranch": "lllll",
+      "gpt2-codegolf": "lllll",
+      "headless-terminal": "lllll",
+      "hf-model-inference": "lllll",
+      "install-windows-3.11": "lllll",
+      "kv-store-grpc": "lllll",
+      "large-scale-text-editing": "lllll",
+      "largest-eigenval": "lllll",
+      "llm-inference-batching-scheduler": "lllll",
+      "log-summary-date-ranges": "lllll",
+      "mailman": "lllll",
+      "make-doom-for-mips": "lllll",
+      "make-mips-interpreter": "lllll",
+      "mcmc-sampling-stan": "lllll",
+      "merge-diff-arc-agi-task": "lllll",
+      "model-extraction-relu-logits": "lllll",
+      "modernize-scientific-stack": "lllll",
+      "mteb-leaderboard": "llllh",
+      "mteb-retrieve": "lllll",
+      "multi-source-data-merger": "lllll",
+      "nginx-request-logging": "lllll",
+      "openssl-selfsigned-cert": "lllll",
+      "overfull-hbox": "lllll",
+      "password-recovery": "lllll",
+      "path-tracing": "lllll",
+      "path-tracing-reverse": "lllll",
+      "polyglot-c-py": "lllll",
+      "polyglot-rust-c": "lllll",
+      "portfolio-optimization": "lllll",
+      "protein-assembly": "lllll",
+      "prove-plus-comm": "lllll",
+      "pypi-server": "lllll",
+      "pytorch-model-cli": "lhlhh",
+      "pytorch-model-recovery": "lllll",
+      "qemu-alpine-ssh": "lllll",
+      "qemu-startup": "lllll",
+      "query-optimize": "lllll",
+      "raman-fitting": "lllll",
+      "regex-chess": "mllll",
+      "regex-log": "lllll",
+      "reshard-c4-data": "lllll",
+      "rstan-to-pystan": "lllll",
+      "sam-cell-seg": "lllll",
+      "sanitize-git-repo": "lllll",
+      "schemelike-metacircular-eval": "lllll",
+      "sparql-university": "lllll",
+      "sqlite-db-truncate": "lllll",
+      "sqlite-with-gcov": "lllll",
+      "torch-pipeline-parallelism": "lllll",
+      "torch-tensor-parallelism": "lllll",
+      "train-fasttext": "lllll",
+      "tune-mjcf": "lllll",
+      "video-processing": "lllll",
+      "vulnerable-secret": "lllll",
+      "winning-avg-corewars": "lllll",
+      "write-compressor": "lllll"
+    }
+  },
+  "as_run": {
+    "passes": 203,
+    "slots": 445
+  },
+  "review": {
+    "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+    "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+    "recorded_passes": 203,
+    "recorded_score": 45.62,
+    "disqualified": [
+      {
+        "trial": "pytorch-model-cli__gEHLxmb",
+        "task": "pytorch-model-cli",
+        "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary).",
+        "cell_index": 1
+      },
+      {
+        "trial": "pytorch-model-cli__ivP88f4",
+        "task": "pytorch-model-cli",
+        "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary).",
+        "cell_index": 4
+      },
+      {
+        "trial": "pytorch-model-cli__o4NHU6n",
+        "task": "pytorch-model-cli",
+        "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary).",
+        "cell_index": 3
+      }
+    ],
+    "cleared": []
+  }
+}

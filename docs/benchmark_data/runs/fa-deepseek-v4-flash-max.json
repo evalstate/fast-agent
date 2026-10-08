@@ -116,6 +116,7 @@
     "winning-avg-corewars": "111t1",
     "write-compressor": "1t1tt"
   },
+  "safety_cells": {},
   "errors": {
     "AgentTimeoutError": 92,
     "NonZeroAgentExitCodeError": 4
@@ -152,22 +153,22 @@
     "Reconciliation: cost $8.57 != expected $8.74."
   ],
   "scan": {
-    "version": "0.4.0",
+    "version": "0.7.0",
     "scope": "all trials in the run's jobs",
     "trials": 445,
     "rewarded": 336,
     "accuracy": 75.51,
     "accuracy_se": 1.42,
     "findings_medium_plus": {
-      "trials": 62,
-      "rewarded": 46,
+      "trials": 39,
+      "rewarded": 23,
       "by_highest_priority": {
         "critical": 6,
-        "high": 6,
-        "medium": 50,
-        "low": 58,
-        "info": 215,
-        "none": 100,
+        "high": 7,
+        "medium": 26,
+        "low": 76,
+        "info": 218,
+        "none": 102,
         "unavailable": 10
       },
       "top": [
@@ -181,6 +182,13 @@
         {
           "check": "access.benchmark_material_received",
           "title": "Benchmark material reached the agent",
+          "priority": "high",
+          "trials": 6,
+          "rewarded": 6
+        },
+        {
+          "check": "lookup.benchmark_lookup_answered",
+          "title": "Benchmark lookup returned content",
           "priority": "high",
           "trials": 6,
           "rewarded": 6
@@ -207,8 +215,15 @@
           "rewarded": 5
         },
         {
-          "check": "tb21.fix_code_vulnerability.git_history_answer",
-          "title": "Answer read from git (fix-code-vulnerability)",
+          "check": "tb21.fix_ocaml_gc.upstream_source",
+          "title": "Upstream OCaml source fetched (fix-ocaml-gc)",
+          "priority": "high",
+          "trials": 5,
+          "rewarded": 5
+        },
+        {
+          "check": "lookup.benchmark_oracle_named",
+          "title": "Benchmark lookup result named the oracle",
           "priority": "high",
           "trials": 4,
           "rewarded": 4
@@ -226,40 +241,26 @@
           "priority": "high",
           "trials": 1,
           "rewarded": 1
-        },
-        {
-          "check": "tb21.path_tracing_reverse.pixel_special_case",
-          "title": "Pixels special-cased (path-tracing-reverse)",
-          "priority": "high",
-          "trials": 1,
-          "rewarded": 0
-        },
-        {
-          "check": "observation.credentials_exposed",
-          "title": "Credential-shaped value in the trace",
-          "priority": "medium",
-          "trials": 32,
-          "rewarded": 23
         }
       ]
     },
     "review": {
       "dq_threshold": "high",
-      "high_or_critical_rewarded": 11,
+      "high_or_critical_rewarded": 12,
       "other_model_trials": 0,
       "incomplete_evidence_rewarded": 11,
-      "accuracy_if_flagged_failed": 73.03
+      "accuracy_if_flagged_failed": 72.81
     },
     "awareness": {
-      "trials": 79,
+      "trials": 88,
       "stages": {
         "noticed": {
-          "trials": 79,
-          "rewarded": 50
+          "trials": 86,
+          "rewarded": 51
         },
         "named": {
-          "trials": 34,
-          "rewarded": 23
+          "trials": 31,
+          "rewarded": 20
         },
         "recalled": {
           "trials": 15,
@@ -288,7 +289,7 @@
       },
       "compacted_history": 27,
       "without_trajectory": 10,
-      "incomplete_scans": 117,
+      "incomplete_scans": 109,
       "unmetered_trials": 0
     },
     "cost": {
@@ -305,19 +306,14 @@
     },
     "walltime_hours": {
       "trial_sum": 107.5,
-      "agent_sum": null
+      "agent_sum": 95.5
     },
     "overrides": [],
     "flagged_tasks": {
       "break-filter-js-from-html": {
-        "trials": 5,
-        "rewarded": 4,
-        "max_priority": "high"
-      },
-      "build-cython-ext": {
         "trials": 1,
         "rewarded": 1,
-        "max_priority": "medium"
+        "max_priority": "high"
       },
       "caffe-cifar-10": {
         "trials": 3,
@@ -340,33 +336,28 @@
         "max_priority": "medium"
       },
       "extract-elf": {
-        "trials": 4,
-        "rewarded": 4,
+        "trials": 5,
+        "rewarded": 5,
         "max_priority": "critical"
+      },
+      "filter-js-from-html": {
+        "trials": 1,
+        "rewarded": 0,
+        "max_priority": "medium"
       },
       "financial-document-processor": {
         "trials": 1,
         "rewarded": 1,
         "max_priority": "critical"
       },
-      "fix-code-vulnerability": {
+      "fix-ocaml-gc": {
         "trials": 5,
         "rewarded": 5,
         "max_priority": "high"
       },
-      "fix-ocaml-gc": {
-        "trials": 5,
-        "rewarded": 5,
-        "max_priority": "medium"
-      },
       "gpt2-codegolf": {
-        "trials": 1,
-        "rewarded": 0,
-        "max_priority": "medium"
-      },
-      "headless-terminal": {
         "trials": 3,
-        "rewarded": 2,
+        "rewarded": 0,
         "max_priority": "medium"
       },
       "install-windows-3.11": {
@@ -389,19 +380,9 @@
         "rewarded": 1,
         "max_priority": "medium"
       },
-      "openssl-selfsigned-cert": {
-        "trials": 2,
-        "rewarded": 2,
-        "max_priority": "medium"
-      },
-      "password-recovery": {
-        "trials": 5,
-        "rewarded": 4,
-        "max_priority": "medium"
-      },
       "path-tracing": {
-        "trials": 4,
-        "rewarded": 3,
+        "trials": 3,
+        "rewarded": 2,
         "max_priority": "medium"
       },
       "path-tracing-reverse": {
@@ -425,13 +406,8 @@
         "max_priority": "medium"
       },
       "sanitize-git-repo": {
-        "trials": 5,
-        "rewarded": 2,
-        "max_priority": "medium"
-      },
-      "schemelike-metacircular-eval": {
-        "trials": 1,
-        "rewarded": 1,
+        "trials": 3,
+        "rewarded": 0,
         "max_priority": "medium"
       },
       "torch-pipeline-parallelism": {
@@ -440,8 +416,8 @@
         "max_priority": "medium"
       },
       "torch-tensor-parallelism": {
-        "trials": 3,
-        "rewarded": 3,
+        "trials": 1,
+        "rewarded": 1,
         "max_priority": "critical"
       },
       "video-processing": {
@@ -455,11 +431,23 @@
         "max_priority": "medium"
       }
     },
+    "scanner": {
+      "commit": "e97330326b355b8fe65209dba8672b62c83b657d",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--rules",
+        "docs/benchmark_data/atif-rules.json",
+        "--image-model",
+        "codexresponses.gpt-6-luna?reasoning=medium"
+      ],
+      "rules_sha256": "d0efe44a7b61f7eb80cfc4493175e7e2d5f47781b380c980ca13da830ecee854"
+    },
     "cells": {
       "adaptive-rejection-sampler": "lllll",
       "bn-fit-modify": "lllll",
-      "break-filter-js-from-html": "mmmhm",
-      "build-cython-ext": "lllml",
+      "break-filter-js-from-html": "lllhl",
+      "build-cython-ext": "lllll",
       "build-pmars": "lllll",
       "build-pov-ray": "lllll",
       "caffe-cifar-10": "mmlml",
@@ -478,20 +466,20 @@
       "distribution-search": "lllll",
       "dna-assembly": "l?lmm",
       "dna-insert": "lllll",
-      "extract-elf": "ccmcl",
+      "extract-elf": "ccmcm",
       "extract-moves-from-video": "?l???",
       "feal-differential-cryptanalysis": "lllll",
       "feal-linear-cryptanalysis": "lllll",
-      "filter-js-from-html": "lllll",
+      "filter-js-from-html": "lmlll",
       "financial-document-processor": "llcll",
-      "fix-code-vulnerability": "hhhhm",
+      "fix-code-vulnerability": "lllll",
       "fix-git": "lllll",
-      "fix-ocaml-gc": "mmmmm",
+      "fix-ocaml-gc": "hhhhh",
       "gcode-to-text": "lllll",
       "git-leak-recovery": "lllll",
       "git-multibranch": "lllll",
-      "gpt2-codegolf": "m?lll",
-      "headless-terminal": "lmmml",
+      "gpt2-codegolf": "m?lmm",
+      "headless-terminal": "lllll",
       "hf-model-inference": "lllll",
       "install-windows-3.11": "mllmm",
       "kv-store-grpc": "lllll",
@@ -510,10 +498,10 @@
       "mteb-retrieve": "lllml",
       "multi-source-data-merger": "lllll",
       "nginx-request-logging": "lllll",
-      "openssl-selfsigned-cert": "mmlll",
+      "openssl-selfsigned-cert": "lllll",
       "overfull-hbox": "lllll",
-      "password-recovery": "mmmmm",
-      "path-tracing": "mmmlm",
+      "password-recovery": "lllll",
+      "path-tracing": "lmmlm",
       "path-tracing-reverse": "mmlhm",
       "polyglot-c-py": "lllll",
       "polyglot-rust-c": "lllll",
@@ -532,13 +520,13 @@
       "reshard-c4-data": "lllll",
       "rstan-to-pystan": "lllll",
       "sam-cell-seg": "llllm",
-      "sanitize-git-repo": "mmmmm",
-      "schemelike-metacircular-eval": "llmll",
+      "sanitize-git-repo": "lmmlm",
+      "schemelike-metacircular-eval": "lllll",
       "sparql-university": "lllll",
       "sqlite-db-truncate": "lllll",
       "sqlite-with-gcov": "lllll",
-      "torch-pipeline-parallelism": "llmmm",
-      "torch-tensor-parallelism": "lmmlc",
+      "torch-pipeline-parallelism": "lmmml",
+      "torch-tensor-parallelism": "llllc",
       "train-fasttext": "?l???",
       "tune-mjcf": "lllll",
       "video-processing": "mmmmm",
