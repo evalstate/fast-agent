@@ -76,6 +76,10 @@
       "family": "gpt-6",
       "status": "6h timeout"
     },
+    "sol61-high-6h": {
+      "family": "gpt-6",
+      "status": "6h timeout"
+    },
     "luna6-low-6h": {
       "family": "gpt-6",
       "status": "6h timeout"
@@ -113,6 +117,14 @@
       "status": "6h timeout"
     },
     "opus55-medium-6h": {
+      "family": "anthropic",
+      "status": "6h timeout"
+    },
+    "sonnet55-high-6h": {
+      "family": "anthropic",
+      "status": "6h timeout"
+    },
+    "sonnet55-medium-6h": {
       "family": "anthropic",
       "status": "6h timeout"
     },

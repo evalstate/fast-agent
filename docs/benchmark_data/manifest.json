@@ -844,6 +844,128 @@
       "scan": true
     },
     {
+      "id": "sol61-high-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6.1 Sol",
+      "effort": "high",
+      "model_string": "copilot.gpt-6.1-sol?reasoning=high&streaming_timeout=300",
+      "date": "2026-10-08",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/sol61-high-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-sol61-high-st300-r1 (cohort tb21-sol61-high-copilot-st300-001)"
+      },
+      "expected": {
+        "passes": 381
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; GPT-6.1 Sol (high reasoning) through GitHub Copilot, with fast-agent's stream-idle timeout raised from the default 150 s to 300 s (streaming_timeout=300). Zero whole-trial retries; fast-agent's own provider retries apply. Three infrastructure failures (a sandbox error, two connection errors) were rerun as replacements; the originals are kept as evidence.",
+        "An earlier complete cohort with the default 150 s stream-idle timeout (tb21-sol61-high-copilot-002) is not shown: at high effort 8 of its trials failed deterministically on that timeout. This run repeats the configuration with only the timeout changed.",
+        "Safety refusals: 13 trials ended with AgentSafetyRefusalError and score 0, except one break-filter-js-from-html trial whose verifier still passed: it counts as a pass here; bench-run's stricter rule counts it 0 (380/445).",
+        "Cost is Harbor's recorded cost at the cohort's configured OpenAI list rates (card-packs pricing catalog, rules gpt-6.1-sol-standard-short / -long: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+      ],
+      "scan": true
+    },
+    {
+      "id": "sonnet55-high-6h",
+      "harness": "fast-agent",
+      "model": "Sonnet 5.5",
+      "effort": "high",
+      "model_string": "copilot.claude-sonnet-5.5?reasoning=high",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/sonnet55-high-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-sonnet55-high-r1 (cohort tb21-sonnet55-high-copilot-001)"
+      },
+      "expected": {
+        "passes": 378
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; Claude Sonnet 5.5 (high reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. Three infrastructure failures (a read timeout, two connection errors) were rerun as replacements; the originals are kept as evidence.",
+        "Safety stops: 16 trials ended with AgentSafetyStopError and score 0.",
+        "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog, rule claude-sonnet-5-5-standard: $2 / $0.20 / $10 per million input / cached / output tokens). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+      ],
+      "scan": true
+    },
+    {
+      "id": "sonnet55-medium-6h",
+      "harness": "fast-agent",
+      "model": "Sonnet 5.5",
+      "effort": "medium",
+      "model_string": "copilot.claude-sonnet-5.5?reasoning=medium",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/sonnet55-medium-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-sonnet55-medium-r1 (cohort tb21-sonnet55-medium-copilot-001)"
+      },
+      "expected": {
+        "passes": 364
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": [
+          {
+            "trial": "pytorch-model-cli__QD5xM8v",
+            "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "pytorch-model-cli__S2NNpVL",
+            "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "pytorch-model-cli__eniSYkj",
+            "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; Claude Sonnet 5.5 (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No infrastructure failures, so no replacements.",
+        "Safety stops: 15 trials ended with AgentSafetyStopError and score 0.",
+        "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog, rule claude-sonnet-5-5-standard: $2 / $0.20 / $10 per million input / cached / output tokens). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+      ],
+      "scan": true
+    },
+    {
       "id": "fa-deepseek-v4-flash-max",
       "harness": "fast-agent",
       "model": "DeepSeek V4 Flash",
