@@ -930,6 +930,12 @@ def build_run(
     if run.get("cost_lower_bound"):
         # Usage the run recorded only in part (e.g. a failed stream attempt): a lower bound.
         out["cost"]["lower_bound"] = True
+    if repriced := run.get("repriced"):
+        # A corrected list-rate estimate made outside this script (bench-run bin/reprice) over
+        # the same trials whose cost Harbor recorded; the recorded total is kept beside it.
+        if repriced["trials"] != out["cost"]["trials_with_cost"] + out["cost"]["excluded_trials_with_cost"]:
+            raise SystemExit(f"{run['id']}: repriced trials {repriced['trials']} != recorded-cost trials")
+        out["cost"]["repriced"] = repriced
     if "bucket" in run:
         out["as_run"] = {
             "passes": sum(

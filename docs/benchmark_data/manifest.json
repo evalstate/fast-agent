@@ -375,12 +375,21 @@
       "model_string": "copilot.claude-opus-5.5?reasoning=high",
       "date": "2026-10-03",
       "timeout": "6h",
-      "bucket": {"repo": "evalstate/published-benchmarks", "path": "tb21/qemu-fixed-6h-v1/opus55-high-6h", "release": "release/manifest.json", "source": "bench-run release tb21-opus55-high-r1 (cohort tb21-opus55-high-copilot-001)"},
-      "expected": {"passes": 394},
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/opus55-high-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-opus55-high-r1 (cohort tb21-opus55-high-copilot-001)"
+      },
+      "expected": {
+        "passes": 394
+      },
       "published": null,
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-        "clear_when_only": {"review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "clear_when_only": {
+          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
         "disqualified": []
@@ -390,9 +399,16 @@
         "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; Claude Opus 5.5 (high reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply.",
         "Safety stops: 35 trials ended with AgentSafetyStopError, the provider's safety classifier stopping the run. They score 0 unless the verifier still passed. Every attempt at seven tasks was stopped: crack-7z-hash, password-recovery, vulnerable-secret and break-filter-js-from-html (security) and dna-insert, dna-assembly and protein-assembly (biology).",
         "Four infrastructure failures (setup read timeout, a dropped verifier stream, two sandboxes not ready) were rerun as replacements; the originals are kept as evidence.",
-        "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog 2026-09-29.1, rule claude-opus-5-5-standard: $4 / $0.20 / $20 per million input / cached / output tokens; cache writes not priced separately). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed."
+        "Cost shown is a list-rate estimate repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-09.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input. Recorded $159.96; repriced $169.24 over the same 445 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 169.242902,
+        "trials": 445,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-09.1 (764c98a)",
+        "note": "Harbor's recorded cost ($159.96) charged prompt-cache writes as plain input. Repriced from each trial's token usage at the catalog's $4 / $0.20 / $5 / $8 / $20 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens: $169.24 (+5.8%). Still a list-price equivalent: the run used GitHub Copilot."
+      }
     },
     {
       "id": "opus55-medium-6h",
@@ -402,13 +418,22 @@
       "model_string": "copilot.claude-opus-5.5?reasoning=medium",
       "date": "2026-10-03",
       "timeout": "6h",
-      "bucket": {"repo": "evalstate/published-benchmarks", "path": "tb21/qemu-fixed-6h-v1/opus55-medium-6h", "release": "release/manifest.json", "source": "bench-run release tb21-opus55-medium-r1 (cohort tb21-opus55-medium-copilot-001)"},
-      "expected": {"passes": 386},
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/opus55-medium-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-opus55-medium-r1 (cohort tb21-opus55-medium-copilot-001)"
+      },
+      "expected": {
+        "passes": 386
+      },
       "cost_lower_bound": true,
       "published": null,
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-        "clear_when_only": {"review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "clear_when_only": {
+          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
         "disqualified": []
@@ -419,9 +444,16 @@
         "Safety stops: 36 trials ended with AgentSafetyStopError, the provider's safety classifier stopping the run. They score 0 unless the verifier still passed. Every attempt at seven tasks was stopped: crack-7z-hash, password-recovery, vulnerable-secret and break-filter-js-from-html (security) and dna-insert, dna-assembly and protein-assembly (biology).",
         "Seven replacements: three Harbor or sandbox infrastructure failures, and three agent exits with code -1 recorded as verified crashes (no provider error in fast-agent's log; a lost HF exec stream), one of them replacing an earlier replacement. Originals are kept as evidence.",
         "One safety-stopped trial (fix-code-vulnerability) still passed its verifier and counts as a pass here, as rewarded timeouts do on this page; bench-run's stricter rule counts it 0 (385/445).",
-        "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog 2026-09-29.1, rule claude-opus-5-5-standard: $4 / $0.20 / $20 per million input / cached / output tokens; cache writes not priced separately). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have incomplete usage, so the total is a lower bound."
+        "Cost shown is a list-rate estimate repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-09.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input. Recorded $104.50; repriced $111.42 over the same 451 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 111.41615,
+        "trials": 451,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-09.1 (764c98a)",
+        "note": "Harbor's recorded cost ($104.50) charged prompt-cache writes as plain input. Repriced from each trial's token usage at the catalog's $4 / $0.20 / $5 / $8 / $20 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens: $111.42 (+6.6%). Still a list-price equivalent: the run used GitHub Copilot."
+      }
     },
     {
       "id": "sol61-medium-6h",
@@ -768,9 +800,16 @@
         "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
         "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; Claude Haiku 5.5 (low reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No infrastructure failures, so no replacements. One gpt2-codegolf trial whose agent process was killed without explanation is kept as an outcome, as is one verifier timeout.",
         "Safety stops: 4 trials ended with AgentSafetyStopError, all sparql-university; the verifier still passed all four, so they count as passes here (bench-run's stricter rule counts them 0: 352/445).",
-        "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog, rules claude-haiku-5-5-standard-short / -long: $0.10 / $0.01 / $0.50 per million input / cached / output tokens; $0.50 / $0.05 / $2.50 above 100k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed."
+        "Cost shown is a list-rate estimate repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-09.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input. Recorded $9.80; repriced $10.15 over the same 445 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 10.150174,
+        "trials": 445,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-09.1 (764c98a)",
+        "note": "Harbor's recorded cost ($9.80) charged prompt-cache writes as plain input. Repriced from each trial's token usage at the catalog's $0.10 / $0.01 / $0.125 / $0.20 / $0.50 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens ($0.50 / $0.05 / $0.625 / $1 / $2.50 above 100k context): $10.15 (+3.6%). Still a list-price equivalent: the run used GitHub Copilot."
+      }
     },
     {
       "id": "haiku55-medium-6h",
@@ -803,9 +842,16 @@
       "notes": [
         "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
         "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; Claude Haiku 5.5 (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. Five infrastructure failures (two sandbox setup timeouts, two read timeouts, a dropped connection) were rerun as replacements; the originals are kept as evidence.",
-        "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog, rules claude-haiku-5-5-standard-short / -long: $0.10 / $0.01 / $0.50 per million input / cached / output tokens; $0.50 / $0.05 / $2.50 above 100k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+        "Cost shown is a list-rate estimate repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-09.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input. Recorded $18.27; repriced $18.87 over the same 448 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 18.86699,
+        "trials": 448,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-09.1 (764c98a)",
+        "note": "Harbor's recorded cost ($18.27) charged prompt-cache writes as plain input. Repriced from each trial's token usage at the catalog's $0.10 / $0.01 / $0.125 / $0.20 / $0.50 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens ($0.50 / $0.05 / $0.625 / $1 / $2.50 above 100k context): $18.87 (+3.2%). Still a list-price equivalent: the run used GitHub Copilot."
+      }
     },
     {
       "id": "haiku55-high-6h",
@@ -839,9 +885,16 @@
         "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
         "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; Claude Haiku 5.5 (high reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No infrastructure failures, so no replacements.",
         "Safety stops: one protein-assembly trial ended with AgentSafetyStopError and scores 0.",
-        "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog, rules claude-haiku-5-5-standard-short / -long: $0.10 / $0.01 / $0.50 per million input / cached / output tokens; $0.50 / $0.05 / $2.50 above 100k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+        "Cost shown is a list-rate estimate repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-09.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input. Recorded $35.95; repriced $37.02 over the same 445 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 37.015046,
+        "trials": 445,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-09.1 (764c98a)",
+        "note": "Harbor's recorded cost ($35.95) charged prompt-cache writes as plain input. Repriced from each trial's token usage at the catalog's $0.10 / $0.01 / $0.125 / $0.20 / $0.50 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens ($0.50 / $0.05 / $0.625 / $1 / $2.50 above 100k context): $37.02 (+3.0%). Still a list-price equivalent: the run used GitHub Copilot."
+      }
     },
     {
       "id": "sol61-high-6h",
@@ -949,9 +1002,16 @@
         "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
         "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; Claude Sonnet 5.5 (high reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. Three infrastructure failures (a read timeout, two connection errors) were rerun as replacements; the originals are kept as evidence.",
         "Safety stops: 16 trials ended with AgentSafetyStopError and score 0.",
-        "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog, rule claude-sonnet-5-5-standard: $2 / $0.20 / $10 per million input / cached / output tokens). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+        "Cost shown is a list-rate estimate repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-09.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input, and the run was priced with a $0.20 cache-read rate where Anthropic lists $0.10. Recorded $58.62; repriced $53.93 over the same 446 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 53.933918,
+        "trials": 446,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-09.1 (764c98a)",
+        "note": "Harbor's recorded cost ($58.62) charged prompt-cache writes as plain input and used a $0.20 Sonnet 5.5 cache-read rate (Anthropic lists $0.10). Repriced from each trial's token usage at the catalog's $2 / $0.10 / $2.50 / $4 / $10 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens: $53.93 (-8.0%). Still a list-price equivalent: the run used GitHub Copilot."
+      }
     },
     {
       "id": "sonnet55-medium-6h",
@@ -998,9 +1058,16 @@
         "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
         "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; Claude Sonnet 5.5 (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No infrastructure failures, so no replacements.",
         "Safety stops: 15 trials ended with AgentSafetyStopError and score 0.",
-        "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog, rule claude-sonnet-5-5-standard: $2 / $0.20 / $10 per million input / cached / output tokens). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+        "Cost shown is a list-rate estimate repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-09.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input, and the run was priced with a $0.20 cache-read rate where Anthropic lists $0.10. Recorded $39.63; repriced $37.39 over the same 445 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 37.393014,
+        "trials": 445,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-09.1 (764c98a)",
+        "note": "Harbor's recorded cost ($39.63) charged prompt-cache writes as plain input and used a $0.20 Sonnet 5.5 cache-read rate (Anthropic lists $0.10). Repriced from each trial's token usage at the catalog's $2 / $0.10 / $2.50 / $4 / $10 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens: $37.39 (-5.6%). Still a list-price equivalent: the run used GitHub Copilot."
+      }
     },
     {
       "id": "fa-deepseek-v4-flash-max",

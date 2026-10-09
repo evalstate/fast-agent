@@ -134,7 +134,14 @@
     "excluded_trials_with_cost": 0,
     "basis": "sum of Harbor recorded cost_usd over selected trials",
     "matches_published": null,
-    "lower_bound": true
+    "lower_bound": true,
+    "repriced": {
+      "total_usd": 37.015046,
+      "trials": 445,
+      "basis": "list-rate estimate incl. cache writes",
+      "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-09.1 (764c98a)",
+      "note": "Harbor's recorded cost ($35.95) charged prompt-cache writes as plain input. Repriced from each trial's token usage at the catalog's $0.10 / $0.01 / $0.125 / $0.20 / $0.50 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens ($0.50 / $0.05 / $0.625 / $1 / $2.50 above 100k context): $37.02 (+3.0%). Still a list-price equivalent: the run used GitHub Copilot."
+    }
   },
   "tokens": {
     "input": 571665188,
@@ -153,7 +160,7 @@
     "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
     "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; Claude Haiku 5.5 (high reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No infrastructure failures, so no replacements.",
     "Safety stops: one protein-assembly trial ended with AgentSafetyStopError and scores 0.",
-    "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog, rules claude-haiku-5-5-standard-short / -long: $0.10 / $0.01 / $0.50 per million input / cached / output tokens; $0.50 / $0.05 / $2.50 above 100k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+    "Cost shown is a list-rate estimate repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-09.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input. Recorded $35.95; repriced $37.02 over the same 445 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
   ],
   "scan": {
     "version": "0.7.1",

@@ -708,7 +708,7 @@
     });
     svg("line", { x1: 0, x2: width, y1: h / 2, y2: h / 2, class: "fb-track" }, root);
     var x = costX(entry.cost.total, width, dom);
-    if (entry.tier === "ours" && entry.cost.recorded !== entry.cost.total && entry.cost.pricing) {
+    if (entry.tier === "ours" && entry.cost.recorded !== entry.cost.total && (entry.cost.pricing || entry.cost.repriced)) {
       var ox = costX(entry.cost.recorded, width, dom);
       svg("line", { x1: ox, x2: x, y1: h / 2, y2: h / 2, class: "fb-reprice" }, root);
       svg("circle", { cx: ox, cy: h / 2, r: 4, class: "fb-dot fb-dot--was" }, root);
@@ -1776,7 +1776,7 @@
           : "no errors"
         : m.tasks.length + " tasks × " + m.attempts + " attempts"
     );
-    kpi(costText(run, true), "run cost", run.cost.basis + (run.cost.pricing ? " · recorded " + moneyExact(run.cost.recorded) : ""));
+    kpi(costText(run, true), "run cost", run.cost.basis + (run.cost.pricing || run.cost.repriced ? " · recorded " + moneyExact(run.cost.recorded) : ""));
     kpi(moneyExact(run.cost.total / Math.max(1, run.passes)), "per passed trial", run.perTrialCost ? "median trial " + moneyExact(run.perTrialCost.median) + " · p90 " + moneyExact(run.perTrialCost.p90) : moneyExact(run.cost.total / run.slots) + " per trial");
     if (run.tokens) {
       var cacheRate = run.tokens.input && run.tokens.cached !== null && run.tokens.cached !== undefined
@@ -2080,6 +2080,7 @@
       var uncosted = run.slots - run.cost.coverage;
       row("Trials without cost", String(uncosted), uncosted > 0);
       row("Recorded cost", (run.cost.lowerBound ? "≥" : "") + moneyExact(run.cost.recorded));
+      if (run.cost.repriced) row("Repriced (shown)", costText(run, true));
       if (s.cost.recorded > 0 && s.cost.estimated_total && s.cost.estimated_total !== s.cost.recorded) row("Est. with missing trials", "~" + moneyExact(s.cost.estimated_total));
     }
     if (s.walltimeHours) row("Trial walltime", Math.round(s.walltimeHours) + " h summed");
@@ -2156,6 +2157,13 @@
       if (run.cost.lowerBound) cost.push("A lower bound" + (c.lowerBoundNote ? ": " + c.lowerBoundNote : "."));
     }
     if (run.cost.pricing) cost.push(m.data.pricing[run.cost.pricing].note);
+    if (run.cost.repriced) {
+      cost.push(
+        "Shown: " + moneyExact(run.cost.total) + ", a list-rate estimate from the trials' token usage (" + run.cost.repriced.source +
+          "), over the same " + run.cost.repriced.trials + " trials whose cost Harbor recorded (" + moneyExact(run.cost.recorded) + ")."
+      );
+      if (run.cost.repriced.note) cost.push(run.cost.repriced.note);
+    }
     if (run.cost.basis === "published leaderboard total" && run.cost.recorded !== run.cost.published) {
       cost.push("Cost shown is the published total (" + moneyExact(run.cost.published) + "); the public Hub job records " + moneyExact(run.cost.recorded) + " over " + run.cost.coverage + " trials.");
     }

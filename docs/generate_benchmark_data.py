@@ -193,6 +193,14 @@ def _tb21_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[str,
                 "lowerBoundNote": pricing_doc.get("lower_bound_note"),
                 "usageIncomplete": raw["cost"].get("usage_incomplete_trials", []),
             }
+        elif repriced := raw["cost"].get("repriced"):
+            # Recorded cost missed part of the price (e.g. cache writes billed as input):
+            # show the corrected list-rate estimate, keep the recorded total beside it.
+            cost["total"] = round(repriced["total_usd"], 2)
+            cost["basis"] = repriced["basis"]
+            cost["estimate"] = True
+            cost["lowerBound"] = raw["cost"].get("lower_bound", False)
+            cost["repriced"] = {k: repriced[k] for k in ("source", "note", "trials")}
         elif curation.get("costFrom") == "published":
             cost["total"] = round(published, 2)
             cost["basis"] = "published leaderboard total"
