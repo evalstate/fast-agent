@@ -1251,10 +1251,10 @@
       svg("line", { x1: X(e.cost.total), y1: Y(e.score), x2: X(o.cost.total), y2: Y(o.score), class: "fb-pairline" }, root);
     });
 
-    // A run under the safety-allowance scenario keeps its measured point (solid, labelled);
-    // the scenario score is a faint dotted ghost above it.
+    // Under the safety-allowance scenario the solid, labelled point is the adjusted score;
+    // the measured score it came from is a faint dotted ghost below it.
     function shownScore(e) {
-      return e.allowance ? e.allowance.baseScore : e.score;
+      return e.score;
     }
     // Reserve every marker first so labels never sit on a point.
     var placed = entries.map(function (e) {
@@ -1286,12 +1286,12 @@
       var cy = Y(shownScore(e));
       var g = svg("g", { class: "fb-pt fb-pt--" + e.tier + (e.allowance ? " fb-pt--scenario" : ""), tabindex: "0" }, root);
       if (e.allowance) {
-        var sy = Y(e.score);
-        svg("line", { x1: cx, x2: cx, y1: cy - 6, y2: sy + 6, class: "fb-scenario-line" }, g);
+        var sy = Y(e.allowance.baseScore);
+        svg("line", { x1: cx, x2: cx, y1: cy + 6, y2: sy - 6, class: "fb-scenario-line" }, g);
         svg("rect", { x: cx - 9, y: sy - 5.5, width: 18, height: 11, rx: 5.5, class: "fb-scenario-ghost" }, g);
       }
       if (e.tier !== "claim") {
-        var se = e.allowance ? e.allowance.baseSe : e.se;
+        var se = e.se;
         var top = Math.max(pad.t, Y(shownScore(e) + 1.96 * se));
         var bottom = Math.min(H - pad.b, Y(shownScore(e) - 1.96 * se));
         svg("line", { x1: cx, x2: cx, y1: bottom, y2: top, class: "fb-ci", "clip-path": "url(#" + clipId + ")" }, g);
@@ -1348,7 +1348,7 @@
     cap.textContent =
       (opts.onZoom ? (view ? "Zoomed: " + entries.length + " of " + all.length + " shown; " + (opts.drag === "pan" ? "drag to pan. " : "drag to zoom further. ") : "Drag across the chart to zoom in. ") : "") +
       "Capsules: our runs · dots: leaderboard runs · dashed rings: vendor claims (no trials) · whiskers: 95% interval, clustered by task · line: best score at or below each cost." +
-      (entries.some(function (e) { return e.allowance; }) ? " Faint dotted capsules: the safety-allowance scenario score above each affected run's measured score." : "");
+      (entries.some(function (e) { return e.allowance; }) ? " Faint dotted capsules: the measured score below each run the safety allowance moved." : "");
     fig.appendChild(cap);
     return fig;
   }
