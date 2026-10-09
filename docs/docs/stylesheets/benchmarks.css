@@ -551,3 +551,4 @@ a.fb-poster__row:hover { color: var(--petrol); background: var(--ivory-deep); }
 .fb-pan-area { fill: transparent; cursor: grab; touch-action: none; }
 .fb-zoomable.is-panning, .fb-zoomable.is-panning .fb-pan-area { cursor: grabbing; user-select: none; }
 .fb-zoombar .fb-seg { margin-left: 0; }
+.fb-funnel__i { cursor: help; }
