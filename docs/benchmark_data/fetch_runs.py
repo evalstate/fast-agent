@@ -170,9 +170,7 @@ def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def decide_flags(
-    run: Json, out: Json, full: Json, selected: list[Json], review_cfg: Json
-) -> None:
+def decide_flags(run: Json, out: Json, full: Json, selected: list[Json], review_cfg: Json) -> None:
     """Every reported pass atif-scan flags high or critical needs a review decision.
 
     ``review.clear_when_only`` maps publish-side rule ids to a reason: a flagged pass
@@ -205,8 +203,12 @@ def decide_flags(
         if review is not None and flags <= auto.keys():
             rule = sorted(flags)[0]
             review["cleared"].append(
-                {"trial": trial.get("trial_name") or trial["id"], "task": task_of(trial),
-                 "reason": auto[rule], "auto": rule}
+                {
+                    "trial": trial.get("trial_name") or trial["id"],
+                    "task": task_of(trial),
+                    "reason": auto[rule],
+                    "auto": rule,
+                }
             )
             continue
         undecided.append(f"{trial.get('trial_name') or trial['id']} {sorted(flags)}")
@@ -350,7 +352,9 @@ def select_release_trials(
     # Every link's replaced trial is excluded: an original, or the trial of a replacement
     # that was itself replaced (a superseded link). The manifest's trials are the ends.
     lineage = {
-        r["replaced_trial"]: r for r in cohort["lineage"] if r["state"] in ("finalized", "superseded")
+        r["replaced_trial"]: r
+        for r in cohort["lineage"]
+        if r["state"] in ("finalized", "superseded")
     }
     replacement_jobs = {t["job"] for t in cohort["trials"] if t.get("replacement")}
     rates = (run.get("pricing") or {}).get("rates_per_mtok")
@@ -374,7 +378,11 @@ def select_release_trials(
         t["id"]: (
             f"{lineage[t['trial_name']]['replaced_error'] or 'error'} (infrastructure); replaced by "
             f"{lineage[t['trial_name']]['id']}"
-            + (" (itself later replaced)" if lineage[t["trial_name"]]["state"] == "superseded" else "")
+            + (
+                " (itself later replaced)"
+                if lineage[t["trial_name"]]["state"] == "superseded"
+                else ""
+            )
             + ". Not scored; its cost is still counted."
         )
         for t in trials
@@ -464,9 +472,7 @@ def safety_cells(ordered: dict[str, list[Json]]) -> dict[str, list[int]]:
     stop or refusal ended. Rewarded ones already count as passes."""
     out = {
         task: [
-            i
-            for i, t in enumerate(trials)
-            if t["error_type"] in SAFETY_ERRORS and not rewarded(t)
+            i for i, t in enumerate(trials) if t["error_type"] in SAFETY_ERRORS and not rewarded(t)
         ]
         for task, trials in ordered.items()
     }
@@ -933,14 +939,17 @@ def build_run(
     if repriced := run.get("repriced"):
         # A corrected list-rate estimate made outside this script (bench-run bin/reprice) over
         # the same trials whose cost Harbor recorded; the recorded total is kept beside it.
-        if repriced["trials"] != out["cost"]["trials_with_cost"] + out["cost"]["excluded_trials_with_cost"]:
-            raise SystemExit(f"{run['id']}: repriced trials {repriced['trials']} != recorded-cost trials")
+        if (
+            repriced["trials"]
+            != out["cost"]["trials_with_cost"] + out["cost"]["excluded_trials_with_cost"]
+        ):
+            raise SystemExit(
+                f"{run['id']}: repriced trials {repriced['trials']} != recorded-cost trials"
+            )
         out["cost"]["repriced"] = repriced
     if "bucket" in run:
         out["as_run"] = {
-            "passes": sum(
-                1 for t in selected + excluded if t["main_run"] and rewarded(t)
-            ),
+            "passes": sum(1 for t in selected + excluded if t["main_run"] and rewarded(t)),
             "slots": slots,
         }
     if review_cfg or review_dq:
@@ -959,7 +968,11 @@ def build_run(
             if "bucket" in run:
                 inputs = [j["path"] for j in bucket_jobs]
                 extra = (
-                    "--min-trials", str(per_task), *run.get("scan_args", []), *rules, *scan_extra
+                    "--min-trials",
+                    str(per_task),
+                    *run.get("scan_args", []),
+                    *rules,
+                    *scan_extra,
                 )
                 excluded_keys = {t["scan_key"] for t in excluded}
             else:
@@ -973,7 +986,9 @@ def build_run(
                 **scanner_source(atif_dir),
                 # The rules file by its repository path, not this machine's.
                 "args": [
-                    f"docs/benchmark_data/{scan_rules.name}" if scan_rules and a == str(scan_rules) else a
+                    f"docs/benchmark_data/{scan_rules.name}"
+                    if scan_rules and a == str(scan_rules)
+                    else a
                     for a in extra
                 ],
                 "rules_sha256": file_sha256(scan_rules) if scan_rules else None,

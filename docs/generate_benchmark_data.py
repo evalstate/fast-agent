@@ -266,9 +266,7 @@ def _safety_cells(
             raise ValueError(f"{run_id}: safety errors but no safety_cells; rerun fetch_runs.py")
         return []
     out = [
-        tasks.index(task) * attempts + i
-        for task, idx in raw["safety_cells"].items()
-        for i in idx
+        tasks.index(task) * attempts + i for task, idx in raw["safety_cells"].items() for i in idx
     ]
     if any(cells[i] in "1x" for i in out):
         raise ValueError(f"{run_id}: a safety cell is a pass")
@@ -312,7 +310,9 @@ def _safety_allowance(runs: list[dict[str, Any]], bench: dict[str, Any]) -> dict
             passes = [ref["passes"][t] for t in tasks]
             total = ref["attempts"]
         if total != attempts:
-            raise ValueError(f"safety allowance: {ref['id']} must have {attempts} attempts per task")
+            raise ValueError(
+                f"safety allowance: {ref['id']} must have {attempts} attempts per task"
+            )
         refs.append(
             {
                 "id": ref["id"],
@@ -336,9 +336,7 @@ def _safety_allowance(runs: list[dict[str, Any]], bench: dict[str, Any]) -> dict
         ref = next((r for r in refs if run["family"] in r["families"]), defaults[0])
         easy = set(ref["easy"])
         run["safety"]["reference"] = ref["id"]
-        run["safety"]["allowance"] = [
-            i for i in run["safety"]["refused"] if i // attempts in easy
-        ]
+        run["safety"]["allowance"] = [i for i in run["safety"]["refused"] if i // attempts in easy]
     return {
         "label": cfg["label"],
         "rule": cfg["rule"],
