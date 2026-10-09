@@ -80,6 +80,10 @@
       "family": "gpt-6",
       "status": "6h timeout"
     },
+    "astra-high-6h": {
+      "family": "gpt-6",
+      "status": "6h timeout"
+    },
     "luna6-low-6h": {
       "family": "gpt-6",
       "status": "6h timeout"

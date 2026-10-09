@@ -549,3 +549,6 @@ a.fb-poster__row:hover { color: var(--petrol); background: var(--ivory-deep); }
 .fb-brush { fill: color-mix(in srgb, var(--petrol) 12%, transparent); stroke: var(--petrol); stroke-width: 1.5; stroke-dasharray: 4 3; pointer-events: none; }
 [data-md-color-scheme="slate"] .fb-brush { fill: color-mix(in srgb, var(--ivory) 12%, transparent); stroke: var(--ivory); }
 .fb-zoombar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0 0 8px; color: var(--fa-ink-muted); font: 600 13px/1.2 var(--font-read); }
+.fb-pan-area { fill: transparent; cursor: grab; touch-action: none; }
+.fb-zoomable.is-panning, .fb-zoomable.is-panning .fb-pan-area { cursor: grabbing; user-select: none; }
+.fb-zoombar .fb-seg { margin-left: 0; }

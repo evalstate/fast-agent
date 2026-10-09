@@ -743,9 +743,14 @@
       if (f.id !== "all") chip.appendChild(familyMark(m, f.id, "sm"));
       chip.appendChild(el("span", "", f.id === "all" ? f.name : familyName(f)));
       chip.appendChild(el("span", "fb-chip__n", String(count)));
-      chip.setAttribute("aria-pressed", String(state.family === f.id));
+      var all = familyIds(m);
+      var on = f.id === "all" ? state.families.length === all.length : state.families.indexOf(f.id) >= 0;
+      chip.setAttribute("aria-pressed", String(on));
+      chip.title = f.id === "all" ? (on ? "Clear every family" : "Show every family") : (on ? "Hide " : "Show ") + familyName(f);
       chip.addEventListener("click", function () {
-        state.family = f.id;
+        // Families toggle independently; "All models" selects all, or clears all when all are on.
+        if (f.id === "all") state.families = on ? [] : all.slice();
+        else state.families = on ? state.families.filter(function (x) { return x !== f.id; }) : state.families.concat([f.id]);
         state.redraw();
       });
       families.appendChild(chip);
@@ -829,13 +834,7 @@
     if (banner) controls.appendChild(banner);
     wrap.appendChild(controls);
 
-    var entries = m.runs.concat(m.claims).filter(function (e) {
-      if (state.family !== "all" && e.family !== state.family) return false;
-      if (e.tier === "leaderboard" && !state.leaderboard) return false;
-      if (e.tier === "claim" && !state.claims) return false;
-      if (e.tier === "ours" && !state.ours) return false;
-      return true;
-    });
+    var entries = shownEntries(m, state);
     var byScore = function (a, b) {
       if (state.sort === "family") return (b.tier === "ours") - (a.tier === "ours") || b.score - a.score;
       return b.score - a.score;
@@ -1007,32 +1006,96 @@
     ticks = ticks.filter(function (_, i) { return i % stride === 0; });
     return { min: min, max: max, ticks: ticks, all: ticks };
   }
-  /* The score/cost chart with drag-to-zoom and a reset; the window lives in ?zoom=. */
-  function frontierPanel(m) {
+  /* The score/cost chart for the shown entries, with drag-to-zoom, pan once zoomed and a
+     reset; the window lives in ?zoom=. Panning captures the pointer on the wrapper, which
+     survives each redraw of the SVG. */
+  function frontierPanel(m, entries) {
     var wrap = el("div", "fb-zoomable");
+    var mode = null; // "zoom" | "pan"; defaults to pan once zoomed
+    var current = null;
+    var pan = null;
     function readView() {
       var z = (new URLSearchParams(window.location.search).get("zoom") || "").split(",").map(Number);
       return z.length === 4 && z.every(function (v) { return isFinite(v); }) && z[0] > 0 && z[1] > z[0] && z[3] > z[2]
         ? { cMin: z[0], cMax: z[1], sMin: z[2], sMax: z[3] }
         : null;
     }
-    function draw(view) {
+    function saveView(view) {
       var url = new URL(window.location.href);
       if (view) url.searchParams.set("zoom", [view.cMin, view.cMax, view.sMin, view.sMax].map(function (v) { return +v.toPrecision(4); }).join(","));
       else url.searchParams.delete("zoom");
       window.history.replaceState(window.history.state, "", url);
+    }
+    function draw(view, transient) {
+      if (!transient) {
+        if (!view) mode = null;
+        saveView(view);
+      }
+      current = view;
+      if (!entries.length) {
+        wrap.innerHTML = "";
+        wrap.appendChild(el("p", "fb-empty", "No runs match these filters."));
+        return;
+      }
+      var dragMode = view ? mode || "pan" : "zoom";
       wrap.innerHTML = "";
       if (view) {
         var bar = el("div", "fb-zoombar");
         bar.appendChild(el("span", "", "Zoomed to " + money(view.cMin) + "–" + money(view.cMax) + " · " + view.sMin.toFixed(1) + "–" + view.sMax.toFixed(1) + "%"));
+        var seg = el("div", "fb-seg");
+        seg.setAttribute("role", "group");
+        seg.setAttribute("aria-label", "Dragging the chart");
+        [["pan", "Drag to pan"], ["zoom", "Drag to zoom"]].forEach(function (o) {
+          var btn = el("button", "", o[1]);
+          btn.type = "button";
+          btn.setAttribute("aria-pressed", String(dragMode === o[0]));
+          btn.addEventListener("click", function () { mode = o[0]; draw(current, true); });
+          seg.appendChild(btn);
+        });
+        bar.appendChild(seg);
         var reset = el("button", "fb-taskpick__x", "Reset zoom");
         reset.type = "button";
         reset.addEventListener("click", function () { draw(null); });
         bar.appendChild(reset);
         wrap.appendChild(bar);
       }
-      wrap.appendChild(frontier(m, { view: view, onZoom: draw }));
+      wrap.appendChild(
+        frontier(m, {
+          entries: entries,
+          view: view,
+          drag: dragMode,
+          onZoom: function (v) { draw(v); },
+          onPanStart: function (evt, geo) {
+            pan = { x: evt.clientX, y: evt.clientY, view: current, geo: geo };
+            wrap.setPointerCapture(evt.pointerId);
+            wrap.classList.add("is-panning");
+          },
+        })
+      );
     }
+    var frame = null;
+    wrap.addEventListener("pointermove", function (evt) {
+      if (!pan) return;
+      var g = pan.geo;
+      var v = pan.view;
+      // Screen pixels → plot units: log cost horizontally, score vertically.
+      var k = (Math.log(v.cMax / v.cMin) * (evt.clientX - pan.x)) / g.plotWidthPx;
+      var ds = ((v.sMax - v.sMin) * (evt.clientY - pan.y)) / g.plotHeightPx;
+      var next = { cMin: v.cMin * Math.exp(-k), cMax: v.cMax * Math.exp(-k), sMin: v.sMin + ds, sMax: v.sMax + ds };
+      if (frame) return;
+      frame = window.requestAnimationFrame(function () {
+        frame = null;
+        if (pan) draw(next, true);
+      });
+    });
+    function endPan() {
+      if (!pan) return;
+      pan = null;
+      wrap.classList.remove("is-panning");
+      saveView(current);
+    }
+    wrap.addEventListener("pointerup", endPan);
+    wrap.addEventListener("pointercancel", endPan);
     draw(readView());
     return wrap;
   }
@@ -1064,8 +1127,7 @@
       sMax = view.sMax;
       var span = sMax - sMin;
       sStep = span > 32 ? 10 : span > 16 ? 4 : span > 8 ? 2 : span > 3 ? 1 : 0.5;
-      sMin = Math.floor(sMin / sStep) * sStep;
-      sMax = Math.ceil(sMax / sStep) * sStep;
+      // Not snapped to the grid, so panning moves smoothly.
       dom = zoomDomain(view.cMin, view.cMax);
       entries = entries.filter(function (e) {
         return e.cost.total >= dom.min && e.cost.total <= dom.max && e.score >= sMin && e.score <= sMax;
@@ -1088,7 +1150,7 @@
       var bandLabel = svg("text", { x: pad.l + 8, y: H - pad.b - 8, class: "fb-band__label" }, root);
       bandLabel.textContent = "UNDER $" + m.bench.cheapBand + " A RUN";
     }
-    for (var s = sMin; s <= sMax + 1e-9; s += sStep) {
+    for (var s = Math.ceil(sMin / sStep - 1e-9) * sStep; s <= sMax + 1e-9; s += sStep) {
       svg("line", { x1: pad.l, x2: W - pad.r, y1: Y(s), y2: Y(s), class: "fb-grid" }, root);
       var t = svg("text", { x: pad.l - 10, y: Y(s) + 4, "text-anchor": "end", class: "fb-axis" }, root);
       t.textContent = (sStep < 1 ? s.toFixed(1) : String(Math.round(s))) + "%";
@@ -1103,8 +1165,17 @@
     var yl = svg("text", { x: 12, y: pad.t - 8, class: "fb-axis fb-axis--title" }, root);
     yl.textContent = "↑ score";
 
+    // Pan: dragging the plot moves the zoomed window (handled by frontierPanel).
+    if (opts.onPanStart && opts.drag === "pan") {
+      var panArea = svg("rect", { x: pad.l, y: pad.t, width: iw, height: ih, class: "fb-pan-area" }, root);
+      panArea.addEventListener("pointerdown", function (evt) {
+        evt.preventDefault();
+        var box = root.getBoundingClientRect();
+        opts.onPanStart(evt, { plotWidthPx: (iw / W) * box.width, plotHeightPx: (ih / H) * box.height });
+      });
+    }
     // Brush: drag across the plot to zoom (under the points, so they keep their tooltips).
-    if (opts.onZoom) {
+    if (opts.onZoom && opts.drag !== "pan") {
       var area = svg("rect", { x: pad.l, y: pad.t, width: iw, height: ih, class: "fb-brush-area" }, root);
       var sel = null;
       var start = null;
@@ -1270,7 +1341,7 @@
     fig.appendChild(root);
     var cap = el("figcaption", "fb-caption");
     cap.textContent =
-      (opts.onZoom ? (view ? "Zoomed: " + entries.length + " of " + all.length + " shown. " : "Drag across the chart to zoom in. ") : "") +
+      (opts.onZoom ? (view ? "Zoomed: " + entries.length + " of " + all.length + " shown; " + (opts.drag === "pan" ? "drag to pan. " : "drag to zoom further. ") : "Drag across the chart to zoom in. ") : "") +
       "Capsules: our runs · dots: leaderboard runs · dashed rings: vendor claims (no trials) · whiskers: 95% interval, clustered by task · line: best score at or below each cost." +
       (entries.some(function (e) { return e.allowance; }) ? " Hatched capsules: safety-allowance scenario, joined to the measured score (faint)." : "");
     fig.appendChild(cap);
@@ -1340,17 +1411,36 @@
   function benchParam() {
     return new URLSearchParams(window.location.search).get("b");
   }
+  /* Family ids that have entries on this benchmark, in catalog order. */
+  function familyIds(m) {
+    return m.data.families
+      .filter(function (f) {
+        return m.runs.concat(m.claims).some(function (e) { return e.family === f.id; });
+      })
+      .map(function (f) { return f.id; });
+  }
+  /* What the ledger and the score/cost chart show for the current filters. */
+  function shownEntries(m, state) {
+    return m.runs.concat(m.claims).filter(function (e) {
+      if (state.families.indexOf(e.family) < 0) return false;
+      if (e.tier === "leaderboard" && !state.leaderboard) return false;
+      if (e.tier === "claim" && !state.claims) return false;
+      if (e.tier === "ours" && !state.ours) return false;
+      return true;
+    });
+  }
   /* Ledger filters live in the URL (?fam=&sort=&hide=&task=) so a view can be shared. */
   var HIDEABLE = ["ours", "leaderboard", "claims"];
   function viewState(m) {
     var q = new URLSearchParams(window.location.search);
     var hide = (q.get("hide") || "").split(",");
     var fam = q.get("fam");
+    var all = familyIds(m);
     var sort = q.get("sort");
     var task = m.tasks.indexOf(q.get("task"));
     var state = {
-      family: fam && m.data.families.some(function (f) { return f.id === fam; }) ? fam : "all",
-      sort: ["family", "score", "cost"].indexOf(sort) >= 0 ? sort : "family",
+      families: fam === null ? all.slice() : fam === "none" ? [] : all.filter(function (id) { return fam.split(",").indexOf(id) >= 0; }),
+      sort: ["family", "score", "cost"].indexOf(sort) >= 0 ? sort : "score",
       task: task >= 0 ? task : null,
     };
     HIDEABLE.forEach(function (k) { state[k] = hide.indexOf(k) < 0; });
@@ -1359,8 +1449,9 @@
   function saveViewState(state, m) {
     var url = new URL(window.location.href);
     var set = function (k, v) { if (v) url.searchParams.set(k, v); else url.searchParams.delete(k); };
-    set("fam", state.family !== "all" ? state.family : null);
-    set("sort", state.sort !== "family" ? state.sort : null);
+    var all = familyIds(m);
+    set("fam", state.families.length === all.length ? null : state.families.length ? state.families.join(",") : "none");
+    set("sort", state.sort !== "score" ? state.sort : null);
     set("hide", HIDEABLE.filter(function (k) { return !state[k]; }).join(",") || null);
     set("task", state.task !== null ? m.tasks[state.task] : null);
     window.history.replaceState(window.history.state, "", url);
@@ -1458,19 +1549,22 @@
     var state = viewState(m);
     var boardSlot = el("div");
     boardSlot.id = "results";
+    var chartSlot = el("div");
     state.redraw = function () {
       boardSlot.innerHTML = "";
       boardSlot.appendChild(scoreboard(m, state));
+      chartSlot.innerHTML = "";
+      chartSlot.appendChild(frontierPanel(m, shownEntries(m, state)));
       saveViewState(state, m);
     };
-    root.appendChild(jumpNav([["results", "Results"], ["score-cost", "Score / cost"], ["difficulty", "Task difficulty"], ["methodology", "Methodology"]].concat(m.comparisons.length ? [] : [])));
+    root.appendChild(jumpNav([["results", "Results"], ["score-cost", "Score / cost"], ["difficulty", "Task difficulty"], ["methodology", "Methodology"]]));
     root.appendChild(boardSlot);
-    state.redraw();
 
-    var sc = sectionHead("", "Score / Cost Chart", "Higher and further left is better. The cost scale is logarithmic.");
+    var sc = sectionHead("", "Score / Cost Chart", "Higher and further left is better. The cost scale is logarithmic. Follows the filters above the table.");
     sc.id = "score-cost";
     root.appendChild(sc);
-    root.appendChild(frontierPanel(m));
+    root.appendChild(chartSlot);
+    state.redraw();
 
     var td = sectionHead("", "Task Difficulty.", "One row per run, one column per task, darker is more attempts passed. Hard tasks sit on the right.");
     td.id = "difficulty";
@@ -1684,12 +1778,17 @@
     );
     kpi(costText(run, true), "run cost", run.cost.basis + (run.cost.pricing ? " · recorded " + moneyExact(run.cost.recorded) : ""));
     kpi(moneyExact(run.cost.total / Math.max(1, run.passes)), "per passed trial", run.perTrialCost ? "median trial " + moneyExact(run.perTrialCost.median) + " · p90 " + moneyExact(run.perTrialCost.p90) : moneyExact(run.cost.total / run.slots) + " per trial");
-    if (run.tokens) kpi(tokens(run.tokens.input), "input tokens", tokens(run.tokens.cached) + " cached · " + tokens(run.tokens.output) + " out");
+    if (run.tokens) {
+      var cacheRate = run.tokens.input && run.tokens.cached !== null && run.tokens.cached !== undefined
+        ? " (" + Math.round((100 * run.tokens.cached) / run.tokens.input) + "%)"
+        : "";
+      kpi(tokens(run.tokens.input), "input tokens", tokens(run.tokens.cached) + " cached" + cacheRate + " · " + tokens(run.tokens.output) + " out");
+    }
     else if (run.full) kpi(pct(run.full.publishedScore), "full run score", m.full.tasks.length + " tasks · " + money(run.full.cost) + " published cost");
     else kpi("—", "full run", "subset only");
     root.appendChild(kpis);
 
-    root.appendChild(sectionHead("The wall", "All " + run.slots + " attempts.", "One tile per task, " + m.attempts + " attempts each. Hover for how every other run did on the same task."));
+    root.appendChild(sectionHead("The wall", "All " + run.slots + " attempts.", "One tile per task, " + m.attempts + " attempts each. Hover a tile for its attempts and scan notes."));
     root.appendChild(taskWall(m, run));
 
     if (run.full) {
@@ -1811,19 +1910,7 @@
         tile.appendChild(squares);
         tile.appendChild(el("span", "fb-tile__name", name));
         tile.addEventListener("mousemove", function (evt) {
-          var others = m.runs
-            .filter(function (r) {
-              return r.id !== run.id;
-            })
-            .map(function (r) {
-              return taskPasses(r, ti, m.attempts);
-            });
-          var sum = others.reduce(function (a, b) {
-            return a + b;
-          }, 0);
-          var lines = [name, p + " of " + m.attempts + " passed here"].concat(safetyEvidence(m, run, ti), scanLines(run, ti, m.attempts));
-          lines.push("Other " + others.length + " runs: " + sum + " of " + others.length * m.attempts + " attempts passed");
-          showTip(evt, lines);
+          showTip(evt, [name, p + " of " + m.attempts + " passed here"].concat(safetyEvidence(m, run, ti), scanLines(run, ti, m.attempts)));
         });
         tile.addEventListener("mouseleave", hideTip);
         grid.appendChild(tile);

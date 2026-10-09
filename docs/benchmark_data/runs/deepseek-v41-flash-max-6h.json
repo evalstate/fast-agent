@@ -201,7 +201,7 @@
     "Run on HF Jobs (cpu-upgrade sandboxes, capacity-matched rather than strictly CPU/RAM-enforced) through the harbor-hf command agent with fast-agent-mcp 0.10.24. Zero whole-trial retries; fast-agent's own provider retries apply."
   ],
   "scan": {
-    "version": "0.7.0",
+    "version": "0.7.1",
     "scope": "445 reported trials (findings also include 1 replaced original, kept as evidence)",
     "trials": 445,
     "rewarded": 423,
@@ -587,7 +587,7 @@
       }
     },
     "scanner": {
-      "commit": "e97330326b355b8fe65209dba8672b62c83b657d",
+      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
       "dirty": false,
       "diff_sha1": null,
       "args": [

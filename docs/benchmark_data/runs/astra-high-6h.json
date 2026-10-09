@@ -1,79 +1,92 @@
 {
-  "id": "sol61-medium-6h",
+  "id": "astra-high-6h",
   "benchmark": "terminal-bench-2.1",
   "harness": "fast-agent",
-  "harness_version": "0.10.42",
-  "model": "GPT-6.1 Sol",
-  "effort": "medium",
-  "model_string": "copilot.gpt-6.1-sol?reasoning=medium",
-  "date": "2026-10-03",
+  "harness_version": "0.10.43",
+  "model": "GPT-6 Astra",
+  "effort": "high",
+  "model_string": "copilot.gpt-6-astra?reasoning=high&streaming_timeout=300",
+  "date": "2026-10-09",
   "timeout": "6h",
   "jobs": [
     {
-      "id": "tb21-sol61-medium-copilot-001-hf-basic",
-      "name": "tb21-sol61-medium-copilot-001-hf-basic (430 trials)",
-      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/sol61-medium-6h/jobs/tb21-sol61-medium-copilot-001-hf-basic",
-      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/sol61-medium-6h/jobs/tb21-sol61-medium-copilot-001-hf-basic"
+      "id": "tb21-astra-high-copilot-st300-001-hf-basic",
+      "name": "tb21-astra-high-copilot-st300-001-hf-basic (430 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-hf-basic",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-hf-basic"
     },
     {
-      "id": "tb21-sol61-medium-copilot-001-hf-upgrade",
-      "name": "tb21-sol61-medium-copilot-001-hf-upgrade (15 trials)",
-      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/sol61-medium-6h/jobs/tb21-sol61-medium-copilot-001-hf-upgrade",
-      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/sol61-medium-6h/jobs/tb21-sol61-medium-copilot-001-hf-upgrade"
+      "id": "tb21-astra-high-copilot-st300-001-hf-upgrade",
+      "name": "tb21-astra-high-copilot-st300-001-hf-upgrade (15 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-hf-upgrade",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-hf-upgrade"
     },
     {
-      "id": "tb21-sol61-medium-copilot-001-rep-001",
-      "name": "tb21-sol61-medium-copilot-001-rep-001 (1 trial)",
-      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/sol61-medium-6h/jobs/tb21-sol61-medium-copilot-001-rep-001",
-      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/sol61-medium-6h/jobs/tb21-sol61-medium-copilot-001-rep-001"
+      "id": "tb21-astra-high-copilot-st300-001-rep-001",
+      "name": "tb21-astra-high-copilot-st300-001-rep-001 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-rep-001",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-rep-001"
     },
     {
-      "id": "tb21-sol61-medium-copilot-001-rep-002",
-      "name": "tb21-sol61-medium-copilot-001-rep-002 (1 trial)",
-      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/sol61-medium-6h/jobs/tb21-sol61-medium-copilot-001-rep-002",
-      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/sol61-medium-6h/jobs/tb21-sol61-medium-copilot-001-rep-002"
+      "id": "tb21-astra-high-copilot-st300-001-rep-002",
+      "name": "tb21-astra-high-copilot-st300-001-rep-002 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-rep-002",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-rep-002"
     },
     {
-      "id": "tb21-sol61-medium-copilot-001-rep-003",
-      "name": "tb21-sol61-medium-copilot-001-rep-003 (1 trial)",
-      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/sol61-medium-6h/jobs/tb21-sol61-medium-copilot-001-rep-003",
-      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/sol61-medium-6h/jobs/tb21-sol61-medium-copilot-001-rep-003"
+      "id": "tb21-astra-high-copilot-st300-001-rep-003",
+      "name": "tb21-astra-high-copilot-st300-001-rep-003 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-rep-003",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-rep-003"
+    },
+    {
+      "id": "tb21-astra-high-copilot-st300-001-rep-004",
+      "name": "tb21-astra-high-copilot-st300-001-rep-004 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-rep-004",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-rep-004"
     }
   ],
   "excluded_trials": [
     {
-      "id": "434208c5-f485-4575-944f-17b93b9eb284",
-      "task": "log-summary-date-ranges",
+      "id": "bb6c0695-c1ac-4847-abe8-0b570d1b2ff0",
+      "task": "schemelike-metacircular-eval",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": 2.349532,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb21-astra-high-copilot-st300-001-rep-004. Not scored; its cost is still counted."
+    },
+    {
+      "id": "704861b3-3963-435e-adde-a387583c0af3",
+      "task": "train-fasttext",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": 0.9714839999999999,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb21-astra-high-copilot-st300-001-rep-003. Not scored; its cost is still counted."
+    },
+    {
+      "id": "6451894b-7719-4279-9381-00c1d6ea5f9b",
+      "task": "mcmc-sampling-stan",
       "error_type": "SandboxError",
       "cost_usd": null,
-      "reason": "SandboxError (infrastructure); replaced by tb21-sol61-medium-copilot-001-rep-001. Not scored; its cost is still counted."
+      "reason": "SandboxError (infrastructure); replaced by tb21-astra-high-copilot-st300-001-rep-002. Not scored; its cost is still counted."
     },
     {
-      "id": "1e238aba-5735-4805-8253-8d8ba4f6ff83",
-      "task": "qemu-startup",
-      "error_type": "ConnectError",
-      "cost_usd": null,
-      "reason": "ConnectError (infrastructure); replaced by tb21-sol61-medium-copilot-001-rep-002. Not scored; its cost is still counted."
-    },
-    {
-      "id": "cd74724a-9798-4c9a-8b19-ab04a691ca17",
-      "task": "sanitize-git-repo",
-      "error_type": "ConnectError",
-      "cost_usd": null,
-      "reason": "ConnectError (infrastructure); replaced by tb21-sol61-medium-copilot-001-rep-003. Not scored; its cost is still counted."
+      "id": "d8209c4c-4386-4ce5-85fb-a4aa69dcb846",
+      "task": "rstan-to-pystan",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": 0.647729,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb21-astra-high-copilot-st300-001-rep-001. Not scored; its cost is still counted."
     }
   ],
   "disqualified_trials": [],
   "slots": 445,
-  "passes": 364,
-  "score": 81.8,
+  "passes": 394,
+  "score": 88.54,
   "tasks": {
     "adaptive-rejection-sampler": "11111",
     "bn-fit-modify": "11111",
-    "break-filter-js-from-html": "1ee00",
+    "break-filter-js-from-html": "eeeee",
     "build-cython-ext": "11111",
-    "build-pmars": "11111",
-    "build-pov-ray": "00000",
+    "build-pmars": "01111",
+    "build-pov-ray": "11111",
     "caffe-cifar-10": "11111",
     "cancel-async-tasks": "11111",
     "chess-best-move": "11111",
@@ -88,8 +101,8 @@
     "custom-memory-heap-crash": "11111",
     "db-wal-recovery": "11111",
     "distribution-search": "11111",
-    "dna-assembly": "10001",
-    "dna-insert": "00100",
+    "dna-assembly": "11101",
+    "dna-insert": "11111",
     "extract-elf": "00000",
     "extract-moves-from-video": "11111",
     "feal-differential-cryptanalysis": "11111",
@@ -105,23 +118,23 @@
     "gpt2-codegolf": "11111",
     "headless-terminal": "11111",
     "hf-model-inference": "11111",
-    "install-windows-3.11": "10000",
-    "kv-store-grpc": "10111",
+    "install-windows-3.11": "11111",
+    "kv-store-grpc": "11111",
     "large-scale-text-editing": "11111",
     "largest-eigenval": "11111",
     "llm-inference-batching-scheduler": "11111",
-    "log-summary-date-ranges": "11111",
+    "log-summary-date-ranges": "11101",
     "mailman": "11111",
     "make-doom-for-mips": "00000",
-    "make-mips-interpreter": "00100",
+    "make-mips-interpreter": "11111",
     "mcmc-sampling-stan": "11111",
     "merge-diff-arc-agi-task": "11111",
-    "model-extraction-relu-logits": "ee01e",
+    "model-extraction-relu-logits": "11e11",
     "modernize-scientific-stack": "11111",
     "mteb-leaderboard": "11111",
-    "mteb-retrieve": "00010",
+    "mteb-retrieve": "00100",
     "multi-source-data-merger": "11111",
-    "nginx-request-logging": "10111",
+    "nginx-request-logging": "11110",
     "openssl-selfsigned-cert": "11111",
     "overfull-hbox": "11111",
     "password-recovery": "11111",
@@ -130,108 +143,103 @@
     "polyglot-c-py": "11111",
     "polyglot-rust-c": "11111",
     "portfolio-optimization": "11111",
-    "protein-assembly": "00000",
+    "protein-assembly": "11111",
     "prove-plus-comm": "11111",
     "pypi-server": "11111",
-    "pytorch-model-cli": "11110",
-    "pytorch-model-recovery": "11111",
+    "pytorch-model-cli": "11111",
+    "pytorch-model-recovery": "11101",
     "qemu-alpine-ssh": "11111",
     "qemu-startup": "11111",
-    "query-optimize": "11111",
-    "raman-fitting": "01001",
+    "query-optimize": "11110",
+    "raman-fitting": "01101",
     "regex-chess": "11111",
     "regex-log": "11111",
     "reshard-c4-data": "11111",
     "rstan-to-pystan": "11111",
-    "sam-cell-seg": "11111",
-    "sanitize-git-repo": "00110",
-    "schemelike-metacircular-eval": "01100",
+    "sam-cell-seg": "11101",
+    "sanitize-git-repo": "00000",
+    "schemelike-metacircular-eval": "11111",
     "sparql-university": "11111",
     "sqlite-db-truncate": "11111",
     "sqlite-with-gcov": "11111",
-    "torch-pipeline-parallelism": "00010",
-    "torch-tensor-parallelism": "1e11e",
+    "torch-pipeline-parallelism": "11111",
+    "torch-tensor-parallelism": "11111",
     "train-fasttext": "11111",
     "tune-mjcf": "11111",
-    "video-processing": "11100",
-    "vulnerable-secret": "eeee1",
+    "video-processing": "01101",
+    "vulnerable-secret": "eeeee",
     "winning-avg-corewars": "11111",
     "write-compressor": "11111"
   },
   "safety_cells": {
-    "break-filter-js-from-html": [
-      1,
-      2
-    ],
     "model-extraction-relu-logits": [
-      0,
-      1,
-      4
-    ],
-    "vulnerable-secret": [
-      0,
-      1,
-      2,
-      3
+      2
     ]
   },
   "errors": {
-    "AgentSafetyRefusalError": 10,
-    "VerifierTimeoutError": 2
+    "AgentSafetyStopError": 1,
+    "NonZeroAgentExitCodeError": 10
   },
   "cost": {
-    "total_usd": 31.2,
-    "total_usd_exact": 31.197371,
-    "trials_with_cost": 440,
+    "total_usd": 279.83,
+    "total_usd_exact": 279.829847,
+    "trials_with_cost": 436,
     "trials": 445,
-    "excluded_trials_with_cost": 0,
+    "excluded_trials_with_cost": 3,
     "basis": "sum of Harbor recorded cost_usd over selected trials plus excluded (replaced) trials",
     "matches_published": null,
     "lower_bound": true
   },
   "tokens": {
-    "input": 61088570,
-    "cached": 55267610,
-    "output": 1402869,
+    "input": 80007892,
+    "cached": 71765497,
+    "output": 2512808,
     "basis": "Harbor per-trial input_tokens (includes cached), cache_tokens, output_tokens"
   },
   "per_trial_cost": {
-    "median": 0.0426,
-    "p90": 0.1539,
-    "max": 0.7543
+    "median": 0.372,
+    "p90": 1.5149,
+    "max": 3.8345
   },
   "published": null,
   "reconciled": true,
   "notes": [
     "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
-    "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6.1 Sol (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. Three infrastructure failures (a sandbox error, two connection errors) were rerun as replacements; the originals are kept as evidence.",
-    "Safety refusals: 10 trials ended with AgentSafetyRefusalError (model-extraction-relu-logits \u00d73, vulnerable-secret \u00d74, break-filter-js-from-html \u00d73) and score 0, except one break-filter-js-from-html trial whose verifier still passed: it counts as a pass here; bench-run's stricter rule counts it 0 (363/445).",
-    "Eleven trials hit fast-agent's 150 s stream-idle timeout on a model call and recovered on retry; none failed from it.",
-    "Cost is Harbor's recorded cost at the cohort's configured OpenAI list rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6.1-sol-standard-short / -long: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Stalled attempts recorded no usage, so the total is a lower bound."
+    "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; GPT-6 Astra (high reasoning) through GitHub Copilot, with fast-agent's stream-idle timeout raised to 300 s (streaming_timeout=300). Zero whole-trial retries; fast-agent's own provider retries apply. Four infrastructure failures (three dropped connections, a sandbox error) were rerun as replacements; the originals are kept as evidence.",
+    "Provider blocks: every attempt at break-filter-js-from-html and vulnerable-secret (10 trials) failed on the first model request, when Copilot's WebSocket rejected it (recorded by bench-run as a content-filter failure). Harbor records these as non-zero agent exits, not safety errors, so they score 0 and the safety allowance does not count them. One model-extraction-relu-logits trial ended with AgentSafetyStopError.",
+    "Other GPT-6 Astra cohorts (high and medium through the Codex subscription route, medium through Copilot with the default stream timeout) are complete but not shown.",
+    "Cost is Harbor's recorded cost at the cohort's configured OpenAI list rates (card-packs pricing catalog, rules gpt-6-astra-standard-short / -long: $10 / $1 / $50 per million input / cached / output tokens; $20 / $2 / $75 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
   ],
   "scan": {
     "version": "0.7.1",
-    "scope": "445 reported trials",
+    "scope": "445 reported trials (findings also include 3 replaced originals, kept as evidence)",
     "trials": 445,
-    "rewarded": 364,
-    "accuracy": 81.8,
-    "accuracy_se": 1.0,
+    "rewarded": 394,
+    "accuracy": 87.95,
+    "accuracy_se": 0.84,
     "findings_medium_plus": {
-      "trials": 1,
-      "rewarded": 0,
+      "trials": 5,
+      "rewarded": 5,
       "by_highest_priority": {
-        "medium": 1,
-        "low": 7,
-        "info": 207,
-        "none": 230
+        "medium": 5,
+        "low": 10,
+        "info": 224,
+        "none": 209
       },
       "top": [
         {
-          "check": "access.test_path",
-          "title": "Verifier test or solution path accessed",
+          "check": "side_channel.fetch_proxy",
+          "title": "Fetch routed through a reader proxy",
+          "priority": "medium",
+          "trials": 4,
+          "rewarded": 4
+        },
+        {
+          "check": "observation.install_lure",
+          "title": "Install lure seen in a tool result",
           "priority": "medium",
           "trials": 1,
-          "rewarded": 0
+          "rewarded": 1
         }
       ]
     },
@@ -240,13 +248,13 @@
       "high_or_critical_rewarded": 0,
       "other_model_trials": 0,
       "incomplete_evidence_rewarded": 0,
-      "accuracy_if_flagged_failed": 81.8
+      "accuracy_if_flagged_failed": 88.54
     },
     "awareness": {
-      "trials": 0,
+      "trials": 1,
       "stages": {
         "noticed": {
-          "trials": 0,
+          "trials": 1,
           "rewarded": 0
         },
         "named": {
@@ -267,45 +275,55 @@
         }
       },
       "verifier_talk": {
-        "trials": 0,
-        "rewarded": 0
+        "trials": 1,
+        "rewarded": 1
       }
     },
     "evidence": {
       "planned": 445,
-      "errored": 12,
+      "errored": 11,
       "error_types": {
-        "AgentSafetyRefusalError": 10,
-        "VerifierTimeoutError": 2
+        "AgentSafetyStopError": 1,
+        "NonZeroAgentExitCodeError": 10
       },
       "compacted_history": 0,
       "without_trajectory": 0,
-      "incomplete_scans": 13,
+      "incomplete_scans": 26,
       "unmetered_trials": 0
     },
     "cost": {
       "recorded": 0,
-      "trials_missing_cost": 445,
+      "trials_missing_cost": 448,
       "estimated_unpriced": null,
       "estimated_unmetered": null,
       "estimated_total": 0
     },
     "tokens": {
-      "uncached_input": 5820960,
-      "cached_input": 55267610,
-      "output": 1402869
+      "uncached_input": 8242395,
+      "cached_input": 71765497,
+      "output": 2512808
     },
     "walltime_hours": {
-      "trial_sum": 54.1,
-      "agent_sum": 31.5
+      "trial_sum": 38.1,
+      "agent_sum": 27.7
     },
     "overrides": [
       "agents[].override_timeout_sec"
     ],
     "flagged_tasks": {
-      "sanitize-git-repo": {
+      "dna-assembly": {
         "trials": 1,
-        "rewarded": 0,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "mteb-leaderboard": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "protein-assembly": {
+        "trials": 3,
+        "rewarded": 3,
         "max_priority": "medium"
       }
     },
@@ -344,7 +362,7 @@
       "custom-memory-heap-crash": "lllll",
       "db-wal-recovery": "lllll",
       "distribution-search": "lllll",
-      "dna-assembly": "lllll",
+      "dna-assembly": "llmll",
       "dna-insert": "lllll",
       "extract-elf": "lllll",
       "extract-moves-from-video": "lllll",
@@ -374,7 +392,7 @@
       "merge-diff-arc-agi-task": "lllll",
       "model-extraction-relu-logits": "lllll",
       "modernize-scientific-stack": "lllll",
-      "mteb-leaderboard": "lllll",
+      "mteb-leaderboard": "llmll",
       "mteb-retrieve": "lllll",
       "multi-source-data-merger": "lllll",
       "nginx-request-logging": "lllll",
@@ -386,7 +404,7 @@
       "polyglot-c-py": "lllll",
       "polyglot-rust-c": "lllll",
       "portfolio-optimization": "lllll",
-      "protein-assembly": "lllll",
+      "protein-assembly": "lmmlm",
       "prove-plus-comm": "lllll",
       "pypi-server": "lllll",
       "pytorch-model-cli": "lllll",
@@ -400,7 +418,7 @@
       "reshard-c4-data": "lllll",
       "rstan-to-pystan": "lllll",
       "sam-cell-seg": "lllll",
-      "sanitize-git-repo": "mllll",
+      "sanitize-git-repo": "lllll",
       "schemelike-metacircular-eval": "lllll",
       "sparql-university": "lllll",
       "sqlite-db-truncate": "lllll",
@@ -416,14 +434,14 @@
     }
   },
   "as_run": {
-    "passes": 362,
+    "passes": 390,
     "slots": 445
   },
   "review": {
     "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
     "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
-    "recorded_passes": 364,
-    "recorded_score": 81.8,
+    "recorded_passes": 394,
+    "recorded_score": 88.54,
     "disqualified": [],
     "cleared": []
   }

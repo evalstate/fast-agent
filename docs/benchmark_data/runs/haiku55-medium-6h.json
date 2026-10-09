@@ -215,7 +215,7 @@
     "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog, rules claude-haiku-5-5-standard-short / -long: $0.10 / $0.01 / $0.50 per million input / cached / output tokens; $0.50 / $0.05 / $2.50 above 100k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
   ],
   "scan": {
-    "version": "0.7.0",
+    "version": "0.7.1",
     "scope": "445 reported trials (findings also include 3 replaced originals, kept as evidence)",
     "trials": 445,
     "rewarded": 368,
@@ -348,7 +348,7 @@
       }
     },
     "scanner": {
-      "commit": "e97330326b355b8fe65209dba8672b62c83b657d",
+      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
       "dirty": false,
       "diff_sha1": null,
       "args": [

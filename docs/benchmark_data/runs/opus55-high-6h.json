@@ -255,29 +255,36 @@
     "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog 2026-09-29.1, rule claude-opus-5-5-standard: $4 / $0.20 / $20 per million input / cached / output tokens; cache writes not priced separately). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed."
   ],
   "scan": {
-    "version": "0.7.0",
+    "version": "0.7.1",
     "scope": "445 reported trials",
     "trials": 445,
     "rewarded": 394,
     "accuracy": 88.54,
     "accuracy_se": 0.45,
     "findings_medium_plus": {
-      "trials": 7,
-      "rewarded": 7,
+      "trials": 12,
+      "rewarded": 12,
       "by_highest_priority": {
-        "high": 5,
+        "high": 10,
         "medium": 2,
         "low": 6,
         "info": 182,
-        "none": 250
+        "none": 245
       },
       "top": [
         {
           "check": "review.task_recalled",
           "title": "Named this Terminal-Bench task unprompted",
           "priority": "high",
-          "trials": 5,
-          "rewarded": 5
+          "trials": 10,
+          "rewarded": 10
+        },
+        {
+          "check": "tb21.recall.task_catalog",
+          "title": "Benchmark task names listed unprompted",
+          "priority": "medium",
+          "trials": 10,
+          "rewarded": 10
         },
         {
           "check": "review.benchmark_named",
@@ -285,25 +292,18 @@
           "priority": "medium",
           "trials": 7,
           "rewarded": 7
-        },
-        {
-          "check": "tb21.recall.task_catalog",
-          "title": "Benchmark task names listed unprompted",
-          "priority": "medium",
-          "trials": 5,
-          "rewarded": 5
         }
       ]
     },
     "review": {
       "dq_threshold": "high",
-      "high_or_critical_rewarded": 5,
+      "high_or_critical_rewarded": 10,
       "other_model_trials": 0,
       "incomplete_evidence_rewarded": 0,
-      "accuracy_if_flagged_failed": 87.42
+      "accuracy_if_flagged_failed": 86.29
     },
     "awareness": {
-      "trials": 8,
+      "trials": 13,
       "stages": {
         "noticed": {
           "trials": 8,
@@ -314,8 +314,8 @@
           "rewarded": 7
         },
         "recalled": {
-          "trials": 7,
-          "rewarded": 7
+          "trials": 12,
+          "rewarded": 12
         },
         "searched": {
           "trials": 0,
@@ -367,14 +367,19 @@
         "rewarded": 2,
         "max_priority": "high"
       },
-      "gpt2-codegolf": {
+      "filter-js-from-html": {
         "trials": 1,
         "rewarded": 1,
         "max_priority": "high"
       },
+      "gpt2-codegolf": {
+        "trials": 3,
+        "rewarded": 3,
+        "max_priority": "high"
+      },
       "regex-chess": {
-        "trials": 1,
-        "rewarded": 1,
+        "trials": 3,
+        "rewarded": 3,
         "max_priority": "high"
       },
       "reshard-c4-data": {
@@ -394,7 +399,7 @@
       }
     },
     "scanner": {
-      "commit": "e97330326b355b8fe65209dba8672b62c83b657d",
+      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -434,7 +439,7 @@
       "extract-moves-from-video": "lllll",
       "feal-differential-cryptanalysis": "lllll",
       "feal-linear-cryptanalysis": "lllll",
-      "filter-js-from-html": "lllll",
+      "filter-js-from-html": "lhlll",
       "financial-document-processor": "lllll",
       "fix-code-vulnerability": "lllll",
       "fix-git": "lllll",
@@ -442,7 +447,7 @@
       "gcode-to-text": "lllll",
       "git-leak-recovery": "lllll",
       "git-multibranch": "lllll",
-      "gpt2-codegolf": "hllll",
+      "gpt2-codegolf": "hlhhl",
       "headless-terminal": "lllll",
       "hf-model-inference": "lllll",
       "install-windows-3.11": "lllll",
@@ -479,7 +484,7 @@
       "qemu-startup": "lllll",
       "query-optimize": "lllll",
       "raman-fitting": "lllll",
-      "regex-chess": "llhll",
+      "regex-chess": "hlhhl",
       "regex-log": "lllll",
       "reshard-c4-data": "lllml",
       "rstan-to-pystan": "lllll",
@@ -511,13 +516,43 @@
     "disqualified": [],
     "cleared": [
       {
+        "trial": "filter-js-from-html__KzGiMnp",
+        "task": "filter-js-from-html",
+        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "auto": "review.task_recalled"
+      },
+      {
+        "trial": "gpt2-codegolf__PftMACf",
+        "task": "gpt2-codegolf",
+        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "auto": "review.task_recalled"
+      },
+      {
+        "trial": "gpt2-codegolf__bHNVcPp",
+        "task": "gpt2-codegolf",
+        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "auto": "review.task_recalled"
+      },
+      {
         "trial": "gpt2-codegolf__qRYvDSC",
         "task": "gpt2-codegolf",
         "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
         "auto": "review.task_recalled"
       },
       {
+        "trial": "regex-chess__2Zdj8Nt",
+        "task": "regex-chess",
+        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "auto": "review.task_recalled"
+      },
+      {
         "trial": "regex-chess__MuhzmMH",
+        "task": "regex-chess",
+        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "auto": "review.task_recalled"
+      },
+      {
+        "trial": "regex-chess__Q7jcywG",
         "task": "regex-chess",
         "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
         "auto": "review.task_recalled"

@@ -154,7 +154,7 @@
     "Selected trials report several models: ['claude-haiku-5.5', 'copilot.claude-haiku-5.5?reasoning=low']."
   ],
   "scan": {
-    "version": "0.7.0",
+    "version": "0.7.1",
     "scope": "445 reported trials",
     "trials": 445,
     "rewarded": 356,
@@ -280,7 +280,7 @@
       }
     },
     "scanner": {
-      "commit": "e97330326b355b8fe65209dba8672b62c83b657d",
+      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
       "dirty": false,
       "diff_sha1": null,
       "args": [

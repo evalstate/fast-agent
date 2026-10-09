@@ -297,21 +297,37 @@
     "Cost is Harbor's recorded cost at the cohort's configured Anthropic list rates (card-packs pricing catalog 2026-09-29.1, rule claude-opus-5-5-standard: $4 / $0.20 / $20 per million input / cached / output tokens; cache writes not priced separately). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have incomplete usage, so the total is a lower bound."
   ],
   "scan": {
-    "version": "0.7.0",
+    "version": "0.7.1",
     "scope": "445 reported trials (findings also include 6 replaced originals, kept as evidence)",
     "trials": 445,
     "rewarded": 386,
     "accuracy": 85.81,
     "accuracy_se": 0.75,
     "findings_medium_plus": {
-      "trials": 0,
+      "trials": 1,
       "rewarded": 0,
       "by_highest_priority": {
+        "high": 1,
         "low": 5,
         "info": 185,
-        "none": 261
+        "none": 260
       },
-      "top": []
+      "top": [
+        {
+          "check": "review.task_recalled",
+          "title": "Named this Terminal-Bench task unprompted",
+          "priority": "high",
+          "trials": 1,
+          "rewarded": 0
+        },
+        {
+          "check": "tb21.recall.task_catalog",
+          "title": "Benchmark task names listed unprompted",
+          "priority": "medium",
+          "trials": 1,
+          "rewarded": 0
+        }
+      ]
     },
     "review": {
       "dq_threshold": "high",
@@ -321,7 +337,7 @@
       "accuracy_if_flagged_failed": 86.74
     },
     "awareness": {
-      "trials": 0,
+      "trials": 1,
       "stages": {
         "noticed": {
           "trials": 0,
@@ -332,7 +348,7 @@
           "rewarded": 0
         },
         "recalled": {
-          "trials": 0,
+          "trials": 1,
           "rewarded": 0
         },
         "searched": {
@@ -380,9 +396,15 @@
     "overrides": [
       "agents[].override_timeout_sec"
     ],
-    "flagged_tasks": {},
+    "flagged_tasks": {
+      "filter-js-from-html": {
+        "trials": 1,
+        "rewarded": 0,
+        "max_priority": "high"
+      }
+    },
     "scanner": {
-      "commit": "e97330326b355b8fe65209dba8672b62c83b657d",
+      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -422,7 +444,7 @@
       "extract-moves-from-video": "lllll",
       "feal-differential-cryptanalysis": "lllll",
       "feal-linear-cryptanalysis": "lllll",
-      "filter-js-from-html": "lllll",
+      "filter-js-from-html": "lhlll",
       "financial-document-processor": "lllll",
       "fix-code-vulnerability": "lllll",
       "fix-git": "lllll",
