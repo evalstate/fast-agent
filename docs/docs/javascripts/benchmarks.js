@@ -1229,15 +1229,15 @@
     var best = -1;
     var pts = [];
     withTrials.forEach(function (e) {
-      if (e.score > best) {
-        best = e.score;
+      if (shownScore(e) > best) {
+        best = shownScore(e);
         pts.push(e);
       }
     });
     if (pts.length > 1) {
       var d = pts
         .map(function (e, i) {
-          return (i ? "L" : "M") + X(e.cost.total).toFixed(1) + " " + Y(e.score).toFixed(1);
+          return (i ? "L" : "M") + X(e.cost.total).toFixed(1) + " " + Y(shownScore(e)).toFixed(1);
         })
         .join(" ");
       svg("path", { d: d, class: "fb-pareto", "clip-path": "url(#" + clipId + ")" }, root);
@@ -1251,10 +1251,15 @@
       svg("line", { x1: X(e.cost.total), y1: Y(e.score), x2: X(o.cost.total), y2: Y(o.score), class: "fb-pairline" }, root);
     });
 
+    // A run under the safety-allowance scenario keeps its measured point (solid, labelled);
+    // the scenario score is a faint dotted ghost above it.
+    function shownScore(e) {
+      return e.allowance ? e.allowance.baseScore : e.score;
+    }
     // Reserve every marker first so labels never sit on a point.
     var placed = entries.map(function (e) {
       var cx = X(e.cost.total);
-      var cy = Y(e.score);
+      var cy = Y(shownScore(e));
       return [cx - 10, cy - 8, cx + 10, cy + 8];
     });
     var order = entries.slice().sort(function (a, b) {
@@ -1278,17 +1283,17 @@
     }
     order.forEach(function (e) {
       var cx = X(e.cost.total);
-      var cy = Y(e.score);
+      var cy = Y(shownScore(e));
       var g = svg("g", { class: "fb-pt fb-pt--" + e.tier + (e.allowance ? " fb-pt--scenario" : ""), tabindex: "0" }, root);
       if (e.allowance) {
-        // Measured score as a ghost, joined to the scenario point.
-        var by = Y(e.allowance.baseScore);
-        svg("line", { x1: cx, x2: cx, y1: by, y2: cy, class: "fb-scenario-line" }, g);
-        svg("rect", { x: cx - 9, y: by - 5.5, width: 18, height: 11, rx: 5.5, class: "fb-marker fb-marker--ghost" }, g);
+        var sy = Y(e.score);
+        svg("line", { x1: cx, x2: cx, y1: cy - 6, y2: sy + 6, class: "fb-scenario-line" }, g);
+        svg("rect", { x: cx - 9, y: sy - 5.5, width: 18, height: 11, rx: 5.5, class: "fb-scenario-ghost" }, g);
       }
       if (e.tier !== "claim") {
-        var top = Math.max(pad.t, Y(e.score + 1.96 * e.se));
-        var bottom = Math.min(H - pad.b, Y(e.score - 1.96 * e.se));
+        var se = e.allowance ? e.allowance.baseSe : e.se;
+        var top = Math.max(pad.t, Y(shownScore(e) + 1.96 * se));
+        var bottom = Math.min(H - pad.b, Y(shownScore(e) - 1.96 * se));
         svg("line", { x1: cx, x2: cx, y1: bottom, y2: top, class: "fb-ci", "clip-path": "url(#" + clipId + ")" }, g);
       }
       var at = svg("g", { transform: "translate(" + cx + " " + cy + ")" }, g);
@@ -1343,7 +1348,7 @@
     cap.textContent =
       (opts.onZoom ? (view ? "Zoomed: " + entries.length + " of " + all.length + " shown; " + (opts.drag === "pan" ? "drag to pan. " : "drag to zoom further. ") : "Drag across the chart to zoom in. ") : "") +
       "Capsules: our runs · dots: leaderboard runs · dashed rings: vendor claims (no trials) · whiskers: 95% interval, clustered by task · line: best score at or below each cost." +
-      (entries.some(function (e) { return e.allowance; }) ? " Hatched capsules: safety-allowance scenario, joined to the measured score (faint)." : "");
+      (entries.some(function (e) { return e.allowance; }) ? " Faint dotted capsules: the safety-allowance scenario score above each affected run's measured score." : "");
     fig.appendChild(cap);
     return fig;
   }

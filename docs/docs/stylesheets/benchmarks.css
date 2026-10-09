@@ -170,9 +170,8 @@ a.fb-row:hover { background: var(--fa-inset); color: var(--fa-ink); }
 .fb-c--x { fill: var(--fb-hot); }
 .fb-c--r { fill: color-mix(in srgb, var(--fb-hot) 28%, transparent); stroke: var(--fb-hot); stroke-width: 1.2; }
 .fb-c--a { fill: color-mix(in srgb, var(--fb-ours) 45%, transparent); stroke: var(--fb-hot); stroke-width: 1; stroke-dasharray: 1.2 0.8; }
-.fb-scenario-line { stroke: var(--fb-hot); stroke-width: 1.5; stroke-dasharray: 3 2; }
-.fb-pt .fb-marker--ghost { fill: none; stroke: var(--fa-ink-muted); stroke-width: 1.5; stroke-dasharray: 2 2; transform: rotate(-8deg); transform-box: fill-box; transform-origin: center; }
-.fb-pt--scenario .fb-marker--capsule { stroke: var(--fb-hot); stroke-dasharray: 3 2; }
+.fb-scenario-line { stroke: var(--fa-ink-muted); stroke-width: 1; stroke-dasharray: 2 3; opacity: .45; }
+.fb-scenario-ghost { fill: none; stroke: var(--fa-ink-muted); stroke-width: 1.2; stroke-dasharray: 2 2; opacity: .55; transform: rotate(-8deg); transform-box: fill-box; transform-origin: center; }
 .fb-c--m { fill: none; stroke: var(--fb-empty-line); stroke-dasharray: 1 1; }
 .fb-flag { fill: var(--fb-hot); stroke: var(--fa-raised); stroke-width: .8; stroke-linejoin: round; paint-order: stroke; }
 /* Fallback slash: dark on amber and on empty cells, page-coloured on ink cells. */
