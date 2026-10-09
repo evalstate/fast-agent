@@ -284,7 +284,7 @@
         },
         {
           "check": "review.task_recalled",
-          "title": "Named this Terminal-Bench task unprompted",
+          "title": "Named Terminal-Bench tasks unprompted",
           "priority": "high",
           "trials": 4,
           "rewarded": 4
@@ -600,7 +600,7 @@
         "--image-model",
         "codexresponses.gpt-6-luna?reasoning=medium"
       ],
-      "rules_sha256": "d0efe44a7b61f7eb80cfc4493175e7e2d5f47781b380c980ca13da830ecee854"
+      "rules_sha256": "b176f5133ccc1c4cb3b570a28c9dd8b0f695be7f5ad07ec1fd7bf245268a68a6"
     },
     "cells": {
       "adaptive-rejection-sampler": "lllll",
@@ -1012,7 +1012,7 @@
       {
         "trial": "kv-store-grpc__vvZHtev",
         "task": "kv-store-grpc",
-        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
         "auto": "review.task_recalled"
       }
     ]

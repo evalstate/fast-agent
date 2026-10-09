@@ -175,7 +175,7 @@
         },
         {
           "check": "review.task_recalled",
-          "title": "Named this Terminal-Bench task unprompted",
+          "title": "Named Terminal-Bench tasks unprompted",
           "priority": "high",
           "trials": 5,
           "rewarded": 4
@@ -419,7 +419,7 @@
         "--image-model",
         "codexresponses.gpt-6-luna?reasoning=medium"
       ],
-      "rules_sha256": "d0efe44a7b61f7eb80cfc4493175e7e2d5f47781b380c980ca13da830ecee854"
+      "rules_sha256": "b176f5133ccc1c4cb3b570a28c9dd8b0f695be7f5ad07ec1fd7bf245268a68a6"
     },
     "cells": {
       "adaptive-rejection-sampler": "lllll",
@@ -603,19 +603,19 @@
       {
         "trial": "e2f00495-c4f0-4c08-af6e-a07a7d36482f",
         "task": "headless-terminal",
-        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
         "auto": "review.task_recalled"
       },
       {
         "trial": "c0ab11d0-23f9-47b5-ad28-62b801c6d993",
         "task": "headless-terminal",
-        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
         "auto": "review.task_recalled"
       },
       {
         "trial": "6581c840-fe11-4999-ad75-628014631980",
         "task": "headless-terminal",
-        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
         "auto": "review.task_recalled"
       }
     ]

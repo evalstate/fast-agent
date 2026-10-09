@@ -25,7 +25,7 @@
       "published": {"score": 84.49, "total_cost": 77.53, "source_url": null},
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-        "clear_when_only": {"review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
         "cleared": [
           {"trial": "ef12d018-bafd-4d0f-aaad-bbcaaff4b91a", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
           {"trial": "0a61413d-dcb3-4b9c-a11e-68d8e335079d", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
@@ -86,7 +86,7 @@
       "published": null,
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-        "clear_when_only": {"review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
         "coverage": "Every pass has complete evidence except video-processing__2uf3afv: its history before compaction was archived inside the sandbox, never collected, and can't be reviewed. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [
           {"trial": "configure-git-webserver__DWQzNFW", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
@@ -339,7 +339,7 @@
       "published": null,
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-        "clear_when_only": {"review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [
           {"trial": "configure-git-webserver__hEyhmnw", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
@@ -388,7 +388,7 @@
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
         "clear_when_only": {
-          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
@@ -432,7 +432,7 @@
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
         "clear_when_only": {
-          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
@@ -469,7 +469,7 @@
       "published": null,
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-        "clear_when_only": {"review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
         "disqualified": []
@@ -506,7 +506,7 @@
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
         "clear_when_only": {
-          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
@@ -556,7 +556,7 @@
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
         "clear_when_only": {
-          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [
@@ -607,7 +607,7 @@
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
         "clear_when_only": {
-          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [
@@ -674,7 +674,7 @@
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
         "clear_when_only": {
-          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [
@@ -737,7 +737,7 @@
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
         "clear_when_only": {
-          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
@@ -785,7 +785,7 @@
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
         "clear_when_only": {
-          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
@@ -833,7 +833,7 @@
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
         "clear_when_only": {
-          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
@@ -875,7 +875,7 @@
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
         "clear_when_only": {
-          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
         "coverage": "Every reported pass has complete evidence except overfull-hbox__bceZ2te, where atif-scan could not read one background-process stop call; a manual check of that trajectory found no network access and no benchmark material. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
@@ -918,7 +918,7 @@
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
         "clear_when_only": {
-          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
@@ -955,7 +955,7 @@
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
         "clear_when_only": {
-          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
@@ -992,7 +992,7 @@
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
         "clear_when_only": {
-          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
@@ -1035,7 +1035,7 @@
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
         "clear_when_only": {
-          "review.task_recalled": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],

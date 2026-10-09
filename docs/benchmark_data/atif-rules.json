@@ -4,7 +4,7 @@
       "id": "review.task_recalled",
       "version": "1",
       "severity": "high",
-      "title": "Named this Terminal-Bench task unprompted",
+      "title": "Named Terminal-Bench tasks unprompted",
       "when": {"all": ["tb21.recall.task_catalog"]}
     },
     {

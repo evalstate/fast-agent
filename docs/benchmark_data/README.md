@@ -82,8 +82,8 @@ Bucket runs read a local mirror of the bucket (`--bucket-root`, default atif-sca
   none (`cost.computed`, a lower bound when any trial's usage is incomplete).
 - **Publish-side scan policy** (`scan_rules`, default `atif-rules.json`): atif-scan rules
   applied to every scan, raising our own review priorities without changing atif-scan's
-  detectors. `review.task_recalled` (high) marks a trial that named its own Terminal-Bench
-  task unprompted (`tb21.recall.task_catalog`); `review.benchmark_named` (medium) one that
+  detectors. `review.task_recalled` (high) marks a trial that named Terminal-Bench tasks
+  unprompted, its own or three others (`tb21.recall.task_catalog`); `review.benchmark_named` (medium) one that
   named Terminal-Bench (`recall.benchmark_unprompted`). The file's sha256 is in the scan
   cache key and in `scan.scanner.rules_sha256`.
 - **Our review** (`review`): the publication decision on every pass atif-scan flags high

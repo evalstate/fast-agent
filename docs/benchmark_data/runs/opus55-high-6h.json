@@ -281,7 +281,7 @@
       "top": [
         {
           "check": "review.task_recalled",
-          "title": "Named this Terminal-Bench task unprompted",
+          "title": "Named Terminal-Bench tasks unprompted",
           "priority": "high",
           "trials": 10,
           "rewarded": 10
@@ -417,7 +417,7 @@
         "--image-model",
         "codexresponses.gpt-6-luna?reasoning=medium"
       ],
-      "rules_sha256": "d0efe44a7b61f7eb80cfc4493175e7e2d5f47781b380c980ca13da830ecee854"
+      "rules_sha256": "b176f5133ccc1c4cb3b570a28c9dd8b0f695be7f5ad07ec1fd7bf245268a68a6"
     },
     "cells": {
       "adaptive-rejection-sampler": "lllll",
@@ -525,61 +525,61 @@
       {
         "trial": "filter-js-from-html__KzGiMnp",
         "task": "filter-js-from-html",
-        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
         "auto": "review.task_recalled"
       },
       {
         "trial": "gpt2-codegolf__PftMACf",
         "task": "gpt2-codegolf",
-        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
         "auto": "review.task_recalled"
       },
       {
         "trial": "gpt2-codegolf__bHNVcPp",
         "task": "gpt2-codegolf",
-        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
         "auto": "review.task_recalled"
       },
       {
         "trial": "gpt2-codegolf__qRYvDSC",
         "task": "gpt2-codegolf",
-        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
         "auto": "review.task_recalled"
       },
       {
         "trial": "regex-chess__2Zdj8Nt",
         "task": "regex-chess",
-        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
         "auto": "review.task_recalled"
       },
       {
         "trial": "regex-chess__MuhzmMH",
         "task": "regex-chess",
-        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
         "auto": "review.task_recalled"
       },
       {
         "trial": "regex-chess__Q7jcywG",
         "task": "regex-chess",
-        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
         "auto": "review.task_recalled"
       },
       {
         "trial": "sam-cell-seg__y4pwtVb",
         "task": "sam-cell-seg",
-        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
         "auto": "review.task_recalled"
       },
       {
         "trial": "caffe-cifar-10__NHpKByv",
         "task": "caffe-cifar-10",
-        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
         "auto": "review.task_recalled"
       },
       {
         "trial": "caffe-cifar-10__vMyQtXN",
         "task": "caffe-cifar-10",
-        "reason": "Recognised this Terminal-Bench task by name, unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
         "auto": "review.task_recalled"
       }
     ]

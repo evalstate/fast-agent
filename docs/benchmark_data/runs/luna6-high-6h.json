@@ -367,7 +367,7 @@
         "--image-model",
         "codexresponses.gpt-6-luna?reasoning=medium"
       ],
-      "rules_sha256": "d0efe44a7b61f7eb80cfc4493175e7e2d5f47781b380c980ca13da830ecee854"
+      "rules_sha256": "b176f5133ccc1c4cb3b570a28c9dd8b0f695be7f5ad07ec1fd7bf245268a68a6"
     },
     "cells": {
       "adaptive-rejection-sampler": "lllll",
