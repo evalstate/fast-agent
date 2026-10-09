@@ -2040,13 +2040,15 @@
     findings.appendChild(list);
     cols.appendChild(findings);
 
-    // Awareness funnel.
+    // Awareness signs. Not a funnel: each sign is counted on its own (a trial can recall its
+    // task without remarking on a benchmark, or look it up without naming one), so bars
+    // share the largest count as their scale.
     var aw = el("section", "fb-scan__card");
     aw.appendChild(el("h3", "", "Benchmark awareness"));
-    aw.appendChild(el("p", "fb-scan__sub", "Trials that worked out they were being tested, stage by stage"));
+    aw.appendChild(el("p", "fb-scan__sub", "Trials showing each sign that they knew they were being tested, counted separately (a trial can show several)"));
     var stages = s.awareness.stages;
     var names = { noticed: "remarked on a benchmark", named: "named one", recalled: "recalled its tasks", searched: "looked it up", obtained: "got material back" };
-    var fmax = Math.max(1, stages.noticed ? stages.noticed.trials : 1);
+    var fmax = Math.max.apply(null, [1].concat(Object.keys(names).map(function (k) { return (stages[k] || { trials: 0 }).trials; })));
     var funnel = el("ul", "fb-funnel");
     Object.keys(names).forEach(function (k) {
       var st = stages[k] || { trials: 0, rewarded: 0 };
