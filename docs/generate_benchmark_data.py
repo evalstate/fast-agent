@@ -88,6 +88,31 @@ def _scan_level(scan: dict[str, Any]) -> dict[str, Any]:
     return {"name": name, "label": label, "imageModel": image_model}
 
 
+def _dedupe_findings(top: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop a check our publish-side rule restates (atif-rules.json).
+
+    A rule that fires on exactly one check (``when.all == [check]``) flags the same trials
+    at our own priority, so listing both repeats one finding; keep the rule's row and note
+    the check it came from.
+    """
+    rules = _load(DATA_DIR / "atif-rules.json")["rules"]
+    restates = {
+        r["id"]: r["when"]["all"][0]
+        for r in rules
+        if list(r.get("when", {})) == ["all"] and len(r["when"]["all"]) == 1
+    }
+    by_check = {f["check"]: f for f in top}
+    out = []
+    for f in top:
+        rule = next((rid for rid, src in restates.items() if src == f["check"]), None)
+        if rule in by_check and by_check[rule]["trials"] == f["trials"]:
+            continue
+        if f["check"] in restates:
+            f = {**f, "from": restates[f["check"]]}
+        out.append(f)
+    return out
+
+
 def _scan_summary(scan: dict[str, Any] | None, tasks: list[str]) -> dict[str, Any] | None:
     """Run-level atif-scan summary plus one code per trial, aligned with ``cells``.
 
@@ -108,7 +133,7 @@ def _scan_summary(scan: dict[str, Any] | None, tasks: list[str]) -> dict[str, An
             "trials": findings["trials"],
             "rewarded": findings["rewarded"],
             "byPriority": findings["by_highest_priority"],
-            "top": findings["top"][:6],
+            "top": _dedupe_findings(findings["top"])[:6],
         },
         "review": {
             "highRewarded": review["high_or_critical_rewarded"],

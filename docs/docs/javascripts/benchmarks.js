@@ -2034,7 +2034,7 @@
       bar.appendChild(fill);
       li.appendChild(bar);
       li.appendChild(el("span", "fb-bars__v", f.trials + (f.rewarded ? " · " + f.rewarded + " rewarded" : "")));
-      li.title = f.check;
+      li.title = f.check + (f.from ? " (our publish-side rule over " + f.from + ")" : "");
       list.appendChild(li);
     });
     findings.appendChild(list);
