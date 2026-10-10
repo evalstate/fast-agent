@@ -204,7 +204,15 @@ class ParallelAgent(LlmAgent):
                 await step.finish(True, text=f"{agent.name} completed fan-out work")
                 return result
 
-        return await asyncio.gather(*[_run_agent(agent) for agent in self.fan_out_agents])
+        tasks = [asyncio.create_task(_run_agent(agent)) for agent in self.fan_out_agents]
+        try:
+            return await asyncio.gather(*tasks)
+        except BaseException:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
 
     async def _build_fan_in_prompt(
         self,
