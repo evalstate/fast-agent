@@ -6,9 +6,7 @@ description: "How fast-agent runs and comparators on Terminal-Bench 2.1 are sele
 # Terminal-Bench 2.1 methodology
 
 [Terminal-Bench 2.1](https://hub.harborframework.com/datasets/terminal-bench/terminal-bench-2-1/6?tab=leaderboard&leaderboard=main)
-has 89 tasks. Every result on the [benchmarks page](../../) is a complete run of
-all 89 tasks with five attempts each: 445 trials, all of them public on the
-Harbor Hub.
+has 89 tasks, repeated 5 times for a total of 445 trials.
 
 ## Scoring
 
@@ -22,16 +20,15 @@ Harbor Hub.
 
 ## Our runs
 
-- Each run lists its Harbor jobs on its run page. Where an attempt failed for an
+- Each run lists its source data (either Harbor or HF Bucket) on its run page. Where an attempt failed for an
   infrastructure reason (for example a sandbox setup timeout) and was re-run, the run
   page names the replaced trial and the replacement. The replaced trial's cost is still
   counted.
-- We submitted the standard-timeout runs to the Terminal-Bench 2.1 leaderboard. The
-  leaderboard closed community submissions before reviewing them, so they are marked
-  **Provisional**.
-- [Six-hour runs](../../six-hour/) allow a 21,600-second agent timeout per trial. They
+- Recent runs are with a six-hour timeout (21,600 second agent timeout). They
   aren't standard leaderboard configurations and shouldn't be compared like-for-like
   with standard rows; they carry a **6h timeout** badge.
+- The QEMU tasks upstream image expired on September 7th. They have been fixed for these runs
+  and should remain forward-compatible when `tb-legacy` is launched.
 
 ## Comparators
 
@@ -40,8 +37,6 @@ Harbor Hub.
 - Where the leaderboard judge disqualified a trial, it counts as a failure (shown in
   orange). The public trial IDs don't identify which attempt was disqualified, so the
   mark sits on the first passing attempt of that task.
-- One comparator (Codex · GPT-5.6 Terra max) resolves to public trials that don't match
-  the submitted set exactly. Its pass count matches; its run page says so.
 
 ## Vendor claims
 
