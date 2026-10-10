@@ -1668,7 +1668,7 @@
     "Disqualified trials are identified by leaderboard-clone trial id, which does not map to the public scrubbed Hub trial ids; the page marks the first passing attempt of that task, which may not be the disqualified one."
   ],
   "scan": {
-    "version": "0.7.1",
+    "version": "0.8.0",
     "scope": "all trials in the run's jobs",
     "trials": 445,
     "rewarded": 374,
@@ -1844,7 +1844,7 @@
       }
     },
     "scanner": {
-      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
       "dirty": false,
       "diff_sha1": null,
       "args": [

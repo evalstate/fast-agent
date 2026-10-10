@@ -2238,7 +2238,7 @@
       "total_usd": 111.41615,
       "trials": 451,
       "basis": "list-rate estimate incl. cache writes",
-      "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-09.1 (764c98a)",
+      "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.1 (e9373d5)",
       "note": "Harbor's recorded cost ($104.50) charged prompt-cache writes as plain input. Repriced from each trial's token usage at the catalog's $4 / $0.20 / $5 / $8 / $20 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens: $111.42 (+6.6%). Still a list-price equivalent: the run used GitHub Copilot."
     }
   },
@@ -2261,10 +2261,10 @@
     "Safety stops: 36 trials ended with AgentSafetyStopError, the provider's safety classifier stopping the run. They score 0 unless the verifier still passed. Every attempt at seven tasks was stopped: crack-7z-hash, password-recovery, vulnerable-secret and break-filter-js-from-html (security) and dna-insert, dna-assembly and protein-assembly (biology).",
     "Seven replacements: three Harbor or sandbox infrastructure failures, and three agent exits with code -1 recorded as verified crashes (no provider error in fast-agent's log; a lost HF exec stream), one of them replacing an earlier replacement. Originals are kept as evidence.",
     "One safety-stopped trial (fix-code-vulnerability) still passed its verifier and counts as a pass here, as rewarded timeouts do on this page; bench-run's stricter rule counts it 0 (385/445).",
-    "Cost shown is a list-rate estimate repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-09.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input. Recorded $104.50; repriced $111.42 over the same 451 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+    "Cost shown is a list-rate estimate repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-10.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input. Recorded $104.50; repriced $111.42 over the same 451 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
   ],
   "scan": {
-    "version": "0.7.1",
+    "version": "0.8.0",
     "scope": "445 reported trials (findings also include 6 replaced originals, kept as evidence)",
     "trials": 445,
     "rewarded": 386,
@@ -2371,7 +2371,7 @@
       }
     },
     "scanner": {
-      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
       "dirty": false,
       "diff_sha1": null,
       "args": [

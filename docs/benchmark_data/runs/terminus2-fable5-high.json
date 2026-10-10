@@ -1661,7 +1661,7 @@
     "Run uses Anthropic server-side fallback to Opus (anthropic-beta server-side-fallback-2026-06-02)."
   ],
   "scan": {
-    "version": "0.7.1",
+    "version": "0.8.0",
     "scope": "all trials in the run's jobs",
     "trials": 445,
     "rewarded": 358,
@@ -1681,7 +1681,7 @@
       "dq_threshold": "high",
       "high_or_critical_rewarded": 0,
       "other_model_trials": 55,
-      "incomplete_evidence_rewarded": 0,
+      "incomplete_evidence_rewarded": 1,
       "accuracy_if_flagged_failed": 68.09
     },
     "awareness": {
@@ -1743,7 +1743,7 @@
     "overrides": [],
     "flagged_tasks": {},
     "scanner": {
-      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
       "dirty": false,
       "diff_sha1": null,
       "args": [

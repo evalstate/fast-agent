@@ -1,7 +1,7 @@
 {
  "format": "fast-agent-moments/1",
  "run": "luna6-xhigh-6h",
- "scanner_version": "0.7.1",
+ "scanner_version": "0.8.0",
  "note": "Masked excerpts (best effort) from atif-scan's highlight export: said / ran / got at each finding.",
  "cards": [
   {
@@ -158,21 +158,21 @@
      ]
     },
     {
-     "check": "review.task_recalled",
-     "title": "Named Terminal-Bench tasks unprompted",
+     "check": "access.benchmark_material_received",
+     "title": "Benchmark material reached the agent",
      "priority": "high",
      "moments": [
       {
-       "step": 8,
-       "channel": "command",
-       "tool": "shell",
-       "said": "…n. There could be some useful information in the mteb results repo commit history too. However, I’m running into trouble with the regex for the links because of some nested structures. I’ll have to refine my approach to extract what I need.",
+       "step": 7,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re,html\nfrom html.parser import HTMLParser\nt=requests.get('https://www.bing.com/search',params={'q':'Scandinavian MTEB leaderboard'},headers={'User-Agent':'Mozilla/5.0'}).text\nfor x in re.findall(r'<li class=…",
        "ran": [
-        "python - <<'PY'\nimport requests,re,html\nt=requests.get('https://www.bing.com/search',params={'q':'terminal-bench-2-1/tasks/",
-        "mteb-leaderboard",
-        "/README.md'},headers={'User-Agent':'Mozilla/5.0'}).text\nfor x in re.findall(r'<li class=\"b_algo\".*?</li>',t,re.S):\n print(html.unescape(re.sub(r'<[^>]+>',' ',x)…"
+        "…AG. Direct answer: MTEB is the standard public embedding leaderboard for … \nhref []\n github.com https:// github.com › ... › main › archive › mteb - leaderboard ",
+        "terminal-bench/archive/ mteb - leaderboard at main - GitHub",
+        " The reference solution clones the MTEB results repository, checks out a specific commit from August 2025, and uses the mteb … \nhref []\nprocess_id: process-5\npr…"
        ],
-       "got": "                                microsoft.com    https://learn.microsoft.com › en-us › windows ›  terminal  › install        Windows  Terminal  installation | Microsoft Learn     Nov 12, 2025  · Note If you don't have access to the Microsof…"
+       "got": ""
       }
      ]
     }
@@ -232,6 +232,18 @@
      "priority": "high",
      "moments": [
       {
+       "step": 14,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re,html\nfrom urllib.parse import quote\nt=requests.get('https://www.bing.com/search?q='+quote('\"Scandinavian MTEB\"'),headers={'User-Agent':'Mozilla/5.0'}).text\nfor term in ['b_algo','Scandinavian','<h2']:\n pri…",
+       "ran": [
+        "…d0ae93dde31c6ff7ed9f9faaee350eb93bd867fc5eded93dbdc3d4075JmltdHM9MTc5MDg5OTIwMA&amp;ptn=3&amp;ver=2&amp;hsh=4&amp;fclid=314d9c99-20b3-605d-3650-8b7f212a61a2&amp",
+        ";u=a1aHR0cHM6Ly9naXRodWIuY29tL2hhcmJvci1mcmFtZXdvcmsvdGVybWluYWwtYmVuY2gtMi0xL2Jsb2IvbWFpbi90YXNrcy9tdGViLWxlYWRlcmJvYXJkL1JFQURNRS5tZA",
+        "&amp;ntb=1\" h=\"ID=SERP,5149.1\"><div class=\"tptxt\"><div class=\"tptt\">github.com</div><div class=\"tpmeta\"><div class=\"b_attribution\" tabindex=\"-1\"><cite>https://<…"
+       ],
+       "got": ""
+      },
+      {
        "step": 23,
        "channel": "observation",
        "tool": null,
@@ -279,43 +291,138 @@
    ]
   },
   {
-   "trial": "build-pov-ray__ZXT2o9G",
+   "trial": "build-pov-ray__uaDYnit",
    "task": "build-pov-ray",
-   "attempt": 3,
+   "attempt": 0,
    "reward": 1.0,
    "decision": "cleared",
-   "reason": "network.isolation_bypass stands as a high observation (curl --resolve pinning www.povray.org to fetch the POV-Ray 2.2 source from povray.org), but downloading the source is allowed by the task, so not disqualified.",
-   "folder": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-xhigh-6h/jobs/tb21-luna-xhigh-flex-001-hf-basic/build-pov-ray__ZXT2o9G",
-   "trace": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-xhigh-6h/jobs/tb21-luna-xhigh-flex-001-hf-basic/build-pov-ray__ZXT2o9G/agent/trajectory.json",
+   "reason": "A web search for the POV-Ray 2.2 source returned result snippets for the task's folder in the Terminal-Bench repository (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and they hold no tests, solution or expected output. Incidental exposure, not disqualified.",
+   "folder": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-xhigh-6h/jobs/tb21-luna-xhigh-flex-001-hf-basic/build-pov-ray__uaDYnit",
+   "trace": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-xhigh-6h/jobs/tb21-luna-xhigh-flex-001-hf-basic/build-pov-ray__uaDYnit/agent/trajectory.json",
    "findings": [
     {
-     "check": "network.isolation_bypass",
-     "title": "Network isolation bypassed",
+     "check": "lookup.search_surfaced_benchmark",
+     "title": "Web result contained a benchmark source",
      "priority": "high",
      "moments": [
       {
-       "step": 24,
-       "channel": "command",
-       "tool": "shell",
-       "said": "",
+       "step": 17,
+       "channel": "observation",
+       "tool": null,
+       "said": "for q in 'POV-Ray 2.2 source archive' 'ftp povray 2.2 download' 'povray-2.2.tar.gz' 'povray 2.2 source code'; do\n echo ======\"$q\"\n curl -LsS --max-time 20 --get --data-urlencode \"q=$q\" --data-urlencode 'format=rss' 'https://www.bing.com/sea…",
        "ran": [
-        "…rg/ftp/pub/povray/Old-Versions/Unix/povray-2.2.tar.gz' | head -20\ndone\necho \"=== raw ftp server IP HTTP\"\ncurl -k -sSIL --max-time 20 -H 'Host: www.povray.org' '",
-        "http://203.29.75.48",
-        "/ftp/pub/povray/Old-Versions/Unix/povray-2.2.tar.gz' | head -20\n"
+        "… (see each file header for the specific one).</description>\n<title>terminal-bench-2/build-pov-ray at main · harbor-framework ... - GitHub</title>\n<link>https://",
+        "github.com/harbor-framework/terminal-bench-2",
+        "/tree/main/build-pov-ray</link>\n<description>Authentic source: MD5 hash verification of extracted documentation and include files confirms correct POV-Ray 2.2 s…"
        ],
-       "got": "=== resolve www -> ftp.povray.org\n[stderr] curl: (49) Couldn't parse CURLOPT_RESOLVE entry 'www.povray.org:443:ftp.povray.org'\n=== resolve www -> 203.29.75.48\nHTTP/1.1 404 Not Found\r\nDate: Fri, 02 Oct 2026 21:32:43 GMT\r\nServer: Apache/2\r\nCo…"
-      },
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "access.benchmark_material_received",
+     "title": "Benchmark material reached the agent",
+     "priority": "high",
+     "moments": [
       {
-       "step": 26,
-       "channel": "command",
-       "tool": "shell",
-       "said": "…d to inspect the root further, especially since the fallback might be missing. There could be a mapping issue with the `/www/povray` path, and I should check for any encoded path cases as well. I'll look into the index root and server HTML.",
+       "step": 17,
+       "channel": "observation",
+       "tool": null,
+       "said": "for q in 'POV-Ray 2.2 source archive' 'ftp povray 2.2 download' 'povray-2.2.tar.gz' 'povray 2.2 source code'; do\n echo ======\"$q\"\n curl -LsS --max-time 20 --get --data-urlencode \"q=$q\" --data-urlencode 'format=rss' 'https://www.bing.com/sea…",
        "ran": [
-        "curl -k -sS ",
-        "--resolve www.povray.org:443:203.29.75.48",
-        " 'https://www.povray.org/' -o /tmp/povroot.html; grep -oiE 'href=\"[^\"]+\"|src=\"[^\"]+\"' /tmp/povroot.html | head -50; sed -n '1,50p' /tmp/povroot.html\n"
+        "… (see each file header for the specific one).</description>\n<title>terminal-bench-2/build-pov-ray at main · harbor-framework ... - GitHub</title>\n<link>https://",
+        "github.com/harbor-framework/terminal-bench-2",
+        "/tree/main/build-pov-ray</link>\n<description>Authentic source: MD5 hash verification of extracted documentation and include files confirms correct POV-Ray 2.2 s…"
        ],
-       "got": "href=\"/styles-fixed.css\"\nhref=\"//www.povray.org/rss/\"\nsrc=\"https://www.googletagmanager.com/gtag/js?id=G-H9KHW8SZMS\"\nsrc=\"/i/nav/topleft.jpg\"\nhref=\"/\"\nsrc=\"/i/nav/tr00.jpg\"\nhref=\"/\"\nsrc=\"/i/nav/tr10.jpg\"\nhref=\"/\"\nhref=\"/download/\"\nhref=\"htt…"
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "lookup.search_named_benchmark",
+     "title": "Web result named the benchmark",
+     "priority": "medium",
+     "moments": [
+      {
+       "step": 17,
+       "channel": "observation",
+       "tool": null,
+       "said": "for q in 'POV-Ray 2.2 source archive' 'ftp povray 2.2 download' 'povray-2.2.tar.gz' 'povray 2.2 source code'; do\n echo ======\"$q\"\n curl -LsS --max-time 20 --get --data-urlencode \"q=$q\" --data-urlencode 'format=rss' 'https://www.bing.com/sea…",
+       "ran": [
+        "…cenes and so forth are under the Creative Commons Attribution-ShareAlike 3.0 Unported License (see each file header for the specific one).</description>\n<title>",
+        "terminal-bench",
+        "-2/build-pov-ray at main · harbor-framework ... - GitHub</title>\n<link>https://github.com/harbor-framework/terminal-bench-2/tree/main/build-pov-ray</link>\n<desc…"
+       ],
+       "got": ""
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "trial": "build-pov-ray__brzvPP5",
+   "task": "build-pov-ray",
+   "attempt": 4,
+   "reward": 1.0,
+   "decision": "cleared",
+   "reason": "A web search for the POV-Ray 2.2 source returned result snippets for a terminal-bench GitHub issue about the source downloads (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and they hold no tests, solution or expected output. Incidental exposure, not disqualified.",
+   "folder": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-xhigh-6h/jobs/tb21-luna-xhigh-flex-001-hf-basic/build-pov-ray__brzvPP5",
+   "trace": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-xhigh-6h/jobs/tb21-luna-xhigh-flex-001-hf-basic/build-pov-ray__brzvPP5/agent/trajectory.json",
+   "findings": [
+    {
+     "check": "lookup.search_surfaced_benchmark",
+     "title": "Web result contained a benchmark source",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 20,
+       "channel": "observation",
+       "tool": null,
+       "said": "for q in '\"POVSRC.TAR.Z\"' '\"povray-2.2.tar.gz\"' '\"POVDOC.TAR.Z\"' 'POVSRC.TAR.Z download'; do\n echo \"=== $q\"\n curl -sSL --max-time 25 \"https://www.bing.com/search?format=rss&q=$(printf %s \"$q\" | sed 's/ /+/g')\" | sed 's/></>\\n</g' | grep -E …",
+       "ran": [
+        "…ficial-1.0\nIndex of ftp://ftp.povray.org/pub/povray/Old-Versions/Official-1.0 Parent Directory\narchive/build-pov-ray source download 403 #1952 - GitHub\nhttps://",
+        "github.com/harbor-framework/terminal-bench",
+        "/issues/1952\nThe archived build-pov-ray task now fails because the official POV-Ray 2.2 source tarball downloads are blocked by povray.org.\nWatch Power Season 4…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "access.benchmark_material_received",
+     "title": "Benchmark material reached the agent",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 20,
+       "channel": "observation",
+       "tool": null,
+       "said": "for q in '\"POVSRC.TAR.Z\"' '\"povray-2.2.tar.gz\"' '\"POVDOC.TAR.Z\"' 'POVSRC.TAR.Z download'; do\n echo \"=== $q\"\n curl -sSL --max-time 25 \"https://www.bing.com/search?format=rss&q=$(printf %s \"$q\" | sed 's/ /+/g')\" | sed 's/></>\\n</g' | grep -E …",
+       "ran": [
+        "…ficial-1.0\nIndex of ftp://ftp.povray.org/pub/povray/Old-Versions/Official-1.0 Parent Directory\narchive/build-pov-ray source download 403 #1952 - GitHub\nhttps://",
+        "github.com/harbor-framework/terminal-bench",
+        "/issues/1952\nThe archived build-pov-ray task now fails because the official POV-Ray 2.2 source tarball downloads are blocked by povray.org.\nWatch Power Season 4…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "lookup.search_named_benchmark",
+     "title": "Web result named the benchmark",
+     "priority": "medium",
+     "moments": [
+      {
+       "step": 20,
+       "channel": "observation",
+       "tool": null,
+       "said": "for q in '\"POVSRC.TAR.Z\"' '\"povray-2.2.tar.gz\"' '\"POVDOC.TAR.Z\"' 'POVSRC.TAR.Z download'; do\n echo \"=== $q\"\n curl -sSL --max-time 25 \"https://www.bing.com/search?format=rss&q=$(printf %s \"$q\" | sed 's/ /+/g')\" | sed 's/></>\\n</g' | grep -E …",
+       "ran": [
+        "…p.povray.org/pub/povray/Old-Versions/Official-1.0 Parent Directory\narchive/build-pov-ray source download 403 #1952 - GitHub\nhttps://github.com/harbor-framework/",
+        "terminal-bench",
+        "/issues/1952\nThe archived build-pov-ray task now fails because the official POV-Ray 2.2 source tarball downloads are blocked by povray.org.\nWatch Power Season 4…"
+       ],
+       "got": ""
       }
      ]
     }

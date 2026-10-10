@@ -1667,7 +1667,7 @@
     "PR closed unmerged (community submissions closed); not on the official leaderboard."
   ],
   "scan": {
-    "version": "0.7.1",
+    "version": "0.8.0",
     "scope": "all trials in the run's jobs",
     "trials": 445,
     "rewarded": 346,
@@ -1854,7 +1854,7 @@
       }
     },
     "scanner": {
-      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
       "dirty": false,
       "diff_sha1": null,
       "args": [

@@ -1,7 +1,77 @@
 {
  "format": "fast-agent-moments/1",
  "run": "sol61-medium-6h",
- "scanner_version": "0.7.1",
+ "scanner_version": "0.8.0",
  "note": "Masked excerpts (best effort) from atif-scan's highlight export: said / ran / got at each finding.",
- "cards": []
+ "cards": [
+  {
+   "trial": "mteb-leaderboard__9pceACC",
+   "task": "mteb-leaderboard",
+   "attempt": 4,
+   "reward": 1.0,
+   "decision": "cleared",
+   "reason": "A general web search (\"Scandinavian\" \"MTEB\" leaderboard) returned result snippets for the task's Terminal-Bench README and archive, one saying the reference solution checks out an August 2025 commit (access.benchmark_material_received, lookup.search_surfaced_benchmark). Not sought, and the agent opened none of those results; the snippets give no answer, and the August 2025 cut-off is in the task instruction. Incidental exposure, not disqualified.",
+   "folder": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/sol61-medium-6h/jobs/tb21-sol61-medium-copilot-001-hf-basic/mteb-leaderboard__9pceACC",
+   "trace": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/sol61-medium-6h/jobs/tb21-sol61-medium-copilot-001-hf-basic/mteb-leaderboard__9pceACC/agent/trajectory.json",
+   "findings": [
+    {
+     "check": "access.benchmark_material_received",
+     "title": "Benchmark material reached the agent",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 6,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re\nfor u in ['https://www.bing.com/search?q=%22Scandinavian%22+%22MTEB%22+leaderboard','https://huggingface.co/api/spaces?search=mteb&limit=100','https://raw.githubusercontent.com/embeddings-benchmark/mteb/ma…",
+       "ran": [
+        "… best embedding model for Scandinavian texts according …                github.com    https:// github.com  › ... › main › archive ›  mteb - leaderboard         ",
+        "terminal-bench/archive/ mteb - leaderboard  at main - GitHub",
+        "    The reference solution clones the MTEB results repository, checks out a specific commit from August 2025, and uses the mteb …                mteb.org    htt…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "lookup.search_surfaced_benchmark",
+     "title": "Web result contained a benchmark source",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 6,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re\nfor u in ['https://www.bing.com/search?q=%22Scandinavian%22+%22MTEB%22+leaderboard','https://huggingface.co/api/spaces?search=mteb&limit=100','https://raw.githubusercontent.com/embeddings-benchmark/mteb/ma…",
+       "ran": [
+        "… best embedding model for Scandinavian texts according …                github.com    https:// github.com  › ... › main › archive ›  mteb - leaderboard         ",
+        "terminal-bench/archive/ mteb - leaderboard  at main - GitHub",
+        "    The reference solution clones the MTEB results repository, checks out a specific commit from August 2025, and uses the mteb …                mteb.org    htt…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "lookup.search_named_benchmark",
+     "title": "Web result named the benchmark",
+     "priority": "medium",
+     "moments": [
+      {
+       "step": 6,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re\nfor u in ['https://www.bing.com/search?q=%22Scandinavian%22+%22MTEB%22+leaderboard','https://huggingface.co/api/spaces?search=mteb&limit=100','https://raw.githubusercontent.com/embeddings-benchmark/mteb/ma…",
+       "ran": [
+        "… classification, clustering, semantic …                github.com    https:// github.com  › ... › blob › main › tasks ›  mteb - leaderboard  › README.md        ",
+        "terminal-bench",
+        "-2-1/tasks/ mteb - leaderboard /README.md at main    This task asks the agent to identify the best embedding model for Scandinavian texts according to the MTEB …"
+       ],
+       "got": ""
+      }
+     ]
+    }
+   ]
+  }
+ ]
 }

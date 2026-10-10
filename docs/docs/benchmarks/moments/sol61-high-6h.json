@@ -1,7 +1,77 @@
 {
  "format": "fast-agent-moments/1",
  "run": "sol61-high-6h",
- "scanner_version": "0.7.1",
+ "scanner_version": "0.8.0",
  "note": "Masked excerpts (best effort) from atif-scan's highlight export: said / ran / got at each finding.",
- "cards": []
+ "cards": [
+  {
+   "trial": "mteb-leaderboard__hzDJy3d",
+   "task": "mteb-leaderboard",
+   "attempt": 0,
+   "reward": 1.0,
+   "decision": "cleared",
+   "reason": "A general web search for the Scandinavian MTEB leaderboard returned result snippets for the task's Terminal-Bench README (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and the snippets give no answer. Incidental exposure, not disqualified.",
+   "folder": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/sol61-high-6h/jobs/tb21-sol61-high-copilot-st300-001-hf-basic/mteb-leaderboard__hzDJy3d",
+   "trace": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/sol61-high-6h/jobs/tb21-sol61-high-copilot-st300-001-hf-basic/mteb-leaderboard__hzDJy3d/agent/trajectory.json",
+   "findings": [
+    {
+     "check": "lookup.search_surfaced_benchmark",
+     "title": "Web result contained a benchmark source",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 6,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re\nfrom html import unescape\nfor u in ['https://huggingface.co/spaces/mteb/leaderboard/raw/main/README.md','https://huggingface.co/spaces/mteb/leaderboard/raw/main/Dockerfile','https://duckduckgo.com/html/?q=…",
+       "ran": [
+        "…etrieval / English benchmark winners plus curated sections for language, modality, … github.com https:// github.com › ... › main › archive › mteb - leaderboard ",
+        "terminal-bench/archive/ mteb - leaderboard at main - GitHub",
+        " Solution Approach The reference solution clones the MTEB results repository, checks out a specific commit from August 2025, and … kennethenevoldsen.com https:/…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "access.benchmark_material_received",
+     "title": "Benchmark material reached the agent",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 6,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re\nfrom html import unescape\nfor u in ['https://huggingface.co/spaces/mteb/leaderboard/raw/main/README.md','https://huggingface.co/spaces/mteb/leaderboard/raw/main/Dockerfile','https://duckduckgo.com/html/?q=…",
+       "ran": [
+        "…etrieval / English benchmark winners plus curated sections for language, modality, … github.com https:// github.com › ... › main › archive › mteb - leaderboard ",
+        "terminal-bench/archive/ mteb - leaderboard at main - GitHub",
+        " Solution Approach The reference solution clones the MTEB results repository, checks out a specific commit from August 2025, and … kennethenevoldsen.com https:/…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "lookup.search_named_benchmark",
+     "title": "Web result named the benchmark",
+     "priority": "medium",
+     "moments": [
+      {
+       "step": 6,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re\nfrom html import unescape\nfor u in ['https://huggingface.co/spaces/mteb/leaderboard/raw/main/README.md','https://huggingface.co/spaces/mteb/leaderboard/raw/main/Dockerfile','https://duckduckgo.com/html/?q=…",
+       "ran": [
+        "…h benchmark winners plus curated sections for language, modality, … github.com https:// github.com › ... › blob › main › tasks › mteb - leaderboard › README.md ",
+        "terminal-bench",
+        "-2-1/tasks/ mteb - leaderboard /README.md at main MTEB Leaderboard Task Overview This task asks the agent to identify the best embedding model for Scandinavian …"
+       ],
+       "got": ""
+      }
+     ]
+    }
+   ]
+  }
+ ]
 }

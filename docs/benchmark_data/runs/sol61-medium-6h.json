@@ -2147,7 +2147,14 @@
     "excluded_trials_with_cost": 0,
     "basis": "sum of Harbor recorded cost_usd over selected trials plus excluded (replaced) trials",
     "matches_published": null,
-    "lower_bound": true
+    "lower_bound": true,
+    "repriced": {
+      "total_usd": 34.100561,
+      "trials": 440,
+      "basis": "list-rate estimate from token usage",
+      "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.1 (e9373d5)",
+      "note": "Harbor's recorded cost ($31.20) charged Copilot prompt-cache writes as plain input; Copilot lists them at 125% of the input rate. Repriced from each trial's token usage: $34.10 (+9.3%). Still a list-price equivalent: the run used GitHub Copilot."
+    }
   },
   "tokens": {
     "input": 61088570,
@@ -2167,43 +2174,65 @@
     "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6.1 Sol (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. Three infrastructure failures (a sandbox error, two connection errors) were rerun as replacements; the originals are kept as evidence.",
     "Safety refusals: 10 trials ended with AgentSafetyRefusalError (model-extraction-relu-logits \u00d73, vulnerable-secret \u00d74, break-filter-js-from-html \u00d73) and score 0, except one break-filter-js-from-html trial whose verifier still passed: it counts as a pass here; bench-run's stricter rule counts it 0 (363/445).",
     "Eleven trials hit fast-agent's 150 s stream-idle timeout on a model call and recovered on retry; none failed from it.",
-    "Cost is Harbor's recorded cost at the cohort's configured OpenAI list rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6.1-sol-standard-short / -long: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Stalled attempts recorded no usage, so the total is a lower bound."
+    "Cost shown is a list-rate estimate repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-10.1): Harbor's fast-agent adapter charged Copilot's prompt-cache writes as plain input, where Copilot lists them at 125% of input. Recorded $31.20; repriced $34.10 over the same 440 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
   ],
   "scan": {
-    "version": "0.7.1",
+    "version": "0.8.0",
     "scope": "445 reported trials",
     "trials": 445,
     "rewarded": 364,
     "accuracy": 81.8,
     "accuracy_se": 1.0,
     "findings_medium_plus": {
-      "trials": 1,
-      "rewarded": 0,
+      "trials": 2,
+      "rewarded": 1,
       "by_highest_priority": {
+        "high": 1,
         "medium": 1,
         "low": 7,
-        "info": 207,
+        "info": 206,
         "none": 230
       },
       "top": [
+        {
+          "check": "access.benchmark_material_received",
+          "title": "Benchmark material reached the agent",
+          "priority": "high",
+          "trials": 1,
+          "rewarded": 1
+        },
+        {
+          "check": "lookup.search_surfaced_benchmark",
+          "title": "Web result contained a benchmark source",
+          "priority": "high",
+          "trials": 1,
+          "rewarded": 1
+        },
         {
           "check": "access.test_path",
           "title": "Verifier test or solution path accessed",
           "priority": "medium",
           "trials": 1,
           "rewarded": 0
+        },
+        {
+          "check": "lookup.search_named_benchmark",
+          "title": "Web result named the benchmark",
+          "priority": "medium",
+          "trials": 1,
+          "rewarded": 1
         }
       ]
     },
     "review": {
       "dq_threshold": "high",
-      "high_or_critical_rewarded": 0,
+      "high_or_critical_rewarded": 1,
       "other_model_trials": 0,
       "incomplete_evidence_rewarded": 0,
-      "accuracy_if_flagged_failed": 81.8
+      "accuracy_if_flagged_failed": 81.57
     },
     "awareness": {
-      "trials": 0,
+      "trials": 1,
       "stages": {
         "noticed": {
           "trials": 0,
@@ -2222,8 +2251,8 @@
           "rewarded": 0
         },
         "obtained": {
-          "trials": 0,
-          "rewarded": 0
+          "trials": 1,
+          "rewarded": 1
         }
       },
       "verifier_talk": {
@@ -2263,6 +2292,11 @@
       "agents[].override_timeout_sec"
     ],
     "flagged_tasks": {
+      "mteb-leaderboard": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "high"
+      },
       "sanitize-git-repo": {
         "trials": 1,
         "rewarded": 0,
@@ -2270,7 +2304,7 @@
       }
     },
     "scanner": {
-      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -2334,7 +2368,7 @@
       "merge-diff-arc-agi-task": "lllll",
       "model-extraction-relu-logits": "lllll",
       "modernize-scientific-stack": "lllll",
-      "mteb-leaderboard": "lllll",
+      "mteb-leaderboard": "llllh",
       "mteb-retrieve": "lllll",
       "multi-source-data-merger": "lllll",
       "nginx-request-logging": "lllll",
@@ -2385,6 +2419,12 @@
     "recorded_passes": 364,
     "recorded_score": 81.8,
     "disqualified": [],
-    "cleared": []
+    "cleared": [
+      {
+        "trial": "mteb-leaderboard__9pceACC",
+        "task": "mteb-leaderboard",
+        "reason": "A general web search (\"Scandinavian\" \"MTEB\" leaderboard) returned result snippets for the task's Terminal-Bench README and archive, one saying the reference solution checks out an August 2025 commit (access.benchmark_material_received, lookup.search_surfaced_benchmark). Not sought, and the agent opened none of those results; the snippets give no answer, and the August 2025 cut-off is in the task instruction. Incidental exposure, not disqualified."
+      }
+    ]
   }
 }

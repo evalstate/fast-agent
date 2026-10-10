@@ -1,7 +1,7 @@
 {
  "format": "fast-agent-moments/1",
  "run": "luna6-high-6h",
- "scanner_version": "0.7.1",
+ "scanner_version": "0.8.0",
  "note": "Masked excerpts (best effort) from atif-scan's highlight export: said / ran / got at each finding.",
  "cards": [
   {
@@ -47,6 +47,25 @@
         "",
         "   COMPILING  | English meaning - Cambridge Dictionary    COMPILING definition: 1. present participle of compile 2. to collect information from different places and arrange it in…. Learn more.    &nbsp;        vocabulary.com    https://www.vocabulary.com › dictionary ›  compiling          Compiling - Definition, Meanin…",
         ""
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "access.benchmark_material_received",
+     "title": "Benchmark material reached the agent",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 15,
+       "channel": "observation",
+       "tool": null,
+       "said": "for u in \\\n'https://www.bing.com/search?q=%22povray-2.2.tar%22' \\\n'https://html.duckduckgo.com/html/?q=%22povray-2.2%22+source' \\\n'https://search.brave.com/search?q=%22povray-2.2%22+tar.gz'; do echo ====; curl -Ls --max-time 20 \"$u\" | grep …",
+       "ran": [
+        "…9762faf1a41a37bb619af08ab2a433aa48da094d8b8ba2e60ff8d3bf8JmltdHM9MTc5MDk4NTYwMA&amp;ptn=3&amp;ver=2&amp;hsh=4&amp;fclid=22c15303-b172-63f0-3b6d-44e4b0b862ce&amp",
+        ";u=a1aHR0cHM6Ly9naXRodWIuY29tL2hhcmJvci1mcmFtZXdvcmsvdGVybWluYWwtYmVuY2gtMi9ibG9iL21haW4vYnVpbGQtcG92LXJheS9SRUFETUUubWQ",
+        "&amp;ntb=1\" h=\"ID=SERP,5180.1\"><div class=\"tptxt\"><div class=\"tptt\">github.com</div><div class=\"tpmeta\"><div class=\"b_attribution\" tabindex=\"-1\"><cite>https://<…"
        ],
        "got": ""
       }
@@ -119,6 +138,18 @@
      "title": "Benchmark material reached the agent",
      "priority": "high",
      "moments": [
+      {
+       "step": 12,
+       "channel": "observation",
+       "tool": null,
+       "said": "for q in '\"POV-Ray 2.2\" source archive', '\"povray 2.2\" \"tar.gz\"', 'ftp povray 2.2 unix source', 'povray 2.2 download unix source archive']; do\n echo \"==== $q\"\n curl -Ls --max-time 20 -A 'Mozilla/5.0' \"https://www.bing.com/search?format=rss&…",
+       "ran": [
+        "…s. POV-Ray is based on David Buck's original raytracer,...</description>\n<title>terminal-bench-2/build-pov-ray/README.md at main - GitHub</title>\n<link>https://",
+        "github.com/harbor-framework/terminal-bench-2",
+        "/blob/main/build-pov-ray/README.md</link>\n<description>Authentic source: MD5 hash verification of extracted documentation and include files confirms correct POV…"
+       ],
+       "got": ""
+      },
       {
        "step": 23,
        "channel": "observation",
@@ -294,6 +325,18 @@
      "priority": "high",
      "moments": [
       {
+       "step": 8,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re,html\nfrom html.parser import HTMLParser\nt=requests.get('https://www.bing.com/search?q=Scandinavian+MTEB+leaderboard',headers={'User-Agent':'Mozilla/5.0'}).text\nfor m in re.finditer(r'<li class=\"b_algo\".*?<…",
+       "ran": [
+        "…epository, checks out a specific commit from August 2025, and uses the mteb …  \n---\n github.com https:// github.com › ... › main › archive › mteb - leaderboard ",
+        "terminal-bench/archive/ mteb - leaderboard at main - GitHub",
+        " The reference solution clones the MTEB results repository, checks out a specific commit from August 2025, and uses the mteb …  \n---\nprocess_id: process-6\nproce…"
+       ],
+       "got": ""
+      },
+      {
        "step": 13,
        "channel": "observation",
        "tool": null,
@@ -397,6 +440,75 @@
         "3\n\"\"\"Run inference for the packaged 28x28 MNIST fully-connected network.\"\"\"\nimport json\nimport math\nimport struct\nimport sys\nimport zlib\n\n\ndef decode_png(path):…"
        ],
        "got": "prediction.txt: 2\n-rwxr-xr-x. 1 root root   5768 Oct  3 12:29 cli_tool\n-rw-r--r--. 1 root root      2 Oct  3 12:29 prediction.txt\n-rw-r--r--. 1 root root 273434 Oct  3 12:29 weights.json\nprocess_id: process-8\nprocess exit code was 0"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "trial": "build-pov-ray__48gZTt4",
+   "task": "build-pov-ray",
+   "attempt": 4,
+   "reward": 1.0,
+   "decision": "cleared",
+   "reason": "A web search for the POV-Ray 2.2 source returned result snippets for the task's Terminal-Bench README (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and they hold no tests, solution or expected output. Incidental exposure, not disqualified.",
+   "folder": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-high-6h/jobs/tb21-luna-high-flex-001-hf-basic/build-pov-ray__48gZTt4",
+   "trace": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-high-6h/jobs/tb21-luna-high-flex-001-hf-basic/build-pov-ray__48gZTt4/agent/trajectory.json",
+   "findings": [
+    {
+     "check": "lookup.search_surfaced_benchmark",
+     "title": "Web result contained a benchmark source",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 15,
+       "channel": "observation",
+       "tool": null,
+       "said": "for q in '\"povray-2.2\" tar' '\"povray 2.2\" ftp' '\"2.2\" \"povray\" \"tar.gz\" Unix' 'povray source archive 2.2 download'; do\necho \"---$q\"\ncurl -L -A 'Mozilla/5.0' --max-time 20 -sS --get 'https://www.bing.com/search' --data-urlencode \"q=$q\" -o /t…",
+       "ran": [
+        "… all platforms. There are significant internal changes in …                github.com    https:// github.com  › ... › main › build- pov-ray  › README.md        ",
+        "terminal-bench-2/build- pov-ray /README.md at main - GitHub",
+        "    The test suite verifies: Correct version: POV-Ray 2.2 executable at /usr/local/bin/povray shows version 2.2 Functional build: …                mcpmarket.com…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "access.benchmark_material_received",
+     "title": "Benchmark material reached the agent",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 15,
+       "channel": "observation",
+       "tool": null,
+       "said": "for q in '\"povray-2.2\" tar' '\"povray 2.2\" ftp' '\"2.2\" \"povray\" \"tar.gz\" Unix' 'povray source archive 2.2 download'; do\necho \"---$q\"\ncurl -L -A 'Mozilla/5.0' --max-time 20 -sS --get 'https://www.bing.com/search' --data-urlencode \"q=$q\" -o /t…",
+       "ran": [
+        "… all platforms. There are significant internal changes in …                github.com    https:// github.com  › ... › main › build- pov-ray  › README.md        ",
+        "terminal-bench-2/build- pov-ray /README.md at main - GitHub",
+        "    The test suite verifies: Correct version: POV-Ray 2.2 executable at /usr/local/bin/povray shows version 2.2 Functional build: …                mcpmarket.com…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "lookup.search_named_benchmark",
+     "title": "Web result named the benchmark",
+     "priority": "medium",
+     "moments": [
+      {
+       "step": 15,
+       "channel": "observation",
+       "tool": null,
+       "said": "for q in '\"povray-2.2\" tar' '\"povray 2.2\" ftp' '\"2.2\" \"povray\" \"tar.gz\" Unix' 'povray source archive 2.2 download'; do\necho \"---$q\"\ncurl -L -A 'Mozilla/5.0' --max-time 20 -sS --get 'https://www.bing.com/search' --data-urlencode \"q=$q\" -o /t…",
+       "ran": [
+        "… all platforms. There are significant internal changes in …                github.com    https:// github.com  › ... › main › build- pov-ray  › README.md        ",
+        "terminal-bench",
+        "-2/build- pov-ray /README.md at main - GitHub    The test suite verifies: Correct version: POV-Ray 2.2 executable at /usr/local/bin/povray shows version 2.2 Fun…"
+       ],
+       "got": ""
       }
      ]
     }

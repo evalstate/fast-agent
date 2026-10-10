@@ -2115,7 +2115,14 @@
     "excluded_trials_with_cost": 0,
     "basis": "sum of Harbor recorded cost_usd over selected trials plus excluded (replaced) trials",
     "matches_published": null,
-    "lower_bound": true
+    "lower_bound": true,
+    "repriced": {
+      "total_usd": 0.567082,
+      "trials": 445,
+      "basis": "list-rate estimate from token usage",
+      "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.1 (e9373d5)",
+      "note": "Harbor recorded $0.57 at the configured flex rates. Repriced from each model call's token usage at the same rates (OpenAI bills cache writes at the input rate): $0.57 (+0.0%)."
+    }
   },
   "tokens": {
     "input": 32795248,
@@ -2134,10 +2141,10 @@
     "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
     "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (low reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. Two infrastructure failures (connection errors creating the sandbox) were rerun as replacements; the originals are kept as evidence.",
     "Ran 1\u20133 October, after the flex serving anomaly bench-run recorded on 30 September\u20131 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
-    "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound."
+    "Cost shown is a list-rate estimate repriced from each model call's token usage at OpenAI's flex rates (bench-run reprice, card-packs catalog 2026-10-10.1; $0.05 / $0.005 / $0.25 per million input / cached / output tokens, $0.10 / $0.01 / $0.375 above 272k context; cache writes bill at the input rate). Recorded $0.57; repriced $0.57 over the same 445 trials. Some trials have model calls that reported no usage, so the total is a lower bound."
   ],
   "scan": {
-    "version": "0.7.1",
+    "version": "0.8.0",
     "scope": "445 reported trials",
     "trials": 445,
     "rewarded": 203,
@@ -2271,7 +2278,7 @@
       }
     },
     "scanner": {
-      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
       "dirty": false,
       "diff_sha1": null,
       "args": [

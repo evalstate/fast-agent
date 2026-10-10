@@ -1682,20 +1682,20 @@
     "PR closed unmerged (community submissions closed); not on the official leaderboard."
   ],
   "scan": {
-    "version": "0.7.1",
+    "version": "0.8.0",
     "scope": "all trials in the run's jobs",
     "trials": 445,
     "rewarded": 365,
     "accuracy": 82.02,
     "accuracy_se": 1.28,
     "findings_medium_plus": {
-      "trials": 13,
-      "rewarded": 10,
+      "trials": 14,
+      "rewarded": 11,
       "by_highest_priority": {
         "high": 2,
-        "medium": 11,
+        "medium": 12,
         "low": 8,
-        "info": 190,
+        "info": 189,
         "none": 233,
         "unavailable": 1
       },
@@ -1734,6 +1734,13 @@
           "priority": "medium",
           "trials": 2,
           "rewarded": 2
+        },
+        {
+          "check": "lookup.search_named_benchmark",
+          "title": "Web result named the benchmark",
+          "priority": "medium",
+          "trials": 1,
+          "rewarded": 1
         },
         {
           "check": "side_channel.agent_history_probe",
@@ -1829,8 +1836,8 @@
         "max_priority": "medium"
       },
       "mteb-leaderboard": {
-        "trials": 2,
-        "rewarded": 2,
+        "trials": 3,
+        "rewarded": 3,
         "max_priority": "medium"
       },
       "pytorch-model-cli": {
@@ -1850,7 +1857,7 @@
       }
     },
     "scanner": {
-      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -1912,7 +1919,7 @@
       "merge-diff-arc-agi-task": "lllll",
       "model-extraction-relu-logits": "lllll",
       "modernize-scientific-stack": "lllll",
-      "mteb-leaderboard": "lmmll",
+      "mteb-leaderboard": "lmmlm",
       "mteb-retrieve": "lllll",
       "multi-source-data-merger": "lllll",
       "nginx-request-logging": "lllll",

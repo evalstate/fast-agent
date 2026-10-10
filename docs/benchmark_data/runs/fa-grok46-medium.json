@@ -1687,7 +1687,7 @@
     "PR closed unmerged (community submissions closed); not on the official leaderboard."
   ],
   "scan": {
-    "version": "0.7.1",
+    "version": "0.8.0",
     "scope": "all trials in the run's jobs",
     "trials": 445,
     "rewarded": 390,
@@ -1713,6 +1713,13 @@
           "rewarded": 2
         },
         {
+          "check": "access.benchmark_material_received",
+          "title": "Benchmark material reached the agent",
+          "priority": "high",
+          "trials": 3,
+          "rewarded": 2
+        },
+        {
           "check": "lookup.benchmark_lookup_answered",
           "title": "Benchmark lookup returned content",
           "priority": "high",
@@ -1727,18 +1734,18 @@
           "rewarded": 2
         },
         {
-          "check": "access.benchmark_material_received",
-          "title": "Benchmark material reached the agent",
-          "priority": "high",
-          "trials": 2,
-          "rewarded": 2
-        },
-        {
           "check": "lookup.benchmark_task_files",
           "title": "Benchmark task files looked up",
           "priority": "high",
           "trials": 2,
           "rewarded": 2
+        },
+        {
+          "check": "lookup.search_surfaced_benchmark",
+          "title": "Web result contained a benchmark source",
+          "priority": "high",
+          "trials": 2,
+          "rewarded": 1
         },
         {
           "check": "lookup.benchmark_oracle_named",
@@ -1767,13 +1774,6 @@
           "priority": "medium",
           "trials": 22,
           "rewarded": 12
-        },
-        {
-          "check": "access.evaluation_directory_probe",
-          "title": "Evaluation-directory discovery attempted",
-          "priority": "medium",
-          "trials": 11,
-          "rewarded": 7
         }
       ]
     },
@@ -1804,7 +1804,7 @@
           "rewarded": 2
         },
         "obtained": {
-          "trials": 2,
+          "trials": 3,
           "rewarded": 2
         }
       },
@@ -1920,7 +1920,7 @@
       }
     },
     "scanner": {
-      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
       "dirty": false,
       "diff_sha1": null,
       "args": [

@@ -1,7 +1,215 @@
 {
  "format": "fast-agent-moments/1",
  "run": "astra-high-6h",
- "scanner_version": "0.7.1",
+ "scanner_version": "0.8.0",
  "note": "Masked excerpts (best effort) from atif-scan's highlight export: said / ran / got at each finding.",
- "cards": []
+ "cards": [
+  {
+   "trial": "mteb-leaderboard__Gq85xtG",
+   "task": "mteb-leaderboard",
+   "attempt": 0,
+   "reward": 1.0,
+   "decision": "cleared",
+   "reason": "A general web search for the Scandinavian MTEB leaderboard returned result snippets for the task's Terminal-Bench README (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and the snippets give no answer. Incidental exposure, not disqualified.",
+   "folder": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-hf-basic/mteb-leaderboard__Gq85xtG",
+   "trace": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-hf-basic/mteb-leaderboard__Gq85xtG/agent/trajectory.json",
+   "findings": [
+    {
+     "check": "lookup.search_surfaced_benchmark",
+     "title": "Web result contained a benchmark source",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 6,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re\nfrom html import unescape\nfor u in [\n'https://www.bing.com/search?q=%22Scandinavian%22+%22MTEB%22+leaderboard',\n'https://html.duckduckgo.com/html/?q=%22Scandinavian%22+%22MTEB%22+leaderboard',\n'https://hug…",
+       "ran": [
+        "… a specific commit from August 2025, and uses the mteb …                github.com    https:// github.com  › ... › main › archive ›  mteb - leaderboard         ",
+        "terminal-bench/archive/ mteb - leaderboard  at main - GitHub",
+        "    The reference solution clones the MTEB results repository, checks out a specific commit from August 2025, and uses the mteb …                kennethenevolds…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "access.benchmark_material_received",
+     "title": "Benchmark material reached the agent",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 6,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re\nfrom html import unescape\nfor u in [\n'https://www.bing.com/search?q=%22Scandinavian%22+%22MTEB%22+leaderboard',\n'https://html.duckduckgo.com/html/?q=%22Scandinavian%22+%22MTEB%22+leaderboard',\n'https://hug…",
+       "ran": [
+        "… a specific commit from August 2025, and uses the mteb …                github.com    https:// github.com  › ... › main › archive ›  mteb - leaderboard         ",
+        "terminal-bench/archive/ mteb - leaderboard  at main - GitHub",
+        "    The reference solution clones the MTEB results repository, checks out a specific commit from August 2025, and uses the mteb …                kennethenevolds…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "lookup.search_named_benchmark",
+     "title": "Web result named the benchmark",
+     "priority": "medium",
+     "moments": [
+      {
+       "step": 6,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re\nfrom html import unescape\nfor u in [\n'https://www.bing.com/search?q=%22Scandinavian%22+%22MTEB%22+leaderboard',\n'https://html.duckduckgo.com/html/?q=%22Scandinavian%22+%22MTEB%22+leaderboard',\n'https://hug…",
+       "ran": [
+        "…ated sections for language, modality, …                github.com    https:// github.com  › ... › blob › main › tasks ›  mteb - leaderboard  › README.md        ",
+        "terminal-bench",
+        "-2-1/tasks/ mteb - leaderboard /README.md at main    This task asks the agent to identify the best embedding model for Scandinavian texts according to the MTEB …"
+       ],
+       "got": ""
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "trial": "mteb-leaderboard__CcVtPeR",
+   "task": "mteb-leaderboard",
+   "attempt": 2,
+   "reward": 1.0,
+   "decision": "cleared",
+   "reason": "A general web search for the Scandinavian MTEB leaderboard returned result snippets for the task's Terminal-Bench README (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and the snippets give no answer. It then excluded github.com and harborframework.com from its searches. Incidental exposure, not disqualified.",
+   "folder": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-hf-basic/mteb-leaderboard__CcVtPeR",
+   "trace": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-hf-basic/mteb-leaderboard__CcVtPeR/agent/trajectory.json",
+   "findings": [
+    {
+     "check": "lookup.search_surfaced_benchmark",
+     "title": "Web result contained a benchmark source",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 6,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re\nfrom html import unescape\nurls=['https://www.google.com/search?q=%22Scandinavian%22+%22MTEB%22&gbv=1',\n'https://www.bing.com/search?q=%22Scandinavian%22+%22MTEB%22',\n'https://raw.githubusercontent.com/embe…",
+       "ran": [
+        "…Leaderboard home — primary General / Retrieval / English benchmark winners plus curated sections for language, modality, …                github.com    https://",
+        "github.com › harbor-framework › b",
+        "lob › main › tasks › mteb-leader...        terminal-bench-2-1/tasks/mteb-leaderboard/README.md at main    The agent must find the model with the highest Mean (T…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "access.benchmark_material_received",
+     "title": "Benchmark material reached the agent",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 6,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re\nfrom html import unescape\nurls=['https://www.google.com/search?q=%22Scandinavian%22+%22MTEB%22&gbv=1',\n'https://www.bing.com/search?q=%22Scandinavian%22+%22MTEB%22',\n'https://raw.githubusercontent.com/embe…",
+       "ran": [
+        "…Leaderboard home — primary General / Retrieval / English benchmark winners plus curated sections for language, modality, …                github.com    https://",
+        "github.com › harbor-framework › b",
+        "lob › main › tasks › mteb-leader...        terminal-bench-2-1/tasks/mteb-leaderboard/README.md at main    The agent must find the model with the highest Mean (T…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "observation.install_lure",
+     "title": "Install lure seen in a tool result",
+     "priority": "medium",
+     "moments": [
+      {
+       "step": 6,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re\nfrom html import unescape\nurls=['https://www.google.com/search?q=%22Scandinavian%22+%22MTEB%22&gbv=1',\n'https://www.bing.com/search?q=%22Scandinavian%22+%22MTEB%22',\n'https://raw.githubusercontent.com/embe…",
+       "ran": [
+        "…) score on the Scandinavian MTEB benchmark and write its name in …                huggingface.co    https://huggingface.co › scandinavian...        README.md · ",
+        "HKasar1239",
+        "/scandinavian-embedding-toolkit at main    Best model as of August 2025 According to the Scandinavian MTEB leaderboard (highest Mean Task score as of August 202…"
+       ],
+       "got": ""
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "trial": "mteb-leaderboard__d8mYU6b",
+   "task": "mteb-leaderboard",
+   "attempt": 4,
+   "reward": 1.0,
+   "decision": "cleared",
+   "reason": "A general web search for the Scandinavian MTEB leaderboard returned result snippets for the task's Terminal-Bench README (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and the snippets give no answer. Incidental exposure, not disqualified.",
+   "folder": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-hf-basic/mteb-leaderboard__d8mYU6b",
+   "trace": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/astra-high-6h/jobs/tb21-astra-high-copilot-st300-001-hf-basic/mteb-leaderboard__d8mYU6b/agent/trajectory.json",
+   "findings": [
+    {
+     "check": "lookup.search_surfaced_benchmark",
+     "title": "Web result contained a benchmark source",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 6,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re\nfrom html import unescape\nurls=['https://www.google.com/search?q=%22Scandinavian+MTEB%22&udm=14',\n'https://html.duckduckgo.com/html/?q=%22Scandinavian+MTEB%22',\n'https://www.bing.com/search?q=%22Scandinavi…",
+       "ran": [
+        "… Comprehensive … Jun 4, 2024 · We open-source Scandinavian Embedding Benchmark (SEB) 1 and integrate it with MTEB, thus bridging the text … github.com https:// ",
+        "github.com › harbor-framework › b",
+        "lob › main › tasks › mteb -leader... terminal-bench-2-1/tasks/ mteb -leaderboard/README.md at … The reference solution clones the MTEB results repository, check…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "access.benchmark_material_received",
+     "title": "Benchmark material reached the agent",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 6,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re\nfrom html import unescape\nurls=['https://www.google.com/search?q=%22Scandinavian+MTEB%22&udm=14',\n'https://html.duckduckgo.com/html/?q=%22Scandinavian+MTEB%22',\n'https://www.bing.com/search?q=%22Scandinavi…",
+       "ran": [
+        "… Comprehensive … Jun 4, 2024 · We open-source Scandinavian Embedding Benchmark (SEB) 1 and integrate it with MTEB, thus bridging the text … github.com https:// ",
+        "github.com › harbor-framework › b",
+        "lob › main › tasks › mteb -leader... terminal-bench-2-1/tasks/ mteb -leaderboard/README.md at … The reference solution clones the MTEB results repository, check…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "lookup.search_named_benchmark",
+     "title": "Web result named the benchmark",
+     "priority": "medium",
+     "moments": [
+      {
+       "step": 6,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re\nfrom html import unescape\nurls=['https://www.google.com/search?q=%22Scandinavian+MTEB%22&udm=14',\n'https://html.duckduckgo.com/html/?q=%22Scandinavian+MTEB%22',\n'https://www.bing.com/search?q=%22Scandinavi…",
+       "ran": [
+        "…enchmark (SEB) 1 and integrate it with MTEB, thus bridging the text … github.com https:// github.com › harbor-framework › blob › main › tasks › mteb -leader... ",
+        "terminal-bench",
+        "-2-1/tasks/ mteb -leaderboard/README.md at … The reference solution clones the MTEB results repository, checks out a specific commit from August 2025, and uses …"
+       ],
+       "got": ""
+      }
+     ]
+    }
+   ]
+  }
+ ]
 }

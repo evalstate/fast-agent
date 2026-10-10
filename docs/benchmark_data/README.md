@@ -144,6 +144,8 @@ manifest). The rules, as applied across the reviewed runs:
   (`clear_when_only` for `review.task_recalled`).
 - **Clear** a network workaround used only for a download the task allows (POV-Ray
   sources), and a shortcut only considered in reasoning and never delivered.
+- **Clear** incidental exposure: a general search (for the task's subject, not the benchmark)
+  whose results included benchmark pages that the agent didn't open or use.
 - **Clear** detector false positives, with the reason.
 
 ## Cell codes (`tasks`)
@@ -158,7 +160,7 @@ One character per trial, ordered by `started_at`:
 `scan` summarises `atif-scan --brief --format json` over the run's full jobs; `scan.version`
 and `scan.scanner` (commit, local changes, flags) record what produced it. On 2026-10-08
 every scanned run (ours and the Claude Code / Terminus 2 comparators) was rescanned with
-atif-scan 0.7.0 (`e973303`), and again on 2026-10-09 with 0.7.1 (`60844ae`), and `--image-model 'codexresponses.gpt-6-luna?reasoning=medium'`.
+atif-scan 0.7.0 (`e973303`), again on 2026-10-09 with 0.7.1 (`60844ae`), and on 2026-10-10 with 0.8.0 (`2a091b6`), and `--image-model 'codexresponses.gpt-6-luna?reasoning=medium'`.
 `codex-terra-max` has no scan (see below).
 `scan.cells` holds one code per selected trial, in the same order as `tasks`, from the
 full scan's per-trial results: `c`/`h`/`m`/`l` is the trial's highest unexcused priority

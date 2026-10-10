@@ -2117,7 +2117,7 @@
       "total_usd": 37.393014,
       "trials": 445,
       "basis": "list-rate estimate incl. cache writes",
-      "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-09.1 (764c98a)",
+      "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.1 (e9373d5)",
       "note": "Harbor's recorded cost ($39.63) charged prompt-cache writes as plain input and used a $0.20 Sonnet 5.5 cache-read rate (Anthropic lists $0.10). Repriced from each trial's token usage at the catalog's $2 / $0.10 / $2.50 / $4 / $10 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens: $37.39 (-5.6%). Still a list-price equivalent: the run used GitHub Copilot."
     }
   },
@@ -2138,10 +2138,10 @@
     "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
     "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; Claude Sonnet 5.5 (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No infrastructure failures, so no replacements.",
     "Safety stops: 15 trials ended with AgentSafetyStopError and score 0.",
-    "Cost shown is a list-rate estimate repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-09.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input, and the run was priced with a $0.20 cache-read rate where Anthropic lists $0.10. Recorded $39.63; repriced $37.39 over the same 445 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+    "Cost shown is a list-rate estimate repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-10.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input, and the run was priced with a $0.20 cache-read rate where Anthropic lists $0.10. Recorded $39.63; repriced $37.39 over the same 445 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
   ],
   "scan": {
-    "version": "0.7.1",
+    "version": "0.8.0",
     "scope": "445 reported trials",
     "trials": 445,
     "rewarded": 364,
@@ -2240,7 +2240,7 @@
       }
     },
     "scanner": {
-      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
       "dirty": false,
       "diff_sha1": null,
       "args": [

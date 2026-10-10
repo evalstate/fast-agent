@@ -2159,7 +2159,7 @@
       "total_usd": 18.86699,
       "trials": 448,
       "basis": "list-rate estimate incl. cache writes",
-      "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-09.1 (764c98a)",
+      "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.1 (e9373d5)",
       "note": "Harbor's recorded cost ($18.27) charged prompt-cache writes as plain input. Repriced from each trial's token usage at the catalog's $0.10 / $0.01 / $0.125 / $0.20 / $0.50 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens ($0.50 / $0.05 / $0.625 / $1 / $2.50 above 100k context): $18.87 (+3.2%). Still a list-price equivalent: the run used GitHub Copilot."
     }
   },
@@ -2179,10 +2179,10 @@
   "notes": [
     "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
     "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; Claude Haiku 5.5 (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. Five infrastructure failures (two sandbox setup timeouts, two read timeouts, a dropped connection) were rerun as replacements; the originals are kept as evidence.",
-    "Cost shown is a list-rate estimate repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-09.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input. Recorded $18.27; repriced $18.87 over the same 448 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+    "Cost shown is a list-rate estimate repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-10.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input. Recorded $18.27; repriced $18.87 over the same 448 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
   ],
   "scan": {
-    "version": "0.7.1",
+    "version": "0.8.0",
     "scope": "445 reported trials (findings also include 3 replaced originals, kept as evidence)",
     "trials": 445,
     "rewarded": 368,
@@ -2315,7 +2315,7 @@
       }
     },
     "scanner": {
-      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
       "dirty": false,
       "diff_sha1": null,
       "args": [

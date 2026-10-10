@@ -1680,7 +1680,7 @@
     "Disqualified trials are identified by leaderboard-clone trial id, which does not map to the public scrubbed Hub trial ids; the page marks the first passing attempt of that task, which may not be the disqualified one."
   ],
   "scan": {
-    "version": "0.7.1",
+    "version": "0.8.0",
     "scope": "all trials in the run's jobs",
     "trials": 445,
     "rewarded": 335,
@@ -1720,6 +1720,20 @@
           "rewarded": 1
         },
         {
+          "check": "access.benchmark_material_received",
+          "title": "Benchmark material reached the agent",
+          "priority": "high",
+          "trials": 1,
+          "rewarded": 0
+        },
+        {
+          "check": "lookup.search_surfaced_benchmark",
+          "title": "Web result contained a benchmark source",
+          "priority": "high",
+          "trials": 1,
+          "rewarded": 0
+        },
+        {
           "check": "tb21.task_origin_solution",
           "title": "Task's original upstream solution fetched",
           "priority": "high",
@@ -1753,20 +1767,6 @@
           "priority": "medium",
           "trials": 2,
           "rewarded": 2
-        },
-        {
-          "check": "tb21.caffe.dataset_label_rewrite",
-          "title": "CIFAR labels rewritten (caffe-cifar-10)",
-          "priority": "medium",
-          "trials": 2,
-          "rewarded": 2
-        },
-        {
-          "check": "observation.install_lure",
-          "title": "Install lure seen in a tool result",
-          "priority": "medium",
-          "trials": 1,
-          "rewarded": 0
         }
       ]
     },
@@ -1797,7 +1797,7 @@
           "rewarded": 1
         },
         "obtained": {
-          "trials": 0,
+          "trials": 1,
           "rewarded": 0
         }
       },
@@ -1888,7 +1888,7 @@
       }
     },
     "scanner": {
-      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
       "dirty": false,
       "diff_sha1": null,
       "args": [

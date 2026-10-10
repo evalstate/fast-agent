@@ -2149,7 +2149,7 @@
     "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog 2026-09-29.1, rules grok-4.7-short / grok-4.7-long: $2 / $0.50 / $6 per million input / cached / output tokens, doubled above 200k context). Three trials have incomplete usage, so the total is a lower bound."
   ],
   "scan": {
-    "version": "0.7.1",
+    "version": "0.8.0",
     "scope": "445 reported trials",
     "trials": 445,
     "rewarded": 402,
@@ -2224,15 +2224,15 @@
           "rewarded": 4
         },
         {
-          "check": "review.task_recalled",
-          "title": "Named Terminal-Bench tasks unprompted",
+          "check": "lookup.search_surfaced_benchmark",
+          "title": "Web result contained a benchmark source",
           "priority": "high",
-          "trials": 1,
-          "rewarded": 1
+          "trials": 2,
+          "rewarded": 2
         },
         {
-          "check": "tb21.fix_ocaml_gc.upstream_source",
-          "title": "Upstream OCaml source fetched (fix-ocaml-gc)",
+          "check": "review.task_recalled",
+          "title": "Named Terminal-Bench tasks unprompted",
           "priority": "high",
           "trials": 1,
           "rewarded": 1
@@ -2436,7 +2436,7 @@
       }
     },
     "scanner": {
-      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
       "dirty": false,
       "diff_sha1": null,
       "args": [

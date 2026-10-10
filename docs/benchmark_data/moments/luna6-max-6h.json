@@ -1,7 +1,7 @@
 {
  "format": "fast-agent-moments/1",
  "run": "luna6-max-6h",
- "scanner_version": "0.7.1",
+ "scanner_version": "0.8.0",
  "note": "Masked excerpts (best effort) from atif-scan's highlight export: said / ran / got at each finding.",
  "cards": [
   {
@@ -57,6 +57,18 @@
      "title": "Benchmark material reached the agent",
      "priority": "high",
      "moments": [
+      {
+       "step": 8,
+       "channel": "observation",
+       "tool": null,
+       "said": "python - <<'PY'\nimport requests,re,html\nfrom html.parser import HTMLParser\nclass P(HTMLParser):\n def __init__(self): super().__init__(); self.ins=False; self.depth=0; self.items=[]; self.txt=[]\n def handle_starttag(self,tag,attrs):\n  a=dict…",
+       "ran": [
+        "…e-rich leaderboard TL:DR: We released a new version of the MTEB leaderboard that …\n- github.com https:// github.com › ... › main › archive › mteb - leaderboard ",
+        "terminal-bench/archive/ mteb - leaderboard at main - GitHub",
+        " The reference solution clones the MTEB results repository, checks out a specific commit from August 2025, and uses the mteb …\n\nQUERY Scandinavian+MTEB+embeddin…"
+       ],
+       "got": ""
+      },
       {
        "step": 16,
        "channel": "observation",
@@ -180,6 +192,168 @@
         "\" + bytes([2, 1, 1, 0, 0]) + bytes(7),\n    2,       # ET_EXEC\n    62,      # EM_X86_64\n    1,\n    entry,\n    64,      # program header offset\n    0,       # no …"
        ],
        "got": "Created x86-64 ELF launcher (242 bytes).\n2\nlauncher exit status: 0\nbad-argument exit status: 2\nprocess_id: process-8\nprocess exit code was 0"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "trial": "build-pov-ray__gtM897A",
+   "task": "build-pov-ray",
+   "attempt": 0,
+   "reward": 1.0,
+   "decision": "cleared",
+   "reason": "A web search for the POV-Ray 2.2 source returned result snippets for the task's Terminal-Bench README (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and they hold no tests, solution or expected output. Its reasoning considered checking that README, but it never fetched it. Incidental exposure, not disqualified.",
+   "folder": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-max-6h/jobs/tb21-luna-max-flex-001-hf-basic/build-pov-ray__gtM897A",
+   "trace": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-max-6h/jobs/tb21-luna-max-flex-001-hf-basic/build-pov-ray__gtM897A/agent/trajectory.json",
+   "findings": [
+    {
+     "check": "lookup.search_surfaced_benchmark",
+     "title": "Web result contained a benchmark source",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 10,
+       "channel": "observation",
+       "tool": null,
+       "said": "for u in \\\n 'https://www.bing.com/search?q=%22POV-Ray+2.2%22+source+download' \\\n 'https://www.google.com/search?q=POV-Ray+2.2+source+tar.gz' \\\n 'https://www.google.com/search?q=%22povray-2.2%22+source' \\\n 'https://archive.org/advancedsearch…",
+       "ran": [
+        "…md       <a target=\"_blank\" href=\"https://www.bing.com/ck/a?!&amp;&amp;p=8a36edfb49fda34dd\n21haW4vYnVpbGQtcG92LXJheS9SRUFETUUubWQ&amp;ntb=1\" h=\"ID=SERP,5183.2\">",
+        "terminal-bench-2/build- pov-ray /README.md at main - GitHub",
+        "    Authentic source: MD5 hash verific\n== https://www.google.com/search?q=POV-Ray+2.2+source+tar.gz\n92156 /tmp/s602a8ac5\n' SPDX-License-Identifier: Apache-2.0',…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "access.benchmark_material_received",
+     "title": "Benchmark material reached the agent",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 10,
+       "channel": "observation",
+       "tool": null,
+       "said": "for u in \\\n 'https://www.bing.com/search?q=%22POV-Ray+2.2%22+source+download' \\\n 'https://www.google.com/search?q=POV-Ray+2.2+source+tar.gz' \\\n 'https://www.google.com/search?q=%22povray-2.2%22+source' \\\n 'https://archive.org/advancedsearch…",
+       "ran": [
+        "…md       <a target=\"_blank\" href=\"https://www.bing.com/ck/a?!&amp;&amp;p=8a36edfb49fda34dd\n21haW4vYnVpbGQtcG92LXJheS9SRUFETUUubWQ&amp;ntb=1\" h=\"ID=SERP,5183.2\">",
+        "terminal-bench-2/build- pov-ray /README.md at main - GitHub",
+        "    Authentic source: MD5 hash verific\n== https://www.google.com/search?q=POV-Ray+2.2+source+tar.gz\n92156 /tmp/s602a8ac5\n' SPDX-License-Identifier: Apache-2.0',…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "lookup.search_named_benchmark",
+     "title": "Web result named the benchmark",
+     "priority": "medium",
+     "moments": [
+      {
+       "step": 10,
+       "channel": "observation",
+       "tool": null,
+       "said": "for u in \\\n 'https://www.bing.com/search?q=%22POV-Ray+2.2%22+source+download' \\\n 'https://www.google.com/search?q=POV-Ray+2.2+source+tar.gz' \\\n 'https://www.google.com/search?q=%22povray-2.2%22+source' \\\n 'https://archive.org/advancedsearch…",
+       "ran": [
+        "…md       <a target=\"_blank\" href=\"https://www.bing.com/ck/a?!&amp;&amp;p=8a36edfb49fda34dd\n21haW4vYnVpbGQtcG92LXJheS9SRUFETUUubWQ&amp;ntb=1\" h=\"ID=SERP,5183.2\">",
+        "terminal-bench",
+        "-2/build- pov-ray /README.md at main - GitHub    Authentic source: MD5 hash verific\n== https://www.google.com/search?q=POV-Ray+2.2+source+tar.gz\n92156 /tmp/s602…"
+       ],
+       "got": ""
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "trial": "build-pov-ray__pwDz2Vb",
+   "task": "build-pov-ray",
+   "attempt": 1,
+   "reward": 1.0,
+   "decision": "cleared",
+   "reason": "A web search for the POV-Ray 2.2 source returned result snippets for a third-party Terminal-Bench task explorer (marginlab.ai) (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and they hold no tests, solution or expected output. Incidental exposure, not disqualified.",
+   "folder": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-max-6h/jobs/tb21-luna-max-flex-001-hf-basic/build-pov-ray__pwDz2Vb",
+   "trace": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-max-6h/jobs/tb21-luna-max-flex-001-hf-basic/build-pov-ray__pwDz2Vb/agent/trajectory.json",
+   "findings": [
+    {
+     "check": "lookup.search_surfaced_benchmark",
+     "title": "Web result contained a benchmark source",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 8,
+       "channel": "observation",
+       "tool": null,
+       "said": "for q in 'povray-2.2.tar.gz' '\"POV-Ray 2.2\" source code' 'povray 2.2 unix source archive download'; do\n echo \"==== $q\"\n curl -L -sS --max-time 20 -A 'Mozilla/5.0' \"https://www.bing.com/search?format=rss&q=$(printf %s \"$q\" | sed 's/ /%20/g')…",
+       "ran": [
+        "…s 3d 3d_rendering graphics images pov-ray raytracer raytracing Badges</description>\n<title>Build Pov Ray | Terminal-Bench 2.0 | Marginlab</title>\n<link>https://",
+        "marginlab.ai/explorers/terminal-bench",
+        "/build-pov-ray/</link>\n<description>Build POV-Ray 2.2. Find and download the source archives, extract them to /app/povray-2.2, then compile and install to /usr/…"
+       ],
+       "got": ""
+      },
+      {
+       "step": 12,
+       "channel": "observation",
+       "tool": null,
+       "said": "for q in '\"POVSRC.TAR.Z\"' '\"POVSCN.TAR.Z\"' '\"POVDOC.TAR.Z\"' '\"POVSRC.TAR.Z\" download'; do\n echo \"==== $q\"\n curl -L -sS --max-time 20 -A 'Mozilla/5.0' \"https://www.bing.com/search?format=rss&q=$(printf %s \"$q\" | sed 's/ /%20/g')\" | sed 's/><…",
+       "ran": [
+        "…ce/povsrc.tar.z.gz</link>\n<description>%%meta-description%%</description>\n<title>archive/build-pov-ray source download 403 #1952 - GitHub</title>\n<link>https://",
+        "github.com/harbor-framework/terminal-bench",
+        "/issues/1952</link>\n<description>The archived build-pov-ray task now fails because the official POV-Ray 2.2 source tarball downloads are blocked by povray.org.<…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "access.benchmark_material_received",
+     "title": "Benchmark material reached the agent",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 8,
+       "channel": "observation",
+       "tool": null,
+       "said": "for q in 'povray-2.2.tar.gz' '\"POV-Ray 2.2\" source code' 'povray 2.2 unix source archive download'; do\n echo \"==== $q\"\n curl -L -sS --max-time 20 -A 'Mozilla/5.0' \"https://www.bing.com/search?format=rss&q=$(printf %s \"$q\" | sed 's/ /%20/g')…",
+       "ran": [
+        "…s 3d 3d_rendering graphics images pov-ray raytracer raytracing Badges</description>\n<title>Build Pov Ray | Terminal-Bench 2.0 | Marginlab</title>\n<link>https://",
+        "marginlab.ai/explorers/terminal-bench",
+        "/build-pov-ray/</link>\n<description>Build POV-Ray 2.2. Find and download the source archives, extract them to /app/povray-2.2, then compile and install to /usr/…"
+       ],
+       "got": ""
+      },
+      {
+       "step": 12,
+       "channel": "observation",
+       "tool": null,
+       "said": "for q in '\"POVSRC.TAR.Z\"' '\"POVSCN.TAR.Z\"' '\"POVDOC.TAR.Z\"' '\"POVSRC.TAR.Z\" download'; do\n echo \"==== $q\"\n curl -L -sS --max-time 20 -A 'Mozilla/5.0' \"https://www.bing.com/search?format=rss&q=$(printf %s \"$q\" | sed 's/ /%20/g')\" | sed 's/><…",
+       "ran": [
+        "…ce/povsrc.tar.z.gz</link>\n<description>%%meta-description%%</description>\n<title>archive/build-pov-ray source download 403 #1952 - GitHub</title>\n<link>https://",
+        "github.com/harbor-framework/terminal-bench",
+        "/issues/1952</link>\n<description>The archived build-pov-ray task now fails because the official POV-Ray 2.2 source tarball downloads are blocked by povray.org.<…"
+       ],
+       "got": ""
+      }
+     ]
+    },
+    {
+     "check": "lookup.solution_file_in_result",
+     "title": "Oracle solution file named in a lookup result",
+     "priority": "medium",
+     "moments": [
+      {
+       "step": 12,
+       "channel": "observation",
+       "tool": null,
+       "said": "for q in '\"POVSRC.TAR.Z\"' '\"POVSCN.TAR.Z\"' '\"POVDOC.TAR.Z\"' '\"POVSRC.TAR.Z\" download'; do\n echo \"==== $q\"\n curl -L -sS --max-time 20 -A 'Mozilla/5.0' \"https://www.bing.com/search?format=rss&q=$(printf %s \"$q\" | sed 's/ /%20/g')\" | sed 's/><…",
+       "ran": [
+        "…:00:00 2001 From: yinzz &lt;yinzhengzhong1@huawei.com&gt; Date: Fri, 28 Aug 2026 15:18:21 +0800 Subject: [PATCH] fix oracle --- tasks/build-cython-ext/solution/",
+        "solve.sh",
+        " | 29 +++++++++++++++++++++- tasks/build-pov-ray/solution/solve.sh | 12 ++++++--- tasks/mcmc-sampling-stan/solution/solve.sh ...</description>\n==== \"POVDOC.TAR.…"
+       ],
+       "got": ""
       }
      ]
     }

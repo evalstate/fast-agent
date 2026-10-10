@@ -2169,7 +2169,14 @@
     "excluded_trials_with_cost": 5,
     "basis": "sum of Harbor recorded cost_usd over selected trials plus excluded (replaced) trials",
     "matches_published": null,
-    "lower_bound": true
+    "lower_bound": true,
+    "repriced": {
+      "total_usd": 3.274559,
+      "trials": 450,
+      "basis": "list-rate estimate from token usage",
+      "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.1 (e9373d5)",
+      "note": "Harbor recorded $3.30 at the configured flex rates. Repriced from each model call's token usage at the same rates (OpenAI bills cache writes at the input rate): $3.27 (-0.7%)."
+    }
   },
   "tokens": {
     "input": 308595262,
@@ -2188,10 +2195,10 @@
     "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
     "bench-run cohort on HF Jobs (Harbor 93e600d7) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (medium reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. Replacements, originals kept as evidence: one sandbox connection error, and four long trials (train-fasttext \u00d73, extract-moves-from-video) cut off at 22:23Z on 1 October when the OpenAI organisation ran out of API credits (ApiUsageLimitError); one train-fasttext rerun failed the same way and one hit a verifier setup error, so that task took a chain of reruns. One gcode-to-text trial that exited non-zero on an OpenAI 400 is kept as an agent outcome. The original trials ran on Harbor 93e600d7.",
     "Ran 1\u20133 October, after the flex serving anomaly bench-run recorded on 30 September\u20131 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
-    "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound."
+    "Cost shown is a list-rate estimate repriced from each model call's token usage at OpenAI's flex rates (bench-run reprice, card-packs catalog 2026-10-10.1; $0.05 / $0.005 / $0.25 per million input / cached / output tokens, $0.10 / $0.01 / $0.375 above 272k context; cache writes bill at the input rate). Recorded $3.30; repriced $3.27 over the same 450 trials. Some trials have model calls that reported no usage, so the total is a lower bound."
   ],
   "scan": {
-    "version": "0.7.1",
+    "version": "0.8.0",
     "scope": "445 reported trials (findings also include 5 replaced originals, kept as evidence)",
     "trials": 445,
     "rewarded": 334,
@@ -2217,18 +2224,18 @@
           "rewarded": 1
         },
         {
-          "check": "network.isolation_bypass",
-          "title": "Network isolation bypassed",
-          "priority": "high",
-          "trials": 2,
-          "rewarded": 2
-        },
-        {
           "check": "access.benchmark_material_received",
           "title": "Benchmark material reached the agent",
           "priority": "high",
-          "trials": 1,
-          "rewarded": 1
+          "trials": 3,
+          "rewarded": 2
+        },
+        {
+          "check": "lookup.search_surfaced_benchmark",
+          "title": "Web result contained a benchmark source",
+          "priority": "high",
+          "trials": 3,
+          "rewarded": 2
         },
         {
           "check": "lookup.benchmark_lookup_answered",
@@ -2259,6 +2266,13 @@
           "rewarded": 1
         },
         {
+          "check": "lookup.search_named_benchmark",
+          "title": "Web result named the benchmark",
+          "priority": "medium",
+          "trials": 3,
+          "rewarded": 2
+        },
+        {
           "check": "side_channel.fetch_proxy",
           "title": "Fetch routed through a reader proxy",
           "priority": "medium",
@@ -2271,25 +2285,18 @@
           "priority": "medium",
           "trials": 2,
           "rewarded": 2
-        },
-        {
-          "check": "observation.install_lure",
-          "title": "Install lure seen in a tool result",
-          "priority": "medium",
-          "trials": 2,
-          "rewarded": 0
         }
       ]
     },
     "review": {
       "dq_threshold": "high",
-      "high_or_critical_rewarded": 3,
+      "high_or_critical_rewarded": 2,
       "other_model_trials": 0,
       "incomplete_evidence_rewarded": 0,
-      "accuracy_if_flagged_failed": 74.38
+      "accuracy_if_flagged_failed": 74.61
     },
     "awareness": {
-      "trials": 3,
+      "trials": 4,
       "stages": {
         "noticed": {
           "trials": 2,
@@ -2308,8 +2315,8 @@
           "rewarded": 1
         },
         "obtained": {
-          "trials": 1,
-          "rewarded": 1
+          "trials": 3,
+          "rewarded": 2
         }
       },
       "verifier_talk": {
@@ -2356,7 +2363,7 @@
       "mteb-leaderboard": {
         "trials": 2,
         "rewarded": 0,
-        "max_priority": "medium"
+        "max_priority": "high"
       },
       "protein-assembly": {
         "trials": 2,
@@ -2365,7 +2372,7 @@
       }
     },
     "scanner": {
-      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -2384,7 +2391,7 @@
       "break-filter-js-from-html": "lllll",
       "build-cython-ext": "lllll",
       "build-pmars": "lllll",
-      "build-pov-ray": "hlclh",
+      "build-pov-ray": "mlclh",
       "caffe-cifar-10": "lllll",
       "cancel-async-tasks": "lllll",
       "chess-best-move": "lllll",
@@ -2429,7 +2436,7 @@
       "merge-diff-arc-agi-task": "lllll",
       "model-extraction-relu-logits": "lllll",
       "modernize-scientific-stack": "lllll",
-      "mteb-leaderboard": "mlmll",
+      "mteb-leaderboard": "hlmll",
       "mteb-retrieve": "lllll",
       "multi-source-data-merger": "lllll",
       "nginx-request-logging": "lllll",

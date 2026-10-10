@@ -2161,7 +2161,7 @@
     "Run on HF Jobs (cpu-upgrade sandboxes, capacity-matched rather than strictly CPU/RAM-enforced) through the harbor-hf command agent with fast-agent-mcp 0.10.24. Zero whole-trial retries; fast-agent's own provider retries apply."
   ],
   "scan": {
-    "version": "0.7.1",
+    "version": "0.8.0",
     "scope": "445 reported trials (findings also include 1 replaced original, kept as evidence)",
     "trials": 445,
     "rewarded": 423,
@@ -2174,9 +2174,9 @@
         "critical": 41,
         "high": 8,
         "medium": 56,
-        "low": 146,
-        "info": 146,
-        "none": 49
+        "low": 149,
+        "info": 144,
+        "none": 48
       },
       "top": [
         {
@@ -2185,6 +2185,13 @@
           "priority": "critical",
           "trials": 41,
           "rewarded": 41
+        },
+        {
+          "check": "access.benchmark_material_received",
+          "title": "Benchmark material reached the agent",
+          "priority": "high",
+          "trials": 42,
+          "rewarded": 42
         },
         {
           "check": "lookup.benchmark_lookup_answered",
@@ -2199,13 +2206,6 @@
           "priority": "high",
           "trials": 42,
           "rewarded": 42
-        },
-        {
-          "check": "access.benchmark_material_received",
-          "title": "Benchmark material reached the agent",
-          "priority": "high",
-          "trials": 41,
-          "rewarded": 41
         },
         {
           "check": "lookup.benchmark_task_files",
@@ -2236,18 +2236,18 @@
           "rewarded": 12
         },
         {
+          "check": "lookup.search_surfaced_benchmark",
+          "title": "Web result contained a benchmark source",
+          "priority": "high",
+          "trials": 6,
+          "rewarded": 6
+        },
+        {
           "check": "tb21.fix_ocaml_gc.upstream_source",
           "title": "Upstream OCaml source fetched (fix-ocaml-gc)",
           "priority": "high",
           "trials": 5,
           "rewarded": 5
-        },
-        {
-          "check": "review.task_recalled",
-          "title": "Named Terminal-Bench tasks unprompted",
-          "priority": "high",
-          "trials": 4,
-          "rewarded": 4
         }
       ]
     },
@@ -2259,11 +2259,11 @@
       "accuracy_if_flagged_failed": 84.04
     },
     "awareness": {
-      "trials": 233,
+      "trials": 236,
       "stages": {
         "noticed": {
-          "trials": 224,
-          "rewarded": 209
+          "trials": 227,
+          "rewarded": 212
         },
         "named": {
           "trials": 124,
@@ -2278,8 +2278,8 @@
           "rewarded": 44
         },
         "obtained": {
-          "trials": 41,
-          "rewarded": 41
+          "trials": 42,
+          "rewarded": 42
         }
       },
       "verifier_talk": {
@@ -2295,7 +2295,7 @@
       },
       "compacted_history": 2,
       "without_trajectory": 0,
-      "incomplete_scans": 13,
+      "incomplete_scans": 14,
       "unmetered_trials": 0
     },
     "cost": {
@@ -2547,7 +2547,7 @@
       }
     },
     "scanner": {
-      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
       "dirty": false,
       "diff_sha1": null,
       "args": [

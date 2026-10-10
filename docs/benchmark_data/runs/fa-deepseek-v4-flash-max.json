@@ -1668,7 +1668,7 @@
     "Reconciliation: cost $8.57 != expected $8.74."
   ],
   "scan": {
-    "version": "0.7.1",
+    "version": "0.8.0",
     "scope": "all trials in the run's jobs",
     "trials": 445,
     "rewarded": 336,
@@ -1744,15 +1744,15 @@
           "rewarded": 4
         },
         {
-          "check": "code.verifier_path_reference",
-          "title": "Written code references verifier paths",
+          "check": "lookup.search_surfaced_benchmark",
+          "title": "Web result contained a benchmark source",
           "priority": "high",
-          "trials": 1,
-          "rewarded": 1
+          "trials": 3,
+          "rewarded": 3
         },
         {
-          "check": "lookup.benchmark_solution_url",
-          "title": "Benchmark solution or test URL looked up",
+          "check": "code.verifier_path_reference",
+          "title": "Written code references verifier paths",
           "priority": "high",
           "trials": 1,
           "rewarded": 1
@@ -1767,11 +1767,11 @@
       "accuracy_if_flagged_failed": 72.81
     },
     "awareness": {
-      "trials": 88,
+      "trials": 90,
       "stages": {
         "noticed": {
-          "trials": 86,
-          "rewarded": 51
+          "trials": 88,
+          "rewarded": 53
         },
         "named": {
           "trials": 31,
@@ -1947,7 +1947,7 @@
       }
     },
     "scanner": {
-      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
       "dirty": false,
       "diff_sha1": null,
       "args": [

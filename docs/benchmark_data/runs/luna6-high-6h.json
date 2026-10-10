@@ -2102,7 +2102,14 @@
     "excluded_trials_with_cost": 1,
     "basis": "sum of Harbor recorded cost_usd over selected trials plus excluded (replaced) trials",
     "matches_published": null,
-    "lower_bound": true
+    "lower_bound": true,
+    "repriced": {
+      "total_usd": 4.398807,
+      "trials": 446,
+      "basis": "list-rate estimate from token usage",
+      "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.1 (e9373d5)",
+      "note": "Harbor recorded $4.48 at the configured flex rates. Repriced from each model call's token usage at the same rates (OpenAI bills cache writes at the input rate): $4.40 (-1.9%)."
+    }
   },
   "tokens": {
     "input": 392516757,
@@ -2121,24 +2128,24 @@
     "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
     "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (high reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. One infrastructure failure (a read timeout) was rerun as a replacement; the original is kept as evidence.",
     "Ran 1\u20133 October, after the flex serving anomaly bench-run recorded on 30 September\u20131 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
-    "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound."
+    "Cost shown is a list-rate estimate repriced from each model call's token usage at OpenAI's flex rates (bench-run reprice, card-packs catalog 2026-10-10.1; $0.05 / $0.005 / $0.25 per million input / cached / output tokens, $0.10 / $0.01 / $0.375 above 272k context; cache writes bill at the input rate). Recorded $4.48; repriced $4.40 over the same 446 trials. Some trials have model calls that reported no usage, so the total is a lower bound."
   ],
   "scan": {
-    "version": "0.7.1",
+    "version": "0.8.0",
     "scope": "445 reported trials (findings also include 1 replaced original, kept as evidence)",
     "trials": 445,
     "rewarded": 336,
     "accuracy": 75.34,
     "accuracy_se": 1.2,
     "findings_medium_plus": {
-      "trials": 15,
-      "rewarded": 10,
+      "trials": 17,
+      "rewarded": 11,
       "by_highest_priority": {
         "critical": 1,
-        "high": 6,
-        "medium": 8,
+        "high": 10,
+        "medium": 6,
         "low": 13,
-        "info": 180,
+        "info": 178,
         "none": 238
       },
       "top": [
@@ -2148,6 +2155,20 @@
           "priority": "critical",
           "trials": 1,
           "rewarded": 1
+        },
+        {
+          "check": "access.benchmark_material_received",
+          "title": "Benchmark material reached the agent",
+          "priority": "high",
+          "trials": 8,
+          "rewarded": 5
+        },
+        {
+          "check": "lookup.search_surfaced_benchmark",
+          "title": "Web result contained a benchmark source",
+          "priority": "high",
+          "trials": 8,
+          "rewarded": 5
         },
         {
           "check": "lookup.benchmark_lookup_answered",
@@ -2162,13 +2183,6 @@
           "priority": "high",
           "trials": 4,
           "rewarded": 4
-        },
-        {
-          "check": "access.benchmark_material_received",
-          "title": "Benchmark material reached the agent",
-          "priority": "high",
-          "trials": 3,
-          "rewarded": 3
         },
         {
           "check": "lookup.benchmark_oracle_named",
@@ -2192,37 +2206,30 @@
           "rewarded": 1
         },
         {
+          "check": "lookup.search_named_benchmark",
+          "title": "Web result named the benchmark",
+          "priority": "medium",
+          "trials": 8,
+          "rewarded": 5
+        },
+        {
           "check": "observation.install_lure",
           "title": "Install lure seen in a tool result",
           "priority": "medium",
           "trials": 3,
           "rewarded": 1
-        },
-        {
-          "check": "lookup.git_unreachable_objects",
-          "title": "Git objects outside the branch history searched",
-          "priority": "medium",
-          "trials": 2,
-          "rewarded": 0
-        },
-        {
-          "check": "lookup.solution_file_in_result",
-          "title": "Oracle solution file named in a lookup result",
-          "priority": "medium",
-          "trials": 2,
-          "rewarded": 2
         }
       ]
     },
     "review": {
       "dq_threshold": "high",
-      "high_or_critical_rewarded": 7,
+      "high_or_critical_rewarded": 8,
       "other_model_trials": 0,
       "incomplete_evidence_rewarded": 0,
-      "accuracy_if_flagged_failed": 73.93
+      "accuracy_if_flagged_failed": 73.71
     },
     "awareness": {
-      "trials": 4,
+      "trials": 8,
       "stages": {
         "noticed": {
           "trials": 2,
@@ -2241,8 +2248,8 @@
           "rewarded": 4
         },
         "obtained": {
-          "trials": 3,
-          "rewarded": 3
+          "trials": 8,
+          "rewarded": 5
         }
       },
       "verifier_talk": {
@@ -2280,12 +2287,12 @@
     ],
     "flagged_tasks": {
       "build-pov-ray": {
-        "trials": 2,
-        "rewarded": 2,
+        "trials": 3,
+        "rewarded": 3,
         "max_priority": "high"
       },
       "mteb-leaderboard": {
-        "trials": 3,
+        "trials": 4,
         "rewarded": 2,
         "max_priority": "critical"
       },
@@ -2316,7 +2323,7 @@
       }
     },
     "scanner": {
-      "commit": "60844ae1be1372ca747dbe973664b7daa452b702",
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -2335,7 +2342,7 @@
       "break-filter-js-from-html": "lllll",
       "build-cython-ext": "lllll",
       "build-pmars": "lllll",
-      "build-pov-ray": "lhhll",
+      "build-pov-ray": "lhhlh",
       "caffe-cifar-10": "lllll",
       "cancel-async-tasks": "lllll",
       "chess-best-move": "lllll",
@@ -2380,7 +2387,7 @@
       "merge-diff-arc-agi-task": "lllll",
       "model-extraction-relu-logits": "lllll",
       "modernize-scientific-stack": "lllll",
-      "mteb-leaderboard": "clmlh",
+      "mteb-leaderboard": "chhlh",
       "mteb-retrieve": "lllll",
       "multi-source-data-merger": "lllll",
       "nginx-request-logging": "lllll",
@@ -2474,6 +2481,12 @@
         "cell_index": 1
       }
     ],
-    "cleared": []
+    "cleared": [
+      {
+        "trial": "build-pov-ray__48gZTt4",
+        "task": "build-pov-ray",
+        "reason": "A web search for the POV-Ray 2.2 source returned result snippets for the task's Terminal-Bench README (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and they hold no tests, solution or expected output. Incidental exposure, not disqualified."
+      }
+    ]
   }
 }
