@@ -1,0 +1,7 @@
+{
+ "format": "fast-agent-moments/1",
+ "run": "tb4-sol61-low",
+ "scanner_version": "0.8.0",
+ "note": "Masked excerpts (best effort) from atif-scan's highlight export: said / ran / got at each finding.",
+ "cards": []
+}

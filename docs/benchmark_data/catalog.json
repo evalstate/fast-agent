@@ -198,6 +198,18 @@
     "tb4-grok47-medium": {
       "benchmark": "terminal-bench-4.0-subset",
       "family": "grok"
+    },
+    "tb4-sol61-medium": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "gpt-6"
+    },
+    "tb4-astra-medium": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "gpt-6"
+    },
+    "tb4-sol61-low": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "gpt-6"
     }
   },
   "claims": [

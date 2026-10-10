@@ -167,6 +167,121 @@
       "scan": true
     },
     {
+      "id": "tb4-sol61-medium",
+      "harness": "fast-agent",
+      "model": "GPT-6.1 Sol",
+      "effort": "medium",
+      "model_string": "copilot.gpt-6.1-sol?reasoning=medium",
+      "date": "2026-10-01",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-sol61-medium",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-sol61-medium-r1 (cohort tb4-sol61-medium-copilot-001)"
+      },
+      "expected": {
+        "passes": 57
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+        "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor de22ce8c, with the published fast-agent-mcp 0.10.41 wheel; GPT-6.1 Sol (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "One infrastructure failure (a wal-recovery-ordering connection error) was rerun as a replacement, which passed; the original is kept as evidence. The run as first launched scored 56/95.",
+        "Cost is Harbor's recorded cost at the cohort's configured list rates (card-packs pricing catalog, Copilot GPT-6.1 Sol rules: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. One trial has model calls that reported no usage, so the total is a lower bound. Prompt-cache writes are priced at the input rate, as for OpenAI models there is no cache-write charge."
+      ],
+      "scan": true
+    },
+    {
+      "id": "tb4-astra-medium",
+      "harness": "fast-agent",
+      "model": "GPT-6 Astra",
+      "effort": "medium",
+      "model_string": "copilot.gpt-6-astra?reasoning=medium&streaming_timeout=300",
+      "date": "2026-10-09",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-astra-medium",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-astra-medium-st300-r1 (cohort tb4-astra-medium-copilot-st300-001)"
+      },
+      "expected": {
+        "passes": 53
+      },
+      "cost_lower_bound": true,
+      "repriced": {
+        "total_usd": 148.696231,
+        "trials": 95,
+        "basis": "list-rate estimate, cache writes at the input rate",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.2 (5478c22)",
+        "note": "Harbor's recorded cost ($159.16) priced prompt-cache writes at 125% of the input rate (catalog 2026-10-09.1). OpenAI models have no cache-write charge, so the 95 trials with recorded usage are repriced from their token usage with writes at the $10 input rate ($10 / $1 / $50 per million input / cached / output tokens; $20 / $2 / $75 above 272k context): $148.70 (-6.6%). The replaced original recorded no usage and is unpriced, so this is a lower bound. A list-price equivalent: the run used GitHub Copilot."
+      },
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+        "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor fd4ccb81, with the published fast-agent-mcp 0.10.43 wheel; GPT-6 Astra (medium reasoning) through GitHub Copilot, with fast-agent's stream-idle timeout raised to 300 s (streaming_timeout=300). Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "One infrastructure failure (a Copilot HTTP 429 rejection in the launch burst, on photonic-waveguide-routing) was rerun as a replacement, which passed; the original is kept as evidence. The run as first launched scored 52/95."
+      ],
+      "scan": true
+    },
+    {
+      "id": "tb4-sol61-low",
+      "harness": "fast-agent",
+      "model": "GPT-6.1 Sol",
+      "effort": "low",
+      "model_string": "copilot.gpt-6.1-sol?reasoning=low",
+      "date": "2026-09-30",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-sol61-low",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-sol61-low-r1 (cohort tb4-sol61-low-copilot-001)"
+      },
+      "expected": {
+        "passes": 44
+      },
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+        "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor de22ce8c, with the published fast-agent-mcp 0.10.41 wheel; GPT-6.1 Sol (low reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No errors, no replacements.",
+        "Cost is Harbor's recorded cost at the cohort's configured list rates (card-packs pricing catalog, Copilot GPT-6.1 Sol rules: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Prompt-cache writes are priced at the input rate, as for OpenAI models there is no cache-write charge."
+      ],
+      "scan": true
+    },
+    {
       "id": "tb4-claude-code-fable-5-1-high",
       "harness": "Claude Code",
       "model": "Fable 5.1",

@@ -1,0 +1,670 @@
+{
+  "id": "tb4-astra-medium",
+  "benchmark": "terminal-bench-4.0-subset",
+  "harness": "fast-agent",
+  "harness_version": "0.10.43",
+  "model": "GPT-6 Astra",
+  "effort": "medium",
+  "model_string": "copilot.gpt-6-astra?reasoning=medium&streaming_timeout=300",
+  "date": "2026-10-09",
+  "timeout": "standard",
+  "jobs": [
+    {
+      "id": "tb4-astra-medium-copilot-st300-001-hf-basic",
+      "name": "tb4-astra-medium-copilot-st300-001-hf-basic (85 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic"
+    },
+    {
+      "id": "tb4-astra-medium-copilot-st300-001-hf-upgrade",
+      "name": "tb4-astra-medium-copilot-st300-001-hf-upgrade (10 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-upgrade",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-upgrade"
+    },
+    {
+      "id": "tb4-astra-medium-copilot-st300-001-rep-001",
+      "name": "tb4-astra-medium-copilot-st300-001-rep-001 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-rep-001",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-rep-001"
+    }
+  ],
+  "excluded_trials": [
+    {
+      "id": "812fd8ab-bb85-460a-83b0-d7f1b3fd7e77",
+      "task": "photonic-waveguide-routing",
+      "error_type": "NonZeroAgentExitCodeError",
+      "cost_usd": null,
+      "reason": "NonZeroAgentExitCodeError (infrastructure); replaced by tb4-astra-medium-copilot-st300-001-rep-001. Not scored; its cost is still counted."
+    }
+  ],
+  "disqualified_trials": [],
+  "slots": 95,
+  "passes": 53,
+  "score": 55.79,
+  "tasks": {
+    "atrx-vep-crispr": "00000",
+    "cad-model": "11111",
+    "cargo-flight-dispatch": "00000",
+    "fin-saccr-rwa": "11111",
+    "gsea-proteomics": "00000",
+    "hof-topology-interpenetration": "11111",
+    "html-js-filter": "00001",
+    "mvcc-lsm-compaction": "11111",
+    "photonic-waveguide-routing": "11111",
+    "production-planning": "00000",
+    "react-lead-form": "00000",
+    "satb-audio-transcription": "11111",
+    "session-window-debug": "00000",
+    "sound-change-cascade": "11111",
+    "telecom-entity-resolution": "11111",
+    "vba-userform-port": "10100",
+    "vllm-deepseek-streaming": "00000",
+    "vpp-loss-divergence": "11111",
+    "wal-recovery-ordering": "11111"
+  },
+  "trials": {
+    "atrx-vep-crispr": [
+      {
+        "name": "atrx-vep-crispr__tcjCYwx",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/atrx-vep-crispr__tcjCYwx"
+      },
+      {
+        "name": "atrx-vep-crispr__JKQTjBN",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/atrx-vep-crispr__JKQTjBN"
+      },
+      {
+        "name": "atrx-vep-crispr__5n8vDqK",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/atrx-vep-crispr__5n8vDqK"
+      },
+      {
+        "name": "atrx-vep-crispr__kjXC5k2",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/atrx-vep-crispr__kjXC5k2"
+      },
+      {
+        "name": "atrx-vep-crispr__GUYW6r3",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/atrx-vep-crispr__GUYW6r3"
+      }
+    ],
+    "cad-model": [
+      {
+        "name": "cad-model__X96R2qR",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/cad-model__X96R2qR"
+      },
+      {
+        "name": "cad-model__4QS3pAh",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/cad-model__4QS3pAh"
+      },
+      {
+        "name": "cad-model__cPBDyfo",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/cad-model__cPBDyfo"
+      },
+      {
+        "name": "cad-model__7yZMfZs",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/cad-model__7yZMfZs"
+      },
+      {
+        "name": "cad-model__a7YsK8y",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/cad-model__a7YsK8y"
+      }
+    ],
+    "cargo-flight-dispatch": [
+      {
+        "name": "cargo-flight-dispatch__2Er99Y7",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/cargo-flight-dispatch__2Er99Y7"
+      },
+      {
+        "name": "cargo-flight-dispatch__VzukR4M",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/cargo-flight-dispatch__VzukR4M"
+      },
+      {
+        "name": "cargo-flight-dispatch__VHcEmQj",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/cargo-flight-dispatch__VHcEmQj"
+      },
+      {
+        "name": "cargo-flight-dispatch__3MwryDQ",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/cargo-flight-dispatch__3MwryDQ"
+      },
+      {
+        "name": "cargo-flight-dispatch__SPdjJdk",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/cargo-flight-dispatch__SPdjJdk"
+      }
+    ],
+    "fin-saccr-rwa": [
+      {
+        "name": "fin-saccr-rwa__g8JXigr",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/fin-saccr-rwa__g8JXigr"
+      },
+      {
+        "name": "fin-saccr-rwa__GSQxcXH",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/fin-saccr-rwa__GSQxcXH"
+      },
+      {
+        "name": "fin-saccr-rwa__d86w3Wp",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/fin-saccr-rwa__d86w3Wp"
+      },
+      {
+        "name": "fin-saccr-rwa__5UvjYj2",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/fin-saccr-rwa__5UvjYj2"
+      },
+      {
+        "name": "fin-saccr-rwa__7y5azFK",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/fin-saccr-rwa__7y5azFK"
+      }
+    ],
+    "gsea-proteomics": [
+      {
+        "name": "gsea-proteomics__pHFtjTX",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-upgrade/gsea-proteomics__pHFtjTX"
+      },
+      {
+        "name": "gsea-proteomics__Z5zKEfN",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-upgrade/gsea-proteomics__Z5zKEfN"
+      },
+      {
+        "name": "gsea-proteomics__Cy3cDrf",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-upgrade/gsea-proteomics__Cy3cDrf"
+      },
+      {
+        "name": "gsea-proteomics__AsWCgFn",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-upgrade/gsea-proteomics__AsWCgFn"
+      },
+      {
+        "name": "gsea-proteomics__aZkCVp6",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-upgrade/gsea-proteomics__aZkCVp6"
+      }
+    ],
+    "hof-topology-interpenetration": [
+      {
+        "name": "hof-topology-interpenetration__8PBZFLm",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/hof-topology-interpenetration__8PBZFLm"
+      },
+      {
+        "name": "hof-topology-interpenetration__xnBDRNn",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/hof-topology-interpenetration__xnBDRNn"
+      },
+      {
+        "name": "hof-topology-interpenetration__n2W6Vdm",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/hof-topology-interpenetration__n2W6Vdm"
+      },
+      {
+        "name": "hof-topology-interpenetration__Dytmes4",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/hof-topology-interpenetration__Dytmes4"
+      },
+      {
+        "name": "hof-topology-interpenetration__2b2kGpA",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/hof-topology-interpenetration__2b2kGpA"
+      }
+    ],
+    "html-js-filter": [
+      {
+        "name": "html-js-filter__jdmBY7q",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/html-js-filter__jdmBY7q"
+      },
+      {
+        "name": "html-js-filter__WMBgAFX",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/html-js-filter__WMBgAFX"
+      },
+      {
+        "name": "html-js-filter__qLCwKgs",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/html-js-filter__qLCwKgs"
+      },
+      {
+        "name": "html-js-filter__kanrxsb",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/html-js-filter__kanrxsb"
+      },
+      {
+        "name": "html-js-filter__7BMyGRD",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/html-js-filter__7BMyGRD"
+      }
+    ],
+    "mvcc-lsm-compaction": [
+      {
+        "name": "mvcc-lsm-compaction__689chUH",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/mvcc-lsm-compaction__689chUH"
+      },
+      {
+        "name": "mvcc-lsm-compaction__e5UGJfN",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/mvcc-lsm-compaction__e5UGJfN"
+      },
+      {
+        "name": "mvcc-lsm-compaction__H2xirHK",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/mvcc-lsm-compaction__H2xirHK"
+      },
+      {
+        "name": "mvcc-lsm-compaction__ABB5kAZ",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/mvcc-lsm-compaction__ABB5kAZ"
+      },
+      {
+        "name": "mvcc-lsm-compaction__xrZHcas",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/mvcc-lsm-compaction__xrZHcas"
+      }
+    ],
+    "photonic-waveguide-routing": [
+      {
+        "name": "photonic-waveguide-routing__tMrJta6",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/photonic-waveguide-routing__tMrJta6"
+      },
+      {
+        "name": "photonic-waveguide-routing__RjvaUcs",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/photonic-waveguide-routing__RjvaUcs"
+      },
+      {
+        "name": "photonic-waveguide-routing__yTY34jC",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/photonic-waveguide-routing__yTY34jC"
+      },
+      {
+        "name": "photonic-waveguide-routing__okD9uVb",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/photonic-waveguide-routing__okD9uVb"
+      },
+      {
+        "name": "photonic-waveguide-routing__CyHSixk",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-rep-001/photonic-waveguide-routing__CyHSixk"
+      }
+    ],
+    "production-planning": [
+      {
+        "name": "production-planning__DjuYpPV",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/production-planning__DjuYpPV"
+      },
+      {
+        "name": "production-planning__zMeCZFW",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/production-planning__zMeCZFW"
+      },
+      {
+        "name": "production-planning__kJQMF3x",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/production-planning__kJQMF3x"
+      },
+      {
+        "name": "production-planning__P4rU2gf",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/production-planning__P4rU2gf"
+      },
+      {
+        "name": "production-planning__aGi9SZF",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/production-planning__aGi9SZF"
+      }
+    ],
+    "react-lead-form": [
+      {
+        "name": "react-lead-form__ToFiAUg",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/react-lead-form__ToFiAUg"
+      },
+      {
+        "name": "react-lead-form__brwqco4",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/react-lead-form__brwqco4"
+      },
+      {
+        "name": "react-lead-form__yiicoE9",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/react-lead-form__yiicoE9"
+      },
+      {
+        "name": "react-lead-form__stTAoMy",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/react-lead-form__stTAoMy"
+      },
+      {
+        "name": "react-lead-form__AkunzpM",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/react-lead-form__AkunzpM"
+      }
+    ],
+    "satb-audio-transcription": [
+      {
+        "name": "satb-audio-transcription__tEifMKB",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-upgrade/satb-audio-transcription__tEifMKB"
+      },
+      {
+        "name": "satb-audio-transcription__43ECMH7",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-upgrade/satb-audio-transcription__43ECMH7"
+      },
+      {
+        "name": "satb-audio-transcription__KDcTiXG",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-upgrade/satb-audio-transcription__KDcTiXG"
+      },
+      {
+        "name": "satb-audio-transcription__PTBumGc",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-upgrade/satb-audio-transcription__PTBumGc"
+      },
+      {
+        "name": "satb-audio-transcription__BRRX2U7",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-upgrade/satb-audio-transcription__BRRX2U7"
+      }
+    ],
+    "session-window-debug": [
+      {
+        "name": "session-window-debug__AEwB6ry",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/session-window-debug__AEwB6ry"
+      },
+      {
+        "name": "session-window-debug__QWpnbwN",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/session-window-debug__QWpnbwN"
+      },
+      {
+        "name": "session-window-debug__cs6Q5Tj",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/session-window-debug__cs6Q5Tj"
+      },
+      {
+        "name": "session-window-debug__hZaUnPU",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/session-window-debug__hZaUnPU"
+      },
+      {
+        "name": "session-window-debug__vP2E27T",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/session-window-debug__vP2E27T"
+      }
+    ],
+    "sound-change-cascade": [
+      {
+        "name": "sound-change-cascade__GMZj2DY",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/sound-change-cascade__GMZj2DY"
+      },
+      {
+        "name": "sound-change-cascade__xCUuZSv",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/sound-change-cascade__xCUuZSv"
+      },
+      {
+        "name": "sound-change-cascade__erSFoRM",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/sound-change-cascade__erSFoRM"
+      },
+      {
+        "name": "sound-change-cascade__juQCanr",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/sound-change-cascade__juQCanr"
+      },
+      {
+        "name": "sound-change-cascade__hMDSoe2",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/sound-change-cascade__hMDSoe2"
+      }
+    ],
+    "telecom-entity-resolution": [
+      {
+        "name": "telecom-entity-resolution__GqUGyrS",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/telecom-entity-resolution__GqUGyrS"
+      },
+      {
+        "name": "telecom-entity-resolution__dj2bxtq",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/telecom-entity-resolution__dj2bxtq"
+      },
+      {
+        "name": "telecom-entity-resolution__946RK8W",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/telecom-entity-resolution__946RK8W"
+      },
+      {
+        "name": "telecom-entity-resolution__7MTfwmY",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/telecom-entity-resolution__7MTfwmY"
+      },
+      {
+        "name": "telecom-entity-resolution__RdpnbKk",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/telecom-entity-resolution__RdpnbKk"
+      }
+    ],
+    "vba-userform-port": [
+      {
+        "name": "vba-userform-port__sdQyqW9",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/vba-userform-port__sdQyqW9"
+      },
+      {
+        "name": "vba-userform-port__LLWxwyj",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/vba-userform-port__LLWxwyj"
+      },
+      {
+        "name": "vba-userform-port__qLdhnwp",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/vba-userform-port__qLdhnwp"
+      },
+      {
+        "name": "vba-userform-port__crkhR5s",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/vba-userform-port__crkhR5s"
+      },
+      {
+        "name": "vba-userform-port__eaxUZby",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/vba-userform-port__eaxUZby"
+      }
+    ],
+    "vllm-deepseek-streaming": [
+      {
+        "name": "vllm-deepseek-streaming__CuWmyCQ",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/vllm-deepseek-streaming__CuWmyCQ"
+      },
+      {
+        "name": "vllm-deepseek-streaming__nJNXkt9",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/vllm-deepseek-streaming__nJNXkt9"
+      },
+      {
+        "name": "vllm-deepseek-streaming__nwt4gLE",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/vllm-deepseek-streaming__nwt4gLE"
+      },
+      {
+        "name": "vllm-deepseek-streaming__t2LwKGT",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/vllm-deepseek-streaming__t2LwKGT"
+      },
+      {
+        "name": "vllm-deepseek-streaming__8HzMv2y",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/vllm-deepseek-streaming__8HzMv2y"
+      }
+    ],
+    "vpp-loss-divergence": [
+      {
+        "name": "vpp-loss-divergence__iTScy88",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/vpp-loss-divergence__iTScy88"
+      },
+      {
+        "name": "vpp-loss-divergence__Y237zcc",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/vpp-loss-divergence__Y237zcc"
+      },
+      {
+        "name": "vpp-loss-divergence__Ywdv7tB",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/vpp-loss-divergence__Ywdv7tB"
+      },
+      {
+        "name": "vpp-loss-divergence__LpAybmH",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/vpp-loss-divergence__LpAybmH"
+      },
+      {
+        "name": "vpp-loss-divergence__mun9b5E",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/vpp-loss-divergence__mun9b5E"
+      }
+    ],
+    "wal-recovery-ordering": [
+      {
+        "name": "wal-recovery-ordering__EHV4MWV",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/wal-recovery-ordering__EHV4MWV"
+      },
+      {
+        "name": "wal-recovery-ordering__LhaRUnS",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/wal-recovery-ordering__LhaRUnS"
+      },
+      {
+        "name": "wal-recovery-ordering__REpkvmo",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/wal-recovery-ordering__REpkvmo"
+      },
+      {
+        "name": "wal-recovery-ordering__AGYihug",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/wal-recovery-ordering__AGYihug"
+      },
+      {
+        "name": "wal-recovery-ordering__GissXFc",
+        "path": "tb4/19-task-v1/tb4-astra-medium/jobs/tb4-astra-medium-copilot-st300-001-hf-basic/wal-recovery-ordering__GissXFc"
+      }
+    ]
+  },
+  "safety_cells": {},
+  "task_costs": {
+    "atrx-vep-crispr": 5.413635,
+    "cad-model": 3.559134,
+    "cargo-flight-dispatch": 4.73881,
+    "fin-saccr-rwa": 6.517751,
+    "gsea-proteomics": 4.233154,
+    "hof-topology-interpenetration": 7.659994,
+    "html-js-filter": 7.474264,
+    "mvcc-lsm-compaction": 2.520239,
+    "photonic-waveguide-routing": 13.758667,
+    "production-planning": 2.408139,
+    "react-lead-form": 8.764808,
+    "satb-audio-transcription": 9.554153,
+    "session-window-debug": 3.662959,
+    "sound-change-cascade": 4.942491,
+    "telecom-entity-resolution": 24.810393,
+    "vba-userform-port": 24.678556,
+    "vllm-deepseek-streaming": 16.203224,
+    "vpp-loss-divergence": 4.314214,
+    "wal-recovery-ordering": 3.949046
+  },
+  "errors": {},
+  "cost": {
+    "total_usd": 159.16,
+    "total_usd_exact": 159.163629,
+    "trials_with_cost": 95,
+    "trials": 95,
+    "excluded_trials_with_cost": 0,
+    "basis": "sum of Harbor recorded cost_usd over selected trials plus excluded (replaced) trials",
+    "matches_published": null,
+    "lower_bound": true,
+    "repriced": {
+      "total_usd": 148.696231,
+      "trials": 95,
+      "basis": "list-rate estimate, cache writes at the input rate",
+      "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.2 (5478c22)",
+      "note": "Harbor's recorded cost ($159.16) priced prompt-cache writes at 125% of the input rate (catalog 2026-10-09.1). OpenAI models have no cache-write charge, so the 95 trials with recorded usage are repriced from their token usage with writes at the $10 input rate ($10 / $1 / $50 per million input / cached / output tokens; $20 / $2 / $75 above 272k context): $148.70 (-6.6%). The replaced original recorded no usage and is unpriced, so this is a lower bound. A list-price equivalent: the run used GitHub Copilot."
+    }
+  },
+  "tokens": {
+    "input": 47357461,
+    "cached": 43165531,
+    "output": 1272228,
+    "basis": "Harbor per-trial input_tokens (includes cached), cache_tokens, output_tokens"
+  },
+  "per_trial_cost": {
+    "median": 1.0856,
+    "p90": 4.1311,
+    "max": 5.9813
+  },
+  "published": null,
+  "reconciled": true,
+  "notes": [
+    "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+    "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor fd4ccb81, with the published fast-agent-mcp 0.10.43 wheel; GPT-6 Astra (medium reasoning) through GitHub Copilot, with fast-agent's stream-idle timeout raised to 300 s (streaming_timeout=300). Zero whole-trial retries; fast-agent's own provider retries apply.",
+    "One infrastructure failure (a Copilot HTTP 429 rejection in the launch burst, on photonic-waveguide-routing) was rerun as a replacement, which passed; the original is kept as evidence. The run as first launched scored 52/95."
+  ],
+  "scan": {
+    "version": "0.8.0",
+    "scope": "95 reported trials (findings also include 1 replaced original, kept as evidence)",
+    "trials": 95,
+    "rewarded": 53,
+    "accuracy": 55.21,
+    "accuracy_se": 1.88,
+    "findings_medium_plus": {
+      "trials": 0,
+      "rewarded": 0,
+      "by_highest_priority": {
+        "info": 85,
+        "none": 11
+      },
+      "top": []
+    },
+    "review": {
+      "dq_threshold": "high",
+      "high_or_critical_rewarded": 0,
+      "other_model_trials": 0,
+      "incomplete_evidence_rewarded": 0,
+      "accuracy_if_flagged_failed": 55.79
+    },
+    "awareness": {
+      "trials": 0,
+      "stages": {
+        "noticed": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "named": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "searched": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "obtained": {
+          "trials": 0,
+          "rewarded": 0
+        }
+      },
+      "verifier_talk": {
+        "trials": 11,
+        "rewarded": 5
+      }
+    },
+    "evidence": {
+      "planned": 95,
+      "errored": 0,
+      "error_types": {},
+      "compacted_history": 0,
+      "without_trajectory": 0,
+      "incomplete_scans": 7,
+      "unmetered_trials": 0
+    },
+    "cost": {
+      "recorded": 0,
+      "trials_missing_cost": 96,
+      "estimated_unpriced": null,
+      "estimated_unmetered": null,
+      "estimated_total": 0
+    },
+    "tokens": {
+      "uncached_input": 4191930,
+      "cached_input": 43165531,
+      "output": 1272228
+    },
+    "walltime_hours": {
+      "trial_sum": 13.5,
+      "agent_sum": 10.0
+    },
+    "overrides": [],
+    "flagged_tasks": {},
+    "scanner": {
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--min-trials",
+        "5",
+        "--rules",
+        "docs/benchmark_data/tb4/atif-rules.json",
+        "--image-model",
+        "codexresponses.gpt-6-luna?reasoning=medium"
+      ],
+      "rules_sha256": "5f9f76ce20cc70e4a98c95e03f4fc7b491db7a2bb9a904fb2565366fb9448fd6"
+    },
+    "cells": {
+      "atrx-vep-crispr": "lllll",
+      "cad-model": "lllll",
+      "cargo-flight-dispatch": "lllll",
+      "fin-saccr-rwa": "lllll",
+      "gsea-proteomics": "lllll",
+      "hof-topology-interpenetration": "lllll",
+      "html-js-filter": "lllll",
+      "mvcc-lsm-compaction": "lllll",
+      "photonic-waveguide-routing": "lllll",
+      "production-planning": "lllll",
+      "react-lead-form": "lllll",
+      "satb-audio-transcription": "lllll",
+      "session-window-debug": "lllll",
+      "sound-change-cascade": "lllll",
+      "telecom-entity-resolution": "lllll",
+      "vba-userform-port": "lllll",
+      "vllm-deepseek-streaming": "lllll",
+      "vpp-loss-divergence": "lllll",
+      "wal-recovery-ordering": "lllll"
+    }
+  },
+  "as_run": {
+    "passes": 52,
+    "slots": 95
+  },
+  "review": {
+    "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+    "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+    "recorded_passes": 53,
+    "recorded_score": 55.79,
+    "disqualified": [],
+    "cleared": []
+  }
+}
