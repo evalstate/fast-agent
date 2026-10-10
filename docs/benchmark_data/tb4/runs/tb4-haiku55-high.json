@@ -1,0 +1,921 @@
+{
+  "id": "tb4-haiku55-high",
+  "benchmark": "terminal-bench-4.0-subset",
+  "harness": "fast-agent",
+  "harness_version": "0.10.43",
+  "model": "Haiku 5.5",
+  "effort": "high",
+  "model_string": "copilot.claude-haiku-5.5?reasoning=high",
+  "date": "2026-10-08",
+  "timeout": "standard",
+  "jobs": [
+    {
+      "id": "tb4-haiku55-high-copilot-001-hf-basic",
+      "name": "tb4-haiku55-high-copilot-001-hf-basic (85 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-hf-upgrade",
+      "name": "tb4-haiku55-high-copilot-001-hf-upgrade (10 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-upgrade",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-upgrade"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-001",
+      "name": "tb4-haiku55-high-copilot-001-rep-001 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-001",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-001"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-002",
+      "name": "tb4-haiku55-high-copilot-001-rep-002 (0 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-002",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-002"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-003",
+      "name": "tb4-haiku55-high-copilot-001-rep-003 (0 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-003",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-003"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-004",
+      "name": "tb4-haiku55-high-copilot-001-rep-004 (0 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-004",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-004"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-005",
+      "name": "tb4-haiku55-high-copilot-001-rep-005 (0 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-005",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-005"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-006",
+      "name": "tb4-haiku55-high-copilot-001-rep-006 (0 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-006",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-006"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-007",
+      "name": "tb4-haiku55-high-copilot-001-rep-007 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-007",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-007"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-008",
+      "name": "tb4-haiku55-high-copilot-001-rep-008 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-008",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-008"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-009",
+      "name": "tb4-haiku55-high-copilot-001-rep-009 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-009",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-009"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-010",
+      "name": "tb4-haiku55-high-copilot-001-rep-010 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-010",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-010"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-011",
+      "name": "tb4-haiku55-high-copilot-001-rep-011 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-011",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-011"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-012",
+      "name": "tb4-haiku55-high-copilot-001-rep-012 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-012",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-012"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-013",
+      "name": "tb4-haiku55-high-copilot-001-rep-013 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-013",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-013"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-014",
+      "name": "tb4-haiku55-high-copilot-001-rep-014 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-014",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-014"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-015",
+      "name": "tb4-haiku55-high-copilot-001-rep-015 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-015",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-015"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-016",
+      "name": "tb4-haiku55-high-copilot-001-rep-016 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-016",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-016"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-017",
+      "name": "tb4-haiku55-high-copilot-001-rep-017 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-017",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-017"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-018",
+      "name": "tb4-haiku55-high-copilot-001-rep-018 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-018",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-018"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-019",
+      "name": "tb4-haiku55-high-copilot-001-rep-019 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-019",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-019"
+    },
+    {
+      "id": "tb4-haiku55-high-copilot-001-rep-020",
+      "name": "tb4-haiku55-high-copilot-001-rep-020 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-020",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-020"
+    }
+  ],
+  "excluded_trials": [
+    {
+      "id": "ac315a86-2561-4a75-a911-048f557ec7e5",
+      "task": "fin-saccr-rwa",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": 0.04989154999999999,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb4-haiku55-high-copilot-001-rep-001. Not scored; its cost is still counted."
+    },
+    {
+      "id": "4228c9bd-4bd2-49b6-9f2d-5331d7d756f8",
+      "task": "hof-topology-interpenetration",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": 0.23776265,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb4-haiku55-high-copilot-001-rep-002 (itself later replaced). Not scored; its cost is still counted."
+    },
+    {
+      "id": "639aca16-03c6-4483-8bda-79794d09dbce",
+      "task": "photonic-waveguide-routing",
+      "error_type": "NonZeroAgentExitCodeError",
+      "cost_usd": 2.195849310000001,
+      "reason": "NonZeroAgentExitCodeError (infrastructure); replaced by tb4-haiku55-high-copilot-001-rep-015. Not scored; its cost is still counted."
+    },
+    {
+      "id": "8259e5ad-cd1a-4c31-ab79-de56474bdee9",
+      "task": "photonic-waveguide-routing",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": 1.7775123299999995,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb4-haiku55-high-copilot-001-rep-003 (itself later replaced). Not scored; its cost is still counted."
+    },
+    {
+      "id": "5ef504e6-cb6a-4fb8-97ab-0e3ce069d9d1",
+      "task": "photonic-waveguide-routing",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": 0.20977339999999997,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb4-haiku55-high-copilot-001-rep-004 (itself later replaced). Not scored; its cost is still counted."
+    },
+    {
+      "id": "b25fbc4a-08ea-4490-978d-721ba23b8132",
+      "task": "photonic-waveguide-routing",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": 0.8848212899999998,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb4-haiku55-high-copilot-001-rep-005 (itself later replaced). Not scored; its cost is still counted."
+    },
+    {
+      "id": "7527c50f-627a-447f-a70a-86495429f485",
+      "task": "sound-change-cascade",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": 0.08984665,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb4-haiku55-high-copilot-001-rep-006 (itself later replaced). Not scored; its cost is still counted."
+    },
+    {
+      "id": "1aafb904-4846-462d-b877-2485bae14e06",
+      "task": "sound-change-cascade",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": null,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb4-haiku55-high-copilot-001-rep-007. Not scored; its cost is still counted."
+    },
+    {
+      "id": "b1f6969b-a975-4de8-af1f-5603de8f3266",
+      "task": "sound-change-cascade",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": 0.3706396900000001,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb4-haiku55-high-copilot-001-rep-008. Not scored; its cost is still counted."
+    },
+    {
+      "id": "5f1848b2-d5e8-4f2c-81d8-3a8710e5aafd",
+      "task": "sound-change-cascade",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": 1.1426006800000001,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb4-haiku55-high-copilot-001-rep-009. Not scored; its cost is still counted."
+    },
+    {
+      "id": "ed64df4c-b022-4d20-8fc4-cfe8bdaa81ff",
+      "task": "telecom-entity-resolution",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": 1.1597539300000008,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb4-haiku55-high-copilot-001-rep-010. Not scored; its cost is still counted."
+    },
+    {
+      "id": "ce975eb7-04ba-4e8d-a3a1-088cc67c94dc",
+      "task": "telecom-entity-resolution",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": 0.04923973,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb4-haiku55-high-copilot-001-rep-011. Not scored; its cost is still counted."
+    },
+    {
+      "id": "457c20d0-c62b-4d44-a97a-4e5affb1fbfd",
+      "task": "vpp-loss-divergence",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": 0.19500040000000002,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb4-haiku55-high-copilot-001-rep-012. Not scored; its cost is still counted."
+    },
+    {
+      "id": "8964d76e-58e8-4adf-a844-38dc6468a789",
+      "task": "satb-audio-transcription",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": 1.1471631800000004,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb4-haiku55-high-copilot-001-rep-013. Not scored; its cost is still counted."
+    },
+    {
+      "id": "cbc6e8fb-55d9-43fc-9534-908792140942",
+      "task": "satb-audio-transcription",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": 0.00815765,
+      "reason": "RemoteProtocolError (infrastructure); replaced by tb4-haiku55-high-copilot-001-rep-014. Not scored; its cost is still counted."
+    }
+  ],
+  "disqualified_trials": [],
+  "slots": 95,
+  "passes": 20,
+  "score": 21.05,
+  "tasks": {
+    "atrx-vep-crispr": "ee0ee",
+    "cad-model": "00000",
+    "cargo-flight-dispatch": "00000",
+    "fin-saccr-rwa": "00000",
+    "gsea-proteomics": "00010",
+    "hof-topology-interpenetration": "00000",
+    "html-js-filter": "11101",
+    "mvcc-lsm-compaction": "10011",
+    "photonic-waveguide-routing": "10000",
+    "production-planning": "10101",
+    "react-lead-form": "00010",
+    "satb-audio-transcription": "00000",
+    "session-window-debug": "00000",
+    "sound-change-cascade": "00000",
+    "telecom-entity-resolution": "10111",
+    "vba-userform-port": "00111",
+    "vllm-deepseek-streaming": "00000",
+    "vpp-loss-divergence": "00000",
+    "wal-recovery-ordering": "00000"
+  },
+  "trials": {
+    "atrx-vep-crispr": [
+      {
+        "name": "atrx-vep-crispr__u2MKd7L",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/atrx-vep-crispr__u2MKd7L"
+      },
+      {
+        "name": "atrx-vep-crispr__vVeomvT",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/atrx-vep-crispr__vVeomvT"
+      },
+      {
+        "name": "atrx-vep-crispr__j5o6tsB",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/atrx-vep-crispr__j5o6tsB"
+      },
+      {
+        "name": "atrx-vep-crispr__8U2GhWP",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/atrx-vep-crispr__8U2GhWP"
+      },
+      {
+        "name": "atrx-vep-crispr__wZGsjWF",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/atrx-vep-crispr__wZGsjWF"
+      }
+    ],
+    "cad-model": [
+      {
+        "name": "cad-model__dcg6qsC",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/cad-model__dcg6qsC"
+      },
+      {
+        "name": "cad-model__tESMb43",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/cad-model__tESMb43"
+      },
+      {
+        "name": "cad-model__N4HuLJo",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/cad-model__N4HuLJo"
+      },
+      {
+        "name": "cad-model__CT2ZMWx",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/cad-model__CT2ZMWx"
+      },
+      {
+        "name": "cad-model__BgHK66a",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/cad-model__BgHK66a"
+      }
+    ],
+    "cargo-flight-dispatch": [
+      {
+        "name": "cargo-flight-dispatch__pRAgrbT",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/cargo-flight-dispatch__pRAgrbT"
+      },
+      {
+        "name": "cargo-flight-dispatch__PJHEivG",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/cargo-flight-dispatch__PJHEivG"
+      },
+      {
+        "name": "cargo-flight-dispatch__jRKCzpn",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/cargo-flight-dispatch__jRKCzpn"
+      },
+      {
+        "name": "cargo-flight-dispatch__9HNVmr9",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/cargo-flight-dispatch__9HNVmr9"
+      },
+      {
+        "name": "cargo-flight-dispatch__k9Vm6CZ",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/cargo-flight-dispatch__k9Vm6CZ"
+      }
+    ],
+    "fin-saccr-rwa": [
+      {
+        "name": "fin-saccr-rwa__Fuso3Bg",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/fin-saccr-rwa__Fuso3Bg"
+      },
+      {
+        "name": "fin-saccr-rwa__KRCqXs9",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/fin-saccr-rwa__KRCqXs9"
+      },
+      {
+        "name": "fin-saccr-rwa__sPbDcZ6",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/fin-saccr-rwa__sPbDcZ6"
+      },
+      {
+        "name": "fin-saccr-rwa__WXsntPL",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/fin-saccr-rwa__WXsntPL"
+      },
+      {
+        "name": "fin-saccr-rwa__NwLG9q3",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-001/fin-saccr-rwa__NwLG9q3"
+      }
+    ],
+    "gsea-proteomics": [
+      {
+        "name": "gsea-proteomics__469Lkjn",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-upgrade/gsea-proteomics__469Lkjn"
+      },
+      {
+        "name": "gsea-proteomics__VBNn22c",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-upgrade/gsea-proteomics__VBNn22c"
+      },
+      {
+        "name": "gsea-proteomics__rdibfAy",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-upgrade/gsea-proteomics__rdibfAy"
+      },
+      {
+        "name": "gsea-proteomics__CyLoVre",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-upgrade/gsea-proteomics__CyLoVre"
+      },
+      {
+        "name": "gsea-proteomics__eKHGm8t",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-upgrade/gsea-proteomics__eKHGm8t"
+      }
+    ],
+    "hof-topology-interpenetration": [
+      {
+        "name": "hof-topology-interpenetration__7xSUukM",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/hof-topology-interpenetration__7xSUukM"
+      },
+      {
+        "name": "hof-topology-interpenetration__TsfyJAs",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/hof-topology-interpenetration__TsfyJAs"
+      },
+      {
+        "name": "hof-topology-interpenetration__8Zm7rfw",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/hof-topology-interpenetration__8Zm7rfw"
+      },
+      {
+        "name": "hof-topology-interpenetration__RurZZeg",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/hof-topology-interpenetration__RurZZeg"
+      },
+      {
+        "name": "hof-topology-interpenetration__A2WPaJE",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-016/hof-topology-interpenetration__A2WPaJE"
+      }
+    ],
+    "html-js-filter": [
+      {
+        "name": "html-js-filter__5g39sUa",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/html-js-filter__5g39sUa"
+      },
+      {
+        "name": "html-js-filter__NBT5Jvy",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/html-js-filter__NBT5Jvy"
+      },
+      {
+        "name": "html-js-filter__KNvu7Bb",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/html-js-filter__KNvu7Bb"
+      },
+      {
+        "name": "html-js-filter__oEWTtUq",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/html-js-filter__oEWTtUq"
+      },
+      {
+        "name": "html-js-filter__cBkYtcs",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/html-js-filter__cBkYtcs"
+      }
+    ],
+    "mvcc-lsm-compaction": [
+      {
+        "name": "mvcc-lsm-compaction__P6BaXrX",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/mvcc-lsm-compaction__P6BaXrX"
+      },
+      {
+        "name": "mvcc-lsm-compaction__GNwKAuf",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/mvcc-lsm-compaction__GNwKAuf"
+      },
+      {
+        "name": "mvcc-lsm-compaction__rEPK9yD",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/mvcc-lsm-compaction__rEPK9yD"
+      },
+      {
+        "name": "mvcc-lsm-compaction__cKgXdbT",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/mvcc-lsm-compaction__cKgXdbT"
+      },
+      {
+        "name": "mvcc-lsm-compaction__X8iLom5",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/mvcc-lsm-compaction__X8iLom5"
+      }
+    ],
+    "photonic-waveguide-routing": [
+      {
+        "name": "photonic-waveguide-routing__fU3gipX",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/photonic-waveguide-routing__fU3gipX"
+      },
+      {
+        "name": "photonic-waveguide-routing__Tutqw7G",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-015/photonic-waveguide-routing__Tutqw7G"
+      },
+      {
+        "name": "photonic-waveguide-routing__yTwXghN",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-017/photonic-waveguide-routing__yTwXghN"
+      },
+      {
+        "name": "photonic-waveguide-routing__A7p8pam",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-018/photonic-waveguide-routing__A7p8pam"
+      },
+      {
+        "name": "photonic-waveguide-routing__WQPaoSS",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-019/photonic-waveguide-routing__WQPaoSS"
+      }
+    ],
+    "production-planning": [
+      {
+        "name": "production-planning__Czy5fuW",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/production-planning__Czy5fuW"
+      },
+      {
+        "name": "production-planning__XNrKaA7",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/production-planning__XNrKaA7"
+      },
+      {
+        "name": "production-planning__wcUp7Co",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/production-planning__wcUp7Co"
+      },
+      {
+        "name": "production-planning__n6p6ao6",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/production-planning__n6p6ao6"
+      },
+      {
+        "name": "production-planning__sq9gciP",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/production-planning__sq9gciP"
+      }
+    ],
+    "react-lead-form": [
+      {
+        "name": "react-lead-form__mXc8NZV",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/react-lead-form__mXc8NZV"
+      },
+      {
+        "name": "react-lead-form__VXDeY56",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/react-lead-form__VXDeY56"
+      },
+      {
+        "name": "react-lead-form__TFjJAr8",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/react-lead-form__TFjJAr8"
+      },
+      {
+        "name": "react-lead-form__468yogr",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/react-lead-form__468yogr"
+      },
+      {
+        "name": "react-lead-form__hsWt7QM",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/react-lead-form__hsWt7QM"
+      }
+    ],
+    "satb-audio-transcription": [
+      {
+        "name": "satb-audio-transcription__eQNW5Qb",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-upgrade/satb-audio-transcription__eQNW5Qb"
+      },
+      {
+        "name": "satb-audio-transcription__NamdRWL",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-upgrade/satb-audio-transcription__NamdRWL"
+      },
+      {
+        "name": "satb-audio-transcription__iu3LfzY",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-upgrade/satb-audio-transcription__iu3LfzY"
+      },
+      {
+        "name": "satb-audio-transcription__XBWM6Yt",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-013/satb-audio-transcription__XBWM6Yt"
+      },
+      {
+        "name": "satb-audio-transcription__2jBUbCr",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-014/satb-audio-transcription__2jBUbCr"
+      }
+    ],
+    "session-window-debug": [
+      {
+        "name": "session-window-debug__MWWrLuA",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/session-window-debug__MWWrLuA"
+      },
+      {
+        "name": "session-window-debug__qtmPTtS",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/session-window-debug__qtmPTtS"
+      },
+      {
+        "name": "session-window-debug__QvgdEpc",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/session-window-debug__QvgdEpc"
+      },
+      {
+        "name": "session-window-debug__aUS8pEs",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/session-window-debug__aUS8pEs"
+      },
+      {
+        "name": "session-window-debug__yVskcE9",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/session-window-debug__yVskcE9"
+      }
+    ],
+    "sound-change-cascade": [
+      {
+        "name": "sound-change-cascade__LJUjyP2",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/sound-change-cascade__LJUjyP2"
+      },
+      {
+        "name": "sound-change-cascade__ZdoHTvM",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-007/sound-change-cascade__ZdoHTvM"
+      },
+      {
+        "name": "sound-change-cascade__CGS2eAv",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-008/sound-change-cascade__CGS2eAv"
+      },
+      {
+        "name": "sound-change-cascade__uZ9T8DR",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-009/sound-change-cascade__uZ9T8DR"
+      },
+      {
+        "name": "sound-change-cascade__CLgc327",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-020/sound-change-cascade__CLgc327"
+      }
+    ],
+    "telecom-entity-resolution": [
+      {
+        "name": "telecom-entity-resolution__Nfm7YVm",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/telecom-entity-resolution__Nfm7YVm"
+      },
+      {
+        "name": "telecom-entity-resolution__3GYWF49",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/telecom-entity-resolution__3GYWF49"
+      },
+      {
+        "name": "telecom-entity-resolution__vDw9xY6",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/telecom-entity-resolution__vDw9xY6"
+      },
+      {
+        "name": "telecom-entity-resolution__RiJzdAD",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-010/telecom-entity-resolution__RiJzdAD"
+      },
+      {
+        "name": "telecom-entity-resolution__7gm2gU4",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-011/telecom-entity-resolution__7gm2gU4"
+      }
+    ],
+    "vba-userform-port": [
+      {
+        "name": "vba-userform-port__V2fzGbQ",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/vba-userform-port__V2fzGbQ"
+      },
+      {
+        "name": "vba-userform-port__Gn5Vgw5",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/vba-userform-port__Gn5Vgw5"
+      },
+      {
+        "name": "vba-userform-port__vtErbDX",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/vba-userform-port__vtErbDX"
+      },
+      {
+        "name": "vba-userform-port__pP4sm5R",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/vba-userform-port__pP4sm5R"
+      },
+      {
+        "name": "vba-userform-port__vBohJ2F",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/vba-userform-port__vBohJ2F"
+      }
+    ],
+    "vllm-deepseek-streaming": [
+      {
+        "name": "vllm-deepseek-streaming__qaLt9pv",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/vllm-deepseek-streaming__qaLt9pv"
+      },
+      {
+        "name": "vllm-deepseek-streaming__KEzP437",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/vllm-deepseek-streaming__KEzP437"
+      },
+      {
+        "name": "vllm-deepseek-streaming__t3MGW4p",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/vllm-deepseek-streaming__t3MGW4p"
+      },
+      {
+        "name": "vllm-deepseek-streaming__zLTvdd2",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/vllm-deepseek-streaming__zLTvdd2"
+      },
+      {
+        "name": "vllm-deepseek-streaming__Uh2VJxd",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/vllm-deepseek-streaming__Uh2VJxd"
+      }
+    ],
+    "vpp-loss-divergence": [
+      {
+        "name": "vpp-loss-divergence__wu3j3Te",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/vpp-loss-divergence__wu3j3Te"
+      },
+      {
+        "name": "vpp-loss-divergence__cL88wKs",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/vpp-loss-divergence__cL88wKs"
+      },
+      {
+        "name": "vpp-loss-divergence__sydGL2h",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/vpp-loss-divergence__sydGL2h"
+      },
+      {
+        "name": "vpp-loss-divergence__RYiVfRK",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/vpp-loss-divergence__RYiVfRK"
+      },
+      {
+        "name": "vpp-loss-divergence__U4yHCZG",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-rep-012/vpp-loss-divergence__U4yHCZG"
+      }
+    ],
+    "wal-recovery-ordering": [
+      {
+        "name": "wal-recovery-ordering__mc4XAT9",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/wal-recovery-ordering__mc4XAT9"
+      },
+      {
+        "name": "wal-recovery-ordering__mB5wdrH",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/wal-recovery-ordering__mB5wdrH"
+      },
+      {
+        "name": "wal-recovery-ordering__Ubn3rDR",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/wal-recovery-ordering__Ubn3rDR"
+      },
+      {
+        "name": "wal-recovery-ordering__26RX3LR",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/wal-recovery-ordering__26RX3LR"
+      },
+      {
+        "name": "wal-recovery-ordering__b59tJnm",
+        "path": "tb4/19-task-v1/tb4-haiku55-high/jobs/tb4-haiku55-high-copilot-001-hf-basic/wal-recovery-ordering__b59tJnm"
+      }
+    ]
+  },
+  "safety_cells": {
+    "atrx-vep-crispr": [
+      0,
+      1,
+      3,
+      4
+    ]
+  },
+  "task_costs": {
+    "atrx-vep-crispr": 0.384128,
+    "cad-model": 0.113947,
+    "cargo-flight-dispatch": 0.232431,
+    "fin-saccr-rwa": 1.391455,
+    "gsea-proteomics": 0.156164,
+    "hof-topology-interpenetration": 6.826738,
+    "html-js-filter": 1.197757,
+    "mvcc-lsm-compaction": 0.120599,
+    "photonic-waveguide-routing": 23.04367,
+    "production-planning": 3.515671,
+    "react-lead-form": 1.951126,
+    "satb-audio-transcription": 4.579741,
+    "session-window-debug": 0.203097,
+    "sound-change-cascade": 6.797072,
+    "telecom-entity-resolution": 7.907422,
+    "vba-userform-port": 8.354484,
+    "vllm-deepseek-streaming": 2.901924,
+    "vpp-loss-divergence": 6.385074,
+    "wal-recovery-ordering": 0.170318
+  },
+  "errors": {
+    "AgentSafetyStopError": 4
+  },
+  "cost": {
+    "total_usd": 85.75,
+    "total_usd_exact": 85.750829,
+    "trials_with_cost": 95,
+    "trials": 95,
+    "excluded_trials_with_cost": 14,
+    "basis": "sum of Harbor recorded cost_usd over selected trials plus excluded (replaced) trials",
+    "matches_published": null,
+    "lower_bound": true,
+    "repriced": {
+      "total_usd": 87.600413,
+      "trials": 109,
+      "basis": "list-rate estimate incl. cache writes",
+      "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+      "note": "Harbor's recorded cost ($85.75) charged prompt-cache writes as plain input. Repriced from each trial's token usage at the catalog's $0.10 / $0.01 / $0.125 / $0.50 per million input / cache-read / cache-write / output tokens (higher above 100k context): $87.60 (+2.2%), over the 95 reported trials and 14 of the 15 replaced originals (one has no trajectory and stays unpriced, so this is a lower bound). A list-price equivalent: the run used GitHub Copilot."
+    }
+  },
+  "tokens": {
+    "input": 1174778102,
+    "cached": 1152495688,
+    "output": 15109366,
+    "basis": "Harbor per-trial input_tokens (includes cached), cache_tokens, output_tokens"
+  },
+  "per_trial_cost": {
+    "median": 0.3545,
+    "p90": 1.7787,
+    "max": 12.4672
+  },
+  "published": null,
+  "reconciled": true,
+  "notes": [
+    "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+    "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor b20373d6, with the published fast-agent-mcp 0.10.43 wheel; Claude Haiku 5.5 (high reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply.",
+    "Safety stops: four of five atrx-vep-crispr attempts ended with AgentSafetyStopError and score 0.",
+    "Replacements: an HF sandbox connection outage cut 14 trials short (RemoteProtocolError, no verifier), and one photonic-waveguide-routing trial failed with HTTP 401 after the operator refreshed the Copilot token mid-run; all 15 were rerun. Five of those reruns were killed before producing any result when a faulty replacement queue was stopped, and were run again (authorized). Every original and interrupted rerun is kept on record; the run as first launched scored 18/95."
+  ],
+  "scan": {
+    "version": "0.8.0",
+    "scope": "95 reported trials (findings also include 14 replaced originals, kept as evidence)",
+    "trials": 95,
+    "rewarded": 20,
+    "accuracy": 18.35,
+    "accuracy_se": 3.13,
+    "findings_medium_plus": {
+      "trials": 3,
+      "rewarded": 2,
+      "by_highest_priority": {
+        "medium": 3,
+        "info": 100,
+        "none": 6
+      },
+      "top": [
+        {
+          "check": "tamper.harness_hooks",
+          "title": "Test harness hook file written",
+          "priority": "medium",
+          "trials": 2,
+          "rewarded": 2
+        },
+        {
+          "check": "tamper.harness_tokens",
+          "title": "Test harness internals in written code",
+          "priority": "medium",
+          "trials": 1,
+          "rewarded": 0
+        }
+      ]
+    },
+    "review": {
+      "dq_threshold": "high",
+      "high_or_critical_rewarded": 0,
+      "other_model_trials": 0,
+      "incomplete_evidence_rewarded": 0,
+      "accuracy_if_flagged_failed": 21.05
+    },
+    "awareness": {
+      "trials": 0,
+      "stages": {
+        "noticed": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "named": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "searched": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "obtained": {
+          "trials": 0,
+          "rewarded": 0
+        }
+      },
+      "verifier_talk": {
+        "trials": 48,
+        "rewarded": 8
+      }
+    },
+    "evidence": {
+      "planned": 95,
+      "errored": 4,
+      "error_types": {
+        "AgentSafetyStopError": 4
+      },
+      "compacted_history": 0,
+      "without_trajectory": 0,
+      "incomplete_scans": 3,
+      "unmetered_trials": 0
+    },
+    "cost": {
+      "recorded": 0,
+      "trials_missing_cost": 109,
+      "estimated_unpriced": null,
+      "estimated_unmetered": null,
+      "estimated_total": 0
+    },
+    "tokens": {
+      "uncached_input": 22282414,
+      "cached_input": 1152495688,
+      "output": 15109366
+    },
+    "walltime_hours": {
+      "trial_sum": 52.1,
+      "agent_sum": 48.8
+    },
+    "overrides": [],
+    "flagged_tasks": {
+      "vba-userform-port": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "vpp-loss-divergence": {
+        "trials": 1,
+        "rewarded": 0,
+        "max_priority": "medium"
+      }
+    },
+    "scanner": {
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--min-trials",
+        "5",
+        "--rules",
+        "docs/benchmark_data/tb4/atif-rules.json",
+        "--image-model",
+        "codexresponses.gpt-6-luna?reasoning=medium"
+      ],
+      "rules_sha256": "5f9f76ce20cc70e4a98c95e03f4fc7b491db7a2bb9a904fb2565366fb9448fd6"
+    },
+    "cells": {
+      "atrx-vep-crispr": "lllll",
+      "cad-model": "lllll",
+      "cargo-flight-dispatch": "lllll",
+      "fin-saccr-rwa": "lllll",
+      "gsea-proteomics": "lllll",
+      "hof-topology-interpenetration": "lllll",
+      "html-js-filter": "lllll",
+      "mvcc-lsm-compaction": "lllll",
+      "photonic-waveguide-routing": "lllll",
+      "production-planning": "lllll",
+      "react-lead-form": "lllll",
+      "satb-audio-transcription": "lllll",
+      "session-window-debug": "lllll",
+      "sound-change-cascade": "lllll",
+      "telecom-entity-resolution": "lllll",
+      "vba-userform-port": "llmlm",
+      "vllm-deepseek-streaming": "lllll",
+      "vpp-loss-divergence": "llmll",
+      "wal-recovery-ordering": "lllll"
+    }
+  },
+  "as_run": {
+    "passes": 18,
+    "slots": 95
+  },
+  "review": {
+    "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+    "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+    "recorded_passes": 20,
+    "recorded_score": 21.05,
+    "disqualified": [],
+    "cleared": []
+  }
+}

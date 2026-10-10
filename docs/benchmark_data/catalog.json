@@ -210,6 +210,14 @@
     "tb4-sol61-low": {
       "benchmark": "terminal-bench-4.0-subset",
       "family": "gpt-6"
+    },
+    "tb4-haiku55-high": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "anthropic"
+    },
+    "tb4-haiku55-medium": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "anthropic"
     }
   },
   "claims": [

@@ -401,7 +401,10 @@ def select_release_trials(
     selected = [t for t in trials if t["id"] in reported]
     excluded = [t for t in trials if t["id"] in reasons]
     stray = [t["trial_name"] for t in trials if t["id"] not in reported and t["id"] not in reasons]
-    if len(selected) != len(reported) or len(excluded) != len(lineage) or stray:
+    # A replacement killed before producing a result leaves no trial to exclude; the link
+    # that reran it names it with replaced_error "Interrupted".
+    interrupted = sum(1 for r in lineage.values() if r["replaced_error"] == "Interrupted")
+    if len(selected) != len(reported) or len(excluded) != len(lineage) - interrupted or stray:
         raise SystemExit(
             f"{run['id']}: release/job mismatch: {len(selected)}/{len(reported)} reported, "
             f"{len(excluded)}/{len(lineage)} replaced, stray {stray[:3]}"
@@ -1008,7 +1011,11 @@ def build_run(
         try:
             rules = ("--rules", str(scan_rules)) if scan_rules else ()
             if "bucket" in run:
-                inputs = [j["path"] for j in bucket_jobs]
+                # A job folder with no trial results (an interrupted replacement) has
+                # nothing to scan, and atif-scan rejects an empty input.
+                inputs = [
+                    j["path"] for j in bucket_jobs if any(Path(j["path"]).glob("*__*/result.json"))
+                ]
                 extra = (
                     "--min-trials",
                     str(per_task),

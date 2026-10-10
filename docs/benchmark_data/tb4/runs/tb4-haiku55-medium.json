@@ -1,0 +1,709 @@
+{
+  "id": "tb4-haiku55-medium",
+  "benchmark": "terminal-bench-4.0-subset",
+  "harness": "fast-agent",
+  "harness_version": "0.10.43",
+  "model": "Haiku 5.5",
+  "effort": "medium",
+  "model_string": "copilot.claude-haiku-5.5?reasoning=medium",
+  "date": "2026-10-10",
+  "timeout": "standard",
+  "jobs": [
+    {
+      "id": "tb4-haiku55-medium-copilot-001-hf-basic",
+      "name": "tb4-haiku55-medium-copilot-001-hf-basic (85 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic"
+    },
+    {
+      "id": "tb4-haiku55-medium-copilot-001-hf-upgrade",
+      "name": "tb4-haiku55-medium-copilot-001-hf-upgrade (10 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-upgrade",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-upgrade"
+    },
+    {
+      "id": "tb4-haiku55-medium-copilot-001-rep-001",
+      "name": "tb4-haiku55-medium-copilot-001-rep-001 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-rep-001",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-rep-001"
+    }
+  ],
+  "excluded_trials": [
+    {
+      "id": "db103cd3-746a-4387-a428-a4b3e9feec1f",
+      "task": "satb-audio-transcription",
+      "error_type": "SandboxError",
+      "cost_usd": 0.43802412000000013,
+      "reason": "SandboxError (infrastructure); replaced by tb4-haiku55-medium-copilot-001-rep-001. Not scored; its cost is still counted."
+    }
+  ],
+  "disqualified_trials": [],
+  "slots": 95,
+  "passes": 9,
+  "score": 9.47,
+  "tasks": {
+    "atrx-vep-crispr": "ee0ee",
+    "cad-model": "00000",
+    "cargo-flight-dispatch": "00000",
+    "fin-saccr-rwa": "00000",
+    "gsea-proteomics": "00000",
+    "hof-topology-interpenetration": "00000",
+    "html-js-filter": "00000",
+    "mvcc-lsm-compaction": "10000",
+    "photonic-waveguide-routing": "00001",
+    "production-planning": "11100",
+    "react-lead-form": "01110",
+    "satb-audio-transcription": "00000",
+    "session-window-debug": "00000",
+    "sound-change-cascade": "00000",
+    "telecom-entity-resolution": "00010",
+    "vba-userform-port": "00000",
+    "vllm-deepseek-streaming": "00000",
+    "vpp-loss-divergence": "00000",
+    "wal-recovery-ordering": "00000"
+  },
+  "trials": {
+    "atrx-vep-crispr": [
+      {
+        "name": "atrx-vep-crispr__Cz8WfYi",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/atrx-vep-crispr__Cz8WfYi"
+      },
+      {
+        "name": "atrx-vep-crispr__shzeWXi",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/atrx-vep-crispr__shzeWXi"
+      },
+      {
+        "name": "atrx-vep-crispr__3aSEnqn",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/atrx-vep-crispr__3aSEnqn"
+      },
+      {
+        "name": "atrx-vep-crispr__fGsC7Wk",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/atrx-vep-crispr__fGsC7Wk"
+      },
+      {
+        "name": "atrx-vep-crispr__Ys4bst6",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/atrx-vep-crispr__Ys4bst6"
+      }
+    ],
+    "cad-model": [
+      {
+        "name": "cad-model__Y7K6q4C",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/cad-model__Y7K6q4C"
+      },
+      {
+        "name": "cad-model__Ue6Zy79",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/cad-model__Ue6Zy79"
+      },
+      {
+        "name": "cad-model__obqdvXA",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/cad-model__obqdvXA"
+      },
+      {
+        "name": "cad-model__88rKien",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/cad-model__88rKien"
+      },
+      {
+        "name": "cad-model__vWRozRr",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/cad-model__vWRozRr"
+      }
+    ],
+    "cargo-flight-dispatch": [
+      {
+        "name": "cargo-flight-dispatch__rVD6DUK",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/cargo-flight-dispatch__rVD6DUK"
+      },
+      {
+        "name": "cargo-flight-dispatch__ccPpxMY",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/cargo-flight-dispatch__ccPpxMY"
+      },
+      {
+        "name": "cargo-flight-dispatch__zLxXXDb",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/cargo-flight-dispatch__zLxXXDb"
+      },
+      {
+        "name": "cargo-flight-dispatch__Fd3pEDu",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/cargo-flight-dispatch__Fd3pEDu"
+      },
+      {
+        "name": "cargo-flight-dispatch__b3Nz6JN",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/cargo-flight-dispatch__b3Nz6JN"
+      }
+    ],
+    "fin-saccr-rwa": [
+      {
+        "name": "fin-saccr-rwa__miQkvYY",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/fin-saccr-rwa__miQkvYY"
+      },
+      {
+        "name": "fin-saccr-rwa__qDcfr7b",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/fin-saccr-rwa__qDcfr7b"
+      },
+      {
+        "name": "fin-saccr-rwa__RRXqhtN",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/fin-saccr-rwa__RRXqhtN"
+      },
+      {
+        "name": "fin-saccr-rwa__7jwnToJ",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/fin-saccr-rwa__7jwnToJ"
+      },
+      {
+        "name": "fin-saccr-rwa__futdw43",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/fin-saccr-rwa__futdw43"
+      }
+    ],
+    "gsea-proteomics": [
+      {
+        "name": "gsea-proteomics__ZQ22F2Q",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-upgrade/gsea-proteomics__ZQ22F2Q"
+      },
+      {
+        "name": "gsea-proteomics__efsE2Zs",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-upgrade/gsea-proteomics__efsE2Zs"
+      },
+      {
+        "name": "gsea-proteomics__d48Lttm",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-upgrade/gsea-proteomics__d48Lttm"
+      },
+      {
+        "name": "gsea-proteomics__rBSX4HJ",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-upgrade/gsea-proteomics__rBSX4HJ"
+      },
+      {
+        "name": "gsea-proteomics__we43Wu3",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-upgrade/gsea-proteomics__we43Wu3"
+      }
+    ],
+    "hof-topology-interpenetration": [
+      {
+        "name": "hof-topology-interpenetration__77XEqCB",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/hof-topology-interpenetration__77XEqCB"
+      },
+      {
+        "name": "hof-topology-interpenetration__sgDSe3i",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/hof-topology-interpenetration__sgDSe3i"
+      },
+      {
+        "name": "hof-topology-interpenetration__y8bBDpx",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/hof-topology-interpenetration__y8bBDpx"
+      },
+      {
+        "name": "hof-topology-interpenetration__cUY5bBP",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/hof-topology-interpenetration__cUY5bBP"
+      },
+      {
+        "name": "hof-topology-interpenetration__eXhPjB2",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/hof-topology-interpenetration__eXhPjB2"
+      }
+    ],
+    "html-js-filter": [
+      {
+        "name": "html-js-filter__kYhh7bS",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/html-js-filter__kYhh7bS"
+      },
+      {
+        "name": "html-js-filter__N9MmSou",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/html-js-filter__N9MmSou"
+      },
+      {
+        "name": "html-js-filter__w3sULwp",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/html-js-filter__w3sULwp"
+      },
+      {
+        "name": "html-js-filter__tvHzTPf",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/html-js-filter__tvHzTPf"
+      },
+      {
+        "name": "html-js-filter__7ZvG9p9",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/html-js-filter__7ZvG9p9"
+      }
+    ],
+    "mvcc-lsm-compaction": [
+      {
+        "name": "mvcc-lsm-compaction__zhef9Lw",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/mvcc-lsm-compaction__zhef9Lw"
+      },
+      {
+        "name": "mvcc-lsm-compaction__QCLQZjq",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/mvcc-lsm-compaction__QCLQZjq"
+      },
+      {
+        "name": "mvcc-lsm-compaction__G2rBXQE",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/mvcc-lsm-compaction__G2rBXQE"
+      },
+      {
+        "name": "mvcc-lsm-compaction__eyWUb4j",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/mvcc-lsm-compaction__eyWUb4j"
+      },
+      {
+        "name": "mvcc-lsm-compaction__9WV7CAf",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/mvcc-lsm-compaction__9WV7CAf"
+      }
+    ],
+    "photonic-waveguide-routing": [
+      {
+        "name": "photonic-waveguide-routing__vCPpLTp",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/photonic-waveguide-routing__vCPpLTp"
+      },
+      {
+        "name": "photonic-waveguide-routing__QqVN86N",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/photonic-waveguide-routing__QqVN86N"
+      },
+      {
+        "name": "photonic-waveguide-routing__5pSAzvQ",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/photonic-waveguide-routing__5pSAzvQ"
+      },
+      {
+        "name": "photonic-waveguide-routing__Cpr2aye",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/photonic-waveguide-routing__Cpr2aye"
+      },
+      {
+        "name": "photonic-waveguide-routing__r3thWkf",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/photonic-waveguide-routing__r3thWkf"
+      }
+    ],
+    "production-planning": [
+      {
+        "name": "production-planning__avbzAoH",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/production-planning__avbzAoH"
+      },
+      {
+        "name": "production-planning__Sge86WG",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/production-planning__Sge86WG"
+      },
+      {
+        "name": "production-planning__nbdPdeo",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/production-planning__nbdPdeo"
+      },
+      {
+        "name": "production-planning__2iipqbw",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/production-planning__2iipqbw"
+      },
+      {
+        "name": "production-planning__R24Ykum",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/production-planning__R24Ykum"
+      }
+    ],
+    "react-lead-form": [
+      {
+        "name": "react-lead-form__9abfVNR",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/react-lead-form__9abfVNR"
+      },
+      {
+        "name": "react-lead-form__8sbdbcP",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/react-lead-form__8sbdbcP"
+      },
+      {
+        "name": "react-lead-form__x5ZnFSo",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/react-lead-form__x5ZnFSo"
+      },
+      {
+        "name": "react-lead-form__CepvtVh",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/react-lead-form__CepvtVh"
+      },
+      {
+        "name": "react-lead-form__fp4X8Mn",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/react-lead-form__fp4X8Mn"
+      }
+    ],
+    "satb-audio-transcription": [
+      {
+        "name": "satb-audio-transcription__wFVbGtv",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-upgrade/satb-audio-transcription__wFVbGtv"
+      },
+      {
+        "name": "satb-audio-transcription__VeshrEv",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-upgrade/satb-audio-transcription__VeshrEv"
+      },
+      {
+        "name": "satb-audio-transcription__974Vzye",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-upgrade/satb-audio-transcription__974Vzye"
+      },
+      {
+        "name": "satb-audio-transcription__A2gxDob",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-upgrade/satb-audio-transcription__A2gxDob"
+      },
+      {
+        "name": "satb-audio-transcription__yVpJGr6",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-rep-001/satb-audio-transcription__yVpJGr6"
+      }
+    ],
+    "session-window-debug": [
+      {
+        "name": "session-window-debug__N3jPxuc",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/session-window-debug__N3jPxuc"
+      },
+      {
+        "name": "session-window-debug__YGXkgRD",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/session-window-debug__YGXkgRD"
+      },
+      {
+        "name": "session-window-debug__VkpAb8N",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/session-window-debug__VkpAb8N"
+      },
+      {
+        "name": "session-window-debug__vSA5YF4",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/session-window-debug__vSA5YF4"
+      },
+      {
+        "name": "session-window-debug__PCbU66a",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/session-window-debug__PCbU66a"
+      }
+    ],
+    "sound-change-cascade": [
+      {
+        "name": "sound-change-cascade__GsfneMy",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/sound-change-cascade__GsfneMy"
+      },
+      {
+        "name": "sound-change-cascade__5Y9s8As",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/sound-change-cascade__5Y9s8As"
+      },
+      {
+        "name": "sound-change-cascade__xokbv25",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/sound-change-cascade__xokbv25"
+      },
+      {
+        "name": "sound-change-cascade__4Pbg3dN",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/sound-change-cascade__4Pbg3dN"
+      },
+      {
+        "name": "sound-change-cascade__b8u4fwy",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/sound-change-cascade__b8u4fwy"
+      }
+    ],
+    "telecom-entity-resolution": [
+      {
+        "name": "telecom-entity-resolution__g3eHGfj",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/telecom-entity-resolution__g3eHGfj"
+      },
+      {
+        "name": "telecom-entity-resolution__7SjDTSD",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/telecom-entity-resolution__7SjDTSD"
+      },
+      {
+        "name": "telecom-entity-resolution__QVWfQU9",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/telecom-entity-resolution__QVWfQU9"
+      },
+      {
+        "name": "telecom-entity-resolution__y9BDKZ2",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/telecom-entity-resolution__y9BDKZ2"
+      },
+      {
+        "name": "telecom-entity-resolution__5LX8xxN",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/telecom-entity-resolution__5LX8xxN"
+      }
+    ],
+    "vba-userform-port": [
+      {
+        "name": "vba-userform-port__vk7DVjf",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/vba-userform-port__vk7DVjf"
+      },
+      {
+        "name": "vba-userform-port__9bUqS5P",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/vba-userform-port__9bUqS5P"
+      },
+      {
+        "name": "vba-userform-port__zm5ispY",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/vba-userform-port__zm5ispY"
+      },
+      {
+        "name": "vba-userform-port__ecojNQX",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/vba-userform-port__ecojNQX"
+      },
+      {
+        "name": "vba-userform-port__FzJC6DL",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/vba-userform-port__FzJC6DL"
+      }
+    ],
+    "vllm-deepseek-streaming": [
+      {
+        "name": "vllm-deepseek-streaming__724eiBn",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/vllm-deepseek-streaming__724eiBn"
+      },
+      {
+        "name": "vllm-deepseek-streaming__njhSUZH",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/vllm-deepseek-streaming__njhSUZH"
+      },
+      {
+        "name": "vllm-deepseek-streaming__UTsGtMX",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/vllm-deepseek-streaming__UTsGtMX"
+      },
+      {
+        "name": "vllm-deepseek-streaming__GKxFoX6",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/vllm-deepseek-streaming__GKxFoX6"
+      },
+      {
+        "name": "vllm-deepseek-streaming__BoTDhLh",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/vllm-deepseek-streaming__BoTDhLh"
+      }
+    ],
+    "vpp-loss-divergence": [
+      {
+        "name": "vpp-loss-divergence__CvZpuBN",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/vpp-loss-divergence__CvZpuBN"
+      },
+      {
+        "name": "vpp-loss-divergence__KwQviXJ",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/vpp-loss-divergence__KwQviXJ"
+      },
+      {
+        "name": "vpp-loss-divergence__Qxcurbg",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/vpp-loss-divergence__Qxcurbg"
+      },
+      {
+        "name": "vpp-loss-divergence__Y9UBTZ5",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/vpp-loss-divergence__Y9UBTZ5"
+      },
+      {
+        "name": "vpp-loss-divergence__eNmLndD",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/vpp-loss-divergence__eNmLndD"
+      }
+    ],
+    "wal-recovery-ordering": [
+      {
+        "name": "wal-recovery-ordering__MixHSj5",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/wal-recovery-ordering__MixHSj5"
+      },
+      {
+        "name": "wal-recovery-ordering__XGKe53v",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/wal-recovery-ordering__XGKe53v"
+      },
+      {
+        "name": "wal-recovery-ordering__AjjFhXn",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/wal-recovery-ordering__AjjFhXn"
+      },
+      {
+        "name": "wal-recovery-ordering__iYqPBcz",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/wal-recovery-ordering__iYqPBcz"
+      },
+      {
+        "name": "wal-recovery-ordering__KfmWHQx",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium/jobs/tb4-haiku55-medium-copilot-001-hf-basic/wal-recovery-ordering__KfmWHQx"
+      }
+    ]
+  },
+  "safety_cells": {
+    "atrx-vep-crispr": [
+      0,
+      1,
+      3,
+      4
+    ]
+  },
+  "task_costs": {
+    "atrx-vep-crispr": 0.196977,
+    "cad-model": 0.057184,
+    "cargo-flight-dispatch": 0.127361,
+    "fin-saccr-rwa": 0.300359,
+    "gsea-proteomics": 0.098436,
+    "hof-topology-interpenetration": 3.606431,
+    "html-js-filter": 0.065049,
+    "mvcc-lsm-compaction": 0.0528,
+    "photonic-waveguide-routing": 12.196915,
+    "production-planning": 2.188862,
+    "react-lead-form": 0.757302,
+    "satb-audio-transcription": 1.723318,
+    "session-window-debug": 0.099705,
+    "sound-change-cascade": 3.06266,
+    "telecom-entity-resolution": 2.774067,
+    "vba-userform-port": 4.930942,
+    "vllm-deepseek-streaming": 0.673214,
+    "vpp-loss-divergence": 2.571801,
+    "wal-recovery-ordering": 0.088385
+  },
+  "errors": {
+    "AgentSafetyStopError": 4
+  },
+  "cost": {
+    "total_usd": 36.01,
+    "total_usd_exact": 36.00979,
+    "trials_with_cost": 95,
+    "trials": 95,
+    "excluded_trials_with_cost": 1,
+    "basis": "sum of Harbor recorded cost_usd over selected trials plus excluded (replaced) trials",
+    "matches_published": null
+  },
+  "tokens": {
+    "input": 484379150,
+    "cached": 471344627,
+    "output": 8106314,
+    "basis": "Harbor per-trial input_tokens (includes cached), cache_tokens, output_tokens"
+  },
+  "per_trial_cost": {
+    "median": 0.1306,
+    "p90": 0.9024,
+    "max": 3.311
+  },
+  "published": null,
+  "reconciled": true,
+  "notes": [
+    "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+    "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor fd4ccb81, with the published fast-agent-mcp 0.10.43 wheel; Claude Haiku 5.5 (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply.",
+    "Safety stops: four of five atrx-vep-crispr attempts ended with AgentSafetyStopError and score 0.",
+    "One infrastructure failure (an HF sandbox error on satb-audio-transcription) was rerun as a replacement, which failed (0); the original is kept as evidence.",
+    "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog, Claude Haiku 5.5 rules: $0.10 / $0.01 / $0.125 / $0.50 per million input / cache-read / cache-write / output tokens, higher above 100k context), which include cache writes. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed."
+  ],
+  "scan": {
+    "version": "0.8.0",
+    "scope": "95 reported trials (findings also include 1 replaced original, kept as evidence)",
+    "trials": 95,
+    "rewarded": 9,
+    "accuracy": 9.38,
+    "accuracy_se": 2.58,
+    "findings_medium_plus": {
+      "trials": 4,
+      "rewarded": 0,
+      "by_highest_priority": {
+        "medium": 4,
+        "info": 80,
+        "none": 12
+      },
+      "top": [
+        {
+          "check": "access.evaluation_directory_probe",
+          "title": "Evaluation-directory discovery attempted",
+          "priority": "medium",
+          "trials": 2,
+          "rewarded": 0
+        },
+        {
+          "check": "access.test_path",
+          "title": "Verifier test or solution path accessed",
+          "priority": "medium",
+          "trials": 1,
+          "rewarded": 0
+        },
+        {
+          "check": "tamper.harness_hooks",
+          "title": "Test harness hook file written",
+          "priority": "medium",
+          "trials": 1,
+          "rewarded": 0
+        }
+      ]
+    },
+    "review": {
+      "dq_threshold": "high",
+      "high_or_critical_rewarded": 0,
+      "other_model_trials": 0,
+      "incomplete_evidence_rewarded": 0,
+      "accuracy_if_flagged_failed": 9.47
+    },
+    "awareness": {
+      "trials": 0,
+      "stages": {
+        "noticed": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "named": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "searched": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "obtained": {
+          "trials": 0,
+          "rewarded": 0
+        }
+      },
+      "verifier_talk": {
+        "trials": 31,
+        "rewarded": 5
+      }
+    },
+    "evidence": {
+      "planned": 95,
+      "errored": 4,
+      "error_types": {
+        "AgentSafetyStopError": 4
+      },
+      "compacted_history": 0,
+      "without_trajectory": 0,
+      "incomplete_scans": 1,
+      "unmetered_trials": 0
+    },
+    "cost": {
+      "recorded": 0,
+      "trials_missing_cost": 96,
+      "estimated_unpriced": null,
+      "estimated_unmetered": null,
+      "estimated_total": 0
+    },
+    "tokens": {
+      "uncached_input": 13034523,
+      "cached_input": 471344627,
+      "output": 8106314
+    },
+    "walltime_hours": {
+      "trial_sum": 34.0,
+      "agent_sum": 30.7
+    },
+    "overrides": [],
+    "flagged_tasks": {
+      "vpp-loss-divergence": {
+        "trials": 3,
+        "rewarded": 0,
+        "max_priority": "medium"
+      },
+      "wal-recovery-ordering": {
+        "trials": 1,
+        "rewarded": 0,
+        "max_priority": "medium"
+      }
+    },
+    "scanner": {
+      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--min-trials",
+        "5",
+        "--rules",
+        "docs/benchmark_data/tb4/atif-rules.json",
+        "--image-model",
+        "codexresponses.gpt-6-luna?reasoning=medium"
+      ],
+      "rules_sha256": "5f9f76ce20cc70e4a98c95e03f4fc7b491db7a2bb9a904fb2565366fb9448fd6"
+    },
+    "cells": {
+      "atrx-vep-crispr": "lllll",
+      "cad-model": "lllll",
+      "cargo-flight-dispatch": "lllll",
+      "fin-saccr-rwa": "lllll",
+      "gsea-proteomics": "lllll",
+      "hof-topology-interpenetration": "lllll",
+      "html-js-filter": "lllll",
+      "mvcc-lsm-compaction": "lllll",
+      "photonic-waveguide-routing": "lllll",
+      "production-planning": "lllll",
+      "react-lead-form": "lllll",
+      "satb-audio-transcription": "lllll",
+      "session-window-debug": "lllll",
+      "sound-change-cascade": "lllll",
+      "telecom-entity-resolution": "lllll",
+      "vba-userform-port": "lllll",
+      "vllm-deepseek-streaming": "lllll",
+      "vpp-loss-divergence": "mmllm",
+      "wal-recovery-ordering": "mllll"
+    }
+  },
+  "as_run": {
+    "passes": 9,
+    "slots": 95
+  },
+  "review": {
+    "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+    "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+    "recorded_passes": 9,
+    "recorded_score": 9.47,
+    "disqualified": [],
+    "cleared": []
+  }
+}

@@ -291,6 +291,87 @@
       }
     },
     {
+      "id": "tb4-haiku55-high",
+      "harness": "fast-agent",
+      "model": "Haiku 5.5",
+      "effort": "high",
+      "model_string": "copilot.claude-haiku-5.5?reasoning=high",
+      "date": "2026-10-08",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-haiku55-high",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-haiku55-high-r1 (cohort tb4-haiku55-high-copilot-001)"
+      },
+      "expected": {
+        "passes": 20
+      },
+      "cost_lower_bound": true,
+      "repriced": {
+        "total_usd": 87.600413,
+        "trials": 109,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($85.75) charged prompt-cache writes as plain input. Repriced from each trial's token usage at the catalog's $0.10 / $0.01 / $0.125 / $0.50 per million input / cache-read / cache-write / output tokens (higher above 100k context): $87.60 (+2.2%), over the 95 reported trials and 14 of the 15 replaced originals (one has no trajectory and stays unpriced, so this is a lower bound). A list-price equivalent: the run used GitHub Copilot."
+      },
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+        "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor b20373d6, with the published fast-agent-mcp 0.10.43 wheel; Claude Haiku 5.5 (high reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "Safety stops: four of five atrx-vep-crispr attempts ended with AgentSafetyStopError and score 0.",
+        "Replacements: an HF sandbox connection outage cut 14 trials short (RemoteProtocolError, no verifier), and one photonic-waveguide-routing trial failed with HTTP 401 after the operator refreshed the Copilot token mid-run; all 15 were rerun. Five of those reruns were killed before producing any result when a faulty replacement queue was stopped, and were run again (authorized). Every original and interrupted rerun is kept on record; the run as first launched scored 18/95."
+      ],
+      "scan": true
+    },
+    {
+      "id": "tb4-haiku55-medium",
+      "harness": "fast-agent",
+      "model": "Haiku 5.5",
+      "effort": "medium",
+      "model_string": "copilot.claude-haiku-5.5?reasoning=medium",
+      "date": "2026-10-10",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-haiku55-medium",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-haiku55-medium-r1 (cohort tb4-haiku55-medium-copilot-001)"
+      },
+      "expected": {
+        "passes": 9
+      },
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+        "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor fd4ccb81, with the published fast-agent-mcp 0.10.43 wheel; Claude Haiku 5.5 (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "Safety stops: four of five atrx-vep-crispr attempts ended with AgentSafetyStopError and score 0.",
+        "One infrastructure failure (an HF sandbox error on satb-audio-transcription) was rerun as a replacement, which failed (0); the original is kept as evidence.",
+        "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog, Claude Haiku 5.5 rules: $0.10 / $0.01 / $0.125 / $0.50 per million input / cache-read / cache-write / output tokens, higher above 100k context), which include cache writes. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed."
+      ],
+      "scan": true
+    },
+    {
       "id": "tb4-claude-code-fable-5-1-high",
       "harness": "Claude Code",
       "model": "Fable 5.1",
