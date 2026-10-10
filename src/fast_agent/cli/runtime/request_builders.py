@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+# PEP 810: deferred until first use on Python 3.15+, ignored on earlier versions.
+__lazy_modules__ = ["fast_agent.mcp.connect_targets"]
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal
