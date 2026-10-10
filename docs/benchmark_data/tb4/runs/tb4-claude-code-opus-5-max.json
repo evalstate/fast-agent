@@ -1318,5 +1318,6 @@
     "Reconciliation: passes 173 != expected 171."
   ],
   "scan": null,
-  "model_org": "Anthropic"
+  "model_org": "Anthropic",
+  "listed": "2026-08-27"
 }

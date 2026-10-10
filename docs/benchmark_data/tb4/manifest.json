@@ -683,6 +683,83 @@
       "expected": {
         "passes": 192
       }
+    },
+    {
+      "id": "tb4-claude-code-opus-5-5-max",
+      "harness": "Claude Code",
+      "model": "Opus 5.5",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "7b805dbb-e77a-4d0a-892e-165f922f786c",
+      "expected": {
+        "passes": 214
+      }
+    },
+    {
+      "id": "tb4-claude-code-sonnet-5-5-max",
+      "harness": "Claude Code",
+      "model": "Sonnet 5.5",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "723c6609-fe18-46d9-a1a3-dd4b6b0e0d00",
+      "expected": {
+        "passes": 204
+      }
+    },
+    {
+      "id": "tb4-codex-gpt-6-sol-max",
+      "harness": "Codex",
+      "model": "GPT-6 Sol",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "a29d2361-9d5b-4a95-a56d-707070bd6c88",
+      "expected": {
+        "passes": 163
+      }
+    },
+    {
+      "id": "tb4-claude-code-glm-5-3-flash-none",
+      "harness": "Claude Code",
+      "model": "GLM-5.3-Flash",
+      "effort": "none",
+      "timeout": "standard",
+      "leaderboard_row": "ac7be218-79b6-464e-8861-9b5a7f760cb8",
+      "expected": {
+        "passes": 118
+      }
+    },
+    {
+      "id": "tb4-claude-code-qwen3-8-max-0902-max",
+      "harness": "Claude Code",
+      "model": "Qwen3.8-Max-0902",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "1f7ed2b4-3a4e-41d9-a1e1-0d9dcdc3667a",
+      "expected": {
+        "passes": 89
+      }
+    },
+    {
+      "id": "tb4-codex-gpt-6-luna-max",
+      "harness": "Codex",
+      "model": "GPT-6 Luna",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "5bd8ac99-7353-4210-bdc5-153029e660d5",
+      "expected": {
+        "passes": 54
+      }
+    },
+    {
+      "id": "tb4-muse-code-muse-spark-1-3-xhigh",
+      "harness": "Muse Code",
+      "model": "Muse Spark 1.3",
+      "effort": "xhigh",
+      "timeout": "standard",
+      "leaderboard_row": "c76c9ec8-b770-41ad-b0d2-e64db28bd478",
+      "expected": {
+        "passes": 48
+      }
     }
   ]
 }

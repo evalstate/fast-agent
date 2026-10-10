@@ -723,6 +723,7 @@ def build_run(
     published = run.get("published")
     date = run.get("date")
     model_org = run.get("model_org")
+    listed = None
     submission: Json | None = None
 
     if row_id := run.get("leaderboard_row"):
@@ -739,6 +740,8 @@ def build_run(
         }
         date = row["metadata"]["date"]
         model_org = model_org or (row["metadata"].get("model_org") or {}).get("label")
+        # When the row appeared on the leaderboard (the page marks rows added after a freeze).
+        listed = (row.get("created_at") or "")[:10] or None
         excluded: list[Json] = []
     elif "bucket" in run:
         selected, excluded, bucket_reasons, bucket_jobs = select_bucket_trials(run, bucket_root)
@@ -964,6 +967,8 @@ def build_run(
     }
     if model_org:
         out["model_org"] = model_org
+    if listed:
+        out["listed"] = listed
     if run.get("pr"):
         out["pr"] = f"https://github.com/{manifest['leaderboard_repo']}/pull/{run['pr']}"
     if pricing := run.get("pricing"):

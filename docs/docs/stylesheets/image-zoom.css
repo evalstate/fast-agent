@@ -1,0 +1,105 @@
+/* Click-to-enlarge figures (javascripts/image-zoom.js). */
+
+.md-typeset .fa-figure {
+  margin: 1.5em 0 2em;
+}
+
+.md-typeset .fa-figure a.fa-zoom {
+  display: block;
+  position: relative;
+  cursor: zoom-in;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.md-typeset .fa-figure a.fa-zoom img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.md-typeset .fa-figure a.fa-zoom::after {
+  content: "Click to enlarge";
+  position: absolute;
+  right: 0.6rem;
+  bottom: 0.6rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  background: var(--fa-ink, #082c34);
+  color: var(--fa-bg, #fff7e8);
+  font-size: 0.7rem;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.md-typeset .fa-figure figcaption {
+  margin-top: 0.6em;
+  max-width: none;
+  font-size: 0.75rem;
+  text-align: left;
+  color: var(--md-default-fg-color--light);
+}
+
+html.fa-zoom-open {
+  overflow: hidden;
+}
+
+.fa-zoom-dialog {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: #fff7e8;
+}
+
+.fa-zoom-dialog::backdrop {
+  background: rgba(8, 44, 52, 0.6);
+}
+
+.fa-zoom-dialog__frame {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+}
+
+.fa-zoom-dialog__frame img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  cursor: zoom-in;
+}
+
+/* Actual size: the 2x renders are larger than most screens, so scroll. */
+.fa-zoom-dialog.is-actual .fa-zoom-dialog__frame {
+  display: block;
+}
+
+.fa-zoom-dialog.is-actual .fa-zoom-dialog__frame img {
+  max-width: none;
+  max-height: none;
+  width: 1600px;
+  cursor: zoom-out;
+}
+
+.fa-zoom-dialog__close {
+  position: fixed;
+  top: 0.75rem;
+  right: 1rem;
+  z-index: 1;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 2px solid #082c34;
+  border-radius: 50%;
+  background: #fff7e8;
+  color: #082c34;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}

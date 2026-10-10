@@ -1,6 +1,6 @@
 {
   "$comment": "Curated presentation layer for the benchmarks page. Per-trial facts live in runs/*.json (fetch_runs.py); this file adds families, display names, pricing adjustments, vendor claims and curated comparisons. Rebuild the page data with: uv run --no-project python docs/generate_benchmark_data.py",
-  "updated": "2026-10-07",
+  "updated": "2026-10-10",
   "families": [
     {
       "id": "gpt-6",
@@ -43,6 +43,18 @@
       "name": "Gemini",
       "maker": "Google",
       "mark": "googlegemini.svg"
+    },
+    {
+      "id": "qwen",
+      "name": "Qwen",
+      "maker": "Alibaba",
+      "mark": "qwen.svg"
+    },
+    {
+      "id": "muse",
+      "name": "Muse",
+      "maker": "Meta",
+      "mark": "meta.svg"
     }
   ],
   "pricing": {
@@ -375,30 +387,35 @@
       },
       "blurb": "19 of Terminal-Bench 4.0's 66 tasks, five attempts each. Leaderboard rows are cut to the same 19 tasks; their full 66-task runs are on each run page.",
       "slug": "tb4",
+      "frozen": "2026-09-26",
       "taskLabel": "19 tasks × 5 attempts",
+      "about": {
+        "text": "Read more about why we chose this subset",
+        "page": "methodology/terminal-bench-4-subset/"
+      },
       "methodology": {
         "title": "Why 19 tasks, and how far to trust them.",
         "page": "methodology/terminal-bench-4-subset/",
         "points": [
           {
             "title": "The subset",
-            "text": "19 of Terminal-Bench 4.0's 66 tasks, five attempts each. Every task runs in a single container without a GPU on HF Jobs, and none drew a safety refusal on the leaderboard."
+            "text": "19 of Terminal-Bench 4.0's 66 tasks, five attempts each. Every task runs in a single container without a GPU on HF Jobs, and none had drawn a safety refusal on the leaderboard when the subset was fixed on 26 September 2026."
           },
           {
             "title": "Representative?",
-            "text": "On 26 leaderboard rows, subset scores land within ±5 points of the full score for 22 and rank runs in nearly the same order (Spearman 0.93). Only 6% of random 19-task picks track it more closely."
+            "text": "On 34 leaderboard rows, subset scores land within ±5 points of the full score for 30 and rank runs in nearly the same order (Spearman 0.96). All 8 rows published after the subset was fixed are within ±5 points."
           },
           {
             "title": "Our runs",
-            "text": "fast-agent runs through bench-run on HF Jobs: the 19 tasks only, at each task's native deadline, with no whole-trial retries. Infrastructure failures are rerun as replacements and the originals kept; every trial is public. HF Jobs matches hardware by capacity rather than strictly enforcing CPU and RAM limits, and the frozen hof-topology-interpenetration image is amd64-only."
+            "text": "fast-agent runs through bench-run on HF Jobs: the 19 tasks only, at each task's native deadline, with no whole-trial retries. Infrastructure failures are rerun as replacements and the originals kept; every trial is public. HF Jobs matches hardware by capacity rather than strictly enforcing CPU and RAM limits, and the frozen hof-topology-interpenetration image is amd64-only. Claude models drew provider safety stops on atrx-vep-crispr and html-js-filter in our runs; they score 0."
           },
           {
             "title": "Cost",
-            "text": "A subset run costs about 15% of a full run; a full run costs a median 6.4× as much. Comparator costs here are the recorded trial costs on the 19 tasks. Our costs are Harbor's recorded token costs at list rates, repriced where the recording mispriced cache writes; for Copilot routes that is a list-price equivalent, not billed spend."
+            "text": "A subset run costs about 16% of a full run; a full run costs a median 6.4× as much. Comparator costs here are the recorded trial costs on the 19 tasks. Our costs are Harbor's recorded token costs at list rates, repriced where the recording mispriced cache writes; for Copilot routes that is a list-price equivalent, not billed spend."
           },
           {
             "title": "Caveats",
-            "text": "The subset was chosen with this leaderboard in view, so agreement is optimistic for a new model. Subset error bars are wide: about ±10 points."
+            "text": "The subset was chosen with this leaderboard in view, and only 8 rows have arrived since. Subset error bars are wide: about ±10 points."
           }
         ]
       }
@@ -421,6 +438,8 @@
     "Fable": "anthropic",
     "Opus": "anthropic",
     "Sonnet": "anthropic",
-    "Gemini": "gemini"
+    "Gemini": "gemini",
+    "Qwen": "qwen",
+    "Muse": "muse"
   }
 }

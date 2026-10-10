@@ -20,6 +20,27 @@ turns everything here into `docs/docs/javascripts/benchmark-data.js`.
   only and show "subset only" where leaderboard rows show their full run. They are
   curated in `catalog.json` under `runs` with `"benchmark": "terminal-bench-4.0-subset"`.
 
+`tb4/selection.json` records what the subset was chosen from: the freeze date, the
+leaderboard rows published by then, the pinned task digests and the tasks excluded by
+their packages (GPU, docker-compose sidecars). Rows published later are out-of-sample;
+the calibration chart draws rows listed after the bench's `frozen` date in teal
+(`listed` in each row's run file).
+
+Refreshing from the leaderboard (needs the `harbor` CLI); add any new row to
+`tb4/manifest.json` first:
+
+```bash
+uv run --no-project python docs/benchmark_data/fetch_runs.py --manifest docs/benchmark_data/tb4/manifest.json
+uv run --no-project python docs/benchmark_data/tb4/fetch_leaderboard.py   # trials -> tb4/.cache/ (git-ignored)
+uv run docs/benchmark_data/tb4/calibration.py   # -> tb4/calibration.json + docs/docs/assets/benchmarks/tb4-subset/*.webp
+uv run --no-project python docs/generate_benchmark_data.py
+```
+
+`calibration.py` reads the leaderboard exports in `tb4/.cache/`, not `tb4/runs/`, so our
+runs never enter the calibration. It needs Chromium for the charts; the figures quoted on
+the methodology page come from `calibration.json`. A new model needs a `familyByModel`
+entry in the catalog.
+
 TB4 scans use `tb4/atif-rules.json`: the same publish-side rules as TB2.1, built on the
 TB4 pack's `tb4.recall.task_catalog` (atif-scan rejects a rules file that names another
 pack's checks). A new benchmark with a subset (TB5: 20–21 tasks) needs the same files

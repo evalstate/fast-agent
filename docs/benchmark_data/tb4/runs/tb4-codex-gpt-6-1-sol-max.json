@@ -1316,5 +1316,6 @@
   "notes": [],
   "scan": null,
   "model_org": "OpenAI",
+  "listed": "2026-10-06",
   "pr": "https://github.com/harbor-framework/terminal-bench/pull/2163"
 }
