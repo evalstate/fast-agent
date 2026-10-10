@@ -424,8 +424,7 @@ class TransportChannelMetrics:
                 summary = event.detail or "subscription event"
                 classification = ActivityState.NOTIFICATION
             else:
-                classification = self._classify_message(event.message)
-                self._listen_counts.increment(classification)
+                classification = self._tally_message_counts("listen", event.message, now)
                 summary = _summarise_classified_message(classification, event.message)
             self._listen_last_summary = summary
             self._listen_last_at = now
@@ -593,6 +592,8 @@ class TransportChannelMetrics:
             self._tally_resumption_classification(classification)
         elif channel_key == "stdio":
             self._tally_stdio_classification(classification)
+        elif channel_key == "listen":
+            self._tally_listen_classification(classification)
 
     def _tally_post_classification(
         self,
@@ -619,6 +620,9 @@ class TransportChannelMetrics:
 
     def _tally_stdio_classification(self, classification: ActivityState) -> None:
         self._stdio_counts.increment(classification)
+
+    def _tally_listen_classification(self, classification: ActivityState) -> None:
+        self._listen_counts.increment(classification)
 
     def _register_ping(self, timestamp: datetime) -> None:
         self._get_ping_count += 1
