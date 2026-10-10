@@ -111,7 +111,7 @@ def run_request(request: AgentRunRequest) -> None:
             with suppress(BaseException):
                 task.cancel()
 
-        if sys.version_info >= (3, 7) and tasks:
+        if tasks:
             with suppress(BaseException):
                 loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
 
