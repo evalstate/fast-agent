@@ -406,6 +406,7 @@ def _subset_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[st
                 "effort": raw["effort"],
                 "modelString": raw["model_org"] + " · " + raw["model"],
                 "date": raw["date"],
+                "listed": raw["listed"],
                 "timeout": "standard",
                 "status": None,
                 "reconciled": raw["reconciled"],

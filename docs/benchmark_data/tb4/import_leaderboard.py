@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Import Terminal-Bench 4.0 leaderboard rows as comparator runs.
 
-Reads the per-row trial exports produced by the TB4 subset calibration work
-(`fetch.py` there: one JSON per leaderboard row with its 330 trials) and writes
-one compact run file per row to runs/<id>.json. Every row keeps its full
-66-task result; the page derives the 19-task subset from subset.json.
+Reads the per-row trial exports written by fetch_leaderboard.py (one JSON per
+leaderboard row with its 330 trials) and writes one compact run file per row to
+runs/<id>.json. Every row keeps its full 66-task result; the page derives the
+19-task subset from subset.json.
 
-    uv run --no-project python docs/benchmark_data/tb4/import_leaderboard.py \
-        [--source ~/source/general/tb4-subset-calibration/data]
+    uv run --no-project python docs/benchmark_data/tb4/import_leaderboard.py [--source DIR]
 """
 
 from __future__ import annotations
@@ -74,6 +73,7 @@ def convert(export: dict[str, Any], tasks: list[str]) -> dict[str, Any]:
         "effort": effort,
         "model_org": meta["model_org"]["label"],
         "date": meta["date"],
+        "listed": row["created_at"][:10],
         "leaderboard_row": row["id"],
         "jobs": [
             {"id": j, "url": f"https://hub.harborframework.com/jobs/{j}"} for j in export["jobs"]
@@ -97,7 +97,7 @@ def main() -> None:
     parser.add_argument(
         "--source",
         type=Path,
-        default=Path.home() / "source/general/tb4-subset-calibration/data",
+        default=HERE / ".cache",
     )
     args = parser.parse_args()
     tasks: list[str] = json.loads((HERE / "tasks.json").read_text())

@@ -1,0 +1,139 @@
+{
+ "leaderboard_fetched": "2026-10-10",
+ "frozen": "2026-09-26",
+ "rows": 35,
+ "scored_rows": 34,
+ "scored_models": 23,
+ "unscored_rows": [
+  "Opus 5 \u00b7 max"
+ ],
+ "costed_rows": 18,
+ "tasks": 66,
+ "subset_tasks": 19,
+ "eligible_tasks": 48,
+ "excluded_tasks": {
+  "ctr-optimization": [
+   "multi-container"
+  ],
+  "cumulative-layout-shift": [
+   "multi-container"
+  ],
+  "fp8-rmsnorm-gemm": [
+   "gpu"
+  ],
+  "freight-dispatch-shift": [
+   "multi-container"
+  ],
+  "heat-pump-warranty": [
+   "multi-container"
+  ],
+  "intrastat-meldung": [
+   "multi-container"
+  ],
+  "jax-speedrun-gpu": [
+   "gpu"
+  ],
+  "kv-live-surgery": [
+   "multi-container",
+   "safety refusal"
+  ],
+  "legacy-utility-triage": [
+   "multi-container"
+  ],
+  "live-database-cutover": [
+   "multi-container"
+  ],
+  "math-eval-grader": [
+   "gpu"
+  ],
+  "medical-claims-processing": [
+   "multi-container"
+  ],
+  "nextjs-performance": [
+   "multi-container"
+  ],
+  "payments-pipeline-fix": [
+   "multi-container"
+  ],
+  "batched-eval-parity": [
+   "safety refusal"
+  ],
+  "interleaved-vigenere": [
+   "safety refusal"
+  ],
+  "shadow-relay": [
+   "safety refusal"
+  ],
+  "uefi-bootkit": [
+   "safety refusal"
+  ]
+ },
+ "late_refusals_in_subset": [
+  "atrx-vep-crispr",
+  "session-window-debug"
+ ],
+ "score": {
+  "rows": 34,
+  "mean_gap": 3.077616099071207,
+  "signed_gap": 0.7301547987616096,
+  "within5": 30,
+  "within10": 33,
+  "spearman": 0.961677830222759
+ },
+ "score_by_cohort": {
+  "selection": {
+   "rows": 26,
+   "mean_gap": 3.2477732793522267,
+   "signed_gap": 0.44817813765182135,
+   "within5": 22,
+   "within10": 25,
+   "spearman": 0.9320055494603126,
+   "random_median_gap": 5.160242914979758,
+   "random_closer": 0.062,
+   "random_median_spearman": 0.942543804899264,
+   "random_rank_better": 0.65215
+  },
+  "new": {
+   "rows": 8,
+   "mean_gap": 2.5246052631578944,
+   "signed_gap": 1.6465789473684214,
+   "within5": 8,
+   "within10": 8,
+   "spearman": 0.9880235200593538,
+   "random_median_gap": 5.2877631578947355,
+   "random_closer": 0.02565,
+   "random_median_spearman": 0.9700772721497398,
+   "random_rank_better": 0.21845
+  }
+ },
+ "compression": {
+  "weakest_third": 2.587320574162679,
+  "strongest_third": -0.6139712918660294
+ },
+ "held_out": {
+  "mean_gap": 4.320532244252684,
+  "spearman": 0.9338811917950264
+ },
+ "random": {
+  "picks": 20000,
+  "median_gap": 5.1695510835913305,
+  "median_cost_share": 0.23847039025593775,
+  "closer": 0.0225,
+  "cheaper_and_closer": 2
+ },
+ "cost": {
+  "share": 0.15635890866528213,
+  "median_ratio": 6.395550242758698,
+  "min_ratio": 4.2155717159710315,
+  "max_ratio": 8.462629980630863,
+  "mean_error": 0.12922269801241323,
+  "worst": {
+   "row": "Sonnet 5.5 \u00b7 max",
+   "error": 0.5188256843931021
+  },
+  "naive_error": -0.4462762265540713,
+  "subset_task_cost": 0.543141472205717,
+  "eligible_task_cost": 0.8429849531930628,
+  "excluded_task_cost": 1.4187045344622287
+ }
+}

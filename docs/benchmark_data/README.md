@@ -7,16 +7,31 @@ turns everything here into `docs/docs/javascripts/benchmark-data.js`.
 ## Terminal-Bench 4.0 subset (`tb4/`)
 
 `tb4/tasks.json` is the full 66-task list and `tb4/subset.json` the 19 subset tasks.
-`tb4/import_leaderboard.py` converts leaderboard row exports (the TB4 subset calibration
-`fetch.py` output: each row's 330 trials) into `tb4/runs/<id>.json` with all 66 tasks;
-the generator cuts them to the subset and keeps the full run for the run pages. Subset
-cost is the sum of the recorded trial costs on the 19 tasks. A new benchmark with a
+`tb4/selection.json` records what the subset was chosen from: the freeze date, the
+leaderboard rows published by then, the pinned task digests and the tasks excluded by
+their packages (GPU, docker-compose sidecars). Rows published later are out-of-sample.
+
+Refreshing from the leaderboard (needs the `harbor` CLI):
+
+```bash
+uv run --no-project python docs/benchmark_data/tb4/fetch_leaderboard.py   # trials -> tb4/.cache/ (git-ignored)
+uv run --no-project python docs/benchmark_data/tb4/import_leaderboard.py  # -> tb4/runs/<id>.json
+uv run docs/benchmark_data/tb4/calibration.py   # -> tb4/calibration.json + docs/docs/assets/benchmarks/tb4-subset/*.webp
+uv run --no-project python docs/generate_benchmark_data.py
+```
+
+`import_leaderboard.py` keeps all 66 tasks per row; the generator cuts them to the subset
+and keeps the full run for the run pages. Subset cost is the sum of the recorded trial
+costs on the 19 tasks. `calibration.py` needs Chromium for the charts; the figures quoted
+on the methodology page come from `calibration.json`. A new model needs a
+`familyByModel` entry in the catalog. A new benchmark with a
 subset (TB5: 20–21 tasks) needs the same three files and a `benchmarks` entry with
 `subset`.
 
 TB4 is marked `comingSoon` until our own subset runs land: its tab shows the methodology
 and no results, and no ledger is generated. The leaderboard rows still feed the subset
-calibration chart on the methodology page. Remove `comingSoon` once real runs exist.
+calibration chart on the methodology page (rows listed after the bench's `frozen` date
+are drawn in teal). Remove `comingSoon` once real runs exist.
 
 # Terminal-Bench 2.1 benchmark data
 
