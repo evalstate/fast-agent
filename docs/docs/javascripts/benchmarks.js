@@ -1532,10 +1532,13 @@
     show(benchParam(), false);
   }
 
-  /* The tab names the benchmark; the head carries its blurb and leaderboard link. */
+  /* The tab names the benchmark; the head carries its blurb, optional explainer link and leaderboard link. */
   function benchHead(bench, note) {
     var head = el("div", "fb-bench-head");
-    head.appendChild(el("p", "", note ? bench.blurb + " " + note : bench.blurb));
+    var text = el("div", "fb-bench-head__text");
+    text.appendChild(el("p", "", note ? bench.blurb + " " + note : bench.blurb));
+    if (bench.about) text.appendChild(link(BENCH_ROOT + bench.about.page, "fb-bench-about", bench.about.text + " →"));
+    head.appendChild(text);
     if (bench.url) head.appendChild(external(bench.url, "Leaderboard"));
     return head;
   }
@@ -1689,13 +1692,18 @@
     xl.textContent = "published full-run score (" + m.full.tasks.length + " tasks) →";
     var yl = svg("text", { x: 12, y: pad.t - 6, class: "fb-axis fb-axis--title" }, root);
     yl.textContent = "↑ subset score (" + m.tasks.length + " tasks)";
+    var frozen = m.bench.frozen;
+    function isNew(r) { return frozen && r.listed > frozen; }
     runs.forEach(function (r) {
       var gap = r.score - r.full.publishedScore;
-      var g = svg("g", { class: "fb-pt fb-pt--leaderboard" + (Math.abs(gap) > 5 ? " fb-pt--off" : ""), tabindex: "0" }, root);
+      var cls = "fb-pt fb-pt--leaderboard" + (isNew(r) ? " fb-pt--new" : "") + (Math.abs(gap) > 5 ? " fb-pt--off" : "");
+      var g = svg("g", { class: cls, tabindex: "0" }, root);
       var at = svg("g", { transform: "translate(" + X(r.full.publishedScore) + " " + Y(r.score) + ")" }, g);
       svg("circle", { cx: 0, cy: 0, r: 6, class: "fb-marker" }, at);
       g.addEventListener("mousemove", function (evt) {
-        showTip(evt, [r.harness + " · " + title(r), "subset " + pct(r.score) + " · full " + pct(r.full.publishedScore), (gap >= 0 ? "+" : "−") + Math.abs(gap).toFixed(1) + " pts on the subset"]);
+        var lines = [r.harness + " · " + title(r), "subset " + pct(r.score) + " · full " + pct(r.full.publishedScore), (gap >= 0 ? "+" : "−") + Math.abs(gap).toFixed(1) + " pts on the subset"];
+        if (isNew(r)) lines.push("published after the subset was fixed");
+        showTip(evt, lines);
       });
       g.addEventListener("mouseleave", hideTip);
       g.addEventListener("click", function () {
@@ -1705,13 +1713,14 @@
     var fig = el("figure", "fb-figure");
     fig.appendChild(root);
     var st = subsetStats(runs);
-    fig.appendChild(
-      el(
-        "figcaption",
-        "fb-caption",
-        st.within5 + " of " + runs.length + " leaderboard rows land inside the band and " + st.within10 + " within ±10 points; average gap " + st.meanGap.toFixed(2) + " points; rank correlation " + st.spearman.toFixed(2) + ". Orange rings are further out. Rows whose trial records don't reproduce the published score are left out."
-      )
-    );
+    var caption = st.within5 + " of " + runs.length + " leaderboard rows land inside the band and " + st.within10 + " within ±10 points; average gap " + st.meanGap.toFixed(2) + " points; rank correlation " + st.spearman.toFixed(2) + ".";
+    var later = runs.filter(isNew);
+    if (later.length) {
+      var lst = subsetStats(later);
+      caption += " Teal: the " + later.length + " rows published after the subset was fixed on " + date(frozen) + "; " + lst.within5 + " of " + later.length + " inside the band, average gap " + lst.meanGap.toFixed(2) + " points.";
+    }
+    caption += " Orange rings are further out. Rows whose trial records don't reproduce the published score are left out.";
+    fig.appendChild(el("figcaption", "fb-caption", caption));
     return fig;
   }
 

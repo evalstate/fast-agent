@@ -9,15 +9,23 @@ copyright = "© 2025-2026 llmindset.co.uk"
 extra_css = [
   "stylesheets/brand.css",
   "stylesheets/home.css",
+  "stylesheets/image-zoom.css",
 ]
 extra_javascript = [
   "javascripts/asciinema-demos.js",
   "javascripts/benchmarks-loader.js",
+  "javascripts/image-zoom.js",
   "javascripts/migration-command-converter.js",
 ]
 nav = [
   { "Home" = "index.md" },
-  { "Benchmarks" = "benchmarks/index.md" },
+  { "Benchmarks" = [
+    { "Results" = "benchmarks/index.md" },
+    { "Methodology" = [
+      { "Terminal-Bench 2.1" = "benchmarks/methodology/terminal-bench-2-1/index.md" },
+      { "Terminal-Bench 4 subset" = "benchmarks/methodology/terminal-bench-4-subset/index.md" },
+    ] },
+  ] },
   { "Guides" = [
     { "Core Concepts" = "guides/core-concepts.md" },
     { "Migrating to 0.10" = "guides/migrating-to-0-10.md" },
