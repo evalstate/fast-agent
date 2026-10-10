@@ -1,5 +1,13 @@
 """Main CLI entry point for MCP Agent."""
 
+# PEP 810: deferred until first use on Python 3.15+, ignored on earlier versions.
+# Keep this to modules whose names are only used inside functions.
+__lazy_modules__ = [
+    "fast_agent.cli.display",
+    "fast_agent.cli.update_check",
+    "importlib.metadata",
+]
+
 import importlib
 import os
 from importlib.metadata import PackageNotFoundError

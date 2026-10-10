@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from typer._click.utils import strip_ansi
@@ -229,9 +230,7 @@ def test_top_level_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> None:
 
     result = subprocess.run(
         [
-            "uv",
-            "run",
-            "python",
+            sys.executable,
             "-m",
             "fast_agent.cli",
             "--home",
@@ -264,9 +263,7 @@ def test_local_skills_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> No
 
     result = subprocess.run(
         [
-            "uv",
-            "run",
-            "python",
+            sys.executable,
             "-m",
             "fast_agent.cli",
             "skills",
