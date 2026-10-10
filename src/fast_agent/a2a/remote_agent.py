@@ -184,13 +184,18 @@ class A2ARemoteAgent(LlmDecorator):
 
     async def shutdown(self) -> None:
         client = self._client
-        if client is not None:
-            await client.close()
-            self._client = None
-        if self._httpx_client is not None:
-            await self._httpx_client.aclose()
+        self._client = None
+        try:
+            if client is not None:
+                await client.close()
+        finally:
+            httpx_client = self._httpx_client
             self._httpx_client = None
-        await super().shutdown()
+            try:
+                if httpx_client is not None:
+                    await httpx_client.aclose()
+            finally:
+                await super().shutdown()
 
     def add_stream_listener(self, listener: Callable[[StreamChunk], None]) -> Callable[[], None]:
         self._stream_listeners.append(listener)
