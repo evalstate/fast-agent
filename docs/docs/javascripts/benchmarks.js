@@ -1307,7 +1307,7 @@
         return;
       }
       // Label placement: try right, left, above, below; avoid markers and earlier labels.
-      var text = (e.tier === "ours" ? "" : e.tier === "claim" ? e.source + ": " : e.harness + ": ") + e.model.replace("GPT-5.6 ", "") + " " + e.effort;
+      var text = (e.tier === "ours" ? "" : e.tier === "claim" ? e.source + ": " : e.harness + ": ") + e.model.replace("GPT-5.6 ", "") + " " + (e.effort === "medium" ? "med" : e.effort);
       var w = text.length * 6.6;
       var cands = [
         [cx + 13, cy + 4, "start"],
