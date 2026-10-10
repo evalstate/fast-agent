@@ -29,7 +29,8 @@ has 89 tasks, repeated 5 times for a total of 445 trials.
   with standard rows; they carry a **6h timeout** badge.
 - The QEMU tasks' upstream image expired on 7 September 2026. The six-hour runs use a
   fixed QEMU image on a snapshot of the benchmark, so they are a modified evaluation,
-  not unmodified Terminal-Bench 2.1.
+  not unmodified Terminal-Bench 2.1. The fix is forward-compatible with `tb-legacy`,
+  which the Terminal-Bench team has set as the policy for these tasks.
 - Our earlier standard-timeout runs were submitted to the leaderboard, which closed
   community submissions before reviewing them; they are marked **Provisional**.
 
