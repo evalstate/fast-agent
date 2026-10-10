@@ -85,7 +85,14 @@ class GoogleConverter:
             ):
                 continue  # Remove unsupported string formats
 
-            if isinstance(value, dict):
+            if key == "properties" and isinstance(value, dict):
+                # Property names are user identifiers, even when they match
+                # unsupported schema keywords such as "const".
+                cleaned_schema[key] = {
+                    name: self._clean_schema_for_google(prop_schema)
+                    for name, prop_schema in value.items()
+                }
+            elif isinstance(value, dict):
                 cleaned_schema[key] = self._clean_schema_for_google(value)
             elif isinstance(value, list):
                 cleaned_schema[key] = [
