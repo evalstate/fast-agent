@@ -20,7 +20,7 @@ In your `fast-agent.yaml`:
 
 ```yaml
 <provider>:
-  api_key: "your_api_key" # Override with API_KEY env var
+  api_key: "${PROVIDER_API_KEY}" # Read the key from this environment variable
   base_url: "https://api.example.com" # Base URL for API calls
   default_headers: # Optional - custom headers for all API requests
     X-Custom-Header: "value"
@@ -50,10 +50,15 @@ The `default_headers` option is available for OpenAI-compatible providers (inclu
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` | Additional provider; routed upstream models |
 | Hugging Face | `hf` or `huggingface` | `HF_TOKEN` | Inference Providers router and HF MCP auth |
 | Open Responses | `openresponses` | `OPENRESPONSES_API_KEY` | Additional provider; interoperable Open Responses endpoints |
-| Generic | `generic` | `GENERIC_API_KEY` | Additional provider; local/self-hosted OpenAI-compatible endpoints |
+| Generic | `generic` | `GENERIC_API_KEY` or an explicitly configured key variable | Hosted, local, and self-hosted OpenAI-compatible Chat Completions endpoints |
 | TensorZero | `tensorzero` | None | Additional provider; local TensorZero Gateway functions |
 
 See [Additional Providers](providers/additional/) for the long-tail reference with config keys, API key names, default endpoints, model string examples, and provider-specific notes.
+
+For Neuralwatt, DeepInfra, SiliconFlow, OrcaRouter, or another hosted
+OpenAI-compatible service, start with [Hosted provider setup](providers/additional.md#hosted-provider-setup).
+These services use the `generic` config key and model prefix; they do not need
+a dedicated fast-agent provider implementation.
 
 ## Detailed provider guides
 
