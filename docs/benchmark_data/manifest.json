@@ -493,9 +493,16 @@
         "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6.1 Sol (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. Three infrastructure failures (a sandbox error, two connection errors) were rerun as replacements; the originals are kept as evidence.",
         "Safety refusals: 10 trials ended with AgentSafetyRefusalError (model-extraction-relu-logits ×3, vulnerable-secret ×4, break-filter-js-from-html ×3) and score 0, except one break-filter-js-from-html trial whose verifier still passed: it counts as a pass here; bench-run's stricter rule counts it 0 (363/445).",
         "Eleven trials hit fast-agent's 150 s stream-idle timeout on a model call and recovered on retry; none failed from it.",
-        "Cost is Harbor's recorded cost at the cohort's configured OpenAI list rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6.1-sol-standard-short / -long: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Stalled attempts recorded no usage, so the total is a lower bound. Prompt-cache writes are priced at the input rate, as for OpenAI models there is no cache-write charge."
+        "Harbor's recorded cost uses the cohort's configured OpenAI list rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6.1-sol-standard-short / -long: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Stalled attempts recorded no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 34.100561,
+        "trials": 440,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($31.20) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $34.10 (+9.3%) over the same 440 trials. 8 trials without usable usage stay unpriced, so this is a lower bound. A list-price equivalent: the run used GitHub Copilot."
+      }
     },
     {
       "id": "luna6-low-6h",
@@ -543,9 +550,16 @@
         "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
         "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (low reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. Two infrastructure failures (connection errors creating the sandbox) were rerun as replacements; the originals are kept as evidence.",
         "Ran 1–3 October, after the flex serving anomaly bench-run recorded on 30 September–1 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
-        "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound."
+        "Harbor's recorded cost uses the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 0.621687,
+        "trials": 445,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($0.57) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $0.62 (+9.6%) over the same 445 trials. 2 trials without usable usage stay unpriced, so this is a lower bound."
+      }
     },
     {
       "id": "luna6-medium-6h",
@@ -594,9 +608,16 @@
         "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
         "bench-run cohort on HF Jobs (Harbor 93e600d7) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (medium reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. Replacements, originals kept as evidence: one sandbox connection error, and four long trials (train-fasttext ×3, extract-moves-from-video) cut off at 22:23Z on 1 October when the OpenAI organisation ran out of API credits (ApiUsageLimitError); one train-fasttext rerun failed the same way and one hit a verifier setup error, so that task took a chain of reruns. One gcode-to-text trial that exited non-zero on an OpenAI 400 is kept as an agent outcome. The original trials ran on Harbor 93e600d7.",
         "Ran 1–3 October, after the flex serving anomaly bench-run recorded on 30 September–1 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
-        "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound."
+        "Harbor's recorded cost uses the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 3.439781,
+        "trials": 450,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($3.30) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $3.44 (+4.3%) over the same 450 trials. 1 trial without usable usage stay unpriced, so this is a lower bound."
+      }
     },
     {
       "id": "luna6-high-6h",
@@ -665,9 +686,16 @@
         "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
         "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (high reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. One infrastructure failure (a read timeout) was rerun as a replacement; the original is kept as evidence.",
         "Ran 1–3 October, after the flex serving anomaly bench-run recorded on 30 September–1 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
-        "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound."
+        "Harbor's recorded cost uses the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 4.611987,
+        "trials": 446,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($4.48) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $4.61 (+2.9%) over the same 446 trials."
+      }
     },
     {
       "id": "luna6-xhigh-6h",
@@ -736,9 +764,16 @@
         "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
         "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (xhigh reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. One infrastructure failure (a sandbox connection error) was rerun as a replacement; the original is kept as evidence. Two verifier timeouts are kept as outcomes.",
         "Ran 1–3 October, after the flex serving anomaly bench-run recorded on 30 September–1 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
-        "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound."
+        "Harbor's recorded cost uses the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 4.922834,
+        "trials": 445,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($4.77) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $4.92 (+3.2%) over the same 445 trials. 1 trial without usable usage stay unpriced, so this is a lower bound."
+      }
     },
     {
       "id": "luna6-max-6h",
@@ -795,9 +830,16 @@
         "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
         "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (max reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. Four infrastructure failures (a sandbox connection error, a read timeout, a verifier setup error and a verified agent crash) were rerun as replacements; the originals are kept as evidence.",
         "Ran 1–3 October, after the flex serving anomaly bench-run recorded on 30 September–1 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
-        "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound."
+        "Harbor's recorded cost uses the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 7.44032,
+        "trials": 448,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($7.20) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $7.44 (+3.4%) over the same 448 trials. 1 trial without usable usage stay unpriced, so this is a lower bound."
+      }
     },
     {
       "id": "haiku55-low-6h",
@@ -969,9 +1011,16 @@
         "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; GPT-6.1 Sol (high reasoning) through GitHub Copilot, with fast-agent's stream-idle timeout raised from the default 150 s to 300 s (streaming_timeout=300). Zero whole-trial retries; fast-agent's own provider retries apply. Three infrastructure failures (a sandbox error, two connection errors) were rerun as replacements; the originals are kept as evidence.",
         "An earlier complete cohort with the default 150 s stream-idle timeout (tb21-sol61-high-copilot-002) is not shown: at high effort 8 of its trials failed deterministically on that timeout. This run repeats the configuration with only the timeout changed.",
         "Safety refusals: 13 trials ended with AgentSafetyRefusalError and score 0, except one break-filter-js-from-html trial whose verifier still passed: it counts as a pass here; bench-run's stricter rule counts it 0 (380/445).",
-        "Cost is Harbor's recorded cost at the cohort's configured OpenAI list rates (card-packs pricing catalog, rules gpt-6.1-sol-standard-short / -long: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound. Prompt-cache writes are priced at the input rate, as for OpenAI models there is no cache-write charge."
+        "Harbor's recorded cost uses the cohort's configured OpenAI list rates (card-packs pricing catalog, rules gpt-6.1-sol-standard-short / -long: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 54.176511,
+        "trials": 438,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($50.04) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $54.18 (+8.3%) over the same 438 trials. 10 trials without usable usage stay unpriced, so this is a lower bound. A list-price equivalent: the run used GitHub Copilot."
+      }
     },
     {
       "id": "astra-high-6h",
@@ -1019,9 +1068,16 @@
         "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; GPT-6 Astra (high reasoning) through GitHub Copilot, with fast-agent's stream-idle timeout raised to 300 s (streaming_timeout=300). Zero whole-trial retries; fast-agent's own provider retries apply. Four infrastructure failures (three dropped connections, a sandbox error) were rerun as replacements; the originals are kept as evidence.",
         "Provider blocks: every attempt at break-filter-js-from-html and vulnerable-secret (10 trials) failed on the first model request, when Copilot's WebSocket rejected it (recorded by bench-run as a content-filter failure). Harbor records these as non-zero agent exits, not safety errors, so they score 0 and the safety allowance does not count them. One model-extraction-relu-logits trial ended with AgentSafetyStopError.",
         "Other GPT-6 Astra cohorts (high and medium through the Codex subscription route, medium through Copilot with the default stream timeout) are complete but not shown.",
-        "Cost is Harbor's recorded cost at the cohort's configured OpenAI list rates (card-packs pricing catalog, rules gpt-6-astra-standard-short / -long: $10 / $1 / $50 per million input / cached / output tokens; $20 / $2 / $75 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound. Prompt-cache writes are priced at the input rate, as for OpenAI models there is no cache-write charge."
+        "Harbor's recorded cost uses the cohort's configured OpenAI list rates (card-packs pricing catalog, rules gpt-6-astra-standard-short / -long: $10 / $1 / $50 per million input / cached / output tokens; $20 / $2 / $75 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 300.397554,
+        "trials": 439,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($279.83) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $300.40 (+7.4%) over the same 439 trials. 10 trials without usable usage stay unpriced, so this is a lower bound. A list-price equivalent: the run used GitHub Copilot."
+      }
     },
     {
       "id": "sonnet55-high-6h",

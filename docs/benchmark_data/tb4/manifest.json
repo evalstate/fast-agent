@@ -40,9 +40,16 @@
       "notes": [
         "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
         "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor de22ce8c, with the published fast-agent-mcp 0.10.41 wheel; GPT-6.1 Sol (high reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No errors, no replacements.",
-        "Cost is Harbor's recorded cost at the cohort's configured list rates (card-packs pricing catalog, Copilot GPT-6.1 Sol rules: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Three trials have model calls that reported no usage, so the total is a lower bound. Prompt-cache writes are priced at the input rate, as for OpenAI models there is no cache-write charge."
+        "Harbor's recorded cost uses the cohort's configured list rates (card-packs pricing catalog, Copilot GPT-6.1 Sol rules: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Three trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 35.158872,
+        "trials": 92,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($32.88) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $35.16 (+6.9%) over the same 92 trials. 3 trials with no recorded usage would add $1.76 more, so this is a lower bound. A list-price equivalent: the run used GitHub Copilot."
+      }
     },
     {
       "id": "tb4-astra-high",
@@ -63,13 +70,6 @@
         "passes": 59
       },
       "cost_lower_bound": true,
-      "repriced": {
-        "total_usd": 209.267155,
-        "trials": 95,
-        "basis": "list-rate estimate, cache writes at the input rate",
-        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.2 (5478c22)",
-        "note": "Harbor's recorded cost ($222.87) priced prompt-cache writes at 125% of the input rate (catalog 2026-10-09.1). OpenAI models have no cache-write charge, so the 95 trials with recorded usage are repriced from their token usage with writes at the $10 input rate ($10 / $1 / $50 per million input / cached / output tokens; $20 / $2 / $75 above 272k context): $209.27 (-6.1%). Seven trials (three without a trajectory, four with no recorded usage) are unpriced, so this is a lower bound. A list-price equivalent: the run used GitHub Copilot."
-      },
       "published": null,
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
@@ -83,7 +83,8 @@
       "notes": [
         "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
         "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor fd4ccb81, with the published fast-agent-mcp 0.10.43 wheel; GPT-6 Astra (high reasoning) through GitHub Copilot, with fast-agent's stream-idle timeout raised to 300 s (streaming_timeout=300). Zero whole-trial retries; fast-agent's own provider retries apply.",
-        "Seven infrastructure failures (four Copilot HTTP 429 rejections in the launch burst, three HF sandbox errors) were rerun as replacements; five of the seven replacements passed. The originals are kept as evidence; the run as first launched scored 54/95."
+        "Seven infrastructure failures (four Copilot HTTP 429 rejections in the launch burst, three HF sandbox errors) were rerun as replacements; five of the seven replacements passed. The originals are kept as evidence; the run as first launched scored 54/95.",
+        "Cost is Harbor's recorded cost at the cohort's configured list rates (card-packs pricing catalog 2026-10-09.1, GPT-6 Astra rules: $10 / $1 / $12.50 / $50 per million input / cached / cache-write / output tokens; $20 / $2 / $25 / $75 above 272k context). Cache writes are charged at 125% of the input rate, OpenAI's price for GPT-5.6 and later. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Seven trials (three without a trajectory, four with no recorded usage, all replaced originals) are unpriced, so the total is a lower bound."
       ],
       "scan": true
     },
@@ -199,9 +200,16 @@
         "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
         "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor de22ce8c, with the published fast-agent-mcp 0.10.41 wheel; GPT-6.1 Sol (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply.",
         "One infrastructure failure (a wal-recovery-ordering connection error) was rerun as a replacement, which passed; the original is kept as evidence. The run as first launched scored 56/95.",
-        "Cost is Harbor's recorded cost at the cohort's configured list rates (card-packs pricing catalog, Copilot GPT-6.1 Sol rules: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. One trial has model calls that reported no usage, so the total is a lower bound. Prompt-cache writes are priced at the input rate, as for OpenAI models there is no cache-write charge."
+        "Harbor's recorded cost uses the cohort's configured list rates (card-packs pricing catalog, Copilot GPT-6.1 Sol rules: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. One trial has model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 24.14593,
+        "trials": 95,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($22.42) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $24.15 (+7.7%) over the same 95 trials. 1 trial with no recorded usage would add $0.75 more, so this is a lower bound. A list-price equivalent: the run used GitHub Copilot."
+      }
     },
     {
       "id": "tb4-astra-medium",
@@ -222,13 +230,6 @@
         "passes": 53
       },
       "cost_lower_bound": true,
-      "repriced": {
-        "total_usd": 148.696231,
-        "trials": 95,
-        "basis": "list-rate estimate, cache writes at the input rate",
-        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.2 (5478c22)",
-        "note": "Harbor's recorded cost ($159.16) priced prompt-cache writes at 125% of the input rate (catalog 2026-10-09.1). OpenAI models have no cache-write charge, so the 95 trials with recorded usage are repriced from their token usage with writes at the $10 input rate ($10 / $1 / $50 per million input / cached / output tokens; $20 / $2 / $75 above 272k context): $148.70 (-6.6%). The replaced original recorded no usage and is unpriced, so this is a lower bound. A list-price equivalent: the run used GitHub Copilot."
-      },
       "published": null,
       "review": {
         "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
@@ -242,7 +243,8 @@
       "notes": [
         "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
         "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor fd4ccb81, with the published fast-agent-mcp 0.10.43 wheel; GPT-6 Astra (medium reasoning) through GitHub Copilot, with fast-agent's stream-idle timeout raised to 300 s (streaming_timeout=300). Zero whole-trial retries; fast-agent's own provider retries apply.",
-        "One infrastructure failure (a Copilot HTTP 429 rejection in the launch burst, on photonic-waveguide-routing) was rerun as a replacement, which passed; the original is kept as evidence. The run as first launched scored 52/95."
+        "One infrastructure failure (a Copilot HTTP 429 rejection in the launch burst, on photonic-waveguide-routing) was rerun as a replacement, which passed; the original is kept as evidence. The run as first launched scored 52/95.",
+        "Cost is Harbor's recorded cost at the cohort's configured list rates (card-packs pricing catalog 2026-10-09.1, GPT-6 Astra rules: $10 / $1 / $12.50 / $50 per million input / cached / cache-write / output tokens; $20 / $2 / $25 / $75 above 272k context). Cache writes are charged at 125% of the input rate, OpenAI's price for GPT-5.6 and later. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. The replaced original recorded no usage and is unpriced, so the total is a lower bound."
       ],
       "scan": true
     },
@@ -277,9 +279,16 @@
       "notes": [
         "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
         "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor de22ce8c, with the published fast-agent-mcp 0.10.41 wheel; GPT-6.1 Sol (low reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No errors, no replacements.",
-        "Cost is Harbor's recorded cost at the cohort's configured list rates (card-packs pricing catalog, Copilot GPT-6.1 Sol rules: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Prompt-cache writes are priced at the input rate, as for OpenAI models there is no cache-write charge."
+        "Harbor's recorded cost uses the cohort's configured list rates (card-packs pricing catalog, Copilot GPT-6.1 Sol rules: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
       ],
-      "scan": true
+      "scan": true,
+      "repriced": {
+        "total_usd": 14.57407,
+        "trials": 95,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($13.41) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $14.57 (+8.7%) over the same 95 trials. A list-price equivalent: the run used GitHub Copilot."
+      }
     },
     {
       "id": "tb4-claude-code-fable-5-1-high",

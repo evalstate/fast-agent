@@ -498,7 +498,14 @@
     "trials": 95,
     "excluded_trials_with_cost": 0,
     "basis": "sum of Harbor recorded cost_usd over selected trials",
-    "matches_published": null
+    "matches_published": null,
+    "repriced": {
+      "total_usd": 14.57407,
+      "trials": 95,
+      "basis": "list-rate estimate incl. cache writes",
+      "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+      "note": "Harbor's recorded cost ($13.41) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $14.57 (+8.7%) over the same 95 trials. A list-price equivalent: the run used GitHub Copilot."
+    }
   },
   "tokens": {
     "input": 27269431,
@@ -516,7 +523,7 @@
   "notes": [
     "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
     "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor de22ce8c, with the published fast-agent-mcp 0.10.41 wheel; GPT-6.1 Sol (low reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No errors, no replacements.",
-    "Cost is Harbor's recorded cost at the cohort's configured list rates (card-packs pricing catalog, Copilot GPT-6.1 Sol rules: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Prompt-cache writes are priced at the input rate, as for OpenAI models there is no cache-write charge."
+    "Harbor's recorded cost uses the cohort's configured list rates (card-packs pricing catalog, Copilot GPT-6.1 Sol rules: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
   ],
   "scan": {
     "version": "0.8.0",

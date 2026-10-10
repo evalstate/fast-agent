@@ -712,6 +712,7 @@ def build_run(
     bucket_root: Path = Path.home() / ".cache" / "atif-scan" / "hf" / "buckets",
     scan_extra: tuple[str, ...] = (),
     scan_rules: Path | None = None,
+    runs_dir: Path = HERE / "runs",
 ) -> Json:
     notes: list[str] = list(run.get("notes", []))
     per_task = manifest["attempts_per_task"]
@@ -1073,7 +1074,7 @@ def build_run(
         else:
             decide_flags(run, out, full, selected, review_cfg)
     elif run.get("scan"):
-        previous = HERE / "runs" / f"{run['id']}.json"
+        previous = runs_dir / f"{run['id']}.json"
         if previous.exists():
             prev = json.loads(previous.read_text())
             out["scan"] = prev.get("scan")
@@ -1203,6 +1204,7 @@ def main() -> None:
             scan_rules=(base / manifest["scan_rules"]).resolve()
             if manifest.get("scan_rules")
             else None,
+            runs_dir=runs_dir,
         )
         scan_inputs = out.pop("_scan_inputs", None)
         alias = out.pop("_trial_alias", {})
