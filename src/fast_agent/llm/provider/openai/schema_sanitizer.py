@@ -53,7 +53,22 @@ def _sanitize_schema_node(node: Any) -> Any:
     for key, value in node.items():
         if key == "default":
             continue
-        sanitized[key] = _sanitize_schema_node(value)
+        if key in {
+            "properties",
+            "$defs",
+            "definitions",
+            "patternProperties",
+            "dependentSchemas",
+            "dependencies",
+        } and isinstance(value, dict):
+            # These dictionaries map user-defined names to schemas. Their keys
+            # are not schema keywords, including an entry named "default".
+            sanitized[key] = {name: _sanitize_schema_node(schema) for name, schema in value.items()}
+        elif key in {"const", "enum", "examples", "dependentRequired"}:
+            # These contain instance data, not schemas to normalize.
+            sanitized[key] = deepcopy(value)
+        else:
+            sanitized[key] = _sanitize_schema_node(value)
 
     if default_value is None or any(key in sanitized for key in _STRUCTURAL_SCHEMA_KEYS):
         return sanitized
