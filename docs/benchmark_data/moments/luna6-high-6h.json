@@ -5,6 +5,56 @@
  "note": "Masked excerpts (best effort) from atif-scan's highlight export: said / ran / got at each finding.",
  "cards": [
   {
+   "trial": "build-pov-ray__o9pwYZh",
+   "task": "build-pov-ray",
+   "attempt": 1,
+   "reward": 1.0,
+   "decision": "disqualified",
+   "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2 build-pov-ray/README.md) while looking for build instructions (lookup.benchmark_source, lookup.benchmark_lookup_answered). Disqualified on our review as a lookup of the benchmark repository, as for build-pov-ray__QrgXbsh.",
+   "folder": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-high-6h/jobs/tb21-luna-high-flex-001-hf-basic/build-pov-ray__o9pwYZh",
+   "trace": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-high-6h/jobs/tb21-luna-high-flex-001-hf-basic/build-pov-ray__o9pwYZh/agent/trajectory.json",
+   "findings": [
+    {
+     "check": "lookup.benchmark_source",
+     "title": "Benchmark repository or mirror looked up",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 18,
+       "channel": "command",
+       "tool": "shell",
+       "said": "…should be included there too. \n\nI suspect that the povray-2.2 bundle is what I need, and I may find helpful modern build instructions and a patch in the README files. I’ll search for “Compiling POV-Ray 2.2 from Source - 19100” for guidance.",
+       "ran": [
+        "…rl -Ls 'https://www.bing.com/search?q=%22Compiling+POV-Ray+2.2+from+Source%22' | grep -oE '<h2[^>]*>.*</h2>' | sed 's/<[^>]*>/ /g' | head -20\ncurl -Ls 'https://",
+        "raw.githubusercontent.com/harbor-framework/terminal-bench-2",
+        "/main/build-pov-ray/README.md' | head -150\n"
+       ],
+       "got": "   COMPILING  | English meaning - Cambridge Dictionary    COMPILING definition: 1. present participle of compile 2. to collect information from different places and arrange it in…. Learn more.    &nbsp;        vocabulary.com    https://www.…"
+      }
+     ]
+    },
+    {
+     "check": "lookup.benchmark_lookup_answered",
+     "title": "Benchmark lookup returned content",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 18,
+       "channel": "observation",
+       "tool": null,
+       "said": "curl -Ls 'https://www.bing.com/search?q=%22Compiling+POV-Ray+2.2+from+Source%22' | grep -oE '<h2[^>]*>.*</h2>' | sed 's/<[^>]*>/ /g' | head -20\ncurl -Ls 'https://raw.githubusercontent.com/harbor-framework/terminal-bench-2/main/build-pov-ray…",
+       "ran": [
+        "",
+        "   COMPILING  | English meaning - Cambridge Dictionary    COMPILING definition: 1. present participle of compile 2. to collect information from different places and arrange it in…. Learn more.    &nbsp;        vocabulary.com    https://www.vocabulary.com › dictionary ›  compiling          Compiling - Definition, Meanin…",
+        ""
+       ],
+       "got": ""
+      }
+     ]
+    }
+   ]
+  },
+  {
    "trial": "build-pov-ray__QrgXbsh",
    "task": "build-pov-ray",
    "attempt": 2,
@@ -347,56 +397,6 @@
         "3\n\"\"\"Run inference for the packaged 28x28 MNIST fully-connected network.\"\"\"\nimport json\nimport math\nimport struct\nimport sys\nimport zlib\n\n\ndef decode_png(path):…"
        ],
        "got": "prediction.txt: 2\n-rwxr-xr-x. 1 root root   5768 Oct  3 12:29 cli_tool\n-rw-r--r--. 1 root root      2 Oct  3 12:29 prediction.txt\n-rw-r--r--. 1 root root 273434 Oct  3 12:29 weights.json\nprocess_id: process-8\nprocess exit code was 0"
-      }
-     ]
-    }
-   ]
-  },
-  {
-   "trial": "build-pov-ray__o9pwYZh",
-   "task": "build-pov-ray",
-   "attempt": 1,
-   "reward": 1.0,
-   "decision": "cleared",
-   "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2 build-pov-ray/README.md) looking for build instructions. Descriptive material only: no tests, solution or expected output obtained or sought, so not disqualified (lookup.benchmark_source, lookup.benchmark_lookup_answered).",
-   "folder": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-high-6h/jobs/tb21-luna-high-flex-001-hf-basic/build-pov-ray__o9pwYZh",
-   "trace": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-high-6h/jobs/tb21-luna-high-flex-001-hf-basic/build-pov-ray__o9pwYZh/agent/trajectory.json",
-   "findings": [
-    {
-     "check": "lookup.benchmark_source",
-     "title": "Benchmark repository or mirror looked up",
-     "priority": "high",
-     "moments": [
-      {
-       "step": 18,
-       "channel": "command",
-       "tool": "shell",
-       "said": "…should be included there too. \n\nI suspect that the povray-2.2 bundle is what I need, and I may find helpful modern build instructions and a patch in the README files. I’ll search for “Compiling POV-Ray 2.2 from Source - 19100” for guidance.",
-       "ran": [
-        "…rl -Ls 'https://www.bing.com/search?q=%22Compiling+POV-Ray+2.2+from+Source%22' | grep -oE '<h2[^>]*>.*</h2>' | sed 's/<[^>]*>/ /g' | head -20\ncurl -Ls 'https://",
-        "raw.githubusercontent.com/harbor-framework/terminal-bench-2",
-        "/main/build-pov-ray/README.md' | head -150\n"
-       ],
-       "got": "   COMPILING  | English meaning - Cambridge Dictionary    COMPILING definition: 1. present participle of compile 2. to collect information from different places and arrange it in…. Learn more.    &nbsp;        vocabulary.com    https://www.…"
-      }
-     ]
-    },
-    {
-     "check": "lookup.benchmark_lookup_answered",
-     "title": "Benchmark lookup returned content",
-     "priority": "high",
-     "moments": [
-      {
-       "step": 18,
-       "channel": "observation",
-       "tool": null,
-       "said": "curl -Ls 'https://www.bing.com/search?q=%22Compiling+POV-Ray+2.2+from+Source%22' | grep -oE '<h2[^>]*>.*</h2>' | sed 's/<[^>]*>/ /g' | head -20\ncurl -Ls 'https://raw.githubusercontent.com/harbor-framework/terminal-bench-2/main/build-pov-ray…",
-       "ran": [
-        "",
-        "   COMPILING  | English meaning - Cambridge Dictionary    COMPILING definition: 1. present participle of compile 2. to collect information from different places and arrange it in…. Learn more.    &nbsp;        vocabulary.com    https://www.vocabulary.com › dictionary ›  compiling          Compiling - Definition, Meanin…",
-        ""
-       ],
-       "got": ""
       }
      ]
     }

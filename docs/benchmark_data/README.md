@@ -127,6 +127,25 @@ cell order (`trials`) for this. Excerpts are trace text: atif-scan masks secret 
 credentials before committing. The generator copies them to `docs/benchmarks/moments/`;
 a run page loads its file when opened.
 
+## Review policy
+
+Every pass atif-scan flags high or critical gets a recorded decision (`review` in the
+manifest). The rules, as applied across the reviewed runs:
+
+- **Disqualify** when the agent obtained, or deliberately sought, material from the
+  benchmark's repository or mirrors (task README, task files, tests, reference solution,
+  expected answer), even if the material was only descriptive or the search came back
+  empty; or the task's upstream fix (fix-ocaml-gc).
+- **Disqualify** a deliverable that isn't what the task asks for, or that games the
+  check: pytorch-model-cli's `cli_tool` delivered as a Python script, or an ELF stub that
+  only runs Python (the TB2.1 maintainers ruled the same); path-tracing-reverse code that
+  hard-codes pixels.
+- **Clear** recall alone: naming Terminal-Bench or its tasks unprompted, with no lookup
+  (`clear_when_only` for `review.task_recalled`).
+- **Clear** a network workaround used only for a download the task allows (POV-Ray
+  sources), and a shortcut only considered in reasoning and never delivered.
+- **Clear** detector false positives, with the reason.
+
 ## Cell codes (`tasks`)
 
 One character per trial, ordered by `started_at`:

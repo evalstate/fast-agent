@@ -39,15 +39,15 @@
   ],
   "disqualified_trials": [],
   "slots": 445,
-  "passes": 330,
-  "score": 74.16,
+  "passes": 329,
+  "score": 73.93,
   "tasks": {
     "adaptive-rejection-sampler": "11111",
     "bn-fit-modify": "10111",
     "break-filter-js-from-html": "11110",
     "build-cython-ext": "11111",
     "build-pmars": "11111",
-    "build-pov-ray": "11x11",
+    "build-pov-ray": "1xx11",
     "caffe-cifar-10": "11111",
     "cancel-async-tasks": "10011",
     "chess-best-move": "00000",
@@ -2466,14 +2466,14 @@
         "task": "build-pov-ray",
         "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2 build-pov-ray/README.md) and a terminal-bench GitHub issue naming the archives the reference solution downloads, while looking for the POV-Ray 2.2 source (lookup.benchmark_oracle_named, access.benchmark_material_received). Disqualified on our review as a lookup of the benchmark repository.",
         "cell_index": 2
-      }
-    ],
-    "cleared": [
+      },
       {
         "trial": "build-pov-ray__o9pwYZh",
         "task": "build-pov-ray",
-        "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2 build-pov-ray/README.md) looking for build instructions. Descriptive material only: no tests, solution or expected output obtained or sought, so not disqualified (lookup.benchmark_source, lookup.benchmark_lookup_answered)."
+        "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2 build-pov-ray/README.md) while looking for build instructions (lookup.benchmark_source, lookup.benchmark_lookup_answered). Disqualified on our review as a lookup of the benchmark repository, as for build-pov-ray__QrgXbsh.",
+        "cell_index": 1
       }
-    ]
+    ],
+    "cleared": []
   }
 }

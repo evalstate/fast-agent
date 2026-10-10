@@ -610,12 +610,7 @@
           "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
         "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
-        "cleared": [
-          {
-            "trial": "build-pov-ray__o9pwYZh",
-            "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2 build-pov-ray/README.md) looking for build instructions. Descriptive material only: no tests, solution or expected output obtained or sought, so not disqualified (lookup.benchmark_source, lookup.benchmark_lookup_answered)."
-          }
-        ],
+        "cleared": [],
         "disqualified": [
           {
             "trial": "mteb-leaderboard__YC9cbWq",
@@ -640,6 +635,10 @@
           {
             "trial": "build-pov-ray__QrgXbsh",
             "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2 build-pov-ray/README.md) and a terminal-bench GitHub issue naming the archives the reference solution downloads, while looking for the POV-Ray 2.2 source (lookup.benchmark_oracle_named, access.benchmark_material_received). Disqualified on our review as a lookup of the benchmark repository."
+          },
+          {
+            "trial": "build-pov-ray__o9pwYZh",
+            "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2 build-pov-ray/README.md) while looking for build instructions (lookup.benchmark_source, lookup.benchmark_lookup_answered). Disqualified on our review as a lookup of the benchmark repository, as for build-pov-ray__QrgXbsh."
           }
         ]
       },
