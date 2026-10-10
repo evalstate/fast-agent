@@ -64,7 +64,12 @@ jobs:
         run: uv run scripts/check_internal_resources.py
 
   unit-test:
+    name: Unit (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.14", "3.15"]
     steps:
       - uses: actions/checkout@v4
 
@@ -76,11 +81,11 @@ jobs:
       - name: "Set up Python"
         uses: actions/setup-python@v5
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install the project
         run: |
-          uv sync --locked --group dev
+          uv sync --locked --group dev --python ${{ matrix.python-version }}
 
       - name: Run unit tests
         run: uv run pytest tests/unit -n auto -q -ra --durations=20

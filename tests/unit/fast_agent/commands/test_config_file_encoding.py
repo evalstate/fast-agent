@@ -41,8 +41,16 @@ def _default_codec(codec: str) -> Iterator[None]:
     patching `locale.getpreferredencoding` does not reach it, so the wrapper
     goes on `io.open` itself. Only calls that passed no encoding are affected -
     which is exactly the set of calls under test.
+
+    `pathlib` first resolves a missing encoding through `io.text_encoding`, which
+    returns "utf-8" under UTF-8 mode (the default from Python 3.15), so that is
+    patched to keep the "unspecified" marker visible to the `io.open` wrapper.
     """
     real_open = io.open
+    real_text_encoding = io.text_encoding
+
+    def patched_text_encoding(encoding: str | None, stacklevel: int = 2) -> str:
+        return "locale" if encoding is None else real_text_encoding(encoding, stacklevel)
 
     def patched_open(
         file: Any,
@@ -58,6 +66,7 @@ def _default_codec(codec: str) -> Iterator[None]:
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(io, "open", patched_open)
+        patch.setattr(io, "text_encoding", patched_text_encoding)
         yield
 
 
