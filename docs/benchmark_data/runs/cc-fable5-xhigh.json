@@ -118,6 +118,1521 @@
     "winning-avg-corewars": "ttttt",
     "write-compressor": "11111"
   },
+  "trials": {
+    "adaptive-rejection-sampler": [
+      {
+        "name": "28862a58-b6cc-48fd-90c6-7fca342c412e"
+      },
+      {
+        "name": "4a97550f-68b9-4831-b6e6-474025b431b4"
+      },
+      {
+        "name": "ec9a4957-2110-4184-b49b-4c59e420a1be"
+      },
+      {
+        "name": "355d33c4-a271-48ed-ae65-206c79f23437"
+      },
+      {
+        "name": "20c2d0b9-766a-483b-a87c-7ffe7be98040"
+      }
+    ],
+    "bn-fit-modify": [
+      {
+        "name": "4d9dfd3d-7dba-4ecb-bdec-0053a7e0852d"
+      },
+      {
+        "name": "1e6a3ebe-d54d-4141-b460-c0173fc049cc"
+      },
+      {
+        "name": "54df3dcd-6c6b-44ca-9aee-074dc72dd7d8"
+      },
+      {
+        "name": "9f7cae56-6715-4552-a983-92277e88da63"
+      },
+      {
+        "name": "360d055f-000f-44bb-9088-df28e10e55a9"
+      }
+    ],
+    "break-filter-js-from-html": [
+      {
+        "name": "8aae7a7e-a05a-42db-bb8b-82d1981461bd"
+      },
+      {
+        "name": "4d9738ce-3cd1-4013-a31a-d34054f61535"
+      },
+      {
+        "name": "9fee2c8d-eca0-4ba0-8b51-211d36cb062b"
+      },
+      {
+        "name": "424fed1f-4d90-4ccc-91e5-b14c8d827272"
+      },
+      {
+        "name": "98899190-e167-4006-b0fb-1837be2a2503"
+      }
+    ],
+    "build-cython-ext": [
+      {
+        "name": "ed244363-2caf-4201-872d-11900b63434c"
+      },
+      {
+        "name": "a825c07c-1c96-4495-8aab-2885143cbbe8"
+      },
+      {
+        "name": "6f593273-bc84-4517-bee3-749e4f6c7bec"
+      },
+      {
+        "name": "9e65ff26-6434-4ecb-868f-90754409213d"
+      },
+      {
+        "name": "d10c3525-c185-47fa-88c6-d5ad7553faf6"
+      }
+    ],
+    "build-pmars": [
+      {
+        "name": "93532aad-0497-4aa6-9864-c1374dcec920"
+      },
+      {
+        "name": "74ac9bca-f778-4b6a-9f00-01fdcca452a1"
+      },
+      {
+        "name": "69cec891-f599-4c1f-92e3-0164b2a575e9"
+      },
+      {
+        "name": "7fdbdbbe-6712-4d89-b147-65d4349fefb2"
+      },
+      {
+        "name": "a37fc62a-92df-4210-b970-2db4dae76cac"
+      }
+    ],
+    "build-pov-ray": [
+      {
+        "name": "b87c3daa-43da-42bf-83df-061407ab4010"
+      },
+      {
+        "name": "5d66c236-7faf-43ae-8527-16426dd8ab3f"
+      },
+      {
+        "name": "13efccaa-7de8-43c6-b251-b5f59c322fbd"
+      },
+      {
+        "name": "016a967e-b3fc-4db0-b03d-ec02f76fd369"
+      },
+      {
+        "name": "ba95eb0e-a6d8-4e6b-8ef2-311351657966"
+      }
+    ],
+    "caffe-cifar-10": [
+      {
+        "name": "40b488d3-c2ea-4b40-ba81-fd677d3e31ac"
+      },
+      {
+        "name": "097d7fbd-d9e5-49a1-95a5-8efa4f38abef"
+      },
+      {
+        "name": "bff584c5-9ba7-44f2-be10-d292f1628073"
+      },
+      {
+        "name": "4437ffe3-b5bb-45e8-9799-b94bee0dd28c"
+      },
+      {
+        "name": "a910f9e0-d338-4f8a-8e75-5b8a78970c90"
+      }
+    ],
+    "cancel-async-tasks": [
+      {
+        "name": "668d5f28-9044-4df5-9240-6b0f7bed42b5"
+      },
+      {
+        "name": "d55678e1-9e54-4e70-9c05-22dfa5029276"
+      },
+      {
+        "name": "3141ed2c-3832-4fc4-84c0-0def0325a603"
+      },
+      {
+        "name": "e66751e1-a256-41ae-bc09-0a2d2e1c129a"
+      },
+      {
+        "name": "dac70015-613e-42a5-b482-fde43d42e847"
+      }
+    ],
+    "chess-best-move": [
+      {
+        "name": "5cc4a526-f993-4c07-a779-65bf1ecf46b2"
+      },
+      {
+        "name": "44b15673-47d3-4658-a6ba-c7916ca76387"
+      },
+      {
+        "name": "cbfae7b1-be1b-425d-8dd7-90d5248ebdfd"
+      },
+      {
+        "name": "dab646f2-8234-40c0-8c33-acefe3d0f214"
+      },
+      {
+        "name": "cf4c97ee-cd6e-4d11-83a5-af74290d73ef"
+      }
+    ],
+    "circuit-fibsqrt": [
+      {
+        "name": "6a327a1e-74c3-4218-bc40-c0a3ca97163f"
+      },
+      {
+        "name": "999c4516-f6ea-4461-aa42-d33fc99d5116"
+      },
+      {
+        "name": "e782db92-045e-4850-a79f-df4602e4ca70"
+      },
+      {
+        "name": "f4102693-24ef-4a36-a325-cf5a99ddd11b"
+      },
+      {
+        "name": "157358cb-9060-4e35-9b3d-e9cdfa6dcecb"
+      }
+    ],
+    "cobol-modernization": [
+      {
+        "name": "7e56298d-c769-477a-ab44-0cd1a6c97cc1"
+      },
+      {
+        "name": "5a63b1fd-c5ce-49fa-9897-7d35290d8612"
+      },
+      {
+        "name": "44e6f75a-0934-47f0-95e3-e142dd3aff77"
+      },
+      {
+        "name": "39f6c79e-2b12-460e-b64f-a85982b45300"
+      },
+      {
+        "name": "987aad4d-1ee7-4fd3-9db0-4a36de7da12e"
+      }
+    ],
+    "code-from-image": [
+      {
+        "name": "7a486513-1847-4e01-98b0-c2b44d9b806d"
+      },
+      {
+        "name": "97e11fbb-0628-468f-83e9-e9b34e1c7975"
+      },
+      {
+        "name": "a317974d-f195-47f9-85a5-45bdeab0b20f"
+      },
+      {
+        "name": "9b3cde40-2a79-4bb5-8c16-1a48acfc16da"
+      },
+      {
+        "name": "e52b2fba-9176-476f-a894-e56d6a69c170"
+      }
+    ],
+    "compile-compcert": [
+      {
+        "name": "aa0e584c-d304-4290-9afb-6bb2624e5e06"
+      },
+      {
+        "name": "ebb709f3-e979-47ea-8e96-c7f4f8691569"
+      },
+      {
+        "name": "f72bb295-b2aa-4953-981b-0d1ee05dff83"
+      },
+      {
+        "name": "e0503f35-283d-4855-85f7-657e64b274db"
+      },
+      {
+        "name": "325e1440-4b21-4a84-bb8b-dfc562ea3bf9"
+      }
+    ],
+    "configure-git-webserver": [
+      {
+        "name": "6ecdc726-53d3-43c9-99f5-87f0fea67321"
+      },
+      {
+        "name": "ef26cd66-1607-4606-ace9-7eb05a963f45"
+      },
+      {
+        "name": "1753e940-90a5-41b0-9e67-dd962d177146"
+      },
+      {
+        "name": "87638229-1d04-46ba-93b3-5531cedcb974"
+      },
+      {
+        "name": "18723c3b-62da-4169-96b2-58748c18465a"
+      }
+    ],
+    "constraints-scheduling": [
+      {
+        "name": "76d6429a-6649-481f-8a22-9218ca198aa3"
+      },
+      {
+        "name": "882e4c6a-e691-4412-9e9c-c943e203c7c7"
+      },
+      {
+        "name": "ba50303f-5b63-429d-8628-1563b6969b24"
+      },
+      {
+        "name": "10c226ad-f62a-4cca-a430-b63cb6b90345"
+      },
+      {
+        "name": "2d6fee50-575b-4684-8e5f-b702ab3b8d05"
+      }
+    ],
+    "count-dataset-tokens": [
+      {
+        "name": "3af2f146-dc49-433e-86fe-eef4d2867df8"
+      },
+      {
+        "name": "53c92825-86df-4274-9906-d5b4f18eaba3"
+      },
+      {
+        "name": "59b93f12-cd95-4478-a91e-4c5d49d16321"
+      },
+      {
+        "name": "d688cdc8-ea13-4fce-8d90-c1491b884ece"
+      },
+      {
+        "name": "40821735-3b10-4847-8819-b3826a19ede5"
+      }
+    ],
+    "crack-7z-hash": [
+      {
+        "name": "6b9d6a40-68f4-4d8a-bedc-482c19126381"
+      },
+      {
+        "name": "2188f6e6-a085-4463-bcae-6cd717e4bf9d"
+      },
+      {
+        "name": "848d282d-084b-40ab-8e65-17327044d4c5"
+      },
+      {
+        "name": "020ef057-7ff4-4efa-a85e-667c1b919143"
+      },
+      {
+        "name": "a54ab674-7dc0-4516-a5c8-e63fce7e62e2"
+      }
+    ],
+    "custom-memory-heap-crash": [
+      {
+        "name": "184951d4-ca8e-40ec-83d0-1d26824465ab"
+      },
+      {
+        "name": "b961c932-229b-4219-817d-3a60d1817501"
+      },
+      {
+        "name": "5cddd06b-1c03-4600-aa42-a4a54215c751"
+      },
+      {
+        "name": "b7395867-ffb9-479c-9c59-13922a6d4093"
+      },
+      {
+        "name": "32345e6d-683f-4676-993d-4af0f62631e3"
+      }
+    ],
+    "db-wal-recovery": [
+      {
+        "name": "83e25862-b6dd-4f71-8d42-7379ae2bb531"
+      },
+      {
+        "name": "f923ca9d-bb20-4474-9349-95f439f881a9"
+      },
+      {
+        "name": "25130e40-de25-4aea-8f97-58ff4c142197"
+      },
+      {
+        "name": "b27ce9f1-fe5a-4c4d-8553-12fb7eb24f7d"
+      },
+      {
+        "name": "02be21ff-aa7c-4a8e-88e1-30338e7aec6e"
+      }
+    ],
+    "distribution-search": [
+      {
+        "name": "05bec454-c5e3-4735-865a-d8079ac2a632"
+      },
+      {
+        "name": "d9ce2a39-ed3b-4a59-b57d-dced574a0fae"
+      },
+      {
+        "name": "d71940d1-5df8-440f-84fc-211120029d18"
+      },
+      {
+        "name": "8ff36076-2823-428b-afc7-7bd788895049"
+      },
+      {
+        "name": "18341aeb-6b57-46c5-ac26-1d23239b23b1"
+      }
+    ],
+    "dna-assembly": [
+      {
+        "name": "7e42efca-61c4-49f0-9d48-5500c83b2976"
+      },
+      {
+        "name": "ed982df7-5ef2-423f-991f-a1c423816a5f"
+      },
+      {
+        "name": "5a0e8432-b372-487a-930e-081e344c5af6"
+      },
+      {
+        "name": "c29d6764-d926-4077-999d-ed7fc489a77f"
+      },
+      {
+        "name": "6b87e910-8ff7-424f-ae11-e7d03fae04cf"
+      }
+    ],
+    "dna-insert": [
+      {
+        "name": "e4dc8837-dcde-4d36-98e9-26aa3093f4d8"
+      },
+      {
+        "name": "3c18520a-2d90-409d-9d10-b7048095018c"
+      },
+      {
+        "name": "2246fc6a-5805-43a9-91dd-27f6133ba0d1"
+      },
+      {
+        "name": "a48424fd-a75c-4d97-9c3e-74062bcd310f"
+      },
+      {
+        "name": "5aad8a6c-5119-4201-89af-256897db592b"
+      }
+    ],
+    "extract-elf": [
+      {
+        "name": "30a919fb-6741-4f6f-8b59-7f696c847067"
+      },
+      {
+        "name": "35d6e313-d4dc-4d41-acf8-2ca9e27bd5a0"
+      },
+      {
+        "name": "501c7d59-09a8-4710-91da-d2b0b337cb66"
+      },
+      {
+        "name": "7fb994f5-a1f3-4fee-bb3d-6c3883b27db8"
+      },
+      {
+        "name": "16f5d79e-733e-43f1-8b2a-05f3f9a4ab11"
+      }
+    ],
+    "extract-moves-from-video": [
+      {
+        "name": "2df9f30d-3a33-48ad-82fc-7865f609bcd0"
+      },
+      {
+        "name": "5e8fdcd2-73b1-4423-928b-89da81085c94"
+      },
+      {
+        "name": "f4a00ca8-3c59-4d87-9e39-99e493e61929"
+      },
+      {
+        "name": "e461a37c-0fb0-4c22-ac57-7bc18635ff52"
+      },
+      {
+        "name": "9c201044-25d1-4d3b-9960-513e89ecbe5f"
+      }
+    ],
+    "feal-differential-cryptanalysis": [
+      {
+        "name": "6fc16c03-9015-451c-ae03-ce4a1e767186"
+      },
+      {
+        "name": "6d3c141f-fd9c-4247-8570-25af73416ace"
+      },
+      {
+        "name": "02c8c08c-445c-4adc-aa7a-effa3f273eab"
+      },
+      {
+        "name": "174132f6-f34b-4126-8e17-36d1a6db37ca"
+      },
+      {
+        "name": "f890d375-8ef7-49aa-a447-5f2d213b0d32"
+      }
+    ],
+    "feal-linear-cryptanalysis": [
+      {
+        "name": "5809839d-49b8-4caf-9a0a-3385f5420a79"
+      },
+      {
+        "name": "302bac88-0f00-4d10-a97e-b1eba073d127"
+      },
+      {
+        "name": "00fa9da4-3d57-4166-b835-5d35053df155"
+      },
+      {
+        "name": "2ef0530d-54b3-4f92-ba1d-d4c1c5975515"
+      },
+      {
+        "name": "db1f7f3f-d830-45e0-bce9-130c8026a807"
+      }
+    ],
+    "filter-js-from-html": [
+      {
+        "name": "760f0294-4f85-46b8-8e68-b241eb087e2e"
+      },
+      {
+        "name": "a7a5d946-c126-497e-9e5e-b287a86f07f5"
+      },
+      {
+        "name": "1d3c91d5-c781-4818-ac2d-792eff676da7"
+      },
+      {
+        "name": "34a75bbb-43ec-4b2c-a537-27e01f2efe86"
+      },
+      {
+        "name": "e39cc3b8-ef8a-416a-979c-604aeec66474"
+      }
+    ],
+    "financial-document-processor": [
+      {
+        "name": "85eccf53-246f-4420-9152-28eb54915144"
+      },
+      {
+        "name": "5ad7313c-1c9a-413d-a74d-1c34fa18fdb7"
+      },
+      {
+        "name": "e57b3249-cbf7-44ea-9be9-9e3d0838ab5c"
+      },
+      {
+        "name": "f3b1fa1b-2611-4150-8a37-9b38d64e33e1"
+      },
+      {
+        "name": "17eaf1d9-033e-400b-ba21-c379f8cfc2b5"
+      }
+    ],
+    "fix-code-vulnerability": [
+      {
+        "name": "f03aedc4-747a-4e00-829e-d6d56d17ada2"
+      },
+      {
+        "name": "79c05832-a216-429b-953e-96196aaca169"
+      },
+      {
+        "name": "fc33968e-3555-42ab-8cf4-510abbe3f19c"
+      },
+      {
+        "name": "d977b0ae-2595-4f8d-b0aa-9bc5888a23f7"
+      },
+      {
+        "name": "395bcab1-7f92-4e06-a435-d54b49bd7475"
+      }
+    ],
+    "fix-git": [
+      {
+        "name": "d1702d4b-6390-4f91-b5a6-9800d3233e30"
+      },
+      {
+        "name": "ddf2ead7-a889-47ee-a291-8b97d8c7a27a"
+      },
+      {
+        "name": "466adf73-e6a1-42c7-8bc0-9a18dd577e3f"
+      },
+      {
+        "name": "36f6d6bc-78aa-47e8-9933-0b73802696e8"
+      },
+      {
+        "name": "df664940-5bf7-4869-bdcb-2bca213fb142"
+      }
+    ],
+    "fix-ocaml-gc": [
+      {
+        "name": "3787fbbf-2a5e-4486-8697-ee1eb7d53b48"
+      },
+      {
+        "name": "235fc1ed-081e-41fa-a821-c5ca9e649a7d"
+      },
+      {
+        "name": "8d81b28c-9573-49db-ab1f-f5c2d6b33de2"
+      },
+      {
+        "name": "8c24e91c-ec51-40ae-93de-afc45aed7bf9"
+      },
+      {
+        "name": "d162c8c7-c57e-4416-a44e-26a26237ec34"
+      }
+    ],
+    "gcode-to-text": [
+      {
+        "name": "9abf5f4b-0e55-4325-b631-3e417e51cf02"
+      },
+      {
+        "name": "cbd5ce80-b1ac-4b8b-9630-12964d36c498"
+      },
+      {
+        "name": "e5001b04-35f9-4dd0-b08f-a225ffa2f33d"
+      },
+      {
+        "name": "ac1bf4c0-a8a5-48e0-aa6f-8d2d71c087b6"
+      },
+      {
+        "name": "cb889c10-256b-4904-afd0-79225b19aeb5"
+      }
+    ],
+    "git-leak-recovery": [
+      {
+        "name": "2588d41b-1624-4d24-bf52-ed5ce5883f30"
+      },
+      {
+        "name": "ce4c678d-366c-4022-948e-a3f2ff304e13"
+      },
+      {
+        "name": "64e9bce6-81ed-4c9d-a8c8-9c69e4909de1"
+      },
+      {
+        "name": "1e21ffb0-866c-4923-8efa-55c0efa749c4"
+      },
+      {
+        "name": "28b13091-316f-49fb-8c53-170e99ac2045"
+      }
+    ],
+    "git-multibranch": [
+      {
+        "name": "9141916d-56a1-4c7d-8062-ae6f4c9e55ad"
+      },
+      {
+        "name": "37446ce6-2ea4-4cd9-b8a2-cd45d399fab7"
+      },
+      {
+        "name": "9a183a94-4be4-41c3-af90-eda4736ad133"
+      },
+      {
+        "name": "c93c7338-d608-4d8b-bd6f-6751b039b451"
+      },
+      {
+        "name": "8e2d8dac-9e7d-4ed0-8022-5ba4d85b4f7e"
+      }
+    ],
+    "gpt2-codegolf": [
+      {
+        "name": "a3e058c3-45db-4fed-bc87-9f2141eb2f8f"
+      },
+      {
+        "name": "1aab30cd-93a3-40f8-b9ac-9f91698139fd"
+      },
+      {
+        "name": "9aa42f9e-1d38-4c33-9ab9-a53cda7a632c"
+      },
+      {
+        "name": "f7ad3143-fb81-4a84-8c4f-66b5901fe450"
+      },
+      {
+        "name": "bb97b231-51bc-4cbb-91a9-886881b478ec"
+      }
+    ],
+    "headless-terminal": [
+      {
+        "name": "c77d4bbd-680b-4daa-9a03-2ccdd5e2284e"
+      },
+      {
+        "name": "53b9079c-e962-4e65-92fd-627eb28275f8"
+      },
+      {
+        "name": "e5823e4a-c471-404b-86ed-3dd2f4a9cf3e"
+      },
+      {
+        "name": "0f7c6407-79ad-440e-9d00-4abb61667d4b"
+      },
+      {
+        "name": "6af17d1a-56d2-4df2-99b0-c5ed64673b7b"
+      }
+    ],
+    "hf-model-inference": [
+      {
+        "name": "b7455e7d-7b9c-4e70-86b3-15c66c818150"
+      },
+      {
+        "name": "37abdb4f-9ca6-4660-8e54-dcd7b3059e36"
+      },
+      {
+        "name": "3f62730c-8754-47bb-9960-ce2bdfe2de9f"
+      },
+      {
+        "name": "84f0f67b-a3b6-441c-8b58-cf562bdb1e9a"
+      },
+      {
+        "name": "3b5f4f9c-6f2c-49dd-aac9-32dd75c13df7"
+      }
+    ],
+    "install-windows-3.11": [
+      {
+        "name": "8fec580b-51f8-4b3e-a23d-564573c755c6"
+      },
+      {
+        "name": "265900e7-93ad-4cf1-b4e2-5c3e79051902"
+      },
+      {
+        "name": "b5e43ae4-0461-4991-86b2-bc91ee6c431c"
+      },
+      {
+        "name": "04ee09b6-d2f6-4fb6-abba-44c28627b71c"
+      },
+      {
+        "name": "abd66112-7238-4855-9492-c32e57c049cd"
+      }
+    ],
+    "kv-store-grpc": [
+      {
+        "name": "d40e4684-1e3c-41db-a1c0-30f79df64bc7"
+      },
+      {
+        "name": "797a9be9-8322-40f8-9f9f-4eb19605e7c8"
+      },
+      {
+        "name": "2e05a36d-c009-47b8-9045-52817da16d69"
+      },
+      {
+        "name": "a7ee3b54-c6f8-4ebe-a750-15f961f9d42c"
+      },
+      {
+        "name": "9194862c-fad4-4985-8800-be3171159dc4"
+      }
+    ],
+    "large-scale-text-editing": [
+      {
+        "name": "6bace3ae-bb2f-461d-b7ae-0afe7f1c6aa3"
+      },
+      {
+        "name": "bce44868-1e30-43c7-bdfb-0002bb615bf9"
+      },
+      {
+        "name": "2e02a552-9185-403b-95f4-ed9e6ce87771"
+      },
+      {
+        "name": "24c0605e-814b-4c09-970e-a3dfb1f70e29"
+      },
+      {
+        "name": "e5b6a65d-2126-495b-b9d0-6212ffcf10c9"
+      }
+    ],
+    "largest-eigenval": [
+      {
+        "name": "5acb4fef-df8a-455a-a5f7-02786bbc64d4"
+      },
+      {
+        "name": "15162642-179e-498c-91a4-cb2f8c8df053"
+      },
+      {
+        "name": "8ac2b85b-356c-4933-9863-8c32625ef327"
+      },
+      {
+        "name": "94e8cc8b-6d09-4e7c-b62b-1d5fb447ec22"
+      },
+      {
+        "name": "49165688-40e5-4d97-a6f6-0afca7343677"
+      }
+    ],
+    "llm-inference-batching-scheduler": [
+      {
+        "name": "efd13ae3-ae44-42cb-8a71-ab52322cefec"
+      },
+      {
+        "name": "e5091c1f-b87c-4e7a-9951-b4fc151658b7"
+      },
+      {
+        "name": "e51bb5f7-202d-41e7-8eaa-c552922d4f71"
+      },
+      {
+        "name": "554e3391-e26c-42a8-8a35-c3537ae3dcd3"
+      },
+      {
+        "name": "a8d320c8-3b6c-43df-a521-f61595f1a0cd"
+      }
+    ],
+    "log-summary-date-ranges": [
+      {
+        "name": "ae6bd748-b5f9-4da7-bcf3-e4bce0a9cd41"
+      },
+      {
+        "name": "3dd851b4-b8ed-4b77-b513-9d44f72d34cb"
+      },
+      {
+        "name": "1c5bb5d7-a878-43b2-ac75-cd1c05b3d69c"
+      },
+      {
+        "name": "6b5376d9-8e59-4351-8d2c-d35b1dec37e9"
+      },
+      {
+        "name": "63a7190e-34ad-48c7-8018-537089cd150c"
+      }
+    ],
+    "mailman": [
+      {
+        "name": "50f3f8f5-6cb5-48e1-a128-ece90de1e089"
+      },
+      {
+        "name": "67519051-9f8f-452c-a930-a71114e1127f"
+      },
+      {
+        "name": "d130e952-8167-4924-9156-d0b1eae436b6"
+      },
+      {
+        "name": "328ae820-d1a8-4a3c-863d-440ba725ed29"
+      },
+      {
+        "name": "fab5b2c6-78de-4974-8b1b-51f922e23da4"
+      }
+    ],
+    "make-doom-for-mips": [
+      {
+        "name": "e4e346e2-7ef6-46f8-a6c0-05527ca0325d"
+      },
+      {
+        "name": "f682f44f-6482-4617-b7fe-ce2df0202774"
+      },
+      {
+        "name": "7d6bdbc2-e8b1-40bb-aa95-a38df967f19e"
+      },
+      {
+        "name": "cb5f76db-983a-49c0-91f9-1835e0b829c7"
+      },
+      {
+        "name": "37025313-c348-4ae7-9de3-0180d5da1d49"
+      }
+    ],
+    "make-mips-interpreter": [
+      {
+        "name": "2364d868-3248-4859-81e3-c9f25702a7b4"
+      },
+      {
+        "name": "01286c37-f587-42da-9a0e-ec19c9ed084d"
+      },
+      {
+        "name": "3222a455-b96a-4d68-9376-fc85cf5d24c6"
+      },
+      {
+        "name": "3e9cbfd6-38c1-4053-a9f1-d5f3d8aa9a94"
+      },
+      {
+        "name": "01c23739-dd6d-45ec-bb17-bc4cdc974dd1"
+      }
+    ],
+    "mcmc-sampling-stan": [
+      {
+        "name": "813b646a-3ece-4397-9e60-0c40bd762194"
+      },
+      {
+        "name": "ff5509b8-18a9-4a50-89b9-c300a6f8e6e3"
+      },
+      {
+        "name": "0e658c48-443d-4bba-b29b-2df59c5a073e"
+      },
+      {
+        "name": "020d7568-49b0-4ea1-9413-62bd52b39af7"
+      },
+      {
+        "name": "398617eb-fd25-4d98-8806-780622c94e4d"
+      }
+    ],
+    "merge-diff-arc-agi-task": [
+      {
+        "name": "280fcdae-78b9-4c25-9b0e-7791f3847001"
+      },
+      {
+        "name": "620f4796-bfbf-4a2e-8abf-4fb3e306115c"
+      },
+      {
+        "name": "0fc5859e-7fdf-4288-b9a8-8fa405bfa243"
+      },
+      {
+        "name": "15329bf8-8448-4b01-b91e-2f16c459882e"
+      },
+      {
+        "name": "4d7accb1-6d0e-4d55-93ff-fa008055dfd5"
+      }
+    ],
+    "model-extraction-relu-logits": [
+      {
+        "name": "5f009ed0-add9-40d8-9212-52964d84bb62"
+      },
+      {
+        "name": "bd6d02c2-ba9d-4f84-b349-4dcf1064e681"
+      },
+      {
+        "name": "31c32911-1edd-427d-ab34-475faeee4068"
+      },
+      {
+        "name": "c9f72c7b-2630-4b37-be3c-72f00b0c8148"
+      },
+      {
+        "name": "b2a28501-ad8b-4f46-91d0-5722bfe5ab47"
+      }
+    ],
+    "modernize-scientific-stack": [
+      {
+        "name": "f2b332ce-af83-4091-b85c-3a1363027432"
+      },
+      {
+        "name": "ae54a433-0ca2-42a8-896c-683897ed7cb0"
+      },
+      {
+        "name": "a9cf7d68-9ad9-4294-befb-0b5eeb139053"
+      },
+      {
+        "name": "0b84b6be-100e-4e46-bd13-58cafa836732"
+      },
+      {
+        "name": "53d78b09-d2a1-4b10-a8ec-f025be9cc994"
+      }
+    ],
+    "mteb-leaderboard": [
+      {
+        "name": "0a94ee9e-3411-413f-9d99-1204942551d2"
+      },
+      {
+        "name": "4a1e3a63-e87c-4351-81dc-f2866653d46b"
+      },
+      {
+        "name": "63f8bca8-1c32-4acc-84e9-408be6d1191b"
+      },
+      {
+        "name": "a9a87873-c9fa-43f3-a65f-30abe24ebaa8"
+      },
+      {
+        "name": "d9910e49-cbda-469f-9822-02db556c4d14"
+      }
+    ],
+    "mteb-retrieve": [
+      {
+        "name": "f7d12944-5016-43ec-9111-97c0e83aca2c"
+      },
+      {
+        "name": "2b9302ac-bca7-4221-ab1e-3a3b945a4878"
+      },
+      {
+        "name": "769991c2-6fb3-464e-a344-42ddf83cebc6"
+      },
+      {
+        "name": "f21e029b-ea19-4f65-a08c-36d4cc6dee25"
+      },
+      {
+        "name": "18d30b80-794e-4acb-adca-d00c3f21ec16"
+      }
+    ],
+    "multi-source-data-merger": [
+      {
+        "name": "0d09205a-bf7d-41fe-8e7f-f433ab926438"
+      },
+      {
+        "name": "c30466e8-80e8-495d-bcf5-454bf72909d5"
+      },
+      {
+        "name": "18e5b0b6-f53b-4a4f-a8f4-f2fa7b4b2cff"
+      },
+      {
+        "name": "fd11a473-0c55-4c42-b4c4-c146f4f0223c"
+      },
+      {
+        "name": "088a768b-8cea-459b-a42e-5b5cd6818cac"
+      }
+    ],
+    "nginx-request-logging": [
+      {
+        "name": "9a9e77c2-edd7-4943-a3d7-1384658d9513"
+      },
+      {
+        "name": "4a2563fe-3bad-452b-9c10-5d1a14ea603a"
+      },
+      {
+        "name": "2c1d6767-fdd4-45cd-a56c-f89742d925c5"
+      },
+      {
+        "name": "240ee757-974a-4b66-a092-4f35fd52d472"
+      },
+      {
+        "name": "d0b8416b-49a3-4e35-8bcc-96f180517d73"
+      }
+    ],
+    "openssl-selfsigned-cert": [
+      {
+        "name": "382b8bbd-9993-4e8a-8cbe-48190260aa19"
+      },
+      {
+        "name": "19e0783b-0b55-4982-a31b-a09def241bbc"
+      },
+      {
+        "name": "610498a4-1570-4648-a73c-24714c8aae51"
+      },
+      {
+        "name": "94c6c53a-1802-4e61-acd6-f93c1de68d1e"
+      },
+      {
+        "name": "80bc191b-9058-4aeb-b60a-90d7e5534975"
+      }
+    ],
+    "overfull-hbox": [
+      {
+        "name": "2801419a-a6f5-43f2-aafd-6bf970c5d4c4"
+      },
+      {
+        "name": "5086df45-c684-4459-bbfd-3d6706a1ba50"
+      },
+      {
+        "name": "69412673-a4d6-44eb-a156-fbd77ff776d5"
+      },
+      {
+        "name": "931cad0f-55fb-4210-b06c-c4f392bd7689"
+      },
+      {
+        "name": "2d59588d-ec79-4683-8e9d-a97ed9a52c64"
+      }
+    ],
+    "password-recovery": [
+      {
+        "name": "a810f2ed-5dc3-4590-8785-8c6369059852"
+      },
+      {
+        "name": "c3b0b90a-2aee-464a-b292-60c02a6ad7e2"
+      },
+      {
+        "name": "7efb3842-a78a-45da-a2f2-73dff2da0136"
+      },
+      {
+        "name": "468277a9-0fbc-4954-bc9e-186c4a9e1c15"
+      },
+      {
+        "name": "22f71724-c79b-468b-8b95-97287a230834"
+      }
+    ],
+    "path-tracing": [
+      {
+        "name": "c9ddcaa9-f040-4b35-b314-acf706dbc78b"
+      },
+      {
+        "name": "16880511-c7aa-4559-a894-84634be8e774"
+      },
+      {
+        "name": "8f4d15ee-0999-47a9-bcca-68ed68c9237d"
+      },
+      {
+        "name": "82ffae71-18a0-4db4-94d4-e1a4ba3c2cb5"
+      },
+      {
+        "name": "c63b3c2e-3635-4d67-a2d7-66e6cbd8fc5b"
+      }
+    ],
+    "path-tracing-reverse": [
+      {
+        "name": "6d8d64aa-ed62-4fae-b91b-df0b0841d477"
+      },
+      {
+        "name": "2015a660-0a5e-4fa9-a3fe-be1a6090e0c7"
+      },
+      {
+        "name": "41d4f89a-58c9-498d-ad24-705599de0b85"
+      },
+      {
+        "name": "49239117-13cb-4349-9b29-a8e9a5cd83a0"
+      },
+      {
+        "name": "caee3725-cbe3-4873-bedb-8dc97fddc72a"
+      }
+    ],
+    "polyglot-c-py": [
+      {
+        "name": "8c750ddc-22a5-4738-86a2-eff575569544"
+      },
+      {
+        "name": "3e9c8972-4711-4319-b7c8-58b064e784e7"
+      },
+      {
+        "name": "d7a2f4ad-904a-4085-9561-76d40415e818"
+      },
+      {
+        "name": "9ce8163f-b6b1-414d-975b-a5cf53f1e170"
+      },
+      {
+        "name": "1ef5669b-7fe6-42fc-a4f4-3f0757e0c67f"
+      }
+    ],
+    "polyglot-rust-c": [
+      {
+        "name": "970807e8-df17-4616-b50d-8a9df8c2ff18"
+      },
+      {
+        "name": "98d2ba72-65ab-4c2a-91f4-a601fa4bcce4"
+      },
+      {
+        "name": "feaf6aa1-dc3d-4c97-8f36-248a5b4d98da"
+      },
+      {
+        "name": "0d34cbeb-3ea5-4920-99f3-00c20d1a1773"
+      },
+      {
+        "name": "3f576fb7-e4da-46ef-b6da-5eb818e543d2"
+      }
+    ],
+    "portfolio-optimization": [
+      {
+        "name": "8d412736-88d9-4653-ba9e-92ae62ce2c3d"
+      },
+      {
+        "name": "ace7f528-b773-4d05-b93f-ad503c249f13"
+      },
+      {
+        "name": "20654518-504f-40fc-a2e7-2f86a0fcac72"
+      },
+      {
+        "name": "a94ddcff-e456-44e1-938a-db16a237120c"
+      },
+      {
+        "name": "a7cdce40-d280-441a-a4a8-595bf902de52"
+      }
+    ],
+    "protein-assembly": [
+      {
+        "name": "e35aaed7-edfe-4d66-af3a-8cd4e9daf61a"
+      },
+      {
+        "name": "04546417-3ad5-4052-9ca8-3066636d0aec"
+      },
+      {
+        "name": "5d4ed765-6792-463e-a0a9-9c1541460860"
+      },
+      {
+        "name": "2fb1a3eb-4e94-4e32-8e75-e1177c3e550a"
+      },
+      {
+        "name": "f53dd2a1-34c9-4160-a5a8-1f250a4d6357"
+      }
+    ],
+    "prove-plus-comm": [
+      {
+        "name": "a6e75472-efb7-4a71-938d-e0b7ba37e9a8"
+      },
+      {
+        "name": "35cabb50-800d-41cd-b094-dcc4b7af0145"
+      },
+      {
+        "name": "83acfc64-8d0a-40e9-bf31-2d97e7f726a9"
+      },
+      {
+        "name": "d694815c-ef45-4953-ad7b-0a7620451b1a"
+      },
+      {
+        "name": "f64fbe1b-3a0d-4d37-9c0d-28ff9faf8d32"
+      }
+    ],
+    "pypi-server": [
+      {
+        "name": "91096aa0-1f5b-47bc-bd16-cfd59141ba2d"
+      },
+      {
+        "name": "e34bd1c8-f2c0-484c-a932-f5daa622f722"
+      },
+      {
+        "name": "26940f25-15fa-443e-acab-2e1cf164b442"
+      },
+      {
+        "name": "be878e39-2ff2-4d05-9f50-82040ee77300"
+      },
+      {
+        "name": "15524aa6-e8e9-41ff-9104-5ad7f85093e6"
+      }
+    ],
+    "pytorch-model-cli": [
+      {
+        "name": "70b5d15d-8007-4ca7-9b5f-cdbd8b18856c"
+      },
+      {
+        "name": "e6faca6e-65d9-448d-b55c-73844b103348"
+      },
+      {
+        "name": "0a0bdd84-77b9-44fb-8db6-0858733cca60"
+      },
+      {
+        "name": "fe8386d3-5ca1-46ae-988b-12cfd4faeec9"
+      },
+      {
+        "name": "b8b457ca-2f52-4e44-89ff-b29860bec3d5"
+      }
+    ],
+    "pytorch-model-recovery": [
+      {
+        "name": "8368eab1-44f9-4805-b800-04bba9237dd1"
+      },
+      {
+        "name": "ec84f900-038a-4bf1-ac09-49bfe7b2d1cf"
+      },
+      {
+        "name": "34b95968-223d-4ff4-94e3-af88e58f358a"
+      },
+      {
+        "name": "c7121336-3385-46b4-8d4e-c8f531e97b95"
+      },
+      {
+        "name": "bdde0799-af33-496e-876d-6742f055272c"
+      }
+    ],
+    "qemu-alpine-ssh": [
+      {
+        "name": "ff4460e1-68ef-4e60-8b59-2e424c679902"
+      },
+      {
+        "name": "f99421dd-0990-4886-9183-5edfbcdf896b"
+      },
+      {
+        "name": "0ef76768-36f3-44dc-8f85-4e920610af57"
+      },
+      {
+        "name": "d04a0d8b-405d-4252-b5ad-f2529c7d8dd3"
+      },
+      {
+        "name": "015ea852-4dab-4eb9-8509-c81d5b015955"
+      }
+    ],
+    "qemu-startup": [
+      {
+        "name": "36a1c2b8-699f-4890-b8cd-0d1a6da1f44b"
+      },
+      {
+        "name": "a79f20a7-637d-4225-8489-0d243a6dd10f"
+      },
+      {
+        "name": "f0ff865a-fb8b-492a-b91d-2f71d8b8e7cb"
+      },
+      {
+        "name": "71c4ac2f-00aa-4d0d-91c3-49e667bfe63a"
+      },
+      {
+        "name": "575b98b6-3acb-4e29-a070-47fa0170981e"
+      }
+    ],
+    "query-optimize": [
+      {
+        "name": "ec970fd6-b277-4a95-a6b2-828300a3b436"
+      },
+      {
+        "name": "7297a882-9ba9-4f36-9528-26381a004cde"
+      },
+      {
+        "name": "bbb5eba0-fbea-42ea-8774-8e11067c4d2a"
+      },
+      {
+        "name": "52271c4c-e1f9-40f5-aad1-16b6b5721b50"
+      },
+      {
+        "name": "bf8a9d9e-3e0d-4ea1-9cda-a5d8a1734ab0"
+      }
+    ],
+    "raman-fitting": [
+      {
+        "name": "c8cf78cd-1bd6-4e09-a13d-7f8e30845235"
+      },
+      {
+        "name": "51c54502-208a-4516-bb72-d538eb572e6d"
+      },
+      {
+        "name": "c1575375-db79-424a-8223-af9c0a9e3314"
+      },
+      {
+        "name": "6162721f-cb64-4dc0-ab92-6f0568b7155e"
+      },
+      {
+        "name": "41912180-f96f-4855-a08d-8bfe5f57d2a9"
+      }
+    ],
+    "regex-chess": [
+      {
+        "name": "e4471895-bee2-47c8-9af8-fe446589b145"
+      },
+      {
+        "name": "6950a1a3-50c1-401d-8950-cdfc33785fba"
+      },
+      {
+        "name": "8d51f208-b91b-4c85-a632-5e44d3030088"
+      },
+      {
+        "name": "0cd55e9e-cb61-4f0b-b06f-600e32b7ce60"
+      },
+      {
+        "name": "7401b051-f99a-4d35-bd47-27e16c88f7d9"
+      }
+    ],
+    "regex-log": [
+      {
+        "name": "c901c4a1-ca77-4542-bd35-b3bc5bf1d5ce"
+      },
+      {
+        "name": "cc2cdc8c-4f90-4fbb-b35d-48d3d065e26f"
+      },
+      {
+        "name": "63efdd79-3eba-4e6f-b849-b9197e6e43dc"
+      },
+      {
+        "name": "428c51b6-5734-4568-a242-25f6450a3f47"
+      },
+      {
+        "name": "962ed2ea-5d77-44cd-a558-984923b11920"
+      }
+    ],
+    "reshard-c4-data": [
+      {
+        "name": "5d800120-1ece-4fa8-9546-83b7c819ac9b"
+      },
+      {
+        "name": "2c5dff21-5f28-498a-a1a9-bacaa03d92e7"
+      },
+      {
+        "name": "d2c09414-3873-4876-bd7a-c9f8d6540889"
+      },
+      {
+        "name": "183a4b6f-dee3-455a-8899-b1b8bdc9d73b"
+      },
+      {
+        "name": "f900b111-d2c2-4eb7-8277-0a79dd64a530"
+      }
+    ],
+    "rstan-to-pystan": [
+      {
+        "name": "5123b410-3dea-4ca9-9ced-81b26ad5eedb"
+      },
+      {
+        "name": "104a0bb4-3bbc-470d-8f5c-d5233d99d894"
+      },
+      {
+        "name": "28ea473f-4871-4917-a382-a82303dbc14c"
+      },
+      {
+        "name": "37f575c4-bc64-48ab-ab95-03ac7589f960"
+      },
+      {
+        "name": "2f921ccb-8ce0-445f-9557-a623fe69e782"
+      }
+    ],
+    "sam-cell-seg": [
+      {
+        "name": "abed8a67-7067-4f5a-adac-963b8cd97927"
+      },
+      {
+        "name": "0ac2efbc-2a42-4b4f-8b7a-ed6e98d91c32"
+      },
+      {
+        "name": "4dcac840-f6b8-476c-bbda-d06c86b317cc"
+      },
+      {
+        "name": "99ae4a67-cc82-4c42-bee9-c6ae60f0a754"
+      },
+      {
+        "name": "a4609c57-a0bf-45d8-a703-c48b56553b6b"
+      }
+    ],
+    "sanitize-git-repo": [
+      {
+        "name": "9444f32f-0483-4ce9-a679-0c5752f79d06"
+      },
+      {
+        "name": "cdbee47f-a733-4508-accc-8e70c07e62d2"
+      },
+      {
+        "name": "53bcac54-27a6-4482-8015-701af34e654b"
+      },
+      {
+        "name": "c2a4c706-fc81-4abd-8ebf-ac657a573677"
+      },
+      {
+        "name": "1f4d081a-74e4-4aca-b9c1-5cd367713eec"
+      }
+    ],
+    "schemelike-metacircular-eval": [
+      {
+        "name": "eb95b3ec-556a-46e3-84df-c2b9007a5d75"
+      },
+      {
+        "name": "7909d1ff-22fe-420d-8a03-e5e64d2f7abc"
+      },
+      {
+        "name": "7ff4a6ce-00f9-4e03-9470-5d088656be91"
+      },
+      {
+        "name": "d81e3e21-5034-448e-a82a-fa1dad81ed98"
+      },
+      {
+        "name": "040499a1-86ec-4527-9899-d59607b0d1e0"
+      }
+    ],
+    "sparql-university": [
+      {
+        "name": "7c829120-e8c8-4df7-9f21-39b4d54a513f"
+      },
+      {
+        "name": "46f262d7-0900-4e6c-8d33-0a385844c2bb"
+      },
+      {
+        "name": "56771878-885c-4b0f-9e61-e06009294bda"
+      },
+      {
+        "name": "dd146daa-85eb-4964-b621-ce12a28ee1fd"
+      },
+      {
+        "name": "c806e9cf-ec44-48f2-b045-e3af8f2ff834"
+      }
+    ],
+    "sqlite-db-truncate": [
+      {
+        "name": "6949fb1a-1cb7-40d6-8400-3f7f9a7fe5b1"
+      },
+      {
+        "name": "ff26c834-082d-48ed-a728-c556b798e2da"
+      },
+      {
+        "name": "dd88f225-a72a-4925-9a18-f2671225462f"
+      },
+      {
+        "name": "c4796169-fe72-45f9-9ef3-2242c892eceb"
+      },
+      {
+        "name": "c81d5dc0-f32f-413a-b7f7-5360d3d613b0"
+      }
+    ],
+    "sqlite-with-gcov": [
+      {
+        "name": "b9eb0395-2b16-44ae-917b-f631bbc719fe"
+      },
+      {
+        "name": "6d5d4625-483e-4ec2-b14c-9d95002364fb"
+      },
+      {
+        "name": "ed890d0e-bebd-4030-a60d-145b725b56fa"
+      },
+      {
+        "name": "6d544c8f-9dee-43e1-9ffe-0c711b8d2b74"
+      },
+      {
+        "name": "b0847590-0e6d-4923-b522-bfb346ecb96e"
+      }
+    ],
+    "torch-pipeline-parallelism": [
+      {
+        "name": "554d6bd5-63e0-4a82-8ff8-f4ec82fcbd36"
+      },
+      {
+        "name": "a3117dc1-75dc-480c-9176-72cab66de5df"
+      },
+      {
+        "name": "24225730-3db7-4302-94f3-5e2ffa6e062a"
+      },
+      {
+        "name": "ec62eb09-e7d6-4073-b349-dbf8a8c93c15"
+      },
+      {
+        "name": "0925a065-a13b-4611-802c-f2ebea48c4e4"
+      }
+    ],
+    "torch-tensor-parallelism": [
+      {
+        "name": "040af9ba-9c44-4918-b34a-e5770c58ac2a"
+      },
+      {
+        "name": "09976e03-5b03-40b7-8112-791612c3fe54"
+      },
+      {
+        "name": "711e2c44-76f5-430c-bdf9-37bbb717c498"
+      },
+      {
+        "name": "a1ae6b05-9bd2-4345-9dc3-a77a2aa01b44"
+      },
+      {
+        "name": "8e2359a8-574b-4d51-9983-0c655bbc8263"
+      }
+    ],
+    "train-fasttext": [
+      {
+        "name": "fdd2a978-d0bb-4921-a83b-cfdf8365efc5"
+      },
+      {
+        "name": "ae1c18e6-3ba2-48c8-a925-9c5e94756024"
+      },
+      {
+        "name": "dbc7506a-69c7-4712-96f7-788afcafad42"
+      },
+      {
+        "name": "c7311a54-98b0-4672-a72b-e4ff4edc365d"
+      },
+      {
+        "name": "4d46a46f-e2d9-40e3-a54f-2c0ffa475ca2"
+      }
+    ],
+    "tune-mjcf": [
+      {
+        "name": "d65ed753-241e-4e34-8164-67d2caf574a5"
+      },
+      {
+        "name": "079ab2b6-9201-4581-b2fa-cc7069251cab"
+      },
+      {
+        "name": "aa0e9c61-fb38-41d0-aaa4-e364dc006686"
+      },
+      {
+        "name": "68c0958d-e87c-4e14-8227-97878f2ff508"
+      },
+      {
+        "name": "c28f94cf-edd2-49d5-9700-cdf434e2d4cd"
+      }
+    ],
+    "video-processing": [
+      {
+        "name": "a6faec9d-ba06-4ab6-96df-ffe437dbff33"
+      },
+      {
+        "name": "89ff63b4-07ef-4f30-9845-05dac010caa2"
+      },
+      {
+        "name": "6cd5bf82-b570-461d-967a-0dcb7357f00b"
+      },
+      {
+        "name": "16346f09-62b4-4781-bc93-cc384847ddad"
+      },
+      {
+        "name": "46a2bb45-bc06-4dae-8143-bab60ef36e04"
+      }
+    ],
+    "vulnerable-secret": [
+      {
+        "name": "ebd9f878-5db4-410d-b6f8-941ae41a836f"
+      },
+      {
+        "name": "b7f29ad5-35d5-48c7-a06a-cd30a88a84e9"
+      },
+      {
+        "name": "e87c514e-5a37-4801-8b6b-f9261589e3e4"
+      },
+      {
+        "name": "ddbafb3a-111d-4523-afb0-615aec7468b3"
+      },
+      {
+        "name": "e1e8232a-7f64-44fc-9486-6593993e4562"
+      }
+    ],
+    "winning-avg-corewars": [
+      {
+        "name": "f5b6d3fc-0fc4-4171-99d1-c23963d5a7e0"
+      },
+      {
+        "name": "02805fb3-b748-424c-b2e6-3cc53a697ca1"
+      },
+      {
+        "name": "3a78ce70-588e-4642-96cb-04aeea2100a3"
+      },
+      {
+        "name": "e76d283f-6c3a-4235-936a-f7104fe1e47d"
+      },
+      {
+        "name": "76729e78-e773-4c48-af82-521c298f2d0a"
+      }
+    ],
+    "write-compressor": [
+      {
+        "name": "89335810-44cd-470e-b588-c437c7457cf0"
+      },
+      {
+        "name": "a40a7351-0142-4a9a-9454-9929d39dff0f"
+      },
+      {
+        "name": "6a535b37-64d4-44c7-b369-3ce811c76ce1"
+      },
+      {
+        "name": "d6ede389-2161-4366-b823-64f758bc8c2f"
+      },
+      {
+        "name": "73a1c34f-de24-4f09-be26-f7bcb2e91ec3"
+      }
+    ]
+  },
   "safety_cells": {},
   "errors": {
     "AgentTimeoutError": 33

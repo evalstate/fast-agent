@@ -25,6 +25,7 @@ DOCS_ROOT = Path(__file__).resolve().parent
 DATA_DIR = DOCS_ROOT / "benchmark_data"
 OUTPUT = DOCS_ROOT / "docs" / "javascripts" / "benchmark-data.js"
 LEDGER_DIR = DOCS_ROOT / "docs" / "_generated" / "benchmarks"
+MOMENTS_OUT = DOCS_ROOT / "docs" / "benchmarks" / "moments"
 # Site root relative to the page that includes the ledgers (benchmarks/ledger-prototype/).
 LEDGER_ROOT = "../../"
 
@@ -556,6 +557,12 @@ def main() -> None:
         b["id"]: sum(r["benchmark"] == b["id"] for r in data["runs"]) for b in data["benchmarks"]
     }
     print(f"wrote {OUTPUT.relative_to(DOCS_ROOT)} ({len(body) // 1024} KB, runs: {counts})")
+
+    # Evidence cards (moments.py) are served beside the pages and loaded per run page.
+    MOMENTS_OUT.mkdir(parents=True, exist_ok=True)
+    for path in sorted((DATA_DIR / "moments").glob("*.json")):
+        (MOMENTS_OUT / path.name).write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+        print(f"wrote {(MOMENTS_OUT / path.name).relative_to(DOCS_ROOT)}")
 
     LEDGER_DIR.mkdir(parents=True, exist_ok=True)
     for bench in (b for b in data["benchmarks"] if "tasks" in b and not b.get("comingSoon")):

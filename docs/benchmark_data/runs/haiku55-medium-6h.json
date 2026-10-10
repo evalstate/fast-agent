@@ -184,6 +184,1966 @@
     "winning-avg-corewars": "00110",
     "write-compressor": "11111"
   },
+  "trials": {
+    "adaptive-rejection-sampler": [
+      {
+        "name": "adaptive-rejection-sampler__CYF7ux2",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/adaptive-rejection-sampler__CYF7ux2"
+      },
+      {
+        "name": "adaptive-rejection-sampler__BAf6Vxx",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/adaptive-rejection-sampler__BAf6Vxx"
+      },
+      {
+        "name": "adaptive-rejection-sampler__q7Fcnqx",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/adaptive-rejection-sampler__q7Fcnqx"
+      },
+      {
+        "name": "adaptive-rejection-sampler__uDf8UfJ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/adaptive-rejection-sampler__uDf8UfJ"
+      },
+      {
+        "name": "adaptive-rejection-sampler__JvWGMmr",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/adaptive-rejection-sampler__JvWGMmr"
+      }
+    ],
+    "bn-fit-modify": [
+      {
+        "name": "bn-fit-modify__yTMQfPJ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/bn-fit-modify__yTMQfPJ"
+      },
+      {
+        "name": "bn-fit-modify__LMYddix",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/bn-fit-modify__LMYddix"
+      },
+      {
+        "name": "bn-fit-modify__ZWLUuhw",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/bn-fit-modify__ZWLUuhw"
+      },
+      {
+        "name": "bn-fit-modify__B8fB7vc",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/bn-fit-modify__B8fB7vc"
+      },
+      {
+        "name": "bn-fit-modify__VvtMXZj",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/bn-fit-modify__VvtMXZj"
+      }
+    ],
+    "break-filter-js-from-html": [
+      {
+        "name": "break-filter-js-from-html__5eZUGNB",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/break-filter-js-from-html__5eZUGNB"
+      },
+      {
+        "name": "break-filter-js-from-html__kwtswrQ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/break-filter-js-from-html__kwtswrQ"
+      },
+      {
+        "name": "break-filter-js-from-html__MMXPKjk",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/break-filter-js-from-html__MMXPKjk"
+      },
+      {
+        "name": "break-filter-js-from-html__smF4QXb",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/break-filter-js-from-html__smF4QXb"
+      },
+      {
+        "name": "break-filter-js-from-html__faiZAsk",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/break-filter-js-from-html__faiZAsk"
+      }
+    ],
+    "build-cython-ext": [
+      {
+        "name": "build-cython-ext__q9JPJCx",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/build-cython-ext__q9JPJCx"
+      },
+      {
+        "name": "build-cython-ext__fcb8Bb9",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/build-cython-ext__fcb8Bb9"
+      },
+      {
+        "name": "build-cython-ext__hytC6nG",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/build-cython-ext__hytC6nG"
+      },
+      {
+        "name": "build-cython-ext__6VXrf6d",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/build-cython-ext__6VXrf6d"
+      },
+      {
+        "name": "build-cython-ext__5Luekps",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/build-cython-ext__5Luekps"
+      }
+    ],
+    "build-pmars": [
+      {
+        "name": "build-pmars__jT2KWsF",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/build-pmars__jT2KWsF"
+      },
+      {
+        "name": "build-pmars__oPwUSro",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/build-pmars__oPwUSro"
+      },
+      {
+        "name": "build-pmars__t3BLkR5",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/build-pmars__t3BLkR5"
+      },
+      {
+        "name": "build-pmars__KmozgKE",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/build-pmars__KmozgKE"
+      },
+      {
+        "name": "build-pmars__oSqGUUV",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/build-pmars__oSqGUUV"
+      }
+    ],
+    "build-pov-ray": [
+      {
+        "name": "build-pov-ray__QEjKgPa",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/build-pov-ray__QEjKgPa"
+      },
+      {
+        "name": "build-pov-ray__GZVdCs7",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/build-pov-ray__GZVdCs7"
+      },
+      {
+        "name": "build-pov-ray__o2Htxux",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/build-pov-ray__o2Htxux"
+      },
+      {
+        "name": "build-pov-ray__9ifq4ba",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/build-pov-ray__9ifq4ba"
+      },
+      {
+        "name": "build-pov-ray__kr8d3t4",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/build-pov-ray__kr8d3t4"
+      }
+    ],
+    "caffe-cifar-10": [
+      {
+        "name": "caffe-cifar-10__9zAn6cK",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-upgrade/caffe-cifar-10__9zAn6cK"
+      },
+      {
+        "name": "caffe-cifar-10__6AhvDpB",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-upgrade/caffe-cifar-10__6AhvDpB"
+      },
+      {
+        "name": "caffe-cifar-10__eRec4WN",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-upgrade/caffe-cifar-10__eRec4WN"
+      },
+      {
+        "name": "caffe-cifar-10__YoxbDid",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-upgrade/caffe-cifar-10__YoxbDid"
+      },
+      {
+        "name": "caffe-cifar-10__ZJCouvz",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-upgrade/caffe-cifar-10__ZJCouvz"
+      }
+    ],
+    "cancel-async-tasks": [
+      {
+        "name": "cancel-async-tasks__4PPBJTD",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/cancel-async-tasks__4PPBJTD"
+      },
+      {
+        "name": "cancel-async-tasks__7XQbvfn",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/cancel-async-tasks__7XQbvfn"
+      },
+      {
+        "name": "cancel-async-tasks__AmvwMjn",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/cancel-async-tasks__AmvwMjn"
+      },
+      {
+        "name": "cancel-async-tasks__jFc9jRH",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/cancel-async-tasks__jFc9jRH"
+      },
+      {
+        "name": "cancel-async-tasks__nFRsLci",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/cancel-async-tasks__nFRsLci"
+      }
+    ],
+    "chess-best-move": [
+      {
+        "name": "chess-best-move__4pR9Hv9",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/chess-best-move__4pR9Hv9"
+      },
+      {
+        "name": "chess-best-move__6tCUHCg",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/chess-best-move__6tCUHCg"
+      },
+      {
+        "name": "chess-best-move__Zp5EfdU",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/chess-best-move__Zp5EfdU"
+      },
+      {
+        "name": "chess-best-move__74EM44w",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/chess-best-move__74EM44w"
+      },
+      {
+        "name": "chess-best-move__WkqeQJN",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/chess-best-move__WkqeQJN"
+      }
+    ],
+    "circuit-fibsqrt": [
+      {
+        "name": "circuit-fibsqrt__pm29wUy",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/circuit-fibsqrt__pm29wUy"
+      },
+      {
+        "name": "circuit-fibsqrt__2hkHzSD",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/circuit-fibsqrt__2hkHzSD"
+      },
+      {
+        "name": "circuit-fibsqrt__8mCumqG",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/circuit-fibsqrt__8mCumqG"
+      },
+      {
+        "name": "circuit-fibsqrt__AhCeQj3",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/circuit-fibsqrt__AhCeQj3"
+      },
+      {
+        "name": "circuit-fibsqrt__JZYifPo",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/circuit-fibsqrt__JZYifPo"
+      }
+    ],
+    "cobol-modernization": [
+      {
+        "name": "cobol-modernization__4h53zpT",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/cobol-modernization__4h53zpT"
+      },
+      {
+        "name": "cobol-modernization__XGdWR39",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/cobol-modernization__XGdWR39"
+      },
+      {
+        "name": "cobol-modernization__rwZdNn4",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/cobol-modernization__rwZdNn4"
+      },
+      {
+        "name": "cobol-modernization__3iWYSfu",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/cobol-modernization__3iWYSfu"
+      },
+      {
+        "name": "cobol-modernization__pju7mic",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/cobol-modernization__pju7mic"
+      }
+    ],
+    "code-from-image": [
+      {
+        "name": "code-from-image__oqBjJMg",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/code-from-image__oqBjJMg"
+      },
+      {
+        "name": "code-from-image__P6S3n56",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/code-from-image__P6S3n56"
+      },
+      {
+        "name": "code-from-image__h5YuwFG",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/code-from-image__h5YuwFG"
+      },
+      {
+        "name": "code-from-image__mps8Dfn",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/code-from-image__mps8Dfn"
+      },
+      {
+        "name": "code-from-image__ULNXco3",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/code-from-image__ULNXco3"
+      }
+    ],
+    "compile-compcert": [
+      {
+        "name": "compile-compcert__hrvRes6",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/compile-compcert__hrvRes6"
+      },
+      {
+        "name": "compile-compcert__wDAYKVJ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/compile-compcert__wDAYKVJ"
+      },
+      {
+        "name": "compile-compcert__CFw9UkJ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/compile-compcert__CFw9UkJ"
+      },
+      {
+        "name": "compile-compcert__tkrj5LJ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/compile-compcert__tkrj5LJ"
+      },
+      {
+        "name": "compile-compcert__j2iUdur",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-rep-002/compile-compcert__j2iUdur"
+      }
+    ],
+    "configure-git-webserver": [
+      {
+        "name": "configure-git-webserver__CBU8Gyd",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/configure-git-webserver__CBU8Gyd"
+      },
+      {
+        "name": "configure-git-webserver__z5Zm353",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/configure-git-webserver__z5Zm353"
+      },
+      {
+        "name": "configure-git-webserver__bxPoUhT",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/configure-git-webserver__bxPoUhT"
+      },
+      {
+        "name": "configure-git-webserver__Y8bcHyX",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/configure-git-webserver__Y8bcHyX"
+      },
+      {
+        "name": "configure-git-webserver__Lfxschy",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/configure-git-webserver__Lfxschy"
+      }
+    ],
+    "constraints-scheduling": [
+      {
+        "name": "constraints-scheduling__aJh3rjK",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/constraints-scheduling__aJh3rjK"
+      },
+      {
+        "name": "constraints-scheduling__uX5fdHe",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/constraints-scheduling__uX5fdHe"
+      },
+      {
+        "name": "constraints-scheduling__XLNHGrM",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/constraints-scheduling__XLNHGrM"
+      },
+      {
+        "name": "constraints-scheduling__6yXPZza",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/constraints-scheduling__6yXPZza"
+      },
+      {
+        "name": "constraints-scheduling__HUbsgY8",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/constraints-scheduling__HUbsgY8"
+      }
+    ],
+    "count-dataset-tokens": [
+      {
+        "name": "count-dataset-tokens__BvNpDxo",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/count-dataset-tokens__BvNpDxo"
+      },
+      {
+        "name": "count-dataset-tokens__sjX6Edd",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/count-dataset-tokens__sjX6Edd"
+      },
+      {
+        "name": "count-dataset-tokens__K8iVdbv",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/count-dataset-tokens__K8iVdbv"
+      },
+      {
+        "name": "count-dataset-tokens__CZ8ZtXk",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/count-dataset-tokens__CZ8ZtXk"
+      },
+      {
+        "name": "count-dataset-tokens__ssnGdRw",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/count-dataset-tokens__ssnGdRw"
+      }
+    ],
+    "crack-7z-hash": [
+      {
+        "name": "crack-7z-hash__w3ex4hp",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/crack-7z-hash__w3ex4hp"
+      },
+      {
+        "name": "crack-7z-hash__FVLXYmH",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/crack-7z-hash__FVLXYmH"
+      },
+      {
+        "name": "crack-7z-hash__T5HCpKc",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/crack-7z-hash__T5HCpKc"
+      },
+      {
+        "name": "crack-7z-hash__dPWsUYc",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/crack-7z-hash__dPWsUYc"
+      },
+      {
+        "name": "crack-7z-hash__uoEdwcb",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/crack-7z-hash__uoEdwcb"
+      }
+    ],
+    "custom-memory-heap-crash": [
+      {
+        "name": "custom-memory-heap-crash__CUmv4Dn",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/custom-memory-heap-crash__CUmv4Dn"
+      },
+      {
+        "name": "custom-memory-heap-crash__xtzUDHt",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/custom-memory-heap-crash__xtzUDHt"
+      },
+      {
+        "name": "custom-memory-heap-crash__ZGPqKEo",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/custom-memory-heap-crash__ZGPqKEo"
+      },
+      {
+        "name": "custom-memory-heap-crash__hscQ89P",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/custom-memory-heap-crash__hscQ89P"
+      },
+      {
+        "name": "custom-memory-heap-crash__3cRdk3x",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/custom-memory-heap-crash__3cRdk3x"
+      }
+    ],
+    "db-wal-recovery": [
+      {
+        "name": "db-wal-recovery__pmgdaSx",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/db-wal-recovery__pmgdaSx"
+      },
+      {
+        "name": "db-wal-recovery__TqsbRfZ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/db-wal-recovery__TqsbRfZ"
+      },
+      {
+        "name": "db-wal-recovery__Kn83ePU",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/db-wal-recovery__Kn83ePU"
+      },
+      {
+        "name": "db-wal-recovery__dCZYcGW",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/db-wal-recovery__dCZYcGW"
+      },
+      {
+        "name": "db-wal-recovery__HzEiWAv",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/db-wal-recovery__HzEiWAv"
+      }
+    ],
+    "distribution-search": [
+      {
+        "name": "distribution-search__raJRkkZ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/distribution-search__raJRkkZ"
+      },
+      {
+        "name": "distribution-search__p2Fycy6",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/distribution-search__p2Fycy6"
+      },
+      {
+        "name": "distribution-search__Jf2kWJh",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/distribution-search__Jf2kWJh"
+      },
+      {
+        "name": "distribution-search__MTmmAHF",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/distribution-search__MTmmAHF"
+      },
+      {
+        "name": "distribution-search__bYTirvs",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/distribution-search__bYTirvs"
+      }
+    ],
+    "dna-assembly": [
+      {
+        "name": "dna-assembly__od7oJaZ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/dna-assembly__od7oJaZ"
+      },
+      {
+        "name": "dna-assembly__XXWETtG",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/dna-assembly__XXWETtG"
+      },
+      {
+        "name": "dna-assembly__W8odtsS",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/dna-assembly__W8odtsS"
+      },
+      {
+        "name": "dna-assembly__wvuPSHA",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/dna-assembly__wvuPSHA"
+      },
+      {
+        "name": "dna-assembly__C8vnvTn",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/dna-assembly__C8vnvTn"
+      }
+    ],
+    "dna-insert": [
+      {
+        "name": "dna-insert__ZFzRje2",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/dna-insert__ZFzRje2"
+      },
+      {
+        "name": "dna-insert__toQYGMi",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/dna-insert__toQYGMi"
+      },
+      {
+        "name": "dna-insert__YGQtAj9",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/dna-insert__YGQtAj9"
+      },
+      {
+        "name": "dna-insert__8LqU22P",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/dna-insert__8LqU22P"
+      },
+      {
+        "name": "dna-insert__AMHSRBg",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/dna-insert__AMHSRBg"
+      }
+    ],
+    "extract-elf": [
+      {
+        "name": "extract-elf__QzNMi4y",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/extract-elf__QzNMi4y"
+      },
+      {
+        "name": "extract-elf__aStRvCC",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/extract-elf__aStRvCC"
+      },
+      {
+        "name": "extract-elf__D2TnDVw",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/extract-elf__D2TnDVw"
+      },
+      {
+        "name": "extract-elf__jbmasNm",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/extract-elf__jbmasNm"
+      },
+      {
+        "name": "extract-elf__UheKpb3",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/extract-elf__UheKpb3"
+      }
+    ],
+    "extract-moves-from-video": [
+      {
+        "name": "extract-moves-from-video__5B7w4he",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/extract-moves-from-video__5B7w4he"
+      },
+      {
+        "name": "extract-moves-from-video__aco48tw",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/extract-moves-from-video__aco48tw"
+      },
+      {
+        "name": "extract-moves-from-video__GGfaPNK",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/extract-moves-from-video__GGfaPNK"
+      },
+      {
+        "name": "extract-moves-from-video__J6P9BdM",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/extract-moves-from-video__J6P9BdM"
+      },
+      {
+        "name": "extract-moves-from-video__i2RXn5C",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/extract-moves-from-video__i2RXn5C"
+      }
+    ],
+    "feal-differential-cryptanalysis": [
+      {
+        "name": "feal-differential-cryptanalysis__Yt9fsYT",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/feal-differential-cryptanalysis__Yt9fsYT"
+      },
+      {
+        "name": "feal-differential-cryptanalysis__UfAM3Jt",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/feal-differential-cryptanalysis__UfAM3Jt"
+      },
+      {
+        "name": "feal-differential-cryptanalysis__WPaqaAs",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/feal-differential-cryptanalysis__WPaqaAs"
+      },
+      {
+        "name": "feal-differential-cryptanalysis__UyJpisy",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/feal-differential-cryptanalysis__UyJpisy"
+      },
+      {
+        "name": "feal-differential-cryptanalysis__dSqJy4d",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/feal-differential-cryptanalysis__dSqJy4d"
+      }
+    ],
+    "feal-linear-cryptanalysis": [
+      {
+        "name": "feal-linear-cryptanalysis__LoLhPiR",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/feal-linear-cryptanalysis__LoLhPiR"
+      },
+      {
+        "name": "feal-linear-cryptanalysis__YsPWiWb",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/feal-linear-cryptanalysis__YsPWiWb"
+      },
+      {
+        "name": "feal-linear-cryptanalysis__VKpLDog",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/feal-linear-cryptanalysis__VKpLDog"
+      },
+      {
+        "name": "feal-linear-cryptanalysis__CoCog9z",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/feal-linear-cryptanalysis__CoCog9z"
+      },
+      {
+        "name": "feal-linear-cryptanalysis__9gWgSoJ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-rep-004/feal-linear-cryptanalysis__9gWgSoJ"
+      }
+    ],
+    "filter-js-from-html": [
+      {
+        "name": "filter-js-from-html__CvFhbGD",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/filter-js-from-html__CvFhbGD"
+      },
+      {
+        "name": "filter-js-from-html__hmJDTqm",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/filter-js-from-html__hmJDTqm"
+      },
+      {
+        "name": "filter-js-from-html__DjmJAUM",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/filter-js-from-html__DjmJAUM"
+      },
+      {
+        "name": "filter-js-from-html__4XKTLXd",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/filter-js-from-html__4XKTLXd"
+      },
+      {
+        "name": "filter-js-from-html__8ZEv5Xe",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/filter-js-from-html__8ZEv5Xe"
+      }
+    ],
+    "financial-document-processor": [
+      {
+        "name": "financial-document-processor__3Na7dQe",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/financial-document-processor__3Na7dQe"
+      },
+      {
+        "name": "financial-document-processor__bRwztqi",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/financial-document-processor__bRwztqi"
+      },
+      {
+        "name": "financial-document-processor__X6djLiH",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/financial-document-processor__X6djLiH"
+      },
+      {
+        "name": "financial-document-processor__d28oPQP",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/financial-document-processor__d28oPQP"
+      },
+      {
+        "name": "financial-document-processor__v2bFAg2",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/financial-document-processor__v2bFAg2"
+      }
+    ],
+    "fix-code-vulnerability": [
+      {
+        "name": "fix-code-vulnerability__L5we6Kd",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/fix-code-vulnerability__L5we6Kd"
+      },
+      {
+        "name": "fix-code-vulnerability__Gm9twMA",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/fix-code-vulnerability__Gm9twMA"
+      },
+      {
+        "name": "fix-code-vulnerability__QN9sDcZ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/fix-code-vulnerability__QN9sDcZ"
+      },
+      {
+        "name": "fix-code-vulnerability__wwCFGpp",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/fix-code-vulnerability__wwCFGpp"
+      },
+      {
+        "name": "fix-code-vulnerability__N3oJwfS",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/fix-code-vulnerability__N3oJwfS"
+      }
+    ],
+    "fix-git": [
+      {
+        "name": "fix-git__xKLkBcS",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/fix-git__xKLkBcS"
+      },
+      {
+        "name": "fix-git__tBhUw9f",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/fix-git__tBhUw9f"
+      },
+      {
+        "name": "fix-git__moQySn6",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/fix-git__moQySn6"
+      },
+      {
+        "name": "fix-git__eW252wn",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/fix-git__eW252wn"
+      },
+      {
+        "name": "fix-git__kzBVfxD",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/fix-git__kzBVfxD"
+      }
+    ],
+    "fix-ocaml-gc": [
+      {
+        "name": "fix-ocaml-gc__8YaQJPa",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/fix-ocaml-gc__8YaQJPa"
+      },
+      {
+        "name": "fix-ocaml-gc__a6Ue8ga",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/fix-ocaml-gc__a6Ue8ga"
+      },
+      {
+        "name": "fix-ocaml-gc__oRTVana",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/fix-ocaml-gc__oRTVana"
+      },
+      {
+        "name": "fix-ocaml-gc__sDyNfBp",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/fix-ocaml-gc__sDyNfBp"
+      },
+      {
+        "name": "fix-ocaml-gc__JRk7rDp",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/fix-ocaml-gc__JRk7rDp"
+      }
+    ],
+    "gcode-to-text": [
+      {
+        "name": "gcode-to-text__oPFwc3a",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/gcode-to-text__oPFwc3a"
+      },
+      {
+        "name": "gcode-to-text__FYrGebF",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/gcode-to-text__FYrGebF"
+      },
+      {
+        "name": "gcode-to-text__ERWeruw",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/gcode-to-text__ERWeruw"
+      },
+      {
+        "name": "gcode-to-text__Trg3Qi9",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/gcode-to-text__Trg3Qi9"
+      },
+      {
+        "name": "gcode-to-text__jqs9h2q",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/gcode-to-text__jqs9h2q"
+      }
+    ],
+    "git-leak-recovery": [
+      {
+        "name": "git-leak-recovery__hBnkp9B",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/git-leak-recovery__hBnkp9B"
+      },
+      {
+        "name": "git-leak-recovery__iaTRWYL",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/git-leak-recovery__iaTRWYL"
+      },
+      {
+        "name": "git-leak-recovery__z53GRmB",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/git-leak-recovery__z53GRmB"
+      },
+      {
+        "name": "git-leak-recovery__FRa5h7L",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/git-leak-recovery__FRa5h7L"
+      },
+      {
+        "name": "git-leak-recovery__Sct3QMP",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/git-leak-recovery__Sct3QMP"
+      }
+    ],
+    "git-multibranch": [
+      {
+        "name": "git-multibranch__ib9md8d",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/git-multibranch__ib9md8d"
+      },
+      {
+        "name": "git-multibranch__sCFv2DN",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/git-multibranch__sCFv2DN"
+      },
+      {
+        "name": "git-multibranch__CcXoAXB",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/git-multibranch__CcXoAXB"
+      },
+      {
+        "name": "git-multibranch__dfKZv3q",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/git-multibranch__dfKZv3q"
+      },
+      {
+        "name": "git-multibranch__NMrTvG7",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/git-multibranch__NMrTvG7"
+      }
+    ],
+    "gpt2-codegolf": [
+      {
+        "name": "gpt2-codegolf__vQJr3QQ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/gpt2-codegolf__vQJr3QQ"
+      },
+      {
+        "name": "gpt2-codegolf__ofHV5c6",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/gpt2-codegolf__ofHV5c6"
+      },
+      {
+        "name": "gpt2-codegolf__YSQ79Mr",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/gpt2-codegolf__YSQ79Mr"
+      },
+      {
+        "name": "gpt2-codegolf__8iwVyU8",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/gpt2-codegolf__8iwVyU8"
+      },
+      {
+        "name": "gpt2-codegolf__WgZUYXz",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/gpt2-codegolf__WgZUYXz"
+      }
+    ],
+    "headless-terminal": [
+      {
+        "name": "headless-terminal__uBAk8qN",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/headless-terminal__uBAk8qN"
+      },
+      {
+        "name": "headless-terminal__wsgqDjs",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/headless-terminal__wsgqDjs"
+      },
+      {
+        "name": "headless-terminal__2EUtRD4",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/headless-terminal__2EUtRD4"
+      },
+      {
+        "name": "headless-terminal__HYMHQoh",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/headless-terminal__HYMHQoh"
+      },
+      {
+        "name": "headless-terminal__RuxF4i7",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/headless-terminal__RuxF4i7"
+      }
+    ],
+    "hf-model-inference": [
+      {
+        "name": "hf-model-inference__YvJFDUG",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/hf-model-inference__YvJFDUG"
+      },
+      {
+        "name": "hf-model-inference__NCGboia",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/hf-model-inference__NCGboia"
+      },
+      {
+        "name": "hf-model-inference__G9zStAs",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/hf-model-inference__G9zStAs"
+      },
+      {
+        "name": "hf-model-inference__nyy4kvR",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/hf-model-inference__nyy4kvR"
+      },
+      {
+        "name": "hf-model-inference__7hCYq8c",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/hf-model-inference__7hCYq8c"
+      }
+    ],
+    "install-windows-3.11": [
+      {
+        "name": "install-windows-3.11__2cdT5P2",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/install-windows-3.11__2cdT5P2"
+      },
+      {
+        "name": "install-windows-3.11__eNBYx82",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/install-windows-3.11__eNBYx82"
+      },
+      {
+        "name": "install-windows-3.11__Lr4FjzL",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/install-windows-3.11__Lr4FjzL"
+      },
+      {
+        "name": "install-windows-3.11__8M99V8s",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/install-windows-3.11__8M99V8s"
+      },
+      {
+        "name": "install-windows-3.11__3acQuth",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/install-windows-3.11__3acQuth"
+      }
+    ],
+    "kv-store-grpc": [
+      {
+        "name": "kv-store-grpc__GM5NLFu",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/kv-store-grpc__GM5NLFu"
+      },
+      {
+        "name": "kv-store-grpc__YwdG67E",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/kv-store-grpc__YwdG67E"
+      },
+      {
+        "name": "kv-store-grpc__H7nRtd7",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/kv-store-grpc__H7nRtd7"
+      },
+      {
+        "name": "kv-store-grpc__9CpKmJN",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/kv-store-grpc__9CpKmJN"
+      },
+      {
+        "name": "kv-store-grpc__hoKmjwe",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/kv-store-grpc__hoKmjwe"
+      }
+    ],
+    "large-scale-text-editing": [
+      {
+        "name": "large-scale-text-editing__rshxoFf",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/large-scale-text-editing__rshxoFf"
+      },
+      {
+        "name": "large-scale-text-editing__XjFqTQj",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/large-scale-text-editing__XjFqTQj"
+      },
+      {
+        "name": "large-scale-text-editing__Nevsona",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/large-scale-text-editing__Nevsona"
+      },
+      {
+        "name": "large-scale-text-editing__j4XmRs4",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/large-scale-text-editing__j4XmRs4"
+      },
+      {
+        "name": "large-scale-text-editing__yeFvCpJ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/large-scale-text-editing__yeFvCpJ"
+      }
+    ],
+    "largest-eigenval": [
+      {
+        "name": "largest-eigenval__VQ9Aak5",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/largest-eigenval__VQ9Aak5"
+      },
+      {
+        "name": "largest-eigenval__W33z5HK",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/largest-eigenval__W33z5HK"
+      },
+      {
+        "name": "largest-eigenval__cRwz5as",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/largest-eigenval__cRwz5as"
+      },
+      {
+        "name": "largest-eigenval__zQbPjjd",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/largest-eigenval__zQbPjjd"
+      },
+      {
+        "name": "largest-eigenval__xnUg2Xs",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/largest-eigenval__xnUg2Xs"
+      }
+    ],
+    "llm-inference-batching-scheduler": [
+      {
+        "name": "llm-inference-batching-scheduler__8MZH6Ex",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/llm-inference-batching-scheduler__8MZH6Ex"
+      },
+      {
+        "name": "llm-inference-batching-scheduler__xdinRo4",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/llm-inference-batching-scheduler__xdinRo4"
+      },
+      {
+        "name": "llm-inference-batching-scheduler__uoGuERD",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/llm-inference-batching-scheduler__uoGuERD"
+      },
+      {
+        "name": "llm-inference-batching-scheduler__op6eyG7",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/llm-inference-batching-scheduler__op6eyG7"
+      },
+      {
+        "name": "llm-inference-batching-scheduler__zEhU9Kr",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/llm-inference-batching-scheduler__zEhU9Kr"
+      }
+    ],
+    "log-summary-date-ranges": [
+      {
+        "name": "log-summary-date-ranges__S9iYPs2",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/log-summary-date-ranges__S9iYPs2"
+      },
+      {
+        "name": "log-summary-date-ranges__rR2KyE7",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/log-summary-date-ranges__rR2KyE7"
+      },
+      {
+        "name": "log-summary-date-ranges__hYiEf5v",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/log-summary-date-ranges__hYiEf5v"
+      },
+      {
+        "name": "log-summary-date-ranges__2qcfY2M",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/log-summary-date-ranges__2qcfY2M"
+      },
+      {
+        "name": "log-summary-date-ranges__LPLvZfd",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/log-summary-date-ranges__LPLvZfd"
+      }
+    ],
+    "mailman": [
+      {
+        "name": "mailman__ChdSg8X",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/mailman__ChdSg8X"
+      },
+      {
+        "name": "mailman__FCKtLBa",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/mailman__FCKtLBa"
+      },
+      {
+        "name": "mailman__EoFEvKv",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/mailman__EoFEvKv"
+      },
+      {
+        "name": "mailman__exBbJNF",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/mailman__exBbJNF"
+      },
+      {
+        "name": "mailman__HD52Bv9",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/mailman__HD52Bv9"
+      }
+    ],
+    "make-doom-for-mips": [
+      {
+        "name": "make-doom-for-mips__qkMwdhk",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/make-doom-for-mips__qkMwdhk"
+      },
+      {
+        "name": "make-doom-for-mips__ResLteu",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/make-doom-for-mips__ResLteu"
+      },
+      {
+        "name": "make-doom-for-mips__K3BzQ8e",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/make-doom-for-mips__K3BzQ8e"
+      },
+      {
+        "name": "make-doom-for-mips__PKnjGBQ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/make-doom-for-mips__PKnjGBQ"
+      },
+      {
+        "name": "make-doom-for-mips__KJoSSe8",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/make-doom-for-mips__KJoSSe8"
+      }
+    ],
+    "make-mips-interpreter": [
+      {
+        "name": "make-mips-interpreter__67REXtg",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/make-mips-interpreter__67REXtg"
+      },
+      {
+        "name": "make-mips-interpreter__ZqUmDAW",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/make-mips-interpreter__ZqUmDAW"
+      },
+      {
+        "name": "make-mips-interpreter__WNHWnjk",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/make-mips-interpreter__WNHWnjk"
+      },
+      {
+        "name": "make-mips-interpreter__4nxDFQK",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/make-mips-interpreter__4nxDFQK"
+      },
+      {
+        "name": "make-mips-interpreter__gK7Pyb5",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/make-mips-interpreter__gK7Pyb5"
+      }
+    ],
+    "mcmc-sampling-stan": [
+      {
+        "name": "mcmc-sampling-stan__Am5rGto",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-upgrade/mcmc-sampling-stan__Am5rGto"
+      },
+      {
+        "name": "mcmc-sampling-stan__U5x4dM6",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-upgrade/mcmc-sampling-stan__U5x4dM6"
+      },
+      {
+        "name": "mcmc-sampling-stan__iD4TKoX",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-upgrade/mcmc-sampling-stan__iD4TKoX"
+      },
+      {
+        "name": "mcmc-sampling-stan__xbXnjzE",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-upgrade/mcmc-sampling-stan__xbXnjzE"
+      },
+      {
+        "name": "mcmc-sampling-stan__xm7QGsr",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-upgrade/mcmc-sampling-stan__xm7QGsr"
+      }
+    ],
+    "merge-diff-arc-agi-task": [
+      {
+        "name": "merge-diff-arc-agi-task__org7HtJ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/merge-diff-arc-agi-task__org7HtJ"
+      },
+      {
+        "name": "merge-diff-arc-agi-task__LuxRmey",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/merge-diff-arc-agi-task__LuxRmey"
+      },
+      {
+        "name": "merge-diff-arc-agi-task__4okCwrR",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/merge-diff-arc-agi-task__4okCwrR"
+      },
+      {
+        "name": "merge-diff-arc-agi-task__RX7CyYz",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/merge-diff-arc-agi-task__RX7CyYz"
+      },
+      {
+        "name": "merge-diff-arc-agi-task__5p3w6Qz",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/merge-diff-arc-agi-task__5p3w6Qz"
+      }
+    ],
+    "model-extraction-relu-logits": [
+      {
+        "name": "model-extraction-relu-logits__8wd9cvp",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/model-extraction-relu-logits__8wd9cvp"
+      },
+      {
+        "name": "model-extraction-relu-logits__5dbUEP5",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/model-extraction-relu-logits__5dbUEP5"
+      },
+      {
+        "name": "model-extraction-relu-logits__ZUZs7u8",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/model-extraction-relu-logits__ZUZs7u8"
+      },
+      {
+        "name": "model-extraction-relu-logits__4o6cKtc",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/model-extraction-relu-logits__4o6cKtc"
+      },
+      {
+        "name": "model-extraction-relu-logits__PudT3XH",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/model-extraction-relu-logits__PudT3XH"
+      }
+    ],
+    "modernize-scientific-stack": [
+      {
+        "name": "modernize-scientific-stack__NMYgaJg",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/modernize-scientific-stack__NMYgaJg"
+      },
+      {
+        "name": "modernize-scientific-stack__Vf2a6Ks",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/modernize-scientific-stack__Vf2a6Ks"
+      },
+      {
+        "name": "modernize-scientific-stack__EQdornm",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/modernize-scientific-stack__EQdornm"
+      },
+      {
+        "name": "modernize-scientific-stack__wDe9ert",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/modernize-scientific-stack__wDe9ert"
+      },
+      {
+        "name": "modernize-scientific-stack__Sdst6Dy",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/modernize-scientific-stack__Sdst6Dy"
+      }
+    ],
+    "mteb-leaderboard": [
+      {
+        "name": "mteb-leaderboard__juKqSJv",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/mteb-leaderboard__juKqSJv"
+      },
+      {
+        "name": "mteb-leaderboard__g8B2sy4",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/mteb-leaderboard__g8B2sy4"
+      },
+      {
+        "name": "mteb-leaderboard__bBGVsGZ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/mteb-leaderboard__bBGVsGZ"
+      },
+      {
+        "name": "mteb-leaderboard__R7V8FZc",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/mteb-leaderboard__R7V8FZc"
+      },
+      {
+        "name": "mteb-leaderboard__cMSeTfp",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/mteb-leaderboard__cMSeTfp"
+      }
+    ],
+    "mteb-retrieve": [
+      {
+        "name": "mteb-retrieve__NsBYFSp",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/mteb-retrieve__NsBYFSp"
+      },
+      {
+        "name": "mteb-retrieve__Czkw38D",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/mteb-retrieve__Czkw38D"
+      },
+      {
+        "name": "mteb-retrieve__meZcKVt",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/mteb-retrieve__meZcKVt"
+      },
+      {
+        "name": "mteb-retrieve__BN8iDEF",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/mteb-retrieve__BN8iDEF"
+      },
+      {
+        "name": "mteb-retrieve__bkh7axW",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/mteb-retrieve__bkh7axW"
+      }
+    ],
+    "multi-source-data-merger": [
+      {
+        "name": "multi-source-data-merger__eLM8KgL",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/multi-source-data-merger__eLM8KgL"
+      },
+      {
+        "name": "multi-source-data-merger__yeKUgnS",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/multi-source-data-merger__yeKUgnS"
+      },
+      {
+        "name": "multi-source-data-merger__xLjXrWw",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/multi-source-data-merger__xLjXrWw"
+      },
+      {
+        "name": "multi-source-data-merger__aBhGVch",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/multi-source-data-merger__aBhGVch"
+      },
+      {
+        "name": "multi-source-data-merger__c9kbDNF",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/multi-source-data-merger__c9kbDNF"
+      }
+    ],
+    "nginx-request-logging": [
+      {
+        "name": "nginx-request-logging__XnepqeC",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/nginx-request-logging__XnepqeC"
+      },
+      {
+        "name": "nginx-request-logging__36Rnrvg",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/nginx-request-logging__36Rnrvg"
+      },
+      {
+        "name": "nginx-request-logging__hDXyzK7",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/nginx-request-logging__hDXyzK7"
+      },
+      {
+        "name": "nginx-request-logging__H7BDpvJ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/nginx-request-logging__H7BDpvJ"
+      },
+      {
+        "name": "nginx-request-logging__mMY4PHy",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/nginx-request-logging__mMY4PHy"
+      }
+    ],
+    "openssl-selfsigned-cert": [
+      {
+        "name": "openssl-selfsigned-cert__yRxGFqE",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/openssl-selfsigned-cert__yRxGFqE"
+      },
+      {
+        "name": "openssl-selfsigned-cert__Ewk7Rvn",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/openssl-selfsigned-cert__Ewk7Rvn"
+      },
+      {
+        "name": "openssl-selfsigned-cert__FXhMeAA",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/openssl-selfsigned-cert__FXhMeAA"
+      },
+      {
+        "name": "openssl-selfsigned-cert__ThUB5qc",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/openssl-selfsigned-cert__ThUB5qc"
+      },
+      {
+        "name": "openssl-selfsigned-cert__Sx8v9Xm",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/openssl-selfsigned-cert__Sx8v9Xm"
+      }
+    ],
+    "overfull-hbox": [
+      {
+        "name": "overfull-hbox__rmiAcTJ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/overfull-hbox__rmiAcTJ"
+      },
+      {
+        "name": "overfull-hbox__Q4dGMid",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/overfull-hbox__Q4dGMid"
+      },
+      {
+        "name": "overfull-hbox__ogmaZnp",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/overfull-hbox__ogmaZnp"
+      },
+      {
+        "name": "overfull-hbox__5TsRfxp",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/overfull-hbox__5TsRfxp"
+      },
+      {
+        "name": "overfull-hbox__nhdijjC",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-rep-005/overfull-hbox__nhdijjC"
+      }
+    ],
+    "password-recovery": [
+      {
+        "name": "password-recovery__BJxbMkq",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/password-recovery__BJxbMkq"
+      },
+      {
+        "name": "password-recovery__PpRqf3u",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/password-recovery__PpRqf3u"
+      },
+      {
+        "name": "password-recovery__2Bj9uWH",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/password-recovery__2Bj9uWH"
+      },
+      {
+        "name": "password-recovery__LCgJpJb",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/password-recovery__LCgJpJb"
+      },
+      {
+        "name": "password-recovery__GnrdG6F",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/password-recovery__GnrdG6F"
+      }
+    ],
+    "path-tracing": [
+      {
+        "name": "path-tracing__aadRzTe",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/path-tracing__aadRzTe"
+      },
+      {
+        "name": "path-tracing__5jGFLmu",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/path-tracing__5jGFLmu"
+      },
+      {
+        "name": "path-tracing__SKRVR26",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/path-tracing__SKRVR26"
+      },
+      {
+        "name": "path-tracing__QiqPsei",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/path-tracing__QiqPsei"
+      },
+      {
+        "name": "path-tracing__AaD7q5c",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/path-tracing__AaD7q5c"
+      }
+    ],
+    "path-tracing-reverse": [
+      {
+        "name": "path-tracing-reverse__FSmFBuD",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/path-tracing-reverse__FSmFBuD"
+      },
+      {
+        "name": "path-tracing-reverse__9vkeotd",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/path-tracing-reverse__9vkeotd"
+      },
+      {
+        "name": "path-tracing-reverse__oPjDofA",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/path-tracing-reverse__oPjDofA"
+      },
+      {
+        "name": "path-tracing-reverse__9SyEhU8",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/path-tracing-reverse__9SyEhU8"
+      },
+      {
+        "name": "path-tracing-reverse__fHvJzY5",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/path-tracing-reverse__fHvJzY5"
+      }
+    ],
+    "polyglot-c-py": [
+      {
+        "name": "polyglot-c-py__QukXoKw",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/polyglot-c-py__QukXoKw"
+      },
+      {
+        "name": "polyglot-c-py__XDWJTea",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/polyglot-c-py__XDWJTea"
+      },
+      {
+        "name": "polyglot-c-py__RZoNvUM",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/polyglot-c-py__RZoNvUM"
+      },
+      {
+        "name": "polyglot-c-py__mTU49tk",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/polyglot-c-py__mTU49tk"
+      },
+      {
+        "name": "polyglot-c-py__XrSwz5X",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/polyglot-c-py__XrSwz5X"
+      }
+    ],
+    "polyglot-rust-c": [
+      {
+        "name": "polyglot-rust-c__oHHr3Qi",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/polyglot-rust-c__oHHr3Qi"
+      },
+      {
+        "name": "polyglot-rust-c__5UvMXVb",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/polyglot-rust-c__5UvMXVb"
+      },
+      {
+        "name": "polyglot-rust-c__p3oXkQN",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/polyglot-rust-c__p3oXkQN"
+      },
+      {
+        "name": "polyglot-rust-c__ByBD9b8",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/polyglot-rust-c__ByBD9b8"
+      },
+      {
+        "name": "polyglot-rust-c__Cz46a5K",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/polyglot-rust-c__Cz46a5K"
+      }
+    ],
+    "portfolio-optimization": [
+      {
+        "name": "portfolio-optimization__wVvesVf",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/portfolio-optimization__wVvesVf"
+      },
+      {
+        "name": "portfolio-optimization__oYmThYg",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/portfolio-optimization__oYmThYg"
+      },
+      {
+        "name": "portfolio-optimization__yBRY9Dq",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/portfolio-optimization__yBRY9Dq"
+      },
+      {
+        "name": "portfolio-optimization__bThcSi7",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/portfolio-optimization__bThcSi7"
+      },
+      {
+        "name": "portfolio-optimization__CUKToji",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/portfolio-optimization__CUKToji"
+      }
+    ],
+    "protein-assembly": [
+      {
+        "name": "protein-assembly__273XMis",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/protein-assembly__273XMis"
+      },
+      {
+        "name": "protein-assembly__3C33sfe",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/protein-assembly__3C33sfe"
+      },
+      {
+        "name": "protein-assembly__VYoRYPU",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/protein-assembly__VYoRYPU"
+      },
+      {
+        "name": "protein-assembly__o5DbRLf",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/protein-assembly__o5DbRLf"
+      },
+      {
+        "name": "protein-assembly__hzaM35B",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/protein-assembly__hzaM35B"
+      }
+    ],
+    "prove-plus-comm": [
+      {
+        "name": "prove-plus-comm__icpZGkq",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/prove-plus-comm__icpZGkq"
+      },
+      {
+        "name": "prove-plus-comm__TpeRMmw",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/prove-plus-comm__TpeRMmw"
+      },
+      {
+        "name": "prove-plus-comm__HcKFMmf",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/prove-plus-comm__HcKFMmf"
+      },
+      {
+        "name": "prove-plus-comm__Pyc9r92",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/prove-plus-comm__Pyc9r92"
+      },
+      {
+        "name": "prove-plus-comm__HHoHPnK",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/prove-plus-comm__HHoHPnK"
+      }
+    ],
+    "pypi-server": [
+      {
+        "name": "pypi-server__QMskPmM",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/pypi-server__QMskPmM"
+      },
+      {
+        "name": "pypi-server__7hNMGMT",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/pypi-server__7hNMGMT"
+      },
+      {
+        "name": "pypi-server__pAxisgL",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/pypi-server__pAxisgL"
+      },
+      {
+        "name": "pypi-server__EgkwLz7",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/pypi-server__EgkwLz7"
+      },
+      {
+        "name": "pypi-server__xZny5Yi",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/pypi-server__xZny5Yi"
+      }
+    ],
+    "pytorch-model-cli": [
+      {
+        "name": "pytorch-model-cli__CcN7BsQ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/pytorch-model-cli__CcN7BsQ"
+      },
+      {
+        "name": "pytorch-model-cli__oKTMy5S",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/pytorch-model-cli__oKTMy5S"
+      },
+      {
+        "name": "pytorch-model-cli__tGFTAz6",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/pytorch-model-cli__tGFTAz6"
+      },
+      {
+        "name": "pytorch-model-cli__Ut8k6Dm",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/pytorch-model-cli__Ut8k6Dm"
+      },
+      {
+        "name": "pytorch-model-cli__Ui7hXvF",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/pytorch-model-cli__Ui7hXvF"
+      }
+    ],
+    "pytorch-model-recovery": [
+      {
+        "name": "pytorch-model-recovery__3nCHYSx",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/pytorch-model-recovery__3nCHYSx"
+      },
+      {
+        "name": "pytorch-model-recovery__UszQBD9",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/pytorch-model-recovery__UszQBD9"
+      },
+      {
+        "name": "pytorch-model-recovery__i2rD6v2",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/pytorch-model-recovery__i2rD6v2"
+      },
+      {
+        "name": "pytorch-model-recovery__6AnNxsb",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/pytorch-model-recovery__6AnNxsb"
+      },
+      {
+        "name": "pytorch-model-recovery__TP3AY5N",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/pytorch-model-recovery__TP3AY5N"
+      }
+    ],
+    "qemu-alpine-ssh": [
+      {
+        "name": "qemu-alpine-ssh__QF5uaFB",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/qemu-alpine-ssh__QF5uaFB"
+      },
+      {
+        "name": "qemu-alpine-ssh__ubHNzzq",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/qemu-alpine-ssh__ubHNzzq"
+      },
+      {
+        "name": "qemu-alpine-ssh__DpHkU4G",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/qemu-alpine-ssh__DpHkU4G"
+      },
+      {
+        "name": "qemu-alpine-ssh__Siyv4pG",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/qemu-alpine-ssh__Siyv4pG"
+      },
+      {
+        "name": "qemu-alpine-ssh__UYCGw2e",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/qemu-alpine-ssh__UYCGw2e"
+      }
+    ],
+    "qemu-startup": [
+      {
+        "name": "qemu-startup__grQnY8i",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/qemu-startup__grQnY8i"
+      },
+      {
+        "name": "qemu-startup__RPCPTt3",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/qemu-startup__RPCPTt3"
+      },
+      {
+        "name": "qemu-startup__ypKjYZF",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/qemu-startup__ypKjYZF"
+      },
+      {
+        "name": "qemu-startup__hZsKq2R",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/qemu-startup__hZsKq2R"
+      },
+      {
+        "name": "qemu-startup__hELB4xy",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/qemu-startup__hELB4xy"
+      }
+    ],
+    "query-optimize": [
+      {
+        "name": "query-optimize__F42A3iP",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/query-optimize__F42A3iP"
+      },
+      {
+        "name": "query-optimize__gTriFkj",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/query-optimize__gTriFkj"
+      },
+      {
+        "name": "query-optimize__5RHL8JX",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/query-optimize__5RHL8JX"
+      },
+      {
+        "name": "query-optimize__aMeZkzn",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/query-optimize__aMeZkzn"
+      },
+      {
+        "name": "query-optimize__9teaeXU",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/query-optimize__9teaeXU"
+      }
+    ],
+    "raman-fitting": [
+      {
+        "name": "raman-fitting__AKwVBQW",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/raman-fitting__AKwVBQW"
+      },
+      {
+        "name": "raman-fitting__pExJcqz",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/raman-fitting__pExJcqz"
+      },
+      {
+        "name": "raman-fitting__dPtFQBk",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/raman-fitting__dPtFQBk"
+      },
+      {
+        "name": "raman-fitting__Tt2y8dU",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/raman-fitting__Tt2y8dU"
+      },
+      {
+        "name": "raman-fitting__zPw9Lwd",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/raman-fitting__zPw9Lwd"
+      }
+    ],
+    "regex-chess": [
+      {
+        "name": "regex-chess__p8g78WN",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/regex-chess__p8g78WN"
+      },
+      {
+        "name": "regex-chess__STCTABi",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/regex-chess__STCTABi"
+      },
+      {
+        "name": "regex-chess__dfnMdBf",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/regex-chess__dfnMdBf"
+      },
+      {
+        "name": "regex-chess__rpPuKz5",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/regex-chess__rpPuKz5"
+      },
+      {
+        "name": "regex-chess__m7iTVxW",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-rep-003/regex-chess__m7iTVxW"
+      }
+    ],
+    "regex-log": [
+      {
+        "name": "regex-log__eMjCgTE",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/regex-log__eMjCgTE"
+      },
+      {
+        "name": "regex-log__97RnKCB",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/regex-log__97RnKCB"
+      },
+      {
+        "name": "regex-log__SFVxhEd",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/regex-log__SFVxhEd"
+      },
+      {
+        "name": "regex-log__WY5ae5h",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/regex-log__WY5ae5h"
+      },
+      {
+        "name": "regex-log__bGBS733",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-rep-001/regex-log__bGBS733"
+      }
+    ],
+    "reshard-c4-data": [
+      {
+        "name": "reshard-c4-data__QjPJLtg",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/reshard-c4-data__QjPJLtg"
+      },
+      {
+        "name": "reshard-c4-data__PzfwU7o",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/reshard-c4-data__PzfwU7o"
+      },
+      {
+        "name": "reshard-c4-data__J32nas2",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/reshard-c4-data__J32nas2"
+      },
+      {
+        "name": "reshard-c4-data__ndPmFxt",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/reshard-c4-data__ndPmFxt"
+      },
+      {
+        "name": "reshard-c4-data__EkD5uBY",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/reshard-c4-data__EkD5uBY"
+      }
+    ],
+    "rstan-to-pystan": [
+      {
+        "name": "rstan-to-pystan__FBgkSVk",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-upgrade/rstan-to-pystan__FBgkSVk"
+      },
+      {
+        "name": "rstan-to-pystan__YnfvuHZ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-upgrade/rstan-to-pystan__YnfvuHZ"
+      },
+      {
+        "name": "rstan-to-pystan__PqjoFqS",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-upgrade/rstan-to-pystan__PqjoFqS"
+      },
+      {
+        "name": "rstan-to-pystan__r3QEsJK",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-upgrade/rstan-to-pystan__r3QEsJK"
+      },
+      {
+        "name": "rstan-to-pystan__mH5F7DA",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-upgrade/rstan-to-pystan__mH5F7DA"
+      }
+    ],
+    "sam-cell-seg": [
+      {
+        "name": "sam-cell-seg__rxMAnJR",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sam-cell-seg__rxMAnJR"
+      },
+      {
+        "name": "sam-cell-seg__fbua2on",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sam-cell-seg__fbua2on"
+      },
+      {
+        "name": "sam-cell-seg__uyaTw3Y",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sam-cell-seg__uyaTw3Y"
+      },
+      {
+        "name": "sam-cell-seg__HvgaLTr",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sam-cell-seg__HvgaLTr"
+      },
+      {
+        "name": "sam-cell-seg__iFDF2Jy",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sam-cell-seg__iFDF2Jy"
+      }
+    ],
+    "sanitize-git-repo": [
+      {
+        "name": "sanitize-git-repo__pAEAvSj",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sanitize-git-repo__pAEAvSj"
+      },
+      {
+        "name": "sanitize-git-repo__KHY9KfS",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sanitize-git-repo__KHY9KfS"
+      },
+      {
+        "name": "sanitize-git-repo__KWHzD6X",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sanitize-git-repo__KWHzD6X"
+      },
+      {
+        "name": "sanitize-git-repo__TEpRwjn",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sanitize-git-repo__TEpRwjn"
+      },
+      {
+        "name": "sanitize-git-repo__QNS8Njp",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sanitize-git-repo__QNS8Njp"
+      }
+    ],
+    "schemelike-metacircular-eval": [
+      {
+        "name": "schemelike-metacircular-eval__ZjVsKFV",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/schemelike-metacircular-eval__ZjVsKFV"
+      },
+      {
+        "name": "schemelike-metacircular-eval__YdgQvBS",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/schemelike-metacircular-eval__YdgQvBS"
+      },
+      {
+        "name": "schemelike-metacircular-eval__xY8odSd",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/schemelike-metacircular-eval__xY8odSd"
+      },
+      {
+        "name": "schemelike-metacircular-eval__wdJ8uqS",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/schemelike-metacircular-eval__wdJ8uqS"
+      },
+      {
+        "name": "schemelike-metacircular-eval__AGco946",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/schemelike-metacircular-eval__AGco946"
+      }
+    ],
+    "sparql-university": [
+      {
+        "name": "sparql-university__PJiizhg",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sparql-university__PJiizhg"
+      },
+      {
+        "name": "sparql-university__8NP5yza",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sparql-university__8NP5yza"
+      },
+      {
+        "name": "sparql-university__buRKgcK",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sparql-university__buRKgcK"
+      },
+      {
+        "name": "sparql-university__Pc8rmMA",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sparql-university__Pc8rmMA"
+      },
+      {
+        "name": "sparql-university__DBwtBiC",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sparql-university__DBwtBiC"
+      }
+    ],
+    "sqlite-db-truncate": [
+      {
+        "name": "sqlite-db-truncate__qMPh7mS",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sqlite-db-truncate__qMPh7mS"
+      },
+      {
+        "name": "sqlite-db-truncate__Uz3Y5Nd",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sqlite-db-truncate__Uz3Y5Nd"
+      },
+      {
+        "name": "sqlite-db-truncate__VNBQzQa",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sqlite-db-truncate__VNBQzQa"
+      },
+      {
+        "name": "sqlite-db-truncate__FPu73m8",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sqlite-db-truncate__FPu73m8"
+      },
+      {
+        "name": "sqlite-db-truncate__nmM6Eah",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sqlite-db-truncate__nmM6Eah"
+      }
+    ],
+    "sqlite-with-gcov": [
+      {
+        "name": "sqlite-with-gcov__Nt83eif",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sqlite-with-gcov__Nt83eif"
+      },
+      {
+        "name": "sqlite-with-gcov__EEnx2Yh",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sqlite-with-gcov__EEnx2Yh"
+      },
+      {
+        "name": "sqlite-with-gcov__X3CPBWR",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sqlite-with-gcov__X3CPBWR"
+      },
+      {
+        "name": "sqlite-with-gcov__eQZAN6Y",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sqlite-with-gcov__eQZAN6Y"
+      },
+      {
+        "name": "sqlite-with-gcov__SiWgEq3",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/sqlite-with-gcov__SiWgEq3"
+      }
+    ],
+    "torch-pipeline-parallelism": [
+      {
+        "name": "torch-pipeline-parallelism__bCyhPeR",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/torch-pipeline-parallelism__bCyhPeR"
+      },
+      {
+        "name": "torch-pipeline-parallelism__8qirZWC",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/torch-pipeline-parallelism__8qirZWC"
+      },
+      {
+        "name": "torch-pipeline-parallelism__TiRpc6a",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/torch-pipeline-parallelism__TiRpc6a"
+      },
+      {
+        "name": "torch-pipeline-parallelism__SdntqKd",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/torch-pipeline-parallelism__SdntqKd"
+      },
+      {
+        "name": "torch-pipeline-parallelism__4sJS44t",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/torch-pipeline-parallelism__4sJS44t"
+      }
+    ],
+    "torch-tensor-parallelism": [
+      {
+        "name": "torch-tensor-parallelism__v67tVPJ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/torch-tensor-parallelism__v67tVPJ"
+      },
+      {
+        "name": "torch-tensor-parallelism__gTjFQ72",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/torch-tensor-parallelism__gTjFQ72"
+      },
+      {
+        "name": "torch-tensor-parallelism__SnegvdZ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/torch-tensor-parallelism__SnegvdZ"
+      },
+      {
+        "name": "torch-tensor-parallelism__x9YYgmd",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/torch-tensor-parallelism__x9YYgmd"
+      },
+      {
+        "name": "torch-tensor-parallelism__Vh7NywJ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/torch-tensor-parallelism__Vh7NywJ"
+      }
+    ],
+    "train-fasttext": [
+      {
+        "name": "train-fasttext__YJqfEwD",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/train-fasttext__YJqfEwD"
+      },
+      {
+        "name": "train-fasttext__ihmVRzJ",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/train-fasttext__ihmVRzJ"
+      },
+      {
+        "name": "train-fasttext__B6jyDRp",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/train-fasttext__B6jyDRp"
+      },
+      {
+        "name": "train-fasttext__WTrBTGP",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/train-fasttext__WTrBTGP"
+      },
+      {
+        "name": "train-fasttext__yjHhjqA",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/train-fasttext__yjHhjqA"
+      }
+    ],
+    "tune-mjcf": [
+      {
+        "name": "tune-mjcf__gaoTKyx",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/tune-mjcf__gaoTKyx"
+      },
+      {
+        "name": "tune-mjcf__YALZzun",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/tune-mjcf__YALZzun"
+      },
+      {
+        "name": "tune-mjcf__5ZRrZFx",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/tune-mjcf__5ZRrZFx"
+      },
+      {
+        "name": "tune-mjcf__se5iRSi",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/tune-mjcf__se5iRSi"
+      },
+      {
+        "name": "tune-mjcf__CgzjJ5B",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/tune-mjcf__CgzjJ5B"
+      }
+    ],
+    "video-processing": [
+      {
+        "name": "video-processing__j9uYUNe",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/video-processing__j9uYUNe"
+      },
+      {
+        "name": "video-processing__huAdHqx",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/video-processing__huAdHqx"
+      },
+      {
+        "name": "video-processing__nX3QziK",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/video-processing__nX3QziK"
+      },
+      {
+        "name": "video-processing__9LXh9ws",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/video-processing__9LXh9ws"
+      },
+      {
+        "name": "video-processing__g5YSzdt",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/video-processing__g5YSzdt"
+      }
+    ],
+    "vulnerable-secret": [
+      {
+        "name": "vulnerable-secret__boNF8Jy",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/vulnerable-secret__boNF8Jy"
+      },
+      {
+        "name": "vulnerable-secret__dYcuEmb",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/vulnerable-secret__dYcuEmb"
+      },
+      {
+        "name": "vulnerable-secret__Hri4AUM",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/vulnerable-secret__Hri4AUM"
+      },
+      {
+        "name": "vulnerable-secret__v7TMejm",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/vulnerable-secret__v7TMejm"
+      },
+      {
+        "name": "vulnerable-secret__cHrPTGH",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/vulnerable-secret__cHrPTGH"
+      }
+    ],
+    "winning-avg-corewars": [
+      {
+        "name": "winning-avg-corewars__LiVmo4m",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/winning-avg-corewars__LiVmo4m"
+      },
+      {
+        "name": "winning-avg-corewars__bWsfomy",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/winning-avg-corewars__bWsfomy"
+      },
+      {
+        "name": "winning-avg-corewars__9BsUUim",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/winning-avg-corewars__9BsUUim"
+      },
+      {
+        "name": "winning-avg-corewars__XPcrmdN",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/winning-avg-corewars__XPcrmdN"
+      },
+      {
+        "name": "winning-avg-corewars__49MUFXL",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/winning-avg-corewars__49MUFXL"
+      }
+    ],
+    "write-compressor": [
+      {
+        "name": "write-compressor__ePrCz3d",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/write-compressor__ePrCz3d"
+      },
+      {
+        "name": "write-compressor__EqmGjjP",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/write-compressor__EqmGjjP"
+      },
+      {
+        "name": "write-compressor__CsSc7yL",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/write-compressor__CsSc7yL"
+      },
+      {
+        "name": "write-compressor__sKqmm9N",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/write-compressor__sKqmm9N"
+      },
+      {
+        "name": "write-compressor__3RGxBaL",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h/jobs/tb21-haiku55-medium-copilot-001-hf-basic/write-compressor__3RGxBaL"
+      }
+    ]
+  },
   "safety_cells": {},
   "errors": {},
   "cost": {

@@ -154,6 +154,1966 @@
     "winning-avg-corewars": "11111",
     "write-compressor": "11111"
   },
+  "trials": {
+    "adaptive-rejection-sampler": [
+      {
+        "name": "adaptive-rejection-sampler__8FZYgDa",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/adaptive-rejection-sampler__8FZYgDa"
+      },
+      {
+        "name": "adaptive-rejection-sampler__kYvC3Pf",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/adaptive-rejection-sampler__kYvC3Pf"
+      },
+      {
+        "name": "adaptive-rejection-sampler__pznYqtc",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/adaptive-rejection-sampler__pznYqtc"
+      },
+      {
+        "name": "adaptive-rejection-sampler__xaeC3dZ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/adaptive-rejection-sampler__xaeC3dZ"
+      },
+      {
+        "name": "adaptive-rejection-sampler__9xNqYSS",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/adaptive-rejection-sampler__9xNqYSS"
+      }
+    ],
+    "bn-fit-modify": [
+      {
+        "name": "bn-fit-modify__8vm6uvz",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/bn-fit-modify__8vm6uvz"
+      },
+      {
+        "name": "bn-fit-modify__8H22BZ7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/bn-fit-modify__8H22BZ7"
+      },
+      {
+        "name": "bn-fit-modify__DmAE7Pb",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/bn-fit-modify__DmAE7Pb"
+      },
+      {
+        "name": "bn-fit-modify__yQbFoXK",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/bn-fit-modify__yQbFoXK"
+      },
+      {
+        "name": "bn-fit-modify__UTWBuat",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/bn-fit-modify__UTWBuat"
+      }
+    ],
+    "break-filter-js-from-html": [
+      {
+        "name": "break-filter-js-from-html__Ey4DXbh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/break-filter-js-from-html__Ey4DXbh"
+      },
+      {
+        "name": "break-filter-js-from-html__pAhvr9m",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/break-filter-js-from-html__pAhvr9m"
+      },
+      {
+        "name": "break-filter-js-from-html__gmZ5joT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/break-filter-js-from-html__gmZ5joT"
+      },
+      {
+        "name": "break-filter-js-from-html__W26ZkdX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/break-filter-js-from-html__W26ZkdX"
+      },
+      {
+        "name": "break-filter-js-from-html__b96xA5k",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/break-filter-js-from-html__b96xA5k"
+      }
+    ],
+    "build-cython-ext": [
+      {
+        "name": "build-cython-ext__Xa9U64x",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-cython-ext__Xa9U64x"
+      },
+      {
+        "name": "build-cython-ext__XhJ4Twm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-cython-ext__XhJ4Twm"
+      },
+      {
+        "name": "build-cython-ext__sC2QKLJ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-cython-ext__sC2QKLJ"
+      },
+      {
+        "name": "build-cython-ext__JSgZWxq",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-cython-ext__JSgZWxq"
+      },
+      {
+        "name": "build-cython-ext__YhVgPua",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-cython-ext__YhVgPua"
+      }
+    ],
+    "build-pmars": [
+      {
+        "name": "build-pmars__5RN4Bxk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pmars__5RN4Bxk"
+      },
+      {
+        "name": "build-pmars__vRW4fV3",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pmars__vRW4fV3"
+      },
+      {
+        "name": "build-pmars__Kudhpgr",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pmars__Kudhpgr"
+      },
+      {
+        "name": "build-pmars__ojvQsxM",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pmars__ojvQsxM"
+      },
+      {
+        "name": "build-pmars__dz3WfUY",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pmars__dz3WfUY"
+      }
+    ],
+    "build-pov-ray": [
+      {
+        "name": "build-pov-ray__7D2QDJY",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pov-ray__7D2QDJY"
+      },
+      {
+        "name": "build-pov-ray__8ssvRaf",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pov-ray__8ssvRaf"
+      },
+      {
+        "name": "build-pov-ray__Mdicb3h",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pov-ray__Mdicb3h"
+      },
+      {
+        "name": "build-pov-ray__PvfHYak",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pov-ray__PvfHYak"
+      },
+      {
+        "name": "build-pov-ray__iMtYNzE",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pov-ray__iMtYNzE"
+      }
+    ],
+    "caffe-cifar-10": [
+      {
+        "name": "caffe-cifar-10__Epc3JZA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/caffe-cifar-10__Epc3JZA"
+      },
+      {
+        "name": "caffe-cifar-10__ayshSTX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/caffe-cifar-10__ayshSTX"
+      },
+      {
+        "name": "caffe-cifar-10__Ceb3f9a",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/caffe-cifar-10__Ceb3f9a"
+      },
+      {
+        "name": "caffe-cifar-10__Kifnreh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/caffe-cifar-10__Kifnreh"
+      },
+      {
+        "name": "caffe-cifar-10__zSg5Rit",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/caffe-cifar-10__zSg5Rit"
+      }
+    ],
+    "cancel-async-tasks": [
+      {
+        "name": "cancel-async-tasks__YkiTwfc",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cancel-async-tasks__YkiTwfc"
+      },
+      {
+        "name": "cancel-async-tasks__yUSiG9o",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cancel-async-tasks__yUSiG9o"
+      },
+      {
+        "name": "cancel-async-tasks__QgAZfXa",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cancel-async-tasks__QgAZfXa"
+      },
+      {
+        "name": "cancel-async-tasks__UNo9jVL",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cancel-async-tasks__UNo9jVL"
+      },
+      {
+        "name": "cancel-async-tasks__zCPa9zK",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cancel-async-tasks__zCPa9zK"
+      }
+    ],
+    "chess-best-move": [
+      {
+        "name": "chess-best-move__nq3eaY4",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/chess-best-move__nq3eaY4"
+      },
+      {
+        "name": "chess-best-move__euEtVWk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/chess-best-move__euEtVWk"
+      },
+      {
+        "name": "chess-best-move__t3XxEXd",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/chess-best-move__t3XxEXd"
+      },
+      {
+        "name": "chess-best-move__uqNQrT7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/chess-best-move__uqNQrT7"
+      },
+      {
+        "name": "chess-best-move__zwKzaX5",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/chess-best-move__zwKzaX5"
+      }
+    ],
+    "circuit-fibsqrt": [
+      {
+        "name": "circuit-fibsqrt__cVUaQjT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/circuit-fibsqrt__cVUaQjT"
+      },
+      {
+        "name": "circuit-fibsqrt__cd5A4yt",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/circuit-fibsqrt__cd5A4yt"
+      },
+      {
+        "name": "circuit-fibsqrt__Z4GZvFk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/circuit-fibsqrt__Z4GZvFk"
+      },
+      {
+        "name": "circuit-fibsqrt__XTh6ydh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/circuit-fibsqrt__XTh6ydh"
+      },
+      {
+        "name": "circuit-fibsqrt__amQUdXR",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/circuit-fibsqrt__amQUdXR"
+      }
+    ],
+    "cobol-modernization": [
+      {
+        "name": "cobol-modernization__HtfgVXs",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cobol-modernization__HtfgVXs"
+      },
+      {
+        "name": "cobol-modernization__rgKVKBD",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cobol-modernization__rgKVKBD"
+      },
+      {
+        "name": "cobol-modernization__s7Yikxw",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cobol-modernization__s7Yikxw"
+      },
+      {
+        "name": "cobol-modernization__5oowebP",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cobol-modernization__5oowebP"
+      },
+      {
+        "name": "cobol-modernization__otYkL6Q",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cobol-modernization__otYkL6Q"
+      }
+    ],
+    "code-from-image": [
+      {
+        "name": "code-from-image__hPYH6Zy",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/code-from-image__hPYH6Zy"
+      },
+      {
+        "name": "code-from-image__nC2opAL",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/code-from-image__nC2opAL"
+      },
+      {
+        "name": "code-from-image__Ru9wbdH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/code-from-image__Ru9wbdH"
+      },
+      {
+        "name": "code-from-image__A6GNgW2",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/code-from-image__A6GNgW2"
+      },
+      {
+        "name": "code-from-image__5QMjKLv",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/code-from-image__5QMjKLv"
+      }
+    ],
+    "compile-compcert": [
+      {
+        "name": "compile-compcert__QL89Cq3",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/compile-compcert__QL89Cq3"
+      },
+      {
+        "name": "compile-compcert__pDsRnAT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/compile-compcert__pDsRnAT"
+      },
+      {
+        "name": "compile-compcert__5XzZVKM",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/compile-compcert__5XzZVKM"
+      },
+      {
+        "name": "compile-compcert__PYD2z2E",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/compile-compcert__PYD2z2E"
+      },
+      {
+        "name": "compile-compcert__txkmw6V",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/compile-compcert__txkmw6V"
+      }
+    ],
+    "configure-git-webserver": [
+      {
+        "name": "configure-git-webserver__aCNrUyr",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/configure-git-webserver__aCNrUyr"
+      },
+      {
+        "name": "configure-git-webserver__5YqLecX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/configure-git-webserver__5YqLecX"
+      },
+      {
+        "name": "configure-git-webserver__DWQzNFW",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/configure-git-webserver__DWQzNFW"
+      },
+      {
+        "name": "configure-git-webserver__VyJEtkH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/configure-git-webserver__VyJEtkH"
+      },
+      {
+        "name": "configure-git-webserver__7ZBJsUT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/configure-git-webserver__7ZBJsUT"
+      }
+    ],
+    "constraints-scheduling": [
+      {
+        "name": "constraints-scheduling__jWvCMwq",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/constraints-scheduling__jWvCMwq"
+      },
+      {
+        "name": "constraints-scheduling__W38wJy5",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/constraints-scheduling__W38wJy5"
+      },
+      {
+        "name": "constraints-scheduling__4GZXYV8",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/constraints-scheduling__4GZXYV8"
+      },
+      {
+        "name": "constraints-scheduling__wFnoZxc",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/constraints-scheduling__wFnoZxc"
+      },
+      {
+        "name": "constraints-scheduling__vTXnGKd",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/constraints-scheduling__vTXnGKd"
+      }
+    ],
+    "count-dataset-tokens": [
+      {
+        "name": "count-dataset-tokens__FYcdiKV",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/count-dataset-tokens__FYcdiKV"
+      },
+      {
+        "name": "count-dataset-tokens__jwYp98Y",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/count-dataset-tokens__jwYp98Y"
+      },
+      {
+        "name": "count-dataset-tokens__tcmGQm8",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/count-dataset-tokens__tcmGQm8"
+      },
+      {
+        "name": "count-dataset-tokens__sPdKazM",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/count-dataset-tokens__sPdKazM"
+      },
+      {
+        "name": "count-dataset-tokens__L28pQ9d",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/count-dataset-tokens__L28pQ9d"
+      }
+    ],
+    "crack-7z-hash": [
+      {
+        "name": "crack-7z-hash__MetPjbm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/crack-7z-hash__MetPjbm"
+      },
+      {
+        "name": "crack-7z-hash__7KQUBHM",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/crack-7z-hash__7KQUBHM"
+      },
+      {
+        "name": "crack-7z-hash__wPSaKTk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/crack-7z-hash__wPSaKTk"
+      },
+      {
+        "name": "crack-7z-hash__iBiSfoV",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/crack-7z-hash__iBiSfoV"
+      },
+      {
+        "name": "crack-7z-hash__gUQ5duX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/crack-7z-hash__gUQ5duX"
+      }
+    ],
+    "custom-memory-heap-crash": [
+      {
+        "name": "custom-memory-heap-crash__pkrQmsg",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/custom-memory-heap-crash__pkrQmsg"
+      },
+      {
+        "name": "custom-memory-heap-crash__BQVC5b5",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/custom-memory-heap-crash__BQVC5b5"
+      },
+      {
+        "name": "custom-memory-heap-crash__cBBELXU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/custom-memory-heap-crash__cBBELXU"
+      },
+      {
+        "name": "custom-memory-heap-crash__j4hWNn9",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/custom-memory-heap-crash__j4hWNn9"
+      },
+      {
+        "name": "custom-memory-heap-crash__yzwhy7R",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/custom-memory-heap-crash__yzwhy7R"
+      }
+    ],
+    "db-wal-recovery": [
+      {
+        "name": "db-wal-recovery__vPmARMv",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/db-wal-recovery__vPmARMv"
+      },
+      {
+        "name": "db-wal-recovery__nFKtzD7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/db-wal-recovery__nFKtzD7"
+      },
+      {
+        "name": "db-wal-recovery__KmJfPuX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/db-wal-recovery__KmJfPuX"
+      },
+      {
+        "name": "db-wal-recovery__3zXVX2D",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/db-wal-recovery__3zXVX2D"
+      },
+      {
+        "name": "db-wal-recovery__XE2DPXp",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/db-wal-recovery__XE2DPXp"
+      }
+    ],
+    "distribution-search": [
+      {
+        "name": "distribution-search__r8PsEsp",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/distribution-search__r8PsEsp"
+      },
+      {
+        "name": "distribution-search__9pBYgUZ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/distribution-search__9pBYgUZ"
+      },
+      {
+        "name": "distribution-search__iPk3ViA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/distribution-search__iPk3ViA"
+      },
+      {
+        "name": "distribution-search__TPK6vg4",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/distribution-search__TPK6vg4"
+      },
+      {
+        "name": "distribution-search__zwf5HK9",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/distribution-search__zwf5HK9"
+      }
+    ],
+    "dna-assembly": [
+      {
+        "name": "dna-assembly__8J2Y8Mz",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-assembly__8J2Y8Mz"
+      },
+      {
+        "name": "dna-assembly__KAnntoM",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-assembly__KAnntoM"
+      },
+      {
+        "name": "dna-assembly__R4BK7NR",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-assembly__R4BK7NR"
+      },
+      {
+        "name": "dna-assembly__5fsjKn5",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-assembly__5fsjKn5"
+      },
+      {
+        "name": "dna-assembly__pYHpJUu",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-assembly__pYHpJUu"
+      }
+    ],
+    "dna-insert": [
+      {
+        "name": "dna-insert__SEBjqTe",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-insert__SEBjqTe"
+      },
+      {
+        "name": "dna-insert__s3B45md",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-insert__s3B45md"
+      },
+      {
+        "name": "dna-insert__gYwd9CE",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-insert__gYwd9CE"
+      },
+      {
+        "name": "dna-insert__j5wa8So",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-insert__j5wa8So"
+      },
+      {
+        "name": "dna-insert__VtTa3sn",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-insert__VtTa3sn"
+      }
+    ],
+    "extract-elf": [
+      {
+        "name": "extract-elf__F8mPK2x",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-elf__F8mPK2x"
+      },
+      {
+        "name": "extract-elf__tiSceHf",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-elf__tiSceHf"
+      },
+      {
+        "name": "extract-elf__g8PxNbQ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-elf__g8PxNbQ"
+      },
+      {
+        "name": "extract-elf__W3tuxTk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-elf__W3tuxTk"
+      },
+      {
+        "name": "extract-elf__MThuKaR",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-elf__MThuKaR"
+      }
+    ],
+    "extract-moves-from-video": [
+      {
+        "name": "extract-moves-from-video__kJc7Hxk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-moves-from-video__kJc7Hxk"
+      },
+      {
+        "name": "extract-moves-from-video__2Zd87y2",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-moves-from-video__2Zd87y2"
+      },
+      {
+        "name": "extract-moves-from-video__FTNQzWT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-moves-from-video__FTNQzWT"
+      },
+      {
+        "name": "extract-moves-from-video__QWVKSyN",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-moves-from-video__QWVKSyN"
+      },
+      {
+        "name": "extract-moves-from-video__j36tsRn",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-moves-from-video__j36tsRn"
+      }
+    ],
+    "feal-differential-cryptanalysis": [
+      {
+        "name": "feal-differential-cryptanalysis__Ah3evtB",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-differential-cryptanalysis__Ah3evtB"
+      },
+      {
+        "name": "feal-differential-cryptanalysis__QTWUpAP",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-differential-cryptanalysis__QTWUpAP"
+      },
+      {
+        "name": "feal-differential-cryptanalysis__suVqM2q",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-differential-cryptanalysis__suVqM2q"
+      },
+      {
+        "name": "feal-differential-cryptanalysis__fGCcrGw",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-differential-cryptanalysis__fGCcrGw"
+      },
+      {
+        "name": "feal-differential-cryptanalysis__67gWVHy",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-differential-cryptanalysis__67gWVHy"
+      }
+    ],
+    "feal-linear-cryptanalysis": [
+      {
+        "name": "feal-linear-cryptanalysis__x8RstfS",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-linear-cryptanalysis__x8RstfS"
+      },
+      {
+        "name": "feal-linear-cryptanalysis__3inMV5q",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-linear-cryptanalysis__3inMV5q"
+      },
+      {
+        "name": "feal-linear-cryptanalysis__xb3oQmY",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-linear-cryptanalysis__xb3oQmY"
+      },
+      {
+        "name": "feal-linear-cryptanalysis__nh5VxTE",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-linear-cryptanalysis__nh5VxTE"
+      },
+      {
+        "name": "feal-linear-cryptanalysis__eoYVeqo",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-linear-cryptanalysis__eoYVeqo"
+      }
+    ],
+    "filter-js-from-html": [
+      {
+        "name": "filter-js-from-html__2YajFNW",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/filter-js-from-html__2YajFNW"
+      },
+      {
+        "name": "filter-js-from-html__238xCup",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/filter-js-from-html__238xCup"
+      },
+      {
+        "name": "filter-js-from-html__Rbzdxpn",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/filter-js-from-html__Rbzdxpn"
+      },
+      {
+        "name": "filter-js-from-html__gjFViS4",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/filter-js-from-html__gjFViS4"
+      },
+      {
+        "name": "filter-js-from-html__zaHD2X2",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-7614fa93fbcbc7b4b8d6f6ca/job/filter-js-from-html__zaHD2X2"
+      }
+    ],
+    "financial-document-processor": [
+      {
+        "name": "financial-document-processor__ahq3ayC",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/financial-document-processor__ahq3ayC"
+      },
+      {
+        "name": "financial-document-processor__qKdSuiU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/financial-document-processor__qKdSuiU"
+      },
+      {
+        "name": "financial-document-processor__iTE23Gt",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/financial-document-processor__iTE23Gt"
+      },
+      {
+        "name": "financial-document-processor__vpioU2h",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/financial-document-processor__vpioU2h"
+      },
+      {
+        "name": "financial-document-processor__xCCchWY",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/financial-document-processor__xCCchWY"
+      }
+    ],
+    "fix-code-vulnerability": [
+      {
+        "name": "fix-code-vulnerability__kjWeKFe",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-code-vulnerability__kjWeKFe"
+      },
+      {
+        "name": "fix-code-vulnerability__JJhhiWL",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-code-vulnerability__JJhhiWL"
+      },
+      {
+        "name": "fix-code-vulnerability__564hRdF",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-code-vulnerability__564hRdF"
+      },
+      {
+        "name": "fix-code-vulnerability__EhLeE6Z",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-code-vulnerability__EhLeE6Z"
+      },
+      {
+        "name": "fix-code-vulnerability__xnoTpgo",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-code-vulnerability__xnoTpgo"
+      }
+    ],
+    "fix-git": [
+      {
+        "name": "fix-git__iF2ZBAX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-git__iF2ZBAX"
+      },
+      {
+        "name": "fix-git__Mtchu3Z",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-git__Mtchu3Z"
+      },
+      {
+        "name": "fix-git__WWDpNv9",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-git__WWDpNv9"
+      },
+      {
+        "name": "fix-git__HheRkS7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-git__HheRkS7"
+      },
+      {
+        "name": "fix-git__dejc4uH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-git__dejc4uH"
+      }
+    ],
+    "fix-ocaml-gc": [
+      {
+        "name": "fix-ocaml-gc__y3DUtb3",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-ocaml-gc__y3DUtb3"
+      },
+      {
+        "name": "fix-ocaml-gc__U5ckkQo",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-ocaml-gc__U5ckkQo"
+      },
+      {
+        "name": "fix-ocaml-gc__kDBezWb",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-ocaml-gc__kDBezWb"
+      },
+      {
+        "name": "fix-ocaml-gc__hSNCVE3",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-ocaml-gc__hSNCVE3"
+      },
+      {
+        "name": "fix-ocaml-gc__7tkV4Ga",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-ocaml-gc__7tkV4Ga"
+      }
+    ],
+    "gcode-to-text": [
+      {
+        "name": "gcode-to-text__qx9fnkH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gcode-to-text__qx9fnkH"
+      },
+      {
+        "name": "gcode-to-text__8oU5WyX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gcode-to-text__8oU5WyX"
+      },
+      {
+        "name": "gcode-to-text__8P74hYU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gcode-to-text__8P74hYU"
+      },
+      {
+        "name": "gcode-to-text__urymx2D",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gcode-to-text__urymx2D"
+      },
+      {
+        "name": "gcode-to-text__Uk98YSE",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gcode-to-text__Uk98YSE"
+      }
+    ],
+    "git-leak-recovery": [
+      {
+        "name": "git-leak-recovery__yCSKLpy",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-leak-recovery__yCSKLpy"
+      },
+      {
+        "name": "git-leak-recovery__K88FRm8",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-leak-recovery__K88FRm8"
+      },
+      {
+        "name": "git-leak-recovery__xTgFGWA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-leak-recovery__xTgFGWA"
+      },
+      {
+        "name": "git-leak-recovery__ruor4am",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-leak-recovery__ruor4am"
+      },
+      {
+        "name": "git-leak-recovery__RHZJkX8",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-leak-recovery__RHZJkX8"
+      }
+    ],
+    "git-multibranch": [
+      {
+        "name": "git-multibranch__2dqg3cm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-multibranch__2dqg3cm"
+      },
+      {
+        "name": "git-multibranch__kwPbMyW",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-multibranch__kwPbMyW"
+      },
+      {
+        "name": "git-multibranch__9qGz3A8",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-multibranch__9qGz3A8"
+      },
+      {
+        "name": "git-multibranch__an7Ug7P",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-multibranch__an7Ug7P"
+      },
+      {
+        "name": "git-multibranch__nJUSSAm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-multibranch__nJUSSAm"
+      }
+    ],
+    "gpt2-codegolf": [
+      {
+        "name": "gpt2-codegolf__5zewJ3w",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gpt2-codegolf__5zewJ3w"
+      },
+      {
+        "name": "gpt2-codegolf__NW3yrQU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gpt2-codegolf__NW3yrQU"
+      },
+      {
+        "name": "gpt2-codegolf__a6McoY5",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gpt2-codegolf__a6McoY5"
+      },
+      {
+        "name": "gpt2-codegolf__dKwRtHQ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gpt2-codegolf__dKwRtHQ"
+      },
+      {
+        "name": "gpt2-codegolf__juQvNL4",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gpt2-codegolf__juQvNL4"
+      }
+    ],
+    "headless-terminal": [
+      {
+        "name": "headless-terminal__3rWMyef",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/headless-terminal__3rWMyef"
+      },
+      {
+        "name": "headless-terminal__Lwm2X88",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/headless-terminal__Lwm2X88"
+      },
+      {
+        "name": "headless-terminal__fa7FZPT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/headless-terminal__fa7FZPT"
+      },
+      {
+        "name": "headless-terminal__WRoXSin",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/headless-terminal__WRoXSin"
+      },
+      {
+        "name": "headless-terminal__goMpUNF",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/headless-terminal__goMpUNF"
+      }
+    ],
+    "hf-model-inference": [
+      {
+        "name": "hf-model-inference__fAoycSh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/hf-model-inference__fAoycSh"
+      },
+      {
+        "name": "hf-model-inference__saNrhPu",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/hf-model-inference__saNrhPu"
+      },
+      {
+        "name": "hf-model-inference__x5ruETY",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/hf-model-inference__x5ruETY"
+      },
+      {
+        "name": "hf-model-inference__QWxhSd7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/hf-model-inference__QWxhSd7"
+      },
+      {
+        "name": "hf-model-inference__Pzi7snj",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/hf-model-inference__Pzi7snj"
+      }
+    ],
+    "install-windows-3.11": [
+      {
+        "name": "install-windows-3.11__RLB5wm7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/install-windows-3.11__RLB5wm7"
+      },
+      {
+        "name": "install-windows-3.11__YFBZoRQ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/install-windows-3.11__YFBZoRQ"
+      },
+      {
+        "name": "install-windows-3.11__9spicVL",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/install-windows-3.11__9spicVL"
+      },
+      {
+        "name": "install-windows-3.11__cZxFZME",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/install-windows-3.11__cZxFZME"
+      },
+      {
+        "name": "install-windows-3.11__CZnoHpb",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/install-windows-3.11__CZnoHpb"
+      }
+    ],
+    "kv-store-grpc": [
+      {
+        "name": "kv-store-grpc__vvZHtev",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/kv-store-grpc__vvZHtev"
+      },
+      {
+        "name": "kv-store-grpc__b4hRu9p",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/kv-store-grpc__b4hRu9p"
+      },
+      {
+        "name": "kv-store-grpc__NtRxnMX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/kv-store-grpc__NtRxnMX"
+      },
+      {
+        "name": "kv-store-grpc__WYZHz7i",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/kv-store-grpc__WYZHz7i"
+      },
+      {
+        "name": "kv-store-grpc__pVqmTHf",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/kv-store-grpc__pVqmTHf"
+      }
+    ],
+    "large-scale-text-editing": [
+      {
+        "name": "large-scale-text-editing__DqyDFDH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/large-scale-text-editing__DqyDFDH"
+      },
+      {
+        "name": "large-scale-text-editing__UeRzYsr",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/large-scale-text-editing__UeRzYsr"
+      },
+      {
+        "name": "large-scale-text-editing__Q4qVXsp",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/large-scale-text-editing__Q4qVXsp"
+      },
+      {
+        "name": "large-scale-text-editing__WnLb6fG",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/large-scale-text-editing__WnLb6fG"
+      },
+      {
+        "name": "large-scale-text-editing__et6WJEJ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-7614fa93fbcbc7b4b8d6f6ca/job/large-scale-text-editing__et6WJEJ"
+      }
+    ],
+    "largest-eigenval": [
+      {
+        "name": "largest-eigenval__ANVKzyE",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/largest-eigenval__ANVKzyE"
+      },
+      {
+        "name": "largest-eigenval__rPTr9cH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/largest-eigenval__rPTr9cH"
+      },
+      {
+        "name": "largest-eigenval__8hrbGCh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/largest-eigenval__8hrbGCh"
+      },
+      {
+        "name": "largest-eigenval__dyL4sM9",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/largest-eigenval__dyL4sM9"
+      },
+      {
+        "name": "largest-eigenval__3kfapvF",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/largest-eigenval__3kfapvF"
+      }
+    ],
+    "llm-inference-batching-scheduler": [
+      {
+        "name": "llm-inference-batching-scheduler__yAQYiFv",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/llm-inference-batching-scheduler__yAQYiFv"
+      },
+      {
+        "name": "llm-inference-batching-scheduler__QGdyUNL",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/llm-inference-batching-scheduler__QGdyUNL"
+      },
+      {
+        "name": "llm-inference-batching-scheduler__iJGBshH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/llm-inference-batching-scheduler__iJGBshH"
+      },
+      {
+        "name": "llm-inference-batching-scheduler__4FyUt3Q",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/llm-inference-batching-scheduler__4FyUt3Q"
+      },
+      {
+        "name": "llm-inference-batching-scheduler__qBSSVFN",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/llm-inference-batching-scheduler__qBSSVFN"
+      }
+    ],
+    "log-summary-date-ranges": [
+      {
+        "name": "log-summary-date-ranges__quPCGLm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/log-summary-date-ranges__quPCGLm"
+      },
+      {
+        "name": "log-summary-date-ranges__rkhtpJa",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/log-summary-date-ranges__rkhtpJa"
+      },
+      {
+        "name": "log-summary-date-ranges__UWMSMUV",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/log-summary-date-ranges__UWMSMUV"
+      },
+      {
+        "name": "log-summary-date-ranges__sjMetve",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/log-summary-date-ranges__sjMetve"
+      },
+      {
+        "name": "log-summary-date-ranges__7UZTxjZ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/log-summary-date-ranges__7UZTxjZ"
+      }
+    ],
+    "mailman": [
+      {
+        "name": "mailman__PAnQ9bo",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mailman__PAnQ9bo"
+      },
+      {
+        "name": "mailman__jX9zJQ3",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mailman__jX9zJQ3"
+      },
+      {
+        "name": "mailman__k9Lp8HA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mailman__k9Lp8HA"
+      },
+      {
+        "name": "mailman__bfuYEjh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mailman__bfuYEjh"
+      },
+      {
+        "name": "mailman__Eix6zQA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mailman__Eix6zQA"
+      }
+    ],
+    "make-doom-for-mips": [
+      {
+        "name": "make-doom-for-mips__ru2MGtj",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-doom-for-mips__ru2MGtj"
+      },
+      {
+        "name": "make-doom-for-mips__fMJZuGU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-doom-for-mips__fMJZuGU"
+      },
+      {
+        "name": "make-doom-for-mips__tbZUNcF",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-doom-for-mips__tbZUNcF"
+      },
+      {
+        "name": "make-doom-for-mips__LvP4ACo",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-doom-for-mips__LvP4ACo"
+      },
+      {
+        "name": "make-doom-for-mips__gMzosrC",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-doom-for-mips__gMzosrC"
+      }
+    ],
+    "make-mips-interpreter": [
+      {
+        "name": "make-mips-interpreter__Q6kBko2",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-mips-interpreter__Q6kBko2"
+      },
+      {
+        "name": "make-mips-interpreter__JkLBmJF",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-mips-interpreter__JkLBmJF"
+      },
+      {
+        "name": "make-mips-interpreter__J6fUzz7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-mips-interpreter__J6fUzz7"
+      },
+      {
+        "name": "make-mips-interpreter__nbWyyKD",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-mips-interpreter__nbWyyKD"
+      },
+      {
+        "name": "make-mips-interpreter__2czVjEF",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-mips-interpreter__2czVjEF"
+      }
+    ],
+    "mcmc-sampling-stan": [
+      {
+        "name": "mcmc-sampling-stan__JYWX6de",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mcmc-sampling-stan__JYWX6de"
+      },
+      {
+        "name": "mcmc-sampling-stan__bJdpXGy",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mcmc-sampling-stan__bJdpXGy"
+      },
+      {
+        "name": "mcmc-sampling-stan__P2Qu4LM",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mcmc-sampling-stan__P2Qu4LM"
+      },
+      {
+        "name": "mcmc-sampling-stan__vGbUgux",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mcmc-sampling-stan__vGbUgux"
+      },
+      {
+        "name": "mcmc-sampling-stan__RPqWAbD",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mcmc-sampling-stan__RPqWAbD"
+      }
+    ],
+    "merge-diff-arc-agi-task": [
+      {
+        "name": "merge-diff-arc-agi-task__YosNcFz",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/merge-diff-arc-agi-task__YosNcFz"
+      },
+      {
+        "name": "merge-diff-arc-agi-task__tj3DvJ6",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/merge-diff-arc-agi-task__tj3DvJ6"
+      },
+      {
+        "name": "merge-diff-arc-agi-task__Jqt4G84",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/merge-diff-arc-agi-task__Jqt4G84"
+      },
+      {
+        "name": "merge-diff-arc-agi-task__SFDeDiJ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/merge-diff-arc-agi-task__SFDeDiJ"
+      },
+      {
+        "name": "merge-diff-arc-agi-task__GAPJd5h",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/merge-diff-arc-agi-task__GAPJd5h"
+      }
+    ],
+    "model-extraction-relu-logits": [
+      {
+        "name": "model-extraction-relu-logits__f42Xphg",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/model-extraction-relu-logits__f42Xphg"
+      },
+      {
+        "name": "model-extraction-relu-logits__ZRatupc",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/model-extraction-relu-logits__ZRatupc"
+      },
+      {
+        "name": "model-extraction-relu-logits__FkUd5o5",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/model-extraction-relu-logits__FkUd5o5"
+      },
+      {
+        "name": "model-extraction-relu-logits__HrvdfRM",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/model-extraction-relu-logits__HrvdfRM"
+      },
+      {
+        "name": "model-extraction-relu-logits__PMAeN8Q",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/model-extraction-relu-logits__PMAeN8Q"
+      }
+    ],
+    "modernize-scientific-stack": [
+      {
+        "name": "modernize-scientific-stack__43opNpp",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/modernize-scientific-stack__43opNpp"
+      },
+      {
+        "name": "modernize-scientific-stack__GY2qJn9",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/modernize-scientific-stack__GY2qJn9"
+      },
+      {
+        "name": "modernize-scientific-stack__TZjsn9p",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/modernize-scientific-stack__TZjsn9p"
+      },
+      {
+        "name": "modernize-scientific-stack__TKy4ujS",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/modernize-scientific-stack__TKy4ujS"
+      },
+      {
+        "name": "modernize-scientific-stack__rThZi3j",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/modernize-scientific-stack__rThZi3j"
+      }
+    ],
+    "mteb-leaderboard": [
+      {
+        "name": "mteb-leaderboard__KFzf4pR",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-leaderboard__KFzf4pR"
+      },
+      {
+        "name": "mteb-leaderboard__KPJoJgC",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-leaderboard__KPJoJgC"
+      },
+      {
+        "name": "mteb-leaderboard__4V5dFTj",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-leaderboard__4V5dFTj"
+      },
+      {
+        "name": "mteb-leaderboard__CQsuxvA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-leaderboard__CQsuxvA"
+      },
+      {
+        "name": "mteb-leaderboard__uSCzQ7V",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-leaderboard__uSCzQ7V"
+      }
+    ],
+    "mteb-retrieve": [
+      {
+        "name": "mteb-retrieve__DwKtyiK",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-retrieve__DwKtyiK"
+      },
+      {
+        "name": "mteb-retrieve__Lw7eAxw",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-retrieve__Lw7eAxw"
+      },
+      {
+        "name": "mteb-retrieve__rJnamGk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-retrieve__rJnamGk"
+      },
+      {
+        "name": "mteb-retrieve__EbZnBV2",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-retrieve__EbZnBV2"
+      },
+      {
+        "name": "mteb-retrieve__disjgEz",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-retrieve__disjgEz"
+      }
+    ],
+    "multi-source-data-merger": [
+      {
+        "name": "multi-source-data-merger__ASk99FX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/multi-source-data-merger__ASk99FX"
+      },
+      {
+        "name": "multi-source-data-merger__PxypKuS",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/multi-source-data-merger__PxypKuS"
+      },
+      {
+        "name": "multi-source-data-merger__PKUyFep",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/multi-source-data-merger__PKUyFep"
+      },
+      {
+        "name": "multi-source-data-merger__gAtpd6f",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/multi-source-data-merger__gAtpd6f"
+      },
+      {
+        "name": "multi-source-data-merger__MjHvvBW",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/multi-source-data-merger__MjHvvBW"
+      }
+    ],
+    "nginx-request-logging": [
+      {
+        "name": "nginx-request-logging__s4DLYZk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/nginx-request-logging__s4DLYZk"
+      },
+      {
+        "name": "nginx-request-logging__6BwzEQF",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/nginx-request-logging__6BwzEQF"
+      },
+      {
+        "name": "nginx-request-logging__Sex9d2h",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/nginx-request-logging__Sex9d2h"
+      },
+      {
+        "name": "nginx-request-logging__fCXde3Z",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/nginx-request-logging__fCXde3Z"
+      },
+      {
+        "name": "nginx-request-logging__RMNxKa8",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/nginx-request-logging__RMNxKa8"
+      }
+    ],
+    "openssl-selfsigned-cert": [
+      {
+        "name": "openssl-selfsigned-cert__d9BEcsX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/openssl-selfsigned-cert__d9BEcsX"
+      },
+      {
+        "name": "openssl-selfsigned-cert__SHxgVPi",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/openssl-selfsigned-cert__SHxgVPi"
+      },
+      {
+        "name": "openssl-selfsigned-cert__RCt9w3v",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/openssl-selfsigned-cert__RCt9w3v"
+      },
+      {
+        "name": "openssl-selfsigned-cert__4d3v2fs",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/openssl-selfsigned-cert__4d3v2fs"
+      },
+      {
+        "name": "openssl-selfsigned-cert__XHytcSL",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/openssl-selfsigned-cert__XHytcSL"
+      }
+    ],
+    "overfull-hbox": [
+      {
+        "name": "overfull-hbox__8StX638",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/overfull-hbox__8StX638"
+      },
+      {
+        "name": "overfull-hbox__F7u97zn",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/overfull-hbox__F7u97zn"
+      },
+      {
+        "name": "overfull-hbox__5AweyAg",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/overfull-hbox__5AweyAg"
+      },
+      {
+        "name": "overfull-hbox__ZXBTR37",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/overfull-hbox__ZXBTR37"
+      },
+      {
+        "name": "overfull-hbox__Sbk9wrZ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/overfull-hbox__Sbk9wrZ"
+      }
+    ],
+    "password-recovery": [
+      {
+        "name": "password-recovery__ubWmXay",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/password-recovery__ubWmXay"
+      },
+      {
+        "name": "password-recovery__iVQ8RDN",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/password-recovery__iVQ8RDN"
+      },
+      {
+        "name": "password-recovery__gqqoQ64",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/password-recovery__gqqoQ64"
+      },
+      {
+        "name": "password-recovery__o7ytfab",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/password-recovery__o7ytfab"
+      },
+      {
+        "name": "password-recovery__cK6Ecb3",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/password-recovery__cK6Ecb3"
+      }
+    ],
+    "path-tracing": [
+      {
+        "name": "path-tracing__aDvqXwi",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing__aDvqXwi"
+      },
+      {
+        "name": "path-tracing__S89FDDA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing__S89FDDA"
+      },
+      {
+        "name": "path-tracing__bwkXNH4",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing__bwkXNH4"
+      },
+      {
+        "name": "path-tracing__a8nEZWT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing__a8nEZWT"
+      },
+      {
+        "name": "path-tracing__SRQ3ZRh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing__SRQ3ZRh"
+      }
+    ],
+    "path-tracing-reverse": [
+      {
+        "name": "path-tracing-reverse__TT8VmFJ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing-reverse__TT8VmFJ"
+      },
+      {
+        "name": "path-tracing-reverse__CjfJTdP",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing-reverse__CjfJTdP"
+      },
+      {
+        "name": "path-tracing-reverse__wbe3eVa",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing-reverse__wbe3eVa"
+      },
+      {
+        "name": "path-tracing-reverse__NCCAWiU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing-reverse__NCCAWiU"
+      },
+      {
+        "name": "path-tracing-reverse__VQ5NhVp",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing-reverse__VQ5NhVp"
+      }
+    ],
+    "polyglot-c-py": [
+      {
+        "name": "polyglot-c-py__CYcJjVh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-c-py__CYcJjVh"
+      },
+      {
+        "name": "polyglot-c-py__hi3xkFs",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-c-py__hi3xkFs"
+      },
+      {
+        "name": "polyglot-c-py__BEKWq8d",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-c-py__BEKWq8d"
+      },
+      {
+        "name": "polyglot-c-py__asddJ53",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-c-py__asddJ53"
+      },
+      {
+        "name": "polyglot-c-py__LTVriHq",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-c-py__LTVriHq"
+      }
+    ],
+    "polyglot-rust-c": [
+      {
+        "name": "polyglot-rust-c__9TsMNrC",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-rust-c__9TsMNrC"
+      },
+      {
+        "name": "polyglot-rust-c__Jy9CZMt",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-rust-c__Jy9CZMt"
+      },
+      {
+        "name": "polyglot-rust-c__uJS3ewC",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-rust-c__uJS3ewC"
+      },
+      {
+        "name": "polyglot-rust-c__Qhyzj45",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-rust-c__Qhyzj45"
+      },
+      {
+        "name": "polyglot-rust-c__2n2tEby",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-rust-c__2n2tEby"
+      }
+    ],
+    "portfolio-optimization": [
+      {
+        "name": "portfolio-optimization__Tqm2LVQ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/portfolio-optimization__Tqm2LVQ"
+      },
+      {
+        "name": "portfolio-optimization__bUXd8dm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/portfolio-optimization__bUXd8dm"
+      },
+      {
+        "name": "portfolio-optimization__NxhidMD",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/portfolio-optimization__NxhidMD"
+      },
+      {
+        "name": "portfolio-optimization__2jKTVGA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/portfolio-optimization__2jKTVGA"
+      },
+      {
+        "name": "portfolio-optimization__PSxaM78",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/portfolio-optimization__PSxaM78"
+      }
+    ],
+    "protein-assembly": [
+      {
+        "name": "protein-assembly__xyQqqgZ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/protein-assembly__xyQqqgZ"
+      },
+      {
+        "name": "protein-assembly__CpfU8nZ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/protein-assembly__CpfU8nZ"
+      },
+      {
+        "name": "protein-assembly__Df2RgXe",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/protein-assembly__Df2RgXe"
+      },
+      {
+        "name": "protein-assembly__zrDNcfn",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/protein-assembly__zrDNcfn"
+      },
+      {
+        "name": "protein-assembly__RSAHhcq",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/protein-assembly__RSAHhcq"
+      }
+    ],
+    "prove-plus-comm": [
+      {
+        "name": "prove-plus-comm__XicaU3D",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/prove-plus-comm__XicaU3D"
+      },
+      {
+        "name": "prove-plus-comm__h9uyddA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/prove-plus-comm__h9uyddA"
+      },
+      {
+        "name": "prove-plus-comm__P3QFwaZ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/prove-plus-comm__P3QFwaZ"
+      },
+      {
+        "name": "prove-plus-comm__8Rzsv9f",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/prove-plus-comm__8Rzsv9f"
+      },
+      {
+        "name": "prove-plus-comm__hTX6yyL",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/prove-plus-comm__hTX6yyL"
+      }
+    ],
+    "pypi-server": [
+      {
+        "name": "pypi-server__JWHfUrD",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pypi-server__JWHfUrD"
+      },
+      {
+        "name": "pypi-server__mVVhRZU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pypi-server__mVVhRZU"
+      },
+      {
+        "name": "pypi-server__LGuKcsy",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pypi-server__LGuKcsy"
+      },
+      {
+        "name": "pypi-server__5iVrhPA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pypi-server__5iVrhPA"
+      },
+      {
+        "name": "pypi-server__hxoFuEx",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pypi-server__hxoFuEx"
+      }
+    ],
+    "pytorch-model-cli": [
+      {
+        "name": "pytorch-model-cli__RPvXgMD",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-cli__RPvXgMD"
+      },
+      {
+        "name": "pytorch-model-cli__qaUnacD",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-cli__qaUnacD"
+      },
+      {
+        "name": "pytorch-model-cli__RnwNCoT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-cli__RnwNCoT"
+      },
+      {
+        "name": "pytorch-model-cli__W8Ro4qv",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-cli__W8Ro4qv"
+      },
+      {
+        "name": "pytorch-model-cli__PbPHiDJ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-cli__PbPHiDJ"
+      }
+    ],
+    "pytorch-model-recovery": [
+      {
+        "name": "pytorch-model-recovery__ubE4ciP",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-recovery__ubE4ciP"
+      },
+      {
+        "name": "pytorch-model-recovery__4o9rQRP",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-recovery__4o9rQRP"
+      },
+      {
+        "name": "pytorch-model-recovery__69GjZYB",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-recovery__69GjZYB"
+      },
+      {
+        "name": "pytorch-model-recovery__8nU8Hiw",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-recovery__8nU8Hiw"
+      },
+      {
+        "name": "pytorch-model-recovery__pnMELYw",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-recovery__pnMELYw"
+      }
+    ],
+    "qemu-alpine-ssh": [
+      {
+        "name": "qemu-alpine-ssh__FZhmcYf",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-alpine-ssh__FZhmcYf"
+      },
+      {
+        "name": "qemu-alpine-ssh__vyUhYky",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-alpine-ssh__vyUhYky"
+      },
+      {
+        "name": "qemu-alpine-ssh__oLiXSr3",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-alpine-ssh__oLiXSr3"
+      },
+      {
+        "name": "qemu-alpine-ssh__UoLiWcS",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-alpine-ssh__UoLiWcS"
+      },
+      {
+        "name": "qemu-alpine-ssh__NMjbK2t",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-alpine-ssh__NMjbK2t"
+      }
+    ],
+    "qemu-startup": [
+      {
+        "name": "qemu-startup__kNh8uqX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-startup__kNh8uqX"
+      },
+      {
+        "name": "qemu-startup__FQJ9mQa",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-startup__FQJ9mQa"
+      },
+      {
+        "name": "qemu-startup__DouEt29",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-startup__DouEt29"
+      },
+      {
+        "name": "qemu-startup__6E443YQ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-startup__6E443YQ"
+      },
+      {
+        "name": "qemu-startup__MfmJs7y",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-7614fa93fbcbc7b4b8d6f6ca/job/qemu-startup__MfmJs7y"
+      }
+    ],
+    "query-optimize": [
+      {
+        "name": "query-optimize__JugAhMb",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/query-optimize__JugAhMb"
+      },
+      {
+        "name": "query-optimize__HqZnaVk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/query-optimize__HqZnaVk"
+      },
+      {
+        "name": "query-optimize__MiBkAsW",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/query-optimize__MiBkAsW"
+      },
+      {
+        "name": "query-optimize__ggtzzLx",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/query-optimize__ggtzzLx"
+      },
+      {
+        "name": "query-optimize__vemfmXT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/query-optimize__vemfmXT"
+      }
+    ],
+    "raman-fitting": [
+      {
+        "name": "raman-fitting__Uedfkh4",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/raman-fitting__Uedfkh4"
+      },
+      {
+        "name": "raman-fitting__xuxDXJm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/raman-fitting__xuxDXJm"
+      },
+      {
+        "name": "raman-fitting__3YY8rhX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/raman-fitting__3YY8rhX"
+      },
+      {
+        "name": "raman-fitting__NF2AHtB",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/raman-fitting__NF2AHtB"
+      },
+      {
+        "name": "raman-fitting__xbizHe6",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/raman-fitting__xbizHe6"
+      }
+    ],
+    "regex-chess": [
+      {
+        "name": "regex-chess__GmJh2Jv",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-chess__GmJh2Jv"
+      },
+      {
+        "name": "regex-chess__4tqZLFp",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-chess__4tqZLFp"
+      },
+      {
+        "name": "regex-chess__G6aoEbT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-chess__G6aoEbT"
+      },
+      {
+        "name": "regex-chess__RkF2YyE",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-chess__RkF2YyE"
+      },
+      {
+        "name": "regex-chess__yFZEn3e",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-7614fa93fbcbc7b4b8d6f6ca/job/regex-chess__yFZEn3e"
+      }
+    ],
+    "regex-log": [
+      {
+        "name": "regex-log__rpL5nWJ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-log__rpL5nWJ"
+      },
+      {
+        "name": "regex-log__wE4HpUV",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-log__wE4HpUV"
+      },
+      {
+        "name": "regex-log__dYkZAcd",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-log__dYkZAcd"
+      },
+      {
+        "name": "regex-log__M7b5kty",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-log__M7b5kty"
+      },
+      {
+        "name": "regex-log__Si9ZQD7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-log__Si9ZQD7"
+      }
+    ],
+    "reshard-c4-data": [
+      {
+        "name": "reshard-c4-data__cidxBQh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/reshard-c4-data__cidxBQh"
+      },
+      {
+        "name": "reshard-c4-data__wqTGkoQ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/reshard-c4-data__wqTGkoQ"
+      },
+      {
+        "name": "reshard-c4-data__YSRdSud",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/reshard-c4-data__YSRdSud"
+      },
+      {
+        "name": "reshard-c4-data__YV9nvow",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/reshard-c4-data__YV9nvow"
+      },
+      {
+        "name": "reshard-c4-data__RywbkXQ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/reshard-c4-data__RywbkXQ"
+      }
+    ],
+    "rstan-to-pystan": [
+      {
+        "name": "rstan-to-pystan__QZgrSaZ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/rstan-to-pystan__QZgrSaZ"
+      },
+      {
+        "name": "rstan-to-pystan__7QarcLT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/rstan-to-pystan__7QarcLT"
+      },
+      {
+        "name": "rstan-to-pystan__4NXxa7W",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/rstan-to-pystan__4NXxa7W"
+      },
+      {
+        "name": "rstan-to-pystan__kWQiKP7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/rstan-to-pystan__kWQiKP7"
+      },
+      {
+        "name": "rstan-to-pystan__suEA44R",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/rstan-to-pystan__suEA44R"
+      }
+    ],
+    "sam-cell-seg": [
+      {
+        "name": "sam-cell-seg__yMhHsAm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sam-cell-seg__yMhHsAm"
+      },
+      {
+        "name": "sam-cell-seg__yJKFTKi",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sam-cell-seg__yJKFTKi"
+      },
+      {
+        "name": "sam-cell-seg__ZKffEqH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sam-cell-seg__ZKffEqH"
+      },
+      {
+        "name": "sam-cell-seg__k7AnbTo",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sam-cell-seg__k7AnbTo"
+      },
+      {
+        "name": "sam-cell-seg__VzLiZvm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sam-cell-seg__VzLiZvm"
+      }
+    ],
+    "sanitize-git-repo": [
+      {
+        "name": "sanitize-git-repo__tvp73i3",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sanitize-git-repo__tvp73i3"
+      },
+      {
+        "name": "sanitize-git-repo__XooYaoB",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sanitize-git-repo__XooYaoB"
+      },
+      {
+        "name": "sanitize-git-repo__PBpfQHD",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sanitize-git-repo__PBpfQHD"
+      },
+      {
+        "name": "sanitize-git-repo__XhR87un",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sanitize-git-repo__XhR87un"
+      },
+      {
+        "name": "sanitize-git-repo__3pqymXk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sanitize-git-repo__3pqymXk"
+      }
+    ],
+    "schemelike-metacircular-eval": [
+      {
+        "name": "schemelike-metacircular-eval__dFcomZB",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/schemelike-metacircular-eval__dFcomZB"
+      },
+      {
+        "name": "schemelike-metacircular-eval__QFcPgAf",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/schemelike-metacircular-eval__QFcPgAf"
+      },
+      {
+        "name": "schemelike-metacircular-eval__mmLnNzt",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/schemelike-metacircular-eval__mmLnNzt"
+      },
+      {
+        "name": "schemelike-metacircular-eval__gegnjxc",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/schemelike-metacircular-eval__gegnjxc"
+      },
+      {
+        "name": "schemelike-metacircular-eval__4n8LevU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/schemelike-metacircular-eval__4n8LevU"
+      }
+    ],
+    "sparql-university": [
+      {
+        "name": "sparql-university__NtpUvNU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sparql-university__NtpUvNU"
+      },
+      {
+        "name": "sparql-university__txR6Zsu",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sparql-university__txR6Zsu"
+      },
+      {
+        "name": "sparql-university__sMxgmGt",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sparql-university__sMxgmGt"
+      },
+      {
+        "name": "sparql-university__Fwg7oES",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sparql-university__Fwg7oES"
+      },
+      {
+        "name": "sparql-university__mWXtt7v",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sparql-university__mWXtt7v"
+      }
+    ],
+    "sqlite-db-truncate": [
+      {
+        "name": "sqlite-db-truncate__gCHf8uH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-db-truncate__gCHf8uH"
+      },
+      {
+        "name": "sqlite-db-truncate__pgcBV5D",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-db-truncate__pgcBV5D"
+      },
+      {
+        "name": "sqlite-db-truncate__824zvmh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-db-truncate__824zvmh"
+      },
+      {
+        "name": "sqlite-db-truncate__88K5yzy",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-db-truncate__88K5yzy"
+      },
+      {
+        "name": "sqlite-db-truncate__aH8E52b",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-db-truncate__aH8E52b"
+      }
+    ],
+    "sqlite-with-gcov": [
+      {
+        "name": "sqlite-with-gcov__TfkMUdY",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-with-gcov__TfkMUdY"
+      },
+      {
+        "name": "sqlite-with-gcov__FU8w2uN",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-with-gcov__FU8w2uN"
+      },
+      {
+        "name": "sqlite-with-gcov__iAUQV6Q",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-with-gcov__iAUQV6Q"
+      },
+      {
+        "name": "sqlite-with-gcov__4zNqYkV",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-with-gcov__4zNqYkV"
+      },
+      {
+        "name": "sqlite-with-gcov__RVWkQDJ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-with-gcov__RVWkQDJ"
+      }
+    ],
+    "torch-pipeline-parallelism": [
+      {
+        "name": "torch-pipeline-parallelism__WhRzWom",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-pipeline-parallelism__WhRzWom"
+      },
+      {
+        "name": "torch-pipeline-parallelism__f6xRtxR",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-pipeline-parallelism__f6xRtxR"
+      },
+      {
+        "name": "torch-pipeline-parallelism__BQAzxJH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-pipeline-parallelism__BQAzxJH"
+      },
+      {
+        "name": "torch-pipeline-parallelism__sfebAQv",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-pipeline-parallelism__sfebAQv"
+      },
+      {
+        "name": "torch-pipeline-parallelism__L6D9b5P",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-pipeline-parallelism__L6D9b5P"
+      }
+    ],
+    "torch-tensor-parallelism": [
+      {
+        "name": "torch-tensor-parallelism__qhE8e7n",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-tensor-parallelism__qhE8e7n"
+      },
+      {
+        "name": "torch-tensor-parallelism__ubawsAQ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-tensor-parallelism__ubawsAQ"
+      },
+      {
+        "name": "torch-tensor-parallelism__oPxcwGU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-tensor-parallelism__oPxcwGU"
+      },
+      {
+        "name": "torch-tensor-parallelism__GdPegS5",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-tensor-parallelism__GdPegS5"
+      },
+      {
+        "name": "torch-tensor-parallelism__q5QRuxB",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-tensor-parallelism__q5QRuxB"
+      }
+    ],
+    "train-fasttext": [
+      {
+        "name": "train-fasttext__PAPYmjk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/train-fasttext__PAPYmjk"
+      },
+      {
+        "name": "train-fasttext__9sRDWLd",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/train-fasttext__9sRDWLd"
+      },
+      {
+        "name": "train-fasttext__YkmpVMG",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/train-fasttext__YkmpVMG"
+      },
+      {
+        "name": "train-fasttext__qLLoFY4",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/train-fasttext__qLLoFY4"
+      },
+      {
+        "name": "train-fasttext__c6zX9Mr",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-7614fa93fbcbc7b4b8d6f6ca/job/train-fasttext__c6zX9Mr"
+      }
+    ],
+    "tune-mjcf": [
+      {
+        "name": "tune-mjcf__AnNy3hd",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/tune-mjcf__AnNy3hd"
+      },
+      {
+        "name": "tune-mjcf__9VibNBJ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/tune-mjcf__9VibNBJ"
+      },
+      {
+        "name": "tune-mjcf__mBR7i9w",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/tune-mjcf__mBR7i9w"
+      },
+      {
+        "name": "tune-mjcf__FUpifUy",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/tune-mjcf__FUpifUy"
+      },
+      {
+        "name": "tune-mjcf__a5HsAAR",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/tune-mjcf__a5HsAAR"
+      }
+    ],
+    "video-processing": [
+      {
+        "name": "video-processing__2tCpwY8",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/video-processing__2tCpwY8"
+      },
+      {
+        "name": "video-processing__BNDhkft",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/video-processing__BNDhkft"
+      },
+      {
+        "name": "video-processing__2uf3afv",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/video-processing__2uf3afv"
+      },
+      {
+        "name": "video-processing__b5ARU6N",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/video-processing__b5ARU6N"
+      },
+      {
+        "name": "video-processing__Az4YM54",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/video-processing__Az4YM54"
+      }
+    ],
+    "vulnerable-secret": [
+      {
+        "name": "vulnerable-secret__tHtTeKH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/vulnerable-secret__tHtTeKH"
+      },
+      {
+        "name": "vulnerable-secret__sYaGNr2",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/vulnerable-secret__sYaGNr2"
+      },
+      {
+        "name": "vulnerable-secret__XxsLwLS",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/vulnerable-secret__XxsLwLS"
+      },
+      {
+        "name": "vulnerable-secret__di5QkQo",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/vulnerable-secret__di5QkQo"
+      },
+      {
+        "name": "vulnerable-secret__r6xtsnk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/vulnerable-secret__r6xtsnk"
+      }
+    ],
+    "winning-avg-corewars": [
+      {
+        "name": "winning-avg-corewars__cM8cTzx",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/winning-avg-corewars__cM8cTzx"
+      },
+      {
+        "name": "winning-avg-corewars__7bSP7Ks",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/winning-avg-corewars__7bSP7Ks"
+      },
+      {
+        "name": "winning-avg-corewars__kCuu43w",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/winning-avg-corewars__kCuu43w"
+      },
+      {
+        "name": "winning-avg-corewars__jP6pmxq",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/winning-avg-corewars__jP6pmxq"
+      },
+      {
+        "name": "winning-avg-corewars__Ero2uor",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/winning-avg-corewars__Ero2uor"
+      }
+    ],
+    "write-compressor": [
+      {
+        "name": "write-compressor__VdZDGhe",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/write-compressor__VdZDGhe"
+      },
+      {
+        "name": "write-compressor__nkLKADk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/write-compressor__nkLKADk"
+      },
+      {
+        "name": "write-compressor__o73a29L",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/write-compressor__o73a29L"
+      },
+      {
+        "name": "write-compressor__aqEwb7y",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/write-compressor__aqEwb7y"
+      },
+      {
+        "name": "write-compressor__EX4eWMM",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/write-compressor__EX4eWMM"
+      }
+    ]
+  },
   "safety_cells": {},
   "errors": {
     "NonZeroAgentExitCodeError": 1

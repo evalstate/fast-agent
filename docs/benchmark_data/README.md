@@ -114,6 +114,19 @@ after review). The generator emits `safety.refused` / `safety.reference` / `safe
 (`?safety=allow`) and labels it a scenario. A run with safety errors but no
 `safety_cells` stops the generator.
 
+## Review details (`moments/`)
+
+`fetch_runs.py --scan --moments` reruns each run's scan with atif-scan's `--highlights`
+(same inputs and options) and `moments.py` turns the export into `moments/<run>.json`:
+one card per pass with a high or critical finding and per review decision, with up to
+three findings and two masked excerpts each (said / ran / got at the matched step), led by
+the finding the decision cites. Cards link to the trial folder and the Hub's trace viewer
+in the public bucket (bucket runs only). `fetch_runs.py` records each task's trials in
+cell order (`trials`) for this. Excerpts are trace text: atif-scan masks secret shapes
+(best effort) and `moments.py` refuses token-shaped text; check the files against known
+credentials before committing. The generator copies them to `docs/benchmarks/moments/`;
+a run page loads its file when opened.
+
 ## Cell codes (`tasks`)
 
 One character per trial, ordered by `started_at`:

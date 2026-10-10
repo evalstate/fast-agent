@@ -158,6 +158,1966 @@
     "winning-avg-corewars": "11111",
     "write-compressor": "11111"
   },
+  "trials": {
+    "adaptive-rejection-sampler": [
+      {
+        "name": "adaptive-rejection-sampler__DRDYLxg",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/adaptive-rejection-sampler__DRDYLxg"
+      },
+      {
+        "name": "adaptive-rejection-sampler__o3ukq3J",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/adaptive-rejection-sampler__o3ukq3J"
+      },
+      {
+        "name": "adaptive-rejection-sampler__hHwYCoi",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/adaptive-rejection-sampler__hHwYCoi"
+      },
+      {
+        "name": "adaptive-rejection-sampler__dW8XFRT",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/adaptive-rejection-sampler__dW8XFRT"
+      },
+      {
+        "name": "adaptive-rejection-sampler__RroEos9",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/adaptive-rejection-sampler__RroEos9"
+      }
+    ],
+    "bn-fit-modify": [
+      {
+        "name": "bn-fit-modify__vZRPFGK",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/bn-fit-modify__vZRPFGK"
+      },
+      {
+        "name": "bn-fit-modify__oxu5ePP",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/bn-fit-modify__oxu5ePP"
+      },
+      {
+        "name": "bn-fit-modify__SC8cC89",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/bn-fit-modify__SC8cC89"
+      },
+      {
+        "name": "bn-fit-modify__YPSbyuF",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/bn-fit-modify__YPSbyuF"
+      },
+      {
+        "name": "bn-fit-modify__KKCAGVs",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/bn-fit-modify__KKCAGVs"
+      }
+    ],
+    "break-filter-js-from-html": [
+      {
+        "name": "break-filter-js-from-html__Tae8mDo",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/break-filter-js-from-html__Tae8mDo"
+      },
+      {
+        "name": "break-filter-js-from-html__r88pKDA",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/break-filter-js-from-html__r88pKDA"
+      },
+      {
+        "name": "break-filter-js-from-html__b3EXJnw",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/break-filter-js-from-html__b3EXJnw"
+      },
+      {
+        "name": "break-filter-js-from-html__BVSddeg",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/break-filter-js-from-html__BVSddeg"
+      },
+      {
+        "name": "break-filter-js-from-html__dVJaTQy",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/break-filter-js-from-html__dVJaTQy"
+      }
+    ],
+    "build-cython-ext": [
+      {
+        "name": "build-cython-ext__ot4qSBC",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/build-cython-ext__ot4qSBC"
+      },
+      {
+        "name": "build-cython-ext__KARMGDf",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/build-cython-ext__KARMGDf"
+      },
+      {
+        "name": "build-cython-ext__64e2o9g",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/build-cython-ext__64e2o9g"
+      },
+      {
+        "name": "build-cython-ext__6drqqcf",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/build-cython-ext__6drqqcf"
+      },
+      {
+        "name": "build-cython-ext__5bx8evX",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/build-cython-ext__5bx8evX"
+      }
+    ],
+    "build-pmars": [
+      {
+        "name": "build-pmars__VJZeBy4",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/build-pmars__VJZeBy4"
+      },
+      {
+        "name": "build-pmars__Nsvk585",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/build-pmars__Nsvk585"
+      },
+      {
+        "name": "build-pmars__JsXEt4x",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/build-pmars__JsXEt4x"
+      },
+      {
+        "name": "build-pmars__K9srrZy",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/build-pmars__K9srrZy"
+      },
+      {
+        "name": "build-pmars__8bYU4e2",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/build-pmars__8bYU4e2"
+      }
+    ],
+    "build-pov-ray": [
+      {
+        "name": "build-pov-ray__QTnQVQs",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/build-pov-ray__QTnQVQs"
+      },
+      {
+        "name": "build-pov-ray__bmH5pHZ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/build-pov-ray__bmH5pHZ"
+      },
+      {
+        "name": "build-pov-ray__iWAhdMF",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/build-pov-ray__iWAhdMF"
+      },
+      {
+        "name": "build-pov-ray__V9h8ZDq",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/build-pov-ray__V9h8ZDq"
+      },
+      {
+        "name": "build-pov-ray__MpuWYSo",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/build-pov-ray__MpuWYSo"
+      }
+    ],
+    "caffe-cifar-10": [
+      {
+        "name": "caffe-cifar-10__iCbAj8x",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-upgrade/caffe-cifar-10__iCbAj8x"
+      },
+      {
+        "name": "caffe-cifar-10__j4SJxdx",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-upgrade/caffe-cifar-10__j4SJxdx"
+      },
+      {
+        "name": "caffe-cifar-10__dTeHnXH",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-upgrade/caffe-cifar-10__dTeHnXH"
+      },
+      {
+        "name": "caffe-cifar-10__5drv9VM",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-upgrade/caffe-cifar-10__5drv9VM"
+      },
+      {
+        "name": "caffe-cifar-10__ymruoCT",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-upgrade/caffe-cifar-10__ymruoCT"
+      }
+    ],
+    "cancel-async-tasks": [
+      {
+        "name": "cancel-async-tasks__pv6UL3T",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/cancel-async-tasks__pv6UL3T"
+      },
+      {
+        "name": "cancel-async-tasks__QPedRoi",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/cancel-async-tasks__QPedRoi"
+      },
+      {
+        "name": "cancel-async-tasks__MZEtNhC",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/cancel-async-tasks__MZEtNhC"
+      },
+      {
+        "name": "cancel-async-tasks__BtrLczX",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/cancel-async-tasks__BtrLczX"
+      },
+      {
+        "name": "cancel-async-tasks__Q7zc4TH",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/cancel-async-tasks__Q7zc4TH"
+      }
+    ],
+    "chess-best-move": [
+      {
+        "name": "chess-best-move__TShFBwo",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/chess-best-move__TShFBwo"
+      },
+      {
+        "name": "chess-best-move__murxuhE",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/chess-best-move__murxuhE"
+      },
+      {
+        "name": "chess-best-move__GMgGyGU",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/chess-best-move__GMgGyGU"
+      },
+      {
+        "name": "chess-best-move__YX9KUjY",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/chess-best-move__YX9KUjY"
+      },
+      {
+        "name": "chess-best-move__R2vtZn7",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/chess-best-move__R2vtZn7"
+      }
+    ],
+    "circuit-fibsqrt": [
+      {
+        "name": "circuit-fibsqrt__cBSzzdz",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/circuit-fibsqrt__cBSzzdz"
+      },
+      {
+        "name": "circuit-fibsqrt__Pi8z9Ah",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/circuit-fibsqrt__Pi8z9Ah"
+      },
+      {
+        "name": "circuit-fibsqrt__KGTHi3R",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/circuit-fibsqrt__KGTHi3R"
+      },
+      {
+        "name": "circuit-fibsqrt__UFHQgi6",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/circuit-fibsqrt__UFHQgi6"
+      },
+      {
+        "name": "circuit-fibsqrt__Nd4juEU",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/circuit-fibsqrt__Nd4juEU"
+      }
+    ],
+    "cobol-modernization": [
+      {
+        "name": "cobol-modernization__GW9hAzD",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/cobol-modernization__GW9hAzD"
+      },
+      {
+        "name": "cobol-modernization__NWzQzBg",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/cobol-modernization__NWzQzBg"
+      },
+      {
+        "name": "cobol-modernization__rxFnmaT",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/cobol-modernization__rxFnmaT"
+      },
+      {
+        "name": "cobol-modernization__QyBYRmU",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/cobol-modernization__QyBYRmU"
+      },
+      {
+        "name": "cobol-modernization__iw8mRjG",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/cobol-modernization__iw8mRjG"
+      }
+    ],
+    "code-from-image": [
+      {
+        "name": "code-from-image__i9aefU7",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/code-from-image__i9aefU7"
+      },
+      {
+        "name": "code-from-image__siR3neG",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/code-from-image__siR3neG"
+      },
+      {
+        "name": "code-from-image__goPhFQ2",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/code-from-image__goPhFQ2"
+      },
+      {
+        "name": "code-from-image__uJNjzV9",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/code-from-image__uJNjzV9"
+      },
+      {
+        "name": "code-from-image__ec6FjaC",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/code-from-image__ec6FjaC"
+      }
+    ],
+    "compile-compcert": [
+      {
+        "name": "compile-compcert__Rh4tTHA",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/compile-compcert__Rh4tTHA"
+      },
+      {
+        "name": "compile-compcert__MfeiDhi",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/compile-compcert__MfeiDhi"
+      },
+      {
+        "name": "compile-compcert__GAedQUG",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/compile-compcert__GAedQUG"
+      },
+      {
+        "name": "compile-compcert__AyqqiTg",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/compile-compcert__AyqqiTg"
+      },
+      {
+        "name": "compile-compcert__ZHyx5Nm",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/compile-compcert__ZHyx5Nm"
+      }
+    ],
+    "configure-git-webserver": [
+      {
+        "name": "configure-git-webserver__J8JdGfA",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/configure-git-webserver__J8JdGfA"
+      },
+      {
+        "name": "configure-git-webserver__hEyhmnw",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/configure-git-webserver__hEyhmnw"
+      },
+      {
+        "name": "configure-git-webserver__voEGLZG",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/configure-git-webserver__voEGLZG"
+      },
+      {
+        "name": "configure-git-webserver__DWuSMty",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/configure-git-webserver__DWuSMty"
+      },
+      {
+        "name": "configure-git-webserver__SNXGKth",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/configure-git-webserver__SNXGKth"
+      }
+    ],
+    "constraints-scheduling": [
+      {
+        "name": "constraints-scheduling__TrrmwgZ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/constraints-scheduling__TrrmwgZ"
+      },
+      {
+        "name": "constraints-scheduling__Bi33PhN",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/constraints-scheduling__Bi33PhN"
+      },
+      {
+        "name": "constraints-scheduling__c685rBG",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/constraints-scheduling__c685rBG"
+      },
+      {
+        "name": "constraints-scheduling__QNpRKg5",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/constraints-scheduling__QNpRKg5"
+      },
+      {
+        "name": "constraints-scheduling__UAmraSj",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/constraints-scheduling__UAmraSj"
+      }
+    ],
+    "count-dataset-tokens": [
+      {
+        "name": "count-dataset-tokens__TXZSVd2",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/count-dataset-tokens__TXZSVd2"
+      },
+      {
+        "name": "count-dataset-tokens__P8KUfVJ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/count-dataset-tokens__P8KUfVJ"
+      },
+      {
+        "name": "count-dataset-tokens__UYhGSxB",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/count-dataset-tokens__UYhGSxB"
+      },
+      {
+        "name": "count-dataset-tokens__C338TT3",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/count-dataset-tokens__C338TT3"
+      },
+      {
+        "name": "count-dataset-tokens__Q2waZJp",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/count-dataset-tokens__Q2waZJp"
+      }
+    ],
+    "crack-7z-hash": [
+      {
+        "name": "crack-7z-hash__a6UwLyT",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/crack-7z-hash__a6UwLyT"
+      },
+      {
+        "name": "crack-7z-hash__iE5mEBE",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/crack-7z-hash__iE5mEBE"
+      },
+      {
+        "name": "crack-7z-hash__WCCuMG2",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/crack-7z-hash__WCCuMG2"
+      },
+      {
+        "name": "crack-7z-hash__XrD3s36",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/crack-7z-hash__XrD3s36"
+      },
+      {
+        "name": "crack-7z-hash__M83rFyV",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/crack-7z-hash__M83rFyV"
+      }
+    ],
+    "custom-memory-heap-crash": [
+      {
+        "name": "custom-memory-heap-crash__dsmQu58",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/custom-memory-heap-crash__dsmQu58"
+      },
+      {
+        "name": "custom-memory-heap-crash__vuS3XaF",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/custom-memory-heap-crash__vuS3XaF"
+      },
+      {
+        "name": "custom-memory-heap-crash__gAAj8Xt",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/custom-memory-heap-crash__gAAj8Xt"
+      },
+      {
+        "name": "custom-memory-heap-crash__u9ypBau",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/custom-memory-heap-crash__u9ypBau"
+      },
+      {
+        "name": "custom-memory-heap-crash__dq5goec",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/custom-memory-heap-crash__dq5goec"
+      }
+    ],
+    "db-wal-recovery": [
+      {
+        "name": "db-wal-recovery__r9XKq8Y",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/db-wal-recovery__r9XKq8Y"
+      },
+      {
+        "name": "db-wal-recovery__bLCtD6f",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/db-wal-recovery__bLCtD6f"
+      },
+      {
+        "name": "db-wal-recovery__kwZ42aj",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/db-wal-recovery__kwZ42aj"
+      },
+      {
+        "name": "db-wal-recovery__vX4MV6M",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/db-wal-recovery__vX4MV6M"
+      },
+      {
+        "name": "db-wal-recovery__2ZaV3EP",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/db-wal-recovery__2ZaV3EP"
+      }
+    ],
+    "distribution-search": [
+      {
+        "name": "distribution-search__4CWjX37",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/distribution-search__4CWjX37"
+      },
+      {
+        "name": "distribution-search__AE9owSz",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/distribution-search__AE9owSz"
+      },
+      {
+        "name": "distribution-search__bXAjEHR",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/distribution-search__bXAjEHR"
+      },
+      {
+        "name": "distribution-search__MazCUZX",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/distribution-search__MazCUZX"
+      },
+      {
+        "name": "distribution-search__WMBww7j",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/distribution-search__WMBww7j"
+      }
+    ],
+    "dna-assembly": [
+      {
+        "name": "dna-assembly__PzDWe42",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/dna-assembly__PzDWe42"
+      },
+      {
+        "name": "dna-assembly__iGVwPe3",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/dna-assembly__iGVwPe3"
+      },
+      {
+        "name": "dna-assembly__kGAxCkQ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/dna-assembly__kGAxCkQ"
+      },
+      {
+        "name": "dna-assembly__nqPF3RW",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/dna-assembly__nqPF3RW"
+      },
+      {
+        "name": "dna-assembly__Buc8K3M",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/dna-assembly__Buc8K3M"
+      }
+    ],
+    "dna-insert": [
+      {
+        "name": "dna-insert__AEvSKpt",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/dna-insert__AEvSKpt"
+      },
+      {
+        "name": "dna-insert__TJpcVjq",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/dna-insert__TJpcVjq"
+      },
+      {
+        "name": "dna-insert__6PPXHKk",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/dna-insert__6PPXHKk"
+      },
+      {
+        "name": "dna-insert__xoqhyz8",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/dna-insert__xoqhyz8"
+      },
+      {
+        "name": "dna-insert__2frQvGj",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/dna-insert__2frQvGj"
+      }
+    ],
+    "extract-elf": [
+      {
+        "name": "extract-elf__tjGoEDU",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/extract-elf__tjGoEDU"
+      },
+      {
+        "name": "extract-elf__Wheppjr",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/extract-elf__Wheppjr"
+      },
+      {
+        "name": "extract-elf__EVuUTJu",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/extract-elf__EVuUTJu"
+      },
+      {
+        "name": "extract-elf__LDbBCi9",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/extract-elf__LDbBCi9"
+      },
+      {
+        "name": "extract-elf__mDbSakQ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/extract-elf__mDbSakQ"
+      }
+    ],
+    "extract-moves-from-video": [
+      {
+        "name": "extract-moves-from-video__LfJdzqi",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/extract-moves-from-video__LfJdzqi"
+      },
+      {
+        "name": "extract-moves-from-video__C7xwcUT",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/extract-moves-from-video__C7xwcUT"
+      },
+      {
+        "name": "extract-moves-from-video__hamvRTp",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/extract-moves-from-video__hamvRTp"
+      },
+      {
+        "name": "extract-moves-from-video__AHdUtR6",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/extract-moves-from-video__AHdUtR6"
+      },
+      {
+        "name": "extract-moves-from-video__fp8v6SQ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/extract-moves-from-video__fp8v6SQ"
+      }
+    ],
+    "feal-differential-cryptanalysis": [
+      {
+        "name": "feal-differential-cryptanalysis__obqfutb",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/feal-differential-cryptanalysis__obqfutb"
+      },
+      {
+        "name": "feal-differential-cryptanalysis__28T6gRs",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/feal-differential-cryptanalysis__28T6gRs"
+      },
+      {
+        "name": "feal-differential-cryptanalysis__nV4kALW",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/feal-differential-cryptanalysis__nV4kALW"
+      },
+      {
+        "name": "feal-differential-cryptanalysis__jQTXNpd",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/feal-differential-cryptanalysis__jQTXNpd"
+      },
+      {
+        "name": "feal-differential-cryptanalysis__XgzbqcP",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/feal-differential-cryptanalysis__XgzbqcP"
+      }
+    ],
+    "feal-linear-cryptanalysis": [
+      {
+        "name": "feal-linear-cryptanalysis__bEuE8Ds",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/feal-linear-cryptanalysis__bEuE8Ds"
+      },
+      {
+        "name": "feal-linear-cryptanalysis__AKxDAAq",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/feal-linear-cryptanalysis__AKxDAAq"
+      },
+      {
+        "name": "feal-linear-cryptanalysis__ByQGZb9",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/feal-linear-cryptanalysis__ByQGZb9"
+      },
+      {
+        "name": "feal-linear-cryptanalysis__mKZCipY",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/feal-linear-cryptanalysis__mKZCipY"
+      },
+      {
+        "name": "feal-linear-cryptanalysis__JTGj3w6",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/feal-linear-cryptanalysis__JTGj3w6"
+      }
+    ],
+    "filter-js-from-html": [
+      {
+        "name": "filter-js-from-html__YC7jQbj",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/filter-js-from-html__YC7jQbj"
+      },
+      {
+        "name": "filter-js-from-html__rRD264a",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/filter-js-from-html__rRD264a"
+      },
+      {
+        "name": "filter-js-from-html__26RrgpZ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/filter-js-from-html__26RrgpZ"
+      },
+      {
+        "name": "filter-js-from-html__pMZaCRh",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/filter-js-from-html__pMZaCRh"
+      },
+      {
+        "name": "filter-js-from-html__4rZaNwA",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/filter-js-from-html__4rZaNwA"
+      }
+    ],
+    "financial-document-processor": [
+      {
+        "name": "financial-document-processor__Le6fCiz",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/financial-document-processor__Le6fCiz"
+      },
+      {
+        "name": "financial-document-processor__8Cw6EdZ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/financial-document-processor__8Cw6EdZ"
+      },
+      {
+        "name": "financial-document-processor__o94sHAL",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/financial-document-processor__o94sHAL"
+      },
+      {
+        "name": "financial-document-processor__9VBNYCg",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/financial-document-processor__9VBNYCg"
+      },
+      {
+        "name": "financial-document-processor__J9CVed5",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/financial-document-processor__J9CVed5"
+      }
+    ],
+    "fix-code-vulnerability": [
+      {
+        "name": "fix-code-vulnerability__j7HMCPq",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/fix-code-vulnerability__j7HMCPq"
+      },
+      {
+        "name": "fix-code-vulnerability__NTyGQ2m",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/fix-code-vulnerability__NTyGQ2m"
+      },
+      {
+        "name": "fix-code-vulnerability__M3pZFjK",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/fix-code-vulnerability__M3pZFjK"
+      },
+      {
+        "name": "fix-code-vulnerability__ZGa2bHB",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/fix-code-vulnerability__ZGa2bHB"
+      },
+      {
+        "name": "fix-code-vulnerability__QWrut6C",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/fix-code-vulnerability__QWrut6C"
+      }
+    ],
+    "fix-git": [
+      {
+        "name": "fix-git__Pc7qzCP",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/fix-git__Pc7qzCP"
+      },
+      {
+        "name": "fix-git__Ch3fk3S",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/fix-git__Ch3fk3S"
+      },
+      {
+        "name": "fix-git__BVPRyuw",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/fix-git__BVPRyuw"
+      },
+      {
+        "name": "fix-git__o2T5QSw",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/fix-git__o2T5QSw"
+      },
+      {
+        "name": "fix-git__MoHheCu",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/fix-git__MoHheCu"
+      }
+    ],
+    "fix-ocaml-gc": [
+      {
+        "name": "fix-ocaml-gc__Qkj7UC6",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/fix-ocaml-gc__Qkj7UC6"
+      },
+      {
+        "name": "fix-ocaml-gc__dTv9ckF",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/fix-ocaml-gc__dTv9ckF"
+      },
+      {
+        "name": "fix-ocaml-gc__8cVy5uJ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/fix-ocaml-gc__8cVy5uJ"
+      },
+      {
+        "name": "fix-ocaml-gc__JPN623P",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/fix-ocaml-gc__JPN623P"
+      },
+      {
+        "name": "fix-ocaml-gc__NFeZmND",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/fix-ocaml-gc__NFeZmND"
+      }
+    ],
+    "gcode-to-text": [
+      {
+        "name": "gcode-to-text__KR3tKS6",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/gcode-to-text__KR3tKS6"
+      },
+      {
+        "name": "gcode-to-text__vZx2e5q",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/gcode-to-text__vZx2e5q"
+      },
+      {
+        "name": "gcode-to-text__ALsJgZt",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/gcode-to-text__ALsJgZt"
+      },
+      {
+        "name": "gcode-to-text__LBTQMT7",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/gcode-to-text__LBTQMT7"
+      },
+      {
+        "name": "gcode-to-text__GQR63FF",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/gcode-to-text__GQR63FF"
+      }
+    ],
+    "git-leak-recovery": [
+      {
+        "name": "git-leak-recovery__XLGmHdL",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/git-leak-recovery__XLGmHdL"
+      },
+      {
+        "name": "git-leak-recovery__zYxTLC4",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/git-leak-recovery__zYxTLC4"
+      },
+      {
+        "name": "git-leak-recovery__zd5pJED",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/git-leak-recovery__zd5pJED"
+      },
+      {
+        "name": "git-leak-recovery__iVKudnX",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/git-leak-recovery__iVKudnX"
+      },
+      {
+        "name": "git-leak-recovery__zpD5wmA",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/git-leak-recovery__zpD5wmA"
+      }
+    ],
+    "git-multibranch": [
+      {
+        "name": "git-multibranch__JFeGHsw",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/git-multibranch__JFeGHsw"
+      },
+      {
+        "name": "git-multibranch__MMjnr6z",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/git-multibranch__MMjnr6z"
+      },
+      {
+        "name": "git-multibranch__VMcQbCg",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/git-multibranch__VMcQbCg"
+      },
+      {
+        "name": "git-multibranch__hykU5VA",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/git-multibranch__hykU5VA"
+      },
+      {
+        "name": "git-multibranch__LrzbJXu",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/git-multibranch__LrzbJXu"
+      }
+    ],
+    "gpt2-codegolf": [
+      {
+        "name": "gpt2-codegolf__33QDhus",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/gpt2-codegolf__33QDhus"
+      },
+      {
+        "name": "gpt2-codegolf__UFYuKeu",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/gpt2-codegolf__UFYuKeu"
+      },
+      {
+        "name": "gpt2-codegolf__8PpSqag",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/gpt2-codegolf__8PpSqag"
+      },
+      {
+        "name": "gpt2-codegolf__DgcdLfx",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/gpt2-codegolf__DgcdLfx"
+      },
+      {
+        "name": "gpt2-codegolf__7Shm99J",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/gpt2-codegolf__7Shm99J"
+      }
+    ],
+    "headless-terminal": [
+      {
+        "name": "headless-terminal__496QbQ8",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/headless-terminal__496QbQ8"
+      },
+      {
+        "name": "headless-terminal__o4o23LK",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/headless-terminal__o4o23LK"
+      },
+      {
+        "name": "headless-terminal__5RW4pMF",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/headless-terminal__5RW4pMF"
+      },
+      {
+        "name": "headless-terminal__7JAot46",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/headless-terminal__7JAot46"
+      },
+      {
+        "name": "headless-terminal__6qzZ4KB",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-rep-001/headless-terminal__6qzZ4KB"
+      }
+    ],
+    "hf-model-inference": [
+      {
+        "name": "hf-model-inference__XfbSNhD",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/hf-model-inference__XfbSNhD"
+      },
+      {
+        "name": "hf-model-inference__xtFyoqt",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/hf-model-inference__xtFyoqt"
+      },
+      {
+        "name": "hf-model-inference__pGE8xed",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/hf-model-inference__pGE8xed"
+      },
+      {
+        "name": "hf-model-inference__3Vbcj8L",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/hf-model-inference__3Vbcj8L"
+      },
+      {
+        "name": "hf-model-inference__6QKTSh6",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/hf-model-inference__6QKTSh6"
+      }
+    ],
+    "install-windows-3.11": [
+      {
+        "name": "install-windows-3.11__RAsE5MP",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/install-windows-3.11__RAsE5MP"
+      },
+      {
+        "name": "install-windows-3.11__XStTmrD",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/install-windows-3.11__XStTmrD"
+      },
+      {
+        "name": "install-windows-3.11__hKkGMTX",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/install-windows-3.11__hKkGMTX"
+      },
+      {
+        "name": "install-windows-3.11__HryNgC3",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/install-windows-3.11__HryNgC3"
+      },
+      {
+        "name": "install-windows-3.11__SSoKAKK",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/install-windows-3.11__SSoKAKK"
+      }
+    ],
+    "kv-store-grpc": [
+      {
+        "name": "kv-store-grpc__sGchjNv",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/kv-store-grpc__sGchjNv"
+      },
+      {
+        "name": "kv-store-grpc__yczki5S",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/kv-store-grpc__yczki5S"
+      },
+      {
+        "name": "kv-store-grpc__ZJrDqjF",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/kv-store-grpc__ZJrDqjF"
+      },
+      {
+        "name": "kv-store-grpc__EvWeiKo",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/kv-store-grpc__EvWeiKo"
+      },
+      {
+        "name": "kv-store-grpc__68gJ849",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/kv-store-grpc__68gJ849"
+      }
+    ],
+    "large-scale-text-editing": [
+      {
+        "name": "large-scale-text-editing__VdeSdRg",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/large-scale-text-editing__VdeSdRg"
+      },
+      {
+        "name": "large-scale-text-editing__9yLzYB4",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/large-scale-text-editing__9yLzYB4"
+      },
+      {
+        "name": "large-scale-text-editing__h9G3uVb",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/large-scale-text-editing__h9G3uVb"
+      },
+      {
+        "name": "large-scale-text-editing__v9PuZub",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/large-scale-text-editing__v9PuZub"
+      },
+      {
+        "name": "large-scale-text-editing__gt8RBoj",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/large-scale-text-editing__gt8RBoj"
+      }
+    ],
+    "largest-eigenval": [
+      {
+        "name": "largest-eigenval__iHbC2JP",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/largest-eigenval__iHbC2JP"
+      },
+      {
+        "name": "largest-eigenval__jyoHrkp",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/largest-eigenval__jyoHrkp"
+      },
+      {
+        "name": "largest-eigenval__iLRQhdY",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/largest-eigenval__iLRQhdY"
+      },
+      {
+        "name": "largest-eigenval__Kzyi9tM",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/largest-eigenval__Kzyi9tM"
+      },
+      {
+        "name": "largest-eigenval__c2ABjMP",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/largest-eigenval__c2ABjMP"
+      }
+    ],
+    "llm-inference-batching-scheduler": [
+      {
+        "name": "llm-inference-batching-scheduler__F8jcs9U",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/llm-inference-batching-scheduler__F8jcs9U"
+      },
+      {
+        "name": "llm-inference-batching-scheduler__hfkXbgi",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/llm-inference-batching-scheduler__hfkXbgi"
+      },
+      {
+        "name": "llm-inference-batching-scheduler__injFy8Z",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/llm-inference-batching-scheduler__injFy8Z"
+      },
+      {
+        "name": "llm-inference-batching-scheduler__whLeiP3",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/llm-inference-batching-scheduler__whLeiP3"
+      },
+      {
+        "name": "llm-inference-batching-scheduler__n8tJ6Bh",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/llm-inference-batching-scheduler__n8tJ6Bh"
+      }
+    ],
+    "log-summary-date-ranges": [
+      {
+        "name": "log-summary-date-ranges__a4hpivb",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/log-summary-date-ranges__a4hpivb"
+      },
+      {
+        "name": "log-summary-date-ranges__Cuc7uBQ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/log-summary-date-ranges__Cuc7uBQ"
+      },
+      {
+        "name": "log-summary-date-ranges__gx3EMZB",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/log-summary-date-ranges__gx3EMZB"
+      },
+      {
+        "name": "log-summary-date-ranges__ZHzJDmr",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/log-summary-date-ranges__ZHzJDmr"
+      },
+      {
+        "name": "log-summary-date-ranges__hKnCCM8",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/log-summary-date-ranges__hKnCCM8"
+      }
+    ],
+    "mailman": [
+      {
+        "name": "mailman__9tGcfQT",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/mailman__9tGcfQT"
+      },
+      {
+        "name": "mailman__cDSdRtC",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/mailman__cDSdRtC"
+      },
+      {
+        "name": "mailman__jEUXR2m",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/mailman__jEUXR2m"
+      },
+      {
+        "name": "mailman__yKzm97J",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/mailman__yKzm97J"
+      },
+      {
+        "name": "mailman__63Wig59",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/mailman__63Wig59"
+      }
+    ],
+    "make-doom-for-mips": [
+      {
+        "name": "make-doom-for-mips__tmEYsSR",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/make-doom-for-mips__tmEYsSR"
+      },
+      {
+        "name": "make-doom-for-mips__mYKa2ox",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/make-doom-for-mips__mYKa2ox"
+      },
+      {
+        "name": "make-doom-for-mips__VAsTAzp",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/make-doom-for-mips__VAsTAzp"
+      },
+      {
+        "name": "make-doom-for-mips__RLmn3Lq",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/make-doom-for-mips__RLmn3Lq"
+      },
+      {
+        "name": "make-doom-for-mips__LjqLTQR",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/make-doom-for-mips__LjqLTQR"
+      }
+    ],
+    "make-mips-interpreter": [
+      {
+        "name": "make-mips-interpreter__A8Yz8ku",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/make-mips-interpreter__A8Yz8ku"
+      },
+      {
+        "name": "make-mips-interpreter__HCd3ZJ8",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/make-mips-interpreter__HCd3ZJ8"
+      },
+      {
+        "name": "make-mips-interpreter__Zxjyf9o",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/make-mips-interpreter__Zxjyf9o"
+      },
+      {
+        "name": "make-mips-interpreter__qfLfBBQ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/make-mips-interpreter__qfLfBBQ"
+      },
+      {
+        "name": "make-mips-interpreter__6UsHF7F",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/make-mips-interpreter__6UsHF7F"
+      }
+    ],
+    "mcmc-sampling-stan": [
+      {
+        "name": "mcmc-sampling-stan__HmvWe2H",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-upgrade/mcmc-sampling-stan__HmvWe2H"
+      },
+      {
+        "name": "mcmc-sampling-stan__qD9qRcB",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-upgrade/mcmc-sampling-stan__qD9qRcB"
+      },
+      {
+        "name": "mcmc-sampling-stan__gYYULdD",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-upgrade/mcmc-sampling-stan__gYYULdD"
+      },
+      {
+        "name": "mcmc-sampling-stan__Drtdq3S",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-upgrade/mcmc-sampling-stan__Drtdq3S"
+      },
+      {
+        "name": "mcmc-sampling-stan__66Y8QoG",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-upgrade/mcmc-sampling-stan__66Y8QoG"
+      }
+    ],
+    "merge-diff-arc-agi-task": [
+      {
+        "name": "merge-diff-arc-agi-task__s8KXttm",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/merge-diff-arc-agi-task__s8KXttm"
+      },
+      {
+        "name": "merge-diff-arc-agi-task__odHxK9Y",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/merge-diff-arc-agi-task__odHxK9Y"
+      },
+      {
+        "name": "merge-diff-arc-agi-task__uKgniEN",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/merge-diff-arc-agi-task__uKgniEN"
+      },
+      {
+        "name": "merge-diff-arc-agi-task__fN2MpWJ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/merge-diff-arc-agi-task__fN2MpWJ"
+      },
+      {
+        "name": "merge-diff-arc-agi-task__tPSvFrN",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/merge-diff-arc-agi-task__tPSvFrN"
+      }
+    ],
+    "model-extraction-relu-logits": [
+      {
+        "name": "model-extraction-relu-logits__xV9HdMx",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/model-extraction-relu-logits__xV9HdMx"
+      },
+      {
+        "name": "model-extraction-relu-logits__vba9Mx4",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/model-extraction-relu-logits__vba9Mx4"
+      },
+      {
+        "name": "model-extraction-relu-logits__9ZW7aFg",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/model-extraction-relu-logits__9ZW7aFg"
+      },
+      {
+        "name": "model-extraction-relu-logits__dt3baUk",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/model-extraction-relu-logits__dt3baUk"
+      },
+      {
+        "name": "model-extraction-relu-logits__9udNske",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/model-extraction-relu-logits__9udNske"
+      }
+    ],
+    "modernize-scientific-stack": [
+      {
+        "name": "modernize-scientific-stack__NMRUCT3",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/modernize-scientific-stack__NMRUCT3"
+      },
+      {
+        "name": "modernize-scientific-stack__aoXeX45",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/modernize-scientific-stack__aoXeX45"
+      },
+      {
+        "name": "modernize-scientific-stack__E7oxzMQ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/modernize-scientific-stack__E7oxzMQ"
+      },
+      {
+        "name": "modernize-scientific-stack__hNwGUPk",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/modernize-scientific-stack__hNwGUPk"
+      },
+      {
+        "name": "modernize-scientific-stack__USKsWwr",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-rep-002/modernize-scientific-stack__USKsWwr"
+      }
+    ],
+    "mteb-leaderboard": [
+      {
+        "name": "mteb-leaderboard__EnKsRSx",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/mteb-leaderboard__EnKsRSx"
+      },
+      {
+        "name": "mteb-leaderboard__ppYcEfi",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/mteb-leaderboard__ppYcEfi"
+      },
+      {
+        "name": "mteb-leaderboard__YbF6Zea",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/mteb-leaderboard__YbF6Zea"
+      },
+      {
+        "name": "mteb-leaderboard__rxcA2hK",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/mteb-leaderboard__rxcA2hK"
+      },
+      {
+        "name": "mteb-leaderboard__MQE4EoK",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/mteb-leaderboard__MQE4EoK"
+      }
+    ],
+    "mteb-retrieve": [
+      {
+        "name": "mteb-retrieve__eXkUi9x",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/mteb-retrieve__eXkUi9x"
+      },
+      {
+        "name": "mteb-retrieve__fYKgArP",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/mteb-retrieve__fYKgArP"
+      },
+      {
+        "name": "mteb-retrieve__etVciNf",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/mteb-retrieve__etVciNf"
+      },
+      {
+        "name": "mteb-retrieve__rthnRke",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/mteb-retrieve__rthnRke"
+      },
+      {
+        "name": "mteb-retrieve__h6AQSjf",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/mteb-retrieve__h6AQSjf"
+      }
+    ],
+    "multi-source-data-merger": [
+      {
+        "name": "multi-source-data-merger__LukMLbu",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/multi-source-data-merger__LukMLbu"
+      },
+      {
+        "name": "multi-source-data-merger__R2ynPgM",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/multi-source-data-merger__R2ynPgM"
+      },
+      {
+        "name": "multi-source-data-merger__5M4QtG5",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/multi-source-data-merger__5M4QtG5"
+      },
+      {
+        "name": "multi-source-data-merger__7D4ppzN",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/multi-source-data-merger__7D4ppzN"
+      },
+      {
+        "name": "multi-source-data-merger__39tesDB",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/multi-source-data-merger__39tesDB"
+      }
+    ],
+    "nginx-request-logging": [
+      {
+        "name": "nginx-request-logging__sd6aKwY",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/nginx-request-logging__sd6aKwY"
+      },
+      {
+        "name": "nginx-request-logging__SUMoq42",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/nginx-request-logging__SUMoq42"
+      },
+      {
+        "name": "nginx-request-logging__HYVSu9w",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/nginx-request-logging__HYVSu9w"
+      },
+      {
+        "name": "nginx-request-logging__XziVz84",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/nginx-request-logging__XziVz84"
+      },
+      {
+        "name": "nginx-request-logging__kwdT2Ma",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/nginx-request-logging__kwdT2Ma"
+      }
+    ],
+    "openssl-selfsigned-cert": [
+      {
+        "name": "openssl-selfsigned-cert__XaQPH5A",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/openssl-selfsigned-cert__XaQPH5A"
+      },
+      {
+        "name": "openssl-selfsigned-cert__XzGbP2k",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/openssl-selfsigned-cert__XzGbP2k"
+      },
+      {
+        "name": "openssl-selfsigned-cert__DbWjLwh",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/openssl-selfsigned-cert__DbWjLwh"
+      },
+      {
+        "name": "openssl-selfsigned-cert__WNQ4fYn",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/openssl-selfsigned-cert__WNQ4fYn"
+      },
+      {
+        "name": "openssl-selfsigned-cert__bmJCqKK",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/openssl-selfsigned-cert__bmJCqKK"
+      }
+    ],
+    "overfull-hbox": [
+      {
+        "name": "overfull-hbox__iM3sb8g",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/overfull-hbox__iM3sb8g"
+      },
+      {
+        "name": "overfull-hbox__3aHHmAZ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/overfull-hbox__3aHHmAZ"
+      },
+      {
+        "name": "overfull-hbox__o3HCjna",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/overfull-hbox__o3HCjna"
+      },
+      {
+        "name": "overfull-hbox__x5aFzJ9",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/overfull-hbox__x5aFzJ9"
+      },
+      {
+        "name": "overfull-hbox__96SVMqo",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/overfull-hbox__96SVMqo"
+      }
+    ],
+    "password-recovery": [
+      {
+        "name": "password-recovery__w9trg4g",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/password-recovery__w9trg4g"
+      },
+      {
+        "name": "password-recovery__nVKkSCf",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/password-recovery__nVKkSCf"
+      },
+      {
+        "name": "password-recovery__z2o9Khg",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/password-recovery__z2o9Khg"
+      },
+      {
+        "name": "password-recovery__Tu9QoWA",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/password-recovery__Tu9QoWA"
+      },
+      {
+        "name": "password-recovery__NNFL3br",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/password-recovery__NNFL3br"
+      }
+    ],
+    "path-tracing": [
+      {
+        "name": "path-tracing__Awfm46e",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/path-tracing__Awfm46e"
+      },
+      {
+        "name": "path-tracing__ZPTebBh",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/path-tracing__ZPTebBh"
+      },
+      {
+        "name": "path-tracing__Dd9dkjQ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/path-tracing__Dd9dkjQ"
+      },
+      {
+        "name": "path-tracing__9L36vh4",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/path-tracing__9L36vh4"
+      },
+      {
+        "name": "path-tracing__4XurR8X",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/path-tracing__4XurR8X"
+      }
+    ],
+    "path-tracing-reverse": [
+      {
+        "name": "path-tracing-reverse__8fquCT4",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/path-tracing-reverse__8fquCT4"
+      },
+      {
+        "name": "path-tracing-reverse__ZXSVbgt",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/path-tracing-reverse__ZXSVbgt"
+      },
+      {
+        "name": "path-tracing-reverse__Z9cEznr",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/path-tracing-reverse__Z9cEznr"
+      },
+      {
+        "name": "path-tracing-reverse__MAx3Uwm",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/path-tracing-reverse__MAx3Uwm"
+      },
+      {
+        "name": "path-tracing-reverse__pEzQsfd",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/path-tracing-reverse__pEzQsfd"
+      }
+    ],
+    "polyglot-c-py": [
+      {
+        "name": "polyglot-c-py__FJq8KXV",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/polyglot-c-py__FJq8KXV"
+      },
+      {
+        "name": "polyglot-c-py__TsFPsVE",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/polyglot-c-py__TsFPsVE"
+      },
+      {
+        "name": "polyglot-c-py__ptv9uqX",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/polyglot-c-py__ptv9uqX"
+      },
+      {
+        "name": "polyglot-c-py__DuDaLCS",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/polyglot-c-py__DuDaLCS"
+      },
+      {
+        "name": "polyglot-c-py__M3sch7Y",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/polyglot-c-py__M3sch7Y"
+      }
+    ],
+    "polyglot-rust-c": [
+      {
+        "name": "polyglot-rust-c__cJoHm9k",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/polyglot-rust-c__cJoHm9k"
+      },
+      {
+        "name": "polyglot-rust-c__4L48Tj6",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/polyglot-rust-c__4L48Tj6"
+      },
+      {
+        "name": "polyglot-rust-c__rABq6e9",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/polyglot-rust-c__rABq6e9"
+      },
+      {
+        "name": "polyglot-rust-c__KteXAHf",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/polyglot-rust-c__KteXAHf"
+      },
+      {
+        "name": "polyglot-rust-c__mqnx29m",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/polyglot-rust-c__mqnx29m"
+      }
+    ],
+    "portfolio-optimization": [
+      {
+        "name": "portfolio-optimization__w5Aacki",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/portfolio-optimization__w5Aacki"
+      },
+      {
+        "name": "portfolio-optimization__TjrC2TP",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/portfolio-optimization__TjrC2TP"
+      },
+      {
+        "name": "portfolio-optimization__yVhs3q2",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/portfolio-optimization__yVhs3q2"
+      },
+      {
+        "name": "portfolio-optimization__cGoRixE",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/portfolio-optimization__cGoRixE"
+      },
+      {
+        "name": "portfolio-optimization__kwGdDNJ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/portfolio-optimization__kwGdDNJ"
+      }
+    ],
+    "protein-assembly": [
+      {
+        "name": "protein-assembly__LW3MWBD",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/protein-assembly__LW3MWBD"
+      },
+      {
+        "name": "protein-assembly__s9jhFJC",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/protein-assembly__s9jhFJC"
+      },
+      {
+        "name": "protein-assembly__7AYWRd4",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/protein-assembly__7AYWRd4"
+      },
+      {
+        "name": "protein-assembly__pQfyyCi",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/protein-assembly__pQfyyCi"
+      },
+      {
+        "name": "protein-assembly__3tEVxdv",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/protein-assembly__3tEVxdv"
+      }
+    ],
+    "prove-plus-comm": [
+      {
+        "name": "prove-plus-comm__Kg2nQn5",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/prove-plus-comm__Kg2nQn5"
+      },
+      {
+        "name": "prove-plus-comm__2sshSoA",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/prove-plus-comm__2sshSoA"
+      },
+      {
+        "name": "prove-plus-comm__aknBPyt",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/prove-plus-comm__aknBPyt"
+      },
+      {
+        "name": "prove-plus-comm__4aLF7H9",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/prove-plus-comm__4aLF7H9"
+      },
+      {
+        "name": "prove-plus-comm__xzGFT4j",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/prove-plus-comm__xzGFT4j"
+      }
+    ],
+    "pypi-server": [
+      {
+        "name": "pypi-server__z9ugwgW",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/pypi-server__z9ugwgW"
+      },
+      {
+        "name": "pypi-server__XYhbaQJ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/pypi-server__XYhbaQJ"
+      },
+      {
+        "name": "pypi-server__TBee7fN",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/pypi-server__TBee7fN"
+      },
+      {
+        "name": "pypi-server__wDScow3",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/pypi-server__wDScow3"
+      },
+      {
+        "name": "pypi-server__2u8AtPx",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/pypi-server__2u8AtPx"
+      }
+    ],
+    "pytorch-model-cli": [
+      {
+        "name": "pytorch-model-cli__na9VJbP",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/pytorch-model-cli__na9VJbP"
+      },
+      {
+        "name": "pytorch-model-cli__fij64Rb",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/pytorch-model-cli__fij64Rb"
+      },
+      {
+        "name": "pytorch-model-cli__WQVTtMr",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/pytorch-model-cli__WQVTtMr"
+      },
+      {
+        "name": "pytorch-model-cli__b5CMKgY",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/pytorch-model-cli__b5CMKgY"
+      },
+      {
+        "name": "pytorch-model-cli__tdkbkYy",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/pytorch-model-cli__tdkbkYy"
+      }
+    ],
+    "pytorch-model-recovery": [
+      {
+        "name": "pytorch-model-recovery__GLKKQgr",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/pytorch-model-recovery__GLKKQgr"
+      },
+      {
+        "name": "pytorch-model-recovery__nozn5XD",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/pytorch-model-recovery__nozn5XD"
+      },
+      {
+        "name": "pytorch-model-recovery__VMptEsH",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/pytorch-model-recovery__VMptEsH"
+      },
+      {
+        "name": "pytorch-model-recovery__d433DKy",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/pytorch-model-recovery__d433DKy"
+      },
+      {
+        "name": "pytorch-model-recovery__suWxT9f",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/pytorch-model-recovery__suWxT9f"
+      }
+    ],
+    "qemu-alpine-ssh": [
+      {
+        "name": "qemu-alpine-ssh__uSKyTLn",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/qemu-alpine-ssh__uSKyTLn"
+      },
+      {
+        "name": "qemu-alpine-ssh__CaUHK8a",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/qemu-alpine-ssh__CaUHK8a"
+      },
+      {
+        "name": "qemu-alpine-ssh__7HAAwqC",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/qemu-alpine-ssh__7HAAwqC"
+      },
+      {
+        "name": "qemu-alpine-ssh__qK7rU9p",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/qemu-alpine-ssh__qK7rU9p"
+      },
+      {
+        "name": "qemu-alpine-ssh__8UqFMmG",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/qemu-alpine-ssh__8UqFMmG"
+      }
+    ],
+    "qemu-startup": [
+      {
+        "name": "qemu-startup__4N2XfK4",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/qemu-startup__4N2XfK4"
+      },
+      {
+        "name": "qemu-startup__DAuNbC9",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/qemu-startup__DAuNbC9"
+      },
+      {
+        "name": "qemu-startup__SK6aqA7",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/qemu-startup__SK6aqA7"
+      },
+      {
+        "name": "qemu-startup__7GhQZLm",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/qemu-startup__7GhQZLm"
+      },
+      {
+        "name": "qemu-startup__RYm8nnU",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/qemu-startup__RYm8nnU"
+      }
+    ],
+    "query-optimize": [
+      {
+        "name": "query-optimize__QFGNbqS",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/query-optimize__QFGNbqS"
+      },
+      {
+        "name": "query-optimize__BmTNVdN",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/query-optimize__BmTNVdN"
+      },
+      {
+        "name": "query-optimize__HwgM9h4",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/query-optimize__HwgM9h4"
+      },
+      {
+        "name": "query-optimize__RSwiyTi",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/query-optimize__RSwiyTi"
+      },
+      {
+        "name": "query-optimize__GvEKjxt",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/query-optimize__GvEKjxt"
+      }
+    ],
+    "raman-fitting": [
+      {
+        "name": "raman-fitting__dPcoHUN",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/raman-fitting__dPcoHUN"
+      },
+      {
+        "name": "raman-fitting__jmTGQrY",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/raman-fitting__jmTGQrY"
+      },
+      {
+        "name": "raman-fitting__Af8M4Ke",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/raman-fitting__Af8M4Ke"
+      },
+      {
+        "name": "raman-fitting__CmQ8N7c",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/raman-fitting__CmQ8N7c"
+      },
+      {
+        "name": "raman-fitting__rN7tVVS",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/raman-fitting__rN7tVVS"
+      }
+    ],
+    "regex-chess": [
+      {
+        "name": "regex-chess__z6kqHXQ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/regex-chess__z6kqHXQ"
+      },
+      {
+        "name": "regex-chess__idiPYf2",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/regex-chess__idiPYf2"
+      },
+      {
+        "name": "regex-chess__SeR8LBs",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/regex-chess__SeR8LBs"
+      },
+      {
+        "name": "regex-chess__uE69GSr",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/regex-chess__uE69GSr"
+      },
+      {
+        "name": "regex-chess__4dSjYbZ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/regex-chess__4dSjYbZ"
+      }
+    ],
+    "regex-log": [
+      {
+        "name": "regex-log__8Cpz3nf",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/regex-log__8Cpz3nf"
+      },
+      {
+        "name": "regex-log__tVgVaZJ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/regex-log__tVgVaZJ"
+      },
+      {
+        "name": "regex-log__gJCoFcY",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/regex-log__gJCoFcY"
+      },
+      {
+        "name": "regex-log__cWjPU7Z",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/regex-log__cWjPU7Z"
+      },
+      {
+        "name": "regex-log__fHeyTcg",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/regex-log__fHeyTcg"
+      }
+    ],
+    "reshard-c4-data": [
+      {
+        "name": "reshard-c4-data__55dSb8s",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/reshard-c4-data__55dSb8s"
+      },
+      {
+        "name": "reshard-c4-data__u7iZ4zr",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/reshard-c4-data__u7iZ4zr"
+      },
+      {
+        "name": "reshard-c4-data__cRWFpwr",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/reshard-c4-data__cRWFpwr"
+      },
+      {
+        "name": "reshard-c4-data__ySjU8Si",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/reshard-c4-data__ySjU8Si"
+      },
+      {
+        "name": "reshard-c4-data__WV3YUyo",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/reshard-c4-data__WV3YUyo"
+      }
+    ],
+    "rstan-to-pystan": [
+      {
+        "name": "rstan-to-pystan__FKJVmFy",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-upgrade/rstan-to-pystan__FKJVmFy"
+      },
+      {
+        "name": "rstan-to-pystan__udxjNew",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-upgrade/rstan-to-pystan__udxjNew"
+      },
+      {
+        "name": "rstan-to-pystan__5QjVpfw",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-upgrade/rstan-to-pystan__5QjVpfw"
+      },
+      {
+        "name": "rstan-to-pystan__LkWobok",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-upgrade/rstan-to-pystan__LkWobok"
+      },
+      {
+        "name": "rstan-to-pystan__yUJrFMN",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-upgrade/rstan-to-pystan__yUJrFMN"
+      }
+    ],
+    "sam-cell-seg": [
+      {
+        "name": "sam-cell-seg__d3vBgPx",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sam-cell-seg__d3vBgPx"
+      },
+      {
+        "name": "sam-cell-seg__uHvUNXb",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sam-cell-seg__uHvUNXb"
+      },
+      {
+        "name": "sam-cell-seg__d3wwAbx",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sam-cell-seg__d3wwAbx"
+      },
+      {
+        "name": "sam-cell-seg__K5RkcVE",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sam-cell-seg__K5RkcVE"
+      },
+      {
+        "name": "sam-cell-seg__AhGgadT",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sam-cell-seg__AhGgadT"
+      }
+    ],
+    "sanitize-git-repo": [
+      {
+        "name": "sanitize-git-repo__BWqj9T3",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sanitize-git-repo__BWqj9T3"
+      },
+      {
+        "name": "sanitize-git-repo__hb5pr6C",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sanitize-git-repo__hb5pr6C"
+      },
+      {
+        "name": "sanitize-git-repo__aFVee4k",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sanitize-git-repo__aFVee4k"
+      },
+      {
+        "name": "sanitize-git-repo__rrwL27U",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sanitize-git-repo__rrwL27U"
+      },
+      {
+        "name": "sanitize-git-repo__eyq5dz4",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sanitize-git-repo__eyq5dz4"
+      }
+    ],
+    "schemelike-metacircular-eval": [
+      {
+        "name": "schemelike-metacircular-eval__tuejCmM",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/schemelike-metacircular-eval__tuejCmM"
+      },
+      {
+        "name": "schemelike-metacircular-eval__GzzqiTi",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/schemelike-metacircular-eval__GzzqiTi"
+      },
+      {
+        "name": "schemelike-metacircular-eval__4U2c6Vc",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/schemelike-metacircular-eval__4U2c6Vc"
+      },
+      {
+        "name": "schemelike-metacircular-eval__7wrt3hZ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/schemelike-metacircular-eval__7wrt3hZ"
+      },
+      {
+        "name": "schemelike-metacircular-eval__gdRqHqP",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/schemelike-metacircular-eval__gdRqHqP"
+      }
+    ],
+    "sparql-university": [
+      {
+        "name": "sparql-university__yWSMDYo",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sparql-university__yWSMDYo"
+      },
+      {
+        "name": "sparql-university__J83nLRR",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sparql-university__J83nLRR"
+      },
+      {
+        "name": "sparql-university__YyAPFmB",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sparql-university__YyAPFmB"
+      },
+      {
+        "name": "sparql-university__BawM8W2",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sparql-university__BawM8W2"
+      },
+      {
+        "name": "sparql-university__tk7kQmP",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sparql-university__tk7kQmP"
+      }
+    ],
+    "sqlite-db-truncate": [
+      {
+        "name": "sqlite-db-truncate__DaS2ACC",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sqlite-db-truncate__DaS2ACC"
+      },
+      {
+        "name": "sqlite-db-truncate__G28Qen2",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sqlite-db-truncate__G28Qen2"
+      },
+      {
+        "name": "sqlite-db-truncate__QP89fjc",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sqlite-db-truncate__QP89fjc"
+      },
+      {
+        "name": "sqlite-db-truncate__DzUiua2",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sqlite-db-truncate__DzUiua2"
+      },
+      {
+        "name": "sqlite-db-truncate__qeJNFcD",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sqlite-db-truncate__qeJNFcD"
+      }
+    ],
+    "sqlite-with-gcov": [
+      {
+        "name": "sqlite-with-gcov__wSJb35z",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sqlite-with-gcov__wSJb35z"
+      },
+      {
+        "name": "sqlite-with-gcov__fTP6RRH",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sqlite-with-gcov__fTP6RRH"
+      },
+      {
+        "name": "sqlite-with-gcov__KAEi5kh",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sqlite-with-gcov__KAEi5kh"
+      },
+      {
+        "name": "sqlite-with-gcov__9EJQSHK",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sqlite-with-gcov__9EJQSHK"
+      },
+      {
+        "name": "sqlite-with-gcov__osWAnbM",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/sqlite-with-gcov__osWAnbM"
+      }
+    ],
+    "torch-pipeline-parallelism": [
+      {
+        "name": "torch-pipeline-parallelism__ifxDsAg",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/torch-pipeline-parallelism__ifxDsAg"
+      },
+      {
+        "name": "torch-pipeline-parallelism__TSWm4Ka",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/torch-pipeline-parallelism__TSWm4Ka"
+      },
+      {
+        "name": "torch-pipeline-parallelism__7GaiyzG",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/torch-pipeline-parallelism__7GaiyzG"
+      },
+      {
+        "name": "torch-pipeline-parallelism__pE8LkcD",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/torch-pipeline-parallelism__pE8LkcD"
+      },
+      {
+        "name": "torch-pipeline-parallelism__bqiW5eY",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/torch-pipeline-parallelism__bqiW5eY"
+      }
+    ],
+    "torch-tensor-parallelism": [
+      {
+        "name": "torch-tensor-parallelism__uXRQZUi",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/torch-tensor-parallelism__uXRQZUi"
+      },
+      {
+        "name": "torch-tensor-parallelism__qvFWUCr",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/torch-tensor-parallelism__qvFWUCr"
+      },
+      {
+        "name": "torch-tensor-parallelism__HysaWnT",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/torch-tensor-parallelism__HysaWnT"
+      },
+      {
+        "name": "torch-tensor-parallelism__EaxMzAW",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/torch-tensor-parallelism__EaxMzAW"
+      },
+      {
+        "name": "torch-tensor-parallelism__3xoZ6Lj",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/torch-tensor-parallelism__3xoZ6Lj"
+      }
+    ],
+    "train-fasttext": [
+      {
+        "name": "train-fasttext__3PmnoQ8",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/train-fasttext__3PmnoQ8"
+      },
+      {
+        "name": "train-fasttext__gwPeR98",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/train-fasttext__gwPeR98"
+      },
+      {
+        "name": "train-fasttext__w2Tgjyv",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/train-fasttext__w2Tgjyv"
+      },
+      {
+        "name": "train-fasttext__h6yvyS8",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/train-fasttext__h6yvyS8"
+      },
+      {
+        "name": "train-fasttext__wCVxWpd",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-rep-003/train-fasttext__wCVxWpd"
+      }
+    ],
+    "tune-mjcf": [
+      {
+        "name": "tune-mjcf__RqrYCRj",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/tune-mjcf__RqrYCRj"
+      },
+      {
+        "name": "tune-mjcf__LWyeWep",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/tune-mjcf__LWyeWep"
+      },
+      {
+        "name": "tune-mjcf__YguzAdo",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/tune-mjcf__YguzAdo"
+      },
+      {
+        "name": "tune-mjcf__T2T7xZg",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/tune-mjcf__T2T7xZg"
+      },
+      {
+        "name": "tune-mjcf__nNAYmc5",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/tune-mjcf__nNAYmc5"
+      }
+    ],
+    "video-processing": [
+      {
+        "name": "video-processing__TAFuw3G",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/video-processing__TAFuw3G"
+      },
+      {
+        "name": "video-processing__wZWrcGE",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/video-processing__wZWrcGE"
+      },
+      {
+        "name": "video-processing__MNNhTXG",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/video-processing__MNNhTXG"
+      },
+      {
+        "name": "video-processing__tCoUc3V",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/video-processing__tCoUc3V"
+      },
+      {
+        "name": "video-processing__4syGrzH",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/video-processing__4syGrzH"
+      }
+    ],
+    "vulnerable-secret": [
+      {
+        "name": "vulnerable-secret__VtnTYdP",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/vulnerable-secret__VtnTYdP"
+      },
+      {
+        "name": "vulnerable-secret__srJxZuX",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/vulnerable-secret__srJxZuX"
+      },
+      {
+        "name": "vulnerable-secret__vCpm4ZG",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/vulnerable-secret__vCpm4ZG"
+      },
+      {
+        "name": "vulnerable-secret__khhZ9dJ",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/vulnerable-secret__khhZ9dJ"
+      },
+      {
+        "name": "vulnerable-secret__5GYGfrc",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/vulnerable-secret__5GYGfrc"
+      }
+    ],
+    "winning-avg-corewars": [
+      {
+        "name": "winning-avg-corewars__LzQUGEd",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/winning-avg-corewars__LzQUGEd"
+      },
+      {
+        "name": "winning-avg-corewars__acH4esM",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/winning-avg-corewars__acH4esM"
+      },
+      {
+        "name": "winning-avg-corewars__TfiaQHL",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/winning-avg-corewars__TfiaQHL"
+      },
+      {
+        "name": "winning-avg-corewars__byZrBzF",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/winning-avg-corewars__byZrBzF"
+      },
+      {
+        "name": "winning-avg-corewars__Sy55Vae",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/winning-avg-corewars__Sy55Vae"
+      }
+    ],
+    "write-compressor": [
+      {
+        "name": "write-compressor__yDKtXfq",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/write-compressor__yDKtXfq"
+      },
+      {
+        "name": "write-compressor__NstswuN",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/write-compressor__NstswuN"
+      },
+      {
+        "name": "write-compressor__tmNrzsi",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/write-compressor__tmNrzsi"
+      },
+      {
+        "name": "write-compressor__PydoTrk",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/write-compressor__PydoTrk"
+      },
+      {
+        "name": "write-compressor__Hf63NaS",
+        "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h/jobs/tb21-grok47-medium-xai-sse-001-hf-basic/write-compressor__Hf63NaS"
+      }
+    ]
+  },
   "safety_cells": {},
   "errors": {},
   "cost": {

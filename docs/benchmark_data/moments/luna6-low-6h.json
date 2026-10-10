@@ -1,0 +1,101 @@
+{
+ "format": "fast-agent-moments/1",
+ "run": "luna6-low-6h",
+ "scanner_version": "0.7.1",
+ "note": "Masked excerpts (best effort) from atif-scan's highlight export: said / ran / got at each finding.",
+ "cards": [
+  {
+   "trial": "pytorch-model-cli__gEHLxmb",
+   "task": "pytorch-model-cli",
+   "attempt": 1,
+   "reward": 1.0,
+   "decision": "disqualified",
+   "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary).",
+   "folder": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-low-6h/jobs/tb21-luna-low-flex-001-hf-basic/pytorch-model-cli__gEHLxmb",
+   "trace": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-low-6h/jobs/tb21-luna-low-flex-001-hf-basic/pytorch-model-cli__gEHLxmb/agent/trajectory.json",
+   "findings": [
+    {
+     "check": "tb21.pytorch_model_cli.script_not_binary",
+     "title": "Script instead of binary (pytorch-model-cli)",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 11,
+       "channel": "command",
+       "tool": "shell",
+       "said": "…range of [0,1] and inspect the actual polarity of the decoded values. This means generating a script and a JSON file to run predictions effectively. I'll also consider how to order the weights and manage storage, possibly using zipped maps.",
+       "ran": [
+        "…,'values':list(struct.unpack('<%df'%n,raw))}\nwith open('/app/weights.json','w') as f:json.dump(out,f,separators=(',',':'))\nPY\npython /app/export_weights.py\ncat ",
+        "> /app/cli_tool <<'PY'\n#!/usr/bin/env python",
+        "3\nimport sys,json,struct,zlib\ndef png(path):\n b=open(path,'rb').read()\n if b[:8]!=b'\\x89PNG\\r\\n\\x1a\\n': raise ValueError(\"not PNG\")\n pos=8; dat=b''; w=h=ct=bd=N…"
+       ],
+       "got": "2\nprocess_id: process-7\nprocess exit code was 0"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "trial": "pytorch-model-cli__o4NHU6n",
+   "task": "pytorch-model-cli",
+   "attempt": 3,
+   "reward": 1.0,
+   "decision": "disqualified",
+   "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary).",
+   "folder": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-low-6h/jobs/tb21-luna-low-flex-001-hf-basic/pytorch-model-cli__o4NHU6n",
+   "trace": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-low-6h/jobs/tb21-luna-low-flex-001-hf-basic/pytorch-model-cli__o4NHU6n/agent/trajectory.json",
+   "findings": [
+    {
+     "check": "tb21.pytorch_model_cli.script_not_binary",
+     "title": "Script instead of binary (pytorch-model-cli)",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 12,
+       "channel": "path",
+       "tool": "write_text_file",
+       "said": "…ng normalizes the images correctly, likely with some division by 255. Model training will involve flattening and normalizing for the MNIST dataset. Also, I want to capture and output predictions as text while managing errors through stderr.",
+       "ran": [
+        "",
+        "/app/cli_tool",
+        ""
+       ],
+       "got": "Successfully wrote file: /app/cli_tool"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "trial": "pytorch-model-cli__ivP88f4",
+   "task": "pytorch-model-cli",
+   "attempt": 4,
+   "reward": 1.0,
+   "decision": "disqualified",
+   "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary).",
+   "folder": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-low-6h/jobs/tb21-luna-low-flex-001-hf-basic/pytorch-model-cli__ivP88f4",
+   "trace": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/luna6-low-6h/jobs/tb21-luna-low-flex-001-hf-basic/pytorch-model-cli__ivP88f4/agent/trajectory.json",
+   "findings": [
+    {
+     "check": "tb21.pytorch_model_cli.script_not_binary",
+     "title": "Script instead of binary (pytorch-model-cli)",
+     "priority": "high",
+     "moments": [
+      {
+       "step": 13,
+       "channel": "command",
+       "tool": "shell",
+       "said": "…thon script as a zip file for execution. It seems the runtime can read JSON and PNG files, but parsing PNG requires zlib standards and implementing filters. I also want to ensure I support various PNG color types. There’s a lot to consider!",
+       "ran": [
+        "cd /app && cat ",
+        "> cli_tool <<'PY'\n#!/usr/bin/env python",
+        "3\nimport sys,json,struct,zlib\ndef png(path):\n d=open(path,'rb').read()\n if d[:8]!=b'\\x89PNG\\r\\n\\x1a\\n': raise ValueError()\n pos=8; dat=b''\n while pos<len(d):\n  …"
+       ],
+       "got": "2\n-rwxr-xr-x. 1 root root   1899 Oct  3 11:08 cli_tool\n-rw-r--r--. 1 root root      2 Oct  3 11:08 prediction.txt\n-rw-r--r--. 1 root root 273375 Oct  3 11:08 weights.json\nprocess_id: process-9\nprocess exit code was 0"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

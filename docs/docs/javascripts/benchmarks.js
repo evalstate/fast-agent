@@ -1571,7 +1571,7 @@
     root.appendChild(chartSlot);
     state.redraw();
 
-    var td = sectionHead("", "Task Difficulty.", "One row per run, one column per task, darker is more attempts passed. Hard tasks sit on the right.");
+    var td = sectionHead("", "Task Difficulty", "One row per run, one column per task, darker is more attempts passed. Hard tasks sit on the right.");
     td.id = "difficulty";
     root.appendChild(td);
     root.appendChild(matrix(m));
@@ -1717,7 +1717,7 @@
 
   function sectionHead(kicker, heading, body) {
     var h = el("header", "fb-section");
-    h.appendChild(el("p", "fb-kicker", kicker));
+    if (kicker) h.appendChild(el("p", "fb-kicker", kicker));
     h.appendChild(el("h2", "", heading));
     if (body) h.appendChild(el("p", "", body));
     return h;
@@ -1793,7 +1793,7 @@
     else kpi("—", "full run", "subset only");
     root.appendChild(kpis);
 
-    root.appendChild(sectionHead("The wall", "All " + run.slots + " attempts.", "One tile per task, " + m.attempts + " attempts each. Hover a tile for its attempts and scan notes."));
+    root.appendChild(sectionHead("", "Trial Performance", "All " + run.slots + " trials: one tile per task, " + m.attempts + " attempts each. Hover a tile for its attempts and scan notes."));
     root.appendChild(taskWall(m, run));
 
     if (run.full) {
@@ -1802,25 +1802,26 @@
       var gap = run.score - run.full.publishedScore;
       root.appendChild(
         sectionHead(
-          "The full run",
-          "All " + fm.tasks.length + " tasks.",
+          "",
+          "Full Run",
           "The leaderboard run behind this row: " + pct(run.full.publishedScore) + " on the full set against " + pct(run.score) + " on the subset (" + pts(gap) + "). Outlined tiles are the subset's " + m.tasks.length + " tasks."
         )
       );
       root.appendChild(taskWall(fm, fr, m.tasks));
     }
 
-    root.appendChild(sectionHead("Receipts", "What atif-scan found.", null));
+    root.appendChild(sectionHead("", "Integrity Scan", null));
     root.appendChild(scanPanel(m, run));
+    if (run.scan) root.appendChild(momentsSection(m, run));
 
-    root.appendChild(sectionHead("Source data", "Download traces.", null));
+    root.appendChild(sectionHead("", "Source Data", null));
     root.appendChild(sources(m, run));
 
     var same = m.runs.concat(m.claims).filter(function (e) {
       return e.id !== run.id && (e.family === run.family || e.pairsWith === run.id || (e.model === run.model && e.effort === run.effort));
     });
     if (same.length) {
-      root.appendChild(sectionHead("Compare", "Set it against…", null));
+      root.appendChild(sectionHead("", "Compare", null));
       var list = el("div", "fb-against");
       same.forEach(function (e) {
         var a = link(compareHref(run.id, e.id), "fb-against__i");
@@ -1915,9 +1916,13 @@
         tile.appendChild(squares);
         tile.appendChild(el("span", "fb-tile__name", name));
         tile.addEventListener("mousemove", function (evt) {
-          showTip(evt, [name, p + " of " + m.attempts + " passed here"].concat(safetyEvidence(m, run, ti), scanLines(run, ti, m.attempts)));
+          var more = reviewCards.tasks[name] ? ["Click for review details"] : [];
+          showTip(evt, [name, p + " of " + m.attempts + " passed here"].concat(safetyEvidence(m, run, ti), scanLines(run, ti, m.attempts), more));
         });
         tile.addEventListener("mouseleave", hideTip);
+        tile.addEventListener("click", function () {
+          if (reviewCards.show) reviewCards.show({ task: name });
+        });
         grid.appendChild(tile);
       });
     }
@@ -2034,7 +2039,10 @@
       bar.appendChild(fill);
       li.appendChild(bar);
       li.appendChild(el("span", "fb-bars__v", f.trials + (f.rewarded ? " · " + f.rewarded + " rewarded" : "")));
-      li.title = f.check + (f.from ? " (our publish-side rule over " + f.from + ")" : "");
+      li.title = f.check + (f.from ? " (our publish-side rule over " + f.from + ")" : "") + " · click for review details";
+      li.addEventListener("click", function () {
+        if (reviewCards.show) reviewCards.show({ check: f.check });
+      });
       list.appendChild(li);
     });
     findings.appendChild(list);
@@ -2117,6 +2125,238 @@
   function rate(v) {
     return "$" + (v >= 0.01 ? v.toFixed(2) : String(v));
   }
+  /* ── Moments: the evidence behind flagged passes and review decisions ───
+     Loaded on demand from benchmarks/moments/<run>.json (docs/benchmark_data/moments.py,
+     from atif-scan's masked highlight excerpts). Each card is one trial: our decision, then
+     each finding as the moment it matched, with what came just before and after. */
+  var CHANNEL = {
+    reasoning: { main: "thought", before: "before", after: "then ran" },
+    message: { main: "said", before: "before", after: "then ran" },
+    observation: { main: "got back", before: "after running", after: "" },
+  };
+  function channelLabels(ch) {
+    return CHANNEL[ch] || { main: "ran", before: "why", after: "result" };
+  }
+  var DECISION = {
+    disqualified: ["Disqualified", "fb-dec--dq"],
+    cleared: ["Cleared on review", "fb-dec--ok"],
+    "auto-cleared": ["Cleared by policy", "fb-dec--auto"],
+  };
+  function momentBlock(mo) {
+    var lab = channelLabels(mo.channel);
+    var prose = mo.channel === "reasoning" || mo.channel === "message";
+    var box = el("div", "fb-moment fb-moment--" + (prose ? "prose" : "code"));
+    var head = el("div", "fb-moment__where");
+    head.appendChild(el("span", "fb-moment__step", "step " + mo.step));
+    head.appendChild(el("span", "", mo.channel + (mo.tool ? " · " + mo.tool : "")));
+    box.appendChild(head);
+    if (mo.said) {
+      var b = el("div", "fb-moment__ctx");
+      b.appendChild(el("span", "fb-moment__k", lab.before));
+      b.appendChild(el("span", "fb-moment__t", mo.said));
+      box.appendChild(b);
+    }
+    var main = el("div", "fb-moment__main");
+    main.appendChild(el("span", "fb-moment__k", lab.main));
+    var t = el("span", "fb-moment__t");
+    t.appendChild(document.createTextNode(mo.ran[0]));
+    t.appendChild(el("mark", "fb-moment__hit" + (mo.ran[1].length > 160 ? " is-long" : ""), clipMark(mo.ran[1], 420)));
+    t.appendChild(document.createTextNode(mo.ran[1].length > 420 ? "" : mo.ran[2]));
+    main.appendChild(t);
+    box.appendChild(main);
+    if (mo.got && lab.after) {
+      var a = el("div", "fb-moment__ctx");
+      a.appendChild(el("span", "fb-moment__k", lab.after));
+      a.appendChild(el("span", "fb-moment__t", mo.got));
+      box.appendChild(a);
+    }
+    return box;
+  }
+  function clipMark(text, n) {
+    return text.length > n ? text.slice(0, n) + "…" : text;
+  }
+  /* The same step, already shown above in this card: just the matched words in a line. */
+  function momentEcho(mo) {
+    var box = el("div", "fb-moment fb-moment--echo");
+    box.appendChild(el("span", "fb-moment__step", "same step " + mo.step));
+    var t = el("span", "fb-moment__t");
+    var before = mo.ran[0].slice(-60);
+    var after = mo.ran[2].slice(0, 60);
+    t.appendChild(document.createTextNode((before.length < mo.ran[0].length ? "…" : "") + before));
+    t.appendChild(el("mark", "fb-moment__hit", clipMark(mo.ran[1], 160)));
+    if (mo.ran[1].length <= 160) t.appendChild(document.createTextNode(after + (after.length < mo.ran[2].length ? "…" : "")));
+    box.appendChild(t);
+    return box;
+  }
+  function momentCard(m, run, card) {
+    var c = el("article", "fb-mcard" + (card.decision ? " fb-mcard--" + card.decision : ""));
+    c.id = "moment-" + card.trial;
+    c.dataset.decision = card.decision || "flagged";
+    c.dataset.task = card.task;
+    c.dataset.checks = card.findings.map(function (f) { return f.check; }).join(" ");
+    var head = el("header", "fb-mcard__head");
+    var ti = m.tasks.indexOf(card.task);
+    var mini = el("span", "fb-mcard__cells");
+    taskCells(run, ti, m.attempts).split("").forEach(function (code, i) {
+      mini.appendChild(el("i", "fb-c--" + (code === "-" ? "m" : code) + " fb-tier-" + run.tier + (i === card.attempt ? " is-this" : "")));
+    });
+    head.appendChild(mini);
+    var name = el("div", "fb-mcard__name");
+    name.appendChild(el("strong", "", card.task));
+    name.appendChild(el("span", "fb-mcard__sub", "attempt " + (card.attempt + 1) + " of " + m.attempts + " · " + ((card.reward || 0) > 0 ? "passed" : "failed") + " · " + card.trial));
+    head.appendChild(name);
+    var dec = DECISION[card.decision] || ["Flagged, not reviewed", "fb-dec--none"];
+    head.appendChild(el("span", "fb-dec " + dec[1], dec[0]));
+    c.appendChild(head);
+    // Policy clearances share one reason, given once above the cards; keep it on hover.
+    if (card.reason && card.decision !== "auto-cleared") c.appendChild(el("p", "fb-mcard__reason", card.reason));
+    else if (card.reason) head.title = card.reason;
+    var seen = {};
+    var more = el("div", "fb-mcard__more");
+    more.hidden = true;
+    var extra = 0;
+    card.findings.forEach(function (f, fi) {
+      var fs = el("section", "fb-mcard__finding");
+      var ft = el("div", "fb-mcard__ftitle");
+      ft.appendChild(el("span", "fb-pri fb-pri--" + f.priority, f.priority));
+      ft.appendChild(el("span", "", f.title));
+      ft.title = f.check;
+      fs.appendChild(ft);
+      var later = el("div", "fb-mcard__finding");
+      f.moments.forEach(function (mo, mi) {
+        var key = mo.step + ":" + mo.channel;
+        var node = seen[key] ? momentEcho(mo) : momentBlock(mo);
+        seen[key] = true;
+        if (fi === 0) fs.appendChild(node); // the first finding shows in full: lookup, then what came back
+        else {
+          (fi === 0 ? later : fs).appendChild(node);
+          extra++;
+        }
+      });
+      if (fi === 0) {
+        c.appendChild(fs);
+        if (later.children.length) more.appendChild(later);
+      } else more.appendChild(fs);
+    });
+    if (extra) {
+      var label = "Show " + (card.findings.length - 1) + " more finding" + (card.findings.length === 2 ? "" : "s") + " · " + extra + " moment" + (extra === 1 ? "" : "s");
+      var toggle = el("button", "fb-mcard__toggle", label);
+      toggle.type = "button";
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.addEventListener("click", function () {
+        more.hidden = !more.hidden;
+        toggle.setAttribute("aria-expanded", String(!more.hidden));
+        toggle.textContent = more.hidden ? label : "Hide the other findings";
+      });
+      c.appendChild(toggle);
+      c.appendChild(more);
+    }
+    if (card.folder) {
+      var foot = el("footer", "fb-mcard__foot");
+      foot.appendChild(external(card.folder, "Trial files"));
+      if (card.trace) foot.appendChild(external(card.trace, "View trace"));
+      c.appendChild(foot);
+    }
+    return c;
+  }
+  /* Set once a run's review cards load: which tasks have cards, and a way to show them. */
+  var reviewCards = { tasks: {}, show: null };
+  function momentsSection(m, run) {
+    reviewCards = { tasks: {}, show: null };
+    var wrap = el("section", "fb-moments");
+    wrap.id = "moments";
+    var url = BENCH_ROOT + "moments/" + encodeURIComponent(run.id) + ".json";
+    fetch(url)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (doc) {
+        if (!doc || !doc.cards.length) return;
+        wrap.appendChild(
+          sectionHead(
+            "",
+            "Review Details",
+            "Flagged passes and review decisions, shown at the step where atif-scan matched. Highlighted text is the match. Excerpts are shortened and masked for secrets; open the trajectory for the full step."
+          )
+        );
+        var counts = { all: doc.cards.length };
+        doc.cards.forEach(function (cd) { var k = cd.decision || "flagged"; counts[k] = (counts[k] || 0) + 1; });
+        var filt = el("div", "fb-seg fb-moments__filter");
+        var list = el("div", "fb-moments__list");
+        [["all", "All"], ["disqualified", "Disqualified"], ["cleared", "Cleared"], ["auto-cleared", "Cleared by policy"], ["flagged", "Not reviewed"]].forEach(function (o, i) {
+          if (!counts[o[0]]) return;
+          var b = el("button", "", o[1] + " · " + counts[o[0]]);
+          b.type = "button";
+          b.setAttribute("aria-pressed", String(i === 0));
+          b.addEventListener("click", function () {
+            narrowed.hidden = true;
+            filt.querySelectorAll("button").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); });
+            list.classList.remove("is-folded");
+            list.querySelectorAll(".fb-mcard").forEach(function (cd) {
+              cd.hidden = o[0] !== "all" && cd.dataset.decision !== o[0];
+            });
+          });
+          filt.appendChild(b);
+        });
+        wrap.appendChild(filt);
+        var narrowed = el("p", "fb-moments__narrowed");
+        narrowed.hidden = true;
+        wrap.appendChild(narrowed);
+        var policy = {};
+        doc.cards.forEach(function (cd) { if (cd.decision === "auto-cleared") policy[cd.reason] = (policy[cd.reason] || 0) + 1; });
+        Object.keys(policy).forEach(function (reason) {
+          var note = el("p", "fb-moments__policy");
+          note.appendChild(el("strong", "", "Cleared by policy (" + policy[reason] + "): "));
+          note.appendChild(document.createTextNode(reason));
+          wrap.appendChild(note);
+        });
+        var SHOW = 8;
+        doc.cards.forEach(function (cd, i) {
+          var node = momentCard(m, run, cd);
+          if (i >= SHOW) node.classList.add("is-overflow");
+          list.appendChild(node);
+        });
+        wrap.appendChild(list);
+        if (doc.cards.length > SHOW) {
+          list.classList.add("is-folded");
+          var all = el("button", "fb-taskpick__x fb-moments__all", "Show all " + doc.cards.length + " cards");
+          all.type = "button";
+          all.addEventListener("click", function () { list.classList.remove("is-folded"); all.remove(); });
+          wrap.appendChild(all);
+        }
+        wrap.appendChild(el("p", "fb-scan__note", "Excerpts from atif-scan " + doc.scanner_version + "'s highlight export."));
+        doc.cards.forEach(function (cd) { reviewCards.tasks[cd.task] = true; });
+        // Show only the cards for a task (wall tile) or a check (findings row), then scroll there.
+        reviewCards.show = function (sel) {
+          var shown = 0;
+          list.classList.remove("is-folded");
+          list.querySelectorAll(".fb-mcard").forEach(function (cd) {
+            var hit = sel.task ? cd.dataset.task === sel.task : (" " + cd.dataset.checks + " ").indexOf(" " + sel.check + " ") >= 0;
+            cd.hidden = !hit;
+            if (hit) shown++;
+          });
+          if (!shown) {
+            list.querySelectorAll(".fb-mcard").forEach(function (cd) { cd.hidden = false; });
+            return;
+          }
+          filt.querySelectorAll("button").forEach(function (x) { x.setAttribute("aria-pressed", "false"); });
+          narrowed.hidden = false;
+          narrowed.innerHTML = "";
+          narrowed.appendChild(document.createTextNode("Showing " + shown + " card" + (shown === 1 ? "" : "s") + " for " + (sel.task || sel.check) + ". "));
+          var clear = el("button", "fb-mcard__toggle", "Show all");
+          clear.type = "button";
+          clear.addEventListener("click", function () {
+            narrowed.hidden = true;
+            filt.querySelector("button").click();
+          });
+          narrowed.appendChild(clear);
+          wrap.scrollIntoView({ behavior: "smooth", block: "start" });
+        };
+        var hash = decodeURIComponent(window.location.hash.slice(1));
+        if (hash && document.getElementById(hash)) document.getElementById(hash).scrollIntoView();
+      })
+      .catch(function () {});
+    return wrap;
+  }
+
   function sources(m, run) {
     var box = el("div", "fb-sources");
 
@@ -2341,7 +2581,7 @@
       return;
     }
 
-    root.appendChild(sectionHead("Task by task", "Where the points come from.", "Each column is one task: " + harnessLabel(a) + " passes rise above the line, " + harnessLabel(b) + " passes hang below. Sorted by the difference."));
+    root.appendChild(sectionHead("", "Task by Task", "Each column is one task: " + harnessLabel(a) + " passes rise above the line, " + harnessLabel(b) + " passes hang below. Sorted by the difference."));
     root.appendChild(butterfly(m, a, b));
   }
   function harnessLabel(e) {

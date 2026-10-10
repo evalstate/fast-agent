@@ -365,6 +365,7 @@ def select_release_trials(
         for trial in found:
             trial["bucket_run"] = job_dir.name
             trial["main_run"] = job_dir.name not in replacement_jobs
+            trial["bucket_path"] = f"{spec['path']}/jobs/{job_dir.name}/{trial['trial_name']}"
         trials += found
         jobs.append(
             {
@@ -425,6 +426,7 @@ def select_bucket_trials(
         for trial in by_run[run_id]:
             trial["bucket_run"] = run_id
             trial["main_run"] = run_id == spec["runs"][0]
+            trial["bucket_path"] = f"{spec.get('path', 'runs')}/{run_id}/job/{trial['trial_name']}"
         jobs.append(
             {
                 "id": run_id,
@@ -891,6 +893,21 @@ def build_run(
         "passes": passes,
         "score": round(100 * passes / slots, 2),
         "tasks": {task: "".join(c) for task, c in cells.items()},
+        # The trials behind each task's cells, in the same order (for linking evidence).
+        "trials": {
+            task: [
+                {
+                    k: v
+                    for k, v in (
+                        ("name", t.get("trial_name") or t["id"]),
+                        ("path", t.get("bucket_path")),
+                    )
+                    if v
+                }
+                for t in trials
+            ]
+            for task, trials in ordered.items()
+        },
         "safety_cells": safety_cells(ordered),
         "errors": errors,
         "cost": {
@@ -979,6 +996,7 @@ def build_run(
                 inputs = [f"harbor://jobs/{j}" for j in job_ids]
                 extra = (*rules, *scan_extra)
                 excluded_keys = set(excluded_cfg)
+            out["_scan_inputs"] = (inputs, extra)  # for --moments; not written
             brief = fetcher.scan(run["id"], inputs, atif_dir, brief=True, extra=extra)
             full = fetcher.scan(run["id"], inputs, atif_dir, brief=False, extra=extra)
             out["scan"] = summarize_scan(brief, full, excluded_keys)
@@ -994,6 +1012,12 @@ def build_run(
                 "rules_sha256": file_sha256(scan_rules) if scan_rules else None,
             }
             out["scan"]["cells"] = scan_cells(full, ordered, models[0])
+            # Hub trials are named by id here and by folder in atif-scan's output.
+            out["_trial_alias"] = {
+                i["input_id"].split("/")[0]: i["hub_trial_id"]
+                for i in full["inputs"]
+                if i.get("hub_trial_id")
+            }
             if "bucket" in run:
                 keys = {t["scan_key"] for t in selected}
                 # Report the scan over the reported trials, like the score. Replaced
@@ -1031,6 +1055,48 @@ def build_run(
     return out
 
 
+def write_moments(
+    run: Json,
+    out: Json,
+    scan_inputs: tuple[list[str], tuple[str, ...]],
+    atif_dir: Path,
+    dest: Path,
+    alias: dict[str, str],
+) -> None:
+    """Rerun the scan with --highlights (same inputs and options) and turn the excerpts
+    into the run page's evidence cards. The export holds trace text: it lives in a
+    private temporary directory and is deleted after use."""
+    import shutil
+    import tempfile
+
+    import moments
+
+    inputs, extra = scan_inputs
+    tmp = Path(tempfile.mkdtemp(prefix="fa-highlights-"))
+    try:
+        target = tmp / "hl"
+        cmd = ["uv", "run", "atif-scan", *inputs, "--expect-tasks", "89", *extra]
+        cmd += ["--highlights", str(target)]
+        env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+        done = subprocess.run(
+            cmd, cwd=atif_dir, env=env, capture_output=True, text=True, check=False
+        )
+        if not (target / "data.js").exists():
+            raise RuntimeError(f"atif-scan --highlights exited {done.returncode}")
+        repo = (run.get("bucket") or {}).get("repo", "evalstate/published-benchmarks")
+        doc = moments.build(
+            run["id"], moments.load_highlights(target / "data.js"), repo, run=out, alias=alias
+        )
+        moments.check_clean(doc)
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / f"{run['id']}.json").write_text(
+            json.dumps(doc, indent=1, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        print(f"  moments: {len(doc['cards'])} cards", file=sys.stderr)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -1052,6 +1118,12 @@ def main() -> None:
         "--image-model",
         help="pass --image-model to atif-scan (sends images that block a check to this model; "
         "model calls happen only with this flag)",
+    )
+    parser.add_argument(
+        "--moments",
+        action="store_true",
+        help="with --scan, also write moments/<run>.json: masked excerpts behind flagged passes "
+        "and review decisions (atif-scan --highlights, then moments.py)",
     )
     args = parser.parse_args()
 
@@ -1089,7 +1161,13 @@ def main() -> None:
             if manifest.get("scan_rules")
             else None,
         )
+        scan_inputs = out.pop("_scan_inputs", None)
+        alias = out.pop("_trial_alias", {})
         (runs_dir / f"{run['id']}.json").write_text(json.dumps(out, indent=2) + "\n")
+        if args.moments and scan_inputs and out.get("scan"):
+            write_moments(
+                run, out, scan_inputs, args.atif_scan_dir, args.out_dir / "moments", alias
+            )
         print(
             f"  passes {out['passes']}/{out['slots']}  cost ${out['cost']['total_usd']}"
             f" ({out['cost']['trials_with_cost']} costed)  reconciled={out['reconciled']}"
