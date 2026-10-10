@@ -22,6 +22,10 @@ _DISK_LOW_RATIO = 0.20
 _DISK_RECOVERED_RATIO = 0.25
 _DISK_LOW_BYTES = 2 * _GIB
 _DISK_RECOVERED_BYTES = 3 * _GIB
+# Ample absolute headroom: never report disk pressure or declines at or above it.
+# Shared multi-terabyte hosts (e.g. HF sandboxes) sit under the ratio threshold and
+# see other tenants' gigabyte-scale writes while hundreds of GiB remain free.
+_DISK_AMPLE_FREE_BYTES = 20 * _GIB
 _MEMORY_HIGH_RATIO = 0.80
 _MEMORY_RECOVERED_RATIO = 0.75
 _CPU_HIGH_RATIO = 0.90
@@ -388,16 +392,19 @@ def _disk_observation(
     if total is None or free is None or total <= 0:
         return None
     ratio = free / total
-    pressure = ratio <= _DISK_LOW_RATIO or free <= _DISK_LOW_BYTES
+    ample = free >= _DISK_AMPLE_FREE_BYTES
+    pressure = free <= _DISK_LOW_BYTES or (ratio <= _DISK_LOW_RATIO and not ample)
     newly_low = pressure and "disk" not in state.active_warnings
     if pressure:
         state.active_warnings.add("disk")
-    elif ratio >= _DISK_RECOVERED_RATIO and free >= _DISK_RECOVERED_BYTES:
+    elif ample or (ratio >= _DISK_RECOVERED_RATIO and free >= _DISK_RECOVERED_BYTES):
         state.active_warnings.discard("disk")
 
     prior_free = comparison.disk_free_bytes
     decline = max(prior_free - free, 0) if prior_free is not None else 0
-    large_decline = decline >= _LARGE_BYTE_CHANGE or decline / total >= _LARGE_DISK_RATIO_CHANGE
+    large_decline = not ample and (
+        decline >= _LARGE_BYTE_CHANGE or decline / total >= _LARGE_DISK_RATIO_CHANGE
+    )
     if not newly_low and not large_decline:
         return None
     detail = f"disk free {_gib(free)}/{_gib(total)} ({ratio:.0%}"
