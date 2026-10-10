@@ -1,13 +1,21 @@
-"""Fetch Terminal-Bench 2.1 per-trial data for the benchmarks page.
+"""Fetch per-trial benchmark data for the benchmarks page.
 
-Reads ``manifest.json`` next to this file and writes ``runs/<run_id>.json`` and
-``tasks.json``. Data comes from the ``harbor`` CLI (Hub jobs, trials and the
-TB2.1 leaderboard), the ``gh`` CLI (leaderboard submission files) and,
-optionally, ``atif-scan`` for an integrity summary.
+Reads a manifest (default ``manifest.json`` next to this file, Terminal-Bench 2.1;
+``tb4/manifest.json`` for the Terminal-Bench 4.0 subset) and writes
+``runs/<run_id>.json`` beside it (moments go to ``moments/`` next to this file).
+Data comes from the ``harbor`` CLI (Hub jobs, trials and the leaderboard), the
+``gh`` CLI (leaderboard submission files), local bucket mirrors (our published
+runs) and, optionally, ``atif-scan`` for an integrity summary.
+
+The task list is ``tasks_file`` (relative to the manifest) or, failing that, the
+union of the ``tasks_from_jobs`` job configs (written to ``tasks.json``). A run may
+name its own ``tasks_file``: our TB4 runs cover the 19-task subset, while leaderboard
+rows keep all 66 tasks.
 
     uv run python docs/benchmark_data/fetch_runs.py                 # all runs
     uv run python docs/benchmark_data/fetch_runs.py --run luna-max-6h
     uv run python docs/benchmark_data/fetch_runs.py --scan          # also run atif-scan
+    uv run python docs/benchmark_data/fetch_runs.py --manifest docs/benchmark_data/tb4/manifest.json
 
 Raw CLI responses are cached under ``--cache-dir`` (default /tmp/bench/cache);
 pass ``--refresh`` to re-fetch.
@@ -140,6 +148,7 @@ class Fetcher:
         atif_dir: Path,
         *,
         brief: bool,
+        expect: int,
         extra: tuple[str, ...] = (),
     ) -> Json:
         cmd = [
@@ -148,7 +157,7 @@ class Fetcher:
             "atif-scan",
             *inputs,
             "--expect-tasks",
-            "89",
+            str(expect),
             *extra,
             "--format",
             "json",
@@ -709,17 +718,23 @@ def build_run(
     excluded_cfg = {e["id"]: e["reason"] for e in run.get("exclude_trials", [])}
     published = run.get("published")
     date = run.get("date")
+    model_org = run.get("model_org")
     submission: Json | None = None
 
     if row_id := run.get("leaderboard_row"):
         selected, job_ids = select_leaderboard_trials(fetcher, row_id)
         row = lb_rows[row_id]
+        # TB2.1 rows link their submission PR; TB4 rows have none, so link the row.
+        pr_url = (row["metadata"].get("pr_url") or {}).get("url")
         published = {
             "score": row["metrics"]["accuracy"],
+            "passes": row["metrics"].get("successes"),
             "total_cost": row["metrics"]["total_cost_usd"],
-            "source_url": row["metadata"]["pr_url"]["url"],
+            "ci95": row["metrics"].get("accuracy_ci95_half_width"),
+            "source_url": pr_url or f"{manifest['leaderboard_url']}/rows/{row_id}",
         }
         date = row["metadata"]["date"]
+        model_org = model_org or (row["metadata"].get("model_org") or {}).get("label")
         excluded: list[Json] = []
     elif "bucket" in run:
         selected, excluded, bucket_reasons, bucket_jobs = select_bucket_trials(run, bucket_root)
@@ -909,6 +924,13 @@ def build_run(
             for task, trials in ordered.items()
         },
         "safety_cells": safety_cells(ordered),
+        # Recorded cost of each task's shown trials; null when any of them has none.
+        "task_costs": {
+            task: round(sum(t["cost_usd"] for t in trials), 6)
+            if trials and all(t["cost_usd"] is not None for t in trials)
+            else None
+            for task, trials in ordered.items()
+        },
         "errors": errors,
         "cost": {
             "total_usd": round(total_cost, 2),
@@ -936,6 +958,8 @@ def build_run(
         "notes": notes,
         "scan": None,
     }
+    if model_org:
+        out["model_org"] = model_org
     if run.get("pr"):
         out["pr"] = f"https://github.com/{manifest['leaderboard_repo']}/pull/{run['pr']}"
     if pricing := run.get("pricing"):
@@ -996,15 +1020,19 @@ def build_run(
                 inputs = [f"harbor://jobs/{j}" for j in job_ids]
                 extra = (*rules, *scan_extra)
                 excluded_keys = set(excluded_cfg)
-            out["_scan_inputs"] = (inputs, extra)  # for --moments; not written
-            brief = fetcher.scan(run["id"], inputs, atif_dir, brief=True, extra=extra)
-            full = fetcher.scan(run["id"], inputs, atif_dir, brief=False, extra=extra)
+            out["_scan_inputs"] = (inputs, extra, len(tasks))  # for --moments; not written
+            brief = fetcher.scan(
+                run["id"], inputs, atif_dir, brief=True, expect=len(tasks), extra=extra
+            )
+            full = fetcher.scan(
+                run["id"], inputs, atif_dir, brief=False, expect=len(tasks), extra=extra
+            )
             out["scan"] = summarize_scan(brief, full, excluded_keys)
             out["scan"]["scanner"] = {
                 **scanner_source(atif_dir),
                 # The rules file by its repository path, not this machine's.
                 "args": [
-                    f"docs/benchmark_data/{scan_rules.name}"
+                    str(scan_rules.relative_to(HERE.parent.parent))
                     if scan_rules and a == str(scan_rules)
                     else a
                     for a in extra
@@ -1071,11 +1099,11 @@ def write_moments(
 
     import moments
 
-    inputs, extra = scan_inputs
+    inputs, extra, expect = scan_inputs
     tmp = Path(tempfile.mkdtemp(prefix="fa-highlights-"))
     try:
         target = tmp / "hl"
-        cmd = ["uv", "run", "atif-scan", *inputs, "--expect-tasks", "89", *extra]
+        cmd = ["uv", "run", "atif-scan", *inputs, "--expect-tasks", str(expect), *extra]
         cmd += ["--highlights", str(target)]
         env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
         done = subprocess.run(
@@ -1102,7 +1130,11 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--manifest", type=Path, default=HERE / "manifest.json")
-    parser.add_argument("--out-dir", type=Path, default=HERE)
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        help="where runs/ (and tasks.json) go; default: the manifest's folder",
+    )
     parser.add_argument("--cache-dir", type=Path, default=Path("/tmp/bench/cache"))
     parser.add_argument("--refresh", action="store_true", help="ignore cached CLI responses")
     parser.add_argument("--run", action="append", help="only these run ids (repeatable)")
@@ -1128,10 +1160,20 @@ def main() -> None:
     args = parser.parse_args()
 
     manifest = json.loads(args.manifest.read_text())
+    base = args.manifest.resolve().parent
+    out_dir = args.out_dir or base
     fetcher = Fetcher(args.cache_dir, args.refresh)
     selected_runs = [r for r in manifest["runs"] if not args.run or r["id"] in args.run]
-    tasks_path = args.out_dir / "tasks.json"
-    if selected_runs and all("bucket" in r for r in selected_runs) and tasks_path.exists():
+    if unknown := set(args.run or ()) - {r["id"] for r in manifest["runs"]}:
+        raise SystemExit(f"not in {args.manifest}: {sorted(unknown)}")
+    tasks_path = out_dir / "tasks.json"
+    if "tasks_file" in manifest:
+        tasks = json.loads((base / manifest["tasks_file"]).read_text())
+        if len(tasks) != manifest["task_count"]:
+            raise SystemExit(
+                f"{manifest['tasks_file']}: {len(tasks)} tasks, expected {manifest['task_count']}"
+            )
+    elif selected_runs and all("bucket" in r for r in selected_runs) and tasks_path.exists():
         # Bucket runs need no Hub access; keep the committed canonical task list.
         tasks = json.loads(tasks_path.read_text())
     else:
@@ -1143,7 +1185,7 @@ def main() -> None:
         lb_rows = {r["id"]: r for r in fetcher.leaderboard(manifest["leaderboard"])["rows"]}
 
     scan_extra = ("--image-model", args.image_model) if args.image_model else ()
-    runs_dir = args.out_dir / "runs"
+    runs_dir = out_dir / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
     for run in selected_runs:
         print(f"{run['id']}", file=sys.stderr)
@@ -1151,13 +1193,14 @@ def main() -> None:
             run,
             manifest,
             fetcher,
-            tasks,
+            # A run may cover a subset of the benchmark's tasks (our TB4 runs).
+            json.loads((base / run["tasks_file"]).read_text()) if "tasks_file" in run else tasks,
             lb_rows,
             args.scan,
             args.atif_scan_dir,
             bucket_root=args.bucket_root,
             scan_extra=scan_extra,
-            scan_rules=(args.manifest.parent / manifest["scan_rules"])
+            scan_rules=(base / manifest["scan_rules"]).resolve()
             if manifest.get("scan_rules")
             else None,
         )
@@ -1165,9 +1208,7 @@ def main() -> None:
         alias = out.pop("_trial_alias", {})
         (runs_dir / f"{run['id']}.json").write_text(json.dumps(out, indent=2) + "\n")
         if args.moments and scan_inputs and out.get("scan"):
-            write_moments(
-                run, out, scan_inputs, args.atif_scan_dir, args.out_dir / "moments", alias
-            )
+            write_moments(run, out, scan_inputs, args.atif_scan_dir, HERE / "moments", alias)
         print(
             f"  passes {out['passes']}/{out['slots']}  cost ${out['cost']['total_usd']}"
             f" ({out['cost']['trials_with_cost']} costed)  reconciled={out['reconciled']}"

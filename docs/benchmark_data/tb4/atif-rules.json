@@ -1,0 +1,18 @@
+{
+  "rules": [
+    {
+      "id": "review.task_recalled",
+      "version": "1",
+      "severity": "high",
+      "title": "Named Terminal-Bench tasks unprompted",
+      "when": {"all": ["tb4.recall.task_catalog"]}
+    },
+    {
+      "id": "review.benchmark_named",
+      "version": "1",
+      "severity": "medium",
+      "title": "Named Terminal-Bench unprompted",
+      "when": {"all": ["recall.benchmark_unprompted"]}
+    }
+  ]
+}

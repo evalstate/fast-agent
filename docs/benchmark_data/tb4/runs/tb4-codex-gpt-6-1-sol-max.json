@@ -1,0 +1,1320 @@
+{
+  "id": "tb4-codex-gpt-6-1-sol-max",
+  "benchmark": "terminal-bench-4.0-subset",
+  "harness": "Codex",
+  "harness_version": "0.159.0",
+  "model": "GPT-6.1 Sol",
+  "effort": "max",
+  "model_string": "openai/gpt-6.1-sol",
+  "date": "2026-09-29",
+  "timeout": "standard",
+  "jobs": [
+    {
+      "id": "299f37fe-9a7f-51f4-9619-af26e8312fd7",
+      "name": "Terminal-Bench 4.0.0 \u00b7 GPT-6.1 Sol / Codex \u00b7 reasoning effort max",
+      "url": "https://hub.harborframework.com/jobs/299f37fe-9a7f-51f4-9619-af26e8312fd7"
+    }
+  ],
+  "excluded_trials": [],
+  "disqualified_trials": [],
+  "slots": 330,
+  "passes": 192,
+  "score": 58.18,
+  "tasks": {
+    "atrx-vep-crispr": "00010",
+    "batched-eval-parity": "10001",
+    "biped-contact-dynamics": "01111",
+    "bun-sourcemap-leak": "00000",
+    "cad-model": "11111",
+    "cargo-flight-dispatch": "00000",
+    "coq-block-bound": "11111",
+    "ctr-optimization": "11011",
+    "cumulative-layout-shift": "0t111",
+    "data-anonymization": "00000",
+    "distributed-dedup": "01111",
+    "embedding-drift-monitor": "11111",
+    "fin-saccr-rwa": "11111",
+    "foodstuff-beta-activity": "00000",
+    "formal-crypto": "11111",
+    "fp8-rmsnorm-gemm": "11111",
+    "freecad-impeller": "00000",
+    "freecad-platform-drawing": "11111",
+    "freecad-spring-clip": "00110",
+    "freight-dispatch-shift": "00000",
+    "glycan-ms2-elucidation": "00000",
+    "gsea-proteomics": "00000",
+    "heat-pump-warranty": "11111",
+    "hof-topology-interpenetration": "11111",
+    "html-js-filter": "00100",
+    "interleaved-vigenere": "01110",
+    "intrastat-meldung": "00000",
+    "jax-speedrun-gpu": "1t011",
+    "ks-solver-cpp": "1e101",
+    "kv-live-surgery": "10111",
+    "lake-temp-glm": "11100",
+    "layout-config-recreation": "00000",
+    "layout-config-recreation2": "11111",
+    "legacy-utility-triage": "11111",
+    "live-database-cutover": "00100",
+    "math-eval-grader": "00101",
+    "medical-claims-processing": "00000",
+    "mp-checkpoint-consolidation": "11111",
+    "music-harmony": "00001",
+    "mvcc-lsm-compaction": "11111",
+    "nextjs-performance": "11101",
+    "ontology-kg-querying": "00000",
+    "payments-pipeline-fix": "11011",
+    "photonic-waveguide-routing": "11111",
+    "pretrain-shard-corruption": "11111",
+    "production-planning": "00000",
+    "protein-autointerp-disulfide": "00010",
+    "react-lead-form": "00000",
+    "retro-console-soc": "11110",
+    "risk-scorer-replay": "11111",
+    "roy-polymorph-cn": "00000",
+    "rs-archive-clone": "11111",
+    "satb-audio-transcription": "11111",
+    "session-window-debug": "10111",
+    "sglang-qwen-burst": "00000",
+    "shadow-relay": "11111",
+    "sound-change-cascade": "11111",
+    "takens-embedding-lean": "11111",
+    "telecom-entity-resolution": "11111",
+    "uefi-bootkit": "11111",
+    "vba-userform-port": "00001",
+    "vf2-speedup-networkx": "10101",
+    "vllm-deepseek-streaming": "00000",
+    "vpp-loss-divergence": "11111",
+    "wal-recovery-ordering": "11111",
+    "wdm-design": "11111"
+  },
+  "trials": {
+    "atrx-vep-crispr": [
+      {
+        "name": "3bdc8aa2-16c2-5477-bfea-362b0f7bbd8b"
+      },
+      {
+        "name": "93499181-9306-50f8-885c-d7c8762cf218"
+      },
+      {
+        "name": "13e56f9f-c472-5432-bbed-0e611982929a"
+      },
+      {
+        "name": "9fb8e8d2-8a4c-524b-b3f1-933aced7128d"
+      },
+      {
+        "name": "f74ea3de-5111-58a4-8699-cd225a125d7b"
+      }
+    ],
+    "batched-eval-parity": [
+      {
+        "name": "d420a2c6-7977-5cef-983f-87da42017f97"
+      },
+      {
+        "name": "14ec0cdf-7e97-5623-8dd1-ee728090b5b7"
+      },
+      {
+        "name": "23e25d70-d847-5d45-90e8-3582dcac502a"
+      },
+      {
+        "name": "bfea4974-1509-5d38-a133-f93648844097"
+      },
+      {
+        "name": "449f2b45-f39b-5ec2-866b-edb744127149"
+      }
+    ],
+    "biped-contact-dynamics": [
+      {
+        "name": "16c38d74-6704-5ced-bba0-b6f0e59c6778"
+      },
+      {
+        "name": "46241326-df8d-5f9a-95b7-bb7966b8cb95"
+      },
+      {
+        "name": "b61e6af7-f640-5676-b16a-23c5c3fffaeb"
+      },
+      {
+        "name": "ea806a65-1e73-5831-9ddb-63a0fa0ced31"
+      },
+      {
+        "name": "465f44d6-abda-5eec-8487-fe2ffbb6b159"
+      }
+    ],
+    "bun-sourcemap-leak": [
+      {
+        "name": "e05f8de8-818c-59d9-be03-4b97497e4a77"
+      },
+      {
+        "name": "204b6ce7-de9b-5707-b780-eaeba6eee9ce"
+      },
+      {
+        "name": "e64688c1-10b4-5de0-b460-591aed59bd55"
+      },
+      {
+        "name": "0942ad76-b98d-5981-997a-11c12f7baa1d"
+      },
+      {
+        "name": "437cc4a4-65c1-5e7e-929f-e39e7ad292dc"
+      }
+    ],
+    "cad-model": [
+      {
+        "name": "e2246fe9-dc05-5f40-b598-a503ae6fc059"
+      },
+      {
+        "name": "c1dac05e-d0f5-5143-85d4-8d8098e7c58c"
+      },
+      {
+        "name": "19376759-ed60-56a6-ae5f-75c7069b927f"
+      },
+      {
+        "name": "1f60d8cd-10f4-5413-86da-6e95e87b381c"
+      },
+      {
+        "name": "51be9edb-0855-5e1c-821b-800b028777eb"
+      }
+    ],
+    "cargo-flight-dispatch": [
+      {
+        "name": "abff37d0-1b20-577f-b527-8e72cd2b2bf5"
+      },
+      {
+        "name": "cc26bc26-5422-5ef6-8a03-8965490318ff"
+      },
+      {
+        "name": "c1c8a132-c2ad-586f-a1d1-0aa4e986e95a"
+      },
+      {
+        "name": "2bb04832-8fb4-5611-bf16-694327ab1182"
+      },
+      {
+        "name": "8f38cfbf-948d-5108-87d5-c0cfc701614a"
+      }
+    ],
+    "coq-block-bound": [
+      {
+        "name": "6e2f8afc-3bd1-5abf-bcc2-8a97c8c5007e"
+      },
+      {
+        "name": "14286cc6-21f0-582f-8047-f6a01a796334"
+      },
+      {
+        "name": "45c3b067-cd8f-5567-98f2-1a7b5a97072b"
+      },
+      {
+        "name": "445a9bdf-cd29-5e0e-8d9a-f677917806d9"
+      },
+      {
+        "name": "6abffdda-b568-5d8c-b3cf-301f00704c04"
+      }
+    ],
+    "ctr-optimization": [
+      {
+        "name": "cd336379-46fb-5c47-8d2b-6c210fa8a54e"
+      },
+      {
+        "name": "df990f4c-6f27-5b5d-ad9d-50e19c13fafd"
+      },
+      {
+        "name": "141f3e96-a366-504d-b5d8-5dd24bf92b65"
+      },
+      {
+        "name": "1369eac8-3ece-54c4-b32d-c8ce59b3b82c"
+      },
+      {
+        "name": "869de947-20ad-5413-9318-7f1590eb3acd"
+      }
+    ],
+    "cumulative-layout-shift": [
+      {
+        "name": "420012a0-db17-513b-8b74-dcc0cdf528eb"
+      },
+      {
+        "name": "399f086d-bc34-5a86-8c8c-d0b76c821fa9"
+      },
+      {
+        "name": "8e7ceb37-1d89-521c-b363-e1e17a93db7e"
+      },
+      {
+        "name": "728d15b4-74ce-5ea9-a777-baa88dc8df3c"
+      },
+      {
+        "name": "e932fe2e-7c91-5bd2-bb86-ee940dad1440"
+      }
+    ],
+    "data-anonymization": [
+      {
+        "name": "136e8265-9f3c-5e14-a48e-a2f858442c75"
+      },
+      {
+        "name": "16429ef8-331f-5eaa-b068-debe69f12c20"
+      },
+      {
+        "name": "c8625da2-9c80-5bbc-8f7e-dff265327145"
+      },
+      {
+        "name": "4bf3aefe-b9eb-5338-803c-7fbd5652cc08"
+      },
+      {
+        "name": "522399e3-f3f2-5101-8234-4aa40f15b36a"
+      }
+    ],
+    "distributed-dedup": [
+      {
+        "name": "3213b03e-7b91-54b6-8fa2-ae90ec753144"
+      },
+      {
+        "name": "8c8183e4-a789-5f55-a684-edef507d4aff"
+      },
+      {
+        "name": "7c5ca3ee-daf0-5a4b-a6d7-8179f3700b00"
+      },
+      {
+        "name": "c9788623-953b-54c0-965c-e6e233429906"
+      },
+      {
+        "name": "fe3fd934-6a48-5443-953b-9c28059e5acf"
+      }
+    ],
+    "embedding-drift-monitor": [
+      {
+        "name": "00351d97-be34-5571-b2c2-81cbe0de6568"
+      },
+      {
+        "name": "88b377e0-c41e-5cda-aef8-fcbabddb20fe"
+      },
+      {
+        "name": "58c28c6e-d47b-5867-be74-90c554ce35d0"
+      },
+      {
+        "name": "eec22105-fc33-5e52-9033-f4e054676bfa"
+      },
+      {
+        "name": "71c5b176-42b9-519f-8e32-2b95bcfd803b"
+      }
+    ],
+    "fin-saccr-rwa": [
+      {
+        "name": "6dbfb2d9-92ed-5e7b-831c-6f108e5b8028"
+      },
+      {
+        "name": "c51f8f6d-8810-5195-8565-828e1d614d5a"
+      },
+      {
+        "name": "88c3d379-5562-5dca-98e6-0160c722fed6"
+      },
+      {
+        "name": "0612c56e-e839-5fe8-9f15-d87114d13341"
+      },
+      {
+        "name": "0edb2fef-1224-56c7-bdaa-c4e4183c633a"
+      }
+    ],
+    "foodstuff-beta-activity": [
+      {
+        "name": "0c66a352-0db8-5161-9fb2-f04952fab4bd"
+      },
+      {
+        "name": "90981089-2ca3-54a8-9a2d-ec406806d8f4"
+      },
+      {
+        "name": "4d238367-422e-531d-a141-070bd470b3ea"
+      },
+      {
+        "name": "ee40a559-ea22-54ac-ae1b-e20b803f6717"
+      },
+      {
+        "name": "a2e22e94-a6e7-53cd-a82b-e8af632cad73"
+      }
+    ],
+    "formal-crypto": [
+      {
+        "name": "3cd7899e-bc9b-5b0b-a174-ce3e7bc7986c"
+      },
+      {
+        "name": "fb680356-ca42-547d-8ef1-b3d20682733c"
+      },
+      {
+        "name": "3df8c7e9-f489-5844-b077-0dcdba1439e9"
+      },
+      {
+        "name": "c065d1f7-f4ec-523e-b851-a2002616331e"
+      },
+      {
+        "name": "7ed07e92-749b-5416-918c-7ca8fbf5ea23"
+      }
+    ],
+    "fp8-rmsnorm-gemm": [
+      {
+        "name": "19b7fc1b-4522-5cec-ac9b-000271c32816"
+      },
+      {
+        "name": "9fb11cc5-3183-5b13-bfb9-e23ea8af3b80"
+      },
+      {
+        "name": "65b47224-80de-5d61-8c5b-2b1c73769cac"
+      },
+      {
+        "name": "75beb056-f93e-5251-9410-2bd8a7ceb6f0"
+      },
+      {
+        "name": "3d6469f2-6879-5610-838a-160646b5b166"
+      }
+    ],
+    "freecad-impeller": [
+      {
+        "name": "408d5493-5381-55cb-acf0-d5242cfb7dba"
+      },
+      {
+        "name": "552d6be8-da45-5057-b507-93d94ab3bc57"
+      },
+      {
+        "name": "1e853233-03e7-5d5a-ab31-8abb2a631599"
+      },
+      {
+        "name": "35c4d2f2-e54a-58d5-b480-1a8fa112770b"
+      },
+      {
+        "name": "36085f73-f75a-5c6d-ae6a-693228c3d715"
+      }
+    ],
+    "freecad-platform-drawing": [
+      {
+        "name": "95b9ea32-86b7-55ae-ba8f-1e8ec8e04428"
+      },
+      {
+        "name": "782fb316-da31-5b21-8b7d-772b01c598ad"
+      },
+      {
+        "name": "c528065c-5b57-5a33-91c4-1b51707687de"
+      },
+      {
+        "name": "9f00f39a-e69c-5657-80d6-87000d83b850"
+      },
+      {
+        "name": "18482bd2-4a20-54ee-b335-b27bcf7c4617"
+      }
+    ],
+    "freecad-spring-clip": [
+      {
+        "name": "66ab7c2d-1ad9-5b6c-ba76-471cbc1b1e23"
+      },
+      {
+        "name": "fe0c358f-9052-5cd5-af78-625febafd392"
+      },
+      {
+        "name": "d4f98202-399d-5273-994e-89c332eb8cf2"
+      },
+      {
+        "name": "60506a04-e31e-5cd3-9f0e-1e323a272c0e"
+      },
+      {
+        "name": "572e8fc8-969d-5c7a-b87d-ca4bdcd94e5d"
+      }
+    ],
+    "freight-dispatch-shift": [
+      {
+        "name": "bb68afb4-591e-5574-9160-c64b0c371b98"
+      },
+      {
+        "name": "e59ec8ab-ba77-5967-a64e-e85d6ff3f34e"
+      },
+      {
+        "name": "f673dea7-81c3-5a1c-a64a-988503f0dce0"
+      },
+      {
+        "name": "5b1f2eac-9ed8-53c8-9379-e62f3649c68d"
+      },
+      {
+        "name": "4c28c0ad-9eb3-5f8c-892d-c811521deaf1"
+      }
+    ],
+    "glycan-ms2-elucidation": [
+      {
+        "name": "5e064478-67ad-5db8-853e-e28ca1eb2449"
+      },
+      {
+        "name": "937f8276-1ed7-52e4-b4b0-0d72dca5b2f4"
+      },
+      {
+        "name": "ee16853e-1942-5983-ba39-f7de26a24ae5"
+      },
+      {
+        "name": "b16adcca-6925-5d69-97a4-72daa23a4417"
+      },
+      {
+        "name": "e61ed249-685c-5b79-b5ac-6927534b70a7"
+      }
+    ],
+    "gsea-proteomics": [
+      {
+        "name": "3f38a8c6-bdb3-5a49-bc53-cad987ef1753"
+      },
+      {
+        "name": "fc55fc1f-bf76-53c8-99cf-aec7bf034230"
+      },
+      {
+        "name": "c0106cf2-b582-57a1-9c8c-3210b3407205"
+      },
+      {
+        "name": "17186822-0319-58f2-b453-9eee171309f1"
+      },
+      {
+        "name": "816e8ecf-4987-5130-afaa-b26edf07fb77"
+      }
+    ],
+    "heat-pump-warranty": [
+      {
+        "name": "3a13f461-678f-5d03-a651-08b6eed9569b"
+      },
+      {
+        "name": "89d7e814-c9e2-52a5-8035-f4a2a903587f"
+      },
+      {
+        "name": "5b82b68d-dbd5-5fe2-828e-14d9d2bff257"
+      },
+      {
+        "name": "26bcb3b1-5d9f-5904-a5a0-8eaa7b6f8c0b"
+      },
+      {
+        "name": "b5cf8224-2013-5484-b68c-192001380a85"
+      }
+    ],
+    "hof-topology-interpenetration": [
+      {
+        "name": "036fe37f-e035-589f-a40c-c47cd4ea2a20"
+      },
+      {
+        "name": "55a8f85d-1184-5c5d-bc44-fd360e704d88"
+      },
+      {
+        "name": "85cbc5b1-9f4a-5cb1-af6d-b5d7ce18ca2b"
+      },
+      {
+        "name": "d4b33ddc-8beb-5267-b088-8ebd86e9ad36"
+      },
+      {
+        "name": "019bcbbf-d7e9-5c63-b570-ab733c95c28a"
+      }
+    ],
+    "html-js-filter": [
+      {
+        "name": "24f855cd-62ef-582f-b85e-09c7d9fb7128"
+      },
+      {
+        "name": "d0c31237-f935-55cc-a3f3-64d9f642eb7a"
+      },
+      {
+        "name": "7dc39f52-b63e-58ee-a2c2-40d280eea13a"
+      },
+      {
+        "name": "a8dbfe57-af3e-5cdb-a490-67309df802da"
+      },
+      {
+        "name": "c334ae79-a5ef-5f5d-b67e-fe554f889734"
+      }
+    ],
+    "interleaved-vigenere": [
+      {
+        "name": "ca36c64c-1bce-526a-bc16-5c87957338d2"
+      },
+      {
+        "name": "7c9cc3c1-6e0a-56f2-b17d-2d8841441361"
+      },
+      {
+        "name": "08718622-54cc-54e8-a63a-50f39928e04c"
+      },
+      {
+        "name": "56a90481-a07d-5287-a1d1-600baa63e05c"
+      },
+      {
+        "name": "417aa1f0-663a-591a-aa7d-7f03875f865f"
+      }
+    ],
+    "intrastat-meldung": [
+      {
+        "name": "a670a22f-3796-5761-90ee-a4d78c08325e"
+      },
+      {
+        "name": "cefee48e-2ab6-5417-aec5-c175d2b2bcf6"
+      },
+      {
+        "name": "93926b82-78c7-5bdd-9463-f3252c45448a"
+      },
+      {
+        "name": "c83d5028-4bb8-587e-ac62-7741e20ff1a5"
+      },
+      {
+        "name": "d042c589-f94c-5e2f-9820-e0ef0e69d427"
+      }
+    ],
+    "jax-speedrun-gpu": [
+      {
+        "name": "81b11291-38d0-57a5-b7ee-696d9d71c1c9"
+      },
+      {
+        "name": "9dc8a5ba-5b53-53f9-83ff-b4ccb3e654ae"
+      },
+      {
+        "name": "08e4d10b-307f-5470-9c7b-bd934ea94d4d"
+      },
+      {
+        "name": "59a57283-d331-5512-b669-3fc1136c8327"
+      },
+      {
+        "name": "1f7abc36-7403-5254-88ea-6a2039c8dc46"
+      }
+    ],
+    "ks-solver-cpp": [
+      {
+        "name": "7f129ebf-3fe7-549d-bac5-6807577b4746"
+      },
+      {
+        "name": "46b7e8c2-b49e-559c-b307-f420c42adc73"
+      },
+      {
+        "name": "372ab982-27b3-52ef-bee4-72d49088ff4f"
+      },
+      {
+        "name": "08965108-43a2-57be-95e6-fb2b1300beba"
+      },
+      {
+        "name": "a9bfc0d7-6243-5b66-a2cd-10e0b2e982a6"
+      }
+    ],
+    "kv-live-surgery": [
+      {
+        "name": "0fd84d8a-dfa9-5d6d-83d1-ef5e40bab8e1"
+      },
+      {
+        "name": "54f8a78a-a4b8-5eb8-94f3-d37df74f9f10"
+      },
+      {
+        "name": "e38f41e4-8d24-5049-86f7-20f3b52c5e76"
+      },
+      {
+        "name": "98b7c1f0-5d55-503c-abb6-ceab8069e870"
+      },
+      {
+        "name": "f5c28528-afbd-594c-be6b-2639e2d8b286"
+      }
+    ],
+    "lake-temp-glm": [
+      {
+        "name": "ddc2843b-0d75-5c67-8d95-754210c895a6"
+      },
+      {
+        "name": "eee7812e-7627-5cc3-aa5f-ad66bed371e7"
+      },
+      {
+        "name": "297f4106-72a6-52a8-8a21-f55aa07354e2"
+      },
+      {
+        "name": "cfce1440-cdbd-5b60-be8c-91c78ab0ba86"
+      },
+      {
+        "name": "217a4976-89bf-5328-8c14-67206f1ac641"
+      }
+    ],
+    "layout-config-recreation": [
+      {
+        "name": "76191d60-a7f9-56ec-a0b1-a3a0fb504fca"
+      },
+      {
+        "name": "f68f5304-851c-5407-935e-7996eb9769d2"
+      },
+      {
+        "name": "bee6a48d-a033-5492-a0a9-ade062229cd4"
+      },
+      {
+        "name": "512f0c1f-012b-5088-bbeb-925a4e858a20"
+      },
+      {
+        "name": "614fa97a-b433-55a9-a827-3cefaaa7dbfd"
+      }
+    ],
+    "layout-config-recreation2": [
+      {
+        "name": "06f9f3bf-a5e5-5c64-add2-0ccc5fa57b29"
+      },
+      {
+        "name": "d76e4c69-7508-5b28-97ea-a0e7c978b1a7"
+      },
+      {
+        "name": "d8d184f8-e507-5092-905e-39cd0279777d"
+      },
+      {
+        "name": "d30e50a2-ea0e-5095-ac21-3bd4cb601487"
+      },
+      {
+        "name": "801becc1-ec3d-5900-a825-e0e2456d1024"
+      }
+    ],
+    "legacy-utility-triage": [
+      {
+        "name": "ad6d9ceb-a8bc-5c04-aa81-960f34cde691"
+      },
+      {
+        "name": "1bb11fec-5f98-52b4-8168-51556118e14a"
+      },
+      {
+        "name": "cb56d7e9-bebe-5fb4-8f8d-9927037c7f2e"
+      },
+      {
+        "name": "45d9347d-8a1b-5d3f-8e29-7d01eb4dff39"
+      },
+      {
+        "name": "5d5c22ee-9d16-57fc-b47c-76d2fee35a04"
+      }
+    ],
+    "live-database-cutover": [
+      {
+        "name": "7b18f8a5-6039-5da8-8c97-978de1372a69"
+      },
+      {
+        "name": "14d8a9db-562c-54e8-b6eb-18a30a2364a4"
+      },
+      {
+        "name": "ebc24b58-fac5-56a9-a46c-f27a4d186bb4"
+      },
+      {
+        "name": "51f6f739-3021-5688-a9cc-9ba7b61ca9ef"
+      },
+      {
+        "name": "aed58bd1-9c57-5218-acff-2ff2cc3cb231"
+      }
+    ],
+    "math-eval-grader": [
+      {
+        "name": "07b6fb71-bf8b-583a-87cb-927bb614958d"
+      },
+      {
+        "name": "0a1a7c39-fdc4-53c3-bc8a-46490be5ed6a"
+      },
+      {
+        "name": "ee446b73-50b9-5daf-aa49-c03d881aabc7"
+      },
+      {
+        "name": "6ff6185e-fc48-5024-8aa1-2d763cad36f4"
+      },
+      {
+        "name": "0c16bc4f-b830-532c-9288-95d92515488c"
+      }
+    ],
+    "medical-claims-processing": [
+      {
+        "name": "d08eb860-ac5c-52ad-8b72-cc98b9d8a82e"
+      },
+      {
+        "name": "b1618244-a353-554c-b2ae-967306f499a6"
+      },
+      {
+        "name": "604338cb-08ae-5ed6-9655-72a90466a9d9"
+      },
+      {
+        "name": "06eccc11-4cad-536f-b74d-f8ea0d6cf7fe"
+      },
+      {
+        "name": "0fb9f322-8795-5ea4-ac3d-36bcadcc1586"
+      }
+    ],
+    "mp-checkpoint-consolidation": [
+      {
+        "name": "1c6f6c3f-6398-59c8-8fd7-4cec93f21870"
+      },
+      {
+        "name": "86c4920f-2e9a-5fe4-84de-2e0f680c3307"
+      },
+      {
+        "name": "87e098a7-46fe-56e9-b2a8-941c21e12cfb"
+      },
+      {
+        "name": "f7b6c0ec-0c05-5e6c-a5f1-3f9c36aacb76"
+      },
+      {
+        "name": "9bf5e810-42b8-5c9e-97f2-43e9c492b357"
+      }
+    ],
+    "music-harmony": [
+      {
+        "name": "dede4698-e755-565c-bf3f-3a72f50d1778"
+      },
+      {
+        "name": "9e71211b-afe1-5dbd-ab09-b2c6f63a055c"
+      },
+      {
+        "name": "a6af60f3-140f-5286-8bcd-ad0a1824993a"
+      },
+      {
+        "name": "119c462e-041b-5689-9f96-5caf4df183bd"
+      },
+      {
+        "name": "dabba5ff-ae00-50ee-b055-11270109feff"
+      }
+    ],
+    "mvcc-lsm-compaction": [
+      {
+        "name": "bf845622-2bb4-5633-bc30-1bcc07e70661"
+      },
+      {
+        "name": "4a7ac9e3-2d2d-525f-b1b8-782758ad480e"
+      },
+      {
+        "name": "f78500cb-947f-5bec-b7dd-1ccb704e2b35"
+      },
+      {
+        "name": "574bb1fa-b31b-57fa-b792-0ee764eb4614"
+      },
+      {
+        "name": "f937ae57-c4e3-5501-a798-b846e12492fd"
+      }
+    ],
+    "nextjs-performance": [
+      {
+        "name": "3a1e5231-fce2-5221-b3e1-e9913da9ff6e"
+      },
+      {
+        "name": "49101d83-7188-53f1-ad6d-1004a55d3c7d"
+      },
+      {
+        "name": "b43a764d-e592-51d7-8fc0-c9b17077b8ef"
+      },
+      {
+        "name": "8a70aa1a-348c-5273-bf04-59b8f57a41e0"
+      },
+      {
+        "name": "d7ab9037-f8b8-5a14-9e1d-aea3e36bdf39"
+      }
+    ],
+    "ontology-kg-querying": [
+      {
+        "name": "9c24de98-06ea-5515-919b-dc845d6f2d67"
+      },
+      {
+        "name": "e3461afe-38d9-50e2-ab49-57f862c3c4cf"
+      },
+      {
+        "name": "8ca6a6e4-312e-57cc-92a5-adc0cf6c6153"
+      },
+      {
+        "name": "084fe50f-5ed8-589c-b302-fc6aa61ad537"
+      },
+      {
+        "name": "7eb7b356-43ad-52ae-ae58-63218d2f49fe"
+      }
+    ],
+    "payments-pipeline-fix": [
+      {
+        "name": "d847ee8b-eee5-50ae-b5d0-709b90f2be17"
+      },
+      {
+        "name": "97ff368b-5446-507e-b7f9-7f42af367be3"
+      },
+      {
+        "name": "84980d73-55de-53b5-b905-ff04966b04fb"
+      },
+      {
+        "name": "0555585d-530d-5e43-b263-5618d4f9d9b2"
+      },
+      {
+        "name": "7b09cbee-7b3e-54a8-ad99-08489af2bdcd"
+      }
+    ],
+    "photonic-waveguide-routing": [
+      {
+        "name": "3a09471b-3e3d-5027-911b-0c50d647f067"
+      },
+      {
+        "name": "7d7113ab-a0e7-59b9-b9a0-c9ec91045356"
+      },
+      {
+        "name": "6dde5fd2-c925-5bc6-baa2-275d15235289"
+      },
+      {
+        "name": "16579116-4d61-562f-929b-8a0f866c554d"
+      },
+      {
+        "name": "296d8a0e-0a50-5b1d-bc38-2008d88af5d6"
+      }
+    ],
+    "pretrain-shard-corruption": [
+      {
+        "name": "e963f7c2-a3b5-580d-a712-ea173e00af74"
+      },
+      {
+        "name": "9225a613-6a42-566c-803c-df6837ed28cb"
+      },
+      {
+        "name": "54ca54ee-6c4f-5636-97cb-758210bf54fd"
+      },
+      {
+        "name": "622e06c9-ab3e-5dd4-a7d4-b51196fc0599"
+      },
+      {
+        "name": "49b36e08-a0b8-55a6-a65b-379ad6c4b764"
+      }
+    ],
+    "production-planning": [
+      {
+        "name": "55624da3-4664-574d-8788-12803656ae46"
+      },
+      {
+        "name": "f52bfe94-a99e-58cc-98a3-c6e6d6cedde6"
+      },
+      {
+        "name": "8345768a-6f35-5822-8b1f-9914e46870b0"
+      },
+      {
+        "name": "5842272e-cecc-5405-beed-e0d96bd65eb5"
+      },
+      {
+        "name": "b6ceb8e5-b6ab-5668-9700-76f8a938f758"
+      }
+    ],
+    "protein-autointerp-disulfide": [
+      {
+        "name": "e96b9dd5-3b5b-58bc-9365-9183cf6f8ff7"
+      },
+      {
+        "name": "1eda8e55-4b92-505c-9325-671058f09d1c"
+      },
+      {
+        "name": "6815b540-99ad-543a-9277-b60198776c99"
+      },
+      {
+        "name": "131a19e6-0840-5edf-80b8-661231ceb3b0"
+      },
+      {
+        "name": "eb8b7266-69fb-5903-891a-ea2d512ba755"
+      }
+    ],
+    "react-lead-form": [
+      {
+        "name": "bd9d08a6-566c-5c8d-a150-43bdcedeb320"
+      },
+      {
+        "name": "6b79c9ac-025d-535b-b9e9-b6a22b87c448"
+      },
+      {
+        "name": "31fbdd1b-2d25-547d-a38b-b9923a1a0117"
+      },
+      {
+        "name": "8e9cecd7-ab1f-5ddf-8801-509116972378"
+      },
+      {
+        "name": "3bf200da-2b1a-55a5-93b9-67d78740a9bb"
+      }
+    ],
+    "retro-console-soc": [
+      {
+        "name": "5ee57391-857b-5950-9389-effcf87e0de7"
+      },
+      {
+        "name": "657679c8-2a50-5afe-8242-c864f773bf9b"
+      },
+      {
+        "name": "03654288-857d-5df8-ae4d-590238207c39"
+      },
+      {
+        "name": "03c820c5-2427-5f60-958b-6b78cb7276e1"
+      },
+      {
+        "name": "39b870ba-e410-5181-8bec-f9b3df9c8fa6"
+      }
+    ],
+    "risk-scorer-replay": [
+      {
+        "name": "d856005a-721f-5bfb-8032-54dea9275540"
+      },
+      {
+        "name": "371daecf-ee25-5bf2-aec5-c9b8c2872c02"
+      },
+      {
+        "name": "94fe4829-4e39-539e-8ba7-9562494494a4"
+      },
+      {
+        "name": "1cbd280f-111f-5314-adbd-2c298c7b62fc"
+      },
+      {
+        "name": "665bd763-df85-5e16-a1b9-de69cb84c0c7"
+      }
+    ],
+    "roy-polymorph-cn": [
+      {
+        "name": "196d37f9-2b3a-5d7b-91d3-9ed4e8d4b6b3"
+      },
+      {
+        "name": "d67d7efe-6710-54ac-b705-68c5a74d4310"
+      },
+      {
+        "name": "4aedb0b2-98d2-5565-a4b0-362cee51a23c"
+      },
+      {
+        "name": "1306d0fa-32b3-5f10-8357-5a1ca863e4f3"
+      },
+      {
+        "name": "ea1d56fa-60c3-5a4f-ac58-53a96b7cf246"
+      }
+    ],
+    "rs-archive-clone": [
+      {
+        "name": "abfc128f-8fa6-55bd-8cff-689e2c8185fb"
+      },
+      {
+        "name": "173b7d50-9ac1-56fc-973b-0d8128828ce2"
+      },
+      {
+        "name": "fa46da92-2500-59e8-bba4-1ed89ee11259"
+      },
+      {
+        "name": "8045711d-772f-5c90-8b74-dadb2016fe3a"
+      },
+      {
+        "name": "31577b59-795f-5ddc-b273-e401363f9e7e"
+      }
+    ],
+    "satb-audio-transcription": [
+      {
+        "name": "0b916161-0623-58fd-b060-c6ac9c81adf9"
+      },
+      {
+        "name": "fb6cfdb1-d556-57f1-ae13-2ce8b6213617"
+      },
+      {
+        "name": "c08caea1-c4c1-5f06-a587-4b2096edd4da"
+      },
+      {
+        "name": "fbcf0357-0f5f-5257-a8e9-b897c5ca39de"
+      },
+      {
+        "name": "cb730ef2-22b4-5818-b49f-e50828dc19b6"
+      }
+    ],
+    "session-window-debug": [
+      {
+        "name": "1c91e1f0-053c-52ad-9761-f83e58981fe8"
+      },
+      {
+        "name": "6373d49f-e610-5fda-bf00-8cfedcdb233a"
+      },
+      {
+        "name": "fcdc838b-547f-51d2-9ba0-5fb80601cb4e"
+      },
+      {
+        "name": "ec4e0b0c-4296-53bf-b93d-986936644cea"
+      },
+      {
+        "name": "524fbff7-08a1-5003-9f33-335374dbd2ae"
+      }
+    ],
+    "sglang-qwen-burst": [
+      {
+        "name": "cad4cc86-ab38-5167-81ba-361920126cd5"
+      },
+      {
+        "name": "3982b6d4-fdd0-5e95-b6d3-eef514536d46"
+      },
+      {
+        "name": "8c6e3e5d-b0e3-5ae2-927c-b5b8bf936ba2"
+      },
+      {
+        "name": "dbc88938-d790-5b1e-a451-ddebfa169ec2"
+      },
+      {
+        "name": "0608aa68-8ca3-59fe-a8a6-7a3c8ad70e92"
+      }
+    ],
+    "shadow-relay": [
+      {
+        "name": "7fc84b20-7783-5bcd-8107-5d8c141f5625"
+      },
+      {
+        "name": "ee126fb5-40ae-5a34-a81f-5e5cce108239"
+      },
+      {
+        "name": "926f8611-5952-58a3-8d97-edac7d3b22f0"
+      },
+      {
+        "name": "b173963d-763b-55ed-9e1a-8c81208c7c1e"
+      },
+      {
+        "name": "2a6435cf-fdc9-534a-a353-cebda544a27a"
+      }
+    ],
+    "sound-change-cascade": [
+      {
+        "name": "ab78ca1e-1ffc-5530-91ff-7a726facd51f"
+      },
+      {
+        "name": "cc4df565-5294-5e34-9891-67e427a74912"
+      },
+      {
+        "name": "d714f23b-ebfd-5595-a91a-3065a37e9d08"
+      },
+      {
+        "name": "364ed0c2-ce81-57c0-b47e-d182c519c60a"
+      },
+      {
+        "name": "65841ac6-ebd4-5510-93cf-8ae92a3e5a19"
+      }
+    ],
+    "takens-embedding-lean": [
+      {
+        "name": "4b1916de-c854-5822-b203-06b8132895ee"
+      },
+      {
+        "name": "2e097487-7fc4-5cbc-9a46-d89a44201831"
+      },
+      {
+        "name": "a373d386-5928-5ee7-8d2b-35f72815b8b8"
+      },
+      {
+        "name": "3dc1f435-fed3-546b-9acf-afb8380dac3e"
+      },
+      {
+        "name": "4572408c-89a1-581d-bddf-26bec1d2e7fe"
+      }
+    ],
+    "telecom-entity-resolution": [
+      {
+        "name": "9bb24a17-67a7-5afa-b54d-460a5252ae12"
+      },
+      {
+        "name": "0961bb5f-92e2-59d7-8502-672b82c985ea"
+      },
+      {
+        "name": "49f4bcd7-bc48-58ab-963e-5f04d22eed46"
+      },
+      {
+        "name": "c3af4182-9cb2-5111-b709-972bfa8db744"
+      },
+      {
+        "name": "0ec0b825-ec12-553e-90d2-a118f0fc1f0c"
+      }
+    ],
+    "uefi-bootkit": [
+      {
+        "name": "1ee70c1a-4ba5-5d35-851a-259cc8287715"
+      },
+      {
+        "name": "f1d6ba66-b186-5de0-8842-72aa5f4b33dd"
+      },
+      {
+        "name": "17fd7664-f3eb-51db-bd3f-127055d1ec6f"
+      },
+      {
+        "name": "8c998ff6-2cdf-574b-b81d-aa41a57e92e4"
+      },
+      {
+        "name": "55eed1a8-eb39-5712-a12f-4ba04e3128b3"
+      }
+    ],
+    "vba-userform-port": [
+      {
+        "name": "316152b8-1857-5a9e-a56c-48d113e2ebbf"
+      },
+      {
+        "name": "44dd53d2-3d52-5d50-8ab4-ad225e95895d"
+      },
+      {
+        "name": "c19a76e0-73c0-5704-955d-e0e2e2fc1c33"
+      },
+      {
+        "name": "9c8ffa88-df72-54d1-b011-401e1b172633"
+      },
+      {
+        "name": "7f4fee58-a016-50cf-a59a-d48b53e9e081"
+      }
+    ],
+    "vf2-speedup-networkx": [
+      {
+        "name": "01402b3c-3c30-5b44-a2ab-a9500bface58"
+      },
+      {
+        "name": "7d3e09de-b05e-5435-b42d-6ea20c305325"
+      },
+      {
+        "name": "c006be69-c71e-5f3f-9f59-8b7d2bb17ac3"
+      },
+      {
+        "name": "a432b6fe-2dd6-5659-ad5b-78f422b5a8bf"
+      },
+      {
+        "name": "e1f1f06e-6b59-5f18-b87a-23871aa0f115"
+      }
+    ],
+    "vllm-deepseek-streaming": [
+      {
+        "name": "1d6c1a70-ad6f-5eb7-bd6f-c722aa6077fb"
+      },
+      {
+        "name": "ce0b43e8-e6ee-54de-9410-f2a93ea00865"
+      },
+      {
+        "name": "40b3b8b9-a955-585f-833c-578bb1bdad8d"
+      },
+      {
+        "name": "40364519-8b5e-5ba0-9d58-e11021079133"
+      },
+      {
+        "name": "66c60c2e-2b5a-54d1-b87c-41b8264946b6"
+      }
+    ],
+    "vpp-loss-divergence": [
+      {
+        "name": "b031e703-b48f-52aa-ace0-fa329a478e90"
+      },
+      {
+        "name": "2becbf85-29ba-5b93-9005-5be555afc6bc"
+      },
+      {
+        "name": "302367bc-e9b7-59ab-9662-361275ae63ff"
+      },
+      {
+        "name": "e82f4442-6482-56ad-a77f-2ff0a23a70af"
+      },
+      {
+        "name": "963b4533-233e-52fb-8e5a-cafa50bc0f35"
+      }
+    ],
+    "wal-recovery-ordering": [
+      {
+        "name": "7b5fb3cf-75f9-5632-a00d-b255c90312ca"
+      },
+      {
+        "name": "699938e8-fa77-5fc5-8be1-61e71cf0bdd1"
+      },
+      {
+        "name": "0dab9dd1-5654-5f5a-af0e-6589b6f9fa69"
+      },
+      {
+        "name": "f77f0db1-9779-59d0-94f6-a34060b3d253"
+      },
+      {
+        "name": "827802b1-2a2b-5c13-a395-8192e37ffcce"
+      }
+    ],
+    "wdm-design": [
+      {
+        "name": "07e41274-8838-5d2f-ad5d-a8c5909fd40e"
+      },
+      {
+        "name": "a26937bd-46b0-5946-a2c3-58e902647ff9"
+      },
+      {
+        "name": "d5b9afec-3b84-5169-a243-869b29abac2f"
+      },
+      {
+        "name": "5a270232-5063-5e0b-9dc8-cc6e53e43d09"
+      },
+      {
+        "name": "54e6ec2f-998c-58e0-9029-7f8f85a0901e"
+      }
+    ]
+  },
+  "safety_cells": {},
+  "task_costs": {
+    "atrx-vep-crispr": 2.740031,
+    "batched-eval-parity": 3.976984,
+    "biped-contact-dynamics": 14.132798,
+    "bun-sourcemap-leak": 2.486764,
+    "cad-model": 1.743689,
+    "cargo-flight-dispatch": 2.657119,
+    "coq-block-bound": 2.838845,
+    "ctr-optimization": 24.092614,
+    "cumulative-layout-shift": null,
+    "data-anonymization": 7.565666,
+    "distributed-dedup": 14.077451,
+    "embedding-drift-monitor": 3.974862,
+    "fin-saccr-rwa": 6.787958,
+    "foodstuff-beta-activity": 2.096326,
+    "formal-crypto": 5.913097,
+    "fp8-rmsnorm-gemm": 17.75884,
+    "freecad-impeller": 4.562405,
+    "freecad-platform-drawing": 2.476569,
+    "freecad-spring-clip": 3.157762,
+    "freight-dispatch-shift": 9.630009,
+    "glycan-ms2-elucidation": 1.36766,
+    "gsea-proteomics": 3.260114,
+    "heat-pump-warranty": 3.44948,
+    "hof-topology-interpenetration": 3.663808,
+    "html-js-filter": 9.802723,
+    "interleaved-vigenere": 3.359965,
+    "intrastat-meldung": 5.611531,
+    "jax-speedrun-gpu": 67.342594,
+    "ks-solver-cpp": 22.365041,
+    "kv-live-surgery": 18.352003,
+    "lake-temp-glm": 24.870968,
+    "layout-config-recreation": 20.396111,
+    "layout-config-recreation2": 2.662377,
+    "legacy-utility-triage": 8.122061,
+    "live-database-cutover": 30.737689,
+    "math-eval-grader": 5.791117,
+    "medical-claims-processing": 7.540586,
+    "mp-checkpoint-consolidation": 5.006866,
+    "music-harmony": 5.595763,
+    "mvcc-lsm-compaction": 1.610662,
+    "nextjs-performance": 10.21607,
+    "ontology-kg-querying": 8.162033,
+    "payments-pipeline-fix": 7.797943,
+    "photonic-waveguide-routing": 6.602699,
+    "pretrain-shard-corruption": 15.161826,
+    "production-planning": 3.539513,
+    "protein-autointerp-disulfide": 3.605718,
+    "react-lead-form": 5.332951,
+    "retro-console-soc": 13.960928,
+    "risk-scorer-replay": 4.750126,
+    "roy-polymorph-cn": 1.175566,
+    "rs-archive-clone": 16.374074,
+    "satb-audio-transcription": 3.928719,
+    "session-window-debug": 2.179543,
+    "sglang-qwen-burst": 14.821865,
+    "shadow-relay": 1.634187,
+    "sound-change-cascade": 2.302294,
+    "takens-embedding-lean": 22.706424,
+    "telecom-entity-resolution": 10.959677,
+    "uefi-bootkit": 10.409014,
+    "vba-userform-port": 15.606667,
+    "vf2-speedup-networkx": 14.296477,
+    "vllm-deepseek-streaming": 7.162592,
+    "vpp-loss-divergence": 2.472748,
+    "wal-recovery-ordering": 2.557682,
+    "wdm-design": 18.78417
+  },
+  "errors": {
+    "AgentTimeoutError": 2,
+    "VerifierTimeoutError": 1
+  },
+  "cost": {
+    "total_usd": 634.24,
+    "total_usd_exact": 634.244804,
+    "trials_with_cost": 329,
+    "trials": 330,
+    "excluded_trials_with_cost": 0,
+    "basis": "sum of Harbor recorded cost_usd over selected trials",
+    "matches_published": null
+  },
+  "tokens": {
+    "input": 1428621998,
+    "cached": 1354187811,
+    "output": 31314516,
+    "basis": "Harbor per-trial input_tokens (includes cached), cache_tokens, output_tokens"
+  },
+  "per_trial_cost": {
+    "median": 1.1299,
+    "p90": 4.4042,
+    "max": 17.7554
+  },
+  "published": {
+    "score": 58.18,
+    "passes": 192,
+    "total_cost": 634.24,
+    "ci95": 3.11,
+    "source_url": "https://hub.harborframework.com/datasets/terminal-bench/terminal-bench/leaderboards/4-0-0/rows/79aafc20-6776-4411-a5a5-0640562496d0"
+  },
+  "reconciled": true,
+  "notes": [],
+  "scan": null,
+  "model_org": "OpenAI",
+  "pr": "https://github.com/harbor-framework/terminal-bench/pull/2163"
+}

@@ -1,0 +1,483 @@
+{
+  "benchmark": "terminal-bench-4.0-subset",
+  "task_count": 66,
+  "tasks_file": "tasks.json",
+  "attempts_per_task": 5,
+  "leaderboard": "terminal-bench/terminal-bench/4-0-0",
+  "leaderboard_url": "https://hub.harborframework.com/datasets/terminal-bench/terminal-bench/leaderboards/4-0-0",
+  "leaderboard_repo": "harbor-framework/terminal-bench",
+  "scan_rules": "atif-rules.json",
+  "runs": [
+    {
+      "id": "tb4-sol61-high",
+      "harness": "fast-agent",
+      "model": "GPT-6.1 Sol",
+      "effort": "high",
+      "model_string": "copilot.gpt-6.1-sol?reasoning=high",
+      "date": "2026-10-01",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-sol61-high",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-sol61-high-r1 (cohort tb4-sol61-high-copilot-001)"
+      },
+      "expected": {
+        "passes": 56
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+        "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor de22ce8c, with the published fast-agent-mcp 0.10.41 wheel; GPT-6.1 Sol (high reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No errors, no replacements.",
+        "Cost is Harbor's recorded cost at the cohort's configured list rates (card-packs pricing catalog, Copilot GPT-6.1 Sol rules: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Three trials have model calls that reported no usage, so the total is a lower bound. Prompt-cache writes are priced at the input rate, as for OpenAI models there is no cache-write charge."
+      ],
+      "scan": true
+    },
+    {
+      "id": "tb4-astra-high",
+      "harness": "fast-agent",
+      "model": "GPT-6 Astra",
+      "effort": "high",
+      "model_string": "copilot.gpt-6-astra?reasoning=high&streaming_timeout=300",
+      "date": "2026-10-09",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-astra-high",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-astra-high-st300-r1 (cohort tb4-astra-high-copilot-st300-001)"
+      },
+      "expected": {
+        "passes": 59
+      },
+      "cost_lower_bound": true,
+      "repriced": {
+        "total_usd": 209.267155,
+        "trials": 95,
+        "basis": "list-rate estimate, cache writes at the input rate",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.2 (5478c22)",
+        "note": "Harbor's recorded cost ($222.87) priced prompt-cache writes at 125% of the input rate (catalog 2026-10-09.1). OpenAI models have no cache-write charge, so the 95 trials with recorded usage are repriced from their token usage with writes at the $10 input rate ($10 / $1 / $50 per million input / cached / output tokens; $20 / $2 / $75 above 272k context): $209.27 (-6.1%). Seven trials (three without a trajectory, four with no recorded usage) are unpriced, so this is a lower bound. A list-price equivalent: the run used GitHub Copilot."
+      },
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+        "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor fd4ccb81, with the published fast-agent-mcp 0.10.43 wheel; GPT-6 Astra (high reasoning) through GitHub Copilot, with fast-agent's stream-idle timeout raised to 300 s (streaming_timeout=300). Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "Seven infrastructure failures (four Copilot HTTP 429 rejections in the launch burst, three HF sandbox errors) were rerun as replacements; five of the seven replacements passed. The originals are kept as evidence; the run as first launched scored 54/95."
+      ],
+      "scan": true
+    },
+    {
+      "id": "tb4-opus55-high",
+      "harness": "fast-agent",
+      "model": "Opus 5.5",
+      "effort": "high",
+      "model_string": "copilot.claude-opus-5.5?reasoning=high",
+      "date": "2026-10-01",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-opus55-high",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-opus55-high-r1 (cohort tb4-opus55-high-copilot-001)"
+      },
+      "expected": {
+        "passes": 52
+      },
+      "repriced": {
+        "total_usd": 180.013335,
+        "trials": 99,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.2 (5478c22)",
+        "note": "Harbor's recorded cost ($171.47) charged prompt-cache writes as plain input. Repriced from each trial's token usage at the catalog's $4 / $0.20 / $5 / $20 per million input / cache-read / 5-minute cache-write / output tokens: $180.01 (+5.0%), over the 95 reported trials and the 4 replaced originals. A list-price equivalent: the run used GitHub Copilot."
+      },
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+        "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor b20373d6, with the published fast-agent-mcp 0.10.42 wheel; Claude Opus 5.5 (high reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "Safety stops: all five attempts at atrx-vep-crispr and at html-js-filter ended with AgentSafetyStopError (the provider's safety classifier stopping the run) and score 0.",
+        "Four photonic-waveguide-routing trials crashed when the Copilot stream closed mid-response (RemoteProtocolError, after 43 to 67 minutes). They were rerun as verified-crash replacements, and all four replacements crashed the same way; the replacements are scored (0) and the originals are kept as evidence."
+      ],
+      "scan": true
+    },
+    {
+      "id": "tb4-grok47-medium",
+      "harness": "fast-agent",
+      "model": "Grok 4.7",
+      "effort": "medium",
+      "model_string": "xai.grok-4.7?reasoning=medium&transport=sse",
+      "date": "2026-10-04",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-grok47-medium",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-grok47-medium-r1 (cohort tb4-grok47-medium-xai-oauth-sse-002)"
+      },
+      "expected": {
+        "passes": 30
+      },
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+        "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor b20373d6, with the published fast-agent-mcp 0.10.42 wheel; xAI API over SSE. Zero whole-trial retries; fast-agent's own provider retries apply. No replacements.",
+        "Two vpp-loss-divergence trials ended with NonZeroAgentExitCodeError and score 0: the agent killed every process whose command line mentioned /app/pretrain.py, which included its own fast-agent process (the task prompt is on its command line). Agent-caused, so not rerun.",
+        "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog, rules grok-4.7-short / grok-4.7-long: $2 / $0.50 / $6 per million input / cached / output tokens, doubled above 200k context)."
+      ],
+      "scan": true
+    },
+    {
+      "id": "tb4-claude-code-fable-5-1-high",
+      "harness": "Claude Code",
+      "model": "Fable 5.1",
+      "effort": "high",
+      "timeout": "standard",
+      "leaderboard_row": "4643b23c-53e8-47ae-a3bd-9abc900e9588",
+      "expected": {
+        "passes": 180
+      }
+    },
+    {
+      "id": "tb4-claude-code-fable-5-1-low",
+      "harness": "Claude Code",
+      "model": "Fable 5.1",
+      "effort": "low",
+      "timeout": "standard",
+      "leaderboard_row": "e18d02ab-0973-4d86-872f-a353c8a7f344",
+      "expected": {
+        "passes": 143
+      }
+    },
+    {
+      "id": "tb4-claude-code-fable-5-1-max",
+      "harness": "Claude Code",
+      "model": "Fable 5.1",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "c741608e-c94e-417d-b7a8-e67111a0c887",
+      "expected": {
+        "passes": 191
+      }
+    },
+    {
+      "id": "tb4-claude-code-fable-5-1-medium",
+      "harness": "Claude Code",
+      "model": "Fable 5.1",
+      "effort": "medium",
+      "timeout": "standard",
+      "leaderboard_row": "83e6bf7e-aeb4-4116-9f30-ca8de96603fb",
+      "expected": {
+        "passes": 178
+      }
+    },
+    {
+      "id": "tb4-claude-code-fable-5-1-xhigh",
+      "harness": "Claude Code",
+      "model": "Fable 5.1",
+      "effort": "xhigh",
+      "timeout": "standard",
+      "leaderboard_row": "9e1c5e11-748f-4f2e-911a-070a396d5bf8",
+      "expected": {
+        "passes": 191
+      }
+    },
+    {
+      "id": "tb4-claude-code-fable-5-max",
+      "harness": "Claude Code",
+      "model": "Fable 5",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "36c077e0-4879-4444-b315-8532d66401d6",
+      "expected": {
+        "passes": 147
+      }
+    },
+    {
+      "id": "tb4-claude-code-glm-5-3-max",
+      "harness": "Claude Code",
+      "model": "GLM-5.3",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "d72e8775-f4f1-4313-99e7-35b1cb499f24",
+      "expected": {
+        "passes": 138
+      }
+    },
+    {
+      "id": "tb4-claude-code-opus-4-8-max",
+      "harness": "Claude Code",
+      "model": "Opus 4.8",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "952b4217-421f-4d14-849b-9968fcb2063b",
+      "expected": {
+        "passes": 78
+      }
+    },
+    {
+      "id": "tb4-claude-code-opus-5-high",
+      "harness": "Claude Code",
+      "model": "Opus 5",
+      "effort": "high",
+      "timeout": "standard",
+      "leaderboard_row": "0b2908ee-3035-447c-9876-e68fecb3f413",
+      "expected": {
+        "passes": 166
+      }
+    },
+    {
+      "id": "tb4-claude-code-opus-5-low",
+      "harness": "Claude Code",
+      "model": "Opus 5",
+      "effort": "low",
+      "timeout": "standard",
+      "leaderboard_row": "03fe4f10-b683-427b-a820-61e38145d28b",
+      "expected": {
+        "passes": 115
+      }
+    },
+    {
+      "id": "tb4-claude-code-opus-5-max",
+      "harness": "Claude Code",
+      "model": "Opus 5",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "d71ac3d0-da36-49cb-89d9-323136e77111",
+      "expected": {
+        "passes": 171
+      },
+      "notes": [
+        "Trial records show 173 passes; the leaderboard publishes 171. Cells are shown as recorded."
+      ]
+    },
+    {
+      "id": "tb4-claude-code-opus-5-medium",
+      "harness": "Claude Code",
+      "model": "Opus 5",
+      "effort": "medium",
+      "timeout": "standard",
+      "leaderboard_row": "8c102a88-0789-4ce7-b503-bd39e84e157b",
+      "expected": {
+        "passes": 148
+      }
+    },
+    {
+      "id": "tb4-claude-code-opus-5-xhigh",
+      "harness": "Claude Code",
+      "model": "Opus 5",
+      "effort": "xhigh",
+      "timeout": "standard",
+      "leaderboard_row": "f7844abc-3109-4d5f-91ad-481df7b9fac2",
+      "expected": {
+        "passes": 178
+      }
+    },
+    {
+      "id": "tb4-claude-code-sonnet-5-max",
+      "harness": "Claude Code",
+      "model": "Sonnet 5",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "8180b9e4-4990-43d0-b906-cd8b43adaaa2",
+      "expected": {
+        "passes": 41
+      }
+    },
+    {
+      "id": "tb4-codex-gpt-5-6-luna-max",
+      "harness": "Codex",
+      "model": "GPT-5.6 Luna",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "51c6d76e-5baa-48c1-97b3-88656c620eef",
+      "expected": {
+        "passes": 57
+      }
+    },
+    {
+      "id": "tb4-codex-gpt-5-6-sol-max",
+      "harness": "Codex",
+      "model": "GPT-5.6 Sol",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "0e349bde-b264-494d-a853-fada9c696192",
+      "expected": {
+        "passes": 123
+      }
+    },
+    {
+      "id": "tb4-codex-gpt-5-6-terra-max",
+      "harness": "Codex",
+      "model": "GPT-5.6 Terra",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "e53da412-5e92-408c-b369-c767924c7c1c",
+      "expected": {
+        "passes": 71
+      }
+    },
+    {
+      "id": "tb4-codex-gpt-6-astra-high",
+      "harness": "Codex",
+      "model": "GPT-6 Astra",
+      "effort": "high",
+      "timeout": "standard",
+      "leaderboard_row": "3475050c-bf5e-4261-a3f6-0af5350af13f",
+      "expected": {
+        "passes": 191
+      }
+    },
+    {
+      "id": "tb4-codex-gpt-6-astra-low",
+      "harness": "Codex",
+      "model": "GPT-6 Astra",
+      "effort": "low",
+      "timeout": "standard",
+      "leaderboard_row": "b3ad58f3-b311-4d4d-875b-3158cf0309d6",
+      "expected": {
+        "passes": 167
+      }
+    },
+    {
+      "id": "tb4-codex-gpt-6-astra-max",
+      "harness": "Codex",
+      "model": "GPT-6 Astra",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "5c537be4-7fc3-449b-8bfc-ceb9061c2535",
+      "expected": {
+        "passes": 192
+      }
+    },
+    {
+      "id": "tb4-codex-gpt-6-astra-medium",
+      "harness": "Codex",
+      "model": "GPT-6 Astra",
+      "effort": "medium",
+      "timeout": "standard",
+      "leaderboard_row": "f3c3d5a6-6424-4acb-bfcc-615c3f79f6dd",
+      "expected": {
+        "passes": 179
+      }
+    },
+    {
+      "id": "tb4-codex-gpt-6-astra-xhigh",
+      "harness": "Codex",
+      "model": "GPT-6 Astra",
+      "effort": "xhigh",
+      "timeout": "standard",
+      "leaderboard_row": "16db8ad5-84aa-4588-b660-1ce68c0d45e2",
+      "expected": {
+        "passes": 191
+      }
+    },
+    {
+      "id": "tb4-grok-build-grok-4-5-high",
+      "harness": "Grok Build",
+      "model": "Grok 4.5",
+      "effort": "high",
+      "timeout": "standard",
+      "leaderboard_row": "0eed5a0d-96b6-491b-aeb7-cd5e4700c2d7",
+      "expected": {
+        "passes": 41
+      }
+    },
+    {
+      "id": "tb4-grok-build-grok-4-6-high",
+      "harness": "Grok Build",
+      "model": "Grok 4.6",
+      "effort": "high",
+      "timeout": "standard",
+      "leaderboard_row": "26354542-edc0-40cd-8f8d-9fe6fbe92ac3",
+      "expected": {
+        "passes": 67
+      }
+    },
+    {
+      "id": "tb4-grok-build-grok-4-7-xhigh",
+      "harness": "Grok Build",
+      "model": "Grok 4.7",
+      "effort": "xhigh",
+      "timeout": "standard",
+      "leaderboard_row": "84b39f56-fe3c-46c3-919f-3b67b73f9b49",
+      "expected": {
+        "passes": 124
+      }
+    },
+    {
+      "id": "tb4-mini-swe-agent-gemini-3-7-flash-high",
+      "harness": "mini-SWE-agent",
+      "model": "Gemini 3.7 Flash",
+      "effort": "high",
+      "timeout": "standard",
+      "leaderboard_row": "14f4da14-b86a-4dca-92d7-11178d4fe064",
+      "expected": {
+        "passes": 37
+      }
+    },
+    {
+      "id": "tb4-mini-swe-agent-gemini-3-8-flash-high",
+      "harness": "mini-SWE-agent",
+      "model": "Gemini 3.8 Flash",
+      "effort": "high",
+      "timeout": "standard",
+      "leaderboard_row": "06850434-507d-4dbd-b74a-09d52519ee35",
+      "expected": {
+        "passes": 63
+      }
+    },
+    {
+      "id": "tb4-codex-gpt-6-1-sol-max",
+      "harness": "Codex",
+      "model": "GPT-6.1 Sol",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "79aafc20-6776-4411-a5a5-0640562496d0",
+      "pr": 2163,
+      "submission_file": "leaderboard/submissions/2026-09-30-openai-gpt-6-1-sol-max-codex.json",
+      "expected": {
+        "passes": 192
+      }
+    }
+  ]
+}

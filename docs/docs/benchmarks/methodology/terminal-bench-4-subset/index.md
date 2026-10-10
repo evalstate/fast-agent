@@ -37,8 +37,10 @@ vpp-loss-divergence and wal-recovery-ordering.
 ## How representative is it?
 
 We scored every Terminal-Bench 4.0 leaderboard row on the 19 tasks alone and compared
-it with the row's published full score. 26 of the 27 rows qualify; Opus 5 · max is left
-out because its trial records (173 passes) don't reproduce its published score (171).
+it with the row's published full score. 26 of the 27 rows at selection qualify; Opus 5 · max
+is left out because its trial records (173 passes) don't reproduce its published score (171).
+The figures below are from those 26 rows. The chart also shows Codex · GPT-6.1 Sol · max,
+added to the page later (60.0% on the subset, 58.2% full).
 
 <div data-fa-bench="calibration" data-bench="tb4"><p class="fb-loading">Loading chart…</p></div>
 
@@ -76,9 +78,27 @@ about half: the subset's tasks are cheaper than average.
 - **Task revisions.** Six rows (GPT-6 Astra × 5 and Gemini 3.8 Flash) ran an earlier
   revision of some subset tasks than the other 21.
 
+## Our runs
+
+Our TB4 runs are fast-agent cohorts run with bench-run on HF Jobs: the 19 subset tasks
+only, five attempts each, at each task's native deadline (no timeout override), with no
+whole-trial retries. Trials that failed for infrastructure reasons (a sandbox error, a
+rejected first request) are rerun as replacements, and the originals are kept as
+evidence. Every trial is in the public
+[published-benchmarks bucket](https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1),
+with the bench-run release manifest that fixes the trial set.
+
+- **Hardware.** HF Jobs matches each task's CPU and memory request to a hardware
+  flavour with at least that capacity; the limits aren't strictly enforced.
+- **Images.** The frozen hof-topology-interpenetration image is amd64-only.
+- **Subset only.** Our runs have no full 66-task score; leaderboard rows are cut to the
+  same 19 tasks for comparison.
+
 ## Costs on the page
 
 Leaderboard rows show the sum of their recorded trial costs on the 19 tasks; where a
 task has a trial without a recorded cost, the figure is marked **~**. Our subset runs
-show Harbor's recorded token cost. Each comparator's run page also shows its full
-66-task run and published cost.
+show Harbor's recorded token cost at list rates, or a list-rate repricing where the
+recorded cost priced prompt-cache writes wrongly; runs through GitHub Copilot show a
+list-price equivalent, not what Copilot billed. Each comparator's run page also shows its
+full 66-task run and published cost.

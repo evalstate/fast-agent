@@ -182,6 +182,22 @@
       "family": "gpt-5.6",
       "costFrom": "published",
       "harnessVersion": "0.144.x"
+    },
+    "tb4-sol61-high": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "gpt-6"
+    },
+    "tb4-astra-high": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "gpt-6"
+    },
+    "tb4-opus55-high": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "anthropic"
+    },
+    "tb4-grok47-medium": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "grok"
     }
   },
   "claims": [
@@ -339,7 +355,6 @@
       },
       "blurb": "19 of Terminal-Bench 4.0's 66 tasks, five attempts each. Leaderboard rows are cut to the same 19 tasks; their full 66-task runs are on each run page.",
       "slug": "tb4",
-      "comingSoon": true,
       "taskLabel": "19 tasks × 5 attempts",
       "methodology": {
         "title": "Why 19 tasks, and how far to trust them.",
@@ -354,8 +369,12 @@
             "text": "On 26 leaderboard rows, subset scores land within ±5 points of the full score for 22 and rank runs in nearly the same order (Spearman 0.93). Only 6% of random 19-task picks track it more closely."
           },
           {
+            "title": "Our runs",
+            "text": "fast-agent runs through bench-run on HF Jobs: the 19 tasks only, at each task's native deadline, with no whole-trial retries. Infrastructure failures are rerun as replacements and the originals kept; every trial is public. HF Jobs matches hardware by capacity rather than strictly enforcing CPU and RAM limits, and the frozen hof-topology-interpenetration image is amd64-only."
+          },
+          {
             "title": "Cost",
-            "text": "A subset run costs about 15% of a full run; a full run costs a median 6.4× as much. Comparator costs here are the recorded trial costs on the 19 tasks."
+            "text": "A subset run costs about 15% of a full run; a full run costs a median 6.4× as much. Comparator costs here are the recorded trial costs on the 19 tasks. Our costs are Harbor's recorded token costs at list rates, repriced where the recording mispriced cache writes; for Copilot routes that is a list-price equivalent, not billed spend."
           },
           {
             "title": "Caveats",

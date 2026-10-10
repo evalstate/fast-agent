@@ -15,3 +15,7 @@ The [benchmarks ledger](index.md) rendered in Python at build time (`docs/benchm
 ## Terminal-Bench 2.1
 
 --8<-- "_generated/benchmarks/ledger-tb2.1.html"
+
+## Terminal-Bench 4 · subset
+
+--8<-- "_generated/benchmarks/ledger-tb4.html"

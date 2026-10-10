@@ -89,14 +89,14 @@ def _scan_level(scan: dict[str, Any]) -> dict[str, Any]:
     return {"name": name, "label": label, "imageModel": image_model}
 
 
-def _dedupe_findings(top: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Drop a check our publish-side rule restates (atif-rules.json).
+def _dedupe_findings(top: list[dict[str, Any]], rules_path: Path) -> list[dict[str, Any]]:
+    """Drop a check our publish-side rule restates (the benchmark's atif-rules.json).
 
     A rule that fires on exactly one check (``when.all == [check]``) flags the same trials
     at our own priority, so listing both repeats one finding; keep the rule's row and note
     the check it came from.
     """
-    rules = _load(DATA_DIR / "atif-rules.json")["rules"]
+    rules = _load(rules_path)["rules"]
     restates = {
         r["id"]: r["when"]["all"][0]
         for r in rules
@@ -114,7 +114,9 @@ def _dedupe_findings(top: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def _scan_summary(scan: dict[str, Any] | None, tasks: list[str]) -> dict[str, Any] | None:
+def _scan_summary(
+    scan: dict[str, Any] | None, tasks: list[str], rules_path: Path
+) -> dict[str, Any] | None:
     """Run-level atif-scan summary plus one code per trial, aligned with ``cells``.
 
     Codes: c/h/m/l = highest priority (critical, high, medium, low or none);
@@ -134,7 +136,7 @@ def _scan_summary(scan: dict[str, Any] | None, tasks: list[str]) -> dict[str, An
             "trials": findings["trials"],
             "rewarded": findings["rewarded"],
             "byPriority": findings["by_highest_priority"],
-            "top": _dedupe_findings(findings["top"])[:6],
+            "top": _dedupe_findings(findings["top"], rules_path)[:6],
         },
         "review": {
             "highRewarded": review["high_or_critical_rewarded"],
@@ -181,16 +183,33 @@ def _family(catalog: dict[str, Any], model: str) -> str:
     raise ValueError(f"no family for model {model!r}; add it to familyByModel")
 
 
+def _curated(catalog: dict[str, Any], bench: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """The catalog's curated runs on one benchmark (``benchmark`` defaults to the first)."""
+    default = catalog["benchmarks"][0]["id"]
+    return {
+        run_id: curation
+        for run_id, curation in catalog["runs"].items()
+        if curation.get("benchmark", default) == bench["id"]
+    }
+
+
 def _tb21_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[str, Any]]:
     tasks: list[str] = _load(DATA_DIR / bench["dir"] / "tasks.json")
     bench["tasks"] = tasks
+    return _curated_runs(catalog, bench, tasks)
+
+
+def _curated_runs(
+    catalog: dict[str, Any], bench: dict[str, Any], tasks: list[str]
+) -> list[dict[str, Any]]:
+    """fetch_runs.py output for the catalog's runs on ``bench``, over exactly ``tasks``."""
     attempts = bench["attempts"]
     pricing = catalog["pricing"]
     runs = []
-    for run_id, curation in catalog["runs"].items():
+    for run_id, curation in _curated(catalog, bench).items():
         raw = _load(DATA_DIR / bench["dir"] / "runs" / f"{run_id}.json")
         if set(raw["tasks"]) != set(tasks):
-            raise ValueError(f"{run_id}: task set does not match tasks.json")
+            raise ValueError(f"{run_id}: task set does not match the benchmark's task list")
         cells = "".join(raw["tasks"][task] for task in tasks)
         if len(cells) != len(tasks) * attempts:
             raise ValueError(f"{run_id}: expected {len(tasks) * attempts} cells")
@@ -273,7 +292,9 @@ def _tb21_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[str,
                 "asRun": raw.get("as_run"),
                 # "Reconciliation:" lines are fetch diagnostics that restate the human notes.
                 "notes": [n for n in raw["notes"] if not n.startswith("Reconciliation:")],
-                "scan": _scan_summary(raw.get("scan"), tasks),
+                "scan": _scan_summary(
+                    raw.get("scan"), tasks, DATA_DIR / bench["dir"] / "atif-rules.json"
+                ),
                 "safety": {"refused": safety} if safety else None,
             }
         )
@@ -373,22 +394,33 @@ def _safety_allowance(runs: list[dict[str, Any]], bench: dict[str, Any]) -> dict
 
 
 def _subset_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[str, Any]]:
-    """Leaderboard rows cut to the subset tasks, keeping the full run alongside."""
+    """A subset benchmark: our runs cover only the subset tasks (curated in the catalog);
+    leaderboard rows are cut to the subset, keeping their full run alongside.
+
+    Every run file is fetch_runs.py output (``tb4/manifest.json``)."""
     folder = DATA_DIR / bench["dir"]
     full_tasks: list[str] = _load(folder / "tasks.json")
     subset: list[str] = _load(folder / bench["subset"])
     bench["tasks"] = subset
     bench["full"]["tasks"] = full_tasks
     attempts = bench["attempts"]
-    runs = []
+    curated = _curated(catalog, bench)
+    runs = _curated_runs(catalog, bench, subset)
+    for run in runs:
+        run["full"] = None  # subset only
     for path in sorted((folder / "runs").glob("*.json")):
+        if path.stem in curated:
+            continue
         raw = _load(path)
+        if set(raw["tasks"]) != set(full_tasks):
+            raise ValueError(f"{path.stem}: a leaderboard row must cover the full task list")
         cells = "".join(raw["tasks"][t] for t in subset)
         full_cells = "".join(raw["tasks"][t] for t in full_tasks)
         task_costs = [raw["task_costs"][t] for t in subset]
         known = [c for c in task_costs if c is not None]
         published = raw["published"]
-        notes = list(raw["notes"])
+        # "Reconciliation:" lines are fetch diagnostics; the manifest notes explain them.
+        notes = [n for n in raw["notes"] if not n.startswith("Reconciliation:")]
         if len(known) < len(subset):
             notes.append(
                 f"{len(subset) - len(known)} subset task(s) include a trial without a recorded cost; "
@@ -424,7 +456,10 @@ def _subset_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[st
                     "publishedPasses": published["passes"],
                     "cost": published["total_cost"],
                 },
-                "jobs": [{"id": j["id"], "name": j["id"], "url": j["url"]} for j in raw["jobs"]],
+                "jobs": [
+                    {"id": j["id"], "name": j.get("name") or j["id"], "url": j["url"]}
+                    for j in raw["jobs"]
+                ],
                 "excluded": [],
                 "source": published["source_url"],
                 "notes": notes,
@@ -503,7 +538,7 @@ def build() -> dict[str, Any]:
         bench["difficulty"] = _mean_rates([r["cells"] for r in real], bench["attempts"])
         if "full" in bench:
             bench["full"]["difficulty"] = _mean_rates(
-                [r["full"]["cells"] for r in real], bench["attempts"]
+                [r["full"]["cells"] for r in real if r.get("full")], bench["attempts"]
             )
         del bench["dir"]
         bench.pop("subset", None)

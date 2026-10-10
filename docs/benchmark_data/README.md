@@ -7,22 +7,30 @@ turns everything here into `docs/docs/javascripts/benchmark-data.js`.
 ## Terminal-Bench 4.0 subset (`tb4/`)
 
 `tb4/tasks.json` is the full 66-task list and `tb4/subset.json` the 19 subset tasks.
-`tb4/import_leaderboard.py` converts leaderboard row exports (the TB4 subset calibration
-`fetch.py` output: each row's 330 trials) into `tb4/runs/<id>.json` with all 66 tasks;
-the generator cuts them to the subset and keeps the full run for the run pages. Subset
-cost is the sum of the recorded trial costs on the 19 tasks. A new benchmark with a
-subset (TB5: 20–21 tasks) needs the same three files and a `benchmarks` entry with
-`subset`.
+`tb4/manifest.json` lists every TB4 run in the same format as the TB2.1 manifest, and
+`fetch_runs.py --manifest docs/benchmark_data/tb4/manifest.json` writes `tb4/runs/<id>.json`:
 
-TB4 is marked `comingSoon` until our own subset runs land: its tab shows the methodology
-and no results, and no ledger is generated. The leaderboard rows still feed the subset
-calibration chart on the methodology page. Remove `comingSoon` once real runs exist.
+- **Leaderboard rows** (`leaderboard_row`, from the `4-0-0` leaderboard) keep all 66
+  tasks; their trials come from `harbor hub leaderboard row trial list`, as for TB2.1.
+  The generator cuts them to the subset (cost: the recorded trial costs on the 19 tasks,
+  `task_costs`) and keeps the full run for the run pages. TB4 rows carry no PR link, so
+  their source is the row's Hub page.
+- **Our runs** (bench-run releases in the `evalstate/published-benchmarks` bucket under
+  `tb4/19-task-v1/<run>/`) name `"tasks_file": "subset.json"`: they cover the 19 tasks
+  only and show "subset only" where leaderboard rows show their full run. They are
+  curated in `catalog.json` under `runs` with `"benchmark": "terminal-bench-4.0-subset"`.
+
+TB4 scans use `tb4/atif-rules.json`: the same publish-side rules as TB2.1, built on the
+TB4 pack's `tb4.recall.task_catalog` (atif-scan rejects a rules file that names another
+pack's checks). A new benchmark with a subset (TB5: 20–21 tasks) needs the same files
+and a `benchmarks` entry with `subset`.
 
 # Terminal-Bench 2.1 benchmark data
 
 Per-trial data for the benchmarks page. `manifest.json` lists every run and how its
 trials are selected; `fetch_runs.py` turns that into `runs/<run_id>.json` and
-`tasks.json` (the 89 canonical TB2.1 task names, sorted).
+`tasks.json` (the 89 canonical TB2.1 task names, sorted). Pass `--manifest` for another
+benchmark's manifest (`tb4/manifest.json`); output goes beside it.
 
 ## Adding results
 
