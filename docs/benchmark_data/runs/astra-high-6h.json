@@ -2148,14 +2148,7 @@
     "excluded_trials_with_cost": 3,
     "basis": "sum of Harbor recorded cost_usd over selected trials plus excluded (replaced) trials",
     "matches_published": null,
-    "lower_bound": true,
-    "repriced": {
-      "total_usd": 300.397554,
-      "trials": 439,
-      "basis": "list-rate estimate from token usage",
-      "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.1 (e9373d5)",
-      "note": "Harbor's recorded cost ($279.83) charged Copilot prompt-cache writes as plain input; Copilot lists them at 125% of the input rate. Repriced from each trial's token usage: $300.40 (+7.4%). Still a list-price equivalent: the run used GitHub Copilot."
-    }
+    "lower_bound": true
   },
   "tokens": {
     "input": 80007892,
@@ -2175,7 +2168,7 @@
     "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; GPT-6 Astra (high reasoning) through GitHub Copilot, with fast-agent's stream-idle timeout raised to 300 s (streaming_timeout=300). Zero whole-trial retries; fast-agent's own provider retries apply. Four infrastructure failures (three dropped connections, a sandbox error) were rerun as replacements; the originals are kept as evidence.",
     "Provider blocks: every attempt at break-filter-js-from-html and vulnerable-secret (10 trials) failed on the first model request, when Copilot's WebSocket rejected it (recorded by bench-run as a content-filter failure). Harbor records these as non-zero agent exits, not safety errors, so they score 0 and the safety allowance does not count them. One model-extraction-relu-logits trial ended with AgentSafetyStopError.",
     "Other GPT-6 Astra cohorts (high and medium through the Codex subscription route, medium through Copilot with the default stream timeout) are complete but not shown.",
-    "Cost shown is a list-rate estimate repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-10.1): Harbor's fast-agent adapter charged Copilot's prompt-cache writes as plain input, where Copilot lists them at 125% of input. Recorded $279.83; repriced $300.40 over the same 439 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+    "Cost is Harbor's recorded cost at the cohort's configured OpenAI list rates (card-packs pricing catalog, rules gpt-6-astra-standard-short / -long: $10 / $1 / $50 per million input / cached / output tokens; $20 / $2 / $75 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound. Prompt-cache writes are priced at the input rate, as for OpenAI models there is no cache-write charge."
   ],
   "scan": {
     "version": "0.8.0",

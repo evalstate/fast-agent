@@ -2147,14 +2147,7 @@
     "excluded_trials_with_cost": 0,
     "basis": "sum of Harbor recorded cost_usd over selected trials plus excluded (replaced) trials",
     "matches_published": null,
-    "lower_bound": true,
-    "repriced": {
-      "total_usd": 34.100561,
-      "trials": 440,
-      "basis": "list-rate estimate from token usage",
-      "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.1 (e9373d5)",
-      "note": "Harbor's recorded cost ($31.20) charged Copilot prompt-cache writes as plain input; Copilot lists them at 125% of the input rate. Repriced from each trial's token usage: $34.10 (+9.3%). Still a list-price equivalent: the run used GitHub Copilot."
-    }
+    "lower_bound": true
   },
   "tokens": {
     "input": 61088570,
@@ -2174,7 +2167,7 @@
     "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6.1 Sol (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. Three infrastructure failures (a sandbox error, two connection errors) were rerun as replacements; the originals are kept as evidence.",
     "Safety refusals: 10 trials ended with AgentSafetyRefusalError (model-extraction-relu-logits \u00d73, vulnerable-secret \u00d74, break-filter-js-from-html \u00d73) and score 0, except one break-filter-js-from-html trial whose verifier still passed: it counts as a pass here; bench-run's stricter rule counts it 0 (363/445).",
     "Eleven trials hit fast-agent's 150 s stream-idle timeout on a model call and recovered on retry; none failed from it.",
-    "Cost shown is a list-rate estimate repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-10.1): Harbor's fast-agent adapter charged Copilot's prompt-cache writes as plain input, where Copilot lists them at 125% of input. Recorded $31.20; repriced $34.10 over the same 440 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+    "Cost is Harbor's recorded cost at the cohort's configured OpenAI list rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6.1-sol-standard-short / -long: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Stalled attempts recorded no usage, so the total is a lower bound. Prompt-cache writes are priced at the input rate, as for OpenAI models there is no cache-write charge."
   ],
   "scan": {
     "version": "0.8.0",
