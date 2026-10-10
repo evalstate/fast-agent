@@ -2111,11 +2111,8 @@ def _merge_home_plugin_settings(
 
 
 def _expand_user_path(path: Path, *, home: Path) -> Path:
-    text = str(path)
-    if text == "~":
-        return home
-    if text.startswith("~/"):
-        return home / text[2:]
+    if path.parts[:1] == ("~",):
+        return home.joinpath(*path.parts[1:])
     return path
 
 
