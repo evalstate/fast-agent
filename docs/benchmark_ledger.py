@@ -50,6 +50,8 @@ def money(x: float) -> str:
 
 
 def cost_text(entry: Entry) -> str:
+    if entry["cost"]["total"] is None:
+        return "no cost data"
     text = money(entry["cost"]["total"])
     if entry["cost"].get("lowerBound"):
         return "≥" + text
@@ -303,7 +305,7 @@ class CostDomain:
     @classmethod
     def of(cls, entries: list[Entry]) -> CostDomain:
         steps = [f * 10.0**k for k in range(-1, 5) for f in (1, 2, 5)]
-        costs = [e["cost"]["total"] for e in entries]
+        costs = [e["cost"]["total"] for e in entries if e["cost"]["total"] is not None]
         lo = max((v for v in steps if v <= min(costs) * 0.85), default=steps[0])
         hi = min((v for v in steps if v >= max(costs) * 1.15), default=steps[-1])
         ticks = [v for v in steps if lo < v < hi]
@@ -323,6 +325,11 @@ def cost_dot(entry: Entry, dom: CostDomain) -> str:
         for t in dom.ticks
     ]
     parts.append(f'<line x1="0" x2="{COST_WIDTH}" y1="{h / 2:g}" y2="{h / 2:g}" class="fb-track"/>')
+    if entry["cost"]["total"] is None:
+        return (
+            f'<svg class="fb-costdot" viewBox="0 0 {COST_WIDTH} {h}" width="100%" height="{h}" '
+            f'preserveAspectRatio="none" aria-hidden="true">{"".join(parts)}</svg>'
+        )
     x = dom.x(entry["cost"]["total"])
     cost = entry["cost"]
     if entry["tier"] == "ours" and cost.get("pricing") and cost.get("recorded") != cost["total"]:
@@ -400,7 +407,7 @@ def row(b: Bench, entry: Entry, dom: CostDomain, root: str, scanned: bool) -> st
     # data-* drive the filters and sort in benchmarks-ledger.js.
     attrs = (
         f'class="fb-row fb-row--{tier}" role="row" data-family="{entry["family"]}" data-tier="{tier}" '
-        f'data-score="{entry["score"]}" data-cost="{entry["cost"]["total"]}"'
+        f'data-score="{entry["score"]}" data-cost="{entry["cost"]["total"] if entry["cost"]["total"] is not None else ""}"'
         + (' data-long=""' if entry.get("timeout") == "6h" else "")
     )
     tag, href = (

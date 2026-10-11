@@ -151,8 +151,9 @@ with the bench-run release manifest that fixes the trial set.
 ## Costs on the page
 
 Leaderboard rows show the sum of their recorded trial costs on the 19 tasks; where a
-task has a trial without a recorded cost, the figure is marked **~**. Our subset runs
-show Harbor's recorded token cost at list rates, or a list-rate repricing where the
-recorded cost priced prompt-cache writes wrongly; runs through GitHub Copilot show a
-list-price equivalent, not what Copilot billed. Each comparator's run page also shows its
-full 66-task run and published cost.
+task has a trial without a recorded cost, the figure is marked **~**, and a row whose
+trials record no cost at all shows none. Our subset runs show Harbor's recorded token
+cost at list rates. Each run page's Evidence adds a list-rate estimate from the trials'
+token usage, which prices prompt-cache writes and calls the recorded cost missed. Runs
+through GitHub Copilot show list-price equivalents, not what Copilot billed. Each
+comparator's run page also shows its full 66-task run and published cost.

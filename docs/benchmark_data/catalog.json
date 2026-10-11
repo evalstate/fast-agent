@@ -230,6 +230,10 @@
     "tb4-haiku55-medium": {
       "benchmark": "terminal-bench-4.0-subset",
       "family": "anthropic"
+    },
+    "tb4-sonnet55-medium": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "anthropic"
     }
   },
   "claims": [
@@ -411,7 +415,7 @@
           },
           {
             "title": "Cost",
-            "text": "A subset run costs about 16% of a full run; a full run costs a median 6.4× as much. Comparator costs here are the recorded trial costs on the 19 tasks. Our costs are Harbor's recorded token costs at list rates, repriced where the recording mispriced cache writes; for Copilot routes that is a list-price equivalent, not billed spend."
+            "text": "A subset run costs about 16% of a full run; a full run costs a median 6.4× as much. Comparator costs here are the recorded trial costs on the 19 tasks. Our costs are Harbor's recorded token costs at list rates; each run page's Evidence adds a list-rate estimate from token usage that prices cache writes. For Copilot routes both are list-price equivalents, not billed spend."
           },
           {
             "title": "Caveats",

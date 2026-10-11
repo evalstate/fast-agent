@@ -302,7 +302,12 @@
   function moneyExact(x) {
     return "$" + x.toFixed(2);
   }
+  /* Leaderboard rows whose trials recorded no cost at all carry cost.total null. */
+  function hasCost(entry) {
+    return entry.cost.total !== null && entry.cost.total !== undefined;
+  }
   function costText(entry, exact) {
+    if (!hasCost(entry)) return "no cost data";
     var text = (exact ? moneyExact : money)(entry.cost.total);
     if (entry.cost.lowerBound) return "≥" + text;
     return entry.cost.estimate ? "~" + text : text;
@@ -682,7 +687,7 @@
   /* ── Log cost axis ─────────────────────────────────────────────────── */
   /* Log cost domain padded to whole 1-2-5 steps around the entries' costs. */
   function costDomain(entries) {
-    var costs = entries.map(function (e) {
+    var costs = entries.filter(hasCost).map(function (e) {
       return e.cost.total;
     });
     var steps = [];
@@ -707,6 +712,7 @@
       svg("line", { x1: x, x2: x, y1: 2, y2: h - 2, class: "fb-grid" }, root);
     });
     svg("line", { x1: 0, x2: width, y1: h / 2, y2: h / 2, class: "fb-track" }, root);
+    if (!hasCost(entry)) return root;
     var x = costX(entry.cost.total, width, dom);
     if (entry.tier === "ours" && entry.cost.recorded !== entry.cost.total && (entry.cost.pricing || entry.cost.repriced)) {
       var ox = costX(entry.cost.recorded, width, dom);
@@ -842,6 +848,7 @@
     entries.sort(
       state.sort === "cost"
         ? function (a, b) {
+            if (!hasCost(a) || !hasCost(b)) return hasCost(b) - hasCost(a);
             return a.cost.total - b.cost.total;
           }
         : byScore
@@ -1102,7 +1109,7 @@
 
   function frontier(m, opts) {
     opts = opts || {};
-    var entries = (opts.entries || m.runs.concat(m.claims)).slice();
+    var entries = (opts.entries || m.runs.concat(m.claims)).filter(hasCost);
     var W = 960;
     var H = opts.height || 480;
     var pad = { l: 56, r: 24, t: 24, b: 48 };
@@ -1434,11 +1441,14 @@
       return true;
     });
   }
-  /* Ledger filters live in the URL (?fam=&sort=&hide=&task=) so a view can be shared. */
+  /* Ledger filters live in the URL (?fam=&sort=&show=&hide=&task=) so a view can be shared.
+     Our runs show by default; leaderboard runs and vendor claims are opt-in. */
   var HIDEABLE = ["ours", "leaderboard", "claims"];
+  var SHOWN_BY_DEFAULT = { ours: true, leaderboard: false, claims: false };
   function viewState(m) {
     var q = new URLSearchParams(window.location.search);
     var hide = (q.get("hide") || "").split(",");
+    var show = (q.get("show") || "").split(",");
     var fam = q.get("fam");
     var all = familyIds(m);
     var sort = q.get("sort");
@@ -1448,7 +1458,9 @@
       sort: ["family", "score", "cost"].indexOf(sort) >= 0 ? sort : "score",
       task: task >= 0 ? task : null,
     };
-    HIDEABLE.forEach(function (k) { state[k] = hide.indexOf(k) < 0; });
+    HIDEABLE.forEach(function (k) {
+      state[k] = show.indexOf(k) >= 0 ? true : hide.indexOf(k) >= 0 ? false : SHOWN_BY_DEFAULT[k];
+    });
     return state;
   }
   function saveViewState(state, m) {
@@ -1457,7 +1469,8 @@
     var all = familyIds(m);
     set("fam", state.families.length === all.length ? null : state.families.length ? state.families.join(",") : "none");
     set("sort", state.sort !== "score" ? state.sort : null);
-    set("hide", HIDEABLE.filter(function (k) { return !state[k]; }).join(",") || null);
+    set("show", HIDEABLE.filter(function (k) { return state[k] && !SHOWN_BY_DEFAULT[k]; }).join(",") || null);
+    set("hide", HIDEABLE.filter(function (k) { return !state[k] && SHOWN_BY_DEFAULT[k]; }).join(",") || null);
     set("task", state.task !== null ? m.tasks[state.task] : null);
     window.history.replaceState(window.history.state, "", url);
   }
@@ -1790,15 +1803,15 @@
           : "no errors"
         : m.tasks.length + " tasks × " + m.attempts + " attempts"
     );
-    kpi(costText(run, true), "run cost", run.cost.basis + (run.cost.pricing || run.cost.repriced ? " · recorded " + moneyExact(run.cost.recorded) : ""));
-    kpi(moneyExact(run.cost.total / Math.max(1, run.passes)), "per passed trial", run.perTrialCost ? "median trial " + moneyExact(run.perTrialCost.median) + " · p90 " + moneyExact(run.perTrialCost.p90) : moneyExact(run.cost.total / run.slots) + " per trial");
+    kpi(costText(run, true), "run cost", run.cost.basis + (run.cost.pricing ? " · recorded " + moneyExact(run.cost.recorded) : run.cost.repriced ? " · list-rate estimate ~" + moneyExact(run.cost.repriced.total) : ""));
+    if (hasCost(run)) kpi(moneyExact(run.cost.total / Math.max(1, run.passes)), "per passed trial", run.perTrialCost ? "median trial " + moneyExact(run.perTrialCost.median) + " · p90 " + moneyExact(run.perTrialCost.p90) : moneyExact(run.cost.total / run.slots) + " per trial");
     if (run.tokens) {
       var cacheRate = run.tokens.input && run.tokens.cached !== null && run.tokens.cached !== undefined
         ? " (" + Math.round((100 * run.tokens.cached) / run.tokens.input) + "%)"
         : "";
       kpi(tokens(run.tokens.input), "input tokens", tokens(run.tokens.cached) + " cached" + cacheRate + " · " + tokens(run.tokens.output) + " out");
     }
-    else if (run.full) kpi(pct(run.full.publishedScore), "full run score", m.full.tasks.length + " tasks · " + money(run.full.cost) + " published cost");
+    else if (run.full) kpi(pct(run.full.publishedScore), "full run score", m.full.tasks.length + " tasks · " + (run.full.cost === null ? "no published cost" : money(run.full.cost) + " published cost"));
     else kpi("—", "full run", "subset only");
     root.appendChild(kpis);
 
@@ -2119,7 +2132,7 @@
       var uncosted = run.slots - run.cost.coverage;
       row("Trials without cost", String(uncosted), uncosted > 0);
       row("Recorded cost", (run.cost.lowerBound ? "≥" : "") + moneyExact(run.cost.recorded));
-      if (run.cost.repriced) row("Repriced (shown)", costText(run, true));
+      if (run.cost.repriced) row("List-rate estimate", "~" + moneyExact(run.cost.repriced.total));
       if (s.cost.recorded > 0 && s.cost.estimated_total && s.cost.estimated_total !== s.cost.recorded) row("Est. with missing trials", "~" + moneyExact(s.cost.estimated_total));
     }
     if (s.walltimeHours) row("Trial walltime", Math.round(s.walltimeHours) + " h summed");
@@ -2430,8 +2443,8 @@
     if (run.cost.pricing) cost.push(m.data.pricing[run.cost.pricing].note);
     if (run.cost.repriced) {
       cost.push(
-        "Shown: " + moneyExact(run.cost.total) + ", a list-rate estimate from the trials' token usage (" + run.cost.repriced.source +
-          "), over the same " + run.cost.repriced.trials + " trials whose cost Harbor recorded (" + moneyExact(run.cost.recorded) + ")."
+        "Shown: Harbor's recorded cost, " + moneyExact(run.cost.recorded) + ". List-rate estimate from the trials' token usage (" + run.cost.repriced.source +
+          "): ~" + moneyExact(run.cost.repriced.total) + " over " + run.cost.repriced.trials + " trials, under the scan's Evidence."
       );
       if (run.cost.repriced.note) cost.push(run.cost.repriced.note);
     }
@@ -2553,7 +2566,7 @@
     nums.appendChild(s);
     var c = el("div");
     c.appendChild(el("span", "fb-side__v", costText(e, true)));
-    c.appendChild(el("span", "fb-side__k", "per run · " + moneyExact(e.cost.total / (e.slots || 445)) + " per trial"));
+    c.appendChild(el("span", "fb-side__k", hasCost(e) ? "per run · " + moneyExact(e.cost.total / (e.slots || 445)) + " per trial" : "the trials recorded no cost"));
     nums.appendChild(c);
     card.appendChild(nums);
     return card;
@@ -2575,8 +2588,8 @@
     var delta = el("div", "fb-delta");
     delta.appendChild(el("span", "fb-delta__v", pts(a.score - b.score)));
     delta.appendChild(el("span", "fb-delta__k", "score"));
-    var ratio = a.cost.total / b.cost.total;
-    delta.appendChild(el("span", "fb-delta__v", ratio < 1 ? Math.floor((1 - ratio) * 100) + "% less" : "×" + ratio.toFixed(2)));
+    var ratio = hasCost(a) && hasCost(b) ? a.cost.total / b.cost.total : null;
+    delta.appendChild(el("span", "fb-delta__v", ratio === null ? "—" : ratio < 1 ? Math.floor((1 - ratio) * 100) + "% less" : "×" + ratio.toFixed(2)));
     delta.appendChild(el("span", "fb-delta__k", "cost per run"));
     duo.appendChild(delta);
     duo.appendChild(sideCard(m, b, "fb-side--b"));
@@ -2775,7 +2788,7 @@
     card.appendChild(head);
     var body = el("div", "fb-poster__body");
     var rows = el("div", "fb-poster__rows");
-    var cMax = Math.max.apply(null, runs.map(function (r) { return r.cost.total; }));
+    var cMax = Math.max.apply(null, runs.filter(hasCost).map(function (r) { return r.cost.total; }));
     runs.forEach(function (r) {
       var row = el(r.tier === "claim" ? "div" : "a", "fb-poster__row fb-poster__row--" + r.tier);
       if (r.tier !== "claim") row.href = runHref(r.id);
@@ -2794,7 +2807,7 @@
       var cost = el("div", "fb-poster__cost");
       var bar = el("span", "fb-poster__bar");
       var fill = el("i");
-      fill.style.width = (r.cost.total / cMax) * 100 + "%";
+      fill.style.width = (hasCost(r) ? (r.cost.total / cMax) * 100 : 0) + "%";
       bar.appendChild(fill);
       cost.appendChild(bar);
       cost.appendChild(el("span", "fb-poster__money", costText(r, true)));

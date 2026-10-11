@@ -239,13 +239,17 @@ def _curated_runs(
                 "usageIncomplete": raw["cost"].get("usage_incomplete_trials", []),
             }
         elif repriced := raw["cost"].get("repriced"):
-            # Recorded cost missed part of the price (e.g. cache writes billed as input):
-            # show the corrected list-rate estimate, keep the recorded total beside it.
-            cost["total"] = round(repriced["total_usd"], 2)
-            cost["basis"] = repriced["basis"]
-            cost["estimate"] = True
+            # The headline is what Harbor recorded; a list-rate estimate made from the trials'
+            # token usage (cache writes, unmetered calls) is shown under the scan's Evidence.
+            cost["total"] = round(recorded, 2)
+            cost["basis"] = "recorded Harbor cost"
             cost["lowerBound"] = raw["cost"].get("lower_bound", False)
-            cost["repriced"] = {k: repriced[k] for k in ("source", "note", "trials")}
+            cost["estimate"] = cost["lowerBound"] or raw["cost"]["trials_with_cost"] < raw["slots"]
+            cost["repriced"] = {
+                "total": round(repriced["total_usd"], 2),
+                "basis": repriced["basis"],
+                **{k: repriced[k] for k in ("source", "note", "trials")},
+            }
         elif curation.get("costFrom") == "published":
             cost["total"] = round(published, 2)
             cost["basis"] = "published leaderboard total"
@@ -419,9 +423,15 @@ def _subset_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[st
         task_costs = [raw["task_costs"][t] for t in subset]
         known = [c for c in task_costs if c is not None]
         published = raw["published"]
+        # A row whose trials recorded no cost at all (and publishes $0) has no cost to show.
+        no_cost = not any(c is not None for c in raw["task_costs"].values())
         # "Reconciliation:" lines are fetch diagnostics; the manifest notes explain them.
         notes = [n for n in raw["notes"] if not n.startswith("Reconciliation:")]
-        if len(known) < len(subset):
+        if no_cost:
+            notes.append(
+                "Neither the leaderboard row nor its trials record a cost, so none is shown."
+            )
+        elif len(known) < len(subset):
             notes.append(
                 f"{len(subset) - len(known)} subset task(s) include a trial without a recorded cost; "
                 "the subset cost counts complete tasks only."
@@ -445,9 +455,11 @@ def _subset_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[st
                 "cells": cells,
                 **_summary(cells, attempts),
                 "cost": {
-                    "total": round(sum(known), 2),
-                    "basis": "recorded trial costs on the subset tasks",
-                    "estimate": len(known) < len(subset),
+                    "total": None if no_cost else round(sum(known), 2),
+                    "basis": "no cost recorded"
+                    if no_cost
+                    else "recorded trial costs on the subset tasks",
+                    "estimate": not no_cost and len(known) < len(subset),
                     "taskCosts": task_costs,
                 },
                 "full": {
@@ -455,7 +467,7 @@ def _subset_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[st
                     **_summary(full_cells, attempts),
                     "publishedScore": published["score"],
                     "publishedPasses": published["passes"],
-                    "cost": published["total_cost"],
+                    "cost": None if no_cost else published["total_cost"],
                 },
                 "jobs": [
                     {"id": j["id"], "name": j.get("name") or j["id"], "url": j["url"]}

@@ -366,6 +366,11 @@ def select_release_trials(
         if r["state"] in ("finalized", "superseded")
     }
     replacement_jobs = {t["job"] for t in cohort["trials"] if t.get("replacement")}
+    # Verifier-only regrades: the regrade trial (the source's recorded outputs, verified again)
+    # is reported; its source trial stays as as-run evidence. The regrade carries the source's
+    # agent cost, so the source's cost is not counted again.
+    regraded = {t["regrade"]["source_trial"]: t for t in cohort["trials"] if t.get("regrade")}
+    regrade_jobs = {t["job"] for t in regraded.values()}
     rates = (run.get("pricing") or {}).get("rates_per_mtok")
     trials: list[Json] = []
     jobs: list[Json] = []
@@ -373,7 +378,7 @@ def select_release_trials(
         found = bucket_trials(job_dir, rates)
         for trial in found:
             trial["bucket_run"] = job_dir.name
-            trial["main_run"] = job_dir.name not in replacement_jobs
+            trial["main_run"] = job_dir.name not in replacement_jobs | regrade_jobs
             trial["bucket_path"] = f"{spec['path']}/jobs/{job_dir.name}/{trial['trial_name']}"
         trials += found
         jobs.append(
@@ -398,13 +403,25 @@ def select_release_trials(
         for t in trials
         if t["trial_name"] in lineage
     }
+    for t in trials:
+        if t["trial_name"] in regraded and t["id"] not in reported:
+            rg = regraded[t["trial_name"]]
+            reasons[t["id"]] = (
+                f"{t['error_type'] or 'error'}; re-graded (verifier only, {rg['regrade']['id']}) "
+                f"as {rg['trial']}, whose verdict is scored. Its agent cost is counted once, "
+                "on the regrade."
+            )
+            t["cost_usd"] = None
+            for key in ("input_tokens", "cache_tokens", "output_tokens"):
+                t[key] = None
     selected = [t for t in trials if t["id"] in reported]
     excluded = [t for t in trials if t["id"] in reasons]
     stray = [t["trial_name"] for t in trials if t["id"] not in reported and t["id"] not in reasons]
     # A replacement killed before producing a result leaves no trial to exclude; the link
     # that reran it names it with replaced_error "Interrupted".
     interrupted = sum(1 for r in lineage.values() if r["replaced_error"] == "Interrupted")
-    if len(selected) != len(reported) or len(excluded) != len(lineage) - interrupted or stray:
+    expected_excluded = len(lineage) - interrupted + len(regraded)
+    if len(selected) != len(reported) or len(excluded) != expected_excluded or stray:
         raise SystemExit(
             f"{run['id']}: release/job mismatch: {len(selected)}/{len(reported)} reported, "
             f"{len(excluded)}/{len(lineage)} replaced, stray {stray[:3]}"

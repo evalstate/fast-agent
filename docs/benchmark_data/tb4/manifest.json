@@ -40,7 +40,7 @@
       "notes": [
         "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
         "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor de22ce8c, with the published fast-agent-mcp 0.10.41 wheel; GPT-6.1 Sol (high reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No errors, no replacements.",
-        "Harbor's recorded cost uses the cohort's configured list rates (card-packs pricing catalog, Copilot GPT-6.1 Sol rules: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Three trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
+        "Harbor's recorded cost uses the cohort's configured list rates (card-packs pricing catalog, Copilot GPT-6.1 Sol rules: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Three trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the list-rate estimate under the scan's Evidence prices them at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
       ],
       "scan": true,
       "repriced": {
@@ -99,19 +99,19 @@
       "tasks_file": "subset.json",
       "bucket": {
         "repo": "evalstate/published-benchmarks",
-        "path": "tb4/19-task-v1/tb4-opus55-high",
+        "path": "tb4/19-task-v1/tb4-opus55-high-r2",
         "release": "release/manifest.json",
-        "source": "bench-run release tb4-opus55-high-r1 (cohort tb4-opus55-high-copilot-001)"
+        "source": "bench-run release tb4-opus55-high-r2 (cohort tb4-opus55-high-copilot-001); supersedes tb4-opus55-high-r1 (tb4/19-task-v1/tb4-opus55-high, kept)"
       },
       "expected": {
-        "passes": 52
+        "passes": 54
       },
       "repriced": {
-        "total_usd": 180.013335,
-        "trials": 99,
+        "total_usd": 191.390542,
+        "trials": 104,
         "basis": "list-rate estimate incl. cache writes",
-        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.2 (5478c22)",
-        "note": "Harbor's recorded cost ($171.47) charged prompt-cache writes as plain input. Repriced from each trial's token usage at the catalog's $4 / $0.20 / $5 / $20 per million input / cache-read / 5-minute cache-write / output tokens: $180.01 (+5.0%), over the 95 reported trials and the 4 replaced originals. A list-price equivalent: the run used GitHub Copilot."
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "List-rate estimate from each executed trial's token usage (95 reported trials and 9 replaced or superseded attempts) at the catalog's $4 / $0.20 / $5 / $20 per million input / cache-read / 5-minute cache-write / output tokens: $191.39, against Harbor's recorded $182.14, which charged prompt-cache writes as plain input. Output from stream attempts Copilot cut off is in neither figure. A list-price equivalent: the run used GitHub Copilot."
       },
       "published": null,
       "review": {
@@ -127,7 +127,7 @@
         "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
         "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor b20373d6, with the published fast-agent-mcp 0.10.42 wheel; Claude Opus 5.5 (high reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply.",
         "Safety stops: all five attempts at atrx-vep-crispr and at html-js-filter ended with AgentSafetyStopError (the provider's safety classifier stopping the run) and score 0.",
-        "Four photonic-waveguide-routing trials crashed when the Copilot stream closed mid-response (RemoteProtocolError, after 43 to 67 minutes). They were rerun as verified-crash replacements, and all four replacements crashed the same way; the replacements are scored (0) and the originals are kept as evidence."
+        "photonic-waveguide-routing: GitHub Copilot closes a Claude response stream after about 640 seconds, and Opus 5.5 high often thinks longer than that on this task; fast-agent retries the identical call, it is cut again, and the agent exits (NonZeroAgentExitCodeError, RemoteProtocolError). Four of the five original attempts crashed this way and were rerun as replacements, nine in all because reruns that crashed the same way were rerun again; the final four reported attempts are two passes and two crashes, and every original and superseded rerun is kept as evidence. The run as first launched scored 52/95. The output of the cut-off stream attempts is not in recorded usage."
       ],
       "scan": true
     },
@@ -200,7 +200,7 @@
         "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
         "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor de22ce8c, with the published fast-agent-mcp 0.10.41 wheel; GPT-6.1 Sol (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply.",
         "One infrastructure failure (a wal-recovery-ordering connection error) was rerun as a replacement, which passed; the original is kept as evidence. The run as first launched scored 56/95.",
-        "Harbor's recorded cost uses the cohort's configured list rates (card-packs pricing catalog, Copilot GPT-6.1 Sol rules: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. One trial has model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
+        "Harbor's recorded cost uses the cohort's configured list rates (card-packs pricing catalog, Copilot GPT-6.1 Sol rules: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. One trial has model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the list-rate estimate under the scan's Evidence prices them at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
       ],
       "scan": true,
       "repriced": {
@@ -279,7 +279,7 @@
       "notes": [
         "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
         "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor de22ce8c, with the published fast-agent-mcp 0.10.41 wheel; GPT-6.1 Sol (low reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No errors, no replacements.",
-        "Harbor's recorded cost uses the cohort's configured list rates (card-packs pricing catalog, Copilot GPT-6.1 Sol rules: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
+        "Harbor's recorded cost uses the cohort's configured list rates (card-packs pricing catalog, Copilot GPT-6.1 Sol rules: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Harbor recorded prompt-cache writes at the input rate; the list-rate estimate under the scan's Evidence prices them at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
       ],
       "scan": true,
       "repriced": {
@@ -368,6 +368,50 @@
         "Safety stops: four of five atrx-vep-crispr attempts ended with AgentSafetyStopError and score 0.",
         "One infrastructure failure (an HF sandbox error on satb-audio-transcription) was rerun as a replacement, which failed (0); the original is kept as evidence.",
         "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog, Claude Haiku 5.5 rules: $0.10 / $0.01 / $0.125 / $0.50 per million input / cache-read / cache-write / output tokens, higher above 100k context), which include cache writes. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed."
+      ],
+      "scan": true
+    },
+    {
+      "id": "tb4-sonnet55-medium",
+      "harness": "fast-agent",
+      "model": "Sonnet 5.5",
+      "effort": "medium",
+      "model_string": "copilot.claude-sonnet-5.5?reasoning=medium",
+      "date": "2026-10-04",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-sonnet55-medium",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-sonnet55-medium-r1 (cohort tb4-sonnet55-medium-copilot-001)"
+      },
+      "expected": {
+        "passes": 27
+      },
+      "cost_lower_bound": true,
+      "repriced": {
+        "total_usd": 43.275907,
+        "trials": 95,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "List-rate estimate from each trial's token usage at the current catalog's $2 / $0.10 / $2.50 / $10 per million input / cache-read / 5-minute cache-write / output tokens: $43.28. Harbor recorded $50.05 at the rates configured when the run was launched (catalog 2026-09-29.1: cache reads at $0.20, cache writes as plain input). A list-price equivalent: the run used GitHub Copilot."
+      },
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+        "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor b20373d6, with the published fast-agent-mcp 0.10.42 wheel; Claude Sonnet 5.5 (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No replacements.",
+        "Re-graded verifier timeouts: 12 trials (all five mvcc-lsm-compaction and vpp-loss-divergence attempts, two photonic-waveguide-routing) ended in VerifierTimeoutError on slow HF verifier sandboxes. Their recorded outputs were verified again with the task's own verifier image and native timeout (bench-run regrade tb4-sonnet55-medium-copilot-001-rg-001; no agent rerun, no credentials): 7 pass (vpp 5, photonic 2), 5 fail (mvcc). The regrade verdicts are scored; the timed-out originals are kept as evidence. The run as first graded scored 20/95.",
+        "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog 2026-09-29.1, Claude Sonnet 5.5 rule: $2 / $0.20 / $10 per million input / cache-read / output tokens, cache writes as plain input). One trial has model calls that reported no usage, so the total is a lower bound. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed."
       ],
       "scan": true
     },
