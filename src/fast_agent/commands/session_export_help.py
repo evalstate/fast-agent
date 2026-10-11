@@ -82,7 +82,7 @@ SESSION_EXPORT_EXAMPLES: tuple[str, ...] = (
 
 SESSION_EXPORT_NOTES: tuple[str, ...] = (
     "Default format: codex.",
-    "ATIF exports use the ATIF-v1.7 JSON schema.",
+    "ATIF exports use the ATIF-v1.8 JSON schema.",
     (
         "If --output is omitted, the exporter writes "
         "`{session_id}__{agent_name}__codex.jsonl` in the current working directory."

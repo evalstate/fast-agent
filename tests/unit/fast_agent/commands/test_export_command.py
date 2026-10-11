@@ -156,7 +156,7 @@ def test_export_command_supports_atif_export_format_alias(tmp_path: Path) -> Non
     assert result.exit_code == 0, result.output
     assert "Exported atif trace" in result.output
     payload = json.loads(output_path.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "ATIF-v1.7"
+    assert payload["schema_version"] == "ATIF-v1.8"
     assert payload["session_id"] == session_id
 
 

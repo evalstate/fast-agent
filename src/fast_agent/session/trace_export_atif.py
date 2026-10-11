@@ -1,4 +1,4 @@
-"""ATIF v1.7 writer for persisted Fast-Agent sessions."""
+"""ATIF v1.8 writer for persisted Fast-Agent sessions."""
 
 from __future__ import annotations
 
@@ -9,10 +9,10 @@ from dataclasses import dataclass, replace
 from functools import cache
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, TypedDict
 from urllib.parse import parse_qs, urlparse
 
-from mcp_types import CallToolResult, ImageContent, TextContent
+from mcp_types import AudioContent, CallToolResult, ImageContent, TextContent
 
 from fast_agent.constants import (
     FAST_AGENT_COMPACTION_CHANNEL,
@@ -46,6 +46,7 @@ from fast_agent.mcp.prompt_serialization import load_messages
 from fast_agent.privacy.sanitizer import RedactionAccumulator
 from fast_agent.session.atif_models import (
     AtifAgent,
+    AtifAudioSource,
     AtifContent,
     AtifContentPart,
     AtifFinalMetrics,
@@ -57,6 +58,8 @@ from fast_agent.session.atif_models import (
     AtifSubagentTrajectoryRef,
     AtifToolCall,
     AtifTrajectory,
+    atif_audio_media_type,
+    atif_image_media_type,
 )
 from fast_agent.session.snapshot import load_session_snapshot
 from fast_agent.session.trace_export_models import ExportResult
@@ -64,7 +67,7 @@ from fast_agent.session.trace_export_models import ExportResult
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
     from datetime import datetime
-    from typing import Literal, TypeGuard
+    from typing import Literal
 
     from fast_agent.privacy.sanitizer import RedactionSummary, TraceSanitizer
     from fast_agent.session.trace_export_models import ResolvedSessionExport
@@ -257,34 +260,38 @@ def _reasoning_effort(model_name: str | None) -> str | None:
     return None
 
 
-type AtifImageMime = Literal["image/jpeg", "image/png", "image/gif", "image/webp"]
-
-
-def _is_atif_image_mime(value: str) -> TypeGuard[AtifImageMime]:
-    return value in {"image/jpeg", "image/png", "image/gif", "image/webp"}
+def _atif_media_part(block: object) -> AtifContentPart | None:
+    if isinstance(block, ImageContent):
+        image_type = atif_image_media_type(block.mime_type)
+        if image_type is None:
+            return None
+        return AtifContentPart(
+            type="image",
+            source=AtifImageSource(
+                media_type=image_type,
+                path=f"data:{image_type};base64,{block.data}",
+            ),
+        )
+    if isinstance(block, AudioContent):
+        audio_type = atif_audio_media_type(block.mime_type)
+        if audio_type is None:
+            return None
+        return AtifContentPart(
+            type="audio",
+            source=AtifAudioSource(
+                media_type=audio_type,
+                path=f"data:{audio_type};base64,{block.data}",
+            ),
+        )
+    return None
 
 
 def _atif_content(blocks: list[object]) -> AtifContent:
-    images = [
-        block
-        for block in blocks
-        if isinstance(block, ImageContent) and _is_atif_image_mime(block.mime_type)
-    ]
     texts = [block.text for block in blocks if isinstance(block, TextContent)]
-    if not images:
+    media = [part for block in blocks if (part := _atif_media_part(block)) is not None]
+    if not media:
         return "\n".join(texts)
-    parts = [AtifContentPart(type="text", text=text) for text in texts]
-    parts.extend(
-        AtifContentPart(
-            type="image",
-            source=AtifImageSource(
-                media_type=cast("AtifImageMime", image.mime_type),
-                path=f"data:{image.mime_type};base64,{image.data}",
-            ),
-        )
-        for image in images
-    )
-    return parts
+    return [AtifContentPart(type="text", text=text) for text in texts] + media
 
 
 def _result_content(result: CallToolResult) -> AtifContent:

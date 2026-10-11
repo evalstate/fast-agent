@@ -242,7 +242,7 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     assert records[8]["payload"]["last_agent_message"] == "done"
 
 
-def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
+def test_session_trace_exporter_writes_atif_v18_with_tool_observation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -258,6 +258,8 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
             content=[
                 TextContent(type="text", text="check Alice's directory"),
                 ImageContent(type="image", data="aW1hZ2U=", mime_type="image/png"),
+                AudioContent(type="audio", data="YXVkaW8=", mime_type="audio/mp3"),
+                AudioContent(type="audio", data="YXVkaW8=", mime_type="audio/x-unknown"),
             ],
         ),
         PromptMessageExtended(
@@ -466,7 +468,7 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
 
     payload = json.loads(result.output_path.read_text(encoding="utf-8"))
     assert result.output_path.name == f"{session_id}__dev__atif.json"
-    assert payload["schema_version"] == "ATIF-v1.7"
+    assert payload["schema_version"] == "ATIF-v1.8"
     assert payload["session_id"] == session_id
     assert payload["agent"]["model_name"] == "codexresponses.gpt-5.4?reasoning=high"
     assert [step["source"] for step in payload["steps"]] == [
@@ -476,10 +478,16 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
         "agent",
     ]
     assert payload["steps"][0]["message"] == "You are dev."
-    assert payload["steps"][1]["message"][1] == {
-        "type": "image",
-        "source": {"media_type": "image/png", "path": "data:image/png;base64,aW1hZ2U="},
-    }
+    assert payload["steps"][1]["message"][1:] == [
+        {
+            "type": "image",
+            "source": {"media_type": "image/png", "path": "data:image/png;base64,aW1hZ2U="},
+        },
+        {
+            "type": "audio",
+            "source": {"media_type": "audio/mpeg", "path": "data:audio/mpeg;base64,YXVkaW8="},
+        },
+    ]
     tool_step = payload["steps"][2]
     assert tool_step["reasoning_effort"] == "high"
     assert tool_step["extra"] == {"duration_ms": 1200, "ttft_ms": 150}
