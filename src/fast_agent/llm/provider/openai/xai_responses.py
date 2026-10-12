@@ -9,7 +9,14 @@ from mcp_types import ContentBlock, TextContent
 from openai import APIError, AsyncOpenAI
 from pydantic import ValidationError
 
+from fast_agent.config import NATIVE_COMPACTION_DEFAULT
+from fast_agent.constants import (
+    DEFAULT_HIGH_REASONING_STREAMING_TIMEOUT,
+    OPENAI_COMPACTION_ITEMS,
+    OPENAI_COMPACTION_TRIGGER,
+)
 from fast_agent.core.exceptions import ModelConfigError, ProviderKeyError
+from fast_agent.llm.provider import stream_capture
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_websocket import (
     ManagedWebSocketConnection,
@@ -31,19 +38,20 @@ from fast_agent.llm.provider.openai.xai_image_uploads import XAIImageUploadManag
 from fast_agent.llm.provider.openai.xai_oauth import XAI_OAUTH_ONLY_MODELS
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage, usage_from_responses_compatible
+from fast_agent.types import PromptMessageExtended
+from fast_agent.types.llm_stop_reason import LlmStopReason
 
 if TYPE_CHECKING:
     from mcp import Tool
-    from openai.types.responses import ResponseUsage
+    from openai.types.responses import ResponseInputItemParam, ResponseUsage
 
     from fast_agent.config import XAISettings
     from fast_agent.llm.provider.openai.responses import ResponsesTransport
-    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.tool_activity_presentation import ToolActivityFamily
     from fast_agent.types import RequestParams
 
 DEFAULT_XAI_MODEL = "grok-4.7"
-GROK_EXTENDED_STREAMING_TIMEOUT: Final = 300.0
+GROK_EXTENDED_STREAMING_TIMEOUT: Final = DEFAULT_HIGH_REASONING_STREAMING_TIMEOUT
 XAI_BASE_URL = "https://api.x.ai/v1"
 XAI_EXPERIMENTAL_STREAMING_MODELS: Final = frozenset({"grok-4.5", "grok-4.6"})
 XAI_X_SEARCH_INTERNAL_TOOL_NAMES = frozenset(
@@ -56,8 +64,23 @@ XAI_X_SEARCH_INTERNAL_TOOL_NAMES = frozenset(
 )
 
 
+def _compaction_usage(usage: ResponseUsage) -> ResponseUsage:
+    """Fold reasoning into ``output_tokens`` when xAI's compaction usage reports it apart.
+
+    Observed live: ``/responses/compact`` totals ``input + output + reasoning``, while
+    ``/responses`` (and xAI's documented example) count reasoning within ``output``.
+    """
+    reasoning = usage.output_tokens_details.reasoning_tokens
+    if reasoning and usage.total_tokens == usage.input_tokens + usage.output_tokens + reasoning:
+        return usage.model_copy(update={"output_tokens": usage.output_tokens + reasoning})
+    return usage
+
+
 class XAIResponsesLLM(ResponsesLLM):
     """LLM implementation for xAI's Responses-compatible API."""
+
+    NATIVE_COMPACTION_VENDOR = "xAI"
+    NATIVE_COMPACTION_REQUEST = "POST /responses/compact"
 
     def _translate_responses_usage(
         self,
@@ -79,7 +102,6 @@ class XAIResponsesLLM(ResponsesLLM):
         provider = kwargs.pop("provider", provider)
         self.config_section = "xai"
         super().__init__(provider=provider, **kwargs)
-        self._apply_reasoning_streaming_timeout_default()
         self._x_search_override: bool | None = (
             bool(x_search_override) if isinstance(x_search_override, bool) else None
         )
@@ -91,20 +113,6 @@ class XAIResponsesLLM(ResponsesLLM):
             else None
         )
         self._image_upload_warning_emitted = False
-
-    def _apply_reasoning_streaming_timeout_default(self) -> None:
-        params = self.default_request_params
-        if (
-            self._init_request_params is not None
-            and "streaming_timeout" in self._init_request_params.model_fields_set
-        ):
-            return
-        effort = self._resolve_reasoning_effort()
-        if (params.model == "grok-4.5" and effort == "high") or (
-            params.model in {"grok-4.6", "grok-4.7", "grok-4.7-build-fast"}
-            and effort in {"high", "xhigh"}
-        ):
-            params.streaming_timeout = GROK_EXTENDED_STREAMING_TIMEOUT
 
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
         params = self._initialize_default_params_with_model_fallback(
@@ -198,6 +206,63 @@ class XAIResponsesLLM(ResponsesLLM):
                     payload["input"] = parsed_input
             payloads.append(TextContent(type="text", text=json.dumps(payload)))
         return payloads
+
+    def _replays_native_compaction(self) -> bool:
+        return True
+
+    def _accepts_checkpoint_origin(self, origin: str | None) -> bool:
+        # Verified live: xAI decrypts only its own checkpoints (others fail with 400).
+        return origin == self.provider.config_name
+
+    def _native_compaction_setting(self) -> bool:
+        settings = self._xai_settings()
+        return settings.native_compaction if settings is not None else NATIVE_COMPACTION_DEFAULT
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        # xAI rejects ``compaction_trigger`` items: compaction has its own endpoint.
+        if OPENAI_COMPACTION_TRIGGER in (multipart_messages[-1].channels or {}):
+            return await self._compact_context(
+                multipart_messages[:-1], self.get_request_params(request_params)
+            )
+        return await super()._apply_prompt_provider_specific(
+            multipart_messages, request_params, tools, is_template
+        )
+
+    async def _compact_context(
+        self, messages: list[PromptMessageExtended], request_params: RequestParams
+    ) -> PromptMessageExtended:
+        """Compact ``messages`` via ``POST /responses/compact`` into one compaction item.
+
+        The system prompt is not sent: later requests carry it as ``instructions``.
+        """
+        model = request_params.model or self.default_request_params.model or DEFAULT_XAI_MODEL
+        capture = stream_capture.stream_capture_filename(self.chat_turn(), label="compact_")
+        async with self._responses_client() as client:
+            input_items = await self._normalize_request_files(
+                client, self._convert_to_provider_format(messages), display_model=model
+            )
+            stream_capture.save_stream_request(
+                capture, {"model": model, "input": input_items}, logger_name=__name__
+            )
+            response = await client.responses.compact(
+                model=model, input=cast("list[ResponseInputItemParam]", input_items)
+            )
+        stream_capture.save_stream_chunk(capture, response, logger_name=__name__)
+        if response.usage is not None:
+            self._record_usage(_compaction_usage(response.usage), model)
+        blocks = self._capture_compaction_blocks(response, origin=self.provider.config_name)
+        return PromptMessageExtended(
+            role="assistant",
+            content=[],
+            channels={OPENAI_COMPACTION_ITEMS: blocks} if blocks else None,
+            stop_reason=LlmStopReason.END_TURN,
+        )
 
     def _resolve_reasoning_effort(self) -> str | None:
         setting = self.reasoning_effort

@@ -15,6 +15,7 @@ from pathlib import Path
 from mcp_types import TextContent
 
 from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL, FAST_AGENT_PROCESS_POLL_FOLD
+from fast_agent.llm.compaction_support import CompactionStrategy
 from fast_agent.types import PromptMessageExtended
 
 COMPACTION_BOUNDARY = "fast-agent-atif-compaction-boundary"
@@ -167,6 +168,10 @@ def reconstruct_history(
     summary_call = {
         key: metadata[key] for key in ("summary_request", "summary_response") if key in metadata
     }
+    # "summary" is fast-agent's own summary; others are provider-native checkpoints.
+    strategy = metadata.get("strategy", CompactionStrategy.SUMMARY.value)
+    if not isinstance(strategy, str) or not strategy:
+        raise HistoryReconstructionError("Malformed compaction metadata")
     boundary.channels = {
         COMPACTION_BOUNDARY: [
             TextContent(
@@ -174,7 +179,7 @@ def reconstruct_history(
                 text=json.dumps(
                     {
                         "type": "compaction",
-                        "strategy": "summary",
+                        "strategy": strategy,
                         "boundary": "replace",
                         "scope": "previous_model_context",
                         "template_messages": index,
@@ -232,8 +237,13 @@ def reconcile_transient(
     transient: list[PromptMessageExtended],
     *,
     overlap_history: list[PromptMessageExtended] | None = None,
+    allow_missing_input_timestamps: bool = False,
 ) -> list[PromptMessageExtended]:
-    """Join a final turn using a unique exact sequence alignment, never a set union."""
+    """Join a final turn using a unique sequence alignment, never a set union.
+
+    Live raw user inputs (including tool results) may lack the timestamps attached
+    to their persisted copies. All other fields and every known timestamp must agree.
+    """
     if not history:
         return list(transient)
     if not transient:
@@ -243,12 +253,26 @@ def reconcile_transient(
         for message in (history if overlap_history is None else overlap_history)
         if not is_export_marker(message)
     ]
+
+    def same_message(original: PromptMessageExtended, candidate: PromptMessageExtended) -> bool:
+        if (
+            allow_missing_input_timestamps
+            and candidate.role == "user"
+            and candidate.timestamp is None
+        ):
+            candidate = candidate.model_copy(update={"timestamp": original.timestamp})
+        return original == candidate
+
     # Include containment: a persisted final turn needs no second copy.
     matches = [
         start
         for start in range(len(originals))
-        if originals[start : start + min(len(transient), len(originals) - start)]
-        == transient[: min(len(transient), len(originals) - start)]
+        if all(
+            same_message(original, candidate)
+            for original, candidate in zip(
+                originals[start : start + len(transient)], transient, strict=False
+            )
+        )
     ]
     if len(matches) != 1:
         raise HistoryReconstructionError("Transient turn has no unique history overlap")

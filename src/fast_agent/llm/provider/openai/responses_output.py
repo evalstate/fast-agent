@@ -10,6 +10,7 @@ from pydantic_core import from_json
 
 from fast_agent.core.logging.json_serializer import snapshot_json_value
 from fast_agent.event_progress import ProgressAction
+from fast_agent.llm.provider.openai.compaction_replay import capture_compaction_replay
 from fast_agent.llm.provider.openai.reasoning_replay import capture_reasoning_replay
 from fast_agent.llm.provider.openai.tool_event_helpers import (
     first_nonempty_string,
@@ -503,6 +504,24 @@ class ResponsesOutputMixin:
                 )
             )
         return encrypted_blocks
+
+    def _capture_compaction_blocks(self, response: Any, *, origin: str) -> list[ContentBlock]:
+        blocks: list[ContentBlock] = []
+        # Dispatch on the wire discriminator, not the SDK class: the WebSocket transport
+        # yields attribute views over the raw JSON, not typed SDK output items.
+        for output_item in getattr(response, "output", []) or []:
+            if getattr(output_item, "type", None) != "compaction":
+                continue
+            payload = capture_compaction_replay(output_item, origin=origin)
+            if payload is None:
+                continue
+            blocks.append(
+                TextContent(
+                    type="text",
+                    text=json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                )
+            )
+        return blocks
 
     @staticmethod
     def _web_citation_dedupe_key(

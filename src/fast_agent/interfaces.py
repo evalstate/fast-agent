@@ -27,6 +27,7 @@ from pydantic import BaseModel
 from rich.text import Text
 
 from fast_agent.event_progress import ProgressAction
+from fast_agent.llm.compaction_support import CompactAt, CompactionSupport, NativeCompaction
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
 from fast_agent.llm.stream_types import StreamChunk
@@ -239,6 +240,19 @@ class FastAgentLLMProtocol(Protocol):
 
     @property
     def service_tier(self) -> Literal["fast", "flex"] | None: ...
+
+    @property
+    def compaction_support(self) -> CompactionSupport: ...
+
+    @property
+    def compact_at_override(self) -> CompactAt | None: ...
+
+    @property
+    def default_compact_at(self) -> CompactAt | None: ...
+
+    async def native_compaction(
+        self, messages: list[PromptMessageExtended]
+    ) -> NativeCompaction: ...
 
     @property
     def provider_managed_mcp_state(self) -> "ProviderManagedMCPState": ...

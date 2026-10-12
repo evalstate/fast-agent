@@ -7,9 +7,18 @@ from mcp_types import CallToolRequest, ContentBlock, EmbeddedResource
 
 from fast_agent.constants import (
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
+    FAST_AGENT_COMPACTION_CHANNEL,
     OPENAI_ASSISTANT_MESSAGE_ITEMS,
+    OPENAI_COMPACTION_ITEMS,
+    OPENAI_COMPACTION_TRIGGER,
     OPENAI_MCP_LIST_TOOLS_ITEMS,
     OPENAI_REASONING_ENCRYPTED,
+)
+from fast_agent.core.exceptions import ProviderCheckpointError
+from fast_agent.llm.compaction_support import CompactionStrategy, read_compaction_metadata
+from fast_agent.llm.provider.openai.compaction_replay import (
+    compaction_replay_origin,
+    parse_compaction_replay,
 )
 from fast_agent.llm.provider.openai.reasoning_replay import parse_reasoning_replay
 from fast_agent.llm.provider.openai.tool_event_helpers import first_nonempty_string
@@ -111,7 +120,25 @@ class ResponsesContentMixin:
         return (str(item_id),) if item_id else None
 
     def _convert_message_to_items(self, msg: PromptMessageExtended) -> list[dict[str, Any]]:
+        channels = msg.channels or {}
+        # Other Responses-family providers cannot read OpenAI checkpoints: they get
+        # the checkpoint's visible text through ordinary conversion instead.
+        if OPENAI_COMPACTION_TRIGGER in channels and self._replays_native_compaction():
+            return [{"type": "compaction_trigger"}]
         items: list[dict[str, Any]] = []
+        has_compaction = OPENAI_COMPACTION_ITEMS in channels
+        if FAST_AGENT_COMPACTION_CHANNEL in channels and not has_compaction:
+            # A damaged native checkpoint may have lost its replay channel entirely.
+            metadata = read_compaction_metadata(msg)
+            has_compaction = (
+                metadata is not None and metadata.strategy == CompactionStrategy.OPENAI_COMPACTION
+            )
+        if has_compaction and self._replays_native_compaction():
+            items.extend(self._compaction_input_items(channels))
+            if FAST_AGENT_COMPACTION_CHANNEL in channels:
+                # Only harness checkpoints replace their visible stand-in wholesale.
+                return items
+            # Restore compacted context first, then replay the response's new content.
         items.extend(self._extract_encrypted_reasoning_items(msg.channels))
         items.extend(self._extract_mcp_list_tools_items(msg))
         items.extend(self._extract_tool_search_items(msg))
@@ -257,6 +284,45 @@ class ResponsesContentMixin:
             if item is None:
                 continue
             items.append(dict(item))
+        return items
+
+    def _replays_native_compaction(self) -> bool:
+        """Whether this route accepts OpenAI compaction items (opaque checkpoints)."""
+        return False
+
+    def _accepts_checkpoint_origin(self, origin: str | None) -> bool:
+        """Whether this route can read a checkpoint produced on ``origin``."""
+        del origin
+        return True
+
+    def _compaction_input_items(
+        self, channels: Mapping[str, Iterable[ContentBlock]]
+    ) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        error = (
+            "The provider checkpoint is unreadable. "
+            "Restore the full history with `/history load <archive>`."
+        )
+        for block in channels.get(OPENAI_COMPACTION_ITEMS, ()):
+            try:
+                payload = json.loads(get_text(block) or "")
+            except json.JSONDecodeError as exc:
+                raise ProviderCheckpointError(error) from exc
+            item = parse_compaction_replay(payload) if isinstance(payload, dict) else None
+            if item is None:
+                raise ProviderCheckpointError(error)
+            origin = compaction_replay_origin(payload)
+            if not self._accepts_checkpoint_origin(origin):
+                # Envelopes without an origin predate xAI support: OpenAI produced them.
+                route = f"'{origin}'" if origin else "OpenAI"
+                raise ProviderCheckpointError(
+                    f"This conversation was compacted on {route}, and that checkpoint can "
+                    f"only be read there. Switch back to a model on {route}, or restore the "
+                    "full history with `/history load <archive>`."
+                )
+            items.append(dict(item))
+        if not items:
+            raise ProviderCheckpointError(error)
         return items
 
     def _json_channel_payloads(

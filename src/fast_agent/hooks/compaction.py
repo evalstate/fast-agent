@@ -7,7 +7,7 @@ settings). Failures never break the turn; history is left untouched.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from fast_agent.context import get_current_context
 from fast_agent.core.logging.logger import get_logger
@@ -19,10 +19,10 @@ from fast_agent.history.compaction import (
     should_auto_compact,
 )
 from fast_agent.hooks.hook_messages import show_hook_failure, show_hook_message
+from fast_agent.llm.compaction_support import in_request_compaction_trigger
 
 if TYPE_CHECKING:
     from fast_agent.config import CompactionSettings
-    from fast_agent.history.compaction import CompactableAgent
     from fast_agent.hooks.hook_context import HookContext
 
 logger = get_logger(__name__)
@@ -84,37 +84,47 @@ async def _auto_compact_history(ctx: "HookContext", *, mid_turn: bool) -> None:
     if not _effective_use_history(ctx):
         return
 
+    agent = ctx.agent
+    usage = ctx.usage
+    window = usage.context_window_size if usage else None
+    if in_request_compaction_trigger(agent.llm, settings) is not None:
+        # The provider compacts during normal requests; a second compactor would fight it.
+        return
+
     projected_context_tokens = _projected_context_tokens(ctx, mid_turn=mid_turn)
     if not should_auto_compact(
         ctx.usage,
         settings,
+        llm=agent.llm,
         projected_context_tokens=projected_context_tokens,
     ):
         return
 
-    usage = ctx.usage
-    window = usage.context_window_size if usage else None
     percent = (
         (projected_context_tokens / window) * 100
         if projected_context_tokens is not None and window is not None and window > 0
         else None
     )
     suffix = " mid-turn" if mid_turn else ""
-    show_hook_message(
-        ctx,
-        f"context at {percent:.0f}% — compacting history{suffix}"
-        if percent
-        else f"compacting history{suffix}",
-        hook_name=_HOOK_NAME,
-        style="cyan",
-    )
+
+    def announce() -> None:
+        # Only once planning succeeded: a skipped attempt prints nothing.
+        show_hook_message(
+            ctx,
+            f"context at {percent:.0f}% — compacting history{suffix}"
+            if percent
+            else f"compacting history{suffix}",
+            hook_name=_HOOK_NAME,
+            style="cyan",
+        )
 
     try:
         result = await compact_conversation(
-            cast("CompactableAgent", ctx.agent),
+            agent,
             settings=settings,
             recent_tool_exchanges=MID_TURN_RECENT_TOOL_EXCHANGES if mid_turn else None,
             pending_context_tokens=_pending_context_tokens(ctx, mid_turn=mid_turn),
+            on_start=announce,
         )
     except CompactionSkipped as exc:
         logger.info("Auto-compaction skipped", data={"reason": str(exc)})

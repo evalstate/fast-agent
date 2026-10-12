@@ -54,9 +54,24 @@ class AttrObjectView:
         self._data = {key: _to_attr_object(value) for key, value in data.items()}
 
     def __getattr__(self, key: str) -> Any:
+        # Copying builds the object without __init__: no _data yet, no dunder protocols.
+        if key.startswith("__") or key == "_data":
+            raise AttributeError(key)
         if key in self._data:
             return self._data[key]
         raise AttributeError(key)
+
+    def __setattr__(self, key: str, value: Any) -> None:
+        # SDK models are mutable; e.g. an empty terminal ``output`` is rebuilt in place.
+        if key == "_data":
+            object.__setattr__(self, key, value)
+        else:
+            self._data[key] = value
+
+    def __copy__(self) -> AttrObjectView:
+        copied = AttrObjectView.__new__(AttrObjectView)
+        object.__setattr__(copied, "_data", dict(self._data))
+        return copied
 
     def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         del args, kwargs

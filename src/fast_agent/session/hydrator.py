@@ -719,6 +719,8 @@ class SessionHydrator:
             else params.tool_result_mode
         )
         params.streaming_timeout = request_settings.streaming_timeout
+        if request_settings.streaming_timeout_configured is False:
+            params.model_fields_set.discard("streaming_timeout")
         params.service_tier = request_settings.service_tier
         params.system_prompt = agent.instruction
 
@@ -727,6 +729,13 @@ class SessionHydrator:
         llm = agent.llm
         if llm is not None:
             llm.default_request_params = params.model_copy(deep=True)
+
+        from fast_agent.agents.llm_decorator import LlmDecorator
+
+        if isinstance(agent, LlmDecorator):
+            agent.restore_streaming_timeout(
+                params.streaming_timeout, configured="streaming_timeout" in params.model_fields_set
+            )
 
     def _base_request_params(self, agent: AgentProtocol) -> RequestParams:
         llm = agent.llm

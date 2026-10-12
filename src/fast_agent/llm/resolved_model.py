@@ -218,6 +218,10 @@ class ResolvedModelSpec:
             kwargs["transport"] = config.transport
         if config.lite is not None and self.provider == Provider.CODEX_RESPONSES:
             kwargs["lite"] = config.lite
+        if config.compaction is not None:
+            kwargs["compaction"] = config.compaction
+        if config.compact_at is not None:
+            kwargs["compact_at"] = config.compact_at
         if config.web_search is not None and self.provider in {
             *_ANTHROPIC_WEB_SEARCH_PROVIDERS,
             Provider.RESPONSES,

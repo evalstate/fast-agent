@@ -367,7 +367,7 @@ def test_xai_responses_default_model_used_when_model_missing() -> None:
     )
 
     assert llm.default_request_params.model == DEFAULT_XAI_MODEL == "grok-4.7"
-    assert llm.default_request_params.streaming_timeout == GROK_EXTENDED_STREAMING_TIMEOUT
+    assert llm.get_request_params().streaming_timeout == GROK_EXTENDED_STREAMING_TIMEOUT
 
 
 @pytest.mark.parametrize(
@@ -388,7 +388,7 @@ def test_xai_responses_default_model_used_when_model_missing() -> None:
         ("grok-4.6", "low", DEFAULT_STREAMING_TIMEOUT),
         ("grok-4.7", "low", DEFAULT_STREAMING_TIMEOUT),
         ("grok-4.7-build-fast", "low", DEFAULT_STREAMING_TIMEOUT),
-        ("grok-4.3", "high", DEFAULT_STREAMING_TIMEOUT),
+        ("grok-4.3", "high", GROK_EXTENDED_STREAMING_TIMEOUT),
     ],
 )
 def test_xai_high_reasoning_gets_extended_streaming_timeout(
@@ -402,7 +402,7 @@ def test_xai_high_reasoning_gets_extended_streaming_timeout(
         reasoning_effort=reasoning_effort,
     )
 
-    assert llm.default_request_params.streaming_timeout == expected_timeout
+    assert llm.get_request_params().streaming_timeout == expected_timeout
 
 
 @pytest.mark.parametrize(
@@ -430,7 +430,7 @@ def test_xai_explicit_streaming_timeout_overrides_high_reasoning_default(
         request_params=RequestParams(streaming_timeout=streaming_timeout),
     )
 
-    assert llm.default_request_params.streaming_timeout == streaming_timeout
+    assert llm.get_request_params().streaming_timeout == streaming_timeout
 
 
 def test_xai_implicit_request_timeout_does_not_block_high_reasoning_default() -> None:
@@ -441,7 +441,7 @@ def test_xai_implicit_request_timeout_does_not_block_high_reasoning_default() ->
         request_params=RequestParams(model="grok-4.5", use_history=False),
     )
 
-    assert llm.default_request_params.streaming_timeout == GROK_EXTENDED_STREAMING_TIMEOUT
+    assert llm.get_request_params().streaming_timeout == GROK_EXTENDED_STREAMING_TIMEOUT
 
 
 def test_xai_responses_uses_xai_config_fallback() -> None:

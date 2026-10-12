@@ -7,9 +7,11 @@ from typing import TYPE_CHECKING
 from rich.text import Text
 
 from fast_agent.ui.history_display import Colours, format_chars
+from fast_agent.utils.count_display import format_bytes
 
 if TYPE_CHECKING:
     from fast_agent.history.compaction import CompactionResult
+
 
 _BAR_WIDTH = 20
 
@@ -46,22 +48,35 @@ def context_bar(tokens: int | None, window: int | None, *, width: int = _BAR_WID
 def compaction_summary_lines(result: "CompactionResult") -> list[Text]:
     """Render the before → after context visualization for a compaction result."""
     window = result.context_window
+    # An opaque checkpoint's token cost is only known once the provider reports it.
+    native = result.is_native
 
     context_line = Text("context ", style="dim")
     context_line.append_text(context_bar(result.tokens_before, window))
     context_line.append("  →  ", style="dim")
-    context_line.append_text(context_bar(result.tokens_after_estimate, window))
-    context_line.append(" est", style="dim")
+    context_line.append_text(context_bar(None if native else result.tokens_after_estimate, window))
+    if not native:
+        context_line.append(" est", style="dim")
 
     detail_line = Text()
     before_tokens = format_chars(result.tokens_before) if result.tokens_before else "unknown"
-    detail_line.append(f"{before_tokens} → ~{format_chars(result.tokens_after_estimate)} tokens")
+    after_tokens = "—" if native else f"~{format_chars(result.tokens_after_estimate)}"
+    detail_line.append(f"{before_tokens} → {after_tokens} tokens")
     if window:
         detail_line.append(f" of {format_chars(window)} window", style="dim")
     detail_line.append("  •  ", style="dim")
     detail_line.append(f"{result.messages_before} → {result.messages_after} messages")
 
     lines = [context_line, detail_line]
+    if native:
+        size = (
+            f", {format_bytes(result.checkpoint_bytes)} encrypted"
+            if result.checkpoint_bytes is not None
+            else ""
+        )
+        lines.append(
+            Text(f"provider checkpoint ({result.strategy}{size}); not human-readable", style="dim")
+        )
     if result.archive_file:
         archive_line = Text("archived ", style="dim")
         archive_line.append(result.archive_file, style="dim")

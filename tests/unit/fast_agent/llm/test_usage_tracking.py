@@ -66,6 +66,58 @@ def test_anthropic_translates_disjoint_prompt_partitions_and_thinking_subset() -
     assert turn.raw_usage == usage.model_dump(mode="json")
 
 
+def _anthropic_iteration(kind: str, input_tokens: int, output_tokens: int) -> dict[str, object]:
+    return {
+        "type": kind,
+        "input_tokens": input_tokens,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": output_tokens,
+    }
+
+
+def test_anthropic_server_compaction_is_billed_but_not_counted_as_context() -> None:
+    # Top-level fields exclude the compaction iteration; the summary pass is still billed.
+    usage = BetaUsage.model_validate(
+        {
+            "input_tokens": 20_000,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "output_tokens": 500,
+            "iterations": [
+                _anthropic_iteration("compaction", 3_000, 1_200),
+                _anthropic_iteration("message", 20_000, 500),
+            ],
+        }
+    )
+
+    turn = usage_from_anthropic(usage, provider=Provider.ANTHROPIC, model="claude-sonnet-5")
+    accumulator = UsageAccumulator()
+    accumulator.add_turn(turn)
+
+    assert turn.prompt.total == 23_000
+    assert turn.completion.total == 1_700
+    assert accumulator.summary.total == 24_700
+    assert accumulator.current_context_tokens == 20_500
+
+
+def test_anthropic_on_demand_compaction_observes_no_context() -> None:
+    usage = BetaUsage.model_validate(
+        {
+            "input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "output_tokens": 0,
+            "iterations": [_anthropic_iteration("compaction", 150_000, 2_000)],
+        }
+    )
+
+    turn = usage_from_anthropic(usage, provider=Provider.ANTHROPIC, model="claude-sonnet-5")
+
+    assert turn.total == 152_000
+    assert turn.context_tokens == 0
+
+
 def test_anthropic_preserves_optional_cache_and_thinking_details_as_unknown() -> None:
     usage = BetaUsage.model_validate({"input_tokens": 10, "output_tokens": 3})
 
@@ -374,6 +426,7 @@ def test_versioned_usage_payload_has_no_legacy_fields() -> None:
                 "timestamp": turn.timestamp,
                 "timing": {"duration_ms": 1500.0, "ttft_ms": 400.0, "time_to_response_ms": None},
                 "raw_usage": {"prompt_tokens": 10},
+                "context_tokens": None,
                 "total": 12,
             },
         ],

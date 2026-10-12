@@ -212,6 +212,9 @@ Common fields:
   `shell_execution.process_poll_max_wait_seconds` caps it instead. An explicit
   model-string `poll_period` takes precedence over this metadata and is rejected
   only if it exceeds an explicitly configured maximum.
+- `compaction_trigger_tokens`: input tokens at which auto-compaction fires (at least
+  1,000), e.g. to stay below a long-context price tier. A model-string `compact_at`
+  or `compaction.threshold` in config takes precedence.
 - `model_specific`: system-prompt text substituted for `{{model_specific}}` in
   the default instruction. Set it to an empty string to suppress the catalog
   text for the base model.

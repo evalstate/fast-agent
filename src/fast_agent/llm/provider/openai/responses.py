@@ -11,10 +11,14 @@ from mcp import Tool
 from mcp_types import ContentBlock, TextContent
 from openai import APIError, AsyncOpenAI, AuthenticationError, DefaultAioHttpClient, Omit
 
+from fast_agent.config import NATIVE_COMPACTION_DEFAULT, ResponsesProviderSettingsBase
 from fast_agent.constants import (
     ANTHROPIC_CITATIONS_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
+    FAST_AGENT_PROVIDER_CHECKPOINT,
     OPENAI_ASSISTANT_MESSAGE_ITEMS,
+    OPENAI_COMPACTION_ITEMS,
+    OPENAI_COMPACTION_TRIGGER,
     OPENAI_MCP_LIST_TOOLS_ITEMS,
     OPENAI_REASONING_ENCRYPTED,
     REASONING,
@@ -24,6 +28,12 @@ from fast_agent.core.exceptions import (
     ProviderKeyError,
 )
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.compaction_support import (
+    CompactionStrategy,
+    CompactionSupport,
+    NativeCompaction,
+    provider_checkpoint_marker,
+)
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider.error_utils import build_stream_failure_response
 from fast_agent.llm.provider.openai._stream_capture import (
@@ -32,7 +42,13 @@ from fast_agent.llm.provider.openai._stream_capture import (
 from fast_agent.llm.provider.openai._stream_capture import (
     stream_capture_filename as _stream_capture_filename,
 )
-from fast_agent.llm.provider.openai.responses_cache import prepare_cached_request
+from fast_agent.llm.provider.openai.responses_cache import (
+    ASTRA_MODEL,
+    prepare_cached_input,
+    prepare_cached_request,
+    requested_astra_effort,
+    requested_model,
+)
 from fast_agent.llm.provider.openai.responses_content import ResponsesContentMixin
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
 from fast_agent.llm.provider.openai.responses_output import ResponsesOutputMixin
@@ -85,6 +101,10 @@ _logger = get_logger(__name__)
 
 DEFAULT_RESPONSES_MODEL = "gpt-5.2"
 DEFAULT_REASONING_EFFORT = "medium"
+# Routes whose compaction checkpoints are only readable on the same route.
+_ROUTE_BOUND_CHECKPOINT_ORIGINS = frozenset(
+    {Provider.COPILOT.config_name, Provider.XAI.config_name}
+)
 MIN_RESPONSES_MAX_TOKENS = 16
 DEFAULT_RESPONSES_BASE_URL = "https://api.openai.com/v1"
 RESPONSES_DIAGNOSTICS_CHANNEL = "fast-agent-provider-diagnostics"
@@ -206,6 +226,11 @@ class ResponsesLLM(
     """LLM implementation for OpenAI's Responses models."""
 
     config_section: str | None = None
+
+    NATIVE_COMPACTION_VENDOR: ClassVar[str] = "OpenAI"
+    NATIVE_COMPACTION_REQUEST: ClassVar[str] = (
+        "Responses request ending in a compaction_trigger input item"
+    )
 
     RESPONSES_EXCLUDE_FIELDS: ClassVar[set[str]] = {
         FastAgentLLM.PARAM_MESSAGES,
@@ -701,15 +726,23 @@ class ResponsesLLM(
 
     def _resolve_reasoning_effort(self) -> str | None:
         setting = self.reasoning_effort
+        default = self._default_reasoning_effort()
         if setting is None:
-            return DEFAULT_REASONING_EFFORT
+            return default
         if setting.kind == "effort":
             return str(setting.value)
         if setting.kind == "toggle":
-            return None if setting.value is False else DEFAULT_REASONING_EFFORT
+            return None if setting.value is False else default
         if setting.kind == "budget":
             self.logger.warning("Ignoring budget reasoning setting for Responses models.")
-            return DEFAULT_REASONING_EFFORT
+            return default
+        return default
+
+    def _default_reasoning_effort(self) -> str:
+        """The model's route-specific default effort (shown by /model), else ``medium``."""
+        spec = self.reasoning_effort_spec
+        if spec is not None and spec.default is not None and spec.default.kind == "effort":
+            return str(spec.default.value)
         return DEFAULT_REASONING_EFFORT
 
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
@@ -841,6 +874,21 @@ class ResponsesLLM(
                 convert=self._convert_message_to_items,
             )
             input_items = self._dedupe_input_items(input_items)
+        elif (
+            self._resends_astra_effort_after_checkpoint()
+            and requested_model(req_params) == ASTRA_MODEL
+        ):
+            # Copilot sends effort per request (no configuration updates) but must
+            # still re-send the request's effort after a checkpoint, before the next
+            # user message.
+            input_items, _, _ = prepare_cached_input(
+                multipart_messages,
+                model=ASTRA_MODEL,
+                key=self._responses_prompt_cache_key,
+                effort=requested_astra_effort(req_params, self._resolve_reasoning_effort()),
+                convert=self._convert_message_to_items,
+            )
+            input_items = self._dedupe_input_items(input_items)
         else:
             input_items = self._convert_to_provider_format(multipart_messages)
         if not input_items:
@@ -856,6 +904,83 @@ class ResponsesLLM(
         if cache_state is not None:
             cache_state.attach(response)
         return response
+
+    @property
+    def compaction_support(self) -> CompactionSupport:
+        return (
+            CompactionSupport.ON_DEMAND
+            if self._native_compaction_enabled()
+            else CompactionSupport.CLIENT
+        )
+
+    def _replays_native_compaction(self) -> bool:
+        # Other providers also instantiate this base class directly.
+        return self.provider is Provider.RESPONSES
+
+    def _accepts_checkpoint_origin(self, origin: str | None) -> bool:
+        # Verified live: Copilot's and xAI's compaction items use route-bound ids and
+        # encryption that OpenAI's routes reject; Responses and Codex Responses items
+        # are readable on all three OpenAI routes.
+        if origin in _ROUTE_BOUND_CHECKPOINT_ORIGINS:
+            return origin == self.provider.config_name
+        return True
+
+    def _resends_astra_effort_after_checkpoint(self) -> bool:
+        """Routes that re-send effort without the OpenAI cache configuration contract."""
+        return False
+
+    def _native_compaction_enabled(self) -> bool:
+        """Only routes verified to accept ``compaction_trigger``.
+
+        The model string's ``compaction=`` wins over the route's ``native_compaction``
+        setting, which defaults on even when the route has no config section.
+        """
+        if not self._replays_native_compaction():
+            return False
+        if self.compaction_mode is not None:
+            return self.compaction_mode == "native"
+        return self._native_compaction_setting()
+
+    def _native_compaction_setting(self) -> bool:
+        settings = self._get_provider_config()
+        if isinstance(settings, ResponsesProviderSettingsBase):
+            return settings.native_compaction
+        return NATIVE_COMPACTION_DEFAULT
+
+    async def native_compaction(self, messages: list[PromptMessageExtended]) -> NativeCompaction:
+        """Compact ``messages`` with a final ``compaction_trigger`` input item.
+
+        Runs through ``generate`` (retries, timing, usage channels, transport) with no
+        tools; the API returns only opaque ``compaction`` items, no reply.
+        """
+        trigger = PromptMessageExtended(
+            role="user",
+            content=[],
+            channels={
+                OPENAI_COMPACTION_TRIGGER: [TextContent(type="text", text="compaction_trigger")]
+            },
+        )
+        response = await self.generate([*messages, trigger], None, tools=None)
+        items = (response.channels or {}).get(OPENAI_COMPACTION_ITEMS)
+        if not items:
+            raise RuntimeError(
+                f"{self.NATIVE_COMPACTION_VENDOR} compaction returned no compaction item"
+                + (f" (stop reason: {response.stop_reason})" if response.stop_reason else "")
+            )
+        parsed_items = self._compaction_input_items({OPENAI_COMPACTION_ITEMS: items})
+        opaque_bytes = sum(len(item["encrypted_content"]) for item in parsed_items)
+        return NativeCompaction(
+            strategy=CompactionStrategy.OPENAI_COMPACTION,
+            opaque_bytes=opaque_bytes,
+            request=self.NATIVE_COMPACTION_REQUEST,
+            response=response,
+            checkpoint_channels={OPENAI_COMPACTION_ITEMS: list(items)},
+            description=(
+                f"{self.NATIVE_COMPACTION_VENDOR} compaction checkpoint ({len(items)} encrypted item"
+                f"{'s' if len(items) != 1 else ''}). The provider restores the compacted "
+                "context from it; it is not human-readable."
+            ),
+        )
 
     def _build_web_search_tool(
         self,
@@ -1165,9 +1290,18 @@ class ResponsesLLM(
         channels = self._add_response_channel(
             channels, REASONING, self._extract_reasoning_summary(response, streamed_summary)
         )
-        return self._add_response_channel(
+        channels = self._add_response_channel(
             channels, OPENAI_REASONING_ENCRYPTED, self._extract_encrypted_reasoning(response)
         )
+        compaction_blocks = self._capture_compaction_blocks(
+            response, origin=self.provider.config_name
+        )
+        channels = self._add_response_channel(channels, OPENAI_COMPACTION_ITEMS, compaction_blocks)
+        if compaction_blocks:
+            channels = self._add_response_channel(
+                channels, FAST_AGENT_PROVIDER_CHECKPOINT, provider_checkpoint_marker("openai")
+            )
+        return channels
 
     def _responses_raw_item_channels(
         self,
@@ -1308,6 +1442,8 @@ class ResponsesLLM(
             message.stop_reason == LlmStopReason.END_TURN
             and not has_content
             and not message.tool_calls
+            # A compaction_trigger request returns only compaction items.
+            and OPENAI_COMPACTION_ITEMS not in (message.channels or {})
         )
 
     def _empty_responses_error(

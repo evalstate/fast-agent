@@ -262,24 +262,31 @@ codexresponses:
 **Notes:**
 
 - Tokens are stored in your OS keyring, with a secure file fallback, via `fast-agent auth provider login codex`.
-- `astra` maps to `codexresponses.gpt-6-astra?reasoning=medium`.
+- `astra` maps to `codexresponses.gpt-6-astra?reasoning=high`.
 - `gpt-6-astra` maps to the API-key-backed `responses.gpt-6-astra?reasoning=medium` route; availability still depends on the OpenAI API account's model access.
-- `sol` maps to `codexresponses.gpt-6.1-sol?reasoning=medium`; `gpt-6.1-sol` (alias
+- `sol` maps to `codexresponses.gpt-6.1-sol?reasoning=high`; `gpt-6.1-sol` (alias
   `gpt61sol`) uses the API-key-backed `responses` route. GPT-6.1-Sol uses the same shell
-  tool layout, transports and context windows as GPT-6-Sol, but like Astra it accepts
-  only `low`, `medium` (default), `high`, `xhigh` and `max` reasoning; `none` is rejected.
+  tool layout and transports as GPT-6-Sol, but like Astra it accepts only `low`,
+  `medium`, `high`, `xhigh` and `max` reasoning; `none` is rejected.
 - `sol6` maps to `codexresponses.gpt-6-sol?reasoning=medium`, and `luna` maps to
-  `codexresponses.gpt-6-luna?reasoning=medium`. `gpt-6-sol` and `gpt-6-luna` use the
+  `codexresponses.gpt-6-luna?reasoning=high`. `gpt-6-sol` and `gpt-6-luna` use the
   API-key-backed `responses` route. Unlike Astra and GPT-6.1-Sol, GPT-6-Sol and Luna also
   accept `reasoning=none`.
 - The GPT-5.6 `sol` and `luna` targets remain available as `sol56`
   (`codexresponses.gpt-5.6-sol?reasoning=high`) and `luna56`
   (`codexresponses.gpt-5.6-luna?reasoning=medium`).
-- `codexplan` maps to `codexresponses.gpt-6-astra?reasoning=medium`.
+- `codexplan` maps to `codexresponses.gpt-6-astra?reasoning=high`.
 - `codexplan54` maps to `codexresponses.gpt-5.4?reasoning=high`.
 - `codexplan53` maps to `codexresponses.gpt-5.3-codex?reasoning=medium`.
 - `codexspark` maps to `codexresponses.gpt-5.3-codex-spark`.
+- On Codex OAuth, Astra, GPT-6.1-Sol and Luna default to `high` reasoning, including
+  bare model names such as `codexresponses.gpt-6-astra`; GPT-6-Sol and the API-key
+  `responses` route default to `medium`.
 - All Codex OAuth aliases use the same stored OAuth token.
+- Long conversations compact into OpenAI provider-native checkpoints by default on
+  `codexresponses` and `responses`; add `?compaction=client` to a model string for
+  fast-agent's own summary. See
+  [Compaction](../../guides/compaction.md#openai-provider-native-checkpoints).
 - Provider-managed MCP is **not** supported with `codexresponses`, including
   Codex OAuth aliases such as `codexplan`, `codexplan54`, and `codexspark`.
   Use `responses` instead when you need `management: provider`.
@@ -380,7 +387,8 @@ fast-agent keeps the default context window at **272,000 tokens** for both
 `astra` (Codex OAuth) and `gpt-6-astra` (Responses API). Larger context is opt-in,
 not an automatic increase: retaining more input can increase cost. GPT-6.1-Sol
 (`sol`/`gpt-6.1-sol`), GPT-6-Sol (`sol6`/`gpt-6-sol`) and GPT-6-Luna (`luna`/`gpt-6-luna`)
-use the same route-specific defaults and opt-in windows as Astra.
+use the same route-specific defaults and opt-in windows as Astra, except that Codex
+OAuth serves GPT-6.1-Sol (`sol`) with a **500,000-token** default window.
 
 The local Codex source snapshot (`~/reference/codex/codex-rs/`) lists
 `gpt-6-astra` as the first entry in `models-manager/models.json`, with

@@ -8,9 +8,21 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import (
+    CallToolRequest,
+    CallToolRequestParams,
+    CallToolResult,
+    ImageContent,
+    TextContent,
+)
 
-from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL, FAST_AGENT_USAGE, REASONING
+from fast_agent.constants import (
+    FAST_AGENT_COMPACTION_CHANNEL,
+    FAST_AGENT_PENDING_MEDIA_ATTACHMENTS,
+    FAST_AGENT_TOOL_MEDIA_MESSAGE,
+    FAST_AGENT_USAGE,
+    REASONING,
+)
 from fast_agent.history.atif_reconstruction import (
     COMPACTION_BOUNDARY,
     HistoryReconstructionError,
@@ -193,6 +205,94 @@ def test_transient_tail_extends_current_without_repeating_persisted_results(tmp_
     restored = live_export_history(current, transient, tmp_path, "agent")
     assert _originals(restored) == archived + _exchange(3) + _exchange(4)
     assert live_export_history([], transient, None, "agent") == transient
+
+
+@pytest.mark.parametrize(
+    "conflict",
+    [
+        "unknown_input",
+        "duplicate_overlap",
+        "missing_prefix",
+        "earlier_result",
+        "duplicate_prefix",
+        "reversed_prefix",
+        "known_timestamp",
+        "suffix",
+    ],
+)
+def test_live_transient_alignment_rejects_conflicting_evidence(tmp_path: Path, conflict: str):
+    archived = [_message(0), *_exchange(1)]
+    if conflict == "duplicate_overlap":
+        archived.extend(_exchange(1))
+    current = _checkpoint(tmp_path, archived, tail=0) + _exchange(2)
+    raw_input = _message(0).model_copy(update={"timestamp": None})
+    transient = [raw_input, *_exchange(1), *_exchange(2)]
+    if conflict == "unknown_input":
+        transient = [_message(99)]
+    elif conflict == "duplicate_overlap":
+        transient = _exchange(1)
+    elif conflict == "missing_prefix":
+        transient = [raw_input, *_exchange(99), *_exchange(2)]
+    elif conflict == "earlier_result":
+        transient[2].content = [TextContent(type="text", text="conflicting result")]
+    elif conflict == "duplicate_prefix":
+        transient = [raw_input, *_exchange(1), *_exchange(1), *_exchange(2)]
+    elif conflict == "reversed_prefix":
+        transient = [raw_input, *_exchange(2), *_exchange(1)]
+    elif conflict == "known_timestamp":
+        transient[0].timestamp = BASE + timedelta(days=1)
+    else:
+        transient[-1].content = [TextContent(type="text", text="conflicting result")]
+    with pytest.raises(HistoryReconstructionError, match="unique"):
+        live_export_history(current, transient, tmp_path, "agent")
+
+
+@pytest.mark.parametrize("raw_input", [False, True])
+def test_live_transient_alignment_preserves_repeated_trailing_exchange(
+    tmp_path: Path, raw_input: bool
+):
+    archived = [_message(0), *_exchange(1)]
+    current = _checkpoint(tmp_path, archived, tail=0) + _exchange(2)
+    transient = [*archived, *_exchange(2), *_exchange(1)]
+    if raw_input:
+        transient[0] = transient[0].model_copy(update={"timestamp": None})
+    restored = live_export_history(current, transient, tmp_path, "agent")
+    assert _originals(restored) == [*archived, *_exchange(2), *_exchange(1)]
+    assert transient[0].timestamp == (None if raw_input else archived[0].timestamp)
+
+
+@pytest.mark.parametrize("raw", [False, True])
+@pytest.mark.parametrize("conflict", [False, True])
+def test_live_media_alignment_preserves_verified_context(tmp_path: Path, raw: bool, conflict: bool):
+    media = PromptMessageExtended(
+        role="user",
+        content=[ImageContent(type="image", data="abcd", mime_type="image/png")],
+        channels={
+            FAST_AGENT_TOOL_MEDIA_MESSAGE: [
+                TextContent(type="text", text="Tool media continuation")
+            ]
+        },
+        timestamp=BASE + timedelta(seconds=1, microseconds=2),
+    )
+    archived = [_message(0), *_exchange(1), media]
+    current = _checkpoint(tmp_path, archived, tail=0) + _exchange(2)
+    transient = [message.model_copy(deep=True) for message in [*archived, *_exchange(2)]]
+    if conflict:
+        transient[3].content = [ImageContent(type="image", data="different", mime_type="image/png")]
+    if raw:
+        continuation = transient.pop(3)
+        transient[2].channels = {FAST_AGENT_PENDING_MEDIA_ATTACHMENTS: continuation.content}
+        for message in transient:
+            if message.role == "user":
+                message.timestamp = None
+    before = [message.model_copy(deep=True) for message in transient]
+    if conflict:
+        with pytest.raises(HistoryReconstructionError, match="unique"):
+            live_export_history(current, transient, tmp_path, "agent")
+    else:
+        restored = live_export_history(current, transient, tmp_path, "agent")
+        assert _originals(restored) == [*archived, *_exchange(2)]
+    assert transient == before
 
 
 def test_transient_conflicts_and_ambiguous_repeated_messages_fail():
@@ -462,3 +562,55 @@ def test_summary_call_is_embedded_and_accounted(tmp_path: Path):
     }
     assert metrics.extra["summary_compaction_usage_complete"] is True
     assert "accounting_scope" not in metrics.extra
+
+
+def _as_provider_checkpoint(messages: list[PromptMessageExtended]) -> list[PromptMessageExtended]:
+    """Turn the summary checkpoint into an opaque provider-native one."""
+    checkpoint = next(m for m in messages if FAST_AGENT_COMPACTION_CHANNEL in (m.channels or {}))
+    assert checkpoint.channels is not None
+    block = checkpoint.channels[FAST_AGENT_COMPACTION_CHANNEL][0]
+    assert isinstance(block, TextContent)
+    metadata = json.loads(block.text)
+    metadata.update(strategy="openai_compaction", prompt=None)
+    metadata["summary_request"] = "Responses request ending in a compaction_trigger input item"
+    block.text = json.dumps(metadata)
+    checkpoint.content = [TextContent(type="text", text="[COMPACTED HISTORY] opaque checkpoint")]
+    checkpoint.channels = {
+        **checkpoint.channels,
+        "openai-compaction-items": [TextContent(type="text", text="{}")],
+    }
+    return messages
+
+
+def test_provider_checkpoint_boundary_is_typed_and_accounted(tmp_path: Path):
+    archived = [_message(0), *_exchange(1), _message(2), *_exchange(3)]
+    current = _as_provider_checkpoint(_with_summary_call(_checkpoint(tmp_path, archived, tail=3)))
+    trajectory = _trajectory([*current, _message(10)], tmp_path)
+
+    boundary = next(s for s in trajectory.steps if (s.extra or {}).get("context_management"))
+    management = _context_management(boundary)
+    assert management["strategy"] == "openai_compaction"
+    assert management["boundary"] == "replace"
+    # The model-visible replacement is the checkpoint's description, not a summary.
+    assert _spec_context(trajectory, trajectory.steps[-1].step_id)[0] == (
+        "[COMPACTED HISTORY] opaque checkpoint"
+    )
+    [child] = trajectory.subagent_trajectories or []
+    assert child.steps[0].message == ("Responses request ending in a compaction_trigger input item")
+    metrics = trajectory.final_metrics
+    assert metrics is not None and metrics.extra is not None
+    assert metrics.extra["provider_checkpoint_compactions"] == 1
+    assert metrics.extra["subagent_prompt_tokens"] == 100
+    assert "provider-native strategy" in (trajectory.notes or "")
+
+
+def test_summary_checkpoint_is_not_counted_as_provider_native(tmp_path: Path):
+    archived = [_message(0), *_exchange(1), _message(2), *_exchange(3)]
+    current = _with_summary_call(_checkpoint(tmp_path, archived, tail=3))
+    trajectory = _trajectory([*current, _message(10)], tmp_path)
+
+    boundary = next(s for s in trajectory.steps if (s.extra or {}).get("context_management"))
+    assert _context_management(boundary)["strategy"] == "summary"
+    assert trajectory.final_metrics is not None and trajectory.final_metrics.extra is not None
+    assert "provider_checkpoint_compactions" not in trajectory.final_metrics.extra
+    assert "provider-native strategy" not in (trajectory.notes or "")

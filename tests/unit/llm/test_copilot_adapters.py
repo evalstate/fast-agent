@@ -15,7 +15,13 @@ from anthropic import AsyncAnthropic
 from mcp import Tool
 from openai import AsyncOpenAI
 
-from fast_agent.config import AnthropicSettings, CopilotSettings, OpenAISettings, Settings
+from fast_agent.config import (
+    AnthropicSettings,
+    CompactionSettings,
+    CopilotSettings,
+    OpenAISettings,
+    Settings,
+)
 from fast_agent.constants import ANTHROPIC_CITATIONS_CHANNEL, ANTHROPIC_SERVER_TOOLS_CHANNEL
 from fast_agent.context import Context
 from fast_agent.core.exceptions import ModelConfigError
@@ -60,6 +66,14 @@ class FakeBroker:
             + ("/v1" if wire_api == "messages" and generation % 2 == 0 else ""),
             headers={"authorization": f"Bearer broker-{generation}"},
         )
+
+
+def _only_gateway_verified_betas(headers: httpx2.Headers) -> bool:
+    """Copilot may carry only beta headers verified against the gateway (threshold compaction)."""
+    from fast_agent.llm.provider.anthropic.llm_anthropic import COMPACTION_THRESHOLD_BETA
+
+    sent = {beta for beta in headers.get("anthropic-beta", "").split(",") if beta}
+    return sent <= {COMPACTION_THRESHOLD_BETA}
 
 
 @pytest.fixture
@@ -1450,7 +1464,7 @@ async def test_claude55_json_output_wire_contract(
     assert body.get("tool_choice", {"type": "auto"})["type"] == "auto"
     assert schema == original
     if copilot:
-        assert "anthropic-beta" not in requests[0].headers
+        assert _only_gateway_verified_betas(requests[0].headers)
         assert all(tool["eager_input_streaming"] for tool in body.get("tools", []))
         assert "x-api-key" not in requests[0].headers
 
@@ -1508,7 +1522,7 @@ async def test_claude55_progress_display_stream_and_replay(
 
     def respond(request: httpx2.Request) -> httpx2.Response:
         requests.append(json.loads(request.content))
-        assert "anthropic-beta" not in request.headers
+        assert _only_gateway_verified_betas(request.headers)
         return httpx2.Response(200, headers={"content-type": "text/event-stream"}, content=stream)
 
     def client_factory(**kwargs: Any) -> AsyncAnthropic:
@@ -1746,3 +1760,61 @@ def test_interleaved_thinking_beta_only_for_budget_thinking_with_tools(
     )
     # Adaptive-thinking models interleave natively; only budget thinking needs the beta.
     assert beta_flags == ([INTERLEAVED_THINKING_BETA] if expected else [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model, compaction, context_window, expected_trigger",
+    [
+        ("claude-sonnet-5.5", CompactionSettings(), None, 850_000),
+        ("claude-sonnet-5.5", CompactionSettings(threshold=0.5), None, 500_000),
+        # The API minimum applies when the configured fraction falls below it.
+        ("claude-haiku-5.5", CompactionSettings(), 40_000, 50_000),
+        # The gateway strips the on-demand beta; haiku-4.5 lacks threshold compaction.
+        ("claude-haiku-4.5", CompactionSettings(), None, None),
+        ("claude-sonnet-5.5", CompactionSettings(strategy="client"), None, None),
+        ("claude-sonnet-5.5", CompactionSettings(auto=False), None, None),
+        ("claude-sonnet-5.5", CompactionSettings(), "unknown", None),
+        ("claude-sonnet-5.5", CompactionSettings(), 0, None),
+        ("claude-sonnet-5.5", CompactionSettings(prompt="Keep every file path."), None, None),
+    ],
+)
+async def test_messages_threshold_compaction_wire_contract(
+    broker: FakeBroker,
+    context: Context,
+    messages_requests: list[httpx2.Request],
+    model: str,
+    compaction: CompactionSettings,
+    context_window: int | Literal["unknown"] | None,
+    expected_trigger: int | None,
+) -> None:
+    assert context.config is not None
+    context.config.compaction = compaction
+    llm = CopilotMessagesLLM(context=context, model=model)
+    if context_window == "unknown":
+        llm.usage_accumulator.model = None
+        llm.usage_accumulator.set_context_window_size(None)
+    elif context_window is not None:
+        llm.usage_accumulator.set_context_window_size(context_window)
+
+    await llm._anthropic_completion(
+        {"role": "user", "content": "hi"}, RequestParams(max_tokens=4096)
+    )
+
+    [request] = messages_requests
+    body = json.loads(request.content)
+    betas = request.headers.get("anthropic-beta", "")
+    if expected_trigger is None:
+        assert "context_management" not in body
+        assert "compact-2026-01-12" not in betas
+        return
+    assert body["context_management"] == {
+        "edits": [
+            {
+                "type": "compact_20260112",
+                "trigger": {"type": "input_tokens", "value": expected_trigger},
+            }
+        ]
+    }
+    assert "compact-2026-01-12" in betas.split(",")
+    assert "compact-2026-09-04" not in betas

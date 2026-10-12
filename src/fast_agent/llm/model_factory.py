@@ -13,6 +13,7 @@ from fast_agent.constants import (
 )
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LLMFactoryProtocol
+from fast_agent.llm.compaction_support import CompactAt, CompactionMode
 from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_overlays import load_model_overlay_registry
@@ -104,6 +105,8 @@ _SINGLE_VALUE_MODEL_QUERY_KEYS = (
     "service_tier",
     "streaming_timeout",
     "lite",
+    "compaction",
+    "compact_at",
 )
 _STRUCTURED_TOOL_QUERY_KEYS = (
     "structured_tools",
@@ -196,6 +199,8 @@ class ModelConfig(BaseModel):
     structured_tool_policy: StructuredToolPolicy | None = None
     long_context: bool = False
     lite: bool | None = None
+    compaction: CompactionMode | None = None
+    compact_at: CompactAt | None = None
     transport: TransportSetting | None = None
     service_tier: ServiceTierSetting | None = None
     web_search: bool | None = None
@@ -226,6 +231,8 @@ class ModelQueryOverrides:
     structured_tool_policy: StructuredToolPolicy | None = None
     long_context: bool | None = None
     lite: bool | None = None
+    compaction: CompactionMode | None = None
+    compact_at: CompactAt | None = None
     transport: TransportSetting | None = None
     service_tier: ServiceTierSetting | None = None
     web_search: bool | None = None
@@ -262,6 +269,8 @@ class ModelQueryOverrides:
             ),
             long_context=coalesce(self.long_context, defaults.long_context),
             lite=coalesce(self.lite, defaults.lite),
+            compaction=coalesce(self.compaction, defaults.compaction),
+            compact_at=coalesce(self.compact_at, defaults.compact_at),
             transport=coalesce(self.transport, defaults.transport),
             service_tier=coalesce(self.service_tier, defaults.service_tier),
             web_search=coalesce(self.web_search, defaults.web_search),
@@ -317,6 +326,8 @@ class ParsedModelSpec:
             structured_tool_policy=self.query_overrides.structured_tool_policy,
             long_context=self.query_overrides.long_context or False,
             lite=self.query_overrides.lite,
+            compaction=self.query_overrides.compaction,
+            compact_at=self.query_overrides.compact_at,
             transport=self.query_overrides.transport,
             service_tier=self.query_overrides.service_tier,
             web_search=self.query_overrides.web_search,
@@ -683,6 +694,8 @@ def _parse_query_overrides(
         structured_tool_policy=_parse_structured_tool_query(query_params, model_spec),
         long_context=_parse_context_query(query_params, model_spec),
         lite=_parse_lite_query(query_params, model_spec),
+        compaction=_parse_compaction_query(query_params, model_spec),
+        compact_at=_parse_compact_at_query(query_params, model_spec),
         transport=_parse_transport_query(query_params, model_spec),
         service_tier=_parse_service_tier_query(query_params, model_spec),
         web_search=web_tool_overrides["web_search"],
@@ -970,6 +983,55 @@ def _validate_lite_constraints(provider: Provider, model_name: str, lite: bool |
         )
 
 
+def _parse_compaction_query(
+    query_params: ModelQueryPairs, model_spec: str
+) -> CompactionMode | None:
+    if not _has_query_key(query_params, "compaction"):
+        return None
+    raw_value = _collect_query_values(query_params, ("compaction",))[-1]
+    match raw_value.strip().lower():
+        case "native":
+            return "native"
+        case "client":
+            return "client"
+    raise ModelConfigError(
+        f"Invalid compaction query value: '{raw_value}' in '{model_spec}'. "
+        "Use native (provider-native compaction) or client (fast-agent's summary)."
+    )
+
+
+def _parse_compact_at_query(query_params: ModelQueryPairs, model_spec: str) -> CompactAt | None:
+    if not _has_query_key(query_params, "compact_at"):
+        return None
+    raw_value = _collect_query_values(query_params, ("compact_at",))[-1]
+    try:
+        return CompactAt.parse(raw_value)
+    except ValueError as exc:
+        raise ModelConfigError(f"{exc} in '{model_spec}'.") from exc
+
+
+def _validate_compaction_constraints(
+    provider: Provider, model_name: str, compaction: CompactionMode | None
+) -> None:
+    """``compaction=native`` only where the route has verified native compaction."""
+    if compaction != "native":
+        return
+    if provider in (Provider.RESPONSES, Provider.CODEX_RESPONSES, Provider.XAI):
+        return
+    if provider == Provider.COPILOT:
+        spec = get_copilot_model(model_name)
+        if spec.wire_api == "responses" or spec.supports_threshold_compaction:
+            return
+        raise ModelConfigError(
+            f"Copilot model '{model_name}' does not support native compaction "
+            "(compaction=native); use compaction=client or omit it."
+        )
+    raise ModelConfigError(
+        "compaction=native is supported with providers 'responses', 'codexresponses', "
+        f"'copilot' and 'xai', not '{provider.config_name}'."
+    )
+
+
 def _validate_max_tokens_constraints(
     provider: Provider,
     max_tokens: int | None,
@@ -1082,6 +1144,7 @@ class ModelFactory:
         _validate_transport_constraints(provider, model_name, merged_overrides.transport)
         _validate_service_tier_constraints(provider, model_name, merged_overrides.service_tier)
         _validate_lite_constraints(provider, model_name, merged_overrides.lite)
+        _validate_compaction_constraints(provider, model_name, merged_overrides.compaction)
         _validate_max_tokens_constraints(
             provider,
             merged_overrides.max_tokens,

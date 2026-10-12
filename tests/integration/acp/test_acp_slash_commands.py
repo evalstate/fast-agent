@@ -31,6 +31,7 @@ from fast_agent.constants import (
     FAST_AGENT_USAGE,
 )
 from fast_agent.core.agent_app import AgentCardLoadResult
+from fast_agent.llm.compaction_support import CompactionSupport
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import save_json
@@ -418,6 +419,11 @@ async def test_slash_command_status_system() -> None:
 @pytest.mark.asyncio
 async def test_slash_command_model_web_search() -> None:
     class _LlmStub:
+        compaction_support = CompactionSupport.CLIENT
+        compact_at_override = None
+        default_compact_at = None
+        usage_accumulator = None
+
         def __init__(self) -> None:
             self.model_name = "gpt-5"
             self.provider = Provider.RESPONSES
@@ -463,6 +469,11 @@ async def test_slash_command_model_web_search() -> None:
 @pytest.mark.asyncio
 async def test_slash_command_model_web_fetch_unsupported() -> None:
     class _LlmStub:
+        compaction_support = CompactionSupport.CLIENT
+        compact_at_override = None
+        default_compact_at = None
+        usage_accumulator = None
+
         def __init__(self) -> None:
             self.model_name = "gpt-5"
             self.provider = Provider.RESPONSES

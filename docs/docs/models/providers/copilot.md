@@ -207,7 +207,8 @@ contract, poll settings, structured-output policy and tokenizer support as
   billing feature the gateway does not expose.
 - `anthropic_web_search_version`, `anthropic_web_fetch_version`,
   `anthropic_required_betas`: cleared; the gateway exposes no Anthropic
-  server-side web tools or beta headers.
+  server-side web tools, and forwards only the beta headers fast-agent has
+  verified (see [Compaction](#compaction)).
 
 Claude Opus 5, Sonnet 5, and Fable 5/5.1 have no default file-creation advisory;
 older Claude models retain the heredoc guidance. This does not change tool availability.
@@ -224,6 +225,28 @@ Anthropic settings default, not your Anthropic account configuration.
 Use `copilot.cache_mode` to change this policy. Direct `anthropic.cache_mode`,
 `anthropic.cache_ttl` and diagnostic settings do not affect Copilot. Explicit
 request cache controls are still forwarded even when automatic planning is off.
+
+## Compaction
+
+Claude Messages models, except `copilot.claude-haiku-4.5`, use Anthropic's
+**server-side threshold compaction**: when a request's input reaches
+`compaction.threshold` of the context window (at least 50,000 tokens, the API
+minimum), Claude summarizes the earlier conversation into a `compaction` block and
+continues the response. fast-agent keeps the block in history and sends it back;
+the API ignores everything before it. fast-agent's own auto-compaction stands
+aside for these models, so the two never compete.
+
+- `/compact` still uses fast-agent's summary, on demand.
+- Anthropic's on-demand compaction is not available: the gateway does not forward
+  its beta header.
+- Set `compaction.strategy: client` to use fast-agent's summary instead, or
+  `compaction.auto: false` to turn automatic compaction off.
+
+GPT models use OpenAI
+[provider-native checkpoints](../../guides/compaction.md#openai-provider-native-checkpoints)
+by default (`copilot.native_compaction`, or `?compaction=client` per model). Add
+`?compaction=client` to a Claude model string to use fast-agent's summary instead of
+threshold compaction.
 
 ## Transport and compatibility
 

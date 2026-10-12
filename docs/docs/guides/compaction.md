@@ -63,11 +63,110 @@ There is nothing to enable.
 To turn auto-compaction off and rely solely on manual `/compact`, set
 `compaction.auto: false`.
 
+`compaction.strategy` chooses how the summary is produced. With `auto`, a
+provider that compacts natively can take over: if it compacts within normal
+requests, fast-agent's own auto-compaction stands aside so the two never compete.
+Set `strategy: client` to always use fast-agent's summary. Native provider
+compaction is being introduced provider by provider:
+
+- Claude models on [GitHub Copilot](../models/providers/copilot.md#compaction)
+  compact within requests when the context window is known. A custom
+  `compaction.prompt` selects fast-agent's summary instead.
+- OpenAI GPT models on Codex Responses, Responses (API key), and GitHub Copilot use
+  [OpenAI provider-native checkpoints](#openai-provider-native-checkpoints).
+- xAI Grok models use [xAI provider-native checkpoints](#xai-provider-native-checkpoints).
+
+Elsewhere both settings behave the same.
+
+### OpenAI provider-native checkpoints
+
+On by default for OpenAI GPT models on Codex Responses (`codexresponses.*`),
+Responses (`responses.*`, API key), and GitHub Copilot (`copilot.gpt-*`). fast-agent
+still decides when to compact and what to keep, but the compacted region is
+replaced by an opaque, encrypted checkpoint that OpenAI produces (a request ending
+in a `compaction_trigger` item), instead of a written summary.
+
+Choose per model with the model string, or per route in config:
+
+```bash
+fast-agent go --model 'sol?compaction=client'                # fast-agent's summary
+fast-agent go --model 'copilot.gpt-6-sol?compaction=native'  # provider-native
+```
+
+```yaml
+codexresponses:      # ChatGPT login (codexresponses.*)
+  native_compaction: false
+responses:           # OpenAI API key (responses.*)
+  native_compaction: false
+copilot:             # GitHub Copilot GPT models (copilot.gpt-*)
+  native_compaction: false
+```
+
+Precedence: `compaction.strategy: client` always uses fast-agent's summary; otherwise
+the model string's `compaction=native|client` wins over the route's
+`native_compaction` setting, which defaults to `true`. `compaction=native` is rejected
+for providers without native compaction. On Copilot Claude models, `compaction=client`
+turns off server-side threshold compaction in favour of fast-agent's summary.
+
+- Templates and the most recent `keep_turns` turns stay verbatim around the
+  checkpoint, exactly as with a summary. Archiving, `/compact`, `/compact preview`,
+  mid-turn compaction, and session save/resume work the same way.
+- The checkpoint is not human-readable. `/history` shows its strategy, encrypted
+  size, and archive file; the full prior history remains in that archive. The
+  compaction result shows `—` for the size afterwards, because an opaque
+  checkpoint's token cost is only known once the next request reports usage.
+- Compaction quality / recall is model dependent with larger models performing better.
+- A native checkpoint takes no prompt. A custom `compaction.prompt` or
+  `/compact <instructions>` asks for a written summary, so either uses
+  fast-agent's summary instead; `/compact preview` shows which applies.
+- For `gpt-6-astra`, fast-agent re-sends the desired reasoning effort as a
+  `configuration_update` before the next user message, as OpenAI requires after
+  compaction.
+- Only OpenAI can read the checkpoint. Switching this conversation to another
+  provider leaves it with the placeholder text (xAI, which has its own checkpoints,
+  stops with an explanation instead); restore the archive if needed.
+- Checkpoints from `codexresponses` and `responses` can be read on all three routes.
+  Copilot's checkpoints can only be read on Copilot: switching a Copilot-compacted
+  conversation to `codexresponses` or `responses` stops with an explanation; switch back
+  to a Copilot model or restore the archive with `/history load <archive>`.
+
+### xAI provider-native checkpoints
+
+On by default for xAI Grok models (`xai.*`). xAI rejects `compaction_trigger`
+items, so fast-agent sends the compact region to xAI's `POST /responses/compact`
+endpoint and replays the returned compaction item in its place. Turn it off with
+`xai: native_compaction: false`, or per model with `?compaction=client`.
+
+- xAI's compaction **drops tool outputs**: it keeps what the user and model said
+  (and the model's reasoning), not tool results. A detail that appeared only in a
+  tool result is lost unless the model restated it; the model will typically
+  re-run the tool. Use `?compaction=client` where older tool results must survive.
+- The checkpoint can only be read by xAI, and xAI cannot read OpenAI's: switching
+  provider stops with an explanation; restore the archive with `/history load`.
+- The checkpoint is recorded with the `openai_compaction` strategy (the shared item
+  format) in history metadata and ATIF; its description names xAI.
+
 ## Tuning the trigger
 
 The point at which compaction kicks in is `compaction.threshold`. Lower it to
 compact earlier (more headroom, more frequent summarization); raise it to let
 context fill closer to the limit before compacting.
+
+To set the trigger for one model, add `compact_at` to the model string, either in
+input tokens or as a context-window fraction:
+
+```bash
+fast-agent go --model 'grok?compact_at=150k'     # compact at 150,000 tokens
+fast-agent go --model 'sonnet?compact_at=0.7'    # or 70% of the context window
+```
+
+Precedence: the model string's `compact_at`, then `compaction.threshold` (which applies
+to every model), then the model's own default, then 0.85. Most models have no default
+of their own; Grok 4.7 compacts at 190,000 tokens to stay below its 200,000-token
+long-context rate. A token trigger is independent of the context window, so it holds
+when a price tier is an absolute size. Model overlays can set a default with
+`metadata.compaction_trigger_tokens`. `/model` and `/compact preview` show the
+effective trigger, e.g. `190,000 tokens (38% of context)`.
 
 --8<-- "_generated/compaction_settings_reference.md"
 
@@ -143,7 +242,13 @@ convention:
   from the boundary observation, and included in final metrics.
 
 A consumer applying the spec's replace-boundary rule therefore reconstructs the
-same context fast-agent sent to the model. Process-poll fold audits are still
+same context fast-agent sent to the model.
+
+`context_management.strategy` is `summary` for fast-agent's own summary. A
+provider-native checkpoint records its strategy (`openai_compaction`): its
+observation describes the opaque checkpoint instead of quoting a summary, the
+embedded call is the provider's compaction request, and
+`final_metrics.extra.provider_checkpoint_compactions` counts these boundaries. Process-poll fold audits are still
 expanded, including when reconciling a raw transient final turn.
 
 Recovery follows linked archives and verifies exact template and retained-tail

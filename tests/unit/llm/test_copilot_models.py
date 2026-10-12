@@ -158,12 +158,14 @@ def test_settings_defaults_and_validation():
     assert first.copilot.runtime_timeout_seconds == 30
     assert first.copilot.cache_mode == "auto"
     assert first.copilot.cache_ttl is None
+    assert first.copilot.native_compaction is True
     assert set(CopilotSettings.model_fields) == {
         "base_url",
         "integration_id",
         "runtime_timeout_seconds",
         "cache_mode",
         "cache_ttl",
+        "native_compaction",
     }
     for timeout in (0, -1):
         with pytest.raises(ValidationError):

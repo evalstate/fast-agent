@@ -21,7 +21,6 @@ from mcp_types import (
 
 from fast_agent.constants import (
     DEFAULT_MAX_ITERATIONS,
-    DEFAULT_STREAMING_TIMEOUT,
     FAST_AGENT_SAFETY_DETAILS,
     REASONING,
 )
@@ -166,10 +165,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             bool(web_search_override) if isinstance(web_search_override, bool) else None
         )
         super().__init__(provider=Provider.GOOGLE, **kwargs)
-        self._google_streaming_timeout_configured = bool(
-            self._init_request_params
-            and "streaming_timeout" in self._init_request_params.model_fields_set
-        )
         # Initialize the converter
         self._converter = GoogleConverter()
         self._init_reasoning(kwargs)
@@ -283,16 +278,9 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
     ) -> RequestParams:
         resolved = super().get_request_params(request_params)
         service_tier = self._resolve_google_service_tier(resolved)
-        request_timeout_configured = bool(
-            request_params and "streaming_timeout" in request_params.model_fields_set
-        )
-        if (
-            service_tier == "flex"
-            and not request_timeout_configured
-            and not self._google_streaming_timeout_configured
-            and resolved.streaming_timeout == DEFAULT_STREAMING_TIMEOUT
-        ):
+        if service_tier == "flex" and "streaming_timeout" not in resolved.model_fields_set:
             resolved.streaming_timeout = GOOGLE_FLEX_STREAMING_TIMEOUT
+            resolved.model_fields_set.discard("streaming_timeout")
         return resolved
 
     def _init_reasoning(self, kwargs: dict) -> None:

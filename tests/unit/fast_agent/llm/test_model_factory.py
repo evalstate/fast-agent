@@ -17,7 +17,10 @@ import pytest
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.config import Settings
+from fast_agent.context import Context
 from fast_agent.core.exceptions import ModelConfigError
+from fast_agent.llm.compaction_support import CompactAt
 from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory, ParsedModelSpec, Provider
@@ -859,7 +862,7 @@ def test_xai_high_reasoning_defaults_to_extended_streaming_timeout(model: str) -
         request_params=RequestParams(use_history=False),
     )
 
-    assert llm.default_request_params.streaming_timeout == 300.0
+    assert llm.get_request_params().streaming_timeout == 300.0
 
 
 def test_model_streaming_timeout_query_overrides_preset_default() -> None:
@@ -1582,14 +1585,39 @@ def test_long_context_false_overrides_preset(default: str) -> None:
     )
 
 
-# One Codex alias and one Responses route; alias resolution is covered by the catalog tests.
-@pytest.mark.parametrize("model", ["astra", "responses.gpt-6-astra", "sol"])
-@pytest.mark.parametrize(("query", "expected"), [("", "medium"), ("?reasoning=low", "low")])
-def test_astra_reasoning_default_and_override(model: str, query: str, expected: str) -> None:
-    llm = ModelFactory.create_factory(f"{model}{query}")(LlmAgent(AgentConfig(name="test")))
+# Codex Responses defaults Astra, GPT-6.1 Sol and Luna to high effort (aliases and bare
+# model names); other routes keep medium.
+@pytest.mark.parametrize(
+    ("model", "default"),
+    [
+        ("astra", "high"),
+        ("sol", "high"),
+        ("luna", "high"),
+        ("codexresponses.gpt-6-astra", "high"),
+        ("codexresponses.gpt-6.1-sol", "high"),
+        ("codexresponses.gpt-6-luna", "high"),
+        ("responses.gpt-6-astra", "medium"),
+        ("responses.gpt-6.1-sol", "medium"),
+    ],
+)
+@pytest.mark.parametrize("override", [None, "low"])
+def test_gpt6_reasoning_default_by_route_and_override(
+    model: str, default: str, override: str | None
+) -> None:
+    query = f"?reasoning={override}" if override else ""
+    agent = LlmAgent(AgentConfig(name="test"), context=Context(config=Settings()))
+    llm = ModelFactory.create_factory(f"{model}{query}")(agent, context=agent.context)
 
     assert isinstance(llm, ResponsesLLM)
-    assert llm._resolve_reasoning_effort() == expected
+    assert llm._resolve_reasoning_effort() == (override or default)
+    assert llm.get_request_params().streaming_timeout == (
+        300.0 if (override or default) == "high" else 150.0
+    )
+    # The request effort matches what /model reports as the default.
+    if override is None:
+        assert llm.reasoning_effort_spec is not None
+        assert llm.reasoning_effort_spec.default is not None
+        assert llm.reasoning_effort_spec.default.value == default
 
 
 @pytest.mark.parametrize("model", ["sol6", "responses.gpt-6-luna"])
@@ -1602,22 +1630,25 @@ def test_gpt_6_sol_luna_reasoning_default_and_none(model: str, query: str, expec
 
 
 @pytest.mark.parametrize(
-    ("model", "window"),
+    ("model", "window", "base"),
     [
         # Sol/Luna share Astra's contract (asserted in test_model_database).
-        ("astra", 872_000),
-        ("gpt-6-astra", 1_050_000),
+        ("astra", 872_000, 272_000),
+        ("gpt-6-astra", 1_050_000, 272_000),
+        # Codex serves GPT-6.1 Sol with a 500k base window; other routes keep 272k.
+        ("sol", 872_000, 500_000),
+        ("gpt-6.1-sol", 1_050_000, 272_000),
     ],
 )
 @pytest.mark.parametrize("query", ["", "?long_context=false", "?long_context=true", "?context=1m"])
-def test_astra_long_context_real_llm(model: str, window: int, query: str) -> None:
+def test_astra_long_context_real_llm(model: str, window: int, base: int, query: str) -> None:
     from fast_agent.commands.model_details import _iter_model_identity_lines
     from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
 
     llm = ModelFactory.create_factory(f"{model}{query}")(LlmAgent(AgentConfig(name="test")))
     assert isinstance(llm, ResponsesLLM if model.startswith("gpt-") else CodexResponsesLLM)
     enabled = query in {"?long_context=true", "?context=1m"}
-    expected = window if enabled else 272_000
+    expected = window if enabled else base
     assert llm._context_window_override == (window if enabled else None)
     assert llm._usage_accumulator.context_window_size == expected
     assert llm.model_info is not None
@@ -1820,3 +1851,79 @@ def test_sonnet_default_and_pinned_versions(
     resolved = ModelFactory.resolve_model_spec(alias)
     assert resolved.wire_model_name == wire_model
     assert resolved.provider == provider
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        ("sol?compaction=native", "native"),
+        ("sol?compaction=client", "client"),
+        ("responses.gpt-6-sol?compaction=NATIVE", "native"),
+        ("copilot.gpt-6-sol?compaction=native", "native"),
+        # Copilot Claude's native compaction is server-side threshold compaction.
+        ("copilot.claude-sonnet-5.5?compaction=native", "native"),
+        ("anthropic.claude-sonnet-5-5?compaction=client", "client"),
+        ("sol", None),
+    ],
+)
+def test_compaction_query_selects_the_compaction_mode(spec: str, expected: str | None) -> None:
+    assert ModelFactory.parse_model_string(spec).compaction == expected
+
+
+@pytest.mark.parametrize(
+    ("spec", "message"),
+    [
+        ("sol?compaction=summary", "Invalid compaction query value"),
+        ("anthropic.claude-sonnet-5-5?compaction=native", "not 'anthropic'"),
+        ("copilot.claude-haiku-4.5?compaction=native", "does not support native compaction"),
+    ],
+)
+def test_compaction_query_rejects_unsupported_routes(spec: str, message: str) -> None:
+    with pytest.raises(ModelConfigError, match=message):
+        ModelFactory.parse_model_string(spec)
+
+
+@pytest.mark.parametrize(
+    ("spec", "support"),
+    [
+        ("sol", "on_demand"),
+        ("sol?compaction=client", "client"),
+        ("copilot.claude-sonnet-5.5", "in_request"),
+        ("copilot.claude-sonnet-5.5?compaction=client", "client"),
+    ],
+)
+def test_compaction_query_reaches_the_llm(spec: str, support: str) -> None:
+    from fast_agent.llm.compaction_support import CompactionSupport
+
+    llm = ModelFactory.create_factory(spec)(LlmAgent(AgentConfig(name="test")))
+
+    assert llm.compaction_support == CompactionSupport(support)
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        ("grok?compact_at=150k", CompactAt(tokens=150_000)),
+        ("sol?compact_at=1m", CompactAt(tokens=1_000_000)),
+        ("sol?compact_at=190000", CompactAt(tokens=190_000)),
+        ("sonnet?compact_at=0.7", CompactAt(fraction=0.7)),
+        ("sonnet?compact_at=70%", CompactAt(fraction=0.7)),
+        ("sol", None),
+    ],
+)
+def test_compact_at_query_parses_tokens_or_a_fraction(
+    spec: str, expected: CompactAt | None
+) -> None:
+    assert ModelFactory.parse_model_string(spec).compact_at == expected
+
+
+@pytest.mark.parametrize("value", ["0", "1.5", "150%", "500", "lots", "-1k"])
+def test_compact_at_query_rejects_invalid_values(value: str) -> None:
+    with pytest.raises(ModelConfigError, match="Invalid compact_at value"):
+        ModelFactory.parse_model_string(f"sol?compact_at={value}")
+
+
+def test_compact_at_query_reaches_the_llm() -> None:
+    llm = ModelFactory.create_factory("sol?compact_at=150k")(LlmAgent(AgentConfig(name="test")))
+
+    assert llm.compact_at_override == CompactAt(tokens=150_000)

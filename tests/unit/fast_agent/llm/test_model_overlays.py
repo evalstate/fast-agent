@@ -44,6 +44,7 @@ from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.types import RequestParams
 from fast_agent.ui.model_picker_common import build_snapshot
 
@@ -199,6 +200,40 @@ metadata:
     assert overridden.process_poll_default_wait_seconds == 45
     assert overridden.model_params is not None
     assert overridden.model_params.process_poll_default_wait_seconds == 30
+
+
+@pytest.mark.asyncio
+async def test_overlay_sets_the_compaction_trigger(tmp_path: Path) -> None:
+    from fast_agent.config import CompactionSettings
+    from fast_agent.context import Context
+    from fast_agent.llm.compaction_support import CompactAt, resolve_compact_at
+
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "compact-at.yaml",
+        """
+name: compact-at
+provider: openresponses
+model: overlay-tests/Compact-At
+connection:
+  base_url: http://localhost:8080/v1
+  auth: none
+metadata:
+  context_window: 65536
+  max_output_tokens: 4096
+  compaction_trigger_tokens: 40000
+""".strip(),
+    )
+
+    triggers: list[CompactAt] = []
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        for spec in ("compact-at", "compact-at?compact_at=50%"):
+            agent = LlmAgent(AgentConfig(name="test"), context=Context(config=Settings()))
+            await agent.attach_llm(ModelFactory.create_factory(spec))
+            triggers.append(resolve_compact_at(agent.llm, CompactionSettings()))
+
+    assert triggers == [CompactAt(tokens=40_000), CompactAt(fraction=0.5)]
 
 
 def test_overlay_configures_shell_output_byte_limit(tmp_path: Path) -> None:
@@ -777,6 +812,10 @@ defaults:
 
     assert default_llm.default_request_params.streaming_timeout == 45.5
     assert overridden_llm.default_request_params.streaming_timeout is None
+    for llm in (default_llm, overridden_llm):
+        llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value="high"))
+    assert default_llm.get_request_params().streaming_timeout == 45.5
+    assert overridden_llm.get_request_params().streaming_timeout is None
 
 
 def test_overlay_streaming_timeout_none_disables_enforcement(tmp_path: Path) -> None:
@@ -802,6 +841,8 @@ defaults:
         )
 
     assert llm.default_request_params.streaming_timeout is None
+    llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value="high"))
+    assert llm.get_request_params().streaming_timeout is None
 
 
 @pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), True, "soon"])

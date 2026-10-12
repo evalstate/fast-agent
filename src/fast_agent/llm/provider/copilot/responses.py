@@ -76,6 +76,16 @@ class CopilotResponsesLLM(ResponsesLLM):
     def _new_ws_request_planner(self) -> StatelessResponsesWsPlanner:
         return StatelessResponsesWsPlanner()
 
+    def _replays_native_compaction(self) -> bool:
+        return True
+
+    def _resends_astra_effort_after_checkpoint(self) -> bool:
+        return True
+
+    def _native_compaction_setting(self) -> bool:
+        # Verified against the gateway: compaction_trigger and its items round-trip.
+        return broker.copilot_settings(self.context).native_compaction
+
     def validate_provider_credentials(self) -> None:
         return None
 

@@ -17,6 +17,7 @@ import json
 import os
 import tempfile
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,12 +28,21 @@ from mcp_types import ContentBlock, EmbeddedResource, ImageContent, ResourceLink
 from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
+from fast_agent.llm.compaction_support import (
+    CompactionStrategy,
+    CompactionSupport,
+    compaction_trigger_tokens,
+    resolve_compaction_support,
+)
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.tool_result_metadata import tool_result_media_preview_exclusion
 from fast_agent.types.llm_stop_reason import LlmStopReason
+from fast_agent.utils.count_display import format_bytes
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator, Mapping
+
     from fast_agent.config import CompactionSettings
     from fast_agent.context import Context
     from fast_agent.interfaces import FastAgentLLMProtocol
@@ -58,6 +68,13 @@ current declarations.
 
 Be concise, structured, and focused on helping the next LLM seamlessly continue the work. \
 Respond with the summary only."""
+
+
+def resolve_compaction_prompt(settings: "CompactionSettings | None") -> str:
+    """Resolve the active summarization prompt (config override or built-in)."""
+    configured = settings.configured_prompt() if settings else None
+    return configured or DEFAULT_COMPACTION_PROMPT
+
 
 LEGACY_SUMMARY_NOTICE = (
     "Earlier conversation history was compacted into the checkpoint summary below. "
@@ -131,6 +148,22 @@ class CompactionResult:
     tokens_after_estimate: int
     context_window: int | None
     archive_file: str | None
+    strategy: CompactionStrategy = CompactionStrategy.SUMMARY
+    """``summary`` for fast-agent's own summary, or the provider-native strategy."""
+    checkpoint_bytes: int | None = None
+    """Encrypted size of a provider-native checkpoint; unset for summaries."""
+
+    @property
+    def is_native(self) -> bool:
+        return self.strategy != CompactionStrategy.SUMMARY
+
+
+def describe_provider_checkpoint(
+    description: str, *, opaque_bytes: int, archive_file: str | None
+) -> str:
+    """Visible text of a provider-native checkpoint: what it is, its size, its archive."""
+    archive = archive_file or "none (session history disabled)"
+    return f"{description}\nEncrypted size: {format_bytes(opaque_bytes)}. Archive: {archive}."
 
 
 def is_compaction_message(message: PromptMessageExtended) -> bool:
@@ -148,44 +181,25 @@ def normalize_compaction_notice(message: PromptMessageExtended) -> None:
             return
 
 
-def resolve_compaction_prompt(settings: "CompactionSettings | None") -> str:
-    """Resolve the active summarization prompt (config override or built-in)."""
-    configured = settings.prompt if settings else None
-    if not configured or not configured.strip():
-        return DEFAULT_COMPACTION_PROMPT
-    candidate = configured.strip()
-    if len(candidate) < 1024 and "\n" not in candidate:
-        try:
-            path = Path(candidate).expanduser()
-            if not path.is_absolute() and settings is not None and settings._config_file:
-                path = Path(settings._config_file).expanduser().resolve().parent / path
-            if path.is_file():
-                return path.read_text(encoding="utf-8").strip() or DEFAULT_COMPACTION_PROMPT
-        except OSError:
-            pass
-    return configured
-
-
 def should_auto_compact(
     usage: "UsageAccumulator | None",
     settings: "CompactionSettings",
     *,
+    llm: "FastAgentLLMProtocol | None" = None,
     projected_context_tokens: int | None = None,
 ) -> bool:
-    """True when observed or projected context usage crossed the configured threshold."""
+    """True when observed or projected context usage crossed the compaction trigger."""
     if not settings.auto or usage is None:
         return False
-    window = usage.context_window_size
-    if not window or window <= 0:
-        return False
+    trigger = compaction_trigger_tokens(llm, settings, usage.context_window_size)
     current = (
         projected_context_tokens
         if projected_context_tokens is not None
         else usage.current_context_tokens
     )
-    if current is None or current <= 0:
+    if trigger is None or current is None or current <= 0:
         return False
-    return (current / window) >= settings.threshold
+    return current >= trigger
 
 
 def _turn_start_indices(messages: list[PromptMessageExtended]) -> list[int]:
@@ -432,7 +446,9 @@ def plan_compaction(
 def build_summary_message(
     summary_text: str,
     *,
-    prompt_text: str,
+    strategy: CompactionStrategy = CompactionStrategy.SUMMARY,
+    provider_channels: Mapping[str, list[ContentBlock]] | None = None,
+    prompt_text: str | None,
     instructions: str | None,
     messages_compacted: int,
     tokens_before: int | None,
@@ -440,10 +456,15 @@ def build_summary_message(
     model: str | None,
     archive_metadata: dict[str, object] | None = None,
 ) -> PromptMessageExtended:
-    """Build the checkpoint summary as a user message with a typed compaction channel."""
+    """Build the checkpoint as a user message with a typed compaction channel.
+
+    Provider-native checkpoints also carry ``provider_channels``; their provider
+    replays those instead of the visible text, which other providers receive.
+    """
     visible = f"[COMPACTED HISTORY]\n{SUMMARY_NOTICE}\n\n{summary_text}"
     metadata = {
         "compacted_at": datetime.now(timezone.utc).isoformat(),
+        "strategy": strategy,
         "messages_compacted": messages_compacted,
         "tokens_before": tokens_before,
         "context_window": context_window,
@@ -455,9 +476,10 @@ def build_summary_message(
         metadata.update(archive_metadata)
     message = Prompt.user(visible)
     message.channels = {
+        **(provider_channels or {}),
         FAST_AGENT_COMPACTION_CHANNEL: [
             TextContent(type="text", text=json.dumps(metadata, ensure_ascii=False))
-        ]
+        ],
     }
     return message
 
@@ -565,6 +587,113 @@ def _resolved_path(raw_path: object | None) -> Path | None:
     return Path(str(raw_path)).expanduser().resolve()
 
 
+@contextmanager
+def _compacting(llm: FastAgentLLMProtocol) -> Iterator[None]:
+    """Temporarily label side-channel model progress as compaction."""
+    previous_verb = llm.verb
+    llm.verb = ProgressAction.COMPACTING
+    try:
+        yield
+    finally:
+        llm.verb = previous_verb
+
+
+@dataclass(frozen=True, slots=True)
+class _CheckpointContent:
+    """Uniform content for publishing a summary or provider checkpoint."""
+
+    text: str
+    strategy: CompactionStrategy
+    request_text: str
+    prompt_text: str | None
+    response: PromptMessageExtended
+    provider_channels: Mapping[str, list[ContentBlock]]
+    checkpoint_bytes: int | None
+
+    def visible_text(self, archive_name: str | None) -> str:
+        if self.checkpoint_bytes is None:
+            return self.text
+        return describe_provider_checkpoint(
+            self.text, opaque_bytes=self.checkpoint_bytes, archive_file=archive_name
+        )
+
+
+async def _client_summary(
+    llm: "FastAgentLLMProtocol",
+    summary_source: list[PromptMessageExtended],
+    request_text: str,
+    prompt_text: str,
+) -> _CheckpointContent:
+    """Summarize with a side-channel call to the agent's own model (no tools)."""
+    with _compacting(llm):
+        response = await llm.generate(
+            summary_source + [Prompt.user(request_text)], None, tools=None
+        )
+    summary_text = (response.last_text() or "").strip()
+    if not summary_text:
+        raise CompactionError("Compaction model returned an empty summary; history unchanged.")
+    return _CheckpointContent(
+        text=summary_text,
+        strategy=CompactionStrategy.SUMMARY,
+        request_text=request_text,
+        prompt_text=prompt_text,
+        response=response,
+        provider_channels={},
+        checkpoint_bytes=None,
+    )
+
+
+def uses_native_compaction(
+    llm: "FastAgentLLMProtocol | None",
+    settings: "CompactionSettings",
+    *,
+    instructions: str | None = None,
+) -> bool:
+    """Whether compaction produces a provider-native checkpoint.
+
+    Native checkpoints take no prompt: a custom ``compaction.prompt`` or focus
+    instructions ask for a written summary, so either selects fast-agent's summary.
+    """
+    if resolve_compaction_support(llm, settings) is not CompactionSupport.ON_DEMAND:
+        return False
+    return not settings.has_custom_prompt and not (instructions and instructions.strip())
+
+
+async def _native_checkpoint(
+    llm: "FastAgentLLMProtocol",
+    summary_source: list[PromptMessageExtended],
+) -> _CheckpointContent:
+    """Ask the provider for an opaque checkpoint of the compact region."""
+    with _compacting(llm):
+        try:
+            native = await llm.native_compaction(summary_source)
+        except Exception as exc:
+            raise CompactionError(f"Provider compaction failed; history unchanged: {exc}") from exc
+    return _CheckpointContent(
+        text=native.description,
+        strategy=native.strategy,
+        request_text=native.request,
+        prompt_text=None,
+        response=_without_channels(native.response, native.checkpoint_channels),
+        provider_channels=native.checkpoint_channels,
+        checkpoint_bytes=native.opaque_bytes,
+    )
+
+
+def _without_channels(
+    message: PromptMessageExtended, names: Mapping[str, object]
+) -> PromptMessageExtended:
+    channels = {
+        name: blocks for name, blocks in (message.channels or {}).items() if name not in names
+    }
+    return message.model_copy(update={"channels": channels or None})
+
+
+def _audit_response(response: PromptMessageExtended) -> dict[str, object]:
+    """Serialize the call for exports; native content already excludes checkpoint payloads."""
+    return response.model_dump(by_alias=True, mode="json", exclude_none=True)
+
+
 async def compact_conversation(
     agent: CompactableAgent,
     *,
@@ -572,6 +701,7 @@ async def compact_conversation(
     instructions: str | None = None,
     recent_tool_exchanges: int | None = None,
     pending_context_tokens: int = 0,
+    on_start: Callable[[], None] | None = None,
 ) -> CompactionResult:
     """
     Compact the agent's history into a checkpoint summary plus recent turns.
@@ -595,11 +725,8 @@ async def compact_conversation(
         tokens_before = None
 
     history = list(agent.message_history)
-    max_tokens_after = (
-        max(int(context_window * settings.threshold) - pending_context_tokens, 1)
-        if context_window is not None and context_window > 0
-        else None
-    )
+    trigger = compaction_trigger_tokens(llm, settings, context_window)
+    max_tokens_after = max(trigger - pending_context_tokens, 1) if trigger is not None else None
     plan = _plan_compaction_with_budget(
         history,
         keep_turns=settings.keep_turns,
@@ -614,33 +741,33 @@ async def compact_conversation(
             f"{prompt_text}\n\nAdditional focus for this summary:\n{instructions.strip()}"
         )
 
+    if on_start is not None:
+        # Planning succeeded: compaction will now call the model.
+        on_start()
     summary_source = plan.templates + plan.compact_region
-    previous_verb = llm.verb
-    llm.verb = ProgressAction.COMPACTING
-    try:
-        response = await llm.generate(
-            summary_source + [Prompt.user(request_text)], None, tools=None
-        )
-    finally:
-        llm.verb = previous_verb
-    summary_text = (response.last_text() or "").strip()
-    if not summary_text:
-        raise CompactionError("Compaction model returned an empty summary; history unchanged.")
+    if uses_native_compaction(llm, settings, instructions=instructions):
+        checkpoint = await _native_checkpoint(llm, summary_source)
+    else:
+        checkpoint = await _client_summary(llm, summary_source, request_text, prompt_text)
 
     archive_file = _archive_history(agent, history)
     if archive_file is None and _session_persistence_enabled(agent):
         raise CompactionError("Compaction archive failed; history unchanged.")
+    archive_name = Path(archive_file).name if archive_file else None
+    summary_text = checkpoint.visible_text(archive_name)
 
     summary_message = build_summary_message(
         summary_text,
-        prompt_text=prompt_text,
+        strategy=checkpoint.strategy,
+        provider_channels=checkpoint.provider_channels,
+        prompt_text=checkpoint.prompt_text,
         instructions=instructions,
         messages_compacted=len(plan.compact_region),
         tokens_before=tokens_before,
         context_window=context_window,
         model=usage.model if usage else None,
         archive_metadata={
-            "archive_file": Path(archive_file).name if archive_file else None,
+            "archive_file": archive_name,
             "archive_sha256": (
                 hashlib.sha256(Path(archive_file).read_bytes()).hexdigest()
                 if archive_file
@@ -648,17 +775,24 @@ async def compact_conversation(
             ),
             "template_messages": len(plan.templates),
             "retained_messages": len(plan.retained_tail),
+            "checkpoint_bytes": checkpoint.checkpoint_bytes,
             # The summarization call is a real model call: keep its request and
             # response (with usage/timing channels) so exports can account for it.
-            "summary_request": request_text,
-            "summary_response": response.model_dump(by_alias=True, mode="json", exclude_none=True),
+            "summary_request": checkpoint.request_text,
+            "summary_response": _audit_response(checkpoint.response),
         },
     )
 
     new_history = plan.templates + [summary_message] + plan.retained_tail
     agent.load_message_history(new_history)
 
-    tokens_after_estimate = estimate_tokens(new_history) + pending_context_tokens
+    # Opaque checkpoint payloads are far smaller in tokens than their encrypted text.
+    estimate_history = (
+        plan.templates
+        + [_without_channels(summary_message, checkpoint.provider_channels)]
+        + plan.retained_tail
+    )
+    tokens_after_estimate = estimate_tokens(estimate_history) + pending_context_tokens
     if usage is not None:
         usage.set_context_estimate(tokens_after_estimate)
 
@@ -683,6 +817,8 @@ async def compact_conversation(
         tokens_after_estimate=tokens_after_estimate,
         context_window=context_window,
         archive_file=archive_file,
+        strategy=checkpoint.strategy,
+        checkpoint_bytes=checkpoint.checkpoint_bytes,
     )
 
 

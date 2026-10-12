@@ -127,6 +127,9 @@ Useful query parameters:
 - `service_tier=fast|flex` where supported
 - `lite=on|off` (`codexresponses` only): opt in to Codex's internal Responses Lite
   contract for models that support it; the default is the standard contract
+- `compaction=native|client`: OpenAI provider-native compaction checkpoints (the default
+  on `responses`, `codexresponses` and Copilot GPT models) or fast-agent's own summary;
+  see [Compaction](../guides/compaction.md#openai-provider-native-checkpoints)
 - `poll_period=10..3600` for the default managed-process wait
 
 Use the `openai` provider for Chat Completions-style models such as `openai.gpt-4.1`.
@@ -256,8 +259,12 @@ provider.model_name[?reasoning=value][&query=value...]
 - **model_name**: the model or deployment name
 - **query parameters**: provider/model-specific overrides such as `reasoning`, `structured`,
   `context`, `transport`, `service_tier`, `temperature` (`temp` alias), `web_search`,
-  `web_fetch`, `x_search`, `task_budget`, `max_tokens`, `streaming_timeout`, `lite`, and
-  `poll_period`
+  `web_fetch`, `x_search`, `task_budget`, `max_tokens`, `streaming_timeout`, `lite`,
+  `compaction`, `compact_at`, and `poll_period`
+
+`compact_at` (any provider) sets when auto-compaction fires for this model: input tokens
+(`grok?compact_at=150k`) or a context-window fraction (`sonnet?compact_at=0.7`, `70%`).
+It overrides `compaction.threshold`; see [Compaction](../guides/compaction.md#tuning-the-trigger).
 
 !!! Note "Provider delimiter: `.` or `/`"
     `/` is accepted as an equivalent provider delimiter, so `anthropic/claude-opus-5` is the
@@ -347,6 +354,8 @@ Reasoning, Verbosity and Task Budget settings are also available from the `/mode
 
 ### Stream idle timeout
 
+--8<-- "_generated/streaming_timeout_defaults.md"
+
 Set the maximum time between provider stream events with `streaming_timeout`:
 
 - `responses.gpt-5.5?streaming_timeout=300` waits up to 300 seconds between events.
@@ -354,7 +363,8 @@ Set the maximum time between provider stream events with `streaming_timeout`:
 
 The value must be a positive, finite number of seconds or `none`. An explicit
 request-level `RequestParams(streaming_timeout=...)` value takes precedence over the model-string
-default.
+default. Older saved sessions retain their recorded timeout rather than being
+reinterpreted as automatic.
 
 ### Managed-process wait period
 

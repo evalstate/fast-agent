@@ -22,6 +22,7 @@ from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
 
 if TYPE_CHECKING:
+    from anthropic.types.beta import BetaCompactionIterationUsage, BetaIterationsUsage
     from anthropic.types.beta import BetaUsage as AnthropicUsage
     from google.genai.types import GenerateContentResponseUsageMetadata, UsageMetadata
     from openai.types.completion_usage import CompletionUsage
@@ -115,6 +116,11 @@ class TurnUsage(BaseModel):
     timing: InferenceTiming | None = None
     """Set on the final attempt of each request; failed retries leave it unset."""
     raw_usage: JsonValue = None
+    context_tokens: TokenCount | None = None
+    """Tokens occupying the context window after this inference, when the provider
+    reports it separately from billed totals (e.g. server-side iterations).
+    None falls back to ``total``; zero suppresses that fallback when a compaction-only
+    response provides no observation of the resumed context."""
 
     @field_validator("raw_usage", mode="before")
     @classmethod
@@ -247,12 +253,25 @@ def usage_from_anthropic(
     provider: Provider,
     model: str,
 ) -> TurnUsage:
-    """Translate Anthropic's disjoint prompt partitions."""
+    """Translate Anthropic's disjoint prompt partitions.
 
+    Server-side compaction iterations are billed but excluded from the top-level
+    fields, so they are folded into the totals here. Context size comes from the
+    last ``message`` iteration, as the API documents for iterated responses.
+    """
+
+    iterations = usage.iterations or []
+    compactions = _anthropic_compaction_iterations(iterations)
+    uncached = usage.input_tokens + sum(item.input_tokens for item in compactions)
+    output_tokens = usage.output_tokens + sum(item.output_tokens for item in compactions)
     cache_read = usage.cache_read_input_tokens
     cache_write = usage.cache_creation_input_tokens
+    if cache_read is not None:
+        cache_read += sum(item.cache_read_input_tokens for item in compactions)
+    if cache_write is not None:
+        cache_write += sum(item.cache_creation_input_tokens for item in compactions)
     prompt_total = (
-        usage.input_tokens + cache_read + cache_write
+        uncached + cache_read + cache_write
         if cache_read is not None and cache_write is not None
         else None
     )
@@ -263,17 +282,44 @@ def usage_from_anthropic(
         model=model,
         prompt=PromptTokenUsage(
             total=prompt_total,
-            uncached=usage.input_tokens,
+            uncached=uncached,
             cache_read=cache_read,
             cache_write=cache_write,
         ),
         completion=CompletionTokenUsage(
-            total=usage.output_tokens,
+            total=output_tokens,
             reasoning=(output_details.thinking_tokens if output_details is not None else None),
         ),
         service_tier=usage.service_tier,
         raw_usage=snapshot_json_value(usage),
+        context_tokens=_anthropic_context_tokens(iterations),
     )
+
+
+def _anthropic_compaction_iterations(
+    iterations: BetaIterationsUsage,
+) -> list[BetaCompactionIterationUsage]:
+    return [item for item in iterations if item.type == "compaction"]
+
+
+def _anthropic_context_tokens(iterations: BetaIterationsUsage) -> int | None:
+    """Context size from the last sampling iteration, excluding compaction billing.
+
+    None allows the usual billed-total fallback when no compaction occurred.
+    Zero means compaction-only: no resumed context was observed, so do not fall back.
+    """
+    if not _anthropic_compaction_iterations(iterations):
+        return None
+    for item in reversed(iterations):
+        if item.type == "message":
+            return (
+                item.input_tokens
+                + item.cache_read_input_tokens
+                + item.cache_creation_input_tokens
+                + item.output_tokens
+            )
+    # An on-demand compaction response has no sampling iteration: no context observed.
+    return 0
 
 
 def usage_from_openai_chat(
@@ -643,7 +689,8 @@ class UsageAccumulator(BaseModel):
             return self._context_estimate
         if not self.turns:
             return None
-        return self.turns[-1].total
+        last = self.turns[-1]
+        return last.context_tokens if last.context_tokens is not None else last.total
 
     @computed_field
     @property

@@ -12,6 +12,7 @@ from mcp_types import (
 from fast_agent.agents.tool_result_channels import build_tool_result_message
 from fast_agent.constants import (
     FAST_AGENT_PROCESS_POLL_FOLD,
+    FAST_AGENT_PROVIDER_CHECKPOINT,
     FAST_AGENT_SHELL_PROCESS_METADATA,
     FAST_AGENT_TIMING,
     FAST_AGENT_TOOL_TIMING,
@@ -1492,3 +1493,36 @@ def test_restore_returns_exact_unfolded_exchanges_with_timing_channels() -> None
                 channel
             )
     assert restore_process_poll_history(unfolded) == unfolded
+
+
+def _with_provider_checkpoint(message: PromptMessageExtended) -> PromptMessageExtended:
+    message.channels = {
+        **(message.channels or {}),
+        FAST_AGENT_PROVIDER_CHECKPOINT: [TextContent(type="text", text="anthropic")],
+    }
+    return message
+
+
+def test_in_band_provider_checkpoint_bounds_the_fold_and_is_kept() -> None:
+    # Poll 2's response carried a compaction checkpoint (e.g. a Copilot Claude
+    # compaction block alongside its poll call). Folding it away would resend the
+    # uncompacted prefix and trigger compaction again.
+    history = _history_before_terminal(8)
+    checkpoint = _with_provider_checkpoint(history[3])
+
+    folded = fold_completed_process_poll_history(history, _poll_result(8, output_line_count=0))
+
+    assert folded is not None
+    assert any(message is checkpoint for message in folded.history)
+    # Only the quiet polls after the checkpoint fold (3..8 minus the retained one).
+    assert folded.metadata["polls"] == 6
+    assert folded.metadata["polls_folded"] == 5
+
+
+def test_poll_whose_response_carries_a_checkpoint_is_never_folded() -> None:
+    history = _history_before_terminal(4)
+    _with_provider_checkpoint(history[-1])
+
+    assert (
+        fold_completed_process_poll_history(history, _poll_result(4, output_line_count=0)) is None
+    )

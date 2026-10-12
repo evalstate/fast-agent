@@ -62,6 +62,10 @@ class ProviderKeyError(FastAgentError):
     """
 
 
+class ProviderCheckpointError(FastAgentError):
+    """Raised when an opaque provider checkpoint cannot be read safely."""
+
+
 class ProviderSafetyBufferingError(FastAgentError):
     """Raised when a provider withholds a response for additional safety checks."""
 

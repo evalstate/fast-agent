@@ -39,6 +39,12 @@ from fast_agent.interfaces import (
     FastAgentLLMProtocol,
     ModelT,
 )
+from fast_agent.llm.compaction_support import (
+    CompactAt,
+    CompactionMode,
+    CompactionSupport,
+    NativeCompaction,
+)
 from fast_agent.llm.memory import Memory, SimpleMemory
 from fast_agent.llm.model_database import ModelDatabase, ModelParameters
 from fast_agent.llm.provider.streaming_timeouts import (
@@ -54,6 +60,7 @@ from fast_agent.llm.reasoning_effort import (
     validate_reasoning_setting,
 )
 from fast_agent.llm.request_param_resolution import (
+    apply_reasoning_streaming_timeout,
     get_provider_config,
     initialize_base_default_params,
     merge_request_params,
@@ -196,6 +203,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # Pop long_context before passing kwargs to ContextDependent;
         # subclasses (e.g. AnthropicLLM) may pop it first for their own handling.
         long_context_requested = kwargs.pop("long_context", False)
+        self._compaction_mode: CompactionMode | None = kwargs.pop("compaction", None)
+        self._compact_at: CompactAt | None = kwargs.pop("compact_at", None)
         super().__init__(context=context, **kwargs)
         self.logger = get_logger(__name__)
         self.executor = self.context.executor
@@ -618,6 +627,33 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def set_service_tier(self, value: Literal["fast", "flex"] | None) -> None:
         if value is not None and not self.service_tier_supported:
             raise ValueError("Current model does not support service tier configuration.")
+
+    @property
+    def compaction_support(self) -> CompactionSupport:
+        """How this LLM can compact history; providers override for native compaction."""
+        return CompactionSupport.CLIENT
+
+    @property
+    def compact_at_override(self) -> CompactAt | None:
+        """The model string's ``compact_at``, which wins over ``compaction.threshold``."""
+        return self._compact_at
+
+    @property
+    def default_compact_at(self) -> CompactAt | None:
+        """The model's auto-compaction trigger, used when config leaves it unset."""
+        params = self._get_model_params(self.default_request_params.model or self._model_name)
+        tokens = params.compaction_trigger_tokens if params is not None else None
+        return CompactAt(tokens=tokens) if tokens is not None else None
+
+    @property
+    def compaction_mode(self) -> CompactionMode | None:
+        """The model string's ``compaction=`` override, if any."""
+        return self._compaction_mode
+
+    async def native_compaction(self, messages: list[PromptMessageExtended]) -> NativeCompaction:
+        """Compact ``messages`` into a provider checkpoint (``ON_DEMAND`` providers only)."""
+        del messages
+        raise NotImplementedError(f"{type(self).__name__} has no provider-native compaction")
 
     def _get_provider_config(self) -> Any | None:
         """Return provider-specific config section when available."""
@@ -1442,11 +1478,15 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 If unspecified, self.default_request_params will be used.
         """
 
-        # If user provides overrides, merge them with defaults
-        if request_params:
-            return self._merge_request_params(self.default_request_params, request_params)
-
-        return self.default_request_params.model_copy()
+        resolved = (
+            self._merge_request_params(self.default_request_params, request_params)
+            if request_params is not None
+            else self.default_request_params.model_copy()
+        )
+        reasoning = self.reasoning_effort
+        if reasoning is None and self.reasoning_effort_spec is not None:
+            reasoning = self.reasoning_effort_spec.default
+        return apply_reasoning_streaming_timeout(resolved, reasoning)
 
     @classmethod
     def convert_message_to_message_param(

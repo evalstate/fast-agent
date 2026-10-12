@@ -21,6 +21,10 @@ ANTHROPIC_CONTAINER_CHANNEL = "anthropic-container"
 """Anthropic code-execution container metadata for multi-turn request reuse."""
 OPENAI_REASONING_ENCRYPTED = "openai-reasoning-encrypted"
 """Encrypted OpenAI reasoning items for stateless Responses API passback."""
+OPENAI_COMPACTION_ITEMS = "openai-compaction-items"
+"""Opaque OpenAI Responses compaction items carried by a provider-native checkpoint."""
+OPENAI_COMPACTION_TRIGGER = "openai-compaction-trigger"
+"""Request-only marker for a final ``compaction_trigger`` item; never persist to history."""
 OPENAI_ASSISTANT_MESSAGE_ITEMS = "openai-assistant-message-items"
 """Raw OpenAI assistant message items for Responses history passback, including phase."""
 OPENAI_MCP_LIST_TOOLS_ITEMS = "openai-mcp-list-tools-items"
@@ -48,6 +52,11 @@ FAST_AGENT_PENDING_MEDIA_ATTACHMENTS = "fast-agent-pending-media-attachments"
 # Persisted provenance for user-role media staged from tool results, not a new turn.
 FAST_AGENT_TOOL_MEDIA_MESSAGE = "fast-agent-tool-media-message"
 FAST_AGENT_COMPACTION_CHANNEL = "fast-agent-compaction"
+# Marks a model response that carries a provider compaction checkpoint in-band
+# (e.g. an Anthropic compaction block or an OpenAI compaction item). History
+# rewrites such as process-poll folding must keep these messages: the provider
+# reads the checkpoint to know where compacted context starts.
+FAST_AGENT_PROVIDER_CHECKPOINT = "fast-agent-provider-checkpoint"
 """Metadata channel marking a compaction summary message (prompt used, counts, timestamps)."""
 
 FORCE_SEQUENTIAL_TOOL_CALLS = False
@@ -65,6 +74,9 @@ DEFAULT_MAX_ITERATIONS = 9999
 
 DEFAULT_STREAMING_TIMEOUT = 150.0
 """Default idle timeout in seconds between provider streaming events."""
+
+DEFAULT_HIGH_REASONING_STREAMING_TIMEOUT = 300.0
+"""Default stream idle timeout for high, xhigh, and max reasoning effort."""
 
 MIN_PROCESS_POLL_WAIT_SECONDS = 10
 """Minimum positive managed-process wait exposed to models."""

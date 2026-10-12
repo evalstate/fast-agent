@@ -147,15 +147,33 @@ The opt-in experimental Responses settings `reasoning_summary` and
 for Grok 4.7 or Grok 4.7 Fast.
 
 
-Grok 4.5 with `reasoning=high`, and Grok 4.6/4.7 (including Fast) with `reasoning=high` or
-`reasoning=xhigh`, default to a 300-second idle timeout between stream events.
-Other model and reasoning combinations retain the global 150-second default.
+--8<-- "_generated/streaming_timeout_defaults.md"
+
 Set `streaming_timeout=<seconds>` to override the default, or
 `streaming_timeout=none` to disable stream-idle enforcement.
 
 fast-agent creates an opaque `prompt_cache_key` for each xAI conversation and
 sends it on every Responses API request. The key remains stable across turns so
 
+
+## Compaction
+
+Grok models use xAI's provider-native compaction by default. fast-agent still
+decides when to compact and keeps templates and recent turns verbatim; the older
+turns are sent to `POST /responses/compact` and replaced by the opaque, encrypted
+checkpoint it returns. See [Compaction](../../guides/compaction.md#xai-provider-native-checkpoints).
+
+Grok 4.7 auto-compacts at **190,000 tokens** (38% of its 500,000-token window),
+staying below the 200,000-token context size where its rates double, with headroom
+for the next message and tool results. Override it for a model selection with
+`compact_at` (`grok?compact_at=150k`, or a fraction such as `0.6`); setting
+`compaction.threshold` overrides it for every model. `/model` shows the effective
+trigger.
+
+```yaml
+xai:
+  native_compaction: false  # use fast-agent's written summary instead
+```
 
 ## Managed process polling
 

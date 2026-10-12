@@ -11,6 +11,7 @@ from mcp_types import CallToolResult, TextContent
 
 from fast_agent.constants import (
     FAST_AGENT_PROCESS_POLL_FOLD,
+    FAST_AGENT_PROVIDER_CHECKPOINT,
     FAST_AGENT_SHELL_PROCESS_METADATA,
     FAST_AGENT_TIMING,
     FAST_AGENT_TOOL_TIMING,
@@ -170,6 +171,10 @@ def _exchange(
     *,
     request_index: int,
 ) -> PollExchange | None:
+    if FAST_AGENT_PROVIDER_CHECKPOINT in (request.channels or {}):
+        # Folding it away would drop the in-band checkpoint and resend the
+        # uncompacted prefix; it bounds the foldable suffix instead.
+        return None
     parsed = _single_poll_call(request)
     if parsed is None:
         return None

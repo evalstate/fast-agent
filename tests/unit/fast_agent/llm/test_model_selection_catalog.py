@@ -116,14 +116,14 @@ def test_metaai_muse_aliases_select_the_current_and_contributor_tiers() -> None:
 
 def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() -> None:
     expected = {
-        "astra": "codexresponses.gpt-6-astra?reasoning=medium",
-        "sol": "codexresponses.gpt-6.1-sol?reasoning=medium",
+        "astra": "codexresponses.gpt-6-astra?reasoning=high",
+        "sol": "codexresponses.gpt-6.1-sol?reasoning=high",
         "sol6": "codexresponses.gpt-6-sol?reasoning=medium",
-        "luna": "codexresponses.gpt-6-luna?reasoning=medium",
+        "luna": "codexresponses.gpt-6-luna?reasoning=high",
         "sol56": "codexresponses.gpt-5.6-sol?reasoning=high",
         "luna56": "codexresponses.gpt-5.6-luna?reasoning=medium",
         "terra": "codexresponses.gpt-5.6-terra?reasoning=high",
-        "codexplan": "codexresponses.gpt-6-astra?reasoning=medium",
+        "codexplan": "codexresponses.gpt-6-astra?reasoning=high",
     }
     entries = {
         entry.alias: entry.model
@@ -141,16 +141,18 @@ def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() ->
 
 
 @pytest.mark.parametrize(
-    ("name", "model"),
+    ("name", "model", "codex_effort"),
     [
-        ("astra", "gpt-6-astra"),
-        ("sol", "gpt-6.1-sol"),
-        ("sol6", "gpt-6-sol"),
-        ("luna", "gpt-6-luna"),
+        ("astra", "gpt-6-astra", "high"),
+        ("sol", "gpt-6.1-sol", "high"),
+        ("sol6", "gpt-6-sol", "medium"),
+        ("luna", "gpt-6-luna", "high"),
     ],
 )
-def test_gpt_6_models_are_available_through_codex_and_api_routes(name: str, model: str) -> None:
-    assert BUILTIN_MODEL_ALIASES[name] == f"codexresponses.{model}?reasoning=medium"
+def test_gpt_6_models_are_available_through_codex_and_api_routes(
+    name: str, model: str, codex_effort: str
+) -> None:
+    assert BUILTIN_MODEL_ALIASES[name] == f"codexresponses.{model}?reasoning={codex_effort}"
     assert BUILTIN_MODEL_ALIASES[model] == f"responses.{model}?reasoning=medium"
     assert name in ModelSelectionCatalog.list_current_aliases(Provider.CODEX_RESPONSES)
     assert model in ModelSelectionCatalog.list_current_aliases(Provider.RESPONSES)

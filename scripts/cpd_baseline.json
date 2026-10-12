@@ -30,12 +30,12 @@
       "rationale": "Typer requires explicit callback signatures for command introspection and help output."
     },
     {
-      "tokens": 122,
+      "tokens": 136,
       "paths": [
         "fast_agent/llm/model_factory.py",
         "fast_agent/llm/model_factory.py"
       ],
-      "code_hash": "192ecc05a818afb5f0f3ef2e0a7bbb6853e7ec76bd947dd820d93202b97e0612",
+      "code_hash": "01fdd16f22e5ac4b17abf3003b01413a69a9489b3d1f962fbfe76b5af5d371f5",
       "rationale": "Model configuration and frozen query overrides intentionally expose parallel typed fields with distinct semantics."
     },
     {

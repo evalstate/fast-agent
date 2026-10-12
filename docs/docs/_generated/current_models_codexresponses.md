@@ -1,13 +1,13 @@
 | Model string or alias | Resolves to / equivalent | Notes |
 | --- | --- | --- |
-| `astra` | `codexresponses.gpt-6-astra?reasoning=medium` | — |
-| `sol` | `codexresponses.gpt-6.1-sol?reasoning=medium` | — |
+| `astra` | `codexresponses.gpt-6-astra?reasoning=high` | — |
+| `sol` | `codexresponses.gpt-6.1-sol?reasoning=high` | — |
 | `sol6` | `codexresponses.gpt-6-sol?reasoning=medium` | — |
-| `luna` | `codexresponses.gpt-6-luna?reasoning=medium` | Fast |
+| `luna` | `codexresponses.gpt-6-luna?reasoning=high` | Fast |
 | `sol56` | `codexresponses.gpt-5.6-sol?reasoning=high` | — |
 | `terra` | `codexresponses.gpt-5.6-terra?reasoning=high` | — |
 | `luna56` | `codexresponses.gpt-5.6-luna?reasoning=medium` | — |
-| `codexplan` | `codexresponses.gpt-6-astra?reasoning=medium` | — |
+| `codexplan` | `codexresponses.gpt-6-astra?reasoning=high` | — |
 | `codexplan55` | `codexresponses.gpt-5.5?reasoning=medium` | — |
 | `codexplan54` | `codexresponses.gpt-5.4?reasoning=high` | — |
 | `codexplan53` | `codexresponses.gpt-5.3-codex?reasoning=medium` | — |

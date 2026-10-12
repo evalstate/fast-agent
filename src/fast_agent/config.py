@@ -71,6 +71,9 @@ SHELL_WRITE_TEXT_FILE_MODES: tuple[ShellWriteTextFileMode, ...] = (
     "edit_file",
 )
 SHELL_WRITE_TEXT_FILE_MODE_HELP = "|".join(SHELL_WRITE_TEXT_FILE_MODES)
+# OpenAI provider-native compaction (``native_compaction``) on supported routes. Also
+# applies when a route has no config section.
+NATIVE_COMPACTION_DEFAULT = True
 _SHELL_WRITE_TEXT_FILE_MODE_ALIASES: dict[str, ShellWriteTextFileMode] = {
     **{mode: mode for mode in SHELL_WRITE_TEXT_FILE_MODES},
     **{alias: "on" for alias in TRUE_ACTION_ALIASES},
@@ -540,16 +543,28 @@ class CompactionSettings(BaseModel):
         default=True,
         description="Automatically compact history when context usage crosses the threshold",
     )
-    threshold: float = Field(
-        default=0.85,
+    threshold: float | None = Field(
+        default=None,
         gt=0.0,
         le=1.0,
-        description="Fraction of the model context window that triggers auto-compaction",
+        description=(
+            "Fraction of the model context window that triggers auto-compaction, for every "
+            "model. Unset uses the model's default (e.g. Grok 4.7 compacts at 190k tokens), "
+            "else 0.85. A model string's compact_at overrides it"
+        ),
     )
     keep_turns: int = Field(
         default=2,
         ge=0,
         description="Number of recent complete turns kept verbatim after compaction",
+    )
+    strategy: Literal["auto", "client"] = Field(
+        default="auto",
+        description=(
+            "How compaction is performed. 'auto' uses provider-native compaction where the "
+            "model supports it and fast-agent's summary otherwise; 'client' always uses "
+            "fast-agent's summary"
+        ),
     )
     prompt: str | None = Field(
         default=None,
@@ -560,6 +575,32 @@ class CompactionSettings(BaseModel):
     )
     model_config = ConfigDict(extra="ignore")
     _config_file: str | None = PrivateAttr(default=None)
+
+    def configured_prompt(self) -> str | None:
+        """The configured summarization prompt (inline text or file contents), if any.
+
+        Relative file paths resolve from the config file's directory. An empty or
+        unreadable setting means no custom prompt: fast-agent's built-in one applies.
+        """
+        configured = self.prompt
+        if not configured or not configured.strip():
+            return None
+        candidate = configured.strip()
+        if len(candidate) < 1024 and "\n" not in candidate:
+            try:
+                path = Path(candidate).expanduser()
+                if not path.is_absolute() and self._config_file:
+                    path = Path(self._config_file).expanduser().resolve().parent / path
+                if path.is_file():
+                    return path.read_text(encoding="utf-8").strip() or None
+            except OSError:
+                pass
+        return configured
+
+    @property
+    def has_custom_prompt(self) -> bool:
+        """Whether a custom prompt is configured; it requires a written summary."""
+        return self.configured_prompt() is not None
 
 
 class MCPRootSettings(BaseModel):
@@ -1164,6 +1205,15 @@ class CopilotSettings(BaseModel):
     )
 
     runtime_timeout_seconds: float = Field(default=30.0, gt=0)
+    native_compaction: bool = Field(
+        default=NATIVE_COMPACTION_DEFAULT,
+        description=(
+            "Compact GPT (Responses) model history into OpenAI's provider-native "
+            "checkpoint instead of fast-agent's summary. Override per model with "
+            "?compaction=native|client. Claude models use server-side threshold "
+            "compaction unless the model string sets compaction=client"
+        ),
+    )
     cache_mode: Literal["off", "prompt", "auto"] = Field(
         default="auto",
         description=(
@@ -1371,6 +1421,14 @@ class ResponsesProviderSettingsBase(BaseModel):
         description="Responses service tier: fast (priority) or flex.",
     )
     web_search: OpenAIWebSearchSettings = Field(default_factory=OpenAIWebSearchSettings)
+    native_compaction: bool = Field(
+        default=NATIVE_COMPACTION_DEFAULT,
+        description=(
+            "Compact history into OpenAI's provider-native checkpoint (compaction_trigger) "
+            "instead of fast-agent's summary, under compaction.strategy 'auto'. Override "
+            "per model with ?compaction=native|client. Responses and Codex Responses only"
+        ),
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -1543,6 +1601,14 @@ class XAISettings(BaseModel):
     stream_tool_calls: bool = Field(
         default=False,
         description="Stream experimental function-call argument deltas from Grok 4.5/4.6.",
+    )
+    native_compaction: bool = Field(
+        default=NATIVE_COMPACTION_DEFAULT,
+        description=(
+            "Compact history into xAI's provider-native checkpoint (/responses/compact) "
+            "instead of fast-agent's summary, under compaction.strategy 'auto'. Override "
+            "per model with ?compaction=native|client"
+        ),
     )
     image_upload_mode: Literal["inline", "public_url"] = Field(
         default="public_url",

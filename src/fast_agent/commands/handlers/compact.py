@@ -17,6 +17,11 @@ from fast_agent.history.compaction import (
     persist_compacted_session,
     plan_compaction,
     resolve_compaction_prompt,
+    uses_native_compaction,
+)
+from fast_agent.llm.compaction_support import (
+    in_request_compaction_trigger,
+    resolve_compact_at,
 )
 from fast_agent.ui.compaction_display import compaction_summary_lines, context_bar
 
@@ -73,8 +78,9 @@ async def handle_compact(
         title="History compacted",
         agent_name=agent_name,
     )
+    kept = "Summary" if not result.is_native else "Provider checkpoint"
     outcome.add_message(
-        "Summary kept in history (see /history). Restore with /history load <archive> if needed.",
+        f"{kept} kept in history (see /history). Restore with /history load <archive> if needed.",
         channel="system",
         agent_name=agent_name,
     )
@@ -116,7 +122,11 @@ async def handle_compact_preview(
     lines.append(context_line)
 
     detail = Text()
-    detail.append(f"{len(plan.compact_region)} messages would be summarized")
+    native = uses_native_compaction(agent.llm, settings)
+    detail.append(
+        f"{len(plan.compact_region)} messages would be "
+        + ("compacted into a provider checkpoint" if native else "summarized")
+    )
     if plan.templates:
         detail.append(f"  •  {len(plan.templates)} template messages kept", style="dim")
     detail.append(
@@ -125,11 +135,15 @@ async def handle_compact_preview(
     )
     lines.append(detail)
 
-    auto_state = (
-        f"auto-compaction at {settings.threshold * 100:.0f}% of context window"
-        if settings.auto
-        else "auto-compaction off"
-    )
+    trigger = in_request_compaction_trigger(agent.llm, settings)
+    if not settings.auto:
+        auto_state = "auto-compaction off"
+    elif trigger is not None:
+        auto_state = f"provider compacts in-request at {trigger:,} input tokens"
+    else:
+        auto_state = (
+            f"auto-compaction at {resolve_compact_at(agent.llm, settings).describe(window)}"
+        )
     lines.append(Text(auto_state + "  •  tune with compaction settings in config", style="dim"))
 
     outcome.add_message(
