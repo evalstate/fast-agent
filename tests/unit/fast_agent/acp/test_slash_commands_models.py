@@ -10,6 +10,7 @@ import pytest
 from fast_agent.acp.acp_aware_mixin import ACPCommand
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.core.fastagent import AgentInstance
+from fast_agent.llm.compaction_support import CompactionSupport
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 
@@ -54,6 +55,7 @@ class _UppercaseCommandAgent(_Agent):
 
 
 class _FastModeLlm:
+    compaction_support = CompactionSupport.CLIENT
     service_tier_supported = True
     available_service_tiers: tuple[str, ...] = ("fast", "flex")
     task_budget_supported = False

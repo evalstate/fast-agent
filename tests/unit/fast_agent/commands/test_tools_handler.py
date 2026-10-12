@@ -10,10 +10,12 @@ from fast_agent.commands.context import CommandContext, NonInteractiveCommandIOB
 from fast_agent.commands.handlers.model import handle_model_web_search
 from fast_agent.commands.handlers.tools import handle_list_tools
 from fast_agent.config import Settings
+from fast_agent.llm.compaction_support import CompactionSupport
 from fast_agent.llm.provider_types import Provider
 
 
 class _MutableLlm:
+    compaction_support = CompactionSupport.CLIENT
     provider = Provider.RESPONSES
     model_name = "gpt-5"
     model_info = None
