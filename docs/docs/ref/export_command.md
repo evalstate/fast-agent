@@ -13,7 +13,7 @@ social:
 # `fast-agent export` command
 
 Use `fast-agent export` to export a persisted session as Codex-style JSONL or
-an [ATIF v1.7](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)
+an [ATIF v1.8](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)
 JSON trajectory. You can write the trace locally, upload it to a Hugging Face
 URL, or do both in one step.
 
@@ -41,7 +41,7 @@ If omitted, `fast-agent export` uses the latest persisted session.
 | `--list` | List recent sessions instead of exporting. Cannot be combined with export options. |
 | `--agent`, `-a <name>` | Export a specific agent history from the session. |
 | `--output`, `-o <path>` | Write the trace to this file path. Parent directories are created as needed. |
-| `--format`, `--export-format codex\|atif` | Select Codex JSONL or ATIF v1.7 JSON. Defaults to `codex`. |
+| `--format`, `--export-format codex\|atif` | Select Codex JSONL or ATIF v1.8 JSON. Defaults to `codex`. |
 | `--hf-url <hf://...>` | Upload the exported trace to a Hugging Face URL. Supports `hf://buckets/...` and `hf://datasets/...`. |
 | `--hf-dataset <owner/name>` | Compatibility option for uploading to a Hugging Face dataset repo. Prefer `--hf-url` for new workflows. |
 | `--hf-dataset-path <path>` | Target file or folder path inside the dataset repo. Requires `--hf-dataset`. |
@@ -88,11 +88,15 @@ fast-agent export latest --privacy-filter --download-privacy-filter
 
 ## Behavior
 
-- The default export format is `codex` JSONL. `atif` writes a single ATIF-v1.7
+- The default export format is `codex` JSONL. `atif` writes a single ATIF-v1.8
   JSON document and embeds recorded subagent trajectories with resolvable IDs.
-- `--format atif` is pinned to ATIF v1.7. Future schema versions require an
+- `--format atif` is pinned to ATIF v1.8. Future schema versions require an
   explicit format implementation; existing ATIF output will not silently
   change versions.
+- ATIF exports inline image and audio content as `data:` URIs in the content
+  part's `source.path`. Audio MIME aliases such as `audio/mp3` and `audio/x-wav`
+  are normalized to the canonical ATIF types; media types ATIF cannot represent
+  are omitted.
 - If a stream gets interrupted, fast-agent keeps the usage recorded for completed
   attempts. Harbor's updated adapter includes that usage in run totals, with a
   note that the interrupted attempt's usage is unknown.

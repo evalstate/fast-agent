@@ -4,7 +4,7 @@ This suite validates the three artifacts produced by a real fast-agent run:
 
 1. persisted `fast-agent-home/sessions/<id>/` state and histories;
 2. an exported Codex rollout JSONL;
-3. an exported ATIF v1.7 trajectory.
+3. an exported ATIF v1.8 trajectory.
 
 The inspector cross-checks per-turn Codex token records against ATIF metrics,
 validates complete ATIF aggregates, checks cache/reasoning subset invariants,

@@ -984,7 +984,7 @@ async def test_run_cli_flow_writes_direct_atif_trajectory_when_history_disabled(
     )
 
     payload = json.loads(output.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "ATIF-v1.7"
+    assert payload["schema_version"] == "ATIF-v1.8"
     assert payload["agent"]["extra"]["target_agent"] == "agent"
     assert [step["source"] for step in payload["steps"]] == ["system", "user", "agent"]
     assert payload["steps"][2]["message"] == "done"
@@ -1050,7 +1050,7 @@ async def test_run_cli_flow_writes_atif_when_result_export_fails(
         )
 
     payload = json.loads(trajectory_output.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "ATIF-v1.7"
+    assert payload["schema_version"] == "ATIF-v1.8"
     assert payload["steps"][2]["message"] == "done"
 
 

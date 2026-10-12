@@ -7,6 +7,9 @@ from pydantic import ValidationError
 
 from fast_agent.session.atif_models import (
     AtifAgent,
+    AtifAudioSource,
+    AtifContentPart,
+    AtifImageSource,
     AtifMetrics,
     AtifObservation,
     AtifObservationResult,
@@ -118,3 +121,38 @@ def test_harbor_multiagent_golden_fixture_is_valid_atif_v17() -> None:
     assert trajectory.final_metrics.total_steps == len(trajectory.steps)
     assert trajectory.subagent_trajectories is not None
     assert trajectory.subagent_trajectories[0].trajectory_id == "traj_child_golden"
+
+
+def test_atif_v18_audio_content_part_round_trips() -> None:
+    trajectory = _trajectory(
+        AtifStep(
+            step_id=1,
+            source="user",
+            message=[
+                AtifContentPart(type="text", text="Answer the question in the recording."),
+                AtifContentPart(
+                    type="audio",
+                    source=AtifAudioSource(
+                        media_type="audio/wav", path="audio/q.wav", duration_sec=3.2
+                    ),
+                ),
+            ],
+        )
+    )
+
+    payload = trajectory.to_json_dict()
+
+    assert payload["schema_version"] == "ATIF-v1.8"
+    assert AtifTrajectory.model_validate(payload) == trajectory
+
+
+def test_atif_content_part_rejects_source_kind_that_disagrees_with_type() -> None:
+    with pytest.raises(ValidationError, match="matching audio source"):
+        AtifContentPart(
+            type="audio",
+            source=AtifImageSource(media_type="image/png", path="images/a.png"),
+        )
+    with pytest.raises(ValidationError, match="matching image source"):
+        AtifContentPart.model_validate(
+            {"type": "image", "source": {"media_type": "audio/wav", "path": "audio/a.wav"}}
+        )
