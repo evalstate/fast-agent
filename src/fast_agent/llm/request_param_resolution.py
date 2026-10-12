@@ -3,7 +3,11 @@ from __future__ import annotations
 from inspect import getattr_static
 from typing import TYPE_CHECKING, Any
 
-from fast_agent.constants import DEFAULT_MAX_ITERATIONS
+from fast_agent.constants import (
+    DEFAULT_HIGH_REASONING_STREAMING_TIMEOUT,
+    DEFAULT_MAX_ITERATIONS,
+    DEFAULT_STREAMING_TIMEOUT,
+)
 from fast_agent.core.model_resolution import get_context_model_references, resolve_model_reference
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.request_params import RequestParams
@@ -13,6 +17,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from fast_agent.context import Context
+    from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
     from fast_agent.llm.resolved_model import ResolvedModelSpec
 
 
@@ -137,4 +142,34 @@ def merge_request_params(
         default_params.model_dump(),
         provided_params.model_dump(exclude_unset=True),
     )
-    return RequestParams(**merged)
+    result = RequestParams(**merged)
+    if (
+        "streaming_timeout"
+        not in default_params.model_fields_set | provided_params.model_fields_set
+    ):
+        # Constructing from a full dump must not turn an automatic timeout into an override.
+        result.model_fields_set.discard("streaming_timeout")
+    return result
+
+
+def apply_reasoning_streaming_timeout(
+    params: RequestParams,
+    reasoning: ReasoningEffortSetting | None,
+) -> RequestParams:
+    """Resolve the automatic timeout without pinning it across reasoning changes."""
+    if "streaming_timeout" in params.model_fields_set:
+        return params
+    extended = (
+        reasoning is not None
+        and reasoning.kind == "effort"
+        and reasoning.value in ("high", "xhigh", "max")
+    )
+    result = params.model_copy(
+        update={
+            "streaming_timeout": (
+                DEFAULT_HIGH_REASONING_STREAMING_TIMEOUT if extended else DEFAULT_STREAMING_TIMEOUT
+            )
+        }
+    )
+    result.model_fields_set.discard("streaming_timeout")
+    return result

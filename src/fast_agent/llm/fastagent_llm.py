@@ -59,6 +59,7 @@ from fast_agent.llm.reasoning_effort import (
     validate_reasoning_setting,
 )
 from fast_agent.llm.request_param_resolution import (
+    apply_reasoning_streaming_timeout,
     get_provider_config,
     initialize_base_default_params,
     merge_request_params,
@@ -629,6 +630,12 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def compaction_support(self) -> CompactionSupport:
         """How this LLM can compact history; providers override for native compaction."""
         return CompactionSupport.CLIENT
+
+    @property
+    def default_compaction_threshold(self) -> float | None:
+        """The model's auto-compaction threshold, used when config leaves it unset."""
+        params = self._get_model_params(self.default_request_params.model or self._model_name)
+        return params.compaction_threshold if params is not None else None
 
     @property
     def compaction_mode(self) -> CompactionMode | None:
@@ -1463,11 +1470,15 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 If unspecified, self.default_request_params will be used.
         """
 
-        # If user provides overrides, merge them with defaults
-        if request_params:
-            return self._merge_request_params(self.default_request_params, request_params)
-
-        return self.default_request_params.model_copy()
+        resolved = (
+            self._merge_request_params(self.default_request_params, request_params)
+            if request_params is not None
+            else self.default_request_params.model_copy()
+        )
+        reasoning = self.reasoning_effort
+        if reasoning is None and self.reasoning_effort_spec is not None:
+            reasoning = self.reasoning_effort_spec.default
+        return apply_reasoning_streaming_timeout(resolved, reasoning)
 
     @classmethod
     def convert_message_to_message_param(

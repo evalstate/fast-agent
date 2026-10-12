@@ -119,6 +119,8 @@ class SessionRequestSettingsSnapshot(BaseModel):
     max_iterations: int | None = None
     tool_result_mode: Literal["postprocess", "passthrough", "selectable"] | None = None
     streaming_timeout: float | None = None
+    streaming_timeout_configured: bool | None = None
+    """False keeps reasoning-dependent defaults; None preserves legacy snapshot values."""
     service_tier: Literal["fast", "flex"] | None = None
 
 
@@ -1071,6 +1073,7 @@ def _request_settings_snapshot_from_params(
         max_iterations=params.max_iterations,
         tool_result_mode=params.tool_result_mode,
         streaming_timeout=params.streaming_timeout,
+        streaming_timeout_configured="streaming_timeout" in params.model_fields_set,
         service_tier=params.service_tier,
     )
     return snapshot if snapshot.model_dump(exclude_none=True) else None

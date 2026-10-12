@@ -44,6 +44,7 @@ from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.types import RequestParams
 from fast_agent.ui.model_picker_common import build_snapshot
 
@@ -777,6 +778,10 @@ defaults:
 
     assert default_llm.default_request_params.streaming_timeout == 45.5
     assert overridden_llm.default_request_params.streaming_timeout is None
+    for llm in (default_llm, overridden_llm):
+        llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value="high"))
+    assert default_llm.get_request_params().streaming_timeout == 45.5
+    assert overridden_llm.get_request_params().streaming_timeout is None
 
 
 def test_overlay_streaming_timeout_none_disables_enforcement(tmp_path: Path) -> None:
@@ -802,6 +807,8 @@ defaults:
         )
 
     assert llm.default_request_params.streaming_timeout is None
+    llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value="high"))
+    assert llm.get_request_params().streaming_timeout is None
 
 
 @pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), True, "soon"])

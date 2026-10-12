@@ -33,7 +33,7 @@
 | `emit_loop_progress` | `bool` | `False` |  |
 | `tool_result_mode` | `Literal['postprocess', 'passthrough', 'selectable']` | `'postprocess'` |  |
 | `batch_context` | `fast_agent.llm.request_params.BatchRequestContext | None` | `None` |  |
-| `streaming_timeout` | `float | None` | `150.0` |  |
+| `streaming_timeout` | `float | None` | `150.0` | Maximum idle time between provider stream events. Without an explicit override, the default is 150 seconds, or 300 seconds for effective named reasoning effort `high`, `xhigh`, or `max` (including model defaults and runtime changes). Numeric budgets and on/off reasoning retain the base default. Explicit values always win; `None` disables idle timeout enforcement. Provider-specific service tiers may have longer automatic defaults. |
 | `top_p` | `float | None` | `None` |  |
 | `top_k` | `int | None` | `None` |  |
 | `min_p` | `float | None` | `None` |  |

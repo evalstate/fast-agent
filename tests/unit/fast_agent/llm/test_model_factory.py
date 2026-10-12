@@ -17,6 +17,8 @@ import pytest
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.config import Settings
+from fast_agent.context import Context
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
 from fast_agent.llm.model_database import ModelDatabase
@@ -859,7 +861,7 @@ def test_xai_high_reasoning_defaults_to_extended_streaming_timeout(model: str) -
         request_params=RequestParams(use_history=False),
     )
 
-    assert llm.default_request_params.streaming_timeout == 300.0
+    assert llm.get_request_params().streaming_timeout == 300.0
 
 
 def test_model_streaming_timeout_query_overrides_preset_default() -> None:
@@ -1602,10 +1604,14 @@ def test_gpt6_reasoning_default_by_route_and_override(
     model: str, default: str, override: str | None
 ) -> None:
     query = f"?reasoning={override}" if override else ""
-    llm = ModelFactory.create_factory(f"{model}{query}")(LlmAgent(AgentConfig(name="test")))
+    agent = LlmAgent(AgentConfig(name="test"), context=Context(config=Settings()))
+    llm = ModelFactory.create_factory(f"{model}{query}")(agent, context=agent.context)
 
     assert isinstance(llm, ResponsesLLM)
     assert llm._resolve_reasoning_effort() == (override or default)
+    assert llm.get_request_params().streaming_timeout == (
+        300.0 if (override or default) == "high" else 150.0
+    )
     # The request effort matches what /model reports as the default.
     if override is None:
         assert llm.reasoning_effort_spec is not None

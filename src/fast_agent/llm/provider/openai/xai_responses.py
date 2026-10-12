@@ -9,6 +9,7 @@ from mcp_types import ContentBlock, TextContent
 from openai import APIError, AsyncOpenAI
 from pydantic import ValidationError
 
+from fast_agent.constants import DEFAULT_HIGH_REASONING_STREAMING_TIMEOUT
 from fast_agent.core.exceptions import ModelConfigError, ProviderKeyError
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_websocket import (
@@ -43,7 +44,7 @@ if TYPE_CHECKING:
     from fast_agent.types import RequestParams
 
 DEFAULT_XAI_MODEL = "grok-4.7"
-GROK_EXTENDED_STREAMING_TIMEOUT: Final = 300.0
+GROK_EXTENDED_STREAMING_TIMEOUT: Final = DEFAULT_HIGH_REASONING_STREAMING_TIMEOUT
 XAI_BASE_URL = "https://api.x.ai/v1"
 XAI_EXPERIMENTAL_STREAMING_MODELS: Final = frozenset({"grok-4.5", "grok-4.6"})
 XAI_X_SEARCH_INTERNAL_TOOL_NAMES = frozenset(
@@ -79,7 +80,6 @@ class XAIResponsesLLM(ResponsesLLM):
         provider = kwargs.pop("provider", provider)
         self.config_section = "xai"
         super().__init__(provider=provider, **kwargs)
-        self._apply_reasoning_streaming_timeout_default()
         self._x_search_override: bool | None = (
             bool(x_search_override) if isinstance(x_search_override, bool) else None
         )
@@ -91,20 +91,6 @@ class XAIResponsesLLM(ResponsesLLM):
             else None
         )
         self._image_upload_warning_emitted = False
-
-    def _apply_reasoning_streaming_timeout_default(self) -> None:
-        params = self.default_request_params
-        if (
-            self._init_request_params is not None
-            and "streaming_timeout" in self._init_request_params.model_fields_set
-        ):
-            return
-        effort = self._resolve_reasoning_effort()
-        if (params.model == "grok-4.5" and effort == "high") or (
-            params.model in {"grok-4.6", "grok-4.7", "grok-4.7-build-fast"}
-            and effort in {"high", "xhigh"}
-        ):
-            params.streaming_timeout = GROK_EXTENDED_STREAMING_TIMEOUT
 
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
         params = self._initialize_default_params_with_model_fallback(

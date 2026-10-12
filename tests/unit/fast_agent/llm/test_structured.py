@@ -5,6 +5,8 @@ from mcp import Tool
 from mcp_types import CallToolResult, TextContent
 from pydantic import BaseModel
 
+from fast_agent.config import Settings
+from fast_agent.context import Context
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
@@ -30,7 +32,7 @@ class StructuredValue(BaseModel):
 
 class _CompatibleStructuredHarness(OpenAICompatibleLLM):
     def __init__(self, model: str = "qwen/qwen3-32b") -> None:
-        self.default_request_params = RequestParams(model=model)
+        super().__init__(model=model, context=Context(config=Settings()))
 
     async def _apply_prompt_provider_specific(
         self,

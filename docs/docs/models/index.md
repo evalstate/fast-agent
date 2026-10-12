@@ -350,6 +350,8 @@ Reasoning, Verbosity and Task Budget settings are also available from the `/mode
 
 ### Stream idle timeout
 
+--8<-- "_generated/streaming_timeout_defaults.md"
+
 Set the maximum time between provider stream events with `streaming_timeout`:
 
 - `responses.gpt-5.5?streaming_timeout=300` waits up to 300 seconds between events.
@@ -357,7 +359,8 @@ Set the maximum time between provider stream events with `streaming_timeout`:
 
 The value must be a positive, finite number of seconds or `none`. An explicit
 request-level `RequestParams(streaming_timeout=...)` value takes precedence over the model-string
-default.
+default. Older saved sessions retain their recorded timeout rather than being
+reinterpreted as automatic.
 
 ### Managed-process wait period
 

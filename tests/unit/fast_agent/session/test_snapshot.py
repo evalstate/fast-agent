@@ -566,6 +566,7 @@ def test_capture_session_snapshot_maps_runtime_state_for_all_known_agents(tmp_pa
         max_iterations=foo_params.max_iterations,
         tool_result_mode=foo_params.tool_result_mode,
         streaming_timeout=foo_params.streaming_timeout,
+        streaming_timeout_configured=False,
     )
 
     bar_snapshot = snapshot.continuation.agents["bar"]
@@ -588,6 +589,7 @@ def test_capture_session_snapshot_maps_runtime_state_for_all_known_agents(tmp_pa
         max_iterations=7,
         tool_result_mode="selectable",
         streaming_timeout=12.5,
+        streaming_timeout_configured=True,
         service_tier="flex",
     )
     assert bar_snapshot.card_provenance == [

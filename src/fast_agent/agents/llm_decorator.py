@@ -338,6 +338,20 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             self._llm.instruction = instruction
             self._llm.default_request_params.system_prompt = instruction
 
+    def restore_streaming_timeout(self, timeout: float | None, *, configured: bool) -> None:
+        """Keep a restored timeout policy in the caches used by reattachment and cloning."""
+        if self._default_request_params is None:
+            self._default_request_params = RequestParams()
+        cached = [self._default_request_params]
+        if self._llm_attach_kwargs is not None:
+            overrides = self._llm_attach_kwargs.get("request_params")
+            if isinstance(overrides, RequestParams):
+                cached.append(overrides)
+        for params in cached:
+            params.streaming_timeout = timeout
+            if not configured:
+                params.model_fields_set.discard("streaming_timeout")
+
     async def set_model(self, model: str | None) -> None:
         """Set the default model for this agent and reattach the LLM if needed."""
         if model is None:
@@ -1564,7 +1578,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             if override_params:
                 # Merge only the explicitly set values from override_params
                 for k, v in override_params.model_dump(exclude_unset=True).items():
-                    if v is not None:
+                    if v is not None or k == "streaming_timeout":
                         setattr(result, k, v)
 
         # Apply model override if specified

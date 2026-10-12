@@ -75,6 +75,9 @@ DEFAULT_MAX_ITERATIONS = 9999
 DEFAULT_STREAMING_TIMEOUT = 150.0
 """Default idle timeout in seconds between provider streaming events."""
 
+DEFAULT_HIGH_REASONING_STREAMING_TIMEOUT = 300.0
+"""Default stream idle timeout for high, xhigh, and max reasoning effort."""
+
 MIN_PROCESS_POLL_WAIT_SECONDS = 10
 """Minimum positive managed-process wait exposed to models."""
 

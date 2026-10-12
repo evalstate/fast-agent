@@ -227,6 +227,18 @@ def generate_request_params_reference() -> str:
     return "".join(lines)
 
 
+def generate_streaming_timeout_defaults() -> str:
+    from fast_agent.types import RequestParams
+
+    description = RequestParams.model_fields["streaming_timeout"].description
+    assert description is not None
+    return (
+        "<!-- GENERATED FILE — DO NOT EDIT. Source: generate_reference_docs.py -->\n\n"
+        + description
+        + "\n"
+    )
+
+
 def _signature_without_self(func: Any) -> inspect.Signature:
     sig = _compact_signature_defaults(inspect.signature(func))
     params = list(sig.parameters.values())
@@ -1567,6 +1579,9 @@ def main() -> int:
         _write(GENERATED_DIR / "harness_reference.md", generate_harness_reference())
         _write(GENERATED_DIR / "extension_reference.md", generate_extension_reference())
         _write(GENERATED_DIR / "request_params_reference.md", generate_request_params_reference())
+        _write(
+            GENERATED_DIR / "streaming_timeout_defaults.md", generate_streaming_timeout_defaults()
+        )
         _write(GENERATED_DIR / "models_reference.md", generate_models_reference())
         _write(
             GENERATED_DIR / "current_models_responses.md", generate_current_model_table("responses")

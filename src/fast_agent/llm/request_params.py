@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeGuard
 from mcp_types import CreateMessageRequestParams, SamplingMessage
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 
-from fast_agent.constants import DEFAULT_MAX_ITERATIONS, DEFAULT_STREAMING_TIMEOUT
+from fast_agent.constants import (
+    DEFAULT_HIGH_REASONING_STREAMING_TIMEOUT,
+    DEFAULT_MAX_ITERATIONS,
+    DEFAULT_STREAMING_TIMEOUT,
+)
 
 if TYPE_CHECKING:
     from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
@@ -165,11 +169,18 @@ class RequestParams(CreateMessageRequestParams):
     Internal batch row context. Excluded from provider payloads and tool calls.
     """
 
-    streaming_timeout: float | None = DEFAULT_STREAMING_TIMEOUT
-    """
-    Maximum idle time in seconds to wait between streaming events. Set to None
-    to disable idle timeout enforcement.
-    """
+    streaming_timeout: float | None = Field(
+        default=DEFAULT_STREAMING_TIMEOUT,
+        description=(
+            "Maximum idle time between provider stream events. Without an explicit override, "
+            f"the default is {DEFAULT_STREAMING_TIMEOUT:g} seconds, or "
+            f"{DEFAULT_HIGH_REASONING_STREAMING_TIMEOUT:g} seconds for effective named reasoning "
+            "effort `high`, `xhigh`, or `max` (including model defaults and runtime changes). "
+            "Numeric budgets and on/off reasoning retain the base default. "
+            "Explicit values always win; `None` disables idle timeout enforcement. "
+            "Provider-specific service tiers may have longer automatic defaults."
+        ),
+    )
 
     top_p: float | None = Field(
         default=None,

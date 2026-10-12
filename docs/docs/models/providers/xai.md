@@ -147,9 +147,8 @@ The opt-in experimental Responses settings `reasoning_summary` and
 for Grok 4.7 or Grok 4.7 Fast.
 
 
-Grok 4.5 with `reasoning=high`, and Grok 4.6/4.7 (including Fast) with `reasoning=high` or
-`reasoning=xhigh`, default to a 300-second idle timeout between stream events.
-Other model and reasoning combinations retain the global 150-second default.
+--8<-- "_generated/streaming_timeout_defaults.md"
+
 Set `streaming_timeout=<seconds>` to override the default, or
 `streaming_timeout=none` to disable stream-idle enforcement.
 

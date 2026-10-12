@@ -1462,6 +1462,10 @@ def _dump_request_params(params: RequestParams | None) -> dict[str, Any] | None:
         exclude_defaults=True,
         exclude={"messages", "systemPrompt", "use_history", "model", "batch_context"},
     )
+    if "streaming_timeout" in params.model_fields_set:
+        dump["streaming_timeout"] = params.streaming_timeout
+    else:
+        dump.pop("streaming_timeout", None)
     return dump or None
 
 
