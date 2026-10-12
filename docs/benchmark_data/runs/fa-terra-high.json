@@ -23,8 +23,8 @@
   "excluded_trials": [],
   "disqualified_trials": [],
   "slots": 445,
-  "passes": 346,
-  "score": 77.75,
+  "passes": 340,
+  "score": 76.4,
   "tasks": {
     "adaptive-rejection-sampler": "11011",
     "bn-fit-modify": "11111",
@@ -56,7 +56,7 @@
     "financial-document-processor": "11110",
     "fix-code-vulnerability": "11111",
     "fix-git": "11111",
-    "fix-ocaml-gc": "11111",
+    "fix-ocaml-gc": "x11x1",
     "gcode-to-text": "00100",
     "git-leak-recovery": "11111",
     "git-multibranch": "11111",
@@ -91,7 +91,7 @@
     "protein-assembly": "11110",
     "prove-plus-comm": "11111",
     "pypi-server": "11111",
-    "pytorch-model-cli": "11111",
+    "pytorch-model-cli": "x1xxx",
     "pytorch-model-recovery": "01110",
     "qemu-alpine-ssh": "11111",
     "qemu-startup": "11111",
@@ -1652,6 +1652,97 @@
     ]
   },
   "safety_cells": {},
+  "task_costs": {
+    "adaptive-rejection-sampler": 1.55756,
+    "bn-fit-modify": 0.433641,
+    "break-filter-js-from-html": 1.4164,
+    "build-cython-ext": 2.406163,
+    "build-pmars": 1.139823,
+    "build-pov-ray": 1.838491,
+    "caffe-cifar-10": 7.446924,
+    "cancel-async-tasks": 0.193269,
+    "chess-best-move": 0.517513,
+    "circuit-fibsqrt": 1.490823,
+    "cobol-modernization": 1.033704,
+    "code-from-image": 0.097948,
+    "compile-compcert": null,
+    "configure-git-webserver": 1.265767,
+    "constraints-scheduling": 0.148728,
+    "count-dataset-tokens": 0.575653,
+    "crack-7z-hash": null,
+    "custom-memory-heap-crash": 1.353719,
+    "db-wal-recovery": 0.662064,
+    "distribution-search": 0.282767,
+    "dna-assembly": 1.664095,
+    "dna-insert": 0.729418,
+    "extract-elf": 0.694325,
+    "extract-moves-from-video": 4.163089,
+    "feal-differential-cryptanalysis": 0.734016,
+    "feal-linear-cryptanalysis": 0.768635,
+    "filter-js-from-html": 1.20002,
+    "financial-document-processor": 1.946192,
+    "fix-code-vulnerability": 1.03956,
+    "fix-git": 0.34194,
+    "fix-ocaml-gc": 4.862469,
+    "gcode-to-text": 2.728687,
+    "git-leak-recovery": 0.305094,
+    "git-multibranch": 0.821455,
+    "gpt2-codegolf": 2.644451,
+    "headless-terminal": 0.696998,
+    "hf-model-inference": 0.564911,
+    "install-windows-3.11": 5.563897,
+    "kv-store-grpc": 0.228484,
+    "large-scale-text-editing": 0.451443,
+    "largest-eigenval": 1.0434,
+    "llm-inference-batching-scheduler": 0.766104,
+    "log-summary-date-ranges": 0.158311,
+    "mailman": 2.040371,
+    "make-doom-for-mips": null,
+    "make-mips-interpreter": 8.700784,
+    "mcmc-sampling-stan": 1.805894,
+    "merge-diff-arc-agi-task": 0.688467,
+    "model-extraction-relu-logits": 1.463521,
+    "modernize-scientific-stack": 0.218972,
+    "mteb-leaderboard": 1.938633,
+    "mteb-retrieve": 0.385473,
+    "multi-source-data-merger": 0.276033,
+    "nginx-request-logging": 0.21924,
+    "openssl-selfsigned-cert": 0.15327,
+    "overfull-hbox": 0.922897,
+    "password-recovery": 1.230495,
+    "path-tracing": 3.564819,
+    "path-tracing-reverse": 4.406917,
+    "polyglot-c-py": 0.782553,
+    "polyglot-rust-c": 0.772168,
+    "portfolio-optimization": 0.885292,
+    "protein-assembly": 1.7152,
+    "prove-plus-comm": 0.225392,
+    "pypi-server": 0.230453,
+    "pytorch-model-cli": 0.81231,
+    "pytorch-model-recovery": 0.629313,
+    "qemu-alpine-ssh": 2.300153,
+    "qemu-startup": 0.187015,
+    "query-optimize": 0.795456,
+    "raman-fitting": 1.543619,
+    "regex-chess": 4.082276,
+    "regex-log": 0.321536,
+    "reshard-c4-data": 1.422083,
+    "rstan-to-pystan": 3.12089,
+    "sam-cell-seg": 1.068452,
+    "sanitize-git-repo": 1.68588,
+    "schemelike-metacircular-eval": 2.158214,
+    "sparql-university": 0.351073,
+    "sqlite-db-truncate": 0.25701,
+    "sqlite-with-gcov": 0.559624,
+    "torch-pipeline-parallelism": 0.959419,
+    "torch-tensor-parallelism": 0.579848,
+    "train-fasttext": null,
+    "tune-mjcf": 0.93319,
+    "video-processing": 2.078753,
+    "vulnerable-secret": 0.317238,
+    "winning-avg-corewars": 1.380275,
+    "write-compressor": 1.819423
+  },
   "errors": {
     "AgentTimeoutError": 6,
     "NonZeroAgentExitCodeError": 1
@@ -1687,20 +1778,20 @@
     "PR closed unmerged (community submissions closed); not on the official leaderboard."
   ],
   "scan": {
-    "version": "0.8.0",
+    "version": "0.8.3",
     "scope": "all trials in the run's jobs",
     "trials": 445,
     "rewarded": 346,
     "accuracy": 77.75,
     "accuracy_se": 1.27,
     "findings_medium_plus": {
-      "trials": 23,
-      "rewarded": 17,
+      "trials": 22,
+      "rewarded": 16,
       "by_highest_priority": {
         "high": 6,
-        "medium": 17,
+        "medium": 16,
         "low": 4,
-        "info": 176,
+        "info": 177,
         "none": 236,
         "unavailable": 6
       },
@@ -1741,13 +1832,6 @@
           "rewarded": 2
         },
         {
-          "check": "observation.install_lure",
-          "title": "Install lure seen in a tool result",
-          "priority": "medium",
-          "trials": 1,
-          "rewarded": 1
-        },
-        {
           "check": "side_channel.agent_history_probe",
           "title": "Stored agent sessions listed or searched",
           "priority": "medium",
@@ -1760,7 +1844,7 @@
       "dq_threshold": "high",
       "high_or_critical_rewarded": 6,
       "other_model_trials": 0,
-      "incomplete_evidence_rewarded": 0,
+      "incomplete_evidence_rewarded": 38,
       "accuracy_if_flagged_failed": 76.4
     },
     "awareness": {
@@ -1775,6 +1859,10 @@
           "rewarded": 0
         },
         "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "probed": {
           "trials": 0,
           "rewarded": 0
         },
@@ -1801,7 +1889,7 @@
       },
       "compacted_history": 0,
       "without_trajectory": 6,
-      "incomplete_scans": 11,
+      "incomplete_scans": 94,
       "unmetered_trials": 0
     },
     "cost": {
@@ -1847,11 +1935,6 @@
         "rewarded": 1,
         "max_priority": "medium"
       },
-      "mteb-leaderboard": {
-        "trials": 1,
-        "rewarded": 1,
-        "max_priority": "medium"
-      },
       "password-recovery": {
         "trials": 1,
         "rewarded": 1,
@@ -1874,7 +1957,7 @@
       }
     },
     "scanner": {
-      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
+      "commit": "9a482393cb55d0259942565bb28c15113b0ba858",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -1936,7 +2019,7 @@
       "merge-diff-arc-agi-task": "mllll",
       "model-extraction-relu-logits": "lllll",
       "modernize-scientific-stack": "lllll",
-      "mteb-leaderboard": "llmll",
+      "mteb-leaderboard": "lllll",
       "mteb-retrieve": "lllll",
       "multi-source-data-merger": "lllll",
       "nginx-request-logging": "lllll",
@@ -1977,5 +2060,50 @@
       "write-compressor": "lllll"
     }
   },
-  "pr": "https://github.com/harbor-framework/terminal-bench-2-1/pull/160"
+  "pr": "https://github.com/harbor-framework/terminal-bench-2-1/pull/160",
+  "review": {
+    "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+    "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+    "recorded_passes": 346,
+    "recorded_score": 77.75,
+    "disqualified": [
+      {
+        "trial": "95bb1078-4fe1-55cd-84bb-b255e1826b48",
+        "task": "fix-ocaml-gc",
+        "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (5.5), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source).",
+        "cell_index": 3
+      },
+      {
+        "trial": "7b7602b2-8972-5763-8235-51296e49d20b",
+        "task": "fix-ocaml-gc",
+        "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/caml/sizeclasses.h and runtime/shared_heap.c and others (trunk, a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source).",
+        "cell_index": 0
+      },
+      {
+        "trial": "3d9ae5e6-e837-46b3-bd40-6210fdfadac9",
+        "task": "pytorch-model-cli",
+        "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on /app/cli_tool.py, not a compiled binary (tb21.pytorch_model_cli.script_not_binary).",
+        "cell_index": 4
+      },
+      {
+        "trial": "3a53fb24-13e2-448b-8969-dff7d360b61d",
+        "task": "pytorch-model-cli",
+        "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary).",
+        "cell_index": 0
+      },
+      {
+        "trial": "ac5754cb-76fa-42f2-b6e0-1d318d433f08",
+        "task": "pytorch-model-cli",
+        "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on /app/cli_tool.py, not a compiled binary (tb21.pytorch_model_cli.script_not_binary).",
+        "cell_index": 2
+      },
+      {
+        "trial": "22f8c8be-e786-4dc9-95d8-db5d33978162",
+        "task": "pytorch-model-cli",
+        "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary).",
+        "cell_index": 3
+      }
+    ],
+    "cleared": []
+  }
 }

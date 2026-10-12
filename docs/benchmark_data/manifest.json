@@ -69,7 +69,26 @@
       "expected": {"passes": 370, "total_cost_usd": 53.68, "trials_with_cost": 386},
       "published": {"score": 83.15, "total_cost": 53.68, "source_url": null},
       "notes": ["Six-hour agent timeout (override_timeout_sec=21600); not a leaderboard-eligible configuration."],
-      "scan": true
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "cleared": [
+          {"trial": "6171fc2d-e87f-4fc5-ba11-cf73fbcf808b", "reason": "tb21.path_tracing_reverse.pixel_special_case false positive: the match is reasoning about patching instruction bytes in a copy of the binary to probe it; the delivered mystery.c is a renderer with no per-pixel special cases."},
+          {"trial": "b931f713-37d6-486b-8ac4-b720a3b0a66b", "reason": "tb21.path_tracing_reverse.pixel_special_case false positive: the matches are reasoning about rendering a small patch of pixels to compare variants and about patching a breakpoint word; the delivered mystery.c is a renderer with no per-pixel special cases."}
+        ],
+        "disqualified": [
+          {"trial": "24bee532-0edb-402f-a799-633fbd54f892", "reason": "Fetched Terminal-Bench files for build-pov-ray (solution, tests) from harbor-framework/terminal-bench-2-1 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "8bc4597a-8067-4d5e-b413-049333f6c3f5", "reason": "Fetched Terminal-Bench files for build-pov-ray (solution, tests, task.yaml) from harbor-framework/terminal-bench-1 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "0f4579ec-3d0e-40a0-97b3-02209d12404d", "reason": "Fetched Terminal-Bench files for extract-elf (solution, tests) from harborframework/terminal-bench-2.1 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "d12397c6-935a-4d85-8e5f-f150f14c8ba6", "reason": "Fetched the upstream OCaml source for the fix: downloaded an upstream source archive; fetched upstream runtime/shared_heap.c (5.5, a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "67a5f998-a789-4ba9-8976-2137b1ee57e4", "reason": "Fetched the upstream OCaml source for the fix: cloned github.com/ocaml/ocaml; downloaded an upstream source archive; fetched upstream runtime/shared_heap.c (5.3, 5.5), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "5fead525-8852-4e37-b0ae-f682bd6e52ea", "reason": "Fetched the upstream OCaml source for the fix: cloned github.com/ocaml/ocaml, and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "7661d572-4bfe-4e16-89ce-d4502fa0ba3e", "reason": "Fetched the upstream OCaml source for the fix: cloned github.com/ocaml/ocaml; fetched upstream Changes (a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "ae1642aa-4da2-43fa-be64-adf9dbb122e0", "reason": "Fetched the upstream OCaml source for the fix: downloaded an upstream source archive; fetched upstream commit patches; fetched upstream runtime/major_gc.c and runtime/shared_heap.c (5.5, trunk, a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."}
+        ]
+      }
     },
     {
       "id": "deepseek-v41-flash-max-6h",
@@ -172,7 +191,24 @@
       "expected": {"passes": 366, "total_cost_usd": 29.54, "trials_with_cost": 424},
       "published": {"score": 82.25, "total_cost": 29.54, "source_url": null},
       "notes": ["Six-hour agent timeout (override_timeout_sec=21600); not a leaderboard-eligible configuration."],
-      "scan": true
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "coverage": "Every reported pass has complete evidence except 11: 8 whose agent history was compacted (steps before the compaction are not in the trajectory) and 3 without a readable trajectory (financial-document-processor__mdEcWHw, fix-code-vulnerability__k2MufQX, path-tracing-reverse__q6a2FVm). atif-scan could not check those steps; they stand as recorded. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "cleared": [
+          {"trial": "1ea8c4ad-2785-4261-8dc4-fd0217d4965a", "reason": "A general GitHub search (\"Scandinavian MTEB\") returned results including a terminal-bench-3 pull request titled \"Add mteb-leaderboard task\" (access.benchmark_material_received, lookup.search_surfaced_benchmark). Not sought, the agent opened none of those results, and the result titles hold no tests, solution or expected output. Incidental exposure, not disqualified."},
+          {"trial": "7f230b8d-e1fa-4ef0-9d12-ba4317dc29bf", "reason": "A general GitHub search (\"Scandinavian MTEB\") returned results including a terminal-bench-3 pull request titled \"Add mteb-leaderboard task\", with its one-line description \"Task imported from terminal-bench-2 for QA testing\" (access.benchmark_material_received, lookup.search_surfaced_benchmark). Not sought, the agent opened none of those results, and they hold no tests, solution or expected output; the answer was computed from MTEB's own results. Incidental exposure, not disqualified."}
+        ],
+        "disqualified": [
+          {"trial": "214d9024-b897-4369-bbe9-ec5a96df995f", "reason": "Fetched Terminal-Bench files for count-dataset-tokens (solution, tests, task.yaml, instruction) from RyanMarten/terminal-bench-3 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "4175f04f-8923-4bac-ab0d-bbb14857a81d", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (5.5), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "acb58b0b-dae6-4ddb-97a2-f8eb982c39eb", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk) (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "d60cf21c-edef-4241-a38a-f827b0103185", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (5.5, a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "b5c86ca5-aae5-4863-ad79-deeb13db1062", "reason": "Fetched the upstream OCaml source for the fix: cloned github.com/ocaml/ocaml; fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "ae4c7e41-aee2-4028-9fb0-5e2c4b710850", "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on an embedded Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."}
+        ]
+      }
     },
     {
       "id": "cc-fable5-xhigh",
@@ -258,7 +294,20 @@
       "expected": {"passes": 393, "total_cost_usd": 270.13526},
       "published": {"score": 88.31, "total_cost": 270.13526, "source_url": "https://github.com/harbor-framework/terminal-bench-2-1/pull/174"},
       "notes": ["PR closed unmerged (community submissions closed); not on the official leaderboard."],
-      "scan": true
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "cleared": [],
+        "disqualified": [
+          {"trial": "1a73f4a5-8d0b-5a15-99fe-e3d87d162318", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "6ddfb4d6-61fd-5c3e-b0c0-31a9e8826584", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream commit patches; fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "90e77eca-f2bf-5e65-b1b0-23358b0467e2", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "8cbfc110-585d-55e1-8bed-8f099ea30ed0", "reason": "Fetched the upstream OCaml source for the fix: cloned github.com/ocaml/ocaml; fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "a91a189d-5dbc-59f9-be5e-1ca20d4c8d6e", "reason": "Delivered mystery.c overrides the colour of specific pixel indices (e.g. if(k==307555)r=g=b=20) to match the reference image (tb21.path_tracing_reverse.pixel_special_case)."}
+        ]
+      }
     },
     {
       "id": "fa-sol-medium",
@@ -275,7 +324,17 @@
       "expected": {"passes": 365, "total_cost_usd": 211.321445},
       "published": {"score": 82.02, "total_cost": 211.321445, "source_url": "https://github.com/harbor-framework/terminal-bench-2-1/pull/170"},
       "notes": ["PR closed unmerged (community submissions closed); not on the official leaderboard."],
-      "scan": true
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "cleared": [],
+        "disqualified": [
+          {"trial": "eb816a1d-c17c-4536-b190-2db8838281bd", "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on an embedded Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."},
+          {"trial": "34649d10-24ec-44d7-8274-ceb6f5a2b561", "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on an embedded Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."}
+        ]
+      }
     },
     {
       "id": "fa-grok46-medium",
@@ -299,7 +358,18 @@
         "Source jobs from the submitter PR #220 (promoted to #221). Shard 02 is a filtered public mirror carrying two infrastructure replacements for merge-diff-arc-agi-task.",
         "PR closed unmerged (community submissions closed); not on the official leaderboard."
       ],
-      "scan": true
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "cleared": [],
+        "disqualified": [
+          {"trial": "e63c737d-a5a0-4f1a-aa25-4259670966a9", "reason": "Fetched Terminal-Bench files for crack-7z-hash (solution, task.yaml) from harbor-framework/terminal-bench-1 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "9d66b21e-6e5d-4d59-bc40-ea110b347d08", "reason": "Fetched Terminal-Bench files for db-wal-recovery (solution, tests, task.yaml) from laude-institute/terminal-bench during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "7e77dee0-6fe6-471b-b589-8da64f469d05", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."}
+        ]
+      }
     },
     {
       "id": "fa-grok46-high",
@@ -323,7 +393,25 @@
         "Source jobs from the final head of submitter PR #211 (promoted to #212), which includes two 'selected' mirrors carrying authorized infrastructure replacements.",
         "PR closed unmerged (community submissions closed); not on the official leaderboard."
       ],
-      "scan": true
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "cleared": [
+          {"trial": "f77dd4fb-6e30-4c4a-bf43-7a2ea86857c2", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" and the container's own address (IP=$(hostname -I), inside an if block) for \"server\" to /etc/hosts, which the task's git server setup requires. Before starting, it searched /hidden_instruction, /hidden, /eval and /tests for files (access.evaluation_directory_probe, counted as awareness); none exist, and nothing was found."}
+        ],
+        "disqualified": [
+          {"trial": "115fb476-02b5-4155-a41b-51ddc1f08623", "reason": "Fetched Terminal-Bench files for build-pov-ray (tests) from harbor-framework/terminal-bench-2 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "dbafc8db-f087-4a71-bdfe-afefaebe2460", "reason": "Fetched Terminal-Bench files for db-wal-recovery (solution, tests, task.yaml) from harbor-framework/terminal-bench-1 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "b337a8ad-9970-46e5-8849-aeaa94f787a6", "reason": "Fetched Terminal-Bench files for db-wal-recovery (solution, tests, task.yaml) from laude-institute/terminal-bench during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "d61d39a4-9c58-48a5-9a5a-655729ced1ac", "reason": "Fetched Terminal-Bench files for db-wal-recovery (tests) from harbor-framework/terminal-bench-2 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "3ebbf6b8-eb26-4f3a-9646-76a2046a55b5", "reason": "Fetched Terminal-Bench files for db-wal-recovery (solution, tests, task.yaml) from harbor-framework/terminal-bench-1 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "8e6d64bc-ce94-43bc-b0f3-ae8e91cd5cf0", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "bfe7a59c-4c10-473f-bae5-46640346bf45", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "41a5ad09-733b-432f-bc80-f47b6873175a", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."}
+        ]
+      }
     },
     {
       "id": "grok47-medium-6h",
@@ -1196,7 +1284,26 @@
         "PR closed unmerged (community submissions closed); not on the official leaderboard.",
         "Hub records $8.571 over 434 costed trials; the PR states a calculated trial cost of $8.73520228. The 11 uncosted trials (timeouts / non-zero exits) also have no Hub token counts, so the $0.164 difference is not reproducible from Hub records."
       ],
-      "scan": true
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "coverage": "Every reported pass has complete evidence except 11 whose agent history was compacted: steps before the compaction are not in the trajectory, so atif-scan could not check them; they stand as recorded. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "cleared": [],
+        "disqualified": [
+          {"trial": "13c1a885-f232-41ee-b3e7-c7811ccfb119", "reason": "Fetched Terminal-Bench files for db-wal-recovery (solution, tests, task.yaml, instruction) from harbor-framework/terminal-bench-2-1 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "8fd637b5-e028-4a99-825e-c5443cceacda", "reason": "Fetched Terminal-Bench files for extract-elf (tests, task.yaml) from harbor-framework/terminal-bench during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "e62f9358-f4ad-4407-bd84-e30a3e366e52", "reason": "Fetched Terminal-Bench files for extract-elf (solution, tests) from harbor-framework/terminal-bench-2 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "b79e34d0-095c-4689-844f-0d4607f46b8a", "reason": "Fetched Terminal-Bench files for extract-elf (solution, tests, task.yaml) from harbor-framework/terminal-bench during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "3aac6db6-4593-4ef6-a9da-19faa0bb6c1e", "reason": "Fetched Terminal-Bench files for financial-document-processor (solution, tests, task.yaml) from harbor-framework/terminal-bench during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "2a1ac0f0-dc98-45b2-b823-b5e4b4ac0c66", "reason": "Fetched the upstream OCaml source for the fix: cloned github.com/ocaml/ocaml, and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "c85f70ce-57b6-479a-a729-9b526388bd95", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (5.5, a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "343ec932-8140-4511-a5c9-5e2a5ac2b620", "reason": "Fetched the upstream OCaml source for the fix: downloaded an upstream source archive; fetched upstream runtime/major_gc.c and runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "52bdcf6f-61a7-448f-b0a4-d15cff7d348a", "reason": "Fetched the upstream OCaml source for the fix: cloned github.com/ocaml/ocaml; fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "2462ea45-33c9-4109-9ad5-a803d74ac4a5", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk, a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "3746422d-eeca-4a91-9f5e-247d546bf70f", "reason": "Fetched Terminal-Bench files for torch-tensor-parallelism (solution, tests, README) from harbor-framework/terminal-bench-2 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."}
+        ]
+      }
     },
     {
       "id": "fa-terra-high",
@@ -1216,7 +1323,21 @@
         "Source jobs from submitter PR #159 (promoted to #160): a filtered public Daytona mirror plus the unchanged local partition.",
         "PR closed unmerged (community submissions closed); not on the official leaderboard."
       ],
-      "scan": true
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "cleared": [],
+        "disqualified": [
+          {"trial": "95bb1078-4fe1-55cd-84bb-b255e1826b48", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (5.5), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "7b7602b2-8972-5763-8235-51296e49d20b", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/caml/sizeclasses.h and runtime/shared_heap.c and others (trunk, a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "3d9ae5e6-e837-46b3-bd40-6210fdfadac9", "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on /app/cli_tool.py, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."},
+          {"trial": "3a53fb24-13e2-448b-8969-dff7d360b61d", "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."},
+          {"trial": "ac5754cb-76fa-42f2-b6e0-1d318d433f08", "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on /app/cli_tool.py, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."},
+          {"trial": "22f8c8be-e786-4dc9-95d8-db5d33978162", "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."}
+        ]
+      }
     }
   ]
 }
