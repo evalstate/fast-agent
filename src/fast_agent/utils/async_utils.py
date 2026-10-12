@@ -140,15 +140,12 @@ async def run_in_daemon_thread(func: Callable[[], T], *, name: str) -> T:
 
 
 def _run_in_new_loop(func: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs) -> T:
+    async def await_result() -> T:
+        return await func(*args, **kwargs)
+
     def runner() -> T:
-        loop = create_event_loop()
-        try:
-            return loop.run_until_complete(func(*args, **kwargs))
-        finally:
-            try:
-                loop.run_until_complete(loop.shutdown_asyncgens())
-            finally:
-                loop.close()
+        with asyncio.Runner(loop_factory=create_event_loop) as loop_runner:
+            return loop_runner.run(await_result())
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(runner).result()
