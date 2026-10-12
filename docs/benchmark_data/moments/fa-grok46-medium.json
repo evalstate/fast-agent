@@ -9,8 +9,8 @@
    "task": "crack-7z-hash",
    "attempt": 4,
    "reward": 1.0,
-   "decision": null,
-   "reason": null,
+   "decision": "disqualified",
+   "reason": "Fetched Terminal-Bench files for crack-7z-hash (solution, task.yaml) from harbor-framework/terminal-bench-1 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received).",
    "folder": "https://hub.harborframework.com/jobs/f77cf10c-48db-42e1-b10f-9d3d1b658eea/trials/e63c737d-a5a0-4f1a-aa25-4259670966a9?tab=artifacts",
    "trace": "https://hub.harborframework.com/jobs/f77cf10c-48db-42e1-b10f-9d3d1b658eea/trials/e63c737d-a5a0-4f1a-aa25-4259670966a9",
    "findings": [
@@ -114,8 +114,8 @@
    "task": "db-wal-recovery",
    "attempt": 3,
    "reward": 1.0,
-   "decision": null,
-   "reason": null,
+   "decision": "disqualified",
+   "reason": "Fetched Terminal-Bench files for db-wal-recovery (solution, tests, task.yaml) from laude-institute/terminal-bench during the run (lookup.benchmark_content_obtained, access.benchmark_material_received).",
    "folder": "https://hub.harborframework.com/jobs/7d400392-528f-4d45-9b88-61e3f199eb89/trials/9d66b21e-6e5d-4d59-bc40-ea110b347d08?tab=artifacts",
    "trace": "https://hub.harborframework.com/jobs/7d400392-528f-4d45-9b88-61e3f199eb89/trials/9d66b21e-6e5d-4d59-bc40-ea110b347d08",
    "findings": [
@@ -219,8 +219,8 @@
    "task": "fix-ocaml-gc",
    "attempt": 0,
    "reward": 1.0,
-   "decision": null,
-   "reason": null,
+   "decision": "disqualified",
+   "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source).",
    "folder": "https://hub.harborframework.com/jobs/f77cf10c-48db-42e1-b10f-9d3d1b658eea/trials/7e77dee0-6fe6-471b-b589-8da64f469d05?tab=artifacts",
    "trace": "https://hub.harborframework.com/jobs/f77cf10c-48db-42e1-b10f-9d3d1b658eea/trials/7e77dee0-6fe6-471b-b589-8da64f469d05",
    "findings": [
