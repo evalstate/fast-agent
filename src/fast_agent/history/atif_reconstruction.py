@@ -237,8 +237,13 @@ def reconcile_transient(
     transient: list[PromptMessageExtended],
     *,
     overlap_history: list[PromptMessageExtended] | None = None,
+    allow_missing_input_timestamps: bool = False,
 ) -> list[PromptMessageExtended]:
-    """Join a final turn using a unique exact sequence alignment, never a set union."""
+    """Join a final turn using a unique sequence alignment, never a set union.
+
+    Live raw user inputs (including tool results) may lack the timestamps attached
+    to their persisted copies. All other fields and every known timestamp must agree.
+    """
     if not history:
         return list(transient)
     if not transient:
@@ -248,12 +253,26 @@ def reconcile_transient(
         for message in (history if overlap_history is None else overlap_history)
         if not is_export_marker(message)
     ]
+
+    def same_message(original: PromptMessageExtended, candidate: PromptMessageExtended) -> bool:
+        if (
+            allow_missing_input_timestamps
+            and candidate.role == "user"
+            and candidate.timestamp is None
+        ):
+            candidate = candidate.model_copy(update={"timestamp": original.timestamp})
+        return original == candidate
+
     # Include containment: a persisted final turn needs no second copy.
     matches = [
         start
         for start in range(len(originals))
-        if originals[start : start + min(len(transient), len(originals) - start)]
-        == transient[: min(len(transient), len(originals) - start)]
+        if all(
+            same_message(original, candidate)
+            for original, candidate in zip(
+                originals[start : start + len(transient)], transient, strict=False
+            )
+        )
     ]
     if len(matches) != 1:
         raise HistoryReconstructionError("Transient turn has no unique history overlap")

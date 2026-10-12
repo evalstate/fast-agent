@@ -12,15 +12,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict
 from urllib.parse import parse_qs, urlparse
 
-from mcp_types import AudioContent, CallToolResult, ImageContent, TextContent
+from mcp_types import AudioContent, CallToolResult, ContentBlock, ImageContent, TextContent
 
 from fast_agent.constants import (
     FAST_AGENT_COMPACTION_CHANNEL,
+    FAST_AGENT_PENDING_MEDIA_ATTACHMENTS,
     FAST_AGENT_PROCESS_POLL_FOLD,
     FAST_AGENT_RETRY,
     FAST_AGENT_SHELL_PROCESS_METADATA,
     FAST_AGENT_SUBAGENT_RESULT_METADATA,
     FAST_AGENT_TIMING,
+    FAST_AGENT_TOOL_MEDIA_MESSAGE,
     FAST_AGENT_TOOL_METADATA,
     FAST_AGENT_TOOL_TIMING,
     FAST_AGENT_USAGE,
@@ -30,6 +32,7 @@ from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.history.atif_reconstruction import (
     COMPACTION_BOUNDARY,
     COPIED_CONTEXT,
+    is_export_marker,
     reconcile_transient,
     reconstruct_history,
 )
@@ -478,10 +481,10 @@ def live_export_history(
 ) -> list[PromptMessageExtended]:
     """Keep no-history turn exports, but never let a transient hide compaction."""
     if not any(FAST_AGENT_COMPACTION_CHANNEL in (message.channels or {}) for message in history):
-        return list(transient or history)
+        return _expand_pending_tool_media(list(transient or history))
     restored = reconstruct_history(history, session_dir, agent_name)
     if not transient:
-        return restored
+        return _expand_pending_tool_media(restored)
     # Compare the lossless original poll messages to the raw ToolRunner turn,
     # not its rewritten/folded prompt representation. Keep the folded form in
     # the result so the normal writer still emits every poll context boundary.
@@ -495,11 +498,79 @@ def live_export_history(
             message_timestamps=tuple(message.timestamp for message in restored),
         )
     )
-    return reconcile_transient(
+    originals = [
+        item.message
+        for item in audit
+        if isinstance(item, _AuditMessage) and not is_export_marker(item.message)
+    ]
+    if any(
+        FAST_AGENT_PENDING_MEDIA_ATTACHMENTS in (message.channels or {}) for message in transient
+    ):
+        originals = _raw_tool_turn_messages(originals)
+    joined = reconcile_transient(
         restored,
         transient,
-        overlap_history=[item.message for item in audit if isinstance(item, _AuditMessage)],
+        overlap_history=originals,
+        allow_missing_input_timestamps=True,
     )
+    return _expand_pending_tool_media(joined)
+
+
+def _raw_tool_turn_messages(
+    history: list[PromptMessageExtended],
+) -> list[PromptMessageExtended]:
+    """Undo media staging for overlap comparison only; exported history stays canonical."""
+    result: list[PromptMessageExtended] = []
+    for message in history:
+        if (
+            FAST_AGENT_TOOL_MEDIA_MESSAGE in (message.channels or {})
+            and result
+            and result[-1].tool_results
+            and FAST_AGENT_PENDING_MEDIA_ATTACHMENTS not in (result[-1].channels or {})
+        ):
+            previous = result[-1]
+            result[-1] = previous.model_copy(
+                update={
+                    "channels": {
+                        **(previous.channels or {}),
+                        FAST_AGENT_PENDING_MEDIA_ATTACHMENTS: list(message.content),
+                    }
+                }
+            )
+        else:
+            result.append(message)
+    return result
+
+
+def _expand_pending_tool_media(
+    history: list[PromptMessageExtended],
+) -> list[PromptMessageExtended]:
+    """Surface attachments from completed tool results whose next LLM call failed."""
+    result: list[PromptMessageExtended] = []
+    for message in history:
+        channels = dict(message.channels or {})
+        pending = channels.pop(FAST_AGENT_PENDING_MEDIA_ATTACHMENTS, None)
+        if not message.tool_results or not pending:
+            result.append(message)
+            continue
+        result.append(message.model_copy(update={"channels": channels or None}))
+        media_channels: dict[str, list[ContentBlock]] = {
+            FAST_AGENT_TOOL_MEDIA_MESSAGE: [
+                TextContent(type="text", text="Tool media continuation")
+            ]
+        }
+        if COPIED_CONTEXT in channels:
+            media_channels[COPIED_CONTEXT] = list(channels[COPIED_CONTEXT])
+        result.append(
+            PromptMessageExtended(
+                role="user",
+                content=list(pending),
+                channels=media_channels,
+                timestamp=message.timestamp,
+                is_template=message.is_template,
+            )
+        )
+    return result
 
 
 def _resolve_call_step_ids(

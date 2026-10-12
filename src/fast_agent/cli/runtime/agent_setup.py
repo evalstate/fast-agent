@@ -649,7 +649,7 @@ async def _run_one_shot_with_failed_atif(
         except Exception as export_exc:
             logger.warning(
                 "Failed-run ATIF export failed",
-                data={"error_type": type(export_exc).__name__},
+                data={"error_type": type(export_exc).__name__, "error": str(export_exc)},
             )
         raise
 
@@ -703,6 +703,7 @@ async def _export_requested_outputs(
                 data={
                     "artifact": artifact,
                     "error_type": type(exc).__name__,
+                    "error": str(exc),
                 },
             )
         else:

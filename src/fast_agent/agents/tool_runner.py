@@ -639,6 +639,8 @@ class ToolRunner:
                 tool_names=tool_names,
             )
 
+        # Record completion even if the next LLM call never persists this input.
+        tool_message.ensure_timestamp()
         self._pending_tool_response = tool_message
 
         if self._hooks.after_tool_call is not None:

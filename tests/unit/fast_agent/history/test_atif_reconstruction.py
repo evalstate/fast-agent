@@ -8,9 +8,21 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import (
+    CallToolRequest,
+    CallToolRequestParams,
+    CallToolResult,
+    ImageContent,
+    TextContent,
+)
 
-from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL, FAST_AGENT_USAGE, REASONING
+from fast_agent.constants import (
+    FAST_AGENT_COMPACTION_CHANNEL,
+    FAST_AGENT_PENDING_MEDIA_ATTACHMENTS,
+    FAST_AGENT_TOOL_MEDIA_MESSAGE,
+    FAST_AGENT_USAGE,
+    REASONING,
+)
 from fast_agent.history.atif_reconstruction import (
     COMPACTION_BOUNDARY,
     HistoryReconstructionError,
@@ -193,6 +205,94 @@ def test_transient_tail_extends_current_without_repeating_persisted_results(tmp_
     restored = live_export_history(current, transient, tmp_path, "agent")
     assert _originals(restored) == archived + _exchange(3) + _exchange(4)
     assert live_export_history([], transient, None, "agent") == transient
+
+
+@pytest.mark.parametrize(
+    "conflict",
+    [
+        "unknown_input",
+        "duplicate_overlap",
+        "missing_prefix",
+        "earlier_result",
+        "duplicate_prefix",
+        "reversed_prefix",
+        "known_timestamp",
+        "suffix",
+    ],
+)
+def test_live_transient_alignment_rejects_conflicting_evidence(tmp_path: Path, conflict: str):
+    archived = [_message(0), *_exchange(1)]
+    if conflict == "duplicate_overlap":
+        archived.extend(_exchange(1))
+    current = _checkpoint(tmp_path, archived, tail=0) + _exchange(2)
+    raw_input = _message(0).model_copy(update={"timestamp": None})
+    transient = [raw_input, *_exchange(1), *_exchange(2)]
+    if conflict == "unknown_input":
+        transient = [_message(99)]
+    elif conflict == "duplicate_overlap":
+        transient = _exchange(1)
+    elif conflict == "missing_prefix":
+        transient = [raw_input, *_exchange(99), *_exchange(2)]
+    elif conflict == "earlier_result":
+        transient[2].content = [TextContent(type="text", text="conflicting result")]
+    elif conflict == "duplicate_prefix":
+        transient = [raw_input, *_exchange(1), *_exchange(1), *_exchange(2)]
+    elif conflict == "reversed_prefix":
+        transient = [raw_input, *_exchange(2), *_exchange(1)]
+    elif conflict == "known_timestamp":
+        transient[0].timestamp = BASE + timedelta(days=1)
+    else:
+        transient[-1].content = [TextContent(type="text", text="conflicting result")]
+    with pytest.raises(HistoryReconstructionError, match="unique"):
+        live_export_history(current, transient, tmp_path, "agent")
+
+
+@pytest.mark.parametrize("raw_input", [False, True])
+def test_live_transient_alignment_preserves_repeated_trailing_exchange(
+    tmp_path: Path, raw_input: bool
+):
+    archived = [_message(0), *_exchange(1)]
+    current = _checkpoint(tmp_path, archived, tail=0) + _exchange(2)
+    transient = [*archived, *_exchange(2), *_exchange(1)]
+    if raw_input:
+        transient[0] = transient[0].model_copy(update={"timestamp": None})
+    restored = live_export_history(current, transient, tmp_path, "agent")
+    assert _originals(restored) == [*archived, *_exchange(2), *_exchange(1)]
+    assert transient[0].timestamp == (None if raw_input else archived[0].timestamp)
+
+
+@pytest.mark.parametrize("raw", [False, True])
+@pytest.mark.parametrize("conflict", [False, True])
+def test_live_media_alignment_preserves_verified_context(tmp_path: Path, raw: bool, conflict: bool):
+    media = PromptMessageExtended(
+        role="user",
+        content=[ImageContent(type="image", data="abcd", mime_type="image/png")],
+        channels={
+            FAST_AGENT_TOOL_MEDIA_MESSAGE: [
+                TextContent(type="text", text="Tool media continuation")
+            ]
+        },
+        timestamp=BASE + timedelta(seconds=1, microseconds=2),
+    )
+    archived = [_message(0), *_exchange(1), media]
+    current = _checkpoint(tmp_path, archived, tail=0) + _exchange(2)
+    transient = [message.model_copy(deep=True) for message in [*archived, *_exchange(2)]]
+    if conflict:
+        transient[3].content = [ImageContent(type="image", data="different", mime_type="image/png")]
+    if raw:
+        continuation = transient.pop(3)
+        transient[2].channels = {FAST_AGENT_PENDING_MEDIA_ATTACHMENTS: continuation.content}
+        for message in transient:
+            if message.role == "user":
+                message.timestamp = None
+    before = [message.model_copy(deep=True) for message in transient]
+    if conflict:
+        with pytest.raises(HistoryReconstructionError, match="unique"):
+            live_export_history(current, transient, tmp_path, "agent")
+    else:
+        restored = live_export_history(current, transient, tmp_path, "agent")
+        assert _originals(restored) == [*archived, *_exchange(2)]
+    assert transient == before
 
 
 def test_transient_conflicts_and_ambiguous_repeated_messages_fail():
