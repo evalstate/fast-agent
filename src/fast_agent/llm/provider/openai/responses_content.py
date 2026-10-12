@@ -313,9 +313,11 @@ class ResponsesContentMixin:
                 raise ProviderCheckpointError(error)
             origin = compaction_replay_origin(payload)
             if not self._accepts_checkpoint_origin(origin):
+                # Envelopes without an origin predate xAI support: OpenAI produced them.
+                route = f"'{origin}'" if origin else "OpenAI"
                 raise ProviderCheckpointError(
-                    f"This conversation was compacted on '{origin}', and that checkpoint can "
-                    f"only be read there. Switch back to a '{origin}' model, or restore the "
+                    f"This conversation was compacted on {route}, and that checkpoint can "
+                    f"only be read there. Switch back to a model on {route}, or restore the "
                     "full history with `/history load <archive>`."
                 )
             items.append(dict(item))

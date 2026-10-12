@@ -543,11 +543,15 @@ class CompactionSettings(BaseModel):
         default=True,
         description="Automatically compact history when context usage crosses the threshold",
     )
-    threshold: float = Field(
-        default=0.85,
+    threshold: float | None = Field(
+        default=None,
         gt=0.0,
         le=1.0,
-        description="Fraction of the model context window that triggers auto-compaction",
+        description=(
+            "Fraction of the model context window that triggers auto-compaction, for every "
+            "model. Unset uses the model's default (e.g. Grok 4.7 compacts at 190k tokens), "
+            "else 0.85. A model string's compact_at overrides it"
+        ),
     )
     keep_turns: int = Field(
         default=2,
@@ -1597,6 +1601,14 @@ class XAISettings(BaseModel):
     stream_tool_calls: bool = Field(
         default=False,
         description="Stream experimental function-call argument deltas from Grok 4.5/4.6.",
+    )
+    native_compaction: bool = Field(
+        default=NATIVE_COMPACTION_DEFAULT,
+        description=(
+            "Compact history into xAI's provider-native checkpoint (/responses/compact) "
+            "instead of fast-agent's summary, under compaction.strategy 'auto'. Override "
+            "per model with ?compaction=native|client"
+        ),
     )
     image_upload_mode: Literal["inline", "public_url"] = Field(
         default="public_url",

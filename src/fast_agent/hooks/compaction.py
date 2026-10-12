@@ -95,6 +95,7 @@ async def _auto_compact_history(ctx: "HookContext", *, mid_turn: bool) -> None:
     if not should_auto_compact(
         ctx.usage,
         settings,
+        llm=agent.llm,
         projected_context_tokens=projected_context_tokens,
     ):
         return

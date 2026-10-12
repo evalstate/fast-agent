@@ -156,6 +156,25 @@ fast-agent creates an opaque `prompt_cache_key` for each xAI conversation and
 sends it on every Responses API request. The key remains stable across turns so
 
 
+## Compaction
+
+Grok models use xAI's provider-native compaction by default. fast-agent still
+decides when to compact and keeps templates and recent turns verbatim; the older
+turns are sent to `POST /responses/compact` and replaced by the opaque, encrypted
+checkpoint it returns. See [Compaction](../../guides/compaction.md#xai-provider-native-checkpoints).
+
+Grok 4.7 auto-compacts at **190,000 tokens** (38% of its 500,000-token window),
+staying below the 200,000-token context size where its rates double, with headroom
+for the next message and tool results. Override it for a model selection with
+`compact_at` (`grok?compact_at=150k`, or a fraction such as `0.6`); setting
+`compaction.threshold` overrides it for every model. `/model` shows the effective
+trigger.
+
+```yaml
+xai:
+  native_compaction: false  # use fast-agent's written summary instead
+```
+
 ## Managed process polling
 
 Grok models default to a 240-second managed-process wait when `process(action="wait")`

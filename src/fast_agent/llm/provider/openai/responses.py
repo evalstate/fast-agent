@@ -102,7 +102,9 @@ _logger = get_logger(__name__)
 DEFAULT_RESPONSES_MODEL = "gpt-5.2"
 DEFAULT_REASONING_EFFORT = "medium"
 # Routes whose compaction checkpoints are only readable on the same route.
-_ROUTE_BOUND_CHECKPOINT_ORIGINS = frozenset({Provider.COPILOT.config_name})
+_ROUTE_BOUND_CHECKPOINT_ORIGINS = frozenset(
+    {Provider.COPILOT.config_name, Provider.XAI.config_name}
+)
 MIN_RESPONSES_MAX_TOKENS = 16
 DEFAULT_RESPONSES_BASE_URL = "https://api.openai.com/v1"
 RESPONSES_DIAGNOSTICS_CHANNEL = "fast-agent-provider-diagnostics"
@@ -224,6 +226,11 @@ class ResponsesLLM(
     """LLM implementation for OpenAI's Responses models."""
 
     config_section: str | None = None
+
+    NATIVE_COMPACTION_VENDOR: ClassVar[str] = "OpenAI"
+    NATIVE_COMPACTION_REQUEST: ClassVar[str] = (
+        "Responses request ending in a compaction_trigger input item"
+    )
 
     RESPONSES_EXCLUDE_FIELDS: ClassVar[set[str]] = {
         FastAgentLLM.PARAM_MESSAGES,
@@ -911,9 +918,9 @@ class ResponsesLLM(
         return self.provider is Provider.RESPONSES
 
     def _accepts_checkpoint_origin(self, origin: str | None) -> bool:
-        # Verified live: Copilot's compaction items use Copilot-bound ids and
+        # Verified live: Copilot's and xAI's compaction items use route-bound ids and
         # encryption that OpenAI's routes reject; Responses and Codex Responses items
-        # are readable on all three routes.
+        # are readable on all three OpenAI routes.
         if origin in _ROUTE_BOUND_CHECKPOINT_ORIGINS:
             return origin == self.provider.config_name
         return True
@@ -957,7 +964,7 @@ class ResponsesLLM(
         items = (response.channels or {}).get(OPENAI_COMPACTION_ITEMS)
         if not items:
             raise RuntimeError(
-                "OpenAI compaction returned no compaction item"
+                f"{self.NATIVE_COMPACTION_VENDOR} compaction returned no compaction item"
                 + (f" (stop reason: {response.stop_reason})" if response.stop_reason else "")
             )
         parsed_items = self._compaction_input_items({OPENAI_COMPACTION_ITEMS: items})
@@ -965,11 +972,11 @@ class ResponsesLLM(
         return NativeCompaction(
             strategy=CompactionStrategy.OPENAI_COMPACTION,
             opaque_bytes=opaque_bytes,
-            request="Responses request ending in a compaction_trigger input item",
+            request=self.NATIVE_COMPACTION_REQUEST,
             response=response,
             checkpoint_channels={OPENAI_COMPACTION_ITEMS: list(items)},
             description=(
-                f"OpenAI compaction checkpoint ({len(items)} encrypted item"
+                f"{self.NATIVE_COMPACTION_VENDOR} compaction checkpoint ({len(items)} encrypted item"
                 f"{'s' if len(items) != 1 else ''}). The provider restores the compacted "
                 "context from it; it is not human-readable."
             ),

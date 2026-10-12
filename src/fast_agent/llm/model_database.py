@@ -68,6 +68,10 @@ class ModelParameters(BaseModel):
     )
     """Optional model-specific default for model-facing shell output previews."""
 
+    compaction_trigger_tokens: int | None = Field(default=None, ge=1_000)
+    """Default auto-compaction trigger in input tokens, e.g. below a long-context price
+    tier. ``compact_at`` and ``compaction.threshold`` override it."""
+
     shell_tool_name: str | None = Field(default=None, pattern=r"^[A-Za-z][A-Za-z0-9_-]*$")
     """Optional model-facing name for the minimal-process shell tool."""
 
@@ -1139,7 +1143,9 @@ class ModelDatabase:
         update={"reasoning_effort_spec": XAI_GROK_46_REASONING_EFFORT_SPEC}
     )
 
-    GROK_47 = GROK_46.model_copy()
+    # Grok 4.7 doubles its rates above 200k context: compact at 190k, leaving headroom
+    # for the next message and tool results before the next request.
+    GROK_47 = GROK_46.model_copy(update={"compaction_trigger_tokens": 190_000})
     GROK_47_FAST = GROK_47.model_copy(update={"fast": True})
 
     MUSE_SPARK = ModelParameters(

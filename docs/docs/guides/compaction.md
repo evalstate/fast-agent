@@ -74,6 +74,7 @@ compaction is being introduced provider by provider:
   `compaction.prompt` selects fast-agent's summary instead.
 - OpenAI GPT models on Codex Responses, Responses (API key), and GitHub Copilot use
   [OpenAI provider-native checkpoints](#openai-provider-native-checkpoints).
+- xAI Grok models use [xAI provider-native checkpoints](#xai-provider-native-checkpoints).
 
 Elsewhere both settings behave the same.
 
@@ -124,17 +125,50 @@ turns off server-side threshold compaction in favour of fast-agent's summary.
   `configuration_update` before the next user message, as OpenAI requires after
   compaction.
 - Only OpenAI can read the checkpoint. Switching this conversation to another
-  provider leaves it with the placeholder text; restore the archive if needed.
+  provider leaves it with the placeholder text (xAI, which has its own checkpoints,
+  stops with an explanation instead); restore the archive if needed.
 - Checkpoints from `codexresponses` and `responses` can be read on all three routes.
   Copilot's checkpoints can only be read on Copilot: switching a Copilot-compacted
   conversation to `codexresponses` or `responses` stops with an explanation; switch back
   to a Copilot model or restore the archive with `/history load <archive>`.
+
+### xAI provider-native checkpoints
+
+On by default for xAI Grok models (`xai.*`). xAI rejects `compaction_trigger`
+items, so fast-agent sends the compact region to xAI's `POST /responses/compact`
+endpoint and replays the returned compaction item in its place. Turn it off with
+`xai: native_compaction: false`, or per model with `?compaction=client`.
+
+- xAI's compaction **drops tool outputs**: it keeps what the user and model said
+  (and the model's reasoning), not tool results. A detail that appeared only in a
+  tool result is lost unless the model restated it; the model will typically
+  re-run the tool. Use `?compaction=client` where older tool results must survive.
+- The checkpoint can only be read by xAI, and xAI cannot read OpenAI's: switching
+  provider stops with an explanation; restore the archive with `/history load`.
+- The checkpoint is recorded with the `openai_compaction` strategy (the shared item
+  format) in history metadata and ATIF; its description names xAI.
 
 ## Tuning the trigger
 
 The point at which compaction kicks in is `compaction.threshold`. Lower it to
 compact earlier (more headroom, more frequent summarization); raise it to let
 context fill closer to the limit before compacting.
+
+To set the trigger for one model, add `compact_at` to the model string, either in
+input tokens or as a context-window fraction:
+
+```bash
+fast-agent go --model 'grok?compact_at=150k'     # compact at 150,000 tokens
+fast-agent go --model 'sonnet?compact_at=0.7'    # or 70% of the context window
+```
+
+Precedence: the model string's `compact_at`, then `compaction.threshold` (which applies
+to every model), then the model's own default, then 0.85. Most models have no default
+of their own; Grok 4.7 compacts at 190,000 tokens to stay below its 200,000-token
+long-context rate. A token trigger is independent of the context window, so it holds
+when a price tier is an absolute size. Model overlays can set a default with
+`metadata.compaction_trigger_tokens`. `/model` and `/compact preview` show the
+effective trigger, e.g. `190,000 tokens (38% of context)`.
 
 --8<-- "_generated/compaction_settings_reference.md"
 

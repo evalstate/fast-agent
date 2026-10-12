@@ -13,7 +13,7 @@ from fast_agent.core.direct_factory import _auto_compaction_after_turn_hook
 from fast_agent.history.compaction import MID_TURN_RECENT_TOOL_EXCHANGES, CompactionResult
 from fast_agent.hooks.compaction import auto_compact_history, auto_compact_history_mid_turn
 from fast_agent.hooks.hook_context import HookContext
-from fast_agent.llm.compaction_support import CompactionSupport
+from fast_agent.llm.compaction_support import CompactAt, CompactionSupport
 from fast_agent.llm.provider.copilot.messages import CopilotMessagesLLM
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.usage_tracking import UsageAccumulator
@@ -184,6 +184,8 @@ async def test_in_request_provider_compaction_suppresses_auto_compaction(
     agent.llm = SimpleNamespace(
         compaction_support=CompactionSupport.IN_REQUEST,
         usage_accumulator=agent.usage_accumulator,
+        compact_at_override=None,
+        default_compact_at=None,
     )
 
     async def fail_compact(*_args: object, **_kwargs: object) -> None:
@@ -244,6 +246,8 @@ async def test_inactive_provider_compaction_keeps_harness_auto_compaction(
 class _SummaryLLM:
     verb: str | None = None
     compaction_support = CompactionSupport.CLIENT
+    compact_at_override: CompactAt | None = None
+    default_compact_at: CompactAt | None = None
     usage_accumulator = None
 
     def __init__(self) -> None:

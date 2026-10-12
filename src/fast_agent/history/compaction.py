@@ -31,6 +31,7 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.compaction_support import (
     CompactionStrategy,
     CompactionSupport,
+    compaction_trigger_tokens,
     resolve_compaction_support,
 )
 from fast_agent.mcp.helpers.content_helpers import get_text
@@ -184,22 +185,21 @@ def should_auto_compact(
     usage: "UsageAccumulator | None",
     settings: "CompactionSettings",
     *,
+    llm: "FastAgentLLMProtocol | None" = None,
     projected_context_tokens: int | None = None,
 ) -> bool:
-    """True when observed or projected context usage crossed the configured threshold."""
+    """True when observed or projected context usage crossed the compaction trigger."""
     if not settings.auto or usage is None:
         return False
-    window = usage.context_window_size
-    if not window or window <= 0:
-        return False
+    trigger = compaction_trigger_tokens(llm, settings, usage.context_window_size)
     current = (
         projected_context_tokens
         if projected_context_tokens is not None
         else usage.current_context_tokens
     )
-    if current is None or current <= 0:
+    if trigger is None or current is None or current <= 0:
         return False
-    return (current / window) >= settings.threshold
+    return current >= trigger
 
 
 def _turn_start_indices(messages: list[PromptMessageExtended]) -> list[int]:
@@ -725,11 +725,8 @@ async def compact_conversation(
         tokens_before = None
 
     history = list(agent.message_history)
-    max_tokens_after = (
-        max(int(context_window * settings.threshold) - pending_context_tokens, 1)
-        if context_window is not None and context_window > 0
-        else None
-    )
+    trigger = compaction_trigger_tokens(llm, settings, context_window)
+    max_tokens_after = max(trigger - pending_context_tokens, 1) if trigger is not None else None
     plan = _plan_compaction_with_budget(
         history,
         keep_turns=settings.keep_turns,

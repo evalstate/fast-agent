@@ -689,7 +689,7 @@ def _yaml_default_text(default: object) -> str:
 
 _COMPACTION_SNIPPET_COMMENTS = {
     "auto": "automatically compact when the threshold is crossed",
-    "threshold": "fraction of the context window that triggers compaction",
+    "threshold": "context-window fraction that triggers compaction; unset: model default",
     "keep_turns": "recent turns kept verbatim after compaction",
     "strategy": "auto: provider-native where supported; client: always summarize",
     "prompt": "built-in prompt; set inline text or a relative file path",

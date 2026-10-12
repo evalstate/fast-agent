@@ -20,7 +20,7 @@ from fast_agent.commands.handlers.model import (
 from fast_agent.config import CompactionSettings, Settings, ShellSettings
 from fast_agent.context import Context
 from fast_agent.core.exceptions import ModelConfigError
-from fast_agent.llm.compaction_support import CompactionSupport
+from fast_agent.llm.compaction_support import CompactAt, CompactionSupport
 from fast_agent.llm.model_database import ModelParameters
 from fast_agent.llm.model_factory import ModelConfig, ModelFactory
 from fast_agent.llm.model_info import ModelInfo
@@ -31,6 +31,7 @@ from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.resolved_model import ResolvedModelSpec, resolve_base_model_params
 from fast_agent.llm.task_budget import format_task_budget_tokens
 from fast_agent.llm.text_verbosity import TextVerbositySpec
+from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.session import SessionManager
 
 
@@ -98,6 +99,9 @@ class _StubIO:
 
 class _StubLLM:
     compaction_support = CompactionSupport.CLIENT
+    compact_at_override: CompactAt | None = None
+    default_compact_at: CompactAt | None = None
+    usage_accumulator: UsageAccumulator | None = None
 
     def __init__(
         self,
@@ -329,13 +333,21 @@ class _StubAgentProvider:
 @pytest.mark.parametrize(
     ("model", "compaction_settings", "expected"),
     [
-        ("sol", CompactionSettings(), "provider-native (on-demand)"),
-        ("sol?compaction=client", CompactionSettings(), "client (fast-agent summary)"),
-        ("sol", CompactionSettings(strategy="client"), "client (fast-agent summary)"),
+        ("sol", CompactionSettings(), "provider-native (on-demand); auto at 85% of context"),
+        (
+            "sol?compaction=client",
+            CompactionSettings(),
+            "client (fast-agent summary); auto at 85% of context",
+        ),
+        (
+            "sol",
+            CompactionSettings(strategy="client"),
+            "client (fast-agent summary); auto at 85% of context",
+        ),
         (
             "sol",
             CompactionSettings(prompt="Keep the migration details."),
-            "client (fast-agent summary)",
+            "client (fast-agent summary); auto at 85% of context",
         ),
         (
             "sol",
@@ -346,24 +358,45 @@ class _StubAgentProvider:
         (
             "copilot.claude-sonnet-5.5?compaction=client",
             CompactionSettings(),
-            "client (fast-agent summary)",
+            "client (fast-agent summary); auto at 85% of context",
         ),
         (
             "copilot.claude-sonnet-5.5",
             CompactionSettings(strategy="client"),
-            "client (fast-agent summary)",
+            "client (fast-agent summary); auto at 85% of context",
         ),
         (
             "copilot.claude-sonnet-5.5",
             CompactionSettings(prompt="Keep the migration details."),
-            "client (fast-agent summary)",
+            "client (fast-agent summary); auto at 85% of context",
         ),
         (
             "copilot.claude-sonnet-5.5",
             CompactionSettings(auto=False),
             "client (fast-agent summary); auto-compaction off",
         ),
-        ("anthropic.claude-sonnet-5-5", CompactionSettings(), "client (fast-agent summary)"),
+        (
+            "anthropic.claude-sonnet-5-5",
+            CompactionSettings(),
+            "client (fast-agent summary); auto at 85% of context",
+        ),
+        # Grok 4.7 compacts below its 200k long-context price tier unless config overrides.
+        (
+            "xai.grok-4.7",
+            CompactionSettings(),
+            "provider-native (on-demand); auto at 190,000 tokens (38% of context)",
+        ),
+        (
+            "xai.grok-4.7",
+            CompactionSettings(threshold=0.6),
+            "provider-native (on-demand); auto at 60% of context (300,000 tokens)",
+        ),
+        # The model string wins over config.
+        (
+            "xai.grok-4.7?compact_at=150k",
+            CompactionSettings(threshold=0.6),
+            "provider-native (on-demand); auto at 150,000 tokens (30% of context)",
+        ),
     ],
 )
 async def test_model_status_shows_effective_compaction(
@@ -381,7 +414,8 @@ async def test_model_status_shows_effective_compaction(
 
     outcome = await handle_model_reasoning(ctx, agent_name="test", value=None)
 
-    assert f"Compaction: {expected}." in [str(message.text) for message in outcome.messages]
+    [line] = [str(m.text) for m in outcome.messages if str(m.text).startswith("Compaction:")]
+    assert line.startswith(f"Compaction: {expected}")
 
 
 @pytest.mark.asyncio

@@ -149,9 +149,11 @@ def test_model_string_compaction_overrides_the_route_setting(
 
 
 def test_other_responses_family_providers_never_compact_natively() -> None:
-    # xAI shares the Responses implementation but is not verified for compaction_trigger.
+    # MetaAI shares the Responses implementation but is not verified for compaction.
     settings = Settings(responses=OpenAISettings(api_key="test", native_compaction=True))
-    llm = ResponsesLLM(context=Context(config=settings), model="gpt-6-sol", provider=Provider.XAI)
+    llm = ResponsesLLM(
+        context=Context(config=settings), model="gpt-6-sol", provider=Provider.META_AI
+    )
 
     assert llm.compaction_support == CompactionSupport.CLIENT
 
@@ -320,7 +322,7 @@ def test_unannotated_retained_turn_after_checkpoint_gets_the_update() -> None:
     assert state.effort == "medium"
 
 
-@pytest.mark.parametrize("provider", [Provider.XAI, Provider.DEEPSEEK])
+@pytest.mark.parametrize("provider", [Provider.META_AI, Provider.DEEPSEEK])
 def test_other_providers_receive_the_checkpoint_text_not_the_encrypted_item(
     provider: Provider,
 ) -> None:

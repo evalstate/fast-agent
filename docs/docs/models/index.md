@@ -260,7 +260,11 @@ provider.model_name[?reasoning=value][&query=value...]
 - **query parameters**: provider/model-specific overrides such as `reasoning`, `structured`,
   `context`, `transport`, `service_tier`, `temperature` (`temp` alias), `web_search`,
   `web_fetch`, `x_search`, `task_budget`, `max_tokens`, `streaming_timeout`, `lite`,
-  `compaction`, and `poll_period`
+  `compaction`, `compact_at`, and `poll_period`
+
+`compact_at` (any provider) sets when auto-compaction fires for this model: input tokens
+(`grok?compact_at=150k`) or a context-window fraction (`sonnet?compact_at=0.7`, `70%`).
+It overrides `compaction.threshold`; see [Compaction](../guides/compaction.md#tuning-the-trigger).
 
 !!! Note "Provider delimiter: `.` or `/`"
     `/` is accepted as an equivalent provider delimiter, so `anthropic/claude-opus-5` is the

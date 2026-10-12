@@ -23,7 +23,10 @@ from fast_agent.commands.model_capabilities import (
 )
 from fast_agent.constants import TERMINAL_BYTES_PER_TOKEN
 from fast_agent.history.compaction import uses_native_compaction
-from fast_agent.llm.compaction_support import in_request_compaction_trigger
+from fast_agent.llm.compaction_support import (
+    in_request_compaction_trigger,
+    resolve_compact_at,
+)
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_display_name import (
     resolve_llm_display_name,
@@ -411,7 +414,8 @@ def add_model_details(
         _emit_model_line(outcome, label, value, emphasize_value=emphasize)
 
     compaction_settings = ctx.resolve_settings().compaction
-    if in_request_compaction_trigger(llm, compaction_settings) is not None:
+    in_request = in_request_compaction_trigger(llm, compaction_settings) is not None
+    if in_request:
         compaction = "provider-native (in-request)"
     elif uses_native_compaction(llm, compaction_settings):
         compaction = "provider-native (on-demand)"
@@ -419,6 +423,11 @@ def add_model_details(
         compaction = "client (fast-agent summary)"
     if not compaction_settings.auto:
         compaction += "; auto-compaction off"
+    elif not in_request:
+        usage = llm.usage_accumulator
+        window = usage.context_window_size if usage else None
+        compact_at = resolve_compact_at(llm, compaction_settings)
+        compaction += f"; auto at {compact_at.describe(window)}"
     _emit_model_line(outcome, "Compaction", compaction)
 
     resolved_model = resolve_resolved_model(llm)

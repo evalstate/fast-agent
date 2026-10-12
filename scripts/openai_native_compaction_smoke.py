@@ -1,13 +1,16 @@
-"""Live smoke test: OpenAI provider-native compaction (``native_compaction``).
+"""Live smoke test: OpenAI-format provider-native compaction (``native_compaction``).
 
 Routes and their credentials:
 
 - ``codexresponses`` (default): ChatGPT login, ``fast-agent auth provider login codex``
 - ``copilot``: GitHub Copilot login, ``fast-agent auth provider login copilot``
 - ``responses``: an OpenAI API key (``OPENAI_API_KEY``)
+- ``xai``: xAI login or key (``fast-agent auth provider login xai``); compacts through
+  ``POST /responses/compact`` rather than a ``compaction_trigger`` item
 
     uv run scripts/openai_native_compaction_smoke.py                  # codexresponses, both
     uv run scripts/openai_native_compaction_smoke.py --route copilot --model gpt-6-sol
+    uv run scripts/openai_native_compaction_smoke.py --route xai --model grok-4.7
     uv run scripts/openai_native_compaction_smoke.py --transport sse
     uv run scripts/openai_native_compaction_smoke.py --fixture-out /tmp/codex-compaction-trace
 
@@ -44,6 +47,10 @@ FILLER = " ".join(f"line {i}: the quick brown fox jumps over the lazy dog." for 
 # fast-agent truncates the tool result to ~4k tokens; the tool request must cross this.
 TRIGGER_TOKENS = 2_000
 QUESTION = "What was the deployment codeword? Reply with it only."
+FIRST_PROMPT = "Call read_notes, then reply only OK."
+# xAI's compaction drops tool outputs, keeping what the conversation said: the reply
+# restates the codeword so recall tests the checkpoint rather than the dropped output.
+XAI_FIRST_PROMPT = "Call read_notes, then reply with only the deployment codeword it contains."
 
 
 def read_notes() -> str:
@@ -71,6 +78,7 @@ ROUTE_PROVIDERS = {
     "codexresponses": "CODEX_RESPONSES",
     "copilot": "COPILOT",
     "responses": "RESPONSES",
+    "xai": "XAI",
 }
 
 
@@ -102,6 +110,11 @@ def input_types(request: dict[str, Any]) -> list[str]:
     return [str(item.get("type") or item.get("role")) for item in request.get("input") or []]
 
 
+def is_compaction_request(path: Path, request: dict[str, Any]) -> bool:
+    """A ``compaction_trigger`` request, or a capture of xAI's ``/responses/compact``."""
+    return "_compact_turn" in path.name or input_types(request)[-1:] == ["compaction_trigger"]
+
+
 async def phase_run(model_spec: str, astra: bool, checks: Checks) -> None:
     from fast_agent import FastAgent
     from fast_agent.constants import OPENAI_COMPACTION_ITEMS
@@ -127,7 +140,7 @@ async def phase_run(model_spec: str, astra: bool, checks: Checks) -> None:
         llm = agent.llm
         assert llm is not None
         turns = llm.usage_accumulator.turns
-        await agent.send("Call read_notes, then reply only OK.")
+        await agent.send(XAI_FIRST_PROMPT if model_spec.startswith("xai.") else FIRST_PROMPT)
         prompts = [turn.prompt.total or 0 for turn in turns]
         tool_request_tokens = max(prompts)
 
@@ -214,15 +227,17 @@ async def phase_resume(model_spec: str, checks: Checks) -> None:
 
 def check_wire(workspace: Path, astra: bool, checks: Checks) -> None:
     requests = captured_requests(workspace)
-    trigger = [r for r in requests if input_types(r[1])[-1:] == ["compaction_trigger"]]
+    trigger = [r for r in requests if is_compaction_request(*r)]
     checks.check(
-        "compaction requests end with compaction_trigger",
+        "compaction requests were sent",
         len(trigger) >= 1,
         f"{len(trigger)} request(s)",
     )
     if len(trigger) > 1:
         checks.warn("extra compactions after a re-read", f"{len(trigger)} compaction requests")
-    follow = [r for r in requests if "compaction" in input_types(r[1])]
+    follow = [
+        r for r in requests if not is_compaction_request(*r) and "compaction" in input_types(r[1])
+    ]
     checks.check("later requests replay the compaction item", bool(follow))
     if astra and follow:
         items = follow[0][1]["input"]
@@ -241,10 +256,7 @@ def check_wire(workspace: Path, astra: bool, checks: Checks) -> None:
 
 
 def check_atif(workspace: Path, env: dict[str, str], checks: Checks) -> None:
-    compactions = sum(
-        input_types(request)[-1:] == ["compaction_trigger"]
-        for _, request in captured_requests(workspace)
-    )
+    compactions = sum(is_compaction_request(*r) for r in captured_requests(workspace))
     from fast_agent.session.token_accounting_validation import validate_atif
 
     output = workspace / "trajectory.atif.json"
@@ -300,7 +312,7 @@ def check_atif(workspace: Path, env: dict[str, str], checks: Checks) -> None:
 
 def copy_fixture(workspace: Path, destination: Path) -> None:
     for path, request in captured_requests(workspace):
-        if input_types(request)[-1:] == ["compaction_trigger"]:
+        if is_compaction_request(path, request):
             destination.mkdir(parents=True, exist_ok=True)
             base = path.name.removesuffix("_request.json")
             shutil.copy(path, destination / "request.json")

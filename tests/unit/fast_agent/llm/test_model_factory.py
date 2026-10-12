@@ -20,6 +20,7 @@ from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.config import Settings
 from fast_agent.context import Context
 from fast_agent.core.exceptions import ModelConfigError
+from fast_agent.llm.compaction_support import CompactAt
 from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory, ParsedModelSpec, Provider
@@ -1897,3 +1898,32 @@ def test_compaction_query_reaches_the_llm(spec: str, support: str) -> None:
     llm = ModelFactory.create_factory(spec)(LlmAgent(AgentConfig(name="test")))
 
     assert llm.compaction_support == CompactionSupport(support)
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        ("grok?compact_at=150k", CompactAt(tokens=150_000)),
+        ("sol?compact_at=1m", CompactAt(tokens=1_000_000)),
+        ("sol?compact_at=190000", CompactAt(tokens=190_000)),
+        ("sonnet?compact_at=0.7", CompactAt(fraction=0.7)),
+        ("sonnet?compact_at=70%", CompactAt(fraction=0.7)),
+        ("sol", None),
+    ],
+)
+def test_compact_at_query_parses_tokens_or_a_fraction(
+    spec: str, expected: CompactAt | None
+) -> None:
+    assert ModelFactory.parse_model_string(spec).compact_at == expected
+
+
+@pytest.mark.parametrize("value", ["0", "1.5", "150%", "500", "lots", "-1k"])
+def test_compact_at_query_rejects_invalid_values(value: str) -> None:
+    with pytest.raises(ModelConfigError, match="Invalid compact_at value"):
+        ModelFactory.parse_model_string(f"sol?compact_at={value}")
+
+
+def test_compact_at_query_reaches_the_llm() -> None:
+    llm = ModelFactory.create_factory("sol?compact_at=150k")(LlmAgent(AgentConfig(name="test")))
+
+    assert llm.compact_at_override == CompactAt(tokens=150_000)

@@ -44,6 +44,7 @@ from fast_agent.history.compaction import (
     should_auto_compact,
 )
 from fast_agent.llm.compaction_support import (
+    CompactAt,
     CompactionStrategy,
     CompactionSupport,
     NativeCompaction,
@@ -452,6 +453,8 @@ class TestEstimateTokens:
 
 class _FakeLLM:
     compaction_support = CompactionSupport.CLIENT
+    compact_at_override: CompactAt | None = None
+    default_compact_at: CompactAt | None = None
 
     def __init__(self, summary: str = "SUMMARY OF WORK") -> None:
         self.summary = summary

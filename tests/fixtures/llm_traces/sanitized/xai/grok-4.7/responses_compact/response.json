@@ -1,0 +1,27 @@
+{
+  "created_at": 1791831281,
+  "id": "cmp_d2a18832-d6db-4a0f-843e-9b9e13dc420d",
+  "model": "grok-4.7",
+  "object": "response.compaction",
+  "output": [
+    {
+      "created_by": null,
+      "encrypted_content": "REDACTED-ENCRYPTED-COMPACTION-CHECKPOINT",
+      "id": "cmp_d2a18832-d6db-4a0f-843e-9b9e13dc420d",
+      "type": "compaction"
+    }
+  ],
+  "usage": {
+    "dropped_message_count": 3,
+    "input_tokens": 1694,
+    "input_tokens_details": {
+      "cache_write_tokens": null,
+      "cached_tokens": 1152
+    },
+    "output_tokens": 332,
+    "output_tokens_details": {
+      "reasoning_tokens": 412
+    },
+    "total_tokens": 2438
+  }
+}

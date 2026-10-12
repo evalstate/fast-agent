@@ -19,7 +19,10 @@ from fast_agent.history.compaction import (
     resolve_compaction_prompt,
     uses_native_compaction,
 )
-from fast_agent.llm.compaction_support import in_request_compaction_trigger
+from fast_agent.llm.compaction_support import (
+    in_request_compaction_trigger,
+    resolve_compact_at,
+)
 from fast_agent.ui.compaction_display import compaction_summary_lines, context_bar
 
 if TYPE_CHECKING:
@@ -138,7 +141,9 @@ async def handle_compact_preview(
     elif trigger is not None:
         auto_state = f"provider compacts in-request at {trigger:,} input tokens"
     else:
-        auto_state = f"auto-compaction at {settings.threshold * 100:.0f}% of context window"
+        auto_state = (
+            f"auto-compaction at {resolve_compact_at(agent.llm, settings).describe(window)}"
+        )
     lines.append(Text(auto_state + "  •  tune with compaction settings in config", style="dim"))
 
     outcome.add_message(

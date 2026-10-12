@@ -40,6 +40,7 @@ from fast_agent.interfaces import (
     ModelT,
 )
 from fast_agent.llm.compaction_support import (
+    CompactAt,
     CompactionMode,
     CompactionSupport,
     NativeCompaction,
@@ -203,6 +204,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # subclasses (e.g. AnthropicLLM) may pop it first for their own handling.
         long_context_requested = kwargs.pop("long_context", False)
         self._compaction_mode: CompactionMode | None = kwargs.pop("compaction", None)
+        self._compact_at: CompactAt | None = kwargs.pop("compact_at", None)
         super().__init__(context=context, **kwargs)
         self.logger = get_logger(__name__)
         self.executor = self.context.executor
@@ -630,6 +632,18 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def compaction_support(self) -> CompactionSupport:
         """How this LLM can compact history; providers override for native compaction."""
         return CompactionSupport.CLIENT
+
+    @property
+    def compact_at_override(self) -> CompactAt | None:
+        """The model string's ``compact_at``, which wins over ``compaction.threshold``."""
+        return self._compact_at
+
+    @property
+    def default_compact_at(self) -> CompactAt | None:
+        """The model's auto-compaction trigger, used when config leaves it unset."""
+        params = self._get_model_params(self.default_request_params.model or self._model_name)
+        tokens = params.compaction_trigger_tokens if params is not None else None
+        return CompactAt(tokens=tokens) if tokens is not None else None
 
     @property
     def compaction_mode(self) -> CompactionMode | None:

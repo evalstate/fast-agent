@@ -77,7 +77,8 @@ def test_setup_config_compaction_defaults_match_settings() -> None:
     defaults = CompactionSettings()
 
     assert compaction["auto"] is defaults.auto
-    assert compaction["threshold"] == defaults.threshold
+    # Unset, so models with a lower default threshold (e.g. Grok 4.7) keep it.
+    assert "threshold" not in compaction
     assert compaction["keep_turns"] == defaults.keep_turns
     assert "prompt" not in compaction
 

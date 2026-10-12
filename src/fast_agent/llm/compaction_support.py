@@ -7,6 +7,8 @@ archiving). Providers declare how the summarization step can be performed.
 from __future__ import annotations
 
 import json
+import math
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
@@ -126,6 +128,90 @@ def resolve_compaction_support(
     return llm.compaction_support
 
 
+DEFAULT_COMPACTION_THRESHOLD = 0.85
+"""Auto-compaction threshold when neither the model string, config nor model sets one."""
+
+_COMPACT_AT_TOKENS = re.compile(r"(\d+)([km]?)")
+COMPACT_AT_MIN_TOKENS = 1_000
+
+
+@dataclass(frozen=True, slots=True)
+class CompactAt:
+    """When auto-compaction fires: at an input-token count, or a context-window fraction."""
+
+    tokens: int | None = None
+    fraction: float | None = None
+
+    def __post_init__(self) -> None:
+        if (self.tokens is None) == (self.fraction is None):
+            raise ValueError("CompactAt takes exactly one of tokens or fraction")
+
+    @classmethod
+    def parse(cls, value: str) -> CompactAt:
+        """``190k``, ``1m`` or ``190000`` tokens; ``0.4`` or ``40%`` of the window."""
+        cleaned = value.strip().lower().replace("_", "")
+        if match := _COMPACT_AT_TOKENS.fullmatch(cleaned):
+            tokens = int(match.group(1)) * {"": 1, "k": 1_000, "m": 1_000_000}[match.group(2)]
+            if tokens >= COMPACT_AT_MIN_TOKENS:
+                return cls(tokens=tokens)
+        else:
+            try:
+                fraction = float(cleaned[:-1]) / 100 if cleaned.endswith("%") else float(cleaned)
+            except ValueError:
+                fraction = 0.0
+            if 0 < fraction <= 1:
+                return cls(fraction=fraction)
+        raise ValueError(
+            f"Invalid compact_at value '{value}': use tokens (190k, 1m, at least "
+            f"{COMPACT_AT_MIN_TOKENS:,}) or a context-window fraction (0.4, 40%)"
+        )
+
+    def trigger_tokens(self, context_window: int | None) -> int | None:
+        """Input tokens that trigger compaction; None when a fraction has no window."""
+        if self.tokens is not None:
+            return self.tokens
+        assert self.fraction is not None
+        if context_window is None or context_window <= 0:
+            return None
+        # Smallest count whose share of the window reaches the fraction (no float drift).
+        tokens = math.ceil(context_window * self.fraction)
+        return tokens - 1 if (tokens - 1) / context_window >= self.fraction else tokens
+
+    def describe(self, context_window: int | None) -> str:
+        """E.g. ``190,000 tokens (38% of context)`` or ``85% of context``."""
+        tokens = self.trigger_tokens(context_window)
+        window = context_window if context_window is not None and context_window > 0 else None
+        if self.fraction is not None:
+            suffix = f" ({tokens:,} tokens)" if tokens is not None else ""
+            return f"{self.fraction * 100:.0f}% of context{suffix}"
+        suffix = f" ({tokens / window * 100:.0f}% of context)" if tokens and window else ""
+        return f"{tokens:,} tokens{suffix}"
+
+
+def resolve_compact_at(
+    llm: FastAgentLLMProtocol | None,
+    settings: CompactionSettings,
+) -> CompactAt:
+    """The model string's ``compact_at``, else ``compaction.threshold``, else the
+    model's default, else 85% of the context window."""
+    if llm is not None and llm.compact_at_override is not None:
+        return llm.compact_at_override
+    if settings.threshold is not None:
+        return CompactAt(fraction=settings.threshold)
+    if llm is not None and llm.default_compact_at is not None:
+        return llm.default_compact_at
+    return CompactAt(fraction=DEFAULT_COMPACTION_THRESHOLD)
+
+
+def compaction_trigger_tokens(
+    llm: FastAgentLLMProtocol | None,
+    settings: CompactionSettings,
+    context_window: int | None,
+) -> int | None:
+    """Input tokens at which auto-compaction fires, or None when unknown."""
+    return resolve_compact_at(llm, settings).trigger_tokens(context_window)
+
+
 # The API rejects compaction triggers below this many input tokens.
 COMPACTION_MIN_TRIGGER_TOKENS = 50_000
 
@@ -137,14 +223,8 @@ def in_request_compaction_trigger(
     """Effective provider trigger, or None when harness compaction should run."""
     if llm is None or llm.compaction_support is not CompactionSupport.IN_REQUEST:
         return None
-    usage = llm.usage_accumulator
-    context_window = usage.context_window_size if usage else None
-    if (
-        not settings.auto
-        or settings.strategy == "client"
-        or settings.has_custom_prompt
-        or context_window is None
-        or context_window <= 0
-    ):
+    if not settings.auto or settings.strategy == "client" or settings.has_custom_prompt:
         return None
-    return max(int(context_window * settings.threshold), COMPACTION_MIN_TRIGGER_TOKENS)
+    usage = llm.usage_accumulator
+    trigger = compaction_trigger_tokens(llm, settings, usage.context_window_size if usage else None)
+    return max(trigger, COMPACTION_MIN_TRIGGER_TOKENS) if trigger is not None else None
