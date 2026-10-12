@@ -632,12 +632,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         return CompactionSupport.CLIENT
 
     @property
-    def default_compaction_threshold(self) -> float | None:
-        """The model's auto-compaction threshold, used when config leaves it unset."""
-        params = self._get_model_params(self.default_request_params.model or self._model_name)
-        return params.compaction_threshold if params is not None else None
-
-    @property
     def compaction_mode(self) -> CompactionMode | None:
         """The model string's ``compaction=`` override, if any."""
         return self._compaction_mode
