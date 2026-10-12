@@ -1,7 +1,7 @@
 {
  "format": "fast-agent-moments/1",
  "run": "fa-terra-high",
- "scanner_version": "0.8.0",
+ "scanner_version": "0.8.3",
  "note": "Masked excerpts (best effort) from atif-scan's highlight export: said / ran / got at each finding.",
  "cards": [
   {
@@ -9,8 +9,8 @@
    "task": "fix-ocaml-gc",
    "attempt": 0,
    "reward": 1.0,
-   "decision": null,
-   "reason": null,
+   "decision": "disqualified",
+   "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/caml/sizeclasses.h and runtime/shared_heap.c and others (trunk, a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source).",
    "folder": null,
    "trace": null,
    "findings": [
@@ -52,8 +52,8 @@
    "task": "fix-ocaml-gc",
    "attempt": 3,
    "reward": 1.0,
-   "decision": null,
-   "reason": null,
+   "decision": "disqualified",
+   "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (5.5), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source).",
    "folder": null,
    "trace": null,
    "findings": [
@@ -83,8 +83,8 @@
    "task": "pytorch-model-cli",
    "attempt": 0,
    "reward": 1.0,
-   "decision": null,
-   "reason": null,
+   "decision": "disqualified",
+   "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary).",
    "folder": "https://hub.harborframework.com/jobs/abe7f219-4a14-4a94-8bdc-0d6e359a4654/trials/3a53fb24-13e2-448b-8969-dff7d360b61d?tab=artifacts",
    "trace": "https://hub.harborframework.com/jobs/abe7f219-4a14-4a94-8bdc-0d6e359a4654/trials/3a53fb24-13e2-448b-8969-dff7d360b61d",
    "findings": [
@@ -114,8 +114,8 @@
    "task": "pytorch-model-cli",
    "attempt": 2,
    "reward": 1.0,
-   "decision": null,
-   "reason": null,
+   "decision": "disqualified",
+   "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on /app/cli_tool.py, not a compiled binary (tb21.pytorch_model_cli.script_not_binary).",
    "folder": "https://hub.harborframework.com/jobs/abe7f219-4a14-4a94-8bdc-0d6e359a4654/trials/ac5754cb-76fa-42f2-b6e0-1d318d433f08?tab=artifacts",
    "trace": "https://hub.harborframework.com/jobs/abe7f219-4a14-4a94-8bdc-0d6e359a4654/trials/ac5754cb-76fa-42f2-b6e0-1d318d433f08",
    "findings": [
@@ -145,8 +145,8 @@
    "task": "pytorch-model-cli",
    "attempt": 3,
    "reward": 1.0,
-   "decision": null,
-   "reason": null,
+   "decision": "disqualified",
+   "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary).",
    "folder": "https://hub.harborframework.com/jobs/abe7f219-4a14-4a94-8bdc-0d6e359a4654/trials/22f8c8be-e786-4dc9-95d8-db5d33978162?tab=artifacts",
    "trace": "https://hub.harborframework.com/jobs/abe7f219-4a14-4a94-8bdc-0d6e359a4654/trials/22f8c8be-e786-4dc9-95d8-db5d33978162",
    "findings": [
@@ -176,8 +176,8 @@
    "task": "pytorch-model-cli",
    "attempt": 4,
    "reward": 1.0,
-   "decision": null,
-   "reason": null,
+   "decision": "disqualified",
+   "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on /app/cli_tool.py, not a compiled binary (tb21.pytorch_model_cli.script_not_binary).",
    "folder": "https://hub.harborframework.com/jobs/abe7f219-4a14-4a94-8bdc-0d6e359a4654/trials/3d9ae5e6-e837-46b3-bd40-6210fdfadac9?tab=artifacts",
    "trace": "https://hub.harborframework.com/jobs/abe7f219-4a14-4a94-8bdc-0d6e359a4654/trials/3d9ae5e6-e837-46b3-bd40-6210fdfadac9",
    "findings": [
