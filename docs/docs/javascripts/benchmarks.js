@@ -2261,7 +2261,7 @@
       } else more.appendChild(fs);
     });
     if (extra) {
-      var label = "Show " + (card.findings.length - 1) + " more finding" + (card.findings.length === 2 ? "" : "s") + " · " + extra + " moment" + (extra === 1 ? "" : "s");
+      var label = "Show " + (card.findings.length - 1) + " more finding" + (card.findings.length === 2 ? "" : "s");
       var toggle = el("button", "fb-mcard__toggle", label);
       toggle.type = "button";
       toggle.setAttribute("aria-expanded", "false");

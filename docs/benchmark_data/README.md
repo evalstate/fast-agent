@@ -149,9 +149,13 @@ after review). The generator emits `safety.refused` / `safety.reference` / `safe
 (same inputs and options) and `moments.py` turns the export into `moments/<run>.json`:
 one card per pass with a high or critical finding and per review decision, with up to
 three findings and two masked excerpts each (said / ran / got at the matched step), led by
-the finding the decision cites. Cards link to the trial folder and the Hub's trace viewer
-in the public bucket (bucket runs only). `fetch_runs.py` records each task's trials in
-cell order (`trials`) for this. Excerpts are trace text: atif-scan masks secret shapes
+the finding the decision cites. Cards link to the trial's files and trajectory: the
+trial folder and the Hugging Face trace viewer for bucket runs, or the Harbor Hub trial
+page (it opens on the trajectory; files under `?tab=artifacts`) for Hub runs. Hub links
+need a public job: private jobs are recorded without one, and their cards stay unlinked.
+`fetch_runs.py` records each task's trials in cell order (`trials`, with each Hub trial's
+`job`) for this; `moments.py --relink` refreshes existing cards' links from the run files
+without rescanning. Excerpts are trace text: atif-scan masks secret shapes
 (best effort) and `moments.py` refuses token-shaped text; check the files against known
 credentials before committing. The generator copies them to `docs/benchmarks/moments/`;
 a run page loads its file when opened.

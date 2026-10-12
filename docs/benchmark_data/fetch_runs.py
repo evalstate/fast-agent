@@ -904,6 +904,7 @@ def build_run(
         vals = [t[key] for t in costed if t.get(key) is not None]
         return sum(vals) if vals else None
 
+    public_jobs = {j for j, show in shows.items() if show.get("visibility") == "public"}
     out: Json = {
         "id": run["id"],
         "benchmark": manifest["benchmark"],
@@ -940,6 +941,8 @@ def build_run(
                     for k, v in (
                         ("name", t.get("trial_name") or t["id"]),
                         ("path", t.get("bucket_path")),
+                        # Hub trials of public jobs link to their Harbor Hub page.
+                        ("job", t.get("job_id") if t.get("job_id") in public_jobs else None),
                     )
                     if v
                 }

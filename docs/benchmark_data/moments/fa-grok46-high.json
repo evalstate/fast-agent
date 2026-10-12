@@ -11,8 +11,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/6d688af9-80a4-41fd-8ed6-a5230d199234/trials/115fb476-02b5-4155-a41b-51ddc1f08623?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/6d688af9-80a4-41fd-8ed6-a5230d199234/trials/115fb476-02b5-4155-a41b-51ddc1f08623",
    "findings": [
     {
      "check": "lookup.benchmark_content_obtained",
@@ -104,8 +104,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/fe3e5da8-1520-45bb-a8c2-41bfde29bb8d/trials/f77dd4fb-6e30-4c4a-bf43-7a2ea86857c2?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/fe3e5da8-1520-45bb-a8c2-41bfde29bb8d/trials/f77dd4fb-6e30-4c4a-bf43-7a2ea86857c2",
    "findings": [
     {
      "check": "network.isolation_bypass",
@@ -173,8 +173,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/fe3e5da8-1520-45bb-a8c2-41bfde29bb8d/trials/d61d39a4-9c58-48a5-9a5a-655729ced1ac?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/fe3e5da8-1520-45bb-a8c2-41bfde29bb8d/trials/d61d39a4-9c58-48a5-9a5a-655729ced1ac",
    "findings": [
     {
      "check": "lookup.benchmark_content_obtained",
@@ -278,8 +278,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/fe3e5da8-1520-45bb-a8c2-41bfde29bb8d/trials/b337a8ad-9970-46e5-8849-aeaa94f787a6?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/fe3e5da8-1520-45bb-a8c2-41bfde29bb8d/trials/b337a8ad-9970-46e5-8849-aeaa94f787a6",
    "findings": [
     {
      "check": "lookup.benchmark_content_obtained",
@@ -371,8 +371,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/fe3e5da8-1520-45bb-a8c2-41bfde29bb8d/trials/dbafc8db-f087-4a71-bdfe-afefaebe2460?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/fe3e5da8-1520-45bb-a8c2-41bfde29bb8d/trials/dbafc8db-f087-4a71-bdfe-afefaebe2460",
    "findings": [
     {
      "check": "lookup.benchmark_content_obtained",
@@ -476,8 +476,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/fe3e5da8-1520-45bb-a8c2-41bfde29bb8d/trials/3ebbf6b8-eb26-4f3a-9646-76a2046a55b5?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/fe3e5da8-1520-45bb-a8c2-41bfde29bb8d/trials/3ebbf6b8-eb26-4f3a-9646-76a2046a55b5",
    "findings": [
     {
      "check": "lookup.benchmark_content_obtained",
@@ -569,8 +569,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/fe3e5da8-1520-45bb-a8c2-41bfde29bb8d/trials/41a5ad09-733b-432f-bc80-f47b6873175a?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/fe3e5da8-1520-45bb-a8c2-41bfde29bb8d/trials/41a5ad09-733b-432f-bc80-f47b6873175a",
    "findings": [
     {
      "check": "tb21.fix_ocaml_gc.upstream_source",
@@ -612,8 +612,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/fe3e5da8-1520-45bb-a8c2-41bfde29bb8d/trials/bfe7a59c-4c10-473f-bae5-46640346bf45?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/fe3e5da8-1520-45bb-a8c2-41bfde29bb8d/trials/bfe7a59c-4c10-473f-bae5-46640346bf45",
    "findings": [
     {
      "check": "tb21.fix_ocaml_gc.upstream_source",
@@ -655,8 +655,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/fe3e5da8-1520-45bb-a8c2-41bfde29bb8d/trials/8e6d64bc-ce94-43bc-b0f3-ae8e91cd5cf0?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/fe3e5da8-1520-45bb-a8c2-41bfde29bb8d/trials/8e6d64bc-ce94-43bc-b0f3-ae8e91cd5cf0",
    "findings": [
     {
      "check": "tb21.fix_ocaml_gc.upstream_source",
@@ -698,8 +698,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/3f204b69-9598-4d13-831c-193825dcc027/trials/cb730e8d-9e04-409f-89bd-e4ef0f630a93?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/3f204b69-9598-4d13-831c-193825dcc027/trials/cb730e8d-9e04-409f-89bd-e4ef0f630a93",
    "findings": [
     {
      "check": "network.isolation_bypass",

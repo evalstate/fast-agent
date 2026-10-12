@@ -11,8 +11,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/11efb542-89de-4746-8227-b776c7841a96/trials/f7d12944-5016-43ec-9111-97c0e83aca2c?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/11efb542-89de-4746-8227-b776c7841a96/trials/f7d12944-5016-43ec-9111-97c0e83aca2c",
    "findings": [
     {
      "check": "lookup.benchmark_content_obtained",

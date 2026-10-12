@@ -204,19 +204,24 @@
     ],
     "build-pov-ray": [
       {
-        "name": "69dd9c28-175a-4171-8af0-68115c3ed1b9"
+        "name": "69dd9c28-175a-4171-8af0-68115c3ed1b9",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       },
       {
-        "name": "0399f367-0ab1-4ee0-b0d3-1b76918f8faa"
+        "name": "0399f367-0ab1-4ee0-b0d3-1b76918f8faa",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       },
       {
-        "name": "8509f82e-e7d1-4fe1-8f0b-58f9976ad4be"
+        "name": "8509f82e-e7d1-4fe1-8f0b-58f9976ad4be",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       },
       {
-        "name": "c6913403-f76b-49a5-8447-284e5eceb6b4"
+        "name": "c6913403-f76b-49a5-8447-284e5eceb6b4",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       },
       {
-        "name": "040539e7-ba29-468e-add9-f2ba71bccbec"
+        "name": "040539e7-ba29-468e-add9-f2ba71bccbec",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       }
     ],
     "caffe-cifar-10": [
@@ -1173,19 +1178,24 @@
     ],
     "protein-assembly": [
       {
-        "name": "e7d02c2f-9130-4b09-9277-9ea07c83a947"
+        "name": "e7d02c2f-9130-4b09-9277-9ea07c83a947",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       },
       {
-        "name": "4c0c1258-ae13-4580-9677-1cb94e56a925"
+        "name": "4c0c1258-ae13-4580-9677-1cb94e56a925",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       },
       {
-        "name": "3c852efb-b670-4485-b713-d89a53922067"
+        "name": "3c852efb-b670-4485-b713-d89a53922067",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       },
       {
-        "name": "2ec75e57-26b5-4815-a457-979e523926dc"
+        "name": "2ec75e57-26b5-4815-a457-979e523926dc",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       },
       {
-        "name": "40e7a055-ff8b-4133-9f3f-f60df2c29b2f"
+        "name": "40e7a055-ff8b-4133-9f3f-f60df2c29b2f",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       }
     ],
     "prove-plus-comm": [
@@ -1224,19 +1234,24 @@
     ],
     "pytorch-model-cli": [
       {
-        "name": "3a53fb24-13e2-448b-8969-dff7d360b61d"
+        "name": "3a53fb24-13e2-448b-8969-dff7d360b61d",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       },
       {
-        "name": "80f82293-e056-4d1f-8a67-d2cade525551"
+        "name": "80f82293-e056-4d1f-8a67-d2cade525551",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       },
       {
-        "name": "ac5754cb-76fa-42f2-b6e0-1d318d433f08"
+        "name": "ac5754cb-76fa-42f2-b6e0-1d318d433f08",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       },
       {
-        "name": "22f8c8be-e786-4dc9-95d8-db5d33978162"
+        "name": "22f8c8be-e786-4dc9-95d8-db5d33978162",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       },
       {
-        "name": "3d9ae5e6-e837-46b3-bd40-6210fdfadac9"
+        "name": "3d9ae5e6-e837-46b3-bd40-6210fdfadac9",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       }
     ],
     "pytorch-model-recovery": [
@@ -1394,19 +1409,24 @@
     ],
     "sam-cell-seg": [
       {
-        "name": "93ffa8b4-1c90-4ffe-a5bd-1043d64126ff"
+        "name": "93ffa8b4-1c90-4ffe-a5bd-1043d64126ff",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       },
       {
-        "name": "dd371ff8-9666-4e0c-aff7-dfc24d5b502a"
+        "name": "dd371ff8-9666-4e0c-aff7-dfc24d5b502a",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       },
       {
-        "name": "d744f30c-3948-4015-817c-e786e193316a"
+        "name": "d744f30c-3948-4015-817c-e786e193316a",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       },
       {
-        "name": "b77ca51f-293d-463e-857d-d59376c0fc9e"
+        "name": "b77ca51f-293d-463e-857d-d59376c0fc9e",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       },
       {
-        "name": "bd54534d-fd7b-41b6-ba07-c14c723a7f84"
+        "name": "bd54534d-fd7b-41b6-ba07-c14c723a7f84",
+        "job": "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
       }
     ],
     "sanitize-git-repo": [

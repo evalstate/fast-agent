@@ -11,8 +11,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/059f8d77-1de3-40ea-953e-3261675843cb/trials/214d9024-b897-4369-bbe9-ec5a96df995f?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/059f8d77-1de3-40ea-953e-3261675843cb/trials/214d9024-b897-4369-bbe9-ec5a96df995f",
    "findings": [
     {
      "check": "lookup.benchmark_content_obtained",
@@ -104,8 +104,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/059f8d77-1de3-40ea-953e-3261675843cb/trials/acb58b0b-dae6-4ddb-97a2-f8eb982c39eb?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/059f8d77-1de3-40ea-953e-3261675843cb/trials/acb58b0b-dae6-4ddb-97a2-f8eb982c39eb",
    "findings": [
     {
      "check": "tb21.fix_ocaml_gc.upstream_source",
@@ -135,8 +135,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/059f8d77-1de3-40ea-953e-3261675843cb/trials/b5c86ca5-aae5-4863-ad79-deeb13db1062?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/059f8d77-1de3-40ea-953e-3261675843cb/trials/b5c86ca5-aae5-4863-ad79-deeb13db1062",
    "findings": [
     {
      "check": "tb21.fix_ocaml_gc.upstream_source",
@@ -178,8 +178,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/059f8d77-1de3-40ea-953e-3261675843cb/trials/d60cf21c-edef-4241-a38a-f827b0103185?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/059f8d77-1de3-40ea-953e-3261675843cb/trials/d60cf21c-edef-4241-a38a-f827b0103185",
    "findings": [
     {
      "check": "tb21.fix_ocaml_gc.upstream_source",
@@ -221,8 +221,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/059f8d77-1de3-40ea-953e-3261675843cb/trials/4175f04f-8923-4bac-ab0d-bbb14857a81d?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/059f8d77-1de3-40ea-953e-3261675843cb/trials/4175f04f-8923-4bac-ab0d-bbb14857a81d",
    "findings": [
     {
      "check": "tb21.fix_ocaml_gc.upstream_source",
@@ -264,8 +264,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/059f8d77-1de3-40ea-953e-3261675843cb/trials/7f230b8d-e1fa-4ef0-9d12-ba4317dc29bf?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/059f8d77-1de3-40ea-953e-3261675843cb/trials/7f230b8d-e1fa-4ef0-9d12-ba4317dc29bf",
    "findings": [
     {
      "check": "access.benchmark_material_received",
@@ -345,8 +345,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/059f8d77-1de3-40ea-953e-3261675843cb/trials/1ea8c4ad-2785-4261-8dc4-fd0217d4965a?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/059f8d77-1de3-40ea-953e-3261675843cb/trials/1ea8c4ad-2785-4261-8dc4-fd0217d4965a",
    "findings": [
     {
      "check": "access.benchmark_material_received",
@@ -450,8 +450,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/ae7acad7-64e4-4834-867b-d8c96f12e52c/trials/ae4c7e41-aee2-4028-9fb0-5e2c4b710850?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/ae7acad7-64e4-4834-867b-d8c96f12e52c/trials/ae4c7e41-aee2-4028-9fb0-5e2c4b710850",
    "findings": [
     {
      "check": "tb21.pytorch_model_cli.script_not_binary",

@@ -11,8 +11,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/79ac4cfd-717c-4871-a15c-4d958c5daea9/trials/eb816a1d-c17c-4536-b190-2db8838281bd?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/79ac4cfd-717c-4871-a15c-4d958c5daea9/trials/eb816a1d-c17c-4536-b190-2db8838281bd",
    "findings": [
     {
      "check": "tb21.pytorch_model_cli.script_not_binary",
@@ -42,8 +42,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/79ac4cfd-717c-4871-a15c-4d958c5daea9/trials/34649d10-24ec-44d7-8274-ceb6f5a2b561?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/79ac4cfd-717c-4871-a15c-4d958c5daea9/trials/34649d10-24ec-44d7-8274-ceb6f5a2b561",
    "findings": [
     {
      "check": "tb21.pytorch_model_cli.script_not_binary",
