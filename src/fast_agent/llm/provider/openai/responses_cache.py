@@ -16,6 +16,8 @@ from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 CACHE_STATE_CHANNEL = "fast-agent-responses-cache-state"
+# The model whose reasoning effort is changed with configuration updates.
+ASTRA_MODEL = "gpt-6-astra"
 
 
 class ResponsesCacheState(BaseModel):
@@ -37,6 +39,22 @@ def read_cache_state(message: PromptMessageExtended) -> ResponsesCacheState | No
     return None
 
 
+def requested_model(params: RequestParams) -> object:
+    """The request's model: a ``metadata["model"]`` override, else ``params.model``."""
+    return (params.metadata or {}).get("model") or params.model
+
+
+def requested_astra_effort(params: RequestParams, default_effort: str | None) -> str:
+    """Desired Astra effort: ``metadata["reasoning"]["effort"]``, else the default."""
+    reasoning = (params.metadata or {}).get("reasoning", {})
+    if not isinstance(reasoning, dict):
+        raise ModelConfigError("Astra reasoning must be an object")
+    effort = reasoning.get("effort", default_effort)
+    if effort not in ("low", "medium", "high", "xhigh", "max"):
+        raise ModelConfigError("Astra reasoning effort must be low, medium, high, xhigh or max")
+    return effort
+
+
 def prepare_cached_request(
     messages: list[PromptMessageExtended],
     params: RequestParams,
@@ -46,25 +64,20 @@ def prepare_cached_request(
     convert: Callable[[PromptMessageExtended], list[dict[str, Any]]],
 ) -> tuple[list[dict[str, Any]], ResponsesCacheState, RequestParams]:
     metadata = dict(params.metadata or {})
-    model = metadata.get("model") or params.model
+    model = requested_model(params)
     if not isinstance(model, str):
         raise ModelConfigError("Responses cache state requires a model")
     extra = metadata.get("extra_body")
     if (
         isinstance(extra, dict)
         and "model" in extra
-        and (model == "gpt-6-astra" or extra["model"] == "gpt-6-astra")
+        and (model == ASTRA_MODEL or extra["model"] == ASTRA_MODEL)
     ):
         raise ModelConfigError("Set model directly in metadata, not extra_body")
     effort = None
-    if model == "gpt-6-astra":
+    if model == ASTRA_MODEL:
         validate_cache_overrides(metadata)
-        reasoning = metadata.get("reasoning", {})
-        if not isinstance(reasoning, dict):
-            raise ModelConfigError("Astra reasoning must be an object")
-        effort = reasoning.get("effort", default_effort)
-        if effort not in ("low", "medium", "high", "xhigh", "max"):
-            raise ModelConfigError("Astra reasoning effort must be low, medium, high, xhigh or max")
+        effort = requested_astra_effort(params, default_effort)
     items, state, baseline = prepare_cached_input(
         messages, model=model, key=key, effort=effort, convert=convert
     )
@@ -101,13 +114,20 @@ def prepare_cached_input(
         key = matching[-1].key
     baseline = first.effort if first and effort is not None else effort
     effective = baseline
+    # Effort in force when the latest compaction ran, used if no user turn follows.
+    carried: str | None = None
     items: list[dict[str, Any]] = []
     for index, message in enumerate(messages):
         converted = convert(message)
+        if effort is not None and any(item.get("type") == "compaction" for item in converted):
+            # OpenAI: after compaction, send a fresh update before the next user message.
+            carried, effective = effective, None
         if effort is not None and _is_user_turn(message):
             # The next assistant records this request's effective effort. Stop at
             # another user turn, so imported/unannotated history is not relabeled.
-            desired = effective
+            # After a checkpoint (effective unknown), unannotated turns fall back to
+            # the effort in force at compaction, so the update is always re-sent.
+            desired = effective if effective is not None else (carried or baseline)
             for following_index in range(index + 1, len(messages)):
                 following = messages[following_index]
                 state = states[following_index]
@@ -129,6 +149,8 @@ def prepare_cached_input(
                 items.append(item)
         else:
             items.extend(converted)
+    if effective is None:
+        effective = carried
     return items, ResponsesCacheState(model=model, key=key, effort=effective), baseline
 
 

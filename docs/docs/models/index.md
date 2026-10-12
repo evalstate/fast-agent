@@ -127,6 +127,9 @@ Useful query parameters:
 - `service_tier=fast|flex` where supported
 - `lite=on|off` (`codexresponses` only): opt in to Codex's internal Responses Lite
   contract for models that support it; the default is the standard contract
+- `compaction=native|client`: OpenAI provider-native compaction checkpoints (the default
+  on `responses`, `codexresponses` and Copilot GPT models) or fast-agent's own summary;
+  see [Compaction](../guides/compaction.md#openai-provider-native-checkpoints)
 - `poll_period=10..3600` for the default managed-process wait
 
 Use the `openai` provider for Chat Completions-style models such as `openai.gpt-4.1`.
@@ -256,8 +259,8 @@ provider.model_name[?reasoning=value][&query=value...]
 - **model_name**: the model or deployment name
 - **query parameters**: provider/model-specific overrides such as `reasoning`, `structured`,
   `context`, `transport`, `service_tier`, `temperature` (`temp` alias), `web_search`,
-  `web_fetch`, `x_search`, `task_budget`, `max_tokens`, `streaming_timeout`, `lite`, and
-  `poll_period`
+  `web_fetch`, `x_search`, `task_budget`, `max_tokens`, `streaming_timeout`, `lite`,
+  `compaction`, and `poll_period`
 
 !!! Note "Provider delimiter: `.` or `/`"
     `/` is accepted as an equivalent provider delimiter, so `anthropic/claude-opus-5` is the

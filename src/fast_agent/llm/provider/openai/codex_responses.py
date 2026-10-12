@@ -39,6 +39,9 @@ class CodexResponsesLLM(ResponsesLLM):
 
     config_section: str | None = "codexresponses"
 
+    def _replays_native_compaction(self) -> bool:
+        return True
+
     def __init__(self, provider: Provider = Provider.CODEX_RESPONSES, **kwargs: Any) -> None:
         kwargs.pop("provider", None)
         # Responses Lite is opt-in (`?lite=on`); the standard contract keeps hosted

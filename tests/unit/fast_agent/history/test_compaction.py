@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 from mcp_types import (
@@ -11,6 +11,7 @@ from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
+    ContentBlock,
     EmbeddedResource,
     ImageContent,
     ResourceLink,
@@ -21,12 +22,14 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.config import CompactionSettings, Settings, get_settings
 from fast_agent.context import Context
+from fast_agent.event_progress import ProgressAction
 from fast_agent.history.compaction import (
     _CHARS_PER_TOKEN,
     DEFAULT_COMPACTION_PROMPT,
     FAST_AGENT_COMPACTION_CHANNEL,
     LEGACY_SUMMARY_NOTICE,
     SUMMARY_NOTICE,
+    CompactionError,
     CompactionSkipped,
     _plan_compaction_with_budget,
     _plan_mid_turn_compaction,
@@ -40,14 +43,16 @@ from fast_agent.history.compaction import (
     resolve_compaction_prompt,
     should_auto_compact,
 )
+from fast_agent.llm.compaction_support import (
+    CompactionStrategy,
+    CompactionSupport,
+    NativeCompaction,
+)
 from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.mcp.tool_result_metadata import set_tool_result_media_preview
 from fast_agent.session import SessionManager, reset_session_manager
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
-
-if TYPE_CHECKING:
-    from fast_agent.event_progress import ProgressAction
 
 
 def _user(text: str, *, template: bool = False) -> PromptMessageExtended:
@@ -446,6 +451,8 @@ class TestEstimateTokens:
 
 
 class _FakeLLM:
+    compaction_support = CompactionSupport.CLIENT
+
     def __init__(self, summary: str = "SUMMARY OF WORK") -> None:
         self.summary = summary
         self.verb: str | ProgressAction | None = None
@@ -477,6 +484,45 @@ class _FakeAgent:
 
     def load_message_history(self, messages) -> None:
         self._history = list(messages or [])
+
+
+_CHECKPOINT_CHANNEL = "provider-checkpoint"
+
+
+class _NativeLLM(_FakeLLM):
+    """An ON_DEMAND provider: an opaque checkpoint instead of a written summary."""
+
+    compaction_support = CompactionSupport.ON_DEMAND
+
+    def __init__(self, *, fail: bool = False) -> None:
+        super().__init__("client summary")
+        self.fail = fail
+        self.native_requests: list[list[PromptMessageExtended]] = []
+        self.verbs_seen: list[object] = []
+
+    async def native_compaction(self, messages):
+        self.native_requests.append(list(messages))
+        self.verbs_seen.append(self.verb)
+        if self.fail:
+            raise RuntimeError("provider rejected compaction")
+        checkpoint: list[ContentBlock] = [TextContent(type="text", text="x" * 40_000)]
+        response = PromptMessageExtended(
+            role="assistant",
+            content=[],
+            stop_reason=LlmStopReason.END_TURN,
+            channels={
+                _CHECKPOINT_CHANNEL: checkpoint,
+                "fast-agent-usage": [TextContent(type="text", text="{}")],
+            },
+        )
+        return NativeCompaction(
+            strategy=CompactionStrategy.OPENAI_COMPACTION,
+            request="compaction request",
+            response=response,
+            checkpoint_channels={_CHECKPOINT_CHANNEL: checkpoint},
+            description="opaque provider checkpoint",
+            opaque_bytes=6_144,
+        )
 
 
 @pytest.mark.unit
@@ -622,6 +668,118 @@ class TestCompactConversation:
         assert len(agent.message_history) == messages_after
         assert is_compaction_message(agent.message_history[0])
         assert (huge_tail in agent.message_history) == (image_count == 1)
+
+    async def test_native_checkpoint_replaces_compact_region(self):
+        history = (
+            [_user("template", template=True)]
+            + _turn("one", "1")
+            + _turn("two", "2")
+            + _turn("three", "3")
+        )
+        agent = _FakeAgent(history)
+        llm = _NativeLLM()
+        agent.llm = llm
+
+        result = await compact_conversation(agent, settings=CompactionSettings(keep_turns=1))
+
+        # The provider saw templates + compact region, nothing retained, while COMPACTING.
+        [request] = llm.native_requests
+        assert [m.first_text() for m in request] == ["template", "one", "1", "two", "2"]
+        assert llm.verbs_seen == [ProgressAction.COMPACTING]
+        assert llm.requests == []
+        # Same layout as a summary: templates, checkpoint, retained tail.
+        checkpoint = agent.message_history[1]
+        assert is_compaction_message(checkpoint)
+        assert "opaque provider checkpoint" in checkpoint.first_text()
+        assert [m.first_text() for m in agent.message_history[2:]] == ["three", "3"]
+        assert checkpoint.channels is not None
+        assert _CHECKPOINT_CHANNEL in checkpoint.channels
+        metadata_block = checkpoint.channels[FAST_AGENT_COMPACTION_CHANNEL][0]
+        assert isinstance(metadata_block, TextContent)
+        metadata = json.loads(metadata_block.text)
+        assert metadata["strategy"] == CompactionStrategy.OPENAI_COMPACTION.value
+        assert metadata["prompt"] is None
+        assert metadata["summary_request"] == "compaction request"
+        # The audited call keeps usage but not a duplicate of the checkpoint payload.
+        assert _CHECKPOINT_CHANNEL not in metadata["summary_response"]["channels"]
+        assert "fast-agent-usage" in metadata["summary_response"]["channels"]
+        assert result.strategy == CompactionStrategy.OPENAI_COMPACTION.value
+        assert result.checkpoint_bytes == metadata["checkpoint_bytes"] == 6_144
+        # Visible text names the encrypted size and the archive holding the full history.
+        assert (
+            f"Encrypted size: 6.0 KB. Archive: {metadata['archive_file']}."
+            in checkpoint.first_text()
+        )
+        # The opaque payload is not estimated as 40k characters of text.
+        assert result.tokens_after_estimate < 5_000
+
+    async def test_on_start_runs_only_when_compaction_proceeds(self):
+        started: list[str] = []
+        agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"))
+
+        await compact_conversation(
+            agent,
+            settings=CompactionSettings(keep_turns=1),
+            on_start=lambda: started.append("started"),
+        )
+        with pytest.raises(CompactionSkipped):
+            await compact_conversation(
+                _FakeAgent([_user("only message")]),
+                settings=CompactionSettings(keep_turns=1),
+                on_start=lambda: started.append("skipped attempt"),
+            )
+
+        assert started == ["started"]
+
+    async def test_focus_instructions_use_a_written_summary(self):
+        agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"))
+        llm = _NativeLLM()
+        agent.llm = llm
+
+        result = await compact_conversation(
+            agent, settings=CompactionSettings(keep_turns=1), instructions="keep file paths"
+        )
+
+        assert llm.native_requests == []
+        assert result.strategy == "summary"
+        assert "client summary" in agent.message_history[0].first_text()
+
+    async def test_configured_prompt_uses_a_written_summary(self):
+        agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"))
+        llm = _NativeLLM()
+        agent.llm = llm
+
+        result = await compact_conversation(
+            agent, settings=CompactionSettings(keep_turns=1, prompt="Keep every file path.")
+        )
+
+        # A native checkpoint takes no prompt; configured requirements must not be dropped.
+        assert llm.native_requests == []
+        assert result.strategy == "summary"
+        [request] = llm.requests
+        assert request[-1].first_text() == "Keep every file path."
+
+    async def test_client_strategy_overrides_native_support(self):
+        agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"))
+        llm = _NativeLLM()
+        agent.llm = llm
+
+        await compact_conversation(
+            agent, settings=CompactionSettings(keep_turns=1, strategy="client")
+        )
+
+        assert llm.native_requests == []
+
+    async def test_native_failure_leaves_history_unchanged(self):
+        history = _turn("one", "1") + _turn("two", "2")
+        agent = _FakeAgent(history)
+        agent.llm = _NativeLLM(fail=True)
+
+        with pytest.raises(CompactionError, match="provider rejected compaction"):
+            await compact_conversation(agent, settings=CompactionSettings(keep_turns=1))
+
+        assert agent.message_history == history
+        assert agent.llm.verb is None
 
     async def test_empty_summary_leaves_history_unchanged(self):
         from fast_agent.history.compaction import CompactionError
@@ -882,3 +1040,50 @@ def test_archives_are_atomic_unique_and_never_overwrite(tmp_path, monkeypatch):
     assert _archive_history(agent, agent.message_history) is None
     assert len(list(Path(first).parent.glob("compacted_*"))) == 2
     assert not list(Path(first).parent.glob(".compaction-*"))
+
+
+def test_llm_layer_does_not_import_harness_compaction() -> None:
+    """Providers read compaction facts from settings; harness policy stays in history/."""
+    import ast
+
+    import fast_agent.llm
+
+    root = Path(fast_agent.llm.__file__).parent
+    offenders = []
+    for path in root.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            modules = (
+                [alias.name for alias in node.names]
+                if isinstance(node, ast.Import)
+                else [node.module or ""]
+                if isinstance(node, ast.ImportFrom)
+                else []
+            )
+            if any(module.startswith("fast_agent.history.compaction") for module in modules):
+                offenders.append(str(path.relative_to(root)))
+
+    assert offenders == []
+
+
+@pytest.mark.parametrize(
+    ("prompt", "file_text", "custom"),
+    [
+        (None, None, False),
+        ("   ", None, False),
+        ("Keep every file path.", None, True),
+        ("prompt.md", "From file.", True),
+        # An empty prompt file falls back to the built-in prompt.
+        ("prompt.md", "  \n", False),
+    ],
+)
+def test_custom_prompt_flag_matches_prompt_resolution(
+    tmp_path: Path, prompt: str | None, file_text: str | None, custom: bool
+) -> None:
+    if file_text is not None:
+        (tmp_path / "prompt.md").write_text(file_text, encoding="utf-8")
+    settings = CompactionSettings(prompt=prompt)
+    settings._config_file = str(tmp_path / "fastagent.config.yaml")
+
+    assert settings.has_custom_prompt is custom
+    # The flag providers read agrees with the harness's resolved prompt.
+    assert (resolve_compaction_prompt(settings) != DEFAULT_COMPACTION_PROMPT) is custom

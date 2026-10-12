@@ -15,21 +15,36 @@ class CopilotModelSpec:
     supports_named_tool_choice: bool
     transports: tuple[Literal["sse", "websocket"], ...]
     supports_web_search: bool = False
+    supports_threshold_compaction: bool = False
+    """Anthropic threshold compaction passes the gateway (on-demand compaction does not)."""
+
+
+def _messages_model(
+    model_id: str, named_tool_choice: bool, *, threshold_compaction: bool = True
+) -> CopilotModelSpec:
+    """Messages-route contract, with threshold compaction except for legacy Haiku."""
+    return CopilotModelSpec(
+        model_id,
+        "messages",
+        named_tool_choice,
+        ("sse",),
+        supports_threshold_compaction=threshold_compaction,
+    )
 
 
 COPILOT_MODELS: Final[Mapping[str, CopilotModelSpec]] = MappingProxyType(
     {
         spec.model_id: spec
         for spec in (
-            CopilotModelSpec("claude-fable-5.1", "messages", False, ("sse",)),
-            CopilotModelSpec("claude-opus-5.5", "messages", False, ("sse",)),
-            CopilotModelSpec("claude-sonnet-5.5", "messages", False, ("sse",)),
-            CopilotModelSpec("claude-opus-4-8", "messages", True, ("sse",)),
-            CopilotModelSpec("claude-opus-5", "messages", True, ("sse",)),
-            CopilotModelSpec("claude-sonnet-5", "messages", True, ("sse",)),
-            CopilotModelSpec("claude-haiku-4.5", "messages", True, ("sse",)),
-            CopilotModelSpec("claude-haiku-5.5", "messages", True, ("sse",)),
-            CopilotModelSpec("claude-fable-5", "messages", True, ("sse",)),
+            _messages_model("claude-fable-5.1", False),
+            _messages_model("claude-opus-5.5", False),
+            _messages_model("claude-sonnet-5.5", False),
+            _messages_model("claude-opus-4-8", True),
+            _messages_model("claude-opus-5", True),
+            _messages_model("claude-sonnet-5", True),
+            _messages_model("claude-haiku-4.5", True, threshold_compaction=False),
+            _messages_model("claude-haiku-5.5", True),
+            _messages_model("claude-fable-5", True),
             CopilotModelSpec(
                 "gpt-6-astra",
                 "responses",

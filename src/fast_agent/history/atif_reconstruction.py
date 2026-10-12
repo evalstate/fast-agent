@@ -15,6 +15,7 @@ from pathlib import Path
 from mcp_types import TextContent
 
 from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL, FAST_AGENT_PROCESS_POLL_FOLD
+from fast_agent.llm.compaction_support import CompactionStrategy
 from fast_agent.types import PromptMessageExtended
 
 COMPACTION_BOUNDARY = "fast-agent-atif-compaction-boundary"
@@ -167,6 +168,10 @@ def reconstruct_history(
     summary_call = {
         key: metadata[key] for key in ("summary_request", "summary_response") if key in metadata
     }
+    # "summary" is fast-agent's own summary; others are provider-native checkpoints.
+    strategy = metadata.get("strategy", CompactionStrategy.SUMMARY.value)
+    if not isinstance(strategy, str) or not strategy:
+        raise HistoryReconstructionError("Malformed compaction metadata")
     boundary.channels = {
         COMPACTION_BOUNDARY: [
             TextContent(
@@ -174,7 +179,7 @@ def reconstruct_history(
                 text=json.dumps(
                     {
                         "type": "compaction",
-                        "strategy": "summary",
+                        "strategy": strategy,
                         "boundary": "replace",
                         "scope": "previous_model_context",
                         "template_messages": index,

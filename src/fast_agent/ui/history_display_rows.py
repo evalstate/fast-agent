@@ -13,9 +13,12 @@ from fast_agent.constants import (
     FAST_AGENT_TIMING,
     FAST_AGENT_TOOL_TIMING,
 )
+from fast_agent.history.compaction import SUMMARY_NOTICE
 from fast_agent.history.tool_activities import remote_tool_activities
+from fast_agent.llm.compaction_support import read_compaction_metadata
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.ui.history_display_models import HistoryDisplayRow, ToolResultSummary
+from fast_agent.utils.count_display import format_bytes
 from fast_agent.utils.text import collapse_whitespace, strip_casefold
 
 if TYPE_CHECKING:
@@ -344,10 +347,21 @@ def _combine_detail_sections(sections: list[Text]) -> Text | None:
     return details
 
 
+def _provider_checkpoint_preview(message: "PromptMessageExtended") -> str | None:
+    """Opaque provider checkpoints: name, encrypted size and archive instead of text."""
+    metadata = read_compaction_metadata(message)
+    if metadata is None or not metadata.is_native:
+        return None
+    parts = [f"{metadata.strategy} checkpoint"]
+    if metadata.checkpoint_bytes is not None:
+        parts.append(f"{format_bytes(metadata.checkpoint_bytes)} encrypted")
+    archive = metadata.archive_file
+    parts.append(f"archive {archive}" if archive is not None else "no archive")
+    return " · ".join(parts)
+
+
 def _compaction_preview(normalized_text: str, *, limit: int = 80) -> str:
     """Preview the checkpoint summary content, skipping the boilerplate notice."""
-    from fast_agent.history.compaction import SUMMARY_NOTICE
-
     text = normalized_text
     marker = "[COMPACTED HISTORY]"
     if text.startswith(marker):
@@ -375,7 +389,8 @@ def build_history_rows(history: Sequence["PromptMessageExtended"]) -> list[Histo
                     role=role,
                     timeline_role=role,
                     chars=text_summary.chars,
-                    preview=_compaction_preview(text_summary.normalized),
+                    preview=_provider_checkpoint_preview(message)
+                    or _compaction_preview(text_summary.normalized),
                     details=None,
                     non_text=False,
                     has_tool_request=False,

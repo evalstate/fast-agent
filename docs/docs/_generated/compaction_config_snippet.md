@@ -8,5 +8,6 @@ compaction:
   auto:         true  # automatically compact when the threshold is crossed
   threshold:    0.85  # fraction of the context window that triggers compaction
   keep_turns:   2     # recent turns kept verbatim after compaction
+  strategy:     'auto' # auto: provider-native where supported; client: always summarize
   # prompt:       null  # built-in prompt; set inline text or a relative file path
 ```

@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
     from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.context import Context
-    from fast_agent.interfaces import AgentProtocol
+    from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol
     from fast_agent.llm.usage_tracking import UsageAccumulator
     from fast_agent.types import PromptMessageExtended, RequestParams
 
@@ -49,6 +49,9 @@ class HookAgentProtocol(Protocol):
 
     @property
     def context(self) -> "Context | None": ...
+
+    @property
+    def llm(self) -> "FastAgentLLMProtocol | None": ...
 
     @property
     def config(self) -> "AgentConfig": ...

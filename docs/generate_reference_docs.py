@@ -679,6 +679,7 @@ _COMPACTION_SNIPPET_COMMENTS = {
     "auto": "automatically compact when the threshold is crossed",
     "threshold": "fraction of the context window that triggers compaction",
     "keep_turns": "recent turns kept verbatim after compaction",
+    "strategy": "auto: provider-native where supported; client: always summarize",
     "prompt": "built-in prompt; set inline text or a relative file path",
 }
 

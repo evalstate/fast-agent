@@ -237,3 +237,103 @@ def test_validate_token_accounting_rejects_incorrect_codex_total(tmp_path: Path)
             codex_path=codex_path,
             atif_path=atif_path,
         )
+
+
+def _metric_trajectory(
+    *, root_prompt: int, child_prompt: int | None, total_prompt: int | None
+) -> dict[str, object]:
+    def step(prompt: int | None) -> dict[str, object]:
+        return {
+            "step_id": 1,
+            "source": "agent",
+            "message": "ok",
+            "metrics": {"prompt_tokens": prompt, "completion_tokens": 1, "cached_tokens": 0},
+            "llm_call_count": 1,
+        }
+
+    def final(prompt: int | None, completion: int | None) -> dict[str, object]:
+        return {
+            "total_prompt_tokens": prompt,
+            "total_completion_tokens": completion,
+            "total_cached_tokens": 0 if prompt is not None else None,
+            "total_steps": 1,
+        }
+
+    child = {
+        "trajectory_id": "compaction-step-1",
+        "agent": {"name": "fast-agent", "version": "test"},
+        "steps": [step(child_prompt)],
+        "final_metrics": final(child_prompt, 1 if child_prompt is not None else None),
+    }
+    return {
+        "agent": {"name": "fast-agent", "version": "test"},
+        "steps": [step(root_prompt)],
+        "final_metrics": final(total_prompt, 2 if total_prompt is not None else None),
+        "subagent_trajectories": [child],
+    }
+
+
+@pytest.mark.parametrize(
+    ("child_prompt", "total_prompt", "valid"),
+    [
+        # Embedded summary/compaction calls count toward final metrics.
+        (40, 140, True),
+        (40, 100, False),
+        # An incomplete child makes the total incomplete; claiming a sum is invalid.
+        (None, None, True),
+        (None, 100, False),
+    ],
+)
+def test_validate_atif_counts_embedded_subagent_metrics(
+    tmp_path: Path, child_prompt: int | None, total_prompt: int | None, valid: bool
+) -> None:
+    from fast_agent.session.token_accounting_validation import validate_atif
+
+    path = tmp_path / "trajectory.json"
+    path.write_text(
+        json.dumps(
+            _metric_trajectory(
+                root_prompt=100, child_prompt=child_prompt, total_prompt=total_prompt
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    if valid:
+        validate_atif(path)
+    else:
+        with pytest.raises(ArtifactValidationError):
+            validate_atif(path)
+
+
+@pytest.mark.parametrize("provider", ["anthropic", "copilot"])
+def test_raw_anthropic_signature_includes_compaction_iterations(provider: str) -> None:
+    """Canonical totals fold billed compaction iterations; the raw check must agree."""
+    from anthropic.types.beta import BetaUsage
+
+    from fast_agent.llm.provider_types import Provider
+    from fast_agent.llm.usage_tracking import usage_from_anthropic
+    from fast_agent.session.token_accounting_validation import _raw_usage_signature
+
+    iteration = {"cache_read_input_tokens": 40, "cache_creation_input_tokens": 0}
+    usage = BetaUsage.model_validate(
+        {
+            "input_tokens": 300,
+            "cache_read_input_tokens": 1_000,
+            "cache_creation_input_tokens": 50,
+            "output_tokens": 80,
+            "iterations": [
+                {**iteration, "type": "compaction", "input_tokens": 120_000, "output_tokens": 900},
+                {**iteration, "type": "message", "input_tokens": 300, "output_tokens": 80},
+            ],
+        }
+    )
+    turn = usage_from_anthropic(usage, provider=Provider(provider), model="claude-sonnet-5.5")
+
+    assert _raw_usage_signature(turn.raw_usage, provider=provider, label="usage") == (
+        turn.prompt.total,
+        turn.completion.total,
+        turn.prompt.cache_read,
+        turn.completion.reasoning,
+    )
+    assert turn.prompt.total == 300 + 1_000 + 50 + 120_000 + 40

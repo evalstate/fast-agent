@@ -10,6 +10,7 @@ from uuid import uuid4
 from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient, omit
 
 from fast_agent.config import AnthropicSettings
+from fast_agent.llm.compaction_support import CompactionSupport
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM, CacheTTL
 from fast_agent.llm.provider.copilot import broker
 from fast_agent.llm.provider.copilot.broker import CopilotEndpoint, copilot_settings
@@ -124,6 +125,14 @@ class CopilotMessagesLLM(AnthropicLLM):
 
     def supports_web_tools(self) -> bool:
         return False
+
+    @property
+    def compaction_support(self) -> CompactionSupport:
+        # The gateway forwards the threshold beta but strips the on-demand one.
+        spec = get_copilot_model(self.default_request_params.model or "")
+        if spec.supports_threshold_compaction and self.compaction_mode != "client":
+            return CompactionSupport.IN_REQUEST
+        return CompactionSupport.CLIENT
 
     def supports_direct_anthropic_beta(self, feature: str) -> bool:
         # Verified against the gateway; other betas are accepted but untested or inert.

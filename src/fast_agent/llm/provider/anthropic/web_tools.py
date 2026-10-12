@@ -4,6 +4,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
+from anthropic.types.beta import BetaCompactionBlock
+
 from fast_agent.config import (
     AnthropicSettings,
     AnthropicWebFetchSettings,
@@ -171,6 +173,11 @@ def dedupe_preserve_order(values: Sequence[str]) -> list[str]:
 
 
 def serialize_anthropic_block_payload(block: object) -> dict[str, Any] | None:
+    if isinstance(block, BetaCompactionBlock):
+        # Compaction blocks must round-trip exactly as returned; SDK-default nulls
+        # (e.g. tool_changes, encrypted_content) are not part of the wire block.
+        return block.model_dump(mode="json", exclude_none=True)
+
     payload = _raw_anthropic_block_payload(block)
     if not payload:
         return None

@@ -1,0 +1,7 @@
+{
+  "family": "codexresponses",
+  "resolved_model": "gpt-6-astra",
+  "transport": "sse",
+  "scenario": "compaction_trigger",
+  "source": "scripts/openai_native_compaction_smoke.py --fixture-out"
+}

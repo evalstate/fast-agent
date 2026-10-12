@@ -781,6 +781,14 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     fallback_sequence=stream_event_index,
                 )
             stream_event_index += 1
+            if event_type == "response.compaction.compacting" or (
+                event_type == "response.output_item.added"
+                and responses_item_type(getattr(event, "item", None)) == "compaction"
+            ):
+                # Compaction emits no text deltas; surface it as COMPACTING progress.
+                await self._emit_streaming_progress(
+                    model, estimated_tokens, type=ProgressAction.COMPACTING
+                )
 
             handled, reasoning_chars = await self._handle_responses_reasoning_delta(
                 event=event,

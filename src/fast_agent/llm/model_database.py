@@ -5,6 +5,7 @@ This module provides a centralized lookup for model parameters including
 context windows, max output tokens, and supported tokenization types.
 """
 
+from dataclasses import replace
 from typing import ClassVar, Final, Literal
 
 from pydantic import BaseModel, Field
@@ -22,6 +23,7 @@ from fast_agent.llm.provider.copilot.models import (
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
     AUTO_REASONING,
+    ReasoningEffortLevel,
     ReasoningEffortSetting,
     ReasoningEffortSpec,
 )
@@ -163,6 +165,26 @@ class ModelParameters(BaseModel):
 def _with_fast(params: ModelParameters) -> ModelParameters:
     """Return a model variant marked as fast."""
     return params.model_copy(update={"fast": True})
+
+
+def _with_default_effort(
+    params: ModelParameters,
+    effort: ReasoningEffortLevel,
+    *,
+    context_window: int | None = None,
+) -> ModelParameters:
+    """Return a model variant with a different default effort (and optionally window)."""
+    spec = params.reasoning_effort_spec
+    if spec is None or effort not in (spec.allowed_efforts or ()):
+        raise ValueError(f"Default effort {effort!r} is not allowed for this model")
+    update: dict[str, object] = {
+        "reasoning_effort_spec": replace(
+            spec, default=ReasoningEffortSetting(kind="effort", value=effort)
+        )
+    }
+    if context_window is not None:
+        update["context_window"] = context_window
+    return params.model_copy(update=update)
 
 
 def _with_long_context(params: ModelParameters, window: int) -> ModelParameters:
@@ -1567,6 +1589,19 @@ class ModelDatabase:
             )
         }
     )
+    # Codex Responses defaults Astra, GPT-6.1 Sol and Luna to high effort, and serves
+    # GPT-6.1 Sol with a 500k base window (the opt-in long-context window is unchanged).
+    for _model, _window in (
+        ("gpt-6-astra", None),
+        ("gpt-6.1-sol", 500_000),
+        ("gpt-6-luna", None),
+    ):
+        _PROVIDER_MODEL_OVERRIDES[(Provider.CODEX_RESPONSES, _model)] = _with_default_effort(
+            _PROVIDER_MODEL_OVERRIDES[(Provider.CODEX_RESPONSES, _model)],
+            "high",
+            context_window=_window,
+        )
+    del _model, _window
     _PROVIDER_MODEL_OVERRIDES[(Provider.ZAI, "glm-5.2")] = GLM_5_2.model_copy(
         update={
             "default_provider": Provider.ZAI,

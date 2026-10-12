@@ -39,6 +39,7 @@ from fast_agent.history.process_poll_fold_audit import (
     ProcessPollFoldAudit,
     expand_process_poll_folds,
 )
+from fast_agent.llm.compaction_support import CompactionStrategy
 from fast_agent.llm.usage_tracking import UsageReport, UsageSummary
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -568,6 +569,7 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
     context_step_ids: list[int] = []
     compaction_children: list[AtifTrajectory] = []
     summary_boundaries_with_usage = 0
+    provider_checkpoint_boundaries = 0
     audit_items = _expand_process_poll_folds(source)
     context_boundary_count = 0
 
@@ -736,6 +738,8 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
         removed_ids = body[template_count : len(body) - tail_count]
 
         summary_call = boundary.pop("summary_call", None)
+        if boundary.get("strategy") != CompactionStrategy.SUMMARY.value:
+            provider_checkpoint_boundaries += 1
         boundary_step_id = len(steps) + 1
         timestamp = item.timestamp
         summary_ref: list[AtifSubagentTrajectoryRef] | None = None
@@ -860,6 +864,7 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
                 **(
                     {
                         "summary_compactions": summary_boundaries,
+                        "provider_checkpoint_compactions": (provider_checkpoint_boundaries or None),
                         "summary_compaction_usage_complete": summary_usage_complete,
                         "accounting_scope": (
                             None
@@ -900,6 +905,7 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
             source.notes,
             context_boundary_count=context_boundary_count,
             summary_boundary_count=summary_boundaries,
+            provider_checkpoint_count=provider_checkpoint_boundaries,
             summary_usage_complete=summary_usage_complete,
         ),
     )
@@ -913,6 +919,7 @@ def _atif_notes(
     context_boundary_count: int,
     summary_boundary_count: int = 0,
     summary_usage_complete: bool = True,
+    provider_checkpoint_count: int = 0,
 ) -> str | None:
     additions: list[str] = []
     if summary_boundary_count:
@@ -928,6 +935,13 @@ def _atif_notes(
             if summary_usage_complete
             else "Some summary-generation calls were not persisted: accounting excludes "
             "them, so these totals are not complete run spend."
+        )
+    if provider_checkpoint_count:
+        additions.append(
+            "Boundaries with a provider-native strategy (for example openai_compaction) "
+            "replaced the compacted region with an opaque, encrypted provider checkpoint: "
+            "their observation describes the checkpoint rather than quoting a readable "
+            "summary, and the embedded call is the provider's compaction request."
         )
     if context_boundary_count:
         additions.append(

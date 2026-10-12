@@ -40,17 +40,18 @@ not implement configuration updates for other controls or execution modes.
 
 ## Compaction and overrides
 
-Fast-agent uses summary compaction, not `/responses/compact`. After replacing or
-truncating local history, surviving records establish a fresh baseline; if none
-survive, the current desired effort becomes the baseline. Old update positions
-are never reused against a shortened input array.
+Fast-agent uses summary compaction by default, never `/responses/compact`. After
+replacing or truncating local history, surviving records establish a fresh
+baseline; if none survive, the current desired effort becomes the baseline. Old
+update positions are never reused against a shortened input array.
 
 Automatic provider compaction and truncation are incompatible with Astra
 configuration updates and are rejected. OpenAI's standalone `/responses/compact`
 also rejects histories containing updates. The API separately permits explicit
-`compaction_trigger` items in `/responses`; callers using that API must send a
-fresh desired-effort update before the next user message. Fast-agent's managed
-history path uses summary compaction and does not expose raw trigger items.
+`compaction_trigger` items in `/responses`, which fast-agent uses for
+[provider-native checkpoints](compaction.md#openai-provider-native-checkpoints)
+on Responses, Codex Responses, and Copilot GPT models. A checkpoint resets the effective effort, so fast-agent sends
+a fresh desired-effort update before the next user message, as the API requires.
 
 `RequestParams.metadata["prompt_cache_key"]` overrides the generated key.
 The latest explicit key remains in use on subsequent turns and resume.

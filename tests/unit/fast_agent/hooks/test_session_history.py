@@ -96,6 +96,7 @@ class _Agent:
         )
         self.message_history = history
         self.usage_accumulator = None
+        self.llm = None
         self.agent_registry = None
 
     def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None:

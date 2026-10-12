@@ -14,6 +14,8 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
+import pytest
+
 from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.model_selection import CatalogModelEntry
 from fast_agent.llm.provider_types import Provider
@@ -38,8 +40,6 @@ from fast_agent.ui.model_picker_common import (
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 def _overlay_group(snapshot: ModelPickerSnapshot):
@@ -149,13 +149,17 @@ def test_huggingface_provider_is_inactive_without_hub_login_or_token(
     assert _provider_option(snapshot, Provider.HUGGINGFACE).active is False
 
 
-def test_astra_picker_defaults_to_medium_reasoning() -> None:
-    for model in ("astra", "codexplan", "gpt-6-astra"):
-        capabilities = model_capabilities(model)
+@pytest.mark.parametrize(
+    ("model", "default"),
+    [("astra", "high"), ("codexplan", "high"), ("gpt-6-astra", "medium")],
+)
+def test_astra_picker_default_reasoning_by_route(model: str, default: str) -> None:
+    # Codex Responses defaults Astra to high effort; the Responses route keeps medium.
+    capabilities = model_capabilities(model)
 
-        assert capabilities.model_name == "gpt-6-astra"
-        assert capabilities.default_reasoning == "effort=medium"
-        assert "low" in capabilities.reasoning_values
+    assert capabilities.model_name == "gpt-6-astra"
+    assert capabilities.default_reasoning == f"effort={default}"
+    assert "low" in capabilities.reasoning_values
 
 
 def test_openresponses_models_do_not_report_web_search_support() -> None:

@@ -19,7 +19,10 @@ from anthropic import (
 )
 from anthropic.lib.streaming import BetaMessageStreamEvent
 from anthropic.types.beta import (
+    BetaCompact20260112EditParam,
+    BetaCompactionBlock,
     BetaContentBlockParam,
+    BetaContextManagementConfigParam,
     BetaInputJSONDelta,
     BetaMCPToolResultBlock,
     BetaMCPToolUseBlock,
@@ -60,6 +63,7 @@ from fast_agent.constants import (
     ANTHROPIC_CONTAINER_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
     ANTHROPIC_THINKING_BLOCKS,
+    FAST_AGENT_PROVIDER_CHECKPOINT,
     FAST_AGENT_SAFETY_DETAILS,
     REASONING,
 )
@@ -67,6 +71,10 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import ModelT
+from fast_agent.llm.compaction_support import (
+    in_request_compaction_trigger,
+    provider_checkpoint_marker,
+)
 from fast_agent.llm.fastagent_llm import (
     FastAgentLLM,
     RequestParams,
@@ -132,6 +140,7 @@ STRUCTURED_OUTPUT_BETA = "structured-outputs-2025-11-13"
 INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
 TASK_BUDGETS_BETA = "task-budgets-2026-03-13"
 CACHE_DIAGNOSIS_BETA = "cache-diagnosis-2026-04-07"
+COMPACTION_THRESHOLD_BETA = "compact-2026-01-12"
 TEST_REFUSAL_TRIGGER_ENV = "FAST_AGENT_TEST_REFUSAL_TRIGGERS"
 ANTHROPIC_CACHE_DIAGNOSTICS_CHANNEL = "fast-agent-provider-diagnostics"
 
@@ -201,6 +210,7 @@ class _AnthropicProviderPayloads:
     raw_assistant: list[TextContent] = field(default_factory=list)
     server_tools: list[TextContent] = field(default_factory=list)
     citations: list[TextContent] = field(default_factory=list)
+    has_compaction: bool = False
 
 
 @dataclass(slots=True)
@@ -1489,6 +1499,17 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         content_block = event.content_block
         if isinstance(content_block, (BetaThinkingBlock, BetaRedactedThinkingBlock)):
             state.thinking_indices.add(event.index)
+        elif isinstance(content_block, BetaCompactionBlock):
+            # The summary arrives as one late delta; show progress instead of a stall.
+            logger.info(
+                "Server-side compaction in progress",
+                data={
+                    "progress_action": ProgressAction.COMPACTING,
+                    "model": model,
+                    "agent_name": self.name,
+                    "chat_turn": self.chat_turn(),
+                },
+            )
         elif isinstance(content_block, BetaToolUseBlock):
             self._start_client_tool_stream(content_block, event, model, state)
         elif isinstance(content_block, BetaServerToolUseBlock):
@@ -2126,6 +2147,24 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             arguments["extra_body"] = sampling
         return arguments
 
+    def _in_request_compaction_edit(self) -> BetaCompact20260112EditParam | None:
+        """Threshold compaction edit when this LLM compacts within normal requests."""
+        config = self.context.config
+        if config is None:
+            return None
+        trigger = in_request_compaction_trigger(self, config.compaction)
+        if trigger is None:
+            return None
+        # No custom instructions: the server's default summarizer reads earlier
+        # thinking, which custom instructions would exclude on 5.1+ models.
+        return {
+            "type": "compact_20260112",
+            "trigger": {
+                "type": "input_tokens",
+                "value": trigger,
+            },
+        }
+
     def _resolve_anthropic_beta_flags(
         self,
         *,
@@ -2380,6 +2419,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 return _AnthropicStopResult(LlmStopReason.SAFETY)
             case "pause" | "pause_turn":
                 return _AnthropicStopResult(LlmStopReason.PAUSE)
+            case "compaction":
+                # Paused after server-side compaction; the turn continues from the block.
+                return _AnthropicStopResult(LlmStopReason.CONTINUE)
             case "tool_use":
                 return await self._anthropic_tool_stop_result(
                     response,
@@ -2543,6 +2585,12 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
     def _anthropic_provider_payloads(response: BetaMessage) -> _AnthropicProviderPayloads:
         payloads = _AnthropicProviderPayloads()
         for block in response.content or []:
+            if isinstance(block, BetaCompactionBlock):
+                payloads.has_compaction = True
+                if block.content is None:
+                    # Documented failure mode when tools are defined; the server treats
+                    # the block as a no-op and compaction is retried on a later request.
+                    logger.warning("Server-side compaction returned no summary")
             payload = serialize_anthropic_block_payload(block)
             if payload is not None:
                 try:
@@ -2601,10 +2649,17 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 channels, ANTHROPIC_SERVER_TOOLS_CHANNEL, payloads.server_tools
             )
         if payloads.raw_assistant and (
-            raw_thinking_blocks or payloads.server_tools or tool_calls is not None
+            raw_thinking_blocks
+            or payloads.server_tools
+            or payloads.has_compaction
+            or tool_calls is not None
         ):
             channels = self._add_anthropic_channel(
                 channels, ANTHROPIC_ASSISTANT_RAW_CONTENT, payloads.raw_assistant
+            )
+        if payloads.has_compaction:
+            channels = self._add_anthropic_channel(
+                channels, FAST_AGENT_PROVIDER_CHECKPOINT, provider_checkpoint_marker("anthropic")
             )
         if payloads.citations:
             channels = self._add_anthropic_channel(
@@ -2882,6 +2937,11 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             provider_mcp_enabled=bool(provider_mcp_payload.servers),
             cache_diagnostics_enabled=cache_diagnostics_enabled,
         )
+        compaction_edit = self._in_request_compaction_edit()
+        if compaction_edit is not None:
+            beta_flags.append(COMPACTION_THRESHOLD_BETA)
+            context_management: BetaContextManagementConfigParam = {"edits": [compaction_edit]}
+            base_args["context_management"] = context_management
         if beta_flags:
             base_args["betas"] = beta_flags
         if cache_diagnostics_enabled:
@@ -3003,8 +3063,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         # Check the last message role
         last_message = multipart_messages[-1]
 
-        if last_message.role == "user":
-            logger.debug("Last message in prompt is from user, generating assistant response")
+        if last_message.role == "user" or last_message.stop_reason == LlmStopReason.CONTINUE:
+            logger.debug("Generating assistant response")
             message_param = AnthropicConverter.convert_to_anthropic(last_message)
             # No need to pass pre_messages - conversion happens in _anthropic_completion
             # via _convert_to_provider_format()
@@ -3120,7 +3180,10 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 )
             else:
                 payload = serialize_anthropic_block_payload(content_block)
-                if payload is not None and is_server_tool_trace_payload(payload):
+                if payload is not None and (
+                    isinstance(content_block, BetaCompactionBlock)
+                    or is_server_tool_trace_payload(payload)
+                ):
                     content.append(cast("BetaContentBlockParam", payload))
 
         return BetaMessageParam(role="assistant", content=content, **kwargs)

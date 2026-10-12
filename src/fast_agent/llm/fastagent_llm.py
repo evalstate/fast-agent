@@ -39,6 +39,11 @@ from fast_agent.interfaces import (
     FastAgentLLMProtocol,
     ModelT,
 )
+from fast_agent.llm.compaction_support import (
+    CompactionMode,
+    CompactionSupport,
+    NativeCompaction,
+)
 from fast_agent.llm.memory import Memory, SimpleMemory
 from fast_agent.llm.model_database import ModelDatabase, ModelParameters
 from fast_agent.llm.provider.streaming_timeouts import (
@@ -196,6 +201,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # Pop long_context before passing kwargs to ContextDependent;
         # subclasses (e.g. AnthropicLLM) may pop it first for their own handling.
         long_context_requested = kwargs.pop("long_context", False)
+        self._compaction_mode: CompactionMode | None = kwargs.pop("compaction", None)
         super().__init__(context=context, **kwargs)
         self.logger = get_logger(__name__)
         self.executor = self.context.executor
@@ -618,6 +624,21 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def set_service_tier(self, value: Literal["fast", "flex"] | None) -> None:
         if value is not None and not self.service_tier_supported:
             raise ValueError("Current model does not support service tier configuration.")
+
+    @property
+    def compaction_support(self) -> CompactionSupport:
+        """How this LLM can compact history; providers override for native compaction."""
+        return CompactionSupport.CLIENT
+
+    @property
+    def compaction_mode(self) -> CompactionMode | None:
+        """The model string's ``compaction=`` override, if any."""
+        return self._compaction_mode
+
+    async def native_compaction(self, messages: list[PromptMessageExtended]) -> NativeCompaction:
+        """Compact ``messages`` into a provider checkpoint (``ON_DEMAND`` providers only)."""
+        del messages
+        raise NotImplementedError(f"{type(self).__name__} has no provider-native compaction")
 
     def _get_provider_config(self) -> Any | None:
         """Return provider-specific config section when available."""

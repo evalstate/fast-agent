@@ -462,3 +462,55 @@ def test_summary_call_is_embedded_and_accounted(tmp_path: Path):
     }
     assert metrics.extra["summary_compaction_usage_complete"] is True
     assert "accounting_scope" not in metrics.extra
+
+
+def _as_provider_checkpoint(messages: list[PromptMessageExtended]) -> list[PromptMessageExtended]:
+    """Turn the summary checkpoint into an opaque provider-native one."""
+    checkpoint = next(m for m in messages if FAST_AGENT_COMPACTION_CHANNEL in (m.channels or {}))
+    assert checkpoint.channels is not None
+    block = checkpoint.channels[FAST_AGENT_COMPACTION_CHANNEL][0]
+    assert isinstance(block, TextContent)
+    metadata = json.loads(block.text)
+    metadata.update(strategy="openai_compaction", prompt=None)
+    metadata["summary_request"] = "Responses request ending in a compaction_trigger input item"
+    block.text = json.dumps(metadata)
+    checkpoint.content = [TextContent(type="text", text="[COMPACTED HISTORY] opaque checkpoint")]
+    checkpoint.channels = {
+        **checkpoint.channels,
+        "openai-compaction-items": [TextContent(type="text", text="{}")],
+    }
+    return messages
+
+
+def test_provider_checkpoint_boundary_is_typed_and_accounted(tmp_path: Path):
+    archived = [_message(0), *_exchange(1), _message(2), *_exchange(3)]
+    current = _as_provider_checkpoint(_with_summary_call(_checkpoint(tmp_path, archived, tail=3)))
+    trajectory = _trajectory([*current, _message(10)], tmp_path)
+
+    boundary = next(s for s in trajectory.steps if (s.extra or {}).get("context_management"))
+    management = _context_management(boundary)
+    assert management["strategy"] == "openai_compaction"
+    assert management["boundary"] == "replace"
+    # The model-visible replacement is the checkpoint's description, not a summary.
+    assert _spec_context(trajectory, trajectory.steps[-1].step_id)[0] == (
+        "[COMPACTED HISTORY] opaque checkpoint"
+    )
+    [child] = trajectory.subagent_trajectories or []
+    assert child.steps[0].message == ("Responses request ending in a compaction_trigger input item")
+    metrics = trajectory.final_metrics
+    assert metrics is not None and metrics.extra is not None
+    assert metrics.extra["provider_checkpoint_compactions"] == 1
+    assert metrics.extra["subagent_prompt_tokens"] == 100
+    assert "provider-native strategy" in (trajectory.notes or "")
+
+
+def test_summary_checkpoint_is_not_counted_as_provider_native(tmp_path: Path):
+    archived = [_message(0), *_exchange(1), _message(2), *_exchange(3)]
+    current = _with_summary_call(_checkpoint(tmp_path, archived, tail=3))
+    trajectory = _trajectory([*current, _message(10)], tmp_path)
+
+    boundary = next(s for s in trajectory.steps if (s.extra or {}).get("context_management"))
+    assert _context_management(boundary)["strategy"] == "summary"
+    assert trajectory.final_metrics is not None and trajectory.final_metrics.extra is not None
+    assert "provider_checkpoint_compactions" not in trajectory.final_metrics.extra
+    assert "provider-native strategy" not in (trajectory.notes or "")
