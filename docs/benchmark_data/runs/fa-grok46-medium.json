@@ -2223,20 +2223,20 @@
     "PR closed unmerged (community submissions closed); not on the official leaderboard."
   ],
   "scan": {
-    "version": "0.8.0",
+    "version": "0.8.3",
     "scope": "all trials in the run's jobs",
     "trials": 445,
     "rewarded": 390,
     "accuracy": 87.64,
     "accuracy_se": 1.0,
     "findings_medium_plus": {
-      "trials": 34,
-      "rewarded": 22,
+      "trials": 30,
+      "rewarded": 18,
       "by_highest_priority": {
         "critical": 2,
         "high": 2,
-        "medium": 30,
-        "low": 17,
+        "medium": 26,
+        "low": 21,
         "info": 200,
         "none": 194
       },
@@ -2317,11 +2317,11 @@
       "dq_threshold": "high",
       "high_or_critical_rewarded": 3,
       "other_model_trials": 0,
-      "incomplete_evidence_rewarded": 0,
+      "incomplete_evidence_rewarded": 17,
       "accuracy_if_flagged_failed": 86.97
     },
     "awareness": {
-      "trials": 14,
+      "trials": 17,
       "stages": {
         "noticed": {
           "trials": 14,
@@ -2334,6 +2334,10 @@
         "recalled": {
           "trials": 6,
           "rewarded": 5
+        },
+        "probed": {
+          "trials": 11,
+          "rewarded": 7
         },
         "searched": {
           "trials": 4,
@@ -2358,7 +2362,7 @@
       },
       "compacted_history": 0,
       "without_trajectory": 0,
-      "incomplete_scans": 22,
+      "incomplete_scans": 75,
       "unmetered_trials": 0
     },
     "cost": {
@@ -2414,11 +2418,6 @@
         "rewarded": 5,
         "max_priority": "medium"
       },
-      "mteb-leaderboard": {
-        "trials": 4,
-        "rewarded": 4,
-        "max_priority": "medium"
-      },
       "pytorch-model-recovery": {
         "trials": 1,
         "rewarded": 1,
@@ -2456,7 +2455,7 @@
       }
     },
     "scanner": {
-      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
+      "commit": "9a482393cb55d0259942565bb28c15113b0ba858",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -2518,7 +2517,7 @@
       "merge-diff-arc-agi-task": "lllll",
       "model-extraction-relu-logits": "lllll",
       "modernize-scientific-stack": "lllll",
-      "mteb-leaderboard": "mlmmm",
+      "mteb-leaderboard": "lllll",
       "mteb-retrieve": "lllll",
       "multi-source-data-merger": "lllll",
       "nginx-request-logging": "lllll",

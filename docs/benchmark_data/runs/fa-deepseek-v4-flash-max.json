@@ -2204,21 +2204,21 @@
     "Reconciliation: cost $8.57 != expected $8.74."
   ],
   "scan": {
-    "version": "0.8.0",
+    "version": "0.8.3",
     "scope": "all trials in the run's jobs",
     "trials": 445,
     "rewarded": 336,
     "accuracy": 75.51,
     "accuracy_se": 1.42,
     "findings_medium_plus": {
-      "trials": 39,
-      "rewarded": 23,
+      "trials": 38,
+      "rewarded": 22,
       "by_highest_priority": {
         "critical": 6,
-        "high": 7,
+        "high": 6,
         "medium": 26,
         "low": 76,
-        "info": 218,
+        "info": 219,
         "none": 102,
         "unavailable": 10
       },
@@ -2283,12 +2283,12 @@
           "check": "lookup.search_surfaced_benchmark",
           "title": "Web result contained a benchmark source",
           "priority": "high",
-          "trials": 3,
-          "rewarded": 3
+          "trials": 4,
+          "rewarded": 4
         },
         {
-          "check": "code.verifier_path_reference",
-          "title": "Written code references verifier paths",
+          "check": "lookup.benchmark_solution_url",
+          "title": "Benchmark solution or test URL looked up",
           "priority": "high",
           "trials": 1,
           "rewarded": 1
@@ -2297,10 +2297,10 @@
     },
     "review": {
       "dq_threshold": "high",
-      "high_or_critical_rewarded": 12,
+      "high_or_critical_rewarded": 11,
       "other_model_trials": 0,
-      "incomplete_evidence_rewarded": 11,
-      "accuracy_if_flagged_failed": 72.81
+      "incomplete_evidence_rewarded": 33,
+      "accuracy_if_flagged_failed": 73.03
     },
     "awareness": {
       "trials": 90,
@@ -2316,6 +2316,10 @@
         "recalled": {
           "trials": 15,
           "rewarded": 8
+        },
+        "probed": {
+          "trials": 2,
+          "rewarded": 0
         },
         "searched": {
           "trials": 9,
@@ -2340,7 +2344,7 @@
       },
       "compacted_history": 27,
       "without_trajectory": 10,
-      "incomplete_scans": 109,
+      "incomplete_scans": 170,
       "unmetered_trials": 0
     },
     "cost": {
@@ -2361,11 +2365,6 @@
     },
     "overrides": [],
     "flagged_tasks": {
-      "break-filter-js-from-html": {
-        "trials": 1,
-        "rewarded": 1,
-        "max_priority": "high"
-      },
       "caffe-cifar-10": {
         "trials": 3,
         "rewarded": 3,
@@ -2483,7 +2482,7 @@
       }
     },
     "scanner": {
-      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
+      "commit": "9a482393cb55d0259942565bb28c15113b0ba858",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -2497,7 +2496,7 @@
     "cells": {
       "adaptive-rejection-sampler": "lllll",
       "bn-fit-modify": "lllll",
-      "break-filter-js-from-html": "lllhl",
+      "break-filter-js-from-html": "lllll",
       "build-cython-ext": "lllll",
       "build-pmars": "lllll",
       "build-pov-ray": "lllll",
@@ -2660,12 +2659,6 @@
         "cell_index": 4
       }
     ],
-    "cleared": [
-      {
-        "trial": "765390f2-9bdf-4652-82cd-4beb068f6d44",
-        "task": "break-filter-js-from-html",
-        "reason": "code.verifier_path_reference false positive: a self-check script (/app/check.py) mentions /tests/filter.py in a comment; /tests was absent in the sandbox (ls failed), so no verifier material was read."
-      }
-    ]
+    "cleared": []
   }
 }

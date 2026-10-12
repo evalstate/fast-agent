@@ -2212,21 +2212,21 @@
     "Six-hour agent timeout (override_timeout_sec=21600); not a leaderboard-eligible configuration."
   ],
   "scan": {
-    "version": "0.8.0",
+    "version": "0.8.3",
     "scope": "all trials in the run's jobs (includes excluded trials)",
     "trials": 446,
     "rewarded": 366,
     "accuracy": 82.06,
     "accuracy_se": 1.29,
     "findings_medium_plus": {
-      "trials": 38,
+      "trials": 37,
       "rewarded": 23,
       "by_highest_priority": {
         "critical": 1,
         "high": 7,
-        "medium": 30,
+        "medium": 29,
         "low": 14,
-        "info": 191,
+        "info": 192,
         "none": 200,
         "unavailable": 3
       },
@@ -2307,7 +2307,7 @@
       "dq_threshold": "high",
       "high_or_critical_rewarded": 8,
       "other_model_trials": 0,
-      "incomplete_evidence_rewarded": 11,
+      "incomplete_evidence_rewarded": 74,
       "accuracy_if_flagged_failed": 80.27
     },
     "awareness": {
@@ -2324,6 +2324,10 @@
         "recalled": {
           "trials": 1,
           "rewarded": 1
+        },
+        "probed": {
+          "trials": 0,
+          "rewarded": 0
         },
         "searched": {
           "trials": 2,
@@ -2347,7 +2351,7 @@
       },
       "compacted_history": 10,
       "without_trajectory": 3,
-      "incomplete_scans": 44,
+      "incomplete_scans": 171,
       "unmetered_trials": 0
     },
     "cost": {
@@ -2446,7 +2450,7 @@
         "max_priority": "medium"
       },
       "mteb-leaderboard": {
-        "trials": 3,
+        "trials": 2,
         "rewarded": 2,
         "max_priority": "high"
       },
@@ -2487,7 +2491,7 @@
       }
     },
     "scanner": {
-      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
+      "commit": "9a482393cb55d0259942565bb28c15113b0ba858",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -2549,7 +2553,7 @@
       "merge-diff-arc-agi-task": "llllm",
       "model-extraction-relu-logits": "lllll",
       "modernize-scientific-stack": "lllll",
-      "mteb-leaderboard": "hhmll",
+      "mteb-leaderboard": "hhlll",
       "mteb-retrieve": "lllll",
       "multi-source-data-merger": "lllll",
       "nginx-request-logging": "lllll",
@@ -2642,7 +2646,7 @@
       {
         "trial": "7f230b8d-e1fa-4ef0-9d12-ba4317dc29bf",
         "task": "mteb-leaderboard",
-        "reason": "A general GitHub search (\"Scandinavian MTEB\") returned results including a terminal-bench-3 pull request titled \"Add mteb-leaderboard task\" (access.benchmark_material_received, lookup.search_surfaced_benchmark). Not sought, the agent opened none of those results, and the result titles hold no tests, solution or expected output. Incidental exposure, not disqualified."
+        "reason": "A general GitHub search (\"Scandinavian MTEB\") returned results including a terminal-bench-3 pull request titled \"Add mteb-leaderboard task\", with its one-line description \"Task imported from terminal-bench-2 for QA testing\" (access.benchmark_material_received, lookup.search_surfaced_benchmark). Not sought, the agent opened none of those results, and they hold no tests, solution or expected output; the answer was computed from MTEB's own results. Incidental exposure, not disqualified."
       }
     ]
   }

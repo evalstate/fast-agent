@@ -1,7 +1,7 @@
 {
  "format": "fast-agent-moments/1",
  "run": "luna-max-6h",
- "scanner_version": "0.8.0",
+ "scanner_version": "0.8.3",
  "note": "Masked excerpts (best effort) from atif-scan's highlight export: said / ran / got at each finding.",
  "cards": [
   {
@@ -294,7 +294,7 @@
    "attempt": 0,
    "reward": 1.0,
    "decision": "cleared",
-   "reason": "A general GitHub search (\"Scandinavian MTEB\") returned results including a terminal-bench-3 pull request titled \"Add mteb-leaderboard task\" (access.benchmark_material_received, lookup.search_surfaced_benchmark). Not sought, the agent opened none of those results, and the result titles hold no tests, solution or expected output. Incidental exposure, not disqualified.",
+   "reason": "A general GitHub search (\"Scandinavian MTEB\") returned results including a terminal-bench-3 pull request titled \"Add mteb-leaderboard task\", with its one-line description \"Task imported from terminal-bench-2 for QA testing\" (access.benchmark_material_received, lookup.search_surfaced_benchmark). Not sought, the agent opened none of those results, and they hold no tests, solution or expected output; the answer was computed from MTEB's own results. Incidental exposure, not disqualified.",
    "folder": "https://hub.harborframework.com/jobs/059f8d77-1de3-40ea-953e-3261675843cb/trials/7f230b8d-e1fa-4ef0-9d12-ba4317dc29bf?tab=artifacts",
    "trace": "https://hub.harborframework.com/jobs/059f8d77-1de3-40ea-953e-3261675843cb/trials/7f230b8d-e1fa-4ef0-9d12-ba4317dc29bf",
    "findings": [
