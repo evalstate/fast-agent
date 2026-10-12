@@ -785,15 +785,34 @@ recovered by the transport's bounded reconnect. File logging persists these even
 as JSONL even at `level: "error"`; they do not depend on a completed assistant
 response or ATIF export. Logging disabled with `type: "none"` does not persist them.
 
-The `fast-agent.responses-websocket-failure/v1` payload includes an allowlisted
+The `fast-agent.responses-websocket-failure/v2` payload includes an allowlisted
 `error_code` (`null` when absent, `unknown` for unrecognized codes), `stream_started`,
 connection ages at request start and failure in seconds (`null` when unknown),
 reuse status, and `reconnect_eligible`. Ages use the connection manager's monotonic
 clock. Eligibility describes the existing single transport reconnect only, not
 outer provider retries; `websocket_attempt` / `websocket_max_attempts` distinguish
 that bound from the provider `call`, `attempt`, and `max_attempts` counters.
+When a stream ends without a completion event, v2 adds how it ended (otherwise
+`null`):
+
+- `close_kind`: one of `close_frame_received`, `no_close_frame` (the peer dropped
+  the connection without a WebSocket close frame), `close_code`, `no_close_code`
+  or `unknown`.
+- `close_code`: the numeric close code, if any.
+- `events_seen`: the number of frames received.
+- `last_event_types`: up to the last five frame types. Responses event names are
+  kept, Copilot's untyped header frame is recorded as `headers`, and anything else
+  becomes `other` or `untyped`.
+- `seconds_since_request` and `seconds_since_last_frame`.
+
 The diagnostic contains no error text, headers, URLs, request/response bodies,
 prompts, or credentials. It does not change retry or timeout policy.
+
+The raised error's message is more detailed but is not persisted by this event. It
+lists the recent frames, including header names and `*request-id*` header values
+that match a strict identifier pattern, which are useful when contacting the
+provider. The exception also exposes `last_frame`, the raw last frame (at most
+16 KiB), for programmatic inspection. It is never logged.
 
 ## MCP Diagnostics Settings
 

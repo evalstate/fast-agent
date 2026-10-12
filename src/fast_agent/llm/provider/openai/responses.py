@@ -188,11 +188,43 @@ class _ResponsesWsFailureDiagnostic:
     call: int
     attempt: int
     max_attempts: int
-    schema: Literal["fast-agent.responses-websocket-failure/v1"] = (
-        "fast-agent.responses-websocket-failure/v1"
+    schema: Literal["fast-agent.responses-websocket-failure/v2"] = (
+        "fast-agent.responses-websocket-failure/v2"
     )
     transport: Literal["websocket"] = "websocket"
     websocket_max_attempts: Literal[2] = 2
+    # v2: how a stream ended without a completion event. Protocol-shaped values only:
+    # close_kind is a fixed vocabulary, close_code an int, event types are allowlisted
+    # Responses event names (others become "other"; Copilot header frames "headers").
+    close_kind: str | None = None
+    close_code: int | None = None
+    events_seen: int | None = None
+    last_event_types: list[str] | None = None
+    seconds_since_request: float | None = None
+    seconds_since_last_frame: float | None = None
+
+
+_CLOSE_KINDS = frozenset(
+    {"close_frame_received", "no_close_frame", "close_code", "no_close_code", "unknown"}
+)
+
+
+def _close_snapshot_fields(
+    ws_error: ResponsesWebSocketError | None, stream: Any | None
+) -> dict[str, Any]:
+    snapshot = ws_error.close_snapshot if ws_error is not None else None
+    if snapshot is None and stream is not None:
+        snapshot = getattr(stream, "close_snapshot", None)
+    if not isinstance(snapshot, dict) or snapshot.get("close_kind") not in _CLOSE_KINDS:
+        return {}
+    return {
+        "close_kind": snapshot["close_kind"],
+        "close_code": snapshot.get("close_code"),
+        "events_seen": snapshot.get("events_seen"),
+        "last_event_types": list(snapshot.get("last_event_types") or []),
+        "seconds_since_request": snapshot.get("seconds_since_request"),
+        "seconds_since_last_frame": snapshot.get("seconds_since_last_frame"),
+    }
 
 
 def _safe_websocket_error_code(code: str | None) -> str | None:
@@ -1919,6 +1951,7 @@ class ResponsesLLM(
             call=call,
             attempt=provider_attempt,
             max_attempts=max_attempts,
+            **_close_snapshot_fields(ws_error, stream),
         )
         # Match the shared stream-failure path's severity: info retry notices are
         # filtered out by error-level telemetry configurations.
