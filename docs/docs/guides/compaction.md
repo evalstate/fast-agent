@@ -115,9 +115,7 @@ turns off server-side threshold compaction in favour of fast-agent's summary.
   size, and archive file; the full prior history remains in that archive. The
   compaction result shows `—` for the size afterwards, because an opaque
   checkpoint's token cost is only known once the next request reports usage.
-- How much detail survives depends on the model: in testing, `gpt-6-astra` and
-  `gpt-6-sol` recalled a detail from a large tool result after compaction, while
-  `gpt-6-luna` sometimes did not.
+- Compaction quality / recall is model dependent with larger models performing better.
 - A native checkpoint takes no prompt. A custom `compaction.prompt` or
   `/compact <instructions>` asks for a written summary, so either uses
   fast-agent's summary instead; `/compact preview` shows which applies.
