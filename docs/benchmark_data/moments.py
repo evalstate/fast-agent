@@ -8,13 +8,17 @@ said (reasoning before) / ran (the matched span in context) / got (what came bac
 Output is ``moments/<run id>.json``: one card per trial worth showing, i.e. a reward with
 a high or critical finding, or any trial our review decided on, carrying the decision, the
 findings (our publish-side rules first, minus the checks they restate) and up to two
-moments each, plus links to the trial folder and trajectory in the published bucket.
+moments each, plus links to the trial's files and trajectory: in the published bucket, or
+on the Harbor Hub trial page for Hub-sourced runs.
 
 Excerpts are trace text. atif-scan masks secret shapes (best effort); this script also
 refuses to write token-shaped text. Check the output against known credentials before
 committing it (bench-run: ``release.known_credentials()``). Standard library only.
 
     python docs/benchmark_data/moments.py --run opus55-high-6h --highlights /tmp/hl/data.js
+
+``--relink`` refreshes only the cards' links from the run files (no scan needed), for one
+``--run`` or every moments file.
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ PRIORITY = {"critical": 0, "high": 1, "medium": 2}
 MAX_FINDINGS = 3  # per card
 MAX_MOMENTS = 2  # per finding
 CLIP = 600  # characters per excerpt part
+HUB_JOBS = "https://hub.harborframework.com/jobs/"
 TOKEN = re.compile(
     r"\b(?:sk-[A-Za-z0-9_\-]{20,}|sk-ant-[A-Za-z0-9_\-]{20,}|hf_[A-Za-z0-9]{24,}|gh[oupsr]_[A-Za-z0-9]{20,}"
     r"|github_pat_[A-Za-z0-9_]{20,}|xai-[A-Za-z0-9]{40,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,})"
@@ -64,6 +69,18 @@ def _clip(text: str, keep: str) -> str:
     return "…" + text[-CLIP:] if keep == "end" else text[:CLIP] + "…"
 
 
+def trial_links(record: Json, bucket_repo: str) -> tuple[str | None, str | None]:
+    """(files, trajectory) links for a run file's trial record. A published trial links
+    into the bucket; a Hub trial to its Harbor Hub page, which opens on the trajectory."""
+    if path := record.get("path"):
+        folder = f"https://huggingface.co/buckets/{bucket_repo}/tree/{path}"
+        return folder, f"{folder}/agent/trajectory.json"  # the Hub's trace viewer
+    if job := record.get("job"):
+        page = f"{HUB_JOBS}{job}/trials/{record['name']}"
+        return f"{page}?tab=artifacts", page
+    return None, None
+
+
 def build(
     run_id: str,
     highlights: Json,
@@ -81,11 +98,11 @@ def build(
     rows = {r["key"]: r for g in highlights["groups"] for r in g["rows"]}
     restated = set(_restates().values())
 
-    # Trial name -> (task, attempt index in the task's cells, bucket path).
-    where: dict[str, tuple[str, int, str | None]] = {}
+    # Trial name -> (task, attempt index in the task's cells, run file trial record).
+    where: dict[str, tuple[str, int, Json]] = {}
     for task, trials in run["trials"].items():
         for i, t in enumerate(trials):
-            where[t["name"]] = (task, i, t.get("path"))
+            where[t["name"]] = (task, i, t)
 
     review = run.get("review") or {}
     decisions: dict[str, Json] = {}
@@ -161,7 +178,8 @@ def build(
         top = PRIORITY.get(findings[0]["priority"], 9) if findings else 9
         if name not in decisions and not (rewarded and top <= PRIORITY["high"]):
             continue
-        task, attempt, path = where[name]
+        task, attempt, record = where[name]
+        folder, trace = trial_links(record, bucket_repo)
         cards.append(
             {
                 "trial": label.get(name, name),
@@ -169,14 +187,8 @@ def build(
                 "attempt": attempt,
                 "reward": rewards.get(name),
                 **decisions.get(name, {"decision": None, "reason": None}),
-                "folder": f"https://huggingface.co/buckets/{bucket_repo}/tree/{path}"
-                if path
-                else None,
-                "trace": (  # the Hub's trace viewer for the trajectory
-                    f"https://huggingface.co/buckets/{bucket_repo}/tree/{path}/agent/trajectory.json"
-                    if path
-                    else None
-                ),
+                "folder": folder,
+                "trace": trace,
                 "findings": findings[:MAX_FINDINGS],
             }
         )
@@ -210,19 +222,44 @@ def check_clean(doc: Json) -> None:
         )
 
 
+def relink(run_id: str, bucket_repo: str) -> int:
+    """Refresh an existing moments file's links from the run file; returns cards linked."""
+    path = HERE / "moments" / f"{run_id}.json"
+    doc = json.loads(path.read_text())
+    run_file = next(p for p in (HERE / "runs", HERE / "tb4" / "runs") if (p / path.name).exists())
+    run = json.loads((run_file / path.name).read_text())
+    for card in doc["cards"]:
+        record = run["trials"][card["task"]][card["attempt"]]
+        card["folder"], card["trace"] = trial_links(record, bucket_repo)
+    path.write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    return sum(bool(card["trace"]) for card in doc["cards"])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--run", required=True)
+    parser.add_argument("--run", help="run id (all moments files with --relink)")
+    parser.add_argument("--highlights", type=Path, help="data.js from atif-scan --highlights")
     parser.add_argument(
-        "--highlights", type=Path, required=True, help="data.js from atif-scan --highlights"
+        "--relink", action="store_true", help="refresh existing cards' links from run files"
     )
     args = parser.parse_args()
 
-    manifest = json.loads((HERE / "manifest.json").read_text())
-    spec = next(r for r in manifest["runs"] if r["id"] == args.run)
-    repo = (spec.get("bucket") or {}).get("repo", "evalstate/published-benchmarks")
+    repos = {
+        r["id"]: (r.get("bucket") or {}).get("repo", "evalstate/published-benchmarks")
+        for manifest in (HERE / "manifest.json", HERE / "tb4" / "manifest.json")
+        for r in json.loads(manifest.read_text())["runs"]
+    }
+    if args.relink:
+        runs = [args.run] if args.run else sorted(p.stem for p in (HERE / "moments").glob("*.json"))
+        for run_id in runs:
+            doc = json.loads((HERE / "moments" / f"{run_id}.json").read_text())
+            print(f"{run_id}: {relink(run_id, repos[run_id])}/{len(doc['cards'])} cards linked")
+        return
+    if not (args.run and args.highlights):
+        parser.error("--run and --highlights are required (or use --relink)")
+    repo = repos[args.run]
     doc = build(args.run, load_highlights(args.highlights), repo)
     check_clean(doc)
     out = HERE / "moments" / f"{args.run}.json"

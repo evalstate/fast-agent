@@ -11,8 +11,8 @@
    "reward": 1.0,
    "decision": "disqualified",
    "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/914c807e-302e-488c-9727-5dbd5f3de84e?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/914c807e-302e-488c-9727-5dbd5f3de84e",
    "findings": [
     {
      "check": "lookup.benchmark_content_obtained",
@@ -104,8 +104,8 @@
    "reward": 1.0,
    "decision": "disqualified",
    "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source).",
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/9164e0ad-7b3f-4eaa-9da1-ab1b7e92fd52?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/9164e0ad-7b3f-4eaa-9da1-ab1b7e92fd52",
    "findings": [
     {
      "check": "tb21.fix_ocaml_gc.upstream_source",
@@ -147,8 +147,8 @@
    "reward": 1.0,
    "decision": "disqualified",
    "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source).",
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/2d377f5c-4608-4d4c-b540-058ef5cfb14d?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/2d377f5c-4608-4d4c-b540-058ef5cfb14d",
    "findings": [
     {
      "check": "tb21.fix_ocaml_gc.upstream_source",
@@ -190,8 +190,8 @@
    "reward": 1.0,
    "decision": "disqualified",
    "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source).",
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/947360a4-3414-4ab5-a97b-7f056809303f?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/947360a4-3414-4ab5-a97b-7f056809303f",
    "findings": [
     {
      "check": "tb21.fix_ocaml_gc.upstream_source",
@@ -233,8 +233,8 @@
    "reward": 1.0,
    "decision": "disqualified",
    "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source).",
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/7c06b049-149c-4aaf-9037-100c733f8f9e?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/7c06b049-149c-4aaf-9037-100c733f8f9e",
    "findings": [
     {
      "check": "tb21.fix_ocaml_gc.upstream_source",
@@ -276,8 +276,8 @@
    "reward": 1.0,
    "decision": "disqualified",
    "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source).",
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/9ef4acb8-2699-4a47-82df-32c504db5897?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/9ef4acb8-2699-4a47-82df-32c504db5897",
    "findings": [
     {
      "check": "tb21.fix_ocaml_gc.upstream_source",
@@ -319,8 +319,8 @@
    "reward": 1.0,
    "decision": "disqualified",
    "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/72b00046-198d-4662-bcfb-f6c8294441a9?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/72b00046-198d-4662-bcfb-f6c8294441a9",
    "findings": [
     {
      "check": "lookup.benchmark_content_obtained",
@@ -424,8 +424,8 @@
    "reward": 1.0,
    "decision": "disqualified",
    "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/2601f460-59bd-4fa0-97eb-777eb5471f0a?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/2601f460-59bd-4fa0-97eb-777eb5471f0a",
    "findings": [
     {
      "check": "lookup.benchmark_content_obtained",
@@ -517,8 +517,8 @@
    "reward": 1.0,
    "decision": "disqualified",
    "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/c368f3bb-2a37-447e-9769-dfa6f1f1cd8a/trials/8d2cd967-e5e2-4788-9b10-b2ea0ad001d8?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/c368f3bb-2a37-447e-9769-dfa6f1f1cd8a/trials/8d2cd967-e5e2-4788-9b10-b2ea0ad001d8",
    "findings": [
     {
      "check": "lookup.benchmark_content_obtained",
@@ -622,8 +622,8 @@
    "reward": 1.0,
    "decision": "auto-cleared",
    "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/e2f00495-c4f0-4c08-af6e-a07a7d36482f?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/e2f00495-c4f0-4c08-af6e-a07a7d36482f",
    "findings": [
     {
      "check": "review.task_recalled",
@@ -672,8 +672,8 @@
    "reward": 1.0,
    "decision": "auto-cleared",
    "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/c0ab11d0-23f9-47b5-ad28-62b801c6d993?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/c0ab11d0-23f9-47b5-ad28-62b801c6d993",
    "findings": [
     {
      "check": "review.task_recalled",
@@ -722,8 +722,8 @@
    "reward": 1.0,
    "decision": "auto-cleared",
    "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/6581c840-fe11-4999-ad75-628014631980?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/aea81782-d18a-44ca-9417-9f6793342a1b/trials/6581c840-fe11-4999-ad75-628014631980",
    "findings": [
     {
      "check": "review.task_recalled",

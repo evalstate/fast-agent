@@ -11,8 +11,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/3bf916e7-c459-5538-a3d1-cf93421455db/trials/6ddfb4d6-61fd-5c3e-b0c0-31a9e8826584?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/3bf916e7-c459-5538-a3d1-cf93421455db/trials/6ddfb4d6-61fd-5c3e-b0c0-31a9e8826584",
    "findings": [
     {
      "check": "tb21.fix_ocaml_gc.upstream_source",
@@ -54,8 +54,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/3bf916e7-c459-5538-a3d1-cf93421455db/trials/90e77eca-f2bf-5e65-b1b0-23358b0467e2?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/3bf916e7-c459-5538-a3d1-cf93421455db/trials/90e77eca-f2bf-5e65-b1b0-23358b0467e2",
    "findings": [
     {
      "check": "tb21.fix_ocaml_gc.upstream_source",
@@ -85,8 +85,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/3bf916e7-c459-5538-a3d1-cf93421455db/trials/1a73f4a5-8d0b-5a15-99fe-e3d87d162318?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/3bf916e7-c459-5538-a3d1-cf93421455db/trials/1a73f4a5-8d0b-5a15-99fe-e3d87d162318",
    "findings": [
     {
      "check": "tb21.fix_ocaml_gc.upstream_source",
@@ -116,8 +116,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/3bf916e7-c459-5538-a3d1-cf93421455db/trials/8cbfc110-585d-55e1-8bed-8f099ea30ed0?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/3bf916e7-c459-5538-a3d1-cf93421455db/trials/8cbfc110-585d-55e1-8bed-8f099ea30ed0",
    "findings": [
     {
      "check": "tb21.fix_ocaml_gc.upstream_source",
@@ -159,8 +159,8 @@
    "reward": 1.0,
    "decision": null,
    "reason": null,
-   "folder": null,
-   "trace": null,
+   "folder": "https://hub.harborframework.com/jobs/3bf916e7-c459-5538-a3d1-cf93421455db/trials/a91a189d-5dbc-59f9-be5e-1ca20d4c8d6e?tab=artifacts",
+   "trace": "https://hub.harborframework.com/jobs/3bf916e7-c459-5538-a3d1-cf93421455db/trials/a91a189d-5dbc-59f9-be5e-1ca20d4c8d6e",
    "findings": [
     {
      "check": "tb21.path_tracing_reverse.pixel_special_case",
