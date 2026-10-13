@@ -3066,7 +3066,7 @@ async def test_websocket_failures_persist_safe_bounded_diagnostics(
         assert len(failures) == (2 if eligible and repeat else 1)
         first = failures[0]
         assert first == {
-            "schema": "fast-agent.responses-websocket-failure/v1",
+            "schema": "fast-agent.responses-websocket-failure/v2",
             "transport": "websocket",
             "error_code": code
             if code in {"invalid_request_error", "websocket_connection_limit_reached"}
@@ -3083,6 +3083,12 @@ async def test_websocket_failures_persist_safe_bounded_diagnostics(
             "call": 7,
             "attempt": 2,
             "max_attempts": 4,
+            "close_kind": None,
+            "close_code": None,
+            "events_seen": None,
+            "last_event_types": None,
+            "seconds_since_request": None,
+            "seconds_since_last_frame": None,
         }
         if len(failures) == 2:
             second = failures[1]
@@ -3259,5 +3265,152 @@ async def test_websocket_end_turn_false_follows_up_with_retained_assistant_histo
         assert [i.get("role") for i in followup["input"]] == ["user", "assistant"]
         assert followup["input"][-1]["content"][0]["text"] == "step-1"
         assert [m.role for m in agent.message_history] == ["user", "assistant", "assistant"]
+    finally:
+        await llm.close()
+
+
+_COPILOT_HEADERS_FRAME = {
+    "headers": {
+        "X-Copilot-API-Exp-Assignment-Context": "private-assignment-" + "x" * 400,
+        "X-Request-Id": "abc123:def-456",
+        "X-GitHub-Request-Id": "private value with spaces",
+        "Content-Type": "application/json",
+    }
+}
+
+
+class _DroppingConnection:
+    """SDK connection that delivers frames, then drops without a close frame."""
+
+    def __init__(self, frames: list[dict[str, Any]]) -> None:
+        self._frames = [json.dumps(frame).encode() for frame in frames]
+
+    async def recv_bytes(self) -> bytes:
+        if self._frames:
+            return self._frames.pop(0)
+        raise ConnectionClosedError(rcvd=None, sent=None)
+
+    async def send_raw(self, data: bytes | str) -> None:
+        del data
+
+    async def close(self, *, code: int = 1000, reason: str = "") -> None:
+        del code, reason
+
+
+async def _drain_until_error(stream: WebSocketResponsesStream) -> ResponsesWebSocketError:
+    with pytest.raises(ResponsesWebSocketError) as excinfo:
+        while True:
+            await stream.__anext__()
+    return excinfo.value
+
+
+@pytest.mark.asyncio
+async def test_websocket_drop_without_close_frame_reports_frames_and_timing() -> None:
+    stream = WebSocketResponsesStream(
+        _SdkWebSocket(
+            _DroppingConnection(
+                [_COPILOT_HEADERS_FRAME, {"type": "response.created", "response": {"id": "r"}}]
+            )
+        )
+    )
+
+    error = await _drain_until_error(stream)
+
+    message = str(error)
+    assert "received_close=none" in message
+    assert "ws_exception=ConnectionClosedError" in message
+    assert "events_seen=2" in message
+    assert "seconds_since_request=" in message
+    assert "seconds_since_last_frame=" in message
+    # Header names and strictly-shaped request ids, never other header values.
+    assert "X-Copilot-API-Exp-Assignment-Context" in message
+    assert "X-Request-Id=abc123:def-456" in message
+    assert "private-assignment-" not in message
+    assert "private value with spaces" not in message
+    assert message.endswith("| response.created])")
+    assert error.close_snapshot is not None
+    assert error.close_snapshot["close_kind"] == "no_close_frame"
+    assert error.close_snapshot["close_code"] is None
+    assert error.close_snapshot["events_seen"] == 2
+    assert error.close_snapshot["last_event_types"] == ["headers", "response.created"]
+    assert error.last_frame is not None and "response.created" in error.last_frame
+
+
+@pytest.mark.asyncio
+async def test_websocket_close_without_code_is_reported() -> None:
+    stream = WebSocketResponsesStream(
+        _FakeWebSocket(
+            [
+                _ws_event({"type": "response.created", "response": {"id": "r"}}),
+                SimpleNamespace(type=WSMsgType.CLOSED, data=None),
+            ]
+        )
+    )
+
+    error = await _drain_until_error(stream)
+
+    assert "close_code=none" in str(error)
+    assert error.close_snapshot is not None
+    assert error.close_snapshot["close_kind"] == "no_close_code"
+    assert error.close_snapshot["last_event_types"] == ["response.created"]
+
+
+@pytest.mark.asyncio
+async def test_websocket_unknown_event_types_are_not_echoed_into_snapshot() -> None:
+    stream = WebSocketResponsesStream(
+        _FakeWebSocket(
+            [
+                _ws_event({"type": "private-event-name"}),
+                _ws_event({"something": "private-untyped"}),
+                SimpleNamespace(type=WSMsgType.CLOSED, data=1011),
+            ]
+        )
+    )
+
+    error = await _drain_until_error(stream)
+
+    assert error.close_snapshot is not None
+    assert error.close_snapshot["close_kind"] == "close_code"
+    assert error.close_snapshot["close_code"] == 1011
+    assert error.close_snapshot["last_event_types"] == ["other", "untyped"]
+    assert "private-" not in str(error)
+
+
+@pytest.mark.asyncio
+async def test_websocket_close_without_completion_persists_safe_v2_fields(
+    monkeypatch: pytest.MonkeyPatch, websocket_failure_log: Path
+) -> None:
+    llm, _clock, _connections = _mock_provider_websocket(monkeypatch)
+    frames = [
+        _ws_event(_COPILOT_HEADERS_FRAME),
+        _ws_event({"type": "response.created", "response": {"id": "r"}}),
+        SimpleNamespace(type=WSMsgType.CLOSED, data=None),
+    ]
+
+    async def receive(self: _FakeWebSocket, timeout: float | None = None) -> SimpleNamespace:
+        del timeout
+        return frames.pop(0) if frames else SimpleNamespace(type=WSMsgType.CLOSED, data=None)
+
+    monkeypatch.setattr(_FakeWebSocket, "receive", receive)
+    try:
+        with pytest.raises(ResponsesWebSocketError):
+            await llm._responses_completion_ws(
+                input_items=_ws_input_items("private-prompt"),
+                request_params=RequestParams(model="grok-4.3"),
+                tools=None,
+                model_name="grok-4.3",
+            )
+        await asyncio.sleep(0)
+        (failure,) = _persisted_websocket_failures(websocket_failure_log)
+        assert failure["schema"] == "fast-agent.responses-websocket-failure/v2"
+        assert failure["close_kind"] == "no_close_code"
+        assert failure["close_code"] is None
+        assert failure["events_seen"] == 2
+        assert failure["last_event_types"] == ["headers", "response.created"]
+        assert isinstance(failure["seconds_since_request"], float)
+        assert isinstance(failure["seconds_since_last_frame"], float)
+        persisted = websocket_failure_log.read_text()
+        for private in ("private-", "abc123", "X-Request-Id", "Copilot"):
+            assert private not in persisted
     finally:
         await llm.close()

@@ -4,7 +4,9 @@ import asyncio
 import copy
 import hashlib
 import json
+import re
 import time
+from collections import deque
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -89,6 +91,10 @@ class ResponsesWebSocketError(RuntimeError):
         self.error_param = error_param
         self.headers = headers
         self.stream_id = stream_id
+        # Set for streams that end without a completion event. ``last_frame`` is raw
+        # provider data (bounded); it is for programmatic inspection and is never logged.
+        self.close_snapshot: dict[str, Any] | None = None
+        self.last_frame: str | None = None
 
     @property
     def diagnostic_error_code(self) -> str | None:
@@ -795,6 +801,11 @@ class WebSocketResponsesStream:
         self._completed_output_items: list[tuple[int | None, int, Any]] = []
         self._events_seen = 0
         self._last_frame_preview: str | None = None
+        self._request_started_monotonic = time.perf_counter()
+        self._last_frame_monotonic: float | None = None
+        self._frames: deque[tuple[str, str]] = deque(maxlen=_FRAME_HISTORY_LIMIT)
+        self.last_frame_raw: str | None = None
+        self.close_snapshot: dict[str, Any] | None = None
 
     @property
     def stream_started(self) -> bool:
@@ -821,6 +832,7 @@ class WebSocketResponsesStream:
 
         raw_data = self._raw_message_data(message)
         payload = self._payload_from_raw_data(raw_data)
+        self._record_frame(payload)
         event_type = payload.get("type")
         self._raise_top_level_payload_error(payload, event_type)
         self._record_completed_output_item(payload, event_type)
@@ -846,10 +858,13 @@ class WebSocketResponsesStream:
             self._websocket.exception(),
         )
         detail = "; ".join(diagnostics)
-        raise ResponsesWebSocketError(
+        error = ResponsesWebSocketError(
             "WebSocket stream closed before completion event" + (f" ({detail})" if detail else ""),
             stream_started=self._stream_started,
         )
+        error.close_snapshot = self.close_snapshot
+        error.last_frame = self.last_frame_raw
+        raise error
 
     def _close_diagnostics(
         self,
@@ -859,14 +874,21 @@ class WebSocketResponsesStream:
     ) -> list[str]:
         diagnostics = []
         received_close_code: int | None = None
+        close_kind = "unknown"
         if isinstance(websocket_error, ConnectionClosed):
             received = websocket_error.rcvd
             sent = websocket_error.sent
             if received is not None:
+                close_kind = "close_frame_received"
                 received_close_code = received.code
                 diagnostics.append(f"received_close_code={received.code}")
                 if received.reason:
                     diagnostics.append(f"received_close_reason={received.reason}")
+            else:
+                # The peer dropped the connection without a WebSocket close frame
+                # (for example a TCP reset or an intermediary closing the socket).
+                close_kind = "no_close_frame"
+                diagnostics.append("received_close=none")
             if sent is not None:
                 diagnostics.append(f"sent_close_code={sent.code}")
                 if sent.reason:
@@ -876,20 +898,54 @@ class WebSocketResponsesStream:
                     "received_then_sent" if websocket_error.rcvd_then_sent else "sent_then_received"
                 )
                 diagnostics.append(f"close_order={order}")
+            diagnostics.append(f"ws_exception={type(websocket_error).__name__}")
         else:
             if close_code is not None:
+                close_kind = "close_code"
                 diagnostics.append(f"close_code={close_code}")
+            else:
+                close_kind = "no_close_code"
+                diagnostics.append("close_code=none")
             if close_reason:
                 diagnostics.append(f"reason={close_reason}")
+            if websocket_error is not None:
+                diagnostics.append(f"ws_exception={type(websocket_error).__name__}")
         diagnostics.append(f"events_seen={self._events_seen}")
-        if self._last_frame_preview:
-            diagnostics.append(f"last_frame={self._last_frame_preview}")
+        now = time.perf_counter()
+        since_request = round(now - self._request_started_monotonic, 3)
+        since_last_frame = (
+            round(now - self._last_frame_monotonic, 3)
+            if self._last_frame_monotonic is not None
+            else None
+        )
+        diagnostics.append(f"seconds_since_request={since_request}")
+        if since_last_frame is not None:
+            diagnostics.append(f"seconds_since_last_frame={since_last_frame}")
+        if self._frames:
+            diagnostics.append(
+                "frames=[" + " | ".join(summary for _, summary in self._frames) + "]"
+            )
         if received_close_code == 1008 or (
             not isinstance(websocket_error, ConnectionClosed) and close_code == 1008
         ):
             diagnostics.append(
                 "hint=policy_violation (account/feature may not permit Responses websocket beta)"
             )
+        numeric_close_code = (
+            received_close_code
+            if received_close_code is not None
+            else close_code
+            if isinstance(close_code, int) and not isinstance(close_code, bool)
+            else None
+        )
+        self.close_snapshot = {
+            "close_kind": close_kind,
+            "close_code": numeric_close_code,
+            "events_seen": self._events_seen,
+            "last_event_types": [kind for kind, _ in self._frames],
+            "seconds_since_request": since_request,
+            "seconds_since_last_frame": since_last_frame,
+        }
         return diagnostics
 
     def _raise_if_error_message(self, message: Any) -> None:
@@ -908,8 +964,14 @@ class WebSocketResponsesStream:
             return message.data.decode("utf-8", errors="replace")
         return str(message.data)
 
+    def _record_frame(self, payload: Mapping[str, Any]) -> None:
+        kind = _frame_kind(payload)
+        self._frames.append((kind, _frame_summary(payload, kind)))
+        self._last_frame_monotonic = time.perf_counter()
+
     def _payload_from_raw_data(self, raw_data: str) -> dict[str, Any]:
         self._last_frame_preview = _preview_text(raw_data)
+        self.last_frame_raw = raw_data[:_LAST_FRAME_RAW_LIMIT]
         try:
             payload = json.loads(raw_data)
         except json.JSONDecodeError as exc:
@@ -1107,6 +1169,50 @@ def _preview_text(raw_data: str, *, limit: int = 240) -> str:
     if len(compact) <= limit:
         return compact
     return f"{compact[:limit]}..."
+
+
+# Frame diagnostics for streams that end without a completion event.
+# Persisted fields are protocol-shaped only; provider-controlled strings (header
+# values, unknown event names) appear only in the exception message, never in logs.
+_FRAME_HISTORY_LIMIT = 5
+_LAST_FRAME_RAW_LIMIT = 16 * 1024
+_EVENT_TYPE_PATTERN = re.compile(r"(?:response(?:\.[a-z0-9_]{1,40}){1,4}|error)")
+_REQUEST_ID_HEADER_PATTERN = re.compile(r"[A-Za-z0-9-]{0,60}request-id", re.IGNORECASE)
+_REQUEST_ID_VALUE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9:._-]{0,127}")
+_HEADER_NAME_PATTERN = re.compile(r"[A-Za-z0-9-]{1,80}")
+
+
+def _frame_kind(payload: Mapping[str, Any]) -> str:
+    """Protocol-shaped frame label that is safe to persist."""
+    event_type = payload.get("type")
+    if isinstance(event_type, str):
+        return event_type if _EVENT_TYPE_PATTERN.fullmatch(event_type) else "other"
+    if isinstance(payload.get("headers"), Mapping):
+        # Copilot sends an untyped {"headers": {...}} frame before response events.
+        return "headers"
+    return "untyped"
+
+
+def _frame_summary(payload: Mapping[str, Any], kind: str) -> str:
+    """Readable frame label for the exception message (not persisted)."""
+    if kind != "headers":
+        return kind
+    headers = cast("Mapping[Any, Any]", payload["headers"])
+    names = sorted(
+        name for name in headers if isinstance(name, str) and _HEADER_NAME_PATTERN.fullmatch(name)
+    )
+    request_ids = [
+        f"{name}={value}"
+        for name, value in sorted(
+            (item for item in headers.items() if isinstance(item[0], str)),
+            key=lambda item: item[0],
+        )
+        if _REQUEST_ID_HEADER_PATTERN.fullmatch(name)
+        and isinstance(value, str)
+        and _REQUEST_ID_VALUE_PATTERN.fullmatch(value)
+    ]
+    summary = f"headers[{','.join(names)}]"
+    return f"{summary} {' '.join(request_ids)}" if request_ids else summary
 
 
 class WebSocketConnectionManager:
