@@ -23,8 +23,8 @@
   "excluded_trials": [],
   "disqualified_trials": [],
   "slots": 445,
-  "passes": 336,
-  "score": 75.51,
+  "passes": 325,
+  "score": 73.03,
   "tasks": {
     "adaptive-rejection-sampler": "tt111",
     "bn-fit-modify": "01111",
@@ -44,19 +44,19 @@
     "count-dataset-tokens": "11111",
     "crack-7z-hash": "11111",
     "custom-memory-heap-crash": "11111",
-    "db-wal-recovery": "011tt",
+    "db-wal-recovery": "0x1tt",
     "distribution-search": "11111",
     "dna-assembly": "tt10t",
     "dna-insert": "01111",
-    "extract-elf": "11111",
+    "extract-elf": "xx1x1",
     "extract-moves-from-video": "tttee",
     "feal-differential-cryptanalysis": "11111",
     "feal-linear-cryptanalysis": "11111",
     "filter-js-from-html": "00000",
-    "financial-document-processor": "11111",
+    "financial-document-processor": "11x11",
     "fix-code-vulnerability": "11111",
     "fix-git": "11111",
-    "fix-ocaml-gc": "11111",
+    "fix-ocaml-gc": "xxxxx",
     "gcode-to-text": "ttt0t",
     "git-leak-recovery": "11111",
     "git-multibranch": "11111",
@@ -108,7 +108,7 @@
     "sqlite-db-truncate": "11111",
     "sqlite-with-gcov": "11111",
     "torch-pipeline-parallelism": "ttttt",
-    "torch-tensor-parallelism": "t1101",
+    "torch-tensor-parallelism": "t110x",
     "train-fasttext": "ttttt",
     "tune-mjcf": "t1111",
     "video-processing": "00000",
@@ -2077,6 +2077,97 @@
     ]
   },
   "safety_cells": {},
+  "task_costs": {
+    "adaptive-rejection-sampler": 0.150096,
+    "bn-fit-modify": 0.034063,
+    "break-filter-js-from-html": 0.138625,
+    "build-cython-ext": 0.10475,
+    "build-pmars": 0.024137,
+    "build-pov-ray": 0.058089,
+    "caffe-cifar-10": 0.179848,
+    "cancel-async-tasks": 0.033609,
+    "chess-best-move": 0.166076,
+    "circuit-fibsqrt": 0.243724,
+    "cobol-modernization": 0.190646,
+    "code-from-image": 0.107711,
+    "compile-compcert": 0.10322,
+    "configure-git-webserver": 0.036475,
+    "constraints-scheduling": 0.015332,
+    "count-dataset-tokens": 0.022353,
+    "crack-7z-hash": 0.083733,
+    "custom-memory-heap-crash": 0.086922,
+    "db-wal-recovery": 0.155796,
+    "distribution-search": 0.023742,
+    "dna-assembly": null,
+    "dna-insert": 0.064952,
+    "extract-elf": 0.061325,
+    "extract-moves-from-video": null,
+    "feal-differential-cryptanalysis": 0.055838,
+    "feal-linear-cryptanalysis": 0.141949,
+    "filter-js-from-html": 0.123772,
+    "financial-document-processor": 0.056658,
+    "fix-code-vulnerability": 0.012484,
+    "fix-git": 0.011415,
+    "fix-ocaml-gc": 0.109217,
+    "gcode-to-text": 0.228153,
+    "git-leak-recovery": 0.009363,
+    "git-multibranch": 0.048027,
+    "gpt2-codegolf": null,
+    "headless-terminal": 0.084526,
+    "hf-model-inference": 0.012795,
+    "install-windows-3.11": 0.260907,
+    "kv-store-grpc": 0.006049,
+    "large-scale-text-editing": 0.039094,
+    "largest-eigenval": 0.177696,
+    "llm-inference-batching-scheduler": 0.160758,
+    "log-summary-date-ranges": 0.010258,
+    "mailman": 0.210814,
+    "make-doom-for-mips": 0.316747,
+    "make-mips-interpreter": 0.090489,
+    "mcmc-sampling-stan": 0.079714,
+    "merge-diff-arc-agi-task": 0.0377,
+    "model-extraction-relu-logits": 0.146791,
+    "modernize-scientific-stack": 0.008955,
+    "mteb-leaderboard": 0.276238,
+    "mteb-retrieve": 0.02127,
+    "multi-source-data-merger": 0.010073,
+    "nginx-request-logging": 0.013577,
+    "openssl-selfsigned-cert": 0.012646,
+    "overfull-hbox": 0.0506,
+    "password-recovery": 0.068284,
+    "path-tracing": 0.102807,
+    "path-tracing-reverse": 0.203946,
+    "polyglot-c-py": 0.069891,
+    "polyglot-rust-c": 0.093464,
+    "portfolio-optimization": 0.042273,
+    "protein-assembly": 0.115848,
+    "prove-plus-comm": 0.005483,
+    "pypi-server": 0.01422,
+    "pytorch-model-cli": 0.060067,
+    "pytorch-model-recovery": null,
+    "qemu-alpine-ssh": 0.09899,
+    "qemu-startup": 0.074155,
+    "query-optimize": 0.042222,
+    "raman-fitting": 0.190335,
+    "regex-chess": 0.10991,
+    "regex-log": 0.047836,
+    "reshard-c4-data": 0.104183,
+    "rstan-to-pystan": 0.090396,
+    "sam-cell-seg": 0.292783,
+    "sanitize-git-repo": 0.069409,
+    "schemelike-metacircular-eval": 0.327083,
+    "sparql-university": 0.036025,
+    "sqlite-db-truncate": 0.056094,
+    "sqlite-with-gcov": 0.024232,
+    "torch-pipeline-parallelism": 0.106997,
+    "torch-tensor-parallelism": 0.117667,
+    "train-fasttext": null,
+    "tune-mjcf": 0.073403,
+    "video-processing": 0.05647,
+    "vulnerable-secret": 0.015311,
+    "winning-avg-corewars": 0.352946,
+    "write-compressor": 0.162446
+  },
   "errors": {
     "AgentTimeoutError": 92,
     "NonZeroAgentExitCodeError": 4
@@ -2113,21 +2204,21 @@
     "Reconciliation: cost $8.57 != expected $8.74."
   ],
   "scan": {
-    "version": "0.8.0",
+    "version": "0.8.3",
     "scope": "all trials in the run's jobs",
     "trials": 445,
     "rewarded": 336,
     "accuracy": 75.51,
     "accuracy_se": 1.42,
     "findings_medium_plus": {
-      "trials": 39,
-      "rewarded": 23,
+      "trials": 38,
+      "rewarded": 22,
       "by_highest_priority": {
         "critical": 6,
-        "high": 7,
+        "high": 6,
         "medium": 26,
         "low": 76,
-        "info": 218,
+        "info": 219,
         "none": 102,
         "unavailable": 10
       },
@@ -2192,12 +2283,12 @@
           "check": "lookup.search_surfaced_benchmark",
           "title": "Web result contained a benchmark source",
           "priority": "high",
-          "trials": 3,
-          "rewarded": 3
+          "trials": 4,
+          "rewarded": 4
         },
         {
-          "check": "code.verifier_path_reference",
-          "title": "Written code references verifier paths",
+          "check": "lookup.benchmark_solution_url",
+          "title": "Benchmark solution or test URL looked up",
           "priority": "high",
           "trials": 1,
           "rewarded": 1
@@ -2206,10 +2297,10 @@
     },
     "review": {
       "dq_threshold": "high",
-      "high_or_critical_rewarded": 12,
+      "high_or_critical_rewarded": 11,
       "other_model_trials": 0,
-      "incomplete_evidence_rewarded": 11,
-      "accuracy_if_flagged_failed": 72.81
+      "incomplete_evidence_rewarded": 33,
+      "accuracy_if_flagged_failed": 73.03
     },
     "awareness": {
       "trials": 90,
@@ -2225,6 +2316,10 @@
         "recalled": {
           "trials": 15,
           "rewarded": 8
+        },
+        "probed": {
+          "trials": 2,
+          "rewarded": 0
         },
         "searched": {
           "trials": 9,
@@ -2249,7 +2344,7 @@
       },
       "compacted_history": 27,
       "without_trajectory": 10,
-      "incomplete_scans": 109,
+      "incomplete_scans": 170,
       "unmetered_trials": 0
     },
     "cost": {
@@ -2270,11 +2365,6 @@
     },
     "overrides": [],
     "flagged_tasks": {
-      "break-filter-js-from-html": {
-        "trials": 1,
-        "rewarded": 1,
-        "max_priority": "high"
-      },
       "caffe-cifar-10": {
         "trials": 3,
         "rewarded": 3,
@@ -2392,7 +2482,7 @@
       }
     },
     "scanner": {
-      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
+      "commit": "9a482393cb55d0259942565bb28c15113b0ba858",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -2406,7 +2496,7 @@
     "cells": {
       "adaptive-rejection-sampler": "lllll",
       "bn-fit-modify": "lllll",
-      "break-filter-js-from-html": "lllhl",
+      "break-filter-js-from-html": "lllll",
       "build-cython-ext": "lllll",
       "build-pmars": "lllll",
       "build-pov-ray": "lllll",
@@ -2495,5 +2585,80 @@
       "write-compressor": "lllll"
     }
   },
-  "pr": "https://github.com/harbor-framework/terminal-bench-2-1/pull/189"
+  "pr": "https://github.com/harbor-framework/terminal-bench-2-1/pull/189",
+  "review": {
+    "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+    "coverage": "Every reported pass has complete evidence except 11 whose agent history was compacted: steps before the compaction are not in the trajectory, so atif-scan could not check them; they stand as recorded. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+    "recorded_passes": 336,
+    "recorded_score": 75.51,
+    "disqualified": [
+      {
+        "trial": "13c1a885-f232-41ee-b3e7-c7811ccfb119",
+        "task": "db-wal-recovery",
+        "reason": "Fetched Terminal-Bench files for db-wal-recovery (solution, tests, task.yaml, instruction) from harbor-framework/terminal-bench-2-1 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received).",
+        "cell_index": 1
+      },
+      {
+        "trial": "8fd637b5-e028-4a99-825e-c5443cceacda",
+        "task": "extract-elf",
+        "reason": "Fetched Terminal-Bench files for extract-elf (tests, task.yaml) from harbor-framework/terminal-bench during the run (lookup.benchmark_content_obtained, access.benchmark_material_received).",
+        "cell_index": 0
+      },
+      {
+        "trial": "e62f9358-f4ad-4407-bd84-e30a3e366e52",
+        "task": "extract-elf",
+        "reason": "Fetched Terminal-Bench files for extract-elf (solution, tests) from harbor-framework/terminal-bench-2 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received).",
+        "cell_index": 3
+      },
+      {
+        "trial": "b79e34d0-095c-4689-844f-0d4607f46b8a",
+        "task": "extract-elf",
+        "reason": "Fetched Terminal-Bench files for extract-elf (solution, tests, task.yaml) from harbor-framework/terminal-bench during the run (lookup.benchmark_content_obtained, access.benchmark_material_received).",
+        "cell_index": 1
+      },
+      {
+        "trial": "3aac6db6-4593-4ef6-a9da-19faa0bb6c1e",
+        "task": "financial-document-processor",
+        "reason": "Fetched Terminal-Bench files for financial-document-processor (solution, tests, task.yaml) from harbor-framework/terminal-bench during the run (lookup.benchmark_content_obtained, access.benchmark_material_received).",
+        "cell_index": 2
+      },
+      {
+        "trial": "2a1ac0f0-dc98-45b2-b823-b5e4b4ac0c66",
+        "task": "fix-ocaml-gc",
+        "reason": "Fetched the upstream OCaml source for the fix: cloned github.com/ocaml/ocaml, and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source).",
+        "cell_index": 4
+      },
+      {
+        "trial": "c85f70ce-57b6-479a-a729-9b526388bd95",
+        "task": "fix-ocaml-gc",
+        "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (5.5, a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source).",
+        "cell_index": 2
+      },
+      {
+        "trial": "343ec932-8140-4511-a5c9-5e2a5ac2b620",
+        "task": "fix-ocaml-gc",
+        "reason": "Fetched the upstream OCaml source for the fix: downloaded an upstream source archive; fetched upstream runtime/major_gc.c and runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source).",
+        "cell_index": 1
+      },
+      {
+        "trial": "52bdcf6f-61a7-448f-b0a4-d15cff7d348a",
+        "task": "fix-ocaml-gc",
+        "reason": "Fetched the upstream OCaml source for the fix: cloned github.com/ocaml/ocaml; fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source).",
+        "cell_index": 0
+      },
+      {
+        "trial": "2462ea45-33c9-4109-9ad5-a803d74ac4a5",
+        "task": "fix-ocaml-gc",
+        "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk, a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source).",
+        "cell_index": 3
+      },
+      {
+        "trial": "3746422d-eeca-4a91-9f5e-247d546bf70f",
+        "task": "torch-tensor-parallelism",
+        "reason": "Fetched Terminal-Bench files for torch-tensor-parallelism (solution, tests, README) from harbor-framework/terminal-bench-2 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received).",
+        "cell_index": 4
+      }
+    ],
+    "cleared": []
+  }
 }
