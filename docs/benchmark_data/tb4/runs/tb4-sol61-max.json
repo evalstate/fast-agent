@@ -1,0 +1,674 @@
+{
+  "id": "tb4-sol61-max",
+  "benchmark": "terminal-bench-4.0-subset",
+  "harness": "fast-agent",
+  "harness_version": "0.10.44",
+  "model": "GPT-6.1 Sol",
+  "effort": "max",
+  "model_string": "copilot.gpt-6.1-sol?reasoning=max",
+  "date": "2026-10-11",
+  "timeout": "standard",
+  "jobs": [
+    {
+      "id": "tb4-sol61-max-copilot-002-hf-basic",
+      "name": "tb4-sol61-max-copilot-002-hf-basic (85 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic"
+    },
+    {
+      "id": "tb4-sol61-max-copilot-002-hf-upgrade",
+      "name": "tb4-sol61-max-copilot-002-hf-upgrade (10 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-upgrade",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-upgrade"
+    }
+  ],
+  "excluded_trials": [],
+  "disqualified_trials": [],
+  "slots": 95,
+  "passes": 61,
+  "score": 64.21,
+  "tasks": {
+    "atrx-vep-crispr": "11001",
+    "cad-model": "11111",
+    "cargo-flight-dispatch": "00000",
+    "fin-saccr-rwa": "11111",
+    "gsea-proteomics": "00000",
+    "hof-topology-interpenetration": "11111",
+    "html-js-filter": "11100",
+    "mvcc-lsm-compaction": "11101",
+    "photonic-waveguide-routing": "11111",
+    "production-planning": "00000",
+    "react-lead-form": "00000",
+    "satb-audio-transcription": "11111",
+    "session-window-debug": "11111",
+    "sound-change-cascade": "11111",
+    "telecom-entity-resolution": "11111",
+    "vba-userform-port": "00100",
+    "vllm-deepseek-streaming": "00000",
+    "vpp-loss-divergence": "11111",
+    "wal-recovery-ordering": "11111"
+  },
+  "trials": {
+    "atrx-vep-crispr": [
+      {
+        "name": "atrx-vep-crispr__HcbwmR2",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/atrx-vep-crispr__HcbwmR2"
+      },
+      {
+        "name": "atrx-vep-crispr__gaQXygr",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/atrx-vep-crispr__gaQXygr"
+      },
+      {
+        "name": "atrx-vep-crispr__zMUmskJ",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/atrx-vep-crispr__zMUmskJ"
+      },
+      {
+        "name": "atrx-vep-crispr__ij3Z8NV",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/atrx-vep-crispr__ij3Z8NV"
+      },
+      {
+        "name": "atrx-vep-crispr__dHtVJc7",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/atrx-vep-crispr__dHtVJc7"
+      }
+    ],
+    "cad-model": [
+      {
+        "name": "cad-model__eHdT8Ma",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/cad-model__eHdT8Ma"
+      },
+      {
+        "name": "cad-model__YtrNQqx",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/cad-model__YtrNQqx"
+      },
+      {
+        "name": "cad-model__nBJEe6n",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/cad-model__nBJEe6n"
+      },
+      {
+        "name": "cad-model__cVGyT5W",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/cad-model__cVGyT5W"
+      },
+      {
+        "name": "cad-model__p58H5az",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/cad-model__p58H5az"
+      }
+    ],
+    "cargo-flight-dispatch": [
+      {
+        "name": "cargo-flight-dispatch__cfTwP3M",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/cargo-flight-dispatch__cfTwP3M"
+      },
+      {
+        "name": "cargo-flight-dispatch__BaHvtTV",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/cargo-flight-dispatch__BaHvtTV"
+      },
+      {
+        "name": "cargo-flight-dispatch__cReeJfm",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/cargo-flight-dispatch__cReeJfm"
+      },
+      {
+        "name": "cargo-flight-dispatch__LvNkfvh",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/cargo-flight-dispatch__LvNkfvh"
+      },
+      {
+        "name": "cargo-flight-dispatch__KGy62Sh",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/cargo-flight-dispatch__KGy62Sh"
+      }
+    ],
+    "fin-saccr-rwa": [
+      {
+        "name": "fin-saccr-rwa__HyAYGmx",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/fin-saccr-rwa__HyAYGmx"
+      },
+      {
+        "name": "fin-saccr-rwa__mB3mtpj",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/fin-saccr-rwa__mB3mtpj"
+      },
+      {
+        "name": "fin-saccr-rwa__MHuadxp",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/fin-saccr-rwa__MHuadxp"
+      },
+      {
+        "name": "fin-saccr-rwa__C3CEsXn",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/fin-saccr-rwa__C3CEsXn"
+      },
+      {
+        "name": "fin-saccr-rwa__9wXbuCx",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/fin-saccr-rwa__9wXbuCx"
+      }
+    ],
+    "gsea-proteomics": [
+      {
+        "name": "gsea-proteomics__sAX8Njn",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-upgrade/gsea-proteomics__sAX8Njn"
+      },
+      {
+        "name": "gsea-proteomics__HfH9xNh",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-upgrade/gsea-proteomics__HfH9xNh"
+      },
+      {
+        "name": "gsea-proteomics__ZM2UusN",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-upgrade/gsea-proteomics__ZM2UusN"
+      },
+      {
+        "name": "gsea-proteomics__vuS6gSQ",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-upgrade/gsea-proteomics__vuS6gSQ"
+      },
+      {
+        "name": "gsea-proteomics__6ECAimD",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-upgrade/gsea-proteomics__6ECAimD"
+      }
+    ],
+    "hof-topology-interpenetration": [
+      {
+        "name": "hof-topology-interpenetration__Tu4v5aK",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/hof-topology-interpenetration__Tu4v5aK"
+      },
+      {
+        "name": "hof-topology-interpenetration__8bj49SA",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/hof-topology-interpenetration__8bj49SA"
+      },
+      {
+        "name": "hof-topology-interpenetration__9jxvLnU",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/hof-topology-interpenetration__9jxvLnU"
+      },
+      {
+        "name": "hof-topology-interpenetration__tQ5W3Y3",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/hof-topology-interpenetration__tQ5W3Y3"
+      },
+      {
+        "name": "hof-topology-interpenetration__oJJj4hw",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/hof-topology-interpenetration__oJJj4hw"
+      }
+    ],
+    "html-js-filter": [
+      {
+        "name": "html-js-filter__dnnNjQg",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/html-js-filter__dnnNjQg"
+      },
+      {
+        "name": "html-js-filter__6dyNyi8",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/html-js-filter__6dyNyi8"
+      },
+      {
+        "name": "html-js-filter__XCNMUra",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/html-js-filter__XCNMUra"
+      },
+      {
+        "name": "html-js-filter__Sak6gGs",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/html-js-filter__Sak6gGs"
+      },
+      {
+        "name": "html-js-filter__BWYpapM",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/html-js-filter__BWYpapM"
+      }
+    ],
+    "mvcc-lsm-compaction": [
+      {
+        "name": "mvcc-lsm-compaction__SDS8PaP",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/mvcc-lsm-compaction__SDS8PaP"
+      },
+      {
+        "name": "mvcc-lsm-compaction__tTAa5wQ",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/mvcc-lsm-compaction__tTAa5wQ"
+      },
+      {
+        "name": "mvcc-lsm-compaction__WUodC5X",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/mvcc-lsm-compaction__WUodC5X"
+      },
+      {
+        "name": "mvcc-lsm-compaction__siviQWW",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/mvcc-lsm-compaction__siviQWW"
+      },
+      {
+        "name": "mvcc-lsm-compaction__yiPjDjk",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/mvcc-lsm-compaction__yiPjDjk"
+      }
+    ],
+    "photonic-waveguide-routing": [
+      {
+        "name": "photonic-waveguide-routing__sSWM4ys",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/photonic-waveguide-routing__sSWM4ys"
+      },
+      {
+        "name": "photonic-waveguide-routing__xkeqFuN",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/photonic-waveguide-routing__xkeqFuN"
+      },
+      {
+        "name": "photonic-waveguide-routing__jTGY4aV",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/photonic-waveguide-routing__jTGY4aV"
+      },
+      {
+        "name": "photonic-waveguide-routing__fpmNqjC",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/photonic-waveguide-routing__fpmNqjC"
+      },
+      {
+        "name": "photonic-waveguide-routing__zypFokH",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/photonic-waveguide-routing__zypFokH"
+      }
+    ],
+    "production-planning": [
+      {
+        "name": "production-planning__zViCFpJ",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/production-planning__zViCFpJ"
+      },
+      {
+        "name": "production-planning__BndRZzp",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/production-planning__BndRZzp"
+      },
+      {
+        "name": "production-planning__ZtVomEu",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/production-planning__ZtVomEu"
+      },
+      {
+        "name": "production-planning__vjvWhpH",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/production-planning__vjvWhpH"
+      },
+      {
+        "name": "production-planning__azioQtJ",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/production-planning__azioQtJ"
+      }
+    ],
+    "react-lead-form": [
+      {
+        "name": "react-lead-form__NLuRikY",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/react-lead-form__NLuRikY"
+      },
+      {
+        "name": "react-lead-form__SAKj7Zm",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/react-lead-form__SAKj7Zm"
+      },
+      {
+        "name": "react-lead-form__ZdVp8Ag",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/react-lead-form__ZdVp8Ag"
+      },
+      {
+        "name": "react-lead-form__CSS8KKP",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/react-lead-form__CSS8KKP"
+      },
+      {
+        "name": "react-lead-form__oM7QApJ",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/react-lead-form__oM7QApJ"
+      }
+    ],
+    "satb-audio-transcription": [
+      {
+        "name": "satb-audio-transcription__AXgDrGy",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-upgrade/satb-audio-transcription__AXgDrGy"
+      },
+      {
+        "name": "satb-audio-transcription__YtZDRnm",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-upgrade/satb-audio-transcription__YtZDRnm"
+      },
+      {
+        "name": "satb-audio-transcription__qJoNEev",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-upgrade/satb-audio-transcription__qJoNEev"
+      },
+      {
+        "name": "satb-audio-transcription__3wXqQxP",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-upgrade/satb-audio-transcription__3wXqQxP"
+      },
+      {
+        "name": "satb-audio-transcription__TvLd3zE",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-upgrade/satb-audio-transcription__TvLd3zE"
+      }
+    ],
+    "session-window-debug": [
+      {
+        "name": "session-window-debug__AsVVQqA",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/session-window-debug__AsVVQqA"
+      },
+      {
+        "name": "session-window-debug__JV52TDk",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/session-window-debug__JV52TDk"
+      },
+      {
+        "name": "session-window-debug__Vgb9itg",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/session-window-debug__Vgb9itg"
+      },
+      {
+        "name": "session-window-debug__Kjei5M9",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/session-window-debug__Kjei5M9"
+      },
+      {
+        "name": "session-window-debug__E2wLCQW",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/session-window-debug__E2wLCQW"
+      }
+    ],
+    "sound-change-cascade": [
+      {
+        "name": "sound-change-cascade__j3UWxLk",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/sound-change-cascade__j3UWxLk"
+      },
+      {
+        "name": "sound-change-cascade__LcKh2K7",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/sound-change-cascade__LcKh2K7"
+      },
+      {
+        "name": "sound-change-cascade__QNPdg8e",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/sound-change-cascade__QNPdg8e"
+      },
+      {
+        "name": "sound-change-cascade__hqBzAxs",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/sound-change-cascade__hqBzAxs"
+      },
+      {
+        "name": "sound-change-cascade__nJDhDV2",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/sound-change-cascade__nJDhDV2"
+      }
+    ],
+    "telecom-entity-resolution": [
+      {
+        "name": "telecom-entity-resolution__jm3pgPv",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/telecom-entity-resolution__jm3pgPv"
+      },
+      {
+        "name": "telecom-entity-resolution__kkQKygM",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/telecom-entity-resolution__kkQKygM"
+      },
+      {
+        "name": "telecom-entity-resolution__THi3WMi",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/telecom-entity-resolution__THi3WMi"
+      },
+      {
+        "name": "telecom-entity-resolution__bhoaMPN",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/telecom-entity-resolution__bhoaMPN"
+      },
+      {
+        "name": "telecom-entity-resolution__tN8e7X9",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/telecom-entity-resolution__tN8e7X9"
+      }
+    ],
+    "vba-userform-port": [
+      {
+        "name": "vba-userform-port__QhNQkVU",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/vba-userform-port__QhNQkVU"
+      },
+      {
+        "name": "vba-userform-port__bWfXmUF",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/vba-userform-port__bWfXmUF"
+      },
+      {
+        "name": "vba-userform-port__4y4ioZB",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/vba-userform-port__4y4ioZB"
+      },
+      {
+        "name": "vba-userform-port__ytrAD3L",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/vba-userform-port__ytrAD3L"
+      },
+      {
+        "name": "vba-userform-port__wGD8Sp4",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/vba-userform-port__wGD8Sp4"
+      }
+    ],
+    "vllm-deepseek-streaming": [
+      {
+        "name": "vllm-deepseek-streaming__rH6zDHL",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/vllm-deepseek-streaming__rH6zDHL"
+      },
+      {
+        "name": "vllm-deepseek-streaming__6vjpMaR",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/vllm-deepseek-streaming__6vjpMaR"
+      },
+      {
+        "name": "vllm-deepseek-streaming__DmXyhFL",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/vllm-deepseek-streaming__DmXyhFL"
+      },
+      {
+        "name": "vllm-deepseek-streaming__5iUtARa",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/vllm-deepseek-streaming__5iUtARa"
+      },
+      {
+        "name": "vllm-deepseek-streaming__MAHV9oC",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/vllm-deepseek-streaming__MAHV9oC"
+      }
+    ],
+    "vpp-loss-divergence": [
+      {
+        "name": "vpp-loss-divergence__KuLMjLj",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/vpp-loss-divergence__KuLMjLj"
+      },
+      {
+        "name": "vpp-loss-divergence__9CLuk9U",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/vpp-loss-divergence__9CLuk9U"
+      },
+      {
+        "name": "vpp-loss-divergence__okHRKRV",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/vpp-loss-divergence__okHRKRV"
+      },
+      {
+        "name": "vpp-loss-divergence__pBD3CGS",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/vpp-loss-divergence__pBD3CGS"
+      },
+      {
+        "name": "vpp-loss-divergence__SrPpVL6",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/vpp-loss-divergence__SrPpVL6"
+      }
+    ],
+    "wal-recovery-ordering": [
+      {
+        "name": "wal-recovery-ordering__cNTug49",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/wal-recovery-ordering__cNTug49"
+      },
+      {
+        "name": "wal-recovery-ordering__U6BRBmb",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/wal-recovery-ordering__U6BRBmb"
+      },
+      {
+        "name": "wal-recovery-ordering__8qEVhE4",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/wal-recovery-ordering__8qEVhE4"
+      },
+      {
+        "name": "wal-recovery-ordering__7zk576E",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/wal-recovery-ordering__7zk576E"
+      },
+      {
+        "name": "wal-recovery-ordering__L7eq8UL",
+        "path": "tb4/19-task-v1/tb4-sol61-max/jobs/tb4-sol61-max-copilot-002-hf-basic/wal-recovery-ordering__L7eq8UL"
+      }
+    ]
+  },
+  "safety_cells": {},
+  "task_costs": {
+    "atrx-vep-crispr": 2.070599,
+    "cad-model": 1.87458,
+    "cargo-flight-dispatch": 2.94163,
+    "fin-saccr-rwa": 4.103157,
+    "gsea-proteomics": 1.526931,
+    "hof-topology-interpenetration": 2.873488,
+    "html-js-filter": 10.307051,
+    "mvcc-lsm-compaction": 1.273868,
+    "photonic-waveguide-routing": 6.251771,
+    "production-planning": 3.553374,
+    "react-lead-form": 5.075042,
+    "satb-audio-transcription": 3.05034,
+    "session-window-debug": 2.410588,
+    "sound-change-cascade": 1.669789,
+    "telecom-entity-resolution": 8.979146,
+    "vba-userform-port": 21.828364,
+    "vllm-deepseek-streaming": 11.03264,
+    "vpp-loss-divergence": 1.732879,
+    "wal-recovery-ordering": 2.454705
+  },
+  "errors": {},
+  "cost": {
+    "total_usd": 95.01,
+    "total_usd_exact": 95.009939,
+    "trials_with_cost": 95,
+    "trials": 95,
+    "excluded_trials_with_cost": 0,
+    "basis": "sum of Harbor recorded cost_usd over selected trials",
+    "matches_published": null,
+    "repriced": {
+      "total_usd": 92.576665,
+      "trials": 95,
+      "basis": "list-rate estimate incl. cache writes",
+      "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+      "note": "List-rate estimate from each trial's token usage at the same catalog rates: $92.58, 2.6% below Harbor's recorded $95.01. A list-price equivalent: the run used GitHub Copilot."
+    }
+  },
+  "tokens": {
+    "input": 133372789,
+    "cached": 121346479,
+    "output": 5281287,
+    "basis": "Harbor per-trial input_tokens (includes cached), cache_tokens, output_tokens"
+  },
+  "per_trial_cost": {
+    "median": 0.5889,
+    "p90": 2.0245,
+    "max": 5.3362
+  },
+  "published": null,
+  "reconciled": true,
+  "notes": [
+    "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+    "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor 5ffb9d15, with the published fast-agent-mcp 0.10.44 wheel; GPT-6.1 Sol (max reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No errors, no replacements.",
+    "Cost is Harbor's recorded cost at the cohort's configured list rates (card-packs pricing catalog 2026-10-10.3, GPT-6.1 Sol rules: $2 / $0.10 / $2.50 / $10 per million input / cached / cache-write / output tokens; $4 / $0.20 / $5 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed."
+  ],
+  "scan": {
+    "version": "0.8.4",
+    "scope": "95 reported trials",
+    "trials": 95,
+    "rewarded": 61,
+    "accuracy": 64.21,
+    "accuracy_se": 2.35,
+    "findings_medium_plus": {
+      "trials": 1,
+      "rewarded": 0,
+      "by_highest_priority": {
+        "medium": 1,
+        "info": 84,
+        "none": 10
+      },
+      "top": [
+        {
+          "check": "tamper.harness_hooks",
+          "title": "Test harness hook file written",
+          "priority": "medium",
+          "trials": 1,
+          "rewarded": 0
+        }
+      ]
+    },
+    "review": {
+      "dq_threshold": "high",
+      "high_or_critical_rewarded": 0,
+      "other_model_trials": 0,
+      "incomplete_evidence_rewarded": 3,
+      "accuracy_if_flagged_failed": 64.21
+    },
+    "awareness": {
+      "trials": 0,
+      "stages": {
+        "noticed": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "named": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "probed": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "searched": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "obtained": {
+          "trials": 0,
+          "rewarded": 0
+        }
+      },
+      "verifier_talk": {
+        "trials": 26,
+        "rewarded": 13
+      }
+    },
+    "evidence": {
+      "planned": 95,
+      "errored": 0,
+      "error_types": {},
+      "compacted_history": 0,
+      "without_trajectory": 0,
+      "incomplete_scans": 27,
+      "unmetered_trials": 0
+    },
+    "cost": {
+      "recorded": 0,
+      "trials_missing_cost": 95,
+      "estimated_unpriced": null,
+      "estimated_unmetered": null,
+      "estimated_total": 0
+    },
+    "tokens": {
+      "uncached_input": 12026310,
+      "cached_input": 121346479,
+      "output": 5281287
+    },
+    "walltime_hours": {
+      "trial_sum": 34.1,
+      "agent_sum": 30.2
+    },
+    "overrides": [],
+    "flagged_tasks": {
+      "vba-userform-port": {
+        "trials": 1,
+        "rewarded": 0,
+        "max_priority": "medium"
+      }
+    },
+    "scanner": {
+      "commit": "9aa343d845257b57788f2c53bf6f7f934eb564c4",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--min-trials",
+        "5",
+        "--rules",
+        "docs/benchmark_data/tb4/atif-rules.json",
+        "--image-model",
+        "codexresponses.gpt-6-luna?reasoning=medium"
+      ],
+      "rules_sha256": "5f9f76ce20cc70e4a98c95e03f4fc7b491db7a2bb9a904fb2565366fb9448fd6"
+    },
+    "cells": {
+      "atrx-vep-crispr": "lllll",
+      "cad-model": "lllll",
+      "cargo-flight-dispatch": "lllll",
+      "fin-saccr-rwa": "lllll",
+      "gsea-proteomics": "lllll",
+      "hof-topology-interpenetration": "lllll",
+      "html-js-filter": "lllll",
+      "mvcc-lsm-compaction": "lllll",
+      "photonic-waveguide-routing": "lllll",
+      "production-planning": "lllll",
+      "react-lead-form": "lllll",
+      "satb-audio-transcription": "lllll",
+      "session-window-debug": "lllll",
+      "sound-change-cascade": "lllll",
+      "telecom-entity-resolution": "lllll",
+      "vba-userform-port": "mllll",
+      "vllm-deepseek-streaming": "lllll",
+      "vpp-loss-divergence": "lllll",
+      "wal-recovery-ordering": "lllll"
+    }
+  },
+  "as_run": {
+    "passes": 61,
+    "slots": 95
+  },
+  "review": {
+    "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+    "coverage": "Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks. atif-scan 0.8.4 could not read one command in each of three passes (long shell scripts), leaving their delegation and search checks undecided; reviewed by hand: hof-topology-interpenetration__Tu4v5aK downloads the public Systre topology tool from its GitHub release and runs it locally; mvcc-lsm-compaction__WUodC5X and __tTAa5wQ build and run their own sanitizer checks. No benchmark lookup or delegation to another coding agent.",
+    "recorded_passes": 61,
+    "recorded_score": 64.21,
+    "disqualified": [],
+    "cleared": []
+  }
+}
