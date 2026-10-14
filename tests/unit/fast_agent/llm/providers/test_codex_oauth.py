@@ -1,4 +1,6 @@
+import base64
 import json
+import time
 from pathlib import Path
 from unittest.mock import Mock
 from urllib.parse import parse_qs
@@ -506,3 +508,89 @@ def test_device_expired_deadline_makes_no_requests(device_login) -> None:
     assert requests == []
     assert sleeps == []
     save.assert_not_called()
+
+
+def _jwt(claims: dict[str, object]) -> str:
+    def encode(value: dict[str, object]) -> str:
+        return base64.urlsafe_b64encode(json.dumps(value).encode()).rstrip(b"=").decode()
+
+    return f"{encode({'alg': 'none'})}.{encode(claims)}.sig"
+
+
+def _write_cli_auth(monkeypatch, tmp_path: Path, access_token: str) -> None:
+    auth_path = tmp_path / "codex-auth.json"
+    auth_path.write_text(
+        json.dumps({"tokens": {"access_token": access_token, "refresh_token": "cli-refresh"}})
+    )
+    monkeypatch.delenv("FAST_AGENT_AUTH_FILE", raising=False)
+    monkeypatch.setenv("CODEX_AUTH_JSON_PATH", str(auth_path))
+
+
+def test_codex_cli_token_expiry_is_read_from_jwt(monkeypatch, tmp_path: Path) -> None:
+    _write_cli_auth(monkeypatch, tmp_path, _jwt({"exp": 1_700_000_000}))
+
+    tokens = codex_oauth._load_codex_cli_tokens()
+
+    assert tokens is not None
+    assert tokens.expires_at == 1_700_000_000
+    assert tokens.is_expired()
+
+
+def test_expired_codex_cli_token_falls_back_to_fast_agent_login(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _write_cli_auth(monkeypatch, tmp_path, _jwt({"exp": time.time() - 3600}))
+    monkeypatch.setattr(
+        codex_oauth,
+        "load_oauth_credential",
+        lambda provider: StoredCredential(
+            OAuthCredential(access_token="fresh-login", expires_at=time.time() + 3600), "keyring"
+        ),
+    )
+    monkeypatch.setattr(
+        codex_oauth,
+        "refresh_codex_tokens",
+        lambda refresh_token: pytest.fail("a fresh fast-agent login must not be refreshed"),
+    )
+
+    messages: list[str] = []
+    codex_oauth._warn_codex_cli_token_expired.cache_clear()
+    monkeypatch.setattr(codex_oauth.console, "ensure_blocking_console", lambda: None)
+    monkeypatch.setattr(
+        codex_oauth.console.error_console,
+        "print",
+        lambda message, **kwargs: messages.append(message),
+    )
+
+    assert codex_oauth.get_codex_access_token() == "fresh-login"
+    assert codex_oauth.get_codex_token_status()["source"] == "keyring"
+    assert messages == ["Codex CLI token has expired, falling back to fast-agent keyring"]
+
+
+def test_rejected_codex_cli_token_switches_to_fast_agent_login(monkeypatch, tmp_path: Path) -> None:
+    _write_cli_auth(monkeypatch, tmp_path, _jwt({"exp": time.time() + 3600}))
+    monkeypatch.setattr(
+        codex_oauth,
+        "load_oauth_credential",
+        lambda provider: StoredCredential(OAuthCredential(access_token="fresh-login"), "keyring"),
+    )
+    monkeypatch.setattr(
+        codex_oauth,
+        "refresh_codex_tokens",
+        lambda refresh_token: pytest.fail("switching credentials must not refresh"),
+    )
+
+    assert codex_oauth.get_codex_access_token(force_refresh=True) == "fresh-login"
+
+
+def test_expired_codex_cli_token_is_used_when_no_fast_agent_login(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _write_cli_auth(monkeypatch, tmp_path, _jwt({"exp": time.time() - 3600}))
+    monkeypatch.setattr(codex_oauth, "load_oauth_credential", lambda provider: None)
+
+    tokens, source = codex_oauth._load_codex_tokens_with_source()
+
+    assert source == "auth.json"
+    assert tokens is not None
+    assert tokens.refresh_token == "cli-refresh"

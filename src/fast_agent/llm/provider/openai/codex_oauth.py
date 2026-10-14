@@ -8,6 +8,7 @@ the Codex responses endpoint.
 from __future__ import annotations
 
 import base64
+import functools
 import hashlib
 import json
 import os
@@ -24,6 +25,7 @@ import httpx
 from pydantic import AliasChoices, BaseModel, Field, ValidationError
 
 from fast_agent.auth.credentials import (
+    AuthSource,
     OAuthCredential,
     configured_auth_path,
     credential_refresh_lock,
@@ -275,10 +277,25 @@ def _load_codex_cli_tokens() -> CodexOAuthTokens | None:
         if not normalized or not normalized.get("access_token"):
             continue
         try:
-            return CodexOAuthTokens.model_validate(normalized)
+            tokens = CodexOAuthTokens.model_validate(normalized)
         except Exception:
             continue
+        if tokens.expires_at is None:
+            # Codex CLI auth.json stores no expiry; the access token JWT carries it.
+            tokens.expires_at = _jwt_expiry(tokens.access_token)
+        return tokens
     return None
+
+
+def _jwt_expiry(access_token: str) -> float | None:
+    try:
+        payload = json.loads(_base64url_decode(access_token.split(".")[1]))
+    except (IndexError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    exp = payload.get("exp")
+    return float(exp) if isinstance(exp, (int, float)) else None
 
 
 def _tokens_from_credential(credential: OAuthCredential) -> CodexOAuthTokens:
@@ -325,7 +342,19 @@ def _warn_about_legacy_codex_keyring_credentials() -> None:
     )
 
 
-def _load_codex_tokens_with_source() -> tuple[CodexOAuthTokens | None, str | None]:
+@functools.cache
+def _warn_codex_cli_token_expired(source: AuthSource) -> None:
+    store = "keyring" if source == "keyring" else "auth file"
+    console.ensure_blocking_console()
+    console.error_console.print(
+        f"Codex CLI token has expired, falling back to fast-agent {store}",
+        style="yellow",
+    )
+
+
+def _load_codex_tokens_with_source(
+    *, prefer_fast_agent_store: bool = False
+) -> tuple[CodexOAuthTokens | None, str | None]:
     # FAST_AGENT_AUTH_FILE is an explicit, authoritative credential source. Do not
     # silently fall back to a developer's local Codex CLI account when it is set.
     if configured_auth_path() is not None:
@@ -334,22 +363,29 @@ def _load_codex_tokens_with_source() -> tuple[CodexOAuthTokens | None, str | Non
             (_tokens_from_credential(stored.credential), stored.source) if stored else (None, None)
         )
 
-    # Codex CLI credentials are external and read-only. Prefer them before touching
-    # the fast-agent credential store so an existing auth.json is sufficient on its own.
-    tokens = _load_codex_cli_tokens()
-    if tokens:
-        return tokens, "auth.json"
+    # Codex CLI credentials are external and read-only. Prefer a live auth.json token
+    # before touching the fast-agent credential store so it is sufficient on its own,
+    # but fall back to the fast-agent store (e.g. after `fast-agent auth provider login
+    # codex`) once the auth.json token has expired or been rejected.
+    cli_tokens = _load_codex_cli_tokens()
+    if cli_tokens and not prefer_fast_agent_store and not cli_tokens.is_expired():
+        return cli_tokens, "auth.json"
 
     stored = load_oauth_credential("codex")
     if stored:
+        if cli_tokens and cli_tokens.is_expired():
+            _warn_codex_cli_token_expired(stored.source)
         return _tokens_from_credential(stored.credential), stored.source
+
+    if cli_tokens:
+        return cli_tokens, "auth.json"
 
     _warn_about_legacy_codex_keyring_credentials()
     return None, None
 
 
-def load_codex_tokens() -> CodexOAuthTokens | None:
-    tokens, source = _load_codex_tokens_with_source()
+def load_codex_tokens(*, prefer_fast_agent_store: bool = False) -> CodexOAuthTokens | None:
+    tokens, source = _load_codex_tokens_with_source(prefer_fast_agent_store=prefer_fast_agent_store)
     if tokens and source == "auth.json":
         logger.info(
             "codex_cli_tokens",
@@ -421,10 +457,14 @@ def get_codex_access_token(*, force_refresh: bool = False) -> str | None:
         return None
     if force_refresh or tokens.is_expired():
         with credential_refresh_lock("codex"):
-            tokens = load_codex_tokens()
-            if not tokens:
+            # A forced refresh means the current token was rejected: switch to the
+            # fast-agent store when it holds a different credential before refreshing.
+            reloaded = load_codex_tokens(prefer_fast_agent_store=force_refresh)
+            if not reloaded:
                 return None
-            if force_refresh or tokens.is_expired():
+            switched = reloaded.access_token != tokens.access_token
+            tokens = reloaded
+            if tokens.is_expired() or (force_refresh and not switched):
                 if not tokens.refresh_token:
                     raise ProviderKeyError(
                         "Codex OAuth token expired",
