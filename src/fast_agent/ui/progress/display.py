@@ -173,6 +173,8 @@ _ACTION_STYLES = {
     ProgressAction.STREAMING: "green",  # Assistant Colour
     ProgressAction.THINKING: "yellow",  # Assistant Colour
     ProgressAction.COMPACTING: "cyan",
+    ProgressAction.COMPACTING_IN_REQUEST: "cyan",
+    ProgressAction.COMPACTING_CHECKPOINT: "cyan",
     ProgressAction.ROUTING: "blue",
     ProgressAction.PLANNING: "blue",
     ProgressAction.MONITORING: "blue",
@@ -879,7 +881,12 @@ class RichProgressDisplay:
             "is_process_poll": is_process_poll,
             "is_subagent_monitor": event.tool_event == "subagent_monitor",
             "agent_name": event.agent_name,
-            "is_compacting": event.action == ProgressAction.COMPACTING,
+            "is_compacting": event.action
+            in (
+                ProgressAction.COMPACTING,
+                ProgressAction.COMPACTING_IN_REQUEST,
+                ProgressAction.COMPACTING_CHECKPOINT,
+            ),
         }
         if event.subagent_monitor is not None:
             update_kwargs["subagent_monitor"] = event.subagent_monitor

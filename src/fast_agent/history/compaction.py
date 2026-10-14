@@ -588,10 +588,12 @@ def _resolved_path(raw_path: object | None) -> Path | None:
 
 
 @contextmanager
-def _compacting(llm: FastAgentLLMProtocol) -> Iterator[None]:
+def _compacting(
+    llm: FastAgentLLMProtocol, action: ProgressAction = ProgressAction.COMPACTING
+) -> Iterator[None]:
     """Temporarily label side-channel model progress as compaction."""
     previous_verb = llm.verb
-    llm.verb = ProgressAction.COMPACTING
+    llm.verb = action
     try:
         yield
     finally:
@@ -664,7 +666,7 @@ async def _native_checkpoint(
     summary_source: list[PromptMessageExtended],
 ) -> _CheckpointContent:
     """Ask the provider for an opaque checkpoint of the compact region."""
-    with _compacting(llm):
+    with _compacting(llm, ProgressAction.COMPACTING_CHECKPOINT):
         try:
             native = await llm.native_compaction(summary_source)
         except Exception as exc:

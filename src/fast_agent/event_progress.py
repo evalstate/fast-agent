@@ -16,7 +16,9 @@ class ProgressAction(str, Enum):
     SENDING = "Sending"
     STREAMING = "Streaming"  # Special action for real-time streaming updates
     THINKING = "Thinking"  # Special action for real-time thinking updates
-    COMPACTING = "Compacting"
+    COMPACTING = "Compacting (summary)"  # Harness-generated text summary.
+    COMPACTING_IN_REQUEST = "Compacting (provider automatic)"  # Inside a normal provider request.
+    COMPACTING_CHECKPOINT = "Compacting (provider checkpoint)"  # Explicit provider checkpoint call.
     ROUTING = "Routing"
     PLANNING = "Planning"
     MONITORING = "Monitoring"

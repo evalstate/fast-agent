@@ -7,12 +7,15 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+import pytest
 from rich.cells import cell_len
 from rich.console import Console, RenderableType
 from rich.live import Live
 from rich.spinner import Spinner
 from rich.text import Text
 
+from fast_agent.core.logging.events import Event
+from fast_agent.core.logging.listeners import convert_log_event
 from fast_agent.event_progress import ProgressAction, ProgressEvent, SubagentMonitorSnapshot
 from fast_agent.ui.display_suppression import suppress_interactive_display
 from fast_agent.ui.progress.display import (
@@ -113,6 +116,43 @@ def _subagent_event(
 def test_compacting_track_drains_by_braille_row_then_repeats() -> None:
     frames = [_format_compacting_track((index + 0.1) * 0.18) for index in range(6)]
     assert frames == ["⣿⣿⣿", "⣶⣶⣶", "⣤⣤⣤", "⣀⣀⣀", "   ", "⣿⣿⣿"]
+
+
+@pytest.mark.parametrize(
+    ("action", "caption"),
+    [
+        (ProgressAction.COMPACTING, "Compacting (summary)"),
+        (ProgressAction.COMPACTING_IN_REQUEST, "Compacting (provider automatic)"),
+        (ProgressAction.COMPACTING_CHECKPOINT, "Compacting (provider checkpoint)"),
+    ],
+)
+def test_compaction_captions_preserve_animation_and_resume_streaming(
+    action: ProgressAction, caption: str
+) -> None:
+    event = convert_log_event(
+        Event(
+            type="info",
+            namespace="fast_agent.llm",
+            message="Compaction in progress",
+            data={"data": {"progress_action": action.value, "agent_name": "test-agent"}},
+        )
+    )
+    assert event is not None
+    display = _make_display()
+    display.update(event)
+    [task] = display._progress.tasks
+    rendered = display._description_spinner.render(task)
+    assert caption in rendered.plain
+    assert task.fields["is_compacting"] is True
+    caption_offset = rendered.plain.index(caption)
+    assert any(
+        span.style == "cyan" and span.start <= caption_offset < span.end for span in rendered.spans
+    )
+
+    display.update(_make_event(ProgressAction.STREAMING))
+    [task] = display._progress.tasks
+    assert task.fields["is_compacting"] is False
+    assert "Compacting" not in display._description_spinner.render(task).plain
 
 
 class TestStopPreventsResume:
