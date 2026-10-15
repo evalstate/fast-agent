@@ -2,8 +2,8 @@
 title: Additional Providers
 social:
   title: Additional Providers
-  tagline: Configure Groq, Aliyun, OpenRouter, TensorZero, and generic endpoints.
-  description: Configure Groq, Aliyun, OpenRouter, TensorZero, and generic endpoints.
+  tagline: Configure Groq, Aliyun, OpenRouter, OrcaRouter, TensorZero, and generic endpoints.
+  description: Configure Groq, Aliyun, OpenRouter, OrcaRouter, TensorZero, and generic endpoints.
   alt: fast-agent social card — Additional model providers
 ---
 
@@ -36,6 +36,7 @@ Run `fast-agent check` after adding credentials to confirm they are visible to f
 | Groq | `groq` | `GROQ_API_KEY` | `https://api.groq.com/openai/v1` | `groq.openai/gpt-oss-120b` |
 | Aliyun | `aliyun` | `ALIYUN_API_KEY` | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | `qwen-turbo`, `aliyun.qwen3-max` |
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` | `openrouter.google/gemini-2.5-pro-exp-03-25:free` |
+| OrcaRouter | `orcarouter` | `ORCAROUTER_API_KEY` | `https://api.orcarouter.ai/v1` | `orcarouter.openai/gpt-4o-mini` |
 | Open Responses | `openresponses` | `OPENRESPONSES_API_KEY` | Your Open Responses endpoint | `openresponses.openai/gpt-oss-120b:groq` |
 | Generic OpenAI-compatible | `generic` | `GENERIC_API_KEY` | `http://localhost:11434/v1` for Ollama-style local use | `generic.llama3.2:latest` |
 | TensorZero | `tensorzero` | None; configure provider credentials in the TensorZero Gateway | `http://localhost:3000` | `tensorzero.test_chat` |
@@ -93,6 +94,23 @@ fast-agent --model openrouter.google/gemini-2.5-pro-exp-03-25:free
 ```
 
 OpenRouter routes requests to many upstream providers. Model names and capabilities are controlled by OpenRouter and the selected upstream model.
+
+### OrcaRouter
+
+```yaml
+orcarouter:
+  api_key: "${ORCAROUTER_API_KEY}"
+```
+
+```bash
+fast-agent --model orcarouter.openai/gpt-4o-mini
+```
+
+[OrcaRouter](https://www.orcarouter.ai) is an OpenAI-compatible model routing gateway. Model names are namespaced by upstream provider, for example `orcarouter.anthropic/claude-sonnet-4-6` or `orcarouter.google/gemini-2.5-flash`. The `orcarouter.auto` router picks the best upstream per request.
+
+!!! note "Tool calling and the auto router"
+
+    The `orcarouter.auto` router may select an upstream that does not support tool calling. When fast-agent runs with tools (the default), prefer an explicit namespaced model such as `orcarouter.openai/gpt-4o-mini`.
 
 ## Open Responses endpoints
 
