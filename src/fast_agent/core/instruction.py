@@ -22,6 +22,8 @@ Context placeholders (set by caller):
     {{agentType}} - Current agent type
     {{agentCardPath}} - Source AgentCard path (if available)
     {{agentCardDir}} - Source AgentCard directory (if available)
+    {{modelName}} - Active resolved model ID (without provider prefix or query options)
+    {{modelProvider}} - Active provider route (e.g., responses, copilot)
     {{modelReferences}} - Configured model references and resolved default, if any
     {{serverInstructions}} - MCP server instructions
     {{agentSkills}} - Agent skill descriptions

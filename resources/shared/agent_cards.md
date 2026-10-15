@@ -141,6 +141,8 @@ You can insert these in the **body** or `instruction:`.
 | `\{{agentType}}` | Current agent type |
 | `\{{agentCardPath}}` | Source AgentCard path (if loaded from card) |
 | `\{{agentCardDir}}` | Directory containing the source AgentCard |
+| `\{{modelName}}` | Active resolved model ID, without provider prefix or query options; follows model switches and subagent overrides |
+| `\{{modelProvider}}` | Active provider route (config name, e.g. `responses` or `copilot`) |
 | `\{{modelReferences}}` | Configured model references, including `$system.default` when resolved |
 | `\{{model_specific}}` | Model-specific prompt guidance from the resolved model catalog entry or model overlay |
 | `\{{serverInstructions}}` | MCP server instructions (if any) |

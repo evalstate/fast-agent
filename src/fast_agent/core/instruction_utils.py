@@ -30,6 +30,14 @@ class InstructionTemplateCapable(Protocol):
     instruction_template: str
 
 
+@runtime_checkable
+class InstructionContextCapable(Protocol):
+    @property
+    def instruction_context(self) -> dict[str, str]: ...
+
+    def set_instruction_context(self, context: dict[str, str]) -> None: ...
+
+
 class InstructionContextAgent(Protocol):
     @property
     def name(self) -> str: ...
@@ -110,6 +118,11 @@ def build_agent_instruction_context(
     context["agentType"] = agent_type
     context["agentCardPath"] = card_path
     context["agentCardDir"] = card_dir
+    context["modelName"] = ""
+    context["modelProvider"] = ""
+    if isinstance(agent, LlmInstructionContextAgent) and agent.llm is not None:
+        context["modelName"] = agent.llm.model_name or ""
+        context["modelProvider"] = agent.llm.provider.config_name
     context["model_specific"] = _resolve_model_specific(agent)
     return context
 
@@ -140,9 +153,10 @@ async def apply_instruction_context(
         aggregator = None
         skill_manifests = None
         skill_read_tool_name = READ_SKILL_TOOL_NAME
+        if isinstance(agent, InstructionContextCapable):
+            agent.set_instruction_context(dict(resolved_context))
         if isinstance(agent, McpInstructionCapable):
             configured_agent = cast("ConfiguredMcpInstructionCapable", agent)
-            agent.set_instruction_context(dict(resolved_context))
             aggregator = agent.aggregator
             skill_manifests = resolve_instruction_skill_manifests(
                 configured_agent,
