@@ -129,9 +129,9 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         from fast_agent.core.logging.logger import Logger
         from fast_agent.llm.tool_tracking import ToolKind
 
+        verb: str | ProgressAction | None
         logger: Logger
         name: str | None
-        verb: str | ProgressAction | None
 
         def _notify_stream_listeners(self, chunk: StreamChunk) -> None: ...
 
