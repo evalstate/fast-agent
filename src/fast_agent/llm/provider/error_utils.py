@@ -1,6 +1,8 @@
 """Utility functions for LLM provider error handling."""
 
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from mcp_types import TextContent
+
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, OPENAI_COMPACTION_ITEMS
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.types import PromptMessageExtended
@@ -64,4 +66,22 @@ def build_stream_failure_response(
         content=[assistant_block],
         channels={FAST_AGENT_ERROR_CHANNEL: [error_block]},
         stop_reason=LlmStopReason.ERROR,
+    )
+
+
+def is_empty_completion(message: PromptMessageExtended) -> bool:
+    """An end_turn with no content and no tool call (reasoning alone doesn't count).
+
+    It would end the agent loop with nothing done. Providers retry it once: a stream
+    cut off mid-reasoning is often recorded this way. A compaction request legitimately
+    returns only its compaction items.
+    """
+    has_content = any(
+        not isinstance(block, TextContent) or bool(block.text.strip()) for block in message.content
+    )
+    return (
+        message.stop_reason == LlmStopReason.END_TURN
+        and not has_content
+        and not message.tool_calls
+        and OPENAI_COMPACTION_ITEMS not in (message.channels or {})
     )

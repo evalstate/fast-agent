@@ -758,6 +758,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                     raise
 
                 last_error = e
+                if self._is_request_too_large(e):
+                    break  # resending the same request can't help; report it once
                 if attempt < retries:
                     self._notify_stream_listeners(StreamChunk(event="rollback"))
                     wait_seconds = self._retry_wait_seconds(attempt)
@@ -843,6 +845,26 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 if isinstance(item, PromptMessageExtended):
                     append_retry_channel(item, retries)
                     return
+
+    @staticmethod
+    def _is_request_too_large(error: Exception) -> bool:
+        """HTTP 413: the provider refused the request body as too large.
+
+        The same request fails the same way, so it isn't retried, but unlike a fatal
+        error it still ends in the provider's normal error response.
+        """
+        from fast_agent.llm.provider.openai.responses_websocket import ResponsesWebSocketError
+
+        if isinstance(error, ResponsesWebSocketError):
+            return error.status == 413
+        exception_module_roots = {
+            exception_type.__module__.partition(".")[0] for exception_type in type(error).__mro__
+        }
+        if "openai" in exception_module_roots:
+            from openai import APIStatusError as OpenAIAPIStatusError
+
+            return isinstance(error, OpenAIAPIStatusError) and error.status_code == 413
+        return False
 
     @staticmethod
     def _is_fatal_retry_error(error: Exception) -> bool:

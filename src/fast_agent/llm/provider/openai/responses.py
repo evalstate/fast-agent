@@ -35,7 +35,7 @@ from fast_agent.llm.compaction_support import (
     provider_checkpoint_marker,
 )
 from fast_agent.llm.fastagent_llm import FastAgentLLM
-from fast_agent.llm.provider.error_utils import build_stream_failure_response
+from fast_agent.llm.provider.error_utils import build_stream_failure_response, is_empty_completion
 from fast_agent.llm.provider.openai._stream_capture import (
     save_stream_request as _save_stream_request,
 )
@@ -1466,17 +1466,7 @@ class ResponsesLLM(
 
     @staticmethod
     def _is_empty_responses_completion(message: PromptMessageExtended) -> bool:
-        has_content = any(
-            not isinstance(block, TextContent) or bool(block.text.strip())
-            for block in message.content
-        )
-        return (
-            message.stop_reason == LlmStopReason.END_TURN
-            and not has_content
-            and not message.tool_calls
-            # A compaction_trigger request returns only compaction items.
-            and OPENAI_COMPACTION_ITEMS not in (message.channels or {})
-        )
+        return is_empty_completion(message)
 
     def _empty_responses_error(
         self,
