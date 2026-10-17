@@ -15,6 +15,7 @@ from fast_agent.core.instruction_utils import (
     build_agent_instruction_context,
 )
 from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.types import RequestParams
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -110,3 +111,24 @@ async def test_included_model_identity_preserves_shared_context(
         if child is not None:
             await child.shutdown()
         await parent.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("agent_type", [LlmAgent, McpAgent])
+@pytest.mark.parametrize("system_prompt", ["Explicit caller prompt", ""])
+async def test_explicit_system_prompt_takes_precedence_over_agent_template(
+    agent_type: type[LlmAgent], system_prompt: str
+) -> None:
+    agent = agent_type(AgentConfig("agent", instruction=TEMPLATE, skills=[]))
+    try:
+        llm = await agent.attach_llm(
+            ModelFactory.create_factory("passthrough"),
+            request_params=RequestParams(system_prompt=system_prompt),
+        )
+        assert llm.default_request_params.system_prompt == system_prompt
+
+        await agent.set_model("playback")
+        assert agent.llm is not None
+        assert agent.llm.default_request_params.system_prompt == system_prompt
+    finally:
+        await agent.shutdown()

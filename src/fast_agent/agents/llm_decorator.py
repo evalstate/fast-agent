@@ -484,7 +484,9 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         from fast_agent.core.instruction_utils import apply_instruction_context
 
-        await apply_instruction_context([self], self.instruction_context)
+        # Explicit request-level prompts take precedence over the agent template.
+        if request_params is None or request_params.system_prompt is None:
+            await apply_instruction_context([self], self.instruction_context)
 
         return self._llm
 
