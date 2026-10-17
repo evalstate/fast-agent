@@ -189,3 +189,28 @@ async def test_other_status_errors_are_still_retried() -> None:
 
     assert attempts == [0, 1]
     assert response.all_text() == "recovered"
+
+
+@pytest.mark.asyncio
+async def test_a_retry_inside_the_last_attempt_follows_the_earlier_attempts() -> None:
+    """A provider's own retry (an empty completion asked once more) is recorded on the
+    response before the retry loop adds its attempts: both are kept, in order."""
+    from fast_agent.llm.retry_telemetry import append_retry_channel
+
+    llm = _llm()
+    attempts: list[int] = []
+
+    async def attempt(_messages: object) -> PromptMessageExtended:
+        attempts.append(len(attempts))
+        if len(attempts) == 1:
+            raise httpx.ReadError("Response payload is not completed")
+        response = Prompt.assistant("recovered")
+        append_retry_channel(response, [llm._empty_completion_retry()])
+        return response
+
+    response = await llm._execute_with_retry(attempt, [])
+
+    assert [r["reason"] for r in _retries(response)] == ["provider_error", "empty_completion"]
+    block = (response.channels or {})[FAST_AGENT_RETRY][0]
+    assert isinstance(block, TextContent)
+    assert json.loads(block.text)["provider_attempts"] == 3

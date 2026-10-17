@@ -1,13 +1,38 @@
 """Utility functions for LLM provider error handling."""
 
+import json
+
 from mcp_types import TextContent
 
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, OPENAI_COMPACTION_ITEMS
+from fast_agent.constants import (
+    FAST_AGENT_ERROR_CHANNEL,
+    FAST_AGENT_PROVIDER_ERROR,
+    OPENAI_COMPACTION_ITEMS,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.utils.text import strip_str_to_none
+
+PROVIDER_ERROR_SCHEMA = "fast-agent.provider-error/v1"
+
+
+class EmptyCompletionError(RuntimeError):
+    """The model ended its turn with no content and no tool call, again after a retry."""
+
+    def __init__(self) -> None:
+        super().__init__("Completion returned no assistant content or tool calls after one retry.")
+
+
+def _status(error: Exception) -> int | None:
+    """The HTTP status a provider error carries, when it has one."""
+    from fast_agent.llm.provider.openai.responses_websocket import ResponsesWebSocketError
+
+    if isinstance(error, ResponsesWebSocketError):
+        return error.status
+    status = getattr(error, "status_code", None)  # OpenAI and Anthropic SDK status errors
+    return status if isinstance(status, int) else None
 
 
 def build_stream_failure_response(
@@ -36,7 +61,7 @@ def build_stream_failure_response(
     code = getattr(error, "code", None)
     if code:
         parts.append(f"(code: {code})")
-    status = getattr(error, "status_code", None)
+    status = _status(error)
     if status:
         parts.append(f"(status={status})")
 
@@ -61,10 +86,19 @@ def build_stream_failure_response(
     assistant_block = text_content(assistant_text)
     error_block = text_content(message)
 
+    # Codes only (no message text), for trace exports: why this call failed.
+    provider_error = {
+        "schema": PROVIDER_ERROR_SCHEMA,
+        "error_type": type(error).__name__,
+        "status": status,
+    }
     return PromptMessageExtended(
         role="assistant",
         content=[assistant_block],
-        channels={FAST_AGENT_ERROR_CHANNEL: [error_block]},
+        channels={
+            FAST_AGENT_ERROR_CHANNEL: [error_block],
+            FAST_AGENT_PROVIDER_ERROR: [text_content(json.dumps(provider_error))],
+        },
         stop_reason=LlmStopReason.ERROR,
     )
 

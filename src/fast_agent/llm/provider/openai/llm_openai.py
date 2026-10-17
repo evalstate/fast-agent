@@ -37,7 +37,11 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.fastagent_llm import FastAgentLLM, RequestParams
-from fast_agent.llm.provider.error_utils import build_stream_failure_response, is_empty_completion
+from fast_agent.llm.provider.error_utils import (
+    EmptyCompletionError,
+    build_stream_failure_response,
+    is_empty_completion,
+)
 from fast_agent.llm.provider.openai._stream_capture import (
     save_stream_chunk as _save_stream_chunk,
 )
@@ -62,6 +66,7 @@ from fast_agent.llm.provider.streaming_timeouts import (
 )
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
+from fast_agent.llm.retry_telemetry import append_retry_channel
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
 from fast_agent.llm.upload_progress import plan_upload, run_with_upload_progress
@@ -1549,13 +1554,12 @@ class OpenAILLM(
             data={"model": model_name},
         )
         retry = await self._openai_completion_once(message, request_params, tools)
-        if not is_empty_completion(retry):
-            return retry
-        error = RuntimeError(
-            "Completion returned no assistant content or tool calls after one retry."
-        )
-        self.logger.error(str(error), data={"model": model_name})
-        return build_stream_failure_response(self.provider, error, model_name)
+        if is_empty_completion(retry):
+            error = EmptyCompletionError()
+            self.logger.error(str(error), data={"model": model_name})
+            retry = build_stream_failure_response(self.provider, error, model_name)
+        append_retry_channel(retry, [self._empty_completion_retry()])
+        return retry
 
     async def _openai_completion_once(
         self,

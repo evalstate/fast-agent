@@ -7,12 +7,17 @@ agent loop took the empty reply as the end of its work.
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
 
 import pytest
 from mcp_types import TextContent
 
-from fast_agent.constants import OPENAI_COMPACTION_ITEMS
+from fast_agent.constants import (
+    FAST_AGENT_PROVIDER_ERROR,
+    FAST_AGENT_RETRY,
+    OPENAI_COMPACTION_ITEMS,
+)
 from fast_agent.context import Context
 from fast_agent.llm.provider.error_utils import is_empty_completion
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
@@ -27,6 +32,12 @@ def _empty(reasoning: str = "Let me try the near-identity pai") -> PromptMessage
     response = Prompt.assistant("", stop_reason=LlmStopReason.END_TURN)
     response.channels = {"reasoning": [TextContent(type="text", text=reasoning)]}
     return response
+
+
+def _retries(response: PromptMessageExtended) -> list[dict[str, Any]]:
+    block = (response.channels or {})[FAST_AGENT_RETRY][0]
+    assert isinstance(block, TextContent)
+    return json.loads(block.text)["retries"]
 
 
 class ScriptedOpenAI(OpenAILLM):
@@ -53,6 +64,9 @@ async def test_an_empty_end_turn_is_asked_once_more_with_a_fresh_request() -> No
     response = await llm._openai_completion([{"role": "user", "content": "go"}])
 
     assert response.all_text() == "Done."
+    (retry,) = _retries(response)
+    assert retry["reason"] == "empty_completion"
+    assert retry["error_type"] == "EmptyCompletionError"
     first, second = llm.requests
     assert first.messages is not second.messages
     assert [m["role"] for m in second.messages] == ["user", "assistant"]  # one reply, not two
@@ -67,6 +81,15 @@ async def test_empty_twice_is_an_error_not_a_finished_turn() -> None:
     assert len(llm.requests) == 2
     assert response.stop_reason == LlmStopReason.ERROR
     assert "no assistant content or tool calls" in response.all_text()
+    assert [r["reason"] for r in _retries(response)] == ["empty_completion"]
+    block = (response.channels or {})[FAST_AGENT_PROVIDER_ERROR][0]
+    assert isinstance(block, TextContent)
+    error = json.loads(block.text)
+    assert error == {
+        "schema": "fast-agent.provider-error/v1",
+        "error_type": "EmptyCompletionError",
+        "status": None,
+    }
 
 
 @pytest.mark.asyncio
@@ -85,6 +108,7 @@ async def test_replies_and_other_stops_are_returned_as_they_are(
 
     assert await llm._openai_completion([{"role": "user", "content": "go"}]) is reply
     assert len(llm.requests) == 1
+    assert FAST_AGENT_RETRY not in (reply.channels or {})
 
 
 def test_a_compaction_checkpoint_is_not_an_empty_completion() -> None:
