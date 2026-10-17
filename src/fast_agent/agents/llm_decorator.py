@@ -187,6 +187,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._name = self.config.name
         self._tracer = trace.get_tracer(__name__)
         self._instruction = self.config.instruction
+        self._instruction_context: dict[str, str] = {}
 
         # Agent-owned conversation state (PromptMessageExtended only)
         self._message_history: list[PromptMessageExtended] = []
@@ -328,6 +329,15 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     def instruction(self) -> str:
         """Return the agent's instruction/system prompt."""
         return self._instruction
+
+    @property
+    def instruction_context(self) -> dict[str, str]:
+        """Context values retained for instruction template refreshes."""
+        return self._instruction_context
+
+    def set_instruction_context(self, context: dict[str, str]) -> None:
+        """Retain shared template values across model changes and cloning."""
+        self._instruction_context.update(context)
 
     def set_instruction(self, instruction: str) -> None:
         """Set the agent's instruction/system prompt."""
@@ -472,6 +482,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._llm_attach_kwargs = attach_kwargs
         self._on_llm_attached(self._llm)
 
+        from fast_agent.core.instruction_utils import apply_instruction_context
+
+        # Explicit request-level prompts take precedence over the agent template.
+        if request_params is None or request_params.system_prompt is None:
+            await apply_instruction_context([self], self.instruction_context)
+
         return self._llm
 
     def _validate_llm_attachment(self, llm: FastAgentLLMProtocol) -> None:
@@ -537,6 +553,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         constructor_kwargs = self._clone_constructor_kwargs()
         clone = type(self)(config=new_config, context=self.context, **constructor_kwargs)
+        clone.set_instruction_context(dict(self.instruction_context))
         try:
             await clone.initialize()
             await self._configure_cloned_instance(clone)
