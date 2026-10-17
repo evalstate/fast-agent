@@ -685,10 +685,11 @@ class TestCompactConversation:
 
         result = await compact_conversation(agent, settings=CompactionSettings(keep_turns=1))
 
-        # The provider saw templates + compact region, nothing retained, while COMPACTING.
+        # The provider saw templates + compact region, nothing retained, with checkpoint progress.
         [request] = llm.native_requests
         assert [m.first_text() for m in request] == ["template", "one", "1", "two", "2"]
-        assert llm.verbs_seen == [ProgressAction.COMPACTING]
+        assert llm.verbs_seen == [ProgressAction.COMPACTING_CHECKPOINT]
+        assert llm.verb is None
         assert llm.requests == []
         # Same layout as a summary: templates, checkpoint, retained tail.
         checkpoint = agent.message_history[1]

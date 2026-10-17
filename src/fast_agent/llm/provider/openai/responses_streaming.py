@@ -129,6 +129,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         from fast_agent.core.logging.logger import Logger
         from fast_agent.llm.tool_tracking import ToolKind
 
+        verb: str | ProgressAction | None
         logger: Logger
         name: str | None
 
@@ -787,7 +788,13 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             ):
                 # Compaction emits no text deltas; surface it as COMPACTING progress.
                 await self._emit_streaming_progress(
-                    model, estimated_tokens, type=ProgressAction.COMPACTING
+                    model,
+                    estimated_tokens,
+                    type=(
+                        ProgressAction.COMPACTING_CHECKPOINT
+                        if self.verb == ProgressAction.COMPACTING_CHECKPOINT
+                        else ProgressAction.COMPACTING_IN_REQUEST
+                    ),
                 )
 
             handled, reasoning_chars = await self._handle_responses_reasoning_delta(

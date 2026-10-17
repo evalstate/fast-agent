@@ -138,7 +138,7 @@ def test_compaction_block_start_reports_compacting_progress(
     )
 
     assert [event.data["data"]["progress_action"] for event in events] == [
-        ProgressAction.COMPACTING
+        ProgressAction.COMPACTING_IN_REQUEST
     ]
 
 

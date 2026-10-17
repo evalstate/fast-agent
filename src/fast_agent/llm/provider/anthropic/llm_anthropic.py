@@ -1504,7 +1504,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             logger.info(
                 "Server-side compaction in progress",
                 data={
-                    "progress_action": ProgressAction.COMPACTING,
+                    "progress_action": ProgressAction.COMPACTING_IN_REQUEST,
                     "model": model,
                     "agent_name": self.name,
                     "chat_turn": self.chat_turn(),

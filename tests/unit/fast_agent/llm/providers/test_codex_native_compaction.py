@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from mcp_types import CallToolRequest, CallToolRequestParams, TextContent
@@ -24,6 +24,8 @@ from fast_agent.config import (
 from fast_agent.constants import OPENAI_COMPACTION_ITEMS
 from fast_agent.context import Context
 from fast_agent.core.exceptions import ProviderCheckpointError
+from fast_agent.core.logging.listeners import convert_log_event
+from fast_agent.core.logging.logger import Logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.history.compaction import (
     CompactionError,
@@ -41,6 +43,9 @@ from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from tests.support.llm_trace_replay import ResponsesReplayStream
+
+if TYPE_CHECKING:
+    from fast_agent.core.logging.events import Event
 
 FIXTURES = (
     Path(__file__).resolve().parents[5]
@@ -158,24 +163,38 @@ def test_other_responses_family_providers_never_compact_natively() -> None:
     assert llm.compaction_support == CompactionSupport.CLIENT
 
 
+class _RecordingLogger(Logger):
+    def __init__(self) -> None:
+        super().__init__("fast_agent.llm.provider.openai.responses")
+        self.events: list[Event] = []
+
+    def _emit_event(self, event: Event) -> None:
+        self.events.append(event)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("transport", TRANSPORTS)
+@pytest.mark.parametrize(
+    ("verb", "expected"),
+    [
+        (None, ProgressAction.COMPACTING_IN_REQUEST),
+        (ProgressAction.COMPACTING_CHECKPOINT, ProgressAction.COMPACTING_CHECKPOINT),
+    ],
+)
 async def test_compaction_stream_replays_into_a_replayable_checkpoint(
-    transport: str, monkeypatch: pytest.MonkeyPatch
+    transport: str, verb: ProgressAction | None, expected: ProgressAction
 ) -> None:
     llm = _llm()
-    progress: list[Any] = []
-
-    async def record(model: str, new_total: int, type: Any = None) -> None:
-        progress.append(type)
-
-    monkeypatch.setattr(llm, "_emit_streaming_progress", record)
+    llm.verb = verb
+    logger = _RecordingLogger()
+    llm.logger = logger
 
     response = await _replayed_response(llm, transport)
     blocks = llm._capture_compaction_blocks(response, origin="codexresponses")
     replayed = llm._convert_message_to_items(_checkpoint(blocks))
 
-    assert ProgressAction.COMPACTING in progress
+    progress = [convert_log_event(event) for event in logger.events]
+    assert expected in [event.action for event in progress if event is not None]
     # Only the input fields the API accepts back; nothing else is replayed.
     assert [sorted(item) for item in replayed] == [["encrypted_content", "id", "type"]]
     assert replayed[0]["type"] == "compaction"
