@@ -47,6 +47,7 @@ from fast_agent.llm.compaction_support import (
 )
 from fast_agent.llm.memory import Memory, SimpleMemory
 from fast_agent.llm.model_database import ModelDatabase, ModelParameters
+from fast_agent.llm.provider.error_utils import EmptyCompletionError
 from fast_agent.llm.provider.streaming_timeouts import (
     StreamIdleTimeoutError,
     StreamTiming,
@@ -235,6 +236,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # _execute_with_retry, so per-attempt stream logs can be told apart from retries.
         self._stream_call_sequence = 0
         self._stream_attempt: tuple[int, int, int] | None = None
+        # Where the current call's retries resume (for retries a provider makes itself).
+        self._retry_boundary = retry_boundary(None)
         # Timing of the most recent successful stream, attached to provider diagnostics.
         self._last_stream_timing: dict[str, int | float | bool | None] | None = None
 
@@ -745,6 +748,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         last_error = None
         retry_records: list[ProviderRetry] = []
         boundary = retry_boundary(args[0] if args else None)
+        self._retry_boundary = boundary
         self._stream_call_sequence += 1
 
         for attempt in range(retries + 1):
@@ -758,6 +762,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                     raise
 
                 last_error = e
+                if self._is_request_too_large(e):
+                    break  # resending the same request can't help; report it once
                 if attempt < retries:
                     self._notify_stream_listeners(StreamChunk(event="rollback"))
                     wait_seconds = self._retry_wait_seconds(attempt)
@@ -785,6 +791,16 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         # This line satisfies Pylance that we never implicitly return None
         raise RuntimeError("Retry loop finished without success or exception")
+
+    def _empty_completion_retry(self) -> ProviderRetry:
+        """Telemetry for a provider asking once more after an empty completion."""
+        return provider_retry(
+            EmptyCompletionError(),
+            attempt=1,
+            max_attempts=2,
+            wait_seconds=0.0,
+            boundary=self._retry_boundary,
+        )
 
     def _record_stream_failure(self, timing: StreamTiming) -> None:
         """Record how far a failed provider stream got, for retry telemetry."""
@@ -843,6 +859,26 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 if isinstance(item, PromptMessageExtended):
                     append_retry_channel(item, retries)
                     return
+
+    @staticmethod
+    def _is_request_too_large(error: Exception) -> bool:
+        """HTTP 413: the provider refused the request body as too large.
+
+        The same request fails the same way, so it isn't retried, but unlike a fatal
+        error it still ends in the provider's normal error response.
+        """
+        from fast_agent.llm.provider.openai.responses_websocket import ResponsesWebSocketError
+
+        if isinstance(error, ResponsesWebSocketError):
+            return error.status == 413
+        exception_module_roots = {
+            exception_type.__module__.partition(".")[0] for exception_type in type(error).__mro__
+        }
+        if "openai" in exception_module_roots:
+            from openai import APIStatusError as OpenAIAPIStatusError
+
+            return isinstance(error, OpenAIAPIStatusError) and error.status_code == 413
+        return False
 
     @staticmethod
     def _is_fatal_retry_error(error: Exception) -> bool:

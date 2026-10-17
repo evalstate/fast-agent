@@ -130,3 +130,28 @@ def test_openai_unsupported_model_is_fatal() -> None:
     )
 
     assert FastAgentLLM._is_fatal_retry_error(error) is True
+
+
+@pytest.mark.parametrize(
+    ("status", "too_large"), [(413, True), (400, False), (429, False), (None, False)]
+)
+def test_request_too_large_is_recognised_from_its_status(
+    status: int | None, too_large: bool
+) -> None:
+    assert (
+        FastAgentLLM._is_request_too_large(ResponsesWebSocketError("rejected", status=status))
+        is too_large
+    )
+
+
+def test_request_too_large_is_not_fatal() -> None:
+    """413 skips retries but keeps the provider's error response (not a raise)."""
+    from openai import APIStatusError
+
+    request = httpx2.Request("POST", "https://router.huggingface.co/v1/chat/completions")
+    error = APIStatusError(
+        "Error code: 413", response=httpx2.Response(413, request=request), body=None
+    )
+
+    assert FastAgentLLM._is_request_too_large(error) is True
+    assert FastAgentLLM._is_fatal_retry_error(error) is False

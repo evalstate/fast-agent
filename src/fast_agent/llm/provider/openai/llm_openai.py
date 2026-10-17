@@ -37,7 +37,11 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.fastagent_llm import FastAgentLLM, RequestParams
-from fast_agent.llm.provider.error_utils import build_stream_failure_response
+from fast_agent.llm.provider.error_utils import (
+    EmptyCompletionError,
+    build_stream_failure_response,
+    is_empty_completion,
+)
 from fast_agent.llm.provider.openai._stream_capture import (
     save_stream_chunk as _save_stream_chunk,
 )
@@ -62,6 +66,7 @@ from fast_agent.llm.provider.streaming_timeouts import (
 )
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
+from fast_agent.llm.retry_telemetry import append_retry_channel
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
 from fast_agent.llm.upload_progress import plan_upload, run_with_upload_progress
@@ -1205,6 +1210,10 @@ class OpenAILLM(
 
         return final_completion, reasoning_parts
 
+    def _openai_completion_model_name(self, params: RequestParams | None) -> str:
+        resolved = self.get_request_params(request_params=params)
+        return resolved.model or self.default_request_params.model or DEFAULT_OPENAI_MODEL
+
     def _openai_completion_request(
         self,
         message: list[ChatCompletionMessageParam] | None,
@@ -1212,7 +1221,7 @@ class OpenAILLM(
         tools: list[Tool] | None,
     ) -> _OpenAICompletionRequest:
         params = self.get_request_params(request_params=request_params)
-        model_name = params.model or self.default_request_params.model or DEFAULT_OPENAI_MODEL
+        model_name = self._openai_completion_model_name(params)
         messages = self._openai_completion_messages(message, params)
         available_tools = self._openai_completion_tools(tools, model_name)
         arguments = self._prepare_api_request(messages, available_tools, params)
@@ -1533,6 +1542,32 @@ class OpenAILLM(
         The default implementation uses OpenAI's ChatCompletion as the LLM.
         Override this method to use a different LLM.
         """
+        response = await self._openai_completion_once(message, request_params, tools)
+        if not is_empty_completion(response):
+            return response
+
+        # As for OpenAI Responses: an end_turn with nothing in it (often a stream cut
+        # off mid-reasoning) would end the agent loop, so ask once more.
+        model_name = self._openai_completion_model_name(request_params)
+        self.logger.warning(
+            "OpenAI completion returned no assistant content or tool calls; retrying once",
+            data={"model": model_name},
+        )
+        retry = await self._openai_completion_once(message, request_params, tools)
+        if is_empty_completion(retry):
+            error = EmptyCompletionError()
+            self.logger.error(str(error), data={"model": model_name})
+            retry = build_stream_failure_response(self.provider, error, model_name)
+        append_retry_channel(retry, [self._empty_completion_retry()])
+        return retry
+
+    async def _openai_completion_once(
+        self,
+        message: list[ChatCompletionMessageParam] | None,
+        request_params: RequestParams | None,
+        tools: list[Tool] | None,
+    ) -> PromptMessageExtended:
+        """One request, built fresh: finalizing appends the reply to its messages."""
         request = self._openai_completion_request(message, request_params, tools)
         try:
             completion = await self._run_openai_completion_request(request)
@@ -1545,8 +1580,6 @@ class OpenAILLM(
             )
         except APIError as error:
             self.logger.error("APIError during OpenAI completion", exc_info=error)
-            raise
-        except Exception:
             raise
         return await self._finalize_openai_completion(request, completion)
 

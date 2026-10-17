@@ -18,6 +18,7 @@ from fast_agent.constants import (
     FAST_AGENT_COMPACTION_CHANNEL,
     FAST_AGENT_PENDING_MEDIA_ATTACHMENTS,
     FAST_AGENT_PROCESS_POLL_FOLD,
+    FAST_AGENT_PROVIDER_ERROR,
     FAST_AGENT_RETRY,
     FAST_AGENT_SHELL_PROCESS_METADATA,
     FAST_AGENT_SUBAGENT_RESULT_METADATA,
@@ -368,6 +369,9 @@ def _step_timing_extra(message: PromptMessageExtended) -> dict[str, object]:
     retry = _json_channel_mapping(message, FAST_AGENT_RETRY)
     if retry:
         extra["retry"] = retry
+    provider_error = _json_channel_mapping(message, FAST_AGENT_PROVIDER_ERROR)
+    if provider_error:
+        extra["provider_error"] = provider_error
     return extra
 
 

@@ -2859,3 +2859,42 @@ def _original_steps(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         step for step in steps if step["source"] != "system" and not step.get("is_copied_context")
     ]
+
+
+def test_atif_records_why_a_model_call_failed_as_codes() -> None:
+    """A provider error ends the turn in an error reply; ATIF has no error field, so
+    the status and error type go to the step's `extra.provider_error` (no message
+    text). Without retry records (a 413 isn't retried) this is the only place a trace
+    reader finds the status."""
+    import httpx2
+    from openai import APIStatusError
+
+    from fast_agent.llm.provider.error_utils import build_stream_failure_response
+
+    request = httpx2.Request("POST", "https://router.huggingface.co/v1/chat/completions")
+    error = APIStatusError(
+        "Error code: 413 - {'error': 'request entity too large'}",
+        response=httpx2.Response(413, request=request),
+        body=None,
+    )
+    message = build_stream_failure_response("hf", error, "deepseek-ai/DeepSeek-V4.1-Flash")
+
+    trajectory = build_atif_trajectory(
+        AtifRunSource(
+            session_id="session",
+            agent_name="agent",
+            model_name="model",
+            provider="hf",
+            history=[message],
+            message_timestamps=(None,),
+        )
+    )
+
+    step = trajectory.steps[0]
+    assert step.extra is not None
+    assert step.extra["provider_error"] == {
+        "schema": "fast-agent.provider-error/v1",
+        "error_type": "APIStatusError",
+        "status": 413,
+    }
+    assert "entity too large" not in json.dumps(step.extra["provider_error"])

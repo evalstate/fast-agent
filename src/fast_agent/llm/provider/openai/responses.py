@@ -35,7 +35,11 @@ from fast_agent.llm.compaction_support import (
     provider_checkpoint_marker,
 )
 from fast_agent.llm.fastagent_llm import FastAgentLLM
-from fast_agent.llm.provider.error_utils import build_stream_failure_response
+from fast_agent.llm.provider.error_utils import (
+    EmptyCompletionError,
+    build_stream_failure_response,
+    is_empty_completion,
+)
 from fast_agent.llm.provider.openai._stream_capture import (
     save_stream_request as _save_stream_request,
 )
@@ -86,6 +90,7 @@ from fast_agent.llm.provider.streaming_timeouts import (
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.request_params import RequestParams
+from fast_agent.llm.retry_telemetry import append_retry_channel
 from fast_agent.llm.text_verbosity import parse_text_verbosity
 from fast_agent.llm.upload_progress import run_with_upload_progress
 from fast_agent.llm.usage_tracking import TurnUsage
@@ -1466,17 +1471,7 @@ class ResponsesLLM(
 
     @staticmethod
     def _is_empty_responses_completion(message: PromptMessageExtended) -> bool:
-        has_content = any(
-            not isinstance(block, TextContent) or bool(block.text.strip())
-            for block in message.content
-        )
-        return (
-            message.stop_reason == LlmStopReason.END_TURN
-            and not has_content
-            and not message.tool_calls
-            # A compaction_trigger request returns only compaction items.
-            and OPENAI_COMPACTION_ITEMS not in (message.channels or {})
-        )
+        return is_empty_completion(message)
 
     def _empty_responses_error(
         self,
@@ -1485,9 +1480,7 @@ class ResponsesLLM(
         retry_error: Exception | None = None,
     ) -> PromptMessageExtended:
         if retry_error is None:
-            error = RuntimeError(
-                "OpenAI Responses returned no assistant content or tool calls after one retry."
-            )
+            error: Exception = EmptyCompletionError()
         else:
             error = RuntimeError(
                 f"OpenAI Responses retry after an empty response failed: {retry_error}"
@@ -1552,7 +1545,8 @@ class ResponsesLLM(
             context=context,
         )
         if self._is_empty_responses_completion(retry_message):
-            return self._empty_responses_error(context=context)
+            retry_message = self._empty_responses_error(context=context)
+        append_retry_channel(retry_message, [self._empty_completion_retry()])
         return retry_message
 
     async def _normalize_request_files(

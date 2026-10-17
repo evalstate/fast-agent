@@ -7,6 +7,7 @@ from typing import Literal
 from mcp_types import TextContent
 
 from fast_agent.constants import FAST_AGENT_RETRY
+from fast_agent.llm.provider.error_utils import EmptyCompletionError
 from fast_agent.llm.provider.streaming_timeouts import StreamIdleTimeoutError
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
@@ -32,7 +33,7 @@ class ProviderRetry:
     wait_seconds: float
     error_type: str
     error_message: str
-    reason: Literal["stream_idle", "provider_error"]
+    reason: Literal["stream_idle", "provider_error", "empty_completion"]
     boundary: RetryBoundary
     stream_events_received: int | None = None
 
@@ -78,7 +79,13 @@ def provider_retry(
         wait_seconds=wait_seconds,
         error_type=type(error).__name__,
         error_message=str(error),
-        reason="stream_idle" if idle_error else "provider_error",
+        reason=(
+            "stream_idle"
+            if idle_error
+            else "empty_completion"
+            if isinstance(error, EmptyCompletionError)
+            else "provider_error"
+        ),
         boundary=boundary,
         stream_events_received=(
             idle_error.events_received if idle_error else stream_events_received
@@ -92,6 +99,9 @@ def append_retry_channel(
 ) -> None:
     if not retries:
         return
+    # A provider's own retry inside the last attempt (an empty completion asked once
+    # more) was recorded first; the attempts before it come first in the record.
+    records = [*(asdict(retry) for retry in retries), *_recorded_retries(response)]
     channels = dict(response.channels or {})
     channels[FAST_AGENT_RETRY] = [
         TextContent(
@@ -99,10 +109,19 @@ def append_retry_channel(
             text=json.dumps(
                 {
                     "schema": "fast-agent.retry/v1",
-                    "provider_attempts": len(retries) + 1,
-                    "retries": [asdict(retry) for retry in retries],
+                    "provider_attempts": len(records) + 1,
+                    "retries": records,
                 }
             ),
         )
     ]
     response.channels = channels
+
+
+def _recorded_retries(response: PromptMessageExtended) -> list[object]:
+    """Retries already recorded on the response (by the provider, inside an attempt)."""
+    recorded: list[object] = []
+    for block in (response.channels or {}).get(FAST_AGENT_RETRY, ()):
+        if isinstance(block, TextContent):
+            recorded.extend(json.loads(block.text).get("retries", []))
+    return recorded
