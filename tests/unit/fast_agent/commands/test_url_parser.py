@@ -11,6 +11,7 @@ from fast_agent.cli.commands.url_parser import (
     generate_server_name,
     parse_server_url,
     parse_server_urls,
+    split_url_list,
 )
 
 
@@ -121,7 +122,7 @@ class TestUrlParser:
 
     def test_parse_server_urls_rejects_empty_comma_segments(self):
         with pytest.raises(ValueError, match="URL cannot be empty"):
-            parse_server_urls("http://example.com/mcp, ")
+            parse_server_urls(",http://example.com/mcp")
 
     def test_parse_server_urls_with_auth(self):
         """Test parsing URLs with authentication token."""
@@ -219,3 +220,36 @@ class TestUrlParser:
         assert "https://evalstate-parler-tts-expresso.hf.space/gradio_api/mcp/sse" in urls
         assert "https://evalstate-shuttle.hf.space/gradio_api/mcp/sse" in urls
         assert "https://evalstate-another.hf.space/gradio_api/mcp" in urls
+
+    def test_split_url_list_keeps_commas_in_query_strings(self):
+        """Commas inside a URL query string must not start a new URL."""
+        assert split_url_list(
+            "https://mcp.exa.ai/mcp?tools=web_search_exa,get_code_context_exa"
+        ) == ["https://mcp.exa.ai/mcp?tools=web_search_exa,get_code_context_exa"]
+
+    def test_split_url_list_still_splits_multi_url_lists(self):
+        assert split_url_list("https://example.com/one, https://example.com/two") == [
+            "https://example.com/one",
+            "https://example.com/two",
+        ]
+        assert split_url_list("http://localhost:8080/mcp,HTTPS://api.test.com/sse") == [
+            "http://localhost:8080/mcp",
+            "HTTPS://api.test.com/sse",
+        ]
+
+    def test_parse_server_urls_keeps_commas_in_query_strings(self):
+        result = parse_server_urls(
+            "https://mcp.exa.ai/mcp?tools=web_search_exa,get_code_context_exa",
+            hub_token_provider=lambda: None,
+        )
+        assert len(result) == 1
+        assert result[0][2] == "https://mcp.exa.ai/mcp?tools=web_search_exa,get_code_context_exa"
+
+    def test_parse_server_urls_mixed_query_commas_and_multi_urls(self):
+        result = parse_server_urls(
+            "https://mcp.exa.ai/mcp?tools=a,b,https://example.com/mcp",
+            hub_token_provider=lambda: None,
+        )
+        assert len(result) == 2
+        assert result[0][2] == "https://mcp.exa.ai/mcp?tools=a,b"
+        assert result[1][2] == "https://example.com/mcp"
