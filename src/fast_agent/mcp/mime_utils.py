@@ -115,6 +115,7 @@ def normalize_mime_type(mime: str | None) -> str | None:
     Normalize a MIME-like string to a canonical MIME type.
 
     - Lowercases and trims
+    - Removes media type parameters before classification and alias lookup
     - Resolves common aliases (e.g. image/jpg -> image/jpeg, document/pdf -> application/pdf)
     - If input looks like a bare extension (e.g. "pdf", "png"), map via mimetypes
     - Returns None for falsy inputs
@@ -122,7 +123,7 @@ def normalize_mime_type(mime: str | None) -> str | None:
     if not mime:
         return None
 
-    m = strip_casefold(mime)
+    m = strip_casefold(mime.split(";", maxsplit=1)[0])
 
     # If it's an alias we know about
     if m in _MIME_ALIASES:
