@@ -2286,24 +2286,24 @@
     "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
     "bench-run cohort on HF Jobs (Harbor 93e600d7) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (medium reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. Replacements, originals kept as evidence: one sandbox connection error, and four long trials (train-fasttext \u00d73, extract-moves-from-video) cut off at 22:23Z on 1 October when the OpenAI organisation ran out of API credits (ApiUsageLimitError); one train-fasttext rerun failed the same way and one hit a verifier setup error, so that task took a chain of reruns. One gcode-to-text trial that exited non-zero on an OpenAI 400 is kept as an agent outcome. The original trials ran on Harbor 93e600d7.",
     "Ran 1\u20133 October, after the flex serving anomaly bench-run recorded on 30 September\u20131 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
-    "Harbor's recorded cost uses the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
+    "Harbor's recorded cost uses the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the list-rate estimate under the scan's Evidence prices them at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
   ],
   "scan": {
-    "version": "0.8.0",
+    "version": "0.8.4",
     "scope": "445 reported trials (findings also include 5 replaced originals, kept as evidence)",
     "trials": 445,
     "rewarded": 334,
     "accuracy": 74.22,
     "accuracy_se": 1.29,
     "findings_medium_plus": {
-      "trials": 7,
+      "trials": 6,
       "rewarded": 3,
       "by_highest_priority": {
         "critical": 1,
         "high": 2,
-        "medium": 4,
+        "medium": 3,
         "low": 8,
-        "info": 185,
+        "info": 186,
         "none": 250
       },
       "top": [
@@ -2383,7 +2383,7 @@
       "dq_threshold": "high",
       "high_or_critical_rewarded": 2,
       "other_model_trials": 0,
-      "incomplete_evidence_rewarded": 0,
+      "incomplete_evidence_rewarded": 10,
       "accuracy_if_flagged_failed": 74.61
     },
     "awareness": {
@@ -2398,6 +2398,10 @@
           "rewarded": 0
         },
         "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "probed": {
           "trials": 0,
           "rewarded": 0
         },
@@ -2423,7 +2427,7 @@
       },
       "compacted_history": 0,
       "without_trajectory": 0,
-      "incomplete_scans": 7,
+      "incomplete_scans": 78,
       "unmetered_trials": 0
     },
     "cost": {
@@ -2452,7 +2456,7 @@
         "max_priority": "critical"
       },
       "mteb-leaderboard": {
-        "trials": 2,
+        "trials": 1,
         "rewarded": 0,
         "max_priority": "high"
       },
@@ -2463,7 +2467,7 @@
       }
     },
     "scanner": {
-      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
+      "commit": "9aa343d845257b57788f2c53bf6f7f934eb564c4",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -2527,7 +2531,7 @@
       "merge-diff-arc-agi-task": "lllll",
       "model-extraction-relu-logits": "lllll",
       "modernize-scientific-stack": "lllll",
-      "mteb-leaderboard": "hlmll",
+      "mteb-leaderboard": "hllll",
       "mteb-retrieve": "lllll",
       "multi-source-data-merger": "lllll",
       "nginx-request-logging": "lllll",
@@ -2574,7 +2578,7 @@
   },
   "review": {
     "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-    "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+    "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
     "recorded_passes": 334,
     "recorded_score": 75.06,
     "disqualified": [

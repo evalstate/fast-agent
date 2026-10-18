@@ -763,7 +763,7 @@
     "Replacements: an HF sandbox connection outage cut 14 trials short (RemoteProtocolError, no verifier), and one photonic-waveguide-routing trial failed with HTTP 401 after the operator refreshed the Copilot token mid-run; all 15 were rerun. Five of those reruns were killed before producing any result when a faulty replacement queue was stopped, and were run again (authorized). Every original and interrupted rerun is kept on record; the run as first launched scored 18/95."
   ],
   "scan": {
-    "version": "0.8.0",
+    "version": "0.8.4",
     "scope": "95 reported trials (findings also include 14 replaced originals, kept as evidence)",
     "trials": 95,
     "rewarded": 20,
@@ -798,7 +798,7 @@
       "dq_threshold": "high",
       "high_or_critical_rewarded": 0,
       "other_model_trials": 0,
-      "incomplete_evidence_rewarded": 0,
+      "incomplete_evidence_rewarded": 5,
       "accuracy_if_flagged_failed": 21.05
     },
     "awareness": {
@@ -813,6 +813,10 @@
           "rewarded": 0
         },
         "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "probed": {
           "trials": 0,
           "rewarded": 0
         },
@@ -838,7 +842,7 @@
       },
       "compacted_history": 0,
       "without_trajectory": 0,
-      "incomplete_scans": 3,
+      "incomplete_scans": 22,
       "unmetered_trials": 0
     },
     "cost": {
@@ -871,7 +875,7 @@
       }
     },
     "scanner": {
-      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
+      "commit": "9aa343d845257b57788f2c53bf6f7f934eb564c4",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -912,7 +916,7 @@
   },
   "review": {
     "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-    "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+    "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
     "recorded_passes": 20,
     "recorded_score": 21.05,
     "disqualified": [],

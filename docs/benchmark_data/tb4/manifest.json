@@ -33,7 +33,7 @@
         "clear_when_only": {
           "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
-        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
         "disqualified": []
       },
@@ -76,7 +76,7 @@
         "clear_when_only": {
           "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
-        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
         "disqualified": []
       },
@@ -119,7 +119,7 @@
         "clear_when_only": {
           "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
-        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
         "disqualified": []
       },
@@ -155,7 +155,7 @@
         "clear_when_only": {
           "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
-        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
         "disqualified": []
       },
@@ -192,7 +192,7 @@
         "clear_when_only": {
           "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
-        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
         "disqualified": []
       },
@@ -236,7 +236,7 @@
         "clear_when_only": {
           "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
-        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
         "disqualified": []
       },
@@ -272,7 +272,7 @@
         "clear_when_only": {
           "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
-        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
         "disqualified": []
       },
@@ -333,6 +333,44 @@
       }
     },
     {
+      "id": "tb4-deepseek41-flash1017-max",
+      "harness": "fast-agent",
+      "model": "DeepSeek V4.1 Flash",
+      "effort": "max",
+      "model_string": "deepseek.deepseek-flash?reasoning=max (backend DeepSeek-V4.1-Flash-1017)",
+      "date": "2026-10-17",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-deepseek41-flash1017-max",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-deepseek41flash1017-max-r1 (cohort tb4-deepseek41flash1017-max-deepseek-002)"
+      },
+      "expected": {
+        "passes": 43
+      },
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks. atif-scan 0.8.4 could not read some long shell commands in two passes, leaving their search and delegation checks undecided; reviewed by hand: vba-userform-port__2XXPh3a only calls its own local app and API and manages its processes; vpp-loss-divergence__ag62yw8 compares against a loss trace from its own earlier runs. No benchmark lookup or delegation to another coding agent.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+        "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor 077c5ec6, with the published fast-agent-mcp 0.10.46 wheel; DeepSeek V4.1 Flash (max reasoning) through the DeepSeek API directly. The model slug (deepseek-flash) floats; the operator recorded the backend as DeepSeek-V4.1-Flash-1017 at launch, which the API cannot pin. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "Four infrastructure failures (three HF sandbox exec-stream drops, one local network failure creating a sandbox) were rerun as replacements; one of the four passed. The originals are kept as evidence; the run as first launched scored 42/95.",
+        "Not the same backend as the DeepSeek V4.1 Flash runs through HF Inference (Novita): different provider, backend version and prompt caching.",
+        "Cost is Harbor's recorded cost at DeepSeek's off-peak rates (card-packs pricing catalog 2026-10-11.1, rule deepseek-flash-off-peak: $0.15 / $0.003 / $0.60 per million input / cache-read / output tokens). Every trial ran on Saturday 17 October 20:50 UTC to Sunday 02:00 UTC, outside DeepSeek's weekday peak windows. The four replaced originals recorded no usage (one ran about 11 minutes), so the total is a lower bound."
+      ],
+      "scan": true,
+      "cost_lower_bound": true
+    },
+    {
       "id": "tb4-haiku55-high",
       "harness": "fast-agent",
       "model": "Haiku 5.5",
@@ -364,7 +402,7 @@
         "clear_when_only": {
           "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
-        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
         "disqualified": []
       },
@@ -400,7 +438,7 @@
         "clear_when_only": {
           "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
-        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
         "disqualified": []
       },
@@ -445,7 +483,7 @@
         "clear_when_only": {
           "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
-        "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
         "cleared": [],
         "disqualified": []
       },

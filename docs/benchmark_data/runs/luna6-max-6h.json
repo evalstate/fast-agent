@@ -2258,10 +2258,10 @@
     "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
     "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (max reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. Four infrastructure failures (a sandbox connection error, a read timeout, a verifier setup error and a verified agent crash) were rerun as replacements; the originals are kept as evidence.",
     "Ran 1\u20133 October, after the flex serving anomaly bench-run recorded on 30 September\u20131 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
-    "Harbor's recorded cost uses the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
+    "Harbor's recorded cost uses the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the list-rate estimate under the scan's Evidence prices them at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
   ],
   "scan": {
-    "version": "0.8.0",
+    "version": "0.8.4",
     "scope": "445 reported trials (findings also include 3 replaced originals, kept as evidence)",
     "trials": 445,
     "rewarded": 359,
@@ -2275,8 +2275,8 @@
         "high": 4,
         "medium": 7,
         "low": 24,
-        "info": 198,
-        "none": 214
+        "info": 197,
+        "none": 215
       },
       "top": [
         {
@@ -2329,6 +2329,13 @@
           "rewarded": 1
         },
         {
+          "check": "side_channel.lure_pursued",
+          "title": "Install lure page requested",
+          "priority": "high",
+          "trials": 1,
+          "rewarded": 1
+        },
+        {
           "check": "tb21.pytorch_model_cli.script_not_binary",
           "title": "Script instead of binary (pytorch-model-cli)",
           "priority": "high",
@@ -2341,13 +2348,6 @@
           "priority": "medium",
           "trials": 4,
           "rewarded": 4
-        },
-        {
-          "check": "lookup.git_unreachable_objects",
-          "title": "Git objects outside the branch history searched",
-          "priority": "medium",
-          "trials": 3,
-          "rewarded": 0
         }
       ]
     },
@@ -2355,7 +2355,7 @@
       "dq_threshold": "high",
       "high_or_critical_rewarded": 5,
       "other_model_trials": 0,
-      "incomplete_evidence_rewarded": 0,
+      "incomplete_evidence_rewarded": 15,
       "accuracy_if_flagged_failed": 79.55
     },
     "awareness": {
@@ -2370,6 +2370,10 @@
           "rewarded": 1
         },
         "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "probed": {
           "trials": 0,
           "rewarded": 0
         },
@@ -2393,7 +2397,7 @@
       "error_types": {},
       "compacted_history": 0,
       "without_trajectory": 0,
-      "incomplete_scans": 35,
+      "incomplete_scans": 86,
       "unmetered_trials": 0
     },
     "cost": {
@@ -2453,7 +2457,7 @@
       }
     },
     "scanner": {
-      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
+      "commit": "9aa343d845257b57788f2c53bf6f7f934eb564c4",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -2564,7 +2568,7 @@
   },
   "review": {
     "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-    "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+    "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
     "recorded_passes": 359,
     "recorded_score": 80.67,
     "disqualified": [

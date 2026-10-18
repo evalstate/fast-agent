@@ -535,7 +535,7 @@
     "Cost is Harbor's recorded cost at the cohort's configured list rates (card-packs pricing catalog 2026-10-09.1, GPT-6 Astra rules: $10 / $1 / $12.50 / $50 per million input / cached / cache-write / output tokens; $20 / $2 / $25 / $75 above 272k context). Cache writes are charged at 125% of the input rate, OpenAI's price for GPT-5.6 and later. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. The replaced original recorded no usage and is unpriced, so the total is a lower bound."
   ],
   "scan": {
-    "version": "0.8.0",
+    "version": "0.8.4",
     "scope": "95 reported trials (findings also include 1 replaced original, kept as evidence)",
     "trials": 95,
     "rewarded": 53,
@@ -554,7 +554,7 @@
       "dq_threshold": "high",
       "high_or_critical_rewarded": 0,
       "other_model_trials": 0,
-      "incomplete_evidence_rewarded": 0,
+      "incomplete_evidence_rewarded": 2,
       "accuracy_if_flagged_failed": 55.79
     },
     "awareness": {
@@ -569,6 +569,10 @@
           "rewarded": 0
         },
         "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "probed": {
           "trials": 0,
           "rewarded": 0
         },
@@ -592,7 +596,7 @@
       "error_types": {},
       "compacted_history": 0,
       "without_trajectory": 0,
-      "incomplete_scans": 7,
+      "incomplete_scans": 19,
       "unmetered_trials": 0
     },
     "cost": {
@@ -614,7 +618,7 @@
     "overrides": [],
     "flagged_tasks": {},
     "scanner": {
-      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
+      "commit": "9aa343d845257b57788f2c53bf6f7f934eb564c4",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -655,7 +659,7 @@
   },
   "review": {
     "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-    "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+    "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
     "recorded_passes": 53,
     "recorded_score": 55.79,
     "disqualified": [],

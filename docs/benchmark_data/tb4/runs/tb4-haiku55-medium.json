@@ -544,7 +544,7 @@
     "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog, Claude Haiku 5.5 rules: $0.10 / $0.01 / $0.125 / $0.50 per million input / cache-read / cache-write / output tokens, higher above 100k context), which include cache writes. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed."
   ],
   "scan": {
-    "version": "0.8.0",
+    "version": "0.8.4",
     "scope": "95 reported trials (findings also include 1 replaced original, kept as evidence)",
     "trials": 95,
     "rewarded": 9,
@@ -586,11 +586,11 @@
       "dq_threshold": "high",
       "high_or_critical_rewarded": 0,
       "other_model_trials": 0,
-      "incomplete_evidence_rewarded": 0,
+      "incomplete_evidence_rewarded": 3,
       "accuracy_if_flagged_failed": 9.47
     },
     "awareness": {
-      "trials": 0,
+      "trials": 2,
       "stages": {
         "noticed": {
           "trials": 0,
@@ -602,6 +602,10 @@
         },
         "recalled": {
           "trials": 0,
+          "rewarded": 0
+        },
+        "probed": {
+          "trials": 2,
           "rewarded": 0
         },
         "searched": {
@@ -626,7 +630,7 @@
       },
       "compacted_history": 0,
       "without_trajectory": 0,
-      "incomplete_scans": 1,
+      "incomplete_scans": 23,
       "unmetered_trials": 0
     },
     "cost": {
@@ -659,7 +663,7 @@
       }
     },
     "scanner": {
-      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
+      "commit": "9aa343d845257b57788f2c53bf6f7f934eb564c4",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -700,7 +704,7 @@
   },
   "review": {
     "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-    "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+    "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
     "recorded_passes": 9,
     "recorded_score": 9.47,
     "disqualified": [],

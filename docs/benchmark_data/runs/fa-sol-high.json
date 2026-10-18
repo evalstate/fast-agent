@@ -2201,7 +2201,7 @@
     "PR closed unmerged (community submissions closed); not on the official leaderboard."
   ],
   "scan": {
-    "version": "0.8.3",
+    "version": "0.8.4",
     "scope": "all trials in the run's jobs",
     "trials": 445,
     "rewarded": 393,
@@ -2281,7 +2281,7 @@
       "dq_threshold": "high",
       "high_or_critical_rewarded": 5,
       "other_model_trials": 0,
-      "incomplete_evidence_rewarded": 73,
+      "incomplete_evidence_rewarded": 41,
       "accuracy_if_flagged_failed": 87.19
     },
     "awareness": {
@@ -2325,7 +2325,7 @@
       },
       "compacted_history": 0,
       "without_trajectory": 2,
-      "incomplete_scans": 132,
+      "incomplete_scans": 103,
       "unmetered_trials": 0
     },
     "cost": {
@@ -2388,7 +2388,7 @@
       }
     },
     "scanner": {
-      "commit": "9a482393cb55d0259942565bb28c15113b0ba858",
+      "commit": "9aa343d845257b57788f2c53bf6f7f934eb564c4",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -2494,7 +2494,7 @@
   "pr": "https://github.com/harbor-framework/terminal-bench-2-1/pull/174",
   "review": {
     "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-    "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+    "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
     "recorded_passes": 393,
     "recorded_score": 88.31,
     "disqualified": [

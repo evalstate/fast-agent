@@ -663,7 +663,7 @@
     "photonic-waveguide-routing: GitHub Copilot closes a Claude response stream after about 640 seconds, and Opus 5.5 high often thinks longer than that on this task; fast-agent retries the identical call, it is cut again, and the agent exits (NonZeroAgentExitCodeError, RemoteProtocolError). Four of the five original attempts crashed this way and were rerun as replacements, nine in all because reruns that crashed the same way were rerun again; the final four reported attempts are two passes and two crashes, and every original and superseded rerun is kept as evidence. The run as first launched scored 52/95. The output of the cut-off stream attempts is not in recorded usage."
   ],
   "scan": {
-    "version": "0.8.0",
+    "version": "0.8.4",
     "scope": "95 reported trials (findings also include 9 replaced originals, kept as evidence)",
     "trials": 95,
     "rewarded": 54,
@@ -692,7 +692,7 @@
       "dq_threshold": "high",
       "high_or_critical_rewarded": 0,
       "other_model_trials": 0,
-      "incomplete_evidence_rewarded": 0,
+      "incomplete_evidence_rewarded": 5,
       "accuracy_if_flagged_failed": 56.84
     },
     "awareness": {
@@ -707,6 +707,10 @@
           "rewarded": 0
         },
         "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "probed": {
           "trials": 0,
           "rewarded": 0
         },
@@ -733,7 +737,7 @@
       },
       "compacted_history": 0,
       "without_trajectory": 0,
-      "incomplete_scans": 8,
+      "incomplete_scans": 17,
       "unmetered_trials": 0
     },
     "cost": {
@@ -761,7 +765,7 @@
       }
     },
     "scanner": {
-      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
+      "commit": "9aa343d845257b57788f2c53bf6f7f934eb564c4",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -802,7 +806,7 @@
   },
   "review": {
     "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-    "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+    "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
     "recorded_passes": 54,
     "recorded_score": 56.84,
     "disqualified": [],
