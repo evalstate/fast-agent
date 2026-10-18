@@ -246,7 +246,7 @@ def load_messages(file_path: str) -> list[PromptMessageExtended]:
 # -------------------------------------------------------------------------
 
 
-DelimitedContent = EmbeddedResource | ImageContent
+DelimitedContent = EmbeddedResource | ImageContent | AudioContent | ResourceLink
 DelimitedRole = MessageRole
 
 
@@ -486,6 +486,10 @@ def _content_from_json_lines(json_lines: list[str]) -> DelimitedContent | None:
         return EmbeddedResource.model_validate(json_data)
     if content_type == "image":
         return ImageContent.model_validate(json_data)
+    if content_type == "audio":
+        return AudioContent.model_validate(json_data)
+    if content_type == "resource_link":
+        return ResourceLink.model_validate(json_data)
     return None
 
 
