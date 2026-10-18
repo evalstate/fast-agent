@@ -130,6 +130,10 @@ _PROVIDER_CATALOG_SCOPES_BY_KEY: dict[str, ProviderCatalogScope] = {
         display_name="OpenRouter",
         providers=(Provider.OPENROUTER,),
     ),
+    "orcarouter": ProviderCatalogScope(
+        display_name="OrcaRouter",
+        providers=(Provider.ORCAROUTER,),
+    ),
 }
 
 _PROVIDER_CATALOG_SCOPE_ALIASES: dict[str, str] = {
@@ -151,6 +155,7 @@ _PROVIDER_CATALOG_VISIBLE_CHOICES: tuple[str, ...] = (
     "xai",
     "metaai",
     "openrouter",
+    "orcarouter",
     "responses",
     "codexresponses",
 )
