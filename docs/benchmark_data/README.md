@@ -166,11 +166,11 @@ The same file carries two panels shown under the cards:
   excuses, so they don't count toward a trial's priority or need a review decision. Each
   row keeps the original check and priority, names the allowance(s) (`explained_by` in
   atif-scan's output; titles read from the scanner checkout and our rules file's `allow`
-  section by `fetch_runs.allowance_titles`), and has up to three example moments from
-  reported trials.
+  section by `fetch_runs.allowance_titles`), and has one example moment per reported
+  trial.
 - **Benchmark Awareness** (`awareness`): atif-scan's awareness stages (noticed, named,
-  recalled, probed, searched, obtained) at any priority, with counts and up to three
-  example moments per stage.
+  recalled, probed, searched, obtained) at any priority, with counts and one example
+  moment per reported trial.
 
 ## Review policy
 

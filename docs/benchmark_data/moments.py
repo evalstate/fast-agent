@@ -15,9 +15,9 @@ Two panels sit beside the cards, from the same export:
 
 - ``explained``: findings atif-scan matched but an allowance (a task policy in atif-scan or
   our rules file) expects, so they don't count. Each row keeps the original check and
-  priority, names the allowance(s), and carries a few example moments.
+  priority, names the allowance(s), and carries one example moment per reported trial.
 - ``awareness``: benchmark awareness, stage by stage (noticed, named, recalled, probed,
-  searched, obtained), at any priority, with a few example moments per stage.
+  searched, obtained), at any priority, with one example moment per reported trial.
 
 Excerpts are trace text. atif-scan masks secret shapes (best effort); this script also
 refuses to write token-shaped text. Check the output against known credentials before
@@ -44,7 +44,6 @@ Json = dict[str, Any]
 PRIORITY = {"critical": 0, "high": 1, "medium": 2}
 MAX_FINDINGS = 3  # per card
 MAX_MOMENTS = 2  # per finding
-MAX_EXAMPLES = 3  # per allowance or awareness row
 CLIP = 600  # characters per excerpt part
 HUB_JOBS = "https://hub.harborframework.com/jobs/"
 TOKEN = re.compile(
@@ -112,7 +111,7 @@ def _examples(
     where: dict[str, tuple[str, int, Json]],
     bucket_repo: str,
 ) -> list[Json]:
-    """Up to MAX_EXAMPLES moments from distinct reported trials, passes first."""
+    """One moment per reported trial, passes first."""
     picked: list[Json] = []
     seen: set[str] = set()
     ranked = sorted(moments, key=lambda m: -(highlights["trials"][m["trial"]].get("reward") or 0))
@@ -139,8 +138,6 @@ def _examples(
                 "moment": _moment(m),
             }
         )
-        if len(picked) == MAX_EXAMPLES:
-            break
     return picked
 
 

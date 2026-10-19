@@ -2319,14 +2319,14 @@
       fs.appendChild(momentBlock(ex.moment));
       more.appendChild(fs);
     });
-    var label = "Show " + opts.examples.length + " example" + (opts.examples.length === 1 ? "" : "s");
+    var label = opts.examples.length === 1 ? "Show the trial" : "Show the " + opts.examples.length + " trials";
     var toggle = el("button", "fb-mcard__toggle", label);
     toggle.type = "button";
     toggle.setAttribute("aria-expanded", "false");
     toggle.addEventListener("click", function () {
       more.hidden = !more.hidden;
       toggle.setAttribute("aria-expanded", String(!more.hidden));
-      toggle.textContent = more.hidden ? label : "Hide the examples";
+      toggle.textContent = more.hidden ? label : "Hide the trials";
     });
     c.appendChild(toggle);
     c.appendChild(more);
@@ -2369,7 +2369,7 @@
       sectionHead(
         "",
         "Benchmark Awareness",
-        "Signs the agent knew it was being benchmarked, at any priority: from remarking on it, through naming the benchmark or its tasks, to probing for hidden tests, looking the benchmark up and getting its material back. Awareness alone isn't misconduct; the later stages are the ones that matter."
+        "Signs the agent knew it was being benchmarked, at any priority: from remarking on it, through naming the benchmark or its tasks, to probing for hidden tests, looking the benchmark up and getting its material back."
       )
     );
     var list = el("div", "fb-moments__list");
