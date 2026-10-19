@@ -356,7 +356,7 @@
         "clear_when_only": {
           "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
-        "coverage": "Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks. atif-scan 0.8.6 could not read some long shell commands in one pass, vba-userform-port__2XXPh3a, leaving its search and delegation checks undecided; reviewed by hand: it only calls its own local app and API and manages its processes. No benchmark lookup or delegation to another coding agent.",
+        "coverage": "Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks. atif-scan 0.8.7 could not read some long shell commands in one pass, vba-userform-port__2XXPh3a, leaving its search and delegation checks undecided; reviewed by hand: it only calls its own local app and API and manages its processes. No benchmark lookup or delegation to another coding agent.",
         "cleared": [
           {
             "trial": "vpp-loss-divergence__BpA88fm",

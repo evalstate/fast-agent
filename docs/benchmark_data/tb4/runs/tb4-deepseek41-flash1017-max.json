@@ -575,7 +575,7 @@
     "Cost is Harbor's recorded cost at DeepSeek's off-peak rates (card-packs pricing catalog 2026-10-11.1, rule deepseek-flash-off-peak: $0.15 / $0.003 / $0.60 per million input / cache-read / output tokens). Every trial ran on Saturday 17 October 20:50 UTC to Sunday 02:00 UTC, outside DeepSeek's weekday peak windows. The four replaced originals recorded no usage (one ran about 11 minutes), so the total is a lower bound."
   ],
   "scan": {
-    "version": "0.8.6",
+    "version": "0.8.7",
     "scope": "95 reported trials (findings also include 4 replaced originals, kept as evidence)",
     "trials": 95,
     "rewarded": 43,
@@ -799,7 +799,7 @@
       }
     },
     "scanner": {
-      "commit": "6060d486d7648c5c1d01ac05cb2ea7103723e08f",
+      "commit": "a34746db4f0237b9366c03a0d31982a5847c8238",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -840,7 +840,7 @@
   },
   "review": {
     "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-    "coverage": "Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks. atif-scan 0.8.6 could not read some long shell commands in one pass, vba-userform-port__2XXPh3a, leaving its search and delegation checks undecided; reviewed by hand: it only calls its own local app and API and manages its processes. No benchmark lookup or delegation to another coding agent.",
+    "coverage": "Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks. atif-scan 0.8.7 could not read some long shell commands in one pass, vba-userform-port__2XXPh3a, leaving its search and delegation checks undecided; reviewed by hand: it only calls its own local app and API and manages its processes. No benchmark lookup or delegation to another coding agent.",
     "recorded_passes": 43,
     "recorded_score": 45.26,
     "disqualified": [],
