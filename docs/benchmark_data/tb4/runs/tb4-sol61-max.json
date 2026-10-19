@@ -526,7 +526,7 @@
     "Cost is Harbor's recorded cost at the cohort's configured list rates (card-packs pricing catalog 2026-10-10.3, GPT-6.1 Sol rules: $2 / $0.10 / $2.50 / $10 per million input / cached / cache-write / output tokens; $4 / $0.20 / $5 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed."
   ],
   "scan": {
-    "version": "0.8.4",
+    "version": "0.8.9",
     "scope": "95 reported trials",
     "trials": 95,
     "rewarded": 61,
@@ -543,7 +543,7 @@
       "top": [
         {
           "check": "tamper.harness_hooks",
-          "title": "Test harness hook file written",
+          "title": "Test or build start-up hook file written",
           "priority": "medium",
           "trials": 1,
           "rewarded": 0
@@ -573,6 +573,10 @@
           "rewarded": 0
         },
         "probed": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "watched": {
           "trials": 0,
           "rewarded": 0
         },
@@ -624,7 +628,7 @@
       }
     },
     "scanner": {
-      "commit": "9aa343d845257b57788f2c53bf6f7f934eb564c4",
+      "commit": "e7c2ef955a77872c1cfd1e0f7939eeff34cef619",
       "dirty": false,
       "diff_sha1": null,
       "args": [
