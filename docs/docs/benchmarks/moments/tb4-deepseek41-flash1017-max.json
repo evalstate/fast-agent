@@ -1,7 +1,7 @@
 {
  "format": "fast-agent-moments/1",
  "run": "tb4-deepseek41-flash1017-max",
- "scanner_version": "0.8.8",
+ "scanner_version": "0.8.9",
  "note": "Masked excerpts (best effort) from atif-scan's highlight export: said / ran / got at each finding.",
  "cards": [
   {

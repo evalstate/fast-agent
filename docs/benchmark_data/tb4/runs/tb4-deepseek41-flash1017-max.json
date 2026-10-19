@@ -575,7 +575,7 @@
     "Cost is Harbor's recorded cost at DeepSeek's off-peak rates (card-packs pricing catalog 2026-10-11.1, rule deepseek-flash-off-peak: $0.15 / $0.003 / $0.60 per million input / cache-read / output tokens). Every trial ran on Saturday 17 October 20:50 UTC to Sunday 02:00 UTC, outside DeepSeek's weekday peak windows. The four replaced originals recorded no usage (one ran about 11 minutes), so the total is a lower bound."
   ],
   "scan": {
-    "version": "0.8.8",
+    "version": "0.8.9",
     "scope": "95 reported trials (findings also include 4 replaced originals, kept as evidence)",
     "trials": 95,
     "rewarded": 43,
@@ -803,7 +803,7 @@
       }
     },
     "scanner": {
-      "commit": "660438887154381534e598458a94209fd134472d",
+      "commit": "e7c2ef955a77872c1cfd1e0f7939eeff34cef619",
       "dirty": false,
       "diff_sha1": null,
       "args": [
