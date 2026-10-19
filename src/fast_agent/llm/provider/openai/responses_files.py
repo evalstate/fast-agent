@@ -5,10 +5,12 @@ import binascii
 import hashlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
 
+from fast_agent.io.path_uri import file_uri_to_path
 from fast_agent.llm.upload_progress import plan_upload
 from fast_agent.mcp.mime_utils import guess_mime_type
 
@@ -136,7 +138,10 @@ class ResponsesFileMixin:
         if not file_url.startswith("file://"):
             return None, filename, None
 
+        # Preserve native Windows paths accepted by existing file:// callers.
         local_path = Path(file_url[len("file://") :])
+        if not local_path.drive:
+            local_path = file_uri_to_path(urlparse(file_url))
         if not local_path.exists():
             return None, filename, None
 
