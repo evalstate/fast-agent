@@ -535,7 +535,7 @@
     "Cost is Harbor's recorded cost at the cohort's configured list rates (card-packs pricing catalog 2026-10-09.1, GPT-6 Astra rules: $10 / $1 / $12.50 / $50 per million input / cached / cache-write / output tokens; $20 / $2 / $25 / $75 above 272k context). Cache writes are charged at 125% of the input rate, OpenAI's price for GPT-5.6 and later. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. The replaced original recorded no usage and is unpriced, so the total is a lower bound."
   ],
   "scan": {
-    "version": "0.8.4",
+    "version": "0.8.9",
     "scope": "95 reported trials (findings also include 1 replaced original, kept as evidence)",
     "trials": 95,
     "rewarded": 53,
@@ -573,6 +573,10 @@
           "rewarded": 0
         },
         "probed": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "watched": {
           "trials": 0,
           "rewarded": 0
         },
@@ -618,7 +622,7 @@
     "overrides": [],
     "flagged_tasks": {},
     "scanner": {
-      "commit": "9aa343d845257b57788f2c53bf6f7f934eb564c4",
+      "commit": "e7c2ef955a77872c1cfd1e0f7939eeff34cef619",
       "dirty": false,
       "diff_sha1": null,
       "args": [
