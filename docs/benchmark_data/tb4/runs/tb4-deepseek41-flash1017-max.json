@@ -691,6 +691,10 @@
           "trials": 31,
           "rewarded": 16
         },
+        "watched": {
+          "trials": 1,
+          "rewarded": 1
+        },
         "searched": {
           "trials": 0,
           "rewarded": 0
@@ -799,7 +803,7 @@
       }
     },
     "scanner": {
-      "commit": "80b7a7d54933f9119db84cac9011f139431d7971",
+      "commit": "660438887154381534e598458a94209fd134472d",
       "dirty": false,
       "diff_sha1": null,
       "args": [
