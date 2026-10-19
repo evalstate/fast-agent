@@ -160,6 +160,18 @@ without rescanning. Excerpts are trace text: atif-scan masks secret shapes
 credentials before committing. The generator copies them to `docs/benchmarks/moments/`;
 a run page loads its file when opened.
 
+The same file carries two panels shown under the cards:
+
+- **Explained by Allowances** (`explained`): findings at medium or above that an allowance
+  excuses, so they don't count toward a trial's priority or need a review decision. Each
+  row keeps the original check and priority, names the allowance(s) (`explained_by` in
+  atif-scan's output; titles read from the scanner checkout and our rules file's `allow`
+  section by `fetch_runs.allowance_titles`), and has up to three example moments from
+  reported trials.
+- **Benchmark Awareness** (`awareness`): atif-scan's awareness stages (noticed, named,
+  recalled, probed, searched, obtained) at any priority, with counts and up to three
+  example moments per stage.
+
 ## Review policy
 
 Every pass atif-scan flags high or critical gets a recorded decision (`review` in the

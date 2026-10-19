@@ -1116,6 +1116,55 @@ def build_run(
     return out
 
 
+ALLOWANCE_TITLES = r"""
+import importlib, json, pkgutil
+import atif_scan
+from atif_scan.rules import Allowance
+out = {}
+def keep(items):
+    for item in items:
+        if isinstance(item, Allowance):
+            out[item.spec.id] = item.spec.title
+for info in pkgutil.walk_packages(atif_scan.__path__, "atif_scan."):
+    if info.name.endswith("__main__") or ".cli" in info.name:
+        continue
+    try:
+        mod = importlib.import_module(info.name)
+    except Exception:
+        continue
+    for name, value in vars(mod).items():
+        if isinstance(value, Allowance):
+            keep([value])
+        elif callable(value) and getattr(value, "__module__", None) == mod.__name__ and name in (
+            "checks", "allowances", "builtin_allowances"
+        ):
+            try:
+                keep(value())
+            except TypeError:
+                pass
+print(json.dumps(out))
+"""
+
+
+def allowance_titles(atif_dir: Path, rules: Path | None) -> dict[str, str]:
+    """Allowance id -> title: atif-scan's built-in and pack allowances, plus any in our
+    rules file. Read from the scanner checkout (no trace data involved)."""
+    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+    done = subprocess.run(
+        ["uv", "run", "python", "-c", ALLOWANCE_TITLES],
+        cwd=atif_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    titles: dict[str, str] = json.loads(done.stdout) if done.returncode == 0 else {}
+    if rules:
+        for allow in json.loads(rules.read_text()).get("allow", []):
+            titles[allow["id"]] = allow.get("title") or allow["id"]
+    return titles
+
+
 def write_moments(
     run: Json,
     out: Json,
@@ -1145,8 +1194,14 @@ def write_moments(
         if not (target / "data.js").exists():
             raise RuntimeError(f"atif-scan --highlights exited {done.returncode}")
         repo = (run.get("bucket") or {}).get("repo", "evalstate/published-benchmarks")
+        rules = next((Path(a) for a in extra if a.endswith("atif-rules.json")), None)
         doc = moments.build(
-            run["id"], moments.load_highlights(target / "data.js"), repo, run=out, alias=alias
+            run["id"],
+            moments.load_highlights(target / "data.js"),
+            repo,
+            run=out,
+            alias=alias,
+            allowance_titles=allowance_titles(atif_dir, rules),
         )
         moments.check_clean(doc)
         dest.mkdir(parents=True, exist_ok=True)

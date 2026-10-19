@@ -3,5 +3,7 @@
  "run": "tb4-astra-medium",
  "scanner_version": "0.8.4",
  "note": "Masked excerpts (best effort) from atif-scan's highlight export: said / ran / got at each finding.",
- "cards": []
+ "cards": [],
+ "explained": [],
+ "awareness": []
 }

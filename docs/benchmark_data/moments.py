@@ -11,6 +11,14 @@ findings (our publish-side rules first, minus the checks they restate) and up to
 moments each, plus links to the trial's files and trajectory: in the published bucket, or
 on the Harbor Hub trial page for Hub-sourced runs.
 
+Two panels sit beside the cards, from the same export:
+
+- ``explained``: findings atif-scan matched but an allowance (a task policy in atif-scan or
+  our rules file) expects, so they don't count. Each row keeps the original check and
+  priority, names the allowance(s), and carries a few example moments.
+- ``awareness``: benchmark awareness, stage by stage (noticed, named, recalled, probed,
+  searched, obtained), at any priority, with a few example moments per stage.
+
 Excerpts are trace text. atif-scan masks secret shapes (best effort); this script also
 refuses to write token-shaped text. Check the output against known credentials before
 committing it (bench-run: ``release.known_credentials()``). Standard library only.
@@ -36,6 +44,7 @@ Json = dict[str, Any]
 PRIORITY = {"critical": 0, "high": 1, "medium": 2}
 MAX_FINDINGS = 3  # per card
 MAX_MOMENTS = 2  # per finding
+MAX_EXAMPLES = 3  # per allowance or awareness row
 CLIP = 600  # characters per excerpt part
 HUB_JOBS = "https://hub.harborframework.com/jobs/"
 TOKEN = re.compile(
@@ -53,8 +62,12 @@ def load_highlights(path: Path) -> Json:
 
 
 def _restates() -> dict[str, str]:
-    """Publish-side rule id -> the single check it restates (atif-rules.json)."""
-    rules = json.loads((HERE / "atif-rules.json").read_text())["rules"]
+    """Publish-side rule id -> the single check it restates (every atif-rules.json)."""
+    rules = [
+        r
+        for path in sorted(HERE.glob("**/atif-rules.json"))
+        for r in json.loads(path.read_text())["rules"]
+    ]
     return {
         r["id"]: r["when"]["all"][0]
         for r in rules
@@ -81,15 +94,66 @@ def trial_links(record: Json, bucket_repo: str) -> tuple[str | None, str | None]
     return None, None
 
 
+def _moment(m: Json) -> Json:
+    return {
+        "step": m["step"],
+        "channel": m["channel"],
+        "tool": m.get("tool"),
+        "said": _clip(m.get("said") or "", "end"),
+        "ran": [_clip(m["ran"][0], "end"), m["ran"][1], _clip(m["ran"][2], "start")],
+        "got": _clip(m.get("got") or "", "start"),
+    }
+
+
+def _examples(
+    moments: list[Json],
+    highlights: Json,
+    alias: dict[str, str],
+    where: dict[str, tuple[str, int, Json]],
+    bucket_repo: str,
+) -> list[Json]:
+    """Up to MAX_EXAMPLES moments from distinct reported trials, passes first."""
+    picked: list[Json] = []
+    seen: set[str] = set()
+    ranked = sorted(moments, key=lambda m: -(highlights["trials"][m["trial"]].get("reward") or 0))
+    for m in ranked:
+        trial = highlights["trials"][m["trial"]]
+        folder = trial["input_id"].split("/")[0]
+        name = alias.get(folder, folder)
+        if name in seen or name not in where:
+            continue  # one moment per trial; replaced originals aren't linked
+        seen.add(name)
+        task, attempt, record = where[name]
+        files, trace = trial_links(record, bucket_repo)
+        picked.append(
+            {
+                "trial": folder,
+                "task": task,
+                "attempt": attempt,
+                "reward": trial.get("reward"),
+                "check": m.get("check"),
+                "severity": m.get("severity"),
+                "explained_by": m.get("explained_by") or [],
+                "folder": files,
+                "trace": trace,
+                "moment": _moment(m),
+            }
+        )
+        if len(picked) == MAX_EXAMPLES:
+            break
+    return picked
+
+
 def build(
     run_id: str,
     highlights: Json,
     bucket_repo: str,
     run: Json | None = None,
     alias: dict[str, str] | None = None,
+    allowance_titles: dict[str, str] | None = None,
 ) -> Json:
     """``alias`` maps atif-scan's trial folder names to the run file's trial names (Hub
-    runs name trials by id)."""
+    runs name trials by id). ``allowance_titles`` names the allowances by id."""
     alias = alias or {}
     if run is None:
         run = json.loads((HERE / "runs" / f"{run_id}.json").read_text())
@@ -138,20 +202,7 @@ def build(
                 },
             )
             if len(f["moments"]) < MAX_MOMENTS:
-                f["moments"].append(
-                    {
-                        "step": m["step"],
-                        "channel": m["channel"],
-                        "tool": m.get("tool"),
-                        "said": _clip(m.get("said") or "", "end"),
-                        "ran": [
-                            _clip(m["ran"][0], "end"),
-                            m["ran"][1],
-                            _clip(m["ran"][2], "start"),
-                        ],
-                        "got": _clip(m.get("got") or "", "start"),
-                    }
-                )
+                f["moments"].append(_moment(m))
 
     rewards = {}
     for t in highlights["trials"]:
@@ -194,12 +245,47 @@ def build(
         )
     order = {"disqualified": 0, "cleared": 1, "auto-cleared": 2, None: 3}
     cards.sort(key=lambda c: (order[c["decision"]], c["task"], c["attempt"]))
+
+    titles = allowance_titles or {}
+    groups = {g["id"]: g["rows"] for g in highlights["groups"]}
+    explained = []
+    for row in groups.get("explained", []):
+        moments = highlights["moments"].get(row["key"], [])
+        ids = sorted({a for m in moments for a in (m.get("explained_by") or [])})
+        explained.append(
+            {
+                "check": row["check"],
+                "title": row.get("title") or row["check"],
+                "priority": row.get("priority"),
+                "trials": row["trials"],
+                "rewarded": row["rewarded"],
+                "allowances": [{"id": a, "title": titles.get(a)} for a in ids],
+                "examples": _examples(moments, highlights, alias, where, bucket_repo),
+            }
+        )
+    awareness = []
+    for row in groups.get("awareness", []):
+        if not row["trials"]:
+            continue
+        moments = highlights["moments"].get(row["key"], [])
+        awareness.append(
+            {
+                "stage": row["stage"],
+                "title": row.get("title") or row["stage"],
+                "checks": row.get("checks") or [],
+                "trials": row["trials"],
+                "rewarded": row["rewarded"],
+                "examples": _examples(moments, highlights, alias, where, bucket_repo),
+            }
+        )
     return {
         "format": "fast-agent-moments/1",
         "run": run_id,
         "scanner_version": highlights["scanner_version"],
         "note": "Masked excerpts (best effort) from atif-scan's highlight export: said / ran / got at each finding.",
         "cards": cards,
+        "explained": explained,
+        "awareness": awareness,
     }
 
 
@@ -231,6 +317,10 @@ def relink(run_id: str, bucket_repo: str) -> int:
     for card in doc["cards"]:
         record = run["trials"][card["task"]][card["attempt"]]
         card["folder"], card["trace"] = trial_links(record, bucket_repo)
+    for row in doc.get("explained", []) + doc.get("awareness", []):
+        for ex in row["examples"]:
+            record = run["trials"][ex["task"]][ex["attempt"]]
+            ex["folder"], ex["trace"] = trial_links(record, bucket_repo)
     path.write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     return sum(bool(card["trace"]) for card in doc["cards"])
 
