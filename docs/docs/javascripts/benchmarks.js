@@ -2170,12 +2170,22 @@
     cleared: ["Cleared on review", "fb-dec--ok"],
     "auto-cleared": ["Cleared by policy", "fb-dec--auto"],
   };
-  function momentBlock(mo) {
+  /* The step label, linked to the trial's trace when there is one. The trace viewers (Hugging
+     Face bucket, Harbor Hub) open at the top: they have no per-step anchor, so the link says
+     which step to look for. */
+  function stepLabel(mo, trace) {
+    if (!trace) return el("span", "fb-moment__step", "step " + mo.step);
+    var a = external(trace, "step " + mo.step);
+    a.classList.add("fb-moment__step");
+    a.title = "Open the full trace; this is step " + mo.step;
+    return a;
+  }
+  function momentBlock(mo, trace) {
     var lab = channelLabels(mo.channel);
     var prose = mo.channel === "reasoning" || mo.channel === "message";
     var box = el("div", "fb-moment fb-moment--" + (prose ? "prose" : "code"));
     var head = el("div", "fb-moment__where");
-    head.appendChild(el("span", "fb-moment__step", "step " + mo.step));
+    head.appendChild(stepLabel(mo, trace));
     head.appendChild(el("span", "", mo.channel + (mo.tool ? " · " + mo.tool : "")));
     box.appendChild(head);
     if (mo.said) {
@@ -2253,7 +2263,7 @@
       var later = el("div", "fb-mcard__finding");
       f.moments.forEach(function (mo, mi) {
         var key = mo.step + ":" + mo.channel;
-        var node = seen[key] ? momentEcho(mo) : momentBlock(mo);
+        var node = seen[key] ? momentEcho(mo, card.trace) : momentBlock(mo, card.trace);
         seen[key] = true;
         if (fi === 0) fs.appendChild(node); // the first finding shows in full: lookup, then what came back
         else {
@@ -2317,7 +2327,7 @@
       where.appendChild(document.createTextNode(ex.task + " · attempt " + (ex.attempt + 1) + " of " + m.attempts + " · " + ((ex.reward || 0) > 0 ? "passed" : "failed") + " · " + ex.trial + " "));
       if (ex.trace) where.appendChild(external(ex.trace, "View trace"));
       fs.appendChild(where);
-      fs.appendChild(momentBlock(ex.moment));
+      fs.appendChild(momentBlock(ex.moment, ex.trace));
       more.appendChild(fs);
     });
     var label = opts.examples.length === 1 ? "Show the trial" : "Show the " + opts.examples.length + " trials";
