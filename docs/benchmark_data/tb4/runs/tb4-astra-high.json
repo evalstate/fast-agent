@@ -613,12 +613,12 @@
     "Cost is Harbor's recorded cost at the cohort's configured list rates (card-packs pricing catalog 2026-10-09.1, GPT-6 Astra rules: $10 / $1 / $12.50 / $50 per million input / cached / cache-write / output tokens; $20 / $2 / $25 / $75 above 272k context). Cache writes are charged at 125% of the input rate, OpenAI's price for GPT-5.6 and later. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Seven trials (three without a trajectory, four with no recorded usage, all replaced originals) are unpriced, so the total is a lower bound."
   ],
   "scan": {
-    "version": "0.8.0",
-    "scope": "95 reported trials (findings also include 4 replaced originals, kept as evidence)",
+    "version": "0.8.9",
+    "scope": "95 reported trials (findings also include 7 replaced originals, kept as evidence)",
     "trials": 95,
     "rewarded": 59,
-    "accuracy": 59.6,
-    "accuracy_se": 2.49,
+    "accuracy": 57.84,
+    "accuracy_se": 2.7,
     "findings_medium_plus": {
       "trials": 1,
       "rewarded": 0,
@@ -626,7 +626,8 @@
         "medium": 1,
         "low": 1,
         "info": 83,
-        "none": 14
+        "none": 14,
+        "unavailable": 3
       },
       "top": [
         {
@@ -649,7 +650,7 @@
       "dq_threshold": "high",
       "high_or_critical_rewarded": 0,
       "other_model_trials": 0,
-      "incomplete_evidence_rewarded": 0,
+      "incomplete_evidence_rewarded": 2,
       "accuracy_if_flagged_failed": 62.11
     },
     "awareness": {
@@ -664,6 +665,14 @@
           "rewarded": 0
         },
         "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "probed": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "watched": {
           "trials": 0,
           "rewarded": 0
         },
@@ -687,12 +696,12 @@
       "error_types": {},
       "compacted_history": 0,
       "without_trajectory": 0,
-      "incomplete_scans": 30,
+      "incomplete_scans": 36,
       "unmetered_trials": 0
     },
     "cost": {
       "recorded": 0,
-      "trials_missing_cost": 99,
+      "trials_missing_cost": 102,
       "estimated_unpriced": null,
       "estimated_unmetered": null,
       "estimated_total": 0
@@ -703,7 +712,7 @@
       "output": 1915734
     },
     "walltime_hours": {
-      "trial_sum": 18.8,
+      "trial_sum": 19.0,
       "agent_sum": 15.2
     },
     "overrides": [],
@@ -715,7 +724,7 @@
       }
     },
     "scanner": {
-      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
+      "commit": "e7c2ef955a77872c1cfd1e0f7939eeff34cef619",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -756,7 +765,7 @@
   },
   "review": {
     "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-    "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+    "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
     "recorded_passes": 59,
     "recorded_score": 62.11,
     "disqualified": [],

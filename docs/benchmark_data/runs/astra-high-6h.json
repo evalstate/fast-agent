@@ -2266,10 +2266,10 @@
     "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; GPT-6 Astra (high reasoning) through GitHub Copilot, with fast-agent's stream-idle timeout raised to 300 s (streaming_timeout=300). Zero whole-trial retries; fast-agent's own provider retries apply. Four infrastructure failures (three dropped connections, a sandbox error) were rerun as replacements; the originals are kept as evidence.",
     "Provider blocks: every attempt at break-filter-js-from-html and vulnerable-secret (10 trials) failed on the first model request, when Copilot's WebSocket rejected it (recorded by bench-run as a content-filter failure). Harbor records these as non-zero agent exits, not safety errors, so they score 0 and the safety allowance does not count them. One model-extraction-relu-logits trial ended with AgentSafetyStopError.",
     "Other GPT-6 Astra cohorts (high and medium through the Codex subscription route, medium through Copilot with the default stream timeout) are complete but not shown.",
-    "Harbor's recorded cost uses the cohort's configured OpenAI list rates (card-packs pricing catalog, rules gpt-6-astra-standard-short / -long: $10 / $1 / $50 per million input / cached / output tokens; $20 / $2 / $75 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the cost shown is repriced with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
+    "Harbor's recorded cost uses the cohort's configured OpenAI list rates (card-packs pricing catalog, rules gpt-6-astra-standard-short / -long: $10 / $1 / $50 per million input / cached / output tokens; $20 / $2 / $75 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the list-rate estimate under the scan's Evidence prices them at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
   ],
   "scan": {
-    "version": "0.8.0",
+    "version": "0.8.4",
     "scope": "445 reported trials (findings also include 3 replaced originals, kept as evidence)",
     "trials": 445,
     "rewarded": 394,
@@ -2282,8 +2282,8 @@
         "high": 3,
         "medium": 6,
         "low": 10,
-        "info": 220,
-        "none": 209
+        "info": 215,
+        "none": 214
       },
       "top": [
         {
@@ -2315,13 +2315,6 @@
           "rewarded": 4
         },
         {
-          "check": "observation.install_lure",
-          "title": "Install lure seen in a tool result",
-          "priority": "medium",
-          "trials": 1,
-          "rewarded": 1
-        },
-        {
           "check": "recall.lab_internal_host_request",
           "title": "Unprompted lab-internal host used in a command",
           "priority": "medium",
@@ -2334,7 +2327,7 @@
       "dq_threshold": "high",
       "high_or_critical_rewarded": 3,
       "other_model_trials": 0,
-      "incomplete_evidence_rewarded": 0,
+      "incomplete_evidence_rewarded": 8,
       "accuracy_if_flagged_failed": 87.87
     },
     "awareness": {
@@ -2349,6 +2342,10 @@
           "rewarded": 0
         },
         "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "probed": {
           "trials": 0,
           "rewarded": 0
         },
@@ -2375,7 +2372,7 @@
       },
       "compacted_history": 0,
       "without_trajectory": 0,
-      "incomplete_scans": 26,
+      "incomplete_scans": 79,
       "unmetered_trials": 0
     },
     "cost": {
@@ -2415,7 +2412,7 @@
       }
     },
     "scanner": {
-      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
+      "commit": "9aa343d845257b57788f2c53bf6f7f934eb564c4",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -2526,7 +2523,7 @@
   },
   "review": {
     "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-    "coverage": "Every reported pass has complete evidence. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+    "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
     "recorded_passes": 394,
     "recorded_score": 88.54,
     "disqualified": [],

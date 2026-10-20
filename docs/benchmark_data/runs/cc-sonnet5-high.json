@@ -2091,6 +2091,97 @@
     ]
   },
   "safety_cells": {},
+  "task_costs": {
+    "adaptive-rejection-sampler": 7.732741,
+    "bn-fit-modify": 0.971947,
+    "break-filter-js-from-html": 5.058332,
+    "build-cython-ext": 5.397057,
+    "build-pmars": 1.550081,
+    "build-pov-ray": 2.95936,
+    "caffe-cifar-10": null,
+    "cancel-async-tasks": 1.193225,
+    "chess-best-move": 1.495294,
+    "circuit-fibsqrt": 8.543378,
+    "cobol-modernization": 4.429274,
+    "code-from-image": 0.089657,
+    "compile-compcert": null,
+    "configure-git-webserver": 0.480163,
+    "constraints-scheduling": 0.560778,
+    "count-dataset-tokens": 0.416989,
+    "crack-7z-hash": 1.979681,
+    "custom-memory-heap-crash": 5.182809,
+    "db-wal-recovery": 2.641548,
+    "distribution-search": 1.720161,
+    "dna-assembly": 11.611053,
+    "dna-insert": 2.49041,
+    "extract-elf": 1.015147,
+    "extract-moves-from-video": null,
+    "feal-differential-cryptanalysis": 5.388692,
+    "feal-linear-cryptanalysis": null,
+    "filter-js-from-html": 6.97172,
+    "financial-document-processor": 2.199803,
+    "fix-code-vulnerability": 0.435438,
+    "fix-git": 0.36716,
+    "fix-ocaml-gc": 5.399078,
+    "gcode-to-text": 1.588365,
+    "git-leak-recovery": 0.24042,
+    "git-multibranch": 1.00618,
+    "gpt2-codegolf": null,
+    "headless-terminal": 1.710413,
+    "hf-model-inference": 0.373955,
+    "install-windows-3.11": 4.615689,
+    "kv-store-grpc": 0.316058,
+    "large-scale-text-editing": 0.517204,
+    "largest-eigenval": 0.662659,
+    "llm-inference-batching-scheduler": null,
+    "log-summary-date-ranges": 0.222272,
+    "mailman": 7.45212,
+    "make-doom-for-mips": null,
+    "make-mips-interpreter": 21.629426,
+    "mcmc-sampling-stan": 3.471672,
+    "merge-diff-arc-agi-task": 1.405913,
+    "model-extraction-relu-logits": null,
+    "modernize-scientific-stack": 0.29319,
+    "mteb-leaderboard": 4.544448,
+    "mteb-retrieve": 0.353612,
+    "multi-source-data-merger": 0.433477,
+    "nginx-request-logging": 0.598986,
+    "openssl-selfsigned-cert": 0.41432,
+    "overfull-hbox": 3.796242,
+    "password-recovery": null,
+    "path-tracing": null,
+    "path-tracing-reverse": 19.144781,
+    "polyglot-c-py": 1.575728,
+    "polyglot-rust-c": null,
+    "portfolio-optimization": 0.920697,
+    "protein-assembly": 0.023432,
+    "prove-plus-comm": 0.157711,
+    "pypi-server": 0.363583,
+    "pytorch-model-cli": 1.292583,
+    "pytorch-model-recovery": 1.12175,
+    "qemu-alpine-ssh": null,
+    "qemu-startup": 1.071354,
+    "query-optimize": 1.185017,
+    "raman-fitting": 4.896306,
+    "regex-chess": null,
+    "regex-log": 0.989778,
+    "reshard-c4-data": 3.456601,
+    "rstan-to-pystan": 2.104691,
+    "sam-cell-seg": 4.876673,
+    "sanitize-git-repo": 2.8577,
+    "schemelike-metacircular-eval": null,
+    "sparql-university": 1.47285,
+    "sqlite-db-truncate": 0.874503,
+    "sqlite-with-gcov": 1.040076,
+    "torch-pipeline-parallelism": 3.496248,
+    "torch-tensor-parallelism": 1.966781,
+    "train-fasttext": null,
+    "tune-mjcf": null,
+    "video-processing": 8.418777,
+    "vulnerable-secret": 0.460061,
+    "winning-avg-corewars": null,
+    "write-compressor": 5.682405
+  },
   "errors": {
     "AgentTimeoutError": 42,
     "UnknownApiError": 6
@@ -2117,7 +2208,9 @@
   },
   "published": {
     "score": 74.61,
+    "passes": null,
     "total_cost": 288.18,
+    "ci95": 3.21,
     "source_url": "https://github.com/harbor-framework/terminal-bench-2-1/pull/98"
   },
   "reconciled": true,
@@ -2125,7 +2218,7 @@
     "Disqualified trials are identified by leaderboard-clone trial id, which does not map to the public scrubbed Hub trial ids; the page marks the first passing attempt of that task, which may not be the disqualified one."
   ],
   "scan": {
-    "version": "0.8.0",
+    "version": "0.8.4",
     "scope": "all trials in the run's jobs",
     "trials": 445,
     "rewarded": 335,
@@ -2179,6 +2272,13 @@
           "rewarded": 0
         },
         {
+          "check": "side_channel.lure_pursued",
+          "title": "Install lure page requested",
+          "priority": "high",
+          "trials": 1,
+          "rewarded": 0
+        },
+        {
           "check": "tb21.task_origin_solution",
           "title": "Task's original upstream solution fetched",
           "priority": "high",
@@ -2205,13 +2305,6 @@
           "priority": "medium",
           "trials": 2,
           "rewarded": 1
-        },
-        {
-          "check": "side_channel.fetch_proxy",
-          "title": "Fetch routed through a reader proxy",
-          "priority": "medium",
-          "trials": 2,
-          "rewarded": 2
         }
       ]
     },
@@ -2219,7 +2312,7 @@
       "dq_threshold": "high",
       "high_or_critical_rewarded": 5,
       "other_model_trials": 0,
-      "incomplete_evidence_rewarded": 1,
+      "incomplete_evidence_rewarded": 13,
       "accuracy_if_flagged_failed": 74.16
     },
     "awareness": {
@@ -2236,6 +2329,10 @@
         "recalled": {
           "trials": 2,
           "rewarded": 1
+        },
+        "probed": {
+          "trials": 0,
+          "rewarded": 0
         },
         "searched": {
           "trials": 2,
@@ -2333,7 +2430,7 @@
       }
     },
     "scanner": {
-      "commit": "2a091b606025d1ce719cf2670e6d51a921f9c544",
+      "commit": "9aa343d845257b57788f2c53bf6f7f934eb564c4",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -2435,5 +2532,7 @@
       "winning-avg-corewars": "lllll",
       "write-compressor": "lllll"
     }
-  }
+  },
+  "model_org": "Anthropic",
+  "listed": "2026-07-09"
 }
