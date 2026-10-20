@@ -10,11 +10,11 @@ social:
 ## Compatibility
 
 `fast-agent` implements the stable
-[Skills Extension](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/seps/2640-skills-extension.md)
+[Skills Extension](https://github.com/modelcontextprotocol/ext-skills/blob/main/specification/stable/skills.mdx)
 (`io.modelcontextprotocol/skills`) wire shapes for its local-copy installer.
 
 It uses `skills/list` and `skills/get`, reading declared files with
-`resources/read`. 
+`resources/read`.
 
 When a connected MCP server advertises this capability, `fast-agent` shows it as
 an MCP-backed skills registry. Opening `/skills registry` calls the paginated

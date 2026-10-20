@@ -7,7 +7,6 @@ import pytest
 from mcp_types import (
     CompleteResult,
     Completion,
-    ListResourcesResult,
     ResourceTemplate,
     ServerCapabilities,
 )
@@ -17,7 +16,12 @@ from fast_agent.context import Context
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.app_integrations import AppServerConfig
 from fast_agent.mcp.mcp_aggregator import MCPAggregator
-from fast_agent.mcp.skills_extension import GetSkillResult, ListSkillsResult, SkillEntry
+from fast_agent.mcp.skills_extension import (
+    GetSkillResult,
+    ListSkillsResult,
+    ReadResourceDirectoryResult,
+    SkillEntry,
+)
 
 if TYPE_CHECKING:
     from mcp.client import CacheMode
@@ -352,7 +356,9 @@ async def test_directory_requires_explicit_true_and_preserves_cursor(settings) -
             assert method_name == "read_directory"
             assert isinstance(method_args, dict)
             calls.append(method_args)
-            return ListResourcesResult(resources=[], next_cursor="next")
+            return ReadResourceDirectoryResult(
+                resources=[], next_cursor="next", ttl_ms=30_000, cache_scope="public"
+            )
 
     aggregator = _DirectoryAggregator(
         server_names=["demo"], connection_persistence=False, context=Context()
@@ -360,6 +366,8 @@ async def test_directory_requires_explicit_true_and_preserves_cursor(settings) -
     if settings.get("directoryRead") is True:
         result = await aggregator.read_directory("skill://demo", server_name="demo", cursor="page")
         assert result.next_cursor == "next"
+        assert result.ttl_ms == 30_000
+        assert result.cache_scope == "public"
         assert calls == [{"uri": "skill://demo", "cursor": "page"}]
     else:
         with pytest.raises(ValueError, match="directoryRead"):

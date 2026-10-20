@@ -31,14 +31,15 @@ from mcp_types.version import LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS
 
 from fast_agent.core.exceptions import ServerSessionTerminatedError
 from fast_agent.mcp.skills_extension import (
-    DirectoryReadRequest,
-    DirectoryReadRequestParams,
     GetSkillRequest,
     GetSkillRequestParams,
     GetSkillResult,
     ListSkillsRequest,
     ListSkillsRequestParams,
     ListSkillsResult,
+    ReadResourceDirectoryRequest,
+    ReadResourceDirectoryRequestParams,
+    ReadResourceDirectoryResult,
 )
 from fast_agent.mcp.tool_result_metadata import set_url_elicitation_required_payload
 from fast_agent.mcp.uri_security import SANITIZED_INLINE_RESOURCE_URI, is_file_uri
@@ -298,9 +299,14 @@ class MCPClientConnection:
         uri: str,
         *,
         cursor: str | None = None,
-    ) -> ListResourcesResult:
-        request = DirectoryReadRequest(params=DirectoryReadRequestParams(uri=uri, cursor=cursor))
-        return await self._request(self.client.session.send_request(request, ListResourcesResult))
+    ) -> ReadResourceDirectoryResult:
+        """List a directory's direct children under the stable MCP Skills extension."""
+        request = ReadResourceDirectoryRequest(
+            params=ReadResourceDirectoryRequestParams(uri=uri, cursor=cursor)
+        )
+        return await self._request(
+            self.client.session.send_request(request, ReadResourceDirectoryResult)
+        )
 
     async def _request(self, operation: Awaitable[T]) -> T:
         try:
