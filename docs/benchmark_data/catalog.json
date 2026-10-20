@@ -242,6 +242,10 @@
     "tb4-deepseek41-flash1017-max": {
       "benchmark": "terminal-bench-4.0-subset",
       "family": "deepseek"
+    },
+    "luna56-high-6h": {
+      "family": "gpt-5.6",
+      "status": "6h timeout"
     }
   },
   "claims": [

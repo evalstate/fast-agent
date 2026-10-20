@@ -1338,6 +1338,86 @@
           {"trial": "22f8c8be-e786-4dc9-95d8-db5d33978162", "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."}
         ]
       }
+    },
+    {
+      "id": "luna56-high-6h",
+      "harness": "fast-agent",
+      "model": "GPT-5.6 Luna",
+      "effort": "high",
+      "model_string": "responses.gpt-5.6-luna?reasoning=high&service_tier=flex",
+      "date": "2026-10-18",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/luna56-high-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-luna56-high-r1 (cohort tb21-luna56-high-flex-001)"
+      },
+      "expected": {
+        "passes": 339
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "scan": true,
+      "repriced": {
+        "total_usd": 8.892295,
+        "trials": 447,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-11.1 (d341ae5)",
+        "note": "List-rate estimate from each trial's token usage at the catalog's GPT-5.6 Luna flex rates: $8.89, the same as Harbor's recorded cost, which already prices cache writes at 125% of input. Two replaced originals left no trajectory and are unpriced, so this is a lower bound."
+      },
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.12 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review). Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": [
+          {
+            "trial": "pytorch-model-cli__DZos63p",
+            "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on a Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "pytorch-model-cli__LSb6fDw",
+            "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on a Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "pytorch-model-cli__MfGqDqa",
+            "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on a Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "pytorch-model-cli__S6RBwzG",
+            "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on a Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "pytorch-model-cli__f4ERgg2",
+            "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on a Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "fix-ocaml-gc__36xDqnc",
+            "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."
+          },
+          {
+            "trial": "fix-ocaml-gc__PRWEst2",
+            "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."
+          },
+          {
+            "trial": "build-pov-ray__ZF39pYx",
+            "reason": "Cloned the Terminal-Bench repository (harbor-framework/terminal-bench-2-1), read the task's README, solution/solve.sh and tests, and compared its render with the tests' reference image (lookup.benchmark_source, lookup.benchmark_content_obtained, lookup.own_task_files)."
+          },
+          {
+            "trial": "mteb-leaderboard__DHvY8fr",
+            "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2-1 tasks/mteb-leaderboard/README.md) after a web search surfaced it; it states the expected answer (lookup.benchmark_source, access.benchmark_material_received)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor 077c5ec6) with the published fast-agent-mcp 0.10.46 wheel; GPT-5.6 Luna (high reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "Three infrastructure failures (a sandbox connection error, an HF exec-stream drop, a test-upload error on train-fasttext) were rerun as replacements; the train-fasttext rerun hit another stream drop and was rerun again. The originals are kept as evidence; the run as first launched scored 338/445.",
+        "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-10-11.1, rules gpt-5.6-luna-flex-short / -long: $0.10 / $0.01 / $0.125 / $0.60 per million input / cached / cache-write / output tokens; $0.20 / $0.02 / $0.25 / $0.90 above 272k context). One trial has model calls that reported no usage, so the total is a lower bound."
+      ]
     }
   ]
 }
