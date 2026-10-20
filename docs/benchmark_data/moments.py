@@ -111,10 +111,18 @@ def _examples(
     where: dict[str, tuple[str, int, Json]],
     bucket_repo: str,
 ) -> list[Json]:
-    """One moment per reported trial, passes first."""
+    """One moment per reported trial, passes first; each trial's highest-priority moment
+    (e.g. its cluster-API request rather than the credentials read before it)."""
     picked: list[Json] = []
     seen: set[str] = set()
-    ranked = sorted(moments, key=lambda m: -(highlights["trials"][m["trial"]].get("reward") or 0))
+    rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    ranked = sorted(
+        moments,
+        key=lambda m: (
+            -(highlights["trials"][m["trial"]].get("reward") or 0),
+            rank.get(m.get("severity") or "", 5),
+        ),
+    )
     for m in ranked:
         trial = highlights["trials"][m["trial"]]
         folder = trial["input_id"].split("/")[0]
