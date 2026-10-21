@@ -5,6 +5,15 @@ site_description = "MCP-native agents, workflows, and servers"
 repo_url = "https://github.com/evalstate/fast-agent"
 repo_name = "evalstate/fast-agent"
 edit_uri = "edit/main/docs/docs"
+# Snippet include fragments and asset notes are not pages.
+exclude_docs = """
+_generated/
+assets/**/README.md
+"""
+# Unlinked prototypes: rendered by `zensical serve`, omitted from builds.
+draft_docs = """
+benchmarks/ledger-prototype.md
+"""
 copyright = "© 2025-2026 llmindset.co.uk"
 extra_css = [
   "stylesheets/brand.css",
@@ -225,5 +234,10 @@ alternate_style = true
 
 [project.plugins.search]
 
-# Exclude standalone include fragments from search via _generated/.meta.yml.
-[project.plugins.meta]
+# Moved pages: keep old URLs working.
+[project.plugins.redirects.redirect_maps]
+"mcp/types.md" = "mcp/index.md#integration-with-mcp-types"
+"models/providers/aliyun.md" = "models/providers/additional.md#aliyun"
+"models/providers/generic.md" = "models/providers/additional.md#generic-openai-compatible-endpoints"
+"models/providers/groq.md" = "models/providers/additional.md#groq"
+"models/providers/openrouter.md" = "models/providers/additional.md#openrouter"
