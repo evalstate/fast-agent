@@ -1876,6 +1876,7 @@ def test_compaction_query_selects_the_compaction_mode(spec: str, expected: str |
         ("sol?compaction=summary", "Invalid compaction query value"),
         ("anthropic.claude-sonnet-5-5?compaction=native", "not 'anthropic'"),
         ("copilot.claude-haiku-4.5?compaction=native", "does not support native compaction"),
+        ("copilot.grok-4.7?compaction=native", "does not support native compaction"),
     ],
 )
 def test_compaction_query_rejects_unsupported_routes(spec: str, message: str) -> None:
