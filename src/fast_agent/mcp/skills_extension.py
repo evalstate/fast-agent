@@ -13,6 +13,7 @@ from mcp_types import (
     PaginatedResult,
     Request,
     RequestParams,
+    Resource,
 )
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -35,6 +36,7 @@ class SkillEntry(BaseModel):
     uri: str = Field(alias="uri")
     frontmatter: dict[str, Any] = Field(alias="frontmatter")
     resources: list[SkillResource] | Literal["dynamic"] = Field(alias="resources")
+    meta: dict[str, Any] | None = Field(default=None, alias="_meta")
 
 
 class ListSkillsRequestParams(PaginatedRequestParams):
@@ -75,16 +77,23 @@ class GetSkillResult(CacheableResult):
     result_type: Literal["complete"] = Field(default="complete", alias="resultType")
 
 
-class DirectoryReadRequestParams(PaginatedRequestParams):
-    """Parameters for the SEP-2640 directory-read extension."""
+class ReadResourceDirectoryRequestParams(PaginatedRequestParams):
+    """Parameters for the SEP-2640 ``resources/directory/read`` method."""
 
     uri: str = Field(alias="uri")
 
 
-class DirectoryReadRequest(
-    Request[DirectoryReadRequestParams, Literal["resources/directory/read"]]
+class ReadResourceDirectoryRequest(
+    Request[ReadResourceDirectoryRequestParams, Literal["resources/directory/read"]]
 ):
     """Request for the SEP-2640 directory-read extension."""
 
     method: Literal["resources/directory/read"] = "resources/directory/read"
-    params: DirectoryReadRequestParams
+    params: ReadResourceDirectoryRequestParams
+
+
+class ReadResourceDirectoryResult(PaginatedResult, CacheableResult):
+    """The paginated, cacheable response to ``resources/directory/read``."""
+
+    resources: list[Resource] = Field(alias="resources")
+    result_type: Literal["complete"] = Field(default="complete", alias="resultType")
