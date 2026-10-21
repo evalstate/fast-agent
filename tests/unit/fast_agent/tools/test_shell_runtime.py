@@ -2480,7 +2480,7 @@ async def test_active_poll_emits_throttled_output_progress() -> None:
     assert update["tool_event"] == "progress"
     assert update["details"] == "process-1"
     assert update["process_id"] == "process-1"
-    assert update["process_wait_seconds"] in {0, 1}
+    assert update["process_wait_seconds"] == 1
     assert update["process_has_observed_output"] is True
     assert update["process_seconds_since_last_output"] == 0
     assert update["process_total_output_bytes"] == len("burst output\n")

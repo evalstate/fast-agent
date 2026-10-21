@@ -2357,12 +2357,10 @@ class ShellRuntime:
 
             waited = False
             output_wake = False
-            poll_started_at_monotonic = time.monotonic()
             active_poll = (
                 ActiveProcessPoll(
                     tool_use_id=progress_tool_use_id,
-                    deadline_at=poll_started_at_monotonic + parsed.wait_sec,
-                    started_at=poll_started_at_monotonic,
+                    wait_seconds=parsed.wait_sec,
                 )
                 if should_wait and progress_tool_use_id is not None
                 else None
