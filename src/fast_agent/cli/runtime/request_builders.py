@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 import typer
 
+from fast_agent.cli.commands.url_parser import split_url_list
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 from fast_agent.core.agent_card_paths import is_agent_card_path
 from fast_agent.mcp.connect_targets import (
@@ -336,7 +337,7 @@ def resolve_instance_scope(
 def _expand_startup_urls(urls: list[str] | None) -> list[str]:
     expanded: list[str] = []
     for occurrence, value in enumerate(urls or (), start=1):
-        for item in value.split(","):
+        for item in split_url_list(value):
             url = strip_to_none(item)
             if url is None:
                 raise typer.BadParameter(

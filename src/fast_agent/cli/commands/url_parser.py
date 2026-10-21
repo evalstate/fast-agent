@@ -13,6 +13,20 @@ from fast_agent.mcp.hf_auth import TokenProvider, add_hf_auth_header
 from fast_agent.utils.action_normalization import normalize_action_token
 from fast_agent.utils.text import strip_to_none
 
+_URL_LIST_SEPARATOR = re.compile(r",\s*(?=https?://|,|$)", re.IGNORECASE)
+
+
+def split_url_list(value: str) -> list[str]:
+    """Split a comma-separated URL list without cutting commas inside query strings.
+
+    Only commas that precede another ``http://`` or ``https://`` URL are
+    treated as separators, so hosted MCP URLs like
+    ``https://mcp.exa.ai/mcp?tools=a,b`` stay intact. Commas followed by
+    another comma or the end of input also separate, yielding empty entries
+    that callers reject.
+    """
+    return [part.strip() for part in _URL_LIST_SEPARATOR.split(value)]
+
 
 def _normalize_auth_token(auth_token: str) -> str:
     """Normalize ``--auth`` values into the raw token string.
@@ -154,7 +168,7 @@ def parse_server_urls(
     if not urls_param:
         return []
 
-    url_list = [strip_to_none(url) or "" for url in urls_param.split(",")]
+    url_list = [strip_to_none(url) or "" for url in split_url_list(urls_param)]
 
     # Prepare headers if auth token is provided
     headers = None
