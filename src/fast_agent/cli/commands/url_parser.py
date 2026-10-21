@@ -13,7 +13,7 @@ from fast_agent.mcp.hf_auth import TokenProvider, add_hf_auth_header
 from fast_agent.utils.action_normalization import normalize_action_token
 from fast_agent.utils.text import strip_to_none
 
-_URL_LIST_SEPARATOR = re.compile(r",\s*(?=https?://)", re.IGNORECASE)
+_URL_LIST_SEPARATOR = re.compile(r",\s*(?=https?://|,|$)", re.IGNORECASE)
 
 
 def split_url_list(value: str) -> list[str]:
@@ -21,7 +21,9 @@ def split_url_list(value: str) -> list[str]:
 
     Only commas that precede another ``http://`` or ``https://`` URL are
     treated as separators, so hosted MCP URLs like
-    ``https://mcp.exa.ai/mcp?tools=a,b`` stay intact.
+    ``https://mcp.exa.ai/mcp?tools=a,b`` stay intact. Commas followed by
+    another comma or the end of input also separate, yielding empty entries
+    that callers reject.
     """
     return [part.strip() for part in _URL_LIST_SEPARATOR.split(value)]
 

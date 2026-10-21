@@ -5,6 +5,7 @@ import pytest
 import typer
 
 from fast_agent.cli.runtime.request_builders import (
+    _materialize_startup_mcp_servers,
     build_agent_run_request,
     build_command_run_request,
     merge_card_sources,
@@ -206,6 +207,22 @@ def test_startup_urls_keep_commas_in_query_strings() -> None:
     assert len(request.startup_mcp_servers) == 1
     server_config = next(iter(request.startup_mcp_servers.values()))
     assert server_config.url == ("https://mcp.exa.ai/mcp?tools=web_search_exa,get_code_context_exa")
+
+
+@pytest.mark.parametrize(
+    "url_value",
+    ["https://mcp.exa.ai/mcp?tools=a,b,", "https://a.com/mcp, ,https://b.com/mcp"],
+)
+def test_startup_urls_reject_empty_comma_segments(url_value: str) -> None:
+    with pytest.raises(typer.BadParameter, match="contains an empty value"):
+        _materialize_startup_mcp_servers(
+            server_list=None,
+            urls=[url_value],
+            auth=None,
+            client_metadata_url=None,
+            stdio_commands=None,
+            protocol_mode=None,
+        )
 
 
 def test_startup_url_parity_is_case_insensitive_and_notices_are_redacted() -> None:

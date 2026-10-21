@@ -122,7 +122,20 @@ class TestUrlParser:
 
     def test_parse_server_urls_rejects_empty_comma_segments(self):
         with pytest.raises(ValueError, match="URL cannot be empty"):
-            parse_server_urls(",http://example.com/mcp")
+            parse_server_urls("http://example.com/mcp, ")
+
+    @pytest.mark.parametrize(
+        "urls_param",
+        [
+            ",http://example.com/mcp",
+            "http://example.com/mcp,",
+            "http://a.com/mcp,,http://b.com/mcp",
+            "http://a.com/mcp, ,http://b.com/mcp",
+        ],
+    )
+    def test_parse_server_urls_rejects_empty_segments_around_urls(self, urls_param):
+        with pytest.raises(ValueError, match="URL cannot be empty"):
+            parse_server_urls(urls_param, hub_token_provider=lambda: None)
 
     def test_parse_server_urls_with_auth(self):
         """Test parsing URLs with authentication token."""
