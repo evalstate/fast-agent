@@ -1307,9 +1307,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         Returns:
             Provider-agnostic schema representation or NotGiven if conversion fails
         """
-        from openai.lib._parsing import type_to_response_format_param as _type_to_response_format
+        from openai.lib import type_to_response_format_param
 
-        return _type_to_response_format(model)
+        return type_to_response_format_param(model)
 
     @staticmethod
     def model_to_schema_str(

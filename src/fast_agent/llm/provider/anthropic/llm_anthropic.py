@@ -665,8 +665,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         base_url = self._base_url()
         default_headers = self._default_headers()
 
-        if base_url and base_url.endswith("/v1"):
-            base_url = base_url.rstrip("/v1")
+        if base_url:
+            base_url = base_url.removesuffix("/v1")
         client_args: dict[str, Any] = {
             "base_url": base_url,
             "default_headers": default_headers,

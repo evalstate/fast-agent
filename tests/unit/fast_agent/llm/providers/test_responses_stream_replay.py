@@ -11,7 +11,10 @@ import httpx2
 import pytest
 from openai import APIError
 from openai.types.responses import (
+    Response,
+    ResponseError,
     ResponseErrorEvent,
+    ResponseFailedEvent,
     ResponseReasoningSummaryTextDeltaEvent,
     ResponseReasoningTextDeltaEvent,
 )
@@ -892,20 +895,18 @@ async def test_incomplete_responses_return_final_payload(
 @pytest.mark.asyncio
 async def test_failed_responses_raise_provider_error_details() -> None:
     harness = _ResponsesHarness()
-    final_response = SimpleNamespace(
+    final_response = Response.model_construct(
         status="failed",
-        error=SimpleNamespace(
-            code="server_error",
-            message="DeepSeek generation failed",
-        ),
+        error=ResponseError(code="server_error", message="DeepSeek generation failed"),
         output=[],
         usage=None,
     )
     stream = _FakeResponsesStream(
         events=[
-            SimpleNamespace(
+            ResponseFailedEvent(
                 type="response.failed",
                 response=final_response,
+                sequence_number=1,
             )
         ],
         final_response=final_response,
@@ -963,15 +964,16 @@ async def test_context_limit_stream_error_is_not_retried(event_type: str) -> Non
     llm.retry_count = 2
     llm.retry_backoff_seconds = 0.0
     attempts = 0
-    error = SimpleNamespace(
+    # Provider error codes outside the SDK's Literal are accepted when parsing streams.
+    error = ResponseError.model_construct(
         code="context_length_exceeded",
         message="Input is too large.",
         param="input",
         type="invalid_request_error",
     )
-    final_response = SimpleNamespace(status="failed", error=error, output=[], usage=None)
+    final_response = Response.model_construct(status="failed", error=error, output=[], usage=None)
     event = (
-        SimpleNamespace(type=event_type, response=final_response)
+        ResponseFailedEvent(type="response.failed", response=final_response, sequence_number=1)
         if event_type == "response.failed"
         else ResponseErrorEvent(
             type="error",

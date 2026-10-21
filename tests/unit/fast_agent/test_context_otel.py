@@ -30,7 +30,6 @@ def test_configure_otel_samples_and_flushes_spans() -> None:
         from unittest.mock import patch
 
         from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-        from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
         from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
         from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 
@@ -57,7 +56,6 @@ def test_configure_otel_samples_and_flushes_spans() -> None:
                     patch.object(context_module.trace, "set_tracer_provider"),
                     patch.object(OpenAIInstrumentor, "instrument"),
                     patch.object(GoogleGenAiSdkInstrumentor, "instrument"),
-                    patch.object(AnthropicInstrumentor, "instrument"),
                 ):
                     asyncio.run(context_module.configure_otel(settings))
 

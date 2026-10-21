@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
 MCPHarnessSessionScope = Literal["connection", "request"]
 SessionCleanup = Callable[[str], Awaitable[None]]
+_RELEASE_REGISTERED = "_fast_agent_harness_release_registered"
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +43,8 @@ class HarnessMCPAdapterOptions:
     tool_name: str = "send"
     tool_description: str | None = None
     cleanup_session: SessionCleanup | None = field(default=None, repr=False, compare=False)
+    release_session: SessionCleanup | None = field(default=None, repr=False, compare=False)
+    """Called when the MCP session owning a connection-scoped harness session ends."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,6 +199,7 @@ class HarnessMCPAdapter:
             metadata=metadata,
         )
         session_plan = call.session_plan
+        self._release_with_mcp_session(call)
         with self._request_bearer_context(call.auth):
             try:
                 async with self._app.open(
@@ -214,6 +218,30 @@ class HarnessMCPAdapter:
                     and session_plan.open_session_id is not None
                 ):
                     await cleanup_session(session_plan.open_session_id)
+
+    def _release_with_mcp_session(self, call: HarnessMCPCallContext) -> None:
+        """Release harness sessions keyed by an MCP session once that session ends.
+
+        Stateful MCP sessions end on client DELETE, idle timeout or crash; the SDK
+        unwinds the connection exit stack in each case. Explicitly requested
+        session ids are client-owned and outlive any single MCP session.
+        """
+        release = self._options.release_session
+        plan = call.session_plan
+        if (
+            release is None
+            or plan.scope != "connection"
+            or plan.requested_session_id is not None
+            or plan.open_session_id is None
+            or call._ctx.request_context is None
+        ):
+            return
+        # FastMCP exposes no public accessor; it uses the same attribute for its own cleanup.
+        connection = call._ctx.request_context.session._connection
+        if connection.session_id is None or connection.state.get(_RELEASE_REGISTERED):
+            return
+        connection.state[_RELEASE_REGISTERED] = True
+        connection.exit_stack.push_async_callback(release, plan.open_session_id)
 
     def agent_request(
         self,
