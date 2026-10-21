@@ -211,6 +211,10 @@
       "benchmark": "terminal-bench-4.0-subset",
       "family": "grok"
     },
+    "tb4-grok47-xhigh": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "grok"
+    },
     "tb4-sol61-medium": {
       "benchmark": "terminal-bench-4.0-subset",
       "family": "gpt-6"

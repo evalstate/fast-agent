@@ -1,0 +1,972 @@
+{
+ "run": "tb4-grok-build-grok-4-7-xhigh",
+ "leaderboard_row": "84b39f56-fe3c-46c3-919f-3b67b73f9b49",
+ "jobs": [
+  "30225ce2-25f4-44c4-9fc5-67bf80dd4d17"
+ ],
+ "basis": "recalculated from the Grok CLI's per-call usage with reasoning tokens priced as output, at LiteLLM's xai/grok-4.7 rates as Harbor prices them",
+ "rates_usd_per_mtok": {
+  "input": 2.0,
+  "cached": 0.5,
+  "output": 6.0,
+  "long_context": {
+   "from_prompt_tokens": 200000,
+   "input": 4.0,
+   "cached": 1.0,
+   "output": 12.0
+  }
+ },
+ "defect": "https://github.com/harbor-framework/harbor/pull/3805",
+ "trials": [
+  {
+   "id": "8cd54a11-816e-4bd8-9d7a-82e61f49fe87",
+   "task": "atrx-vep-crispr",
+   "calls": 83,
+   "long_context_calls": 5,
+   "output_tokens": 36667,
+   "reasoning_tokens": 148647,
+   "recorded_usd": 5.85867,
+   "recalculated_usd": 6.851562
+  },
+  {
+   "id": "9c22ee4c-c470-41d3-a7a1-3d15e079c17b",
+   "task": "atrx-vep-crispr",
+   "calls": 64,
+   "long_context_calls": 4,
+   "output_tokens": 34195,
+   "reasoning_tokens": 127329,
+   "recorded_usd": 4.19485,
+   "recalculated_usd": 5.036968
+  },
+  {
+   "id": "a38cb051-1b3d-4275-be7a-40de95609769",
+   "task": "atrx-vep-crispr",
+   "calls": 49,
+   "long_context_calls": 0,
+   "output_tokens": 22351,
+   "reasoning_tokens": 97388,
+   "recorded_usd": 2.575514,
+   "recalculated_usd": 3.159842
+  },
+  {
+   "id": "b3b19b10-4c8b-4a64-9eb1-a3295c306517",
+   "task": "atrx-vep-crispr",
+   "calls": 67,
+   "long_context_calls": 2,
+   "output_tokens": 25481,
+   "reasoning_tokens": 102339,
+   "recorded_usd": 4.23798,
+   "recalculated_usd": 4.871412
+  },
+  {
+   "id": "f8707c7b-a5eb-4835-85a2-39aa37c9c147",
+   "task": "atrx-vep-crispr",
+   "calls": 47,
+   "long_context_calls": 0,
+   "output_tokens": 22002,
+   "reasoning_tokens": 82886,
+   "recorded_usd": 2.62722,
+   "recalculated_usd": 3.124536
+  },
+  {
+   "id": "0dc60738-4fd7-46ed-80ba-65ac592fc6e6",
+   "task": "cad-model",
+   "calls": 74,
+   "long_context_calls": 5,
+   "output_tokens": 31577,
+   "reasoning_tokens": 85894,
+   "recorded_usd": 5.963486,
+   "recalculated_usd": 6.519998
+  },
+  {
+   "id": "2d90973a-abc0-435f-897e-71ae58b34f39",
+   "task": "cad-model",
+   "calls": 91,
+   "long_context_calls": 11,
+   "output_tokens": 34183,
+   "reasoning_tokens": 104275,
+   "recorded_usd": 7.305016,
+   "recalculated_usd": 7.989652
+  },
+  {
+   "id": "71e273fd-23d1-4882-b1fd-bec3acd54643",
+   "task": "cad-model",
+   "calls": 103,
+   "long_context_calls": 9,
+   "output_tokens": 44857,
+   "reasoning_tokens": 167215,
+   "recorded_usd": 6.96269,
+   "recalculated_usd": 8.013386
+  },
+  {
+   "id": "7b7dfba8-9bd7-41ea-9385-87af2977a881",
+   "task": "cad-model",
+   "calls": 67,
+   "long_context_calls": 0,
+   "output_tokens": 21650,
+   "reasoning_tokens": 95579,
+   "recorded_usd": 3.76224,
+   "recalculated_usd": 4.335714
+  },
+  {
+   "id": "b299a820-7738-44de-a34d-01a325960515",
+   "task": "cad-model",
+   "calls": 94,
+   "long_context_calls": 11,
+   "output_tokens": 46334,
+   "reasoning_tokens": 125818,
+   "recorded_usd": 6.263952,
+   "recalculated_usd": 7.065024
+  },
+  {
+   "id": "463f4114-b418-4986-a104-2fccde8d5603",
+   "task": "cargo-flight-dispatch",
+   "calls": 22,
+   "long_context_calls": 0,
+   "output_tokens": 11926,
+   "reasoning_tokens": 76654,
+   "recorded_usd": 1.370908,
+   "recalculated_usd": 1.830832
+  },
+  {
+   "id": "4ba07638-2e4b-4181-a51f-814ddcba02b4",
+   "task": "cargo-flight-dispatch",
+   "calls": 27,
+   "long_context_calls": 0,
+   "output_tokens": 16398,
+   "reasoning_tokens": 93967,
+   "recorded_usd": 1.739342,
+   "recalculated_usd": 2.303144
+  },
+  {
+   "id": "cb87fb26-be26-4cb0-b6d5-1cde0dbece28",
+   "task": "cargo-flight-dispatch",
+   "calls": 18,
+   "long_context_calls": 0,
+   "output_tokens": 17841,
+   "reasoning_tokens": 85419,
+   "recorded_usd": 1.257198,
+   "recalculated_usd": 1.769712
+  },
+  {
+   "id": "f1fa6b37-b4e5-46d9-bea1-a230155a9aed",
+   "task": "cargo-flight-dispatch",
+   "calls": 32,
+   "long_context_calls": 0,
+   "output_tokens": 22334,
+   "reasoning_tokens": 105315,
+   "recorded_usd": 2.27332,
+   "recalculated_usd": 2.90521
+  },
+  {
+   "id": "f27b9148-672a-4979-bd8c-605f951c3430",
+   "task": "cargo-flight-dispatch",
+   "calls": 20,
+   "long_context_calls": 0,
+   "output_tokens": 18139,
+   "reasoning_tokens": 84341,
+   "recorded_usd": 1.447406,
+   "recalculated_usd": 1.953452
+  },
+  {
+   "id": "0fc45bdc-248a-4417-8376-ba32eb6c3fc5",
+   "task": "fin-saccr-rwa",
+   "calls": 67,
+   "long_context_calls": 0,
+   "output_tokens": 47672,
+   "reasoning_tokens": 159382,
+   "recorded_usd": 4.497824,
+   "recalculated_usd": 5.454116
+  },
+  {
+   "id": "328d8fe7-bc7c-44fa-adda-07cafee44ebd",
+   "task": "fin-saccr-rwa",
+   "calls": 24,
+   "long_context_calls": 0,
+   "output_tokens": 35638,
+   "reasoning_tokens": 119805,
+   "recorded_usd": 2.129844,
+   "recalculated_usd": 2.848674
+  },
+  {
+   "id": "3a96755e-87c9-4c5f-9b8d-55ede0ab491d",
+   "task": "fin-saccr-rwa",
+   "calls": 18,
+   "long_context_calls": 4,
+   "output_tokens": 26368,
+   "reasoning_tokens": 151532,
+   "recorded_usd": 2.755614,
+   "recalculated_usd": 3.69039
+  },
+  {
+   "id": "40b7f2c9-10e8-4c87-af80-b07865808e49",
+   "task": "fin-saccr-rwa",
+   "calls": 105,
+   "long_context_calls": 2,
+   "output_tokens": 65393,
+   "reasoning_tokens": 166879,
+   "recorded_usd": 8.036254,
+   "recalculated_usd": 9.133732
+  },
+  {
+   "id": "c4684553-de0b-493e-afa8-04c930acafb0",
+   "task": "fin-saccr-rwa",
+   "calls": 31,
+   "long_context_calls": 5,
+   "output_tokens": 40487,
+   "reasoning_tokens": 136649,
+   "recorded_usd": 3.956286,
+   "recalculated_usd": 4.794714
+  },
+  {
+   "id": "09b84294-f8ee-497c-a4a2-c8f77df69a9e",
+   "task": "gsea-proteomics",
+   "calls": 49,
+   "long_context_calls": 0,
+   "output_tokens": 16722,
+   "reasoning_tokens": 40386,
+   "recorded_usd": 2.085812,
+   "recalculated_usd": 2.328128
+  },
+  {
+   "id": "4045cbd3-d371-4592-90c7-b34e0c68bdff",
+   "task": "gsea-proteomics",
+   "calls": 57,
+   "long_context_calls": 0,
+   "output_tokens": 18719,
+   "reasoning_tokens": 55561,
+   "recorded_usd": 3.555108,
+   "recalculated_usd": 3.888474
+  },
+  {
+   "id": "94eefb80-8399-4828-abcd-abaa3c40c932",
+   "task": "gsea-proteomics",
+   "calls": 54,
+   "long_context_calls": 0,
+   "output_tokens": 16872,
+   "reasoning_tokens": 28917,
+   "recorded_usd": 2.557592,
+   "recalculated_usd": 2.731094
+  },
+  {
+   "id": "bc3dff3a-5667-425d-96b9-e7fd7b643aac",
+   "task": "gsea-proteomics",
+   "calls": 44,
+   "long_context_calls": 0,
+   "output_tokens": 16156,
+   "reasoning_tokens": 39674,
+   "recorded_usd": 2.06152,
+   "recalculated_usd": 2.299564
+  },
+  {
+   "id": "f13d2310-d763-4603-9f2f-00f2df056771",
+   "task": "gsea-proteomics",
+   "calls": 81,
+   "long_context_calls": 0,
+   "output_tokens": 16709,
+   "reasoning_tokens": 40390,
+   "recorded_usd": 3.461348,
+   "recalculated_usd": 3.703688
+  },
+  {
+   "id": "37620121-17c9-4940-aa5a-e401ddf2974a",
+   "task": "hof-topology-interpenetration",
+   "calls": 40,
+   "long_context_calls": 2,
+   "output_tokens": 58695,
+   "reasoning_tokens": 133891,
+   "recorded_usd": 3.17667,
+   "recalculated_usd": 4.010292
+  },
+  {
+   "id": "442fb78d-d3ec-4015-929d-aecc437e7207",
+   "task": "hof-topology-interpenetration",
+   "calls": 66,
+   "long_context_calls": 5,
+   "output_tokens": 51735,
+   "reasoning_tokens": 99628,
+   "recorded_usd": 5.035938,
+   "recalculated_usd": 5.68272
+  },
+  {
+   "id": "620eb662-4e76-4853-9048-f069ce529a6c",
+   "task": "hof-topology-interpenetration",
+   "calls": 43,
+   "long_context_calls": 0,
+   "output_tokens": 31721,
+   "reasoning_tokens": 70852,
+   "recorded_usd": 3.386478,
+   "recalculated_usd": 3.81159
+  },
+  {
+   "id": "69489b3e-02f2-49a9-ada1-b7d296d0749c",
+   "task": "hof-topology-interpenetration",
+   "calls": 52,
+   "long_context_calls": 0,
+   "output_tokens": 33937,
+   "reasoning_tokens": 78690,
+   "recorded_usd": 3.751126,
+   "recalculated_usd": 4.223266
+  },
+  {
+   "id": "8d75ad11-153a-4b13-a4e5-3c698ce08fdf",
+   "task": "hof-topology-interpenetration",
+   "calls": 89,
+   "long_context_calls": 6,
+   "output_tokens": 54596,
+   "reasoning_tokens": 153803,
+   "recorded_usd": 6.671476,
+   "recalculated_usd": 7.631302
+  },
+  {
+   "id": "3ece987c-be52-4b35-9c34-e8394a24113a",
+   "task": "html-js-filter",
+   "calls": 63,
+   "long_context_calls": 5,
+   "output_tokens": 63159,
+   "reasoning_tokens": 214259,
+   "recorded_usd": 5.652404,
+   "recalculated_usd": 6.987614
+  },
+  {
+   "id": "9a15f1ab-df93-44fa-a9b4-9153677a01b6",
+   "task": "html-js-filter",
+   "calls": 151,
+   "long_context_calls": 21,
+   "output_tokens": 81525,
+   "reasoning_tokens": 458736,
+   "recorded_usd": 14.625922,
+   "recalculated_usd": 17.604352
+  },
+  {
+   "id": "9eb59a93-c5cb-4cb6-9fb2-f2204def337d",
+   "task": "html-js-filter",
+   "calls": 59,
+   "long_context_calls": 9,
+   "output_tokens": 51859,
+   "reasoning_tokens": 263991,
+   "recorded_usd": 6.13003,
+   "recalculated_usd": 7.750252
+  },
+  {
+   "id": "b11cb16e-a75c-47f5-bb74-27971f625f0c",
+   "task": "html-js-filter",
+   "calls": 66,
+   "long_context_calls": 6,
+   "output_tokens": 46437,
+   "reasoning_tokens": 190175,
+   "recorded_usd": 5.011006,
+   "recalculated_usd": 6.227176
+  },
+  {
+   "id": "b4904aa9-1cea-49db-93a0-b4d9cbe57653",
+   "task": "html-js-filter",
+   "calls": 60,
+   "long_context_calls": 6,
+   "output_tokens": 49688,
+   "reasoning_tokens": 235365,
+   "recorded_usd": 6.001604,
+   "recalculated_usd": 7.548854
+  },
+  {
+   "id": "5ad8869d-8dbe-47e2-a64e-ee3f5d48f60b",
+   "task": "mvcc-lsm-compaction",
+   "calls": 17,
+   "long_context_calls": 0,
+   "output_tokens": 10108,
+   "reasoning_tokens": 99755,
+   "recorded_usd": 1.155186,
+   "recalculated_usd": 1.753716
+  },
+  {
+   "id": "5e836a71-36f5-4ce4-8b05-0db8fe079db5",
+   "task": "mvcc-lsm-compaction",
+   "calls": 15,
+   "long_context_calls": 0,
+   "output_tokens": 8166,
+   "reasoning_tokens": 89954,
+   "recorded_usd": 0.871982,
+   "recalculated_usd": 1.411706
+  },
+  {
+   "id": "6a2af633-fdf8-49b9-85fb-e0ef4a61d966",
+   "task": "mvcc-lsm-compaction",
+   "calls": 13,
+   "long_context_calls": 0,
+   "output_tokens": 7735,
+   "reasoning_tokens": 109174,
+   "recorded_usd": 0.876066,
+   "recalculated_usd": 1.53111
+  },
+  {
+   "id": "6d21c0c5-9e08-4ace-87f8-28f768ee6a89",
+   "task": "mvcc-lsm-compaction",
+   "calls": 16,
+   "long_context_calls": 0,
+   "output_tokens": 9220,
+   "reasoning_tokens": 89052,
+   "recorded_usd": 0.905852,
+   "recalculated_usd": 1.440164
+  },
+  {
+   "id": "913cf840-adc9-4d5a-af6c-a5e63a8c45b2",
+   "task": "mvcc-lsm-compaction",
+   "calls": 11,
+   "long_context_calls": 0,
+   "output_tokens": 7813,
+   "reasoning_tokens": 100876,
+   "recorded_usd": 0.707782,
+   "recalculated_usd": 1.313038
+  },
+  {
+   "id": "540c10d1-a5df-4776-8f1a-dbc28235c8f3",
+   "task": "photonic-waveguide-routing",
+   "calls": 238,
+   "long_context_calls": 51,
+   "output_tokens": 115969,
+   "reasoning_tokens": 1311097,
+   "recorded_usd": 28.4675,
+   "recalculated_usd": 36.826592
+  },
+  {
+   "id": "84062821-0ba8-4e3d-8107-d15eeb925d1e",
+   "task": "photonic-waveguide-routing",
+   "calls": 113,
+   "long_context_calls": 22,
+   "output_tokens": 48765,
+   "reasoning_tokens": 626395,
+   "recorded_usd": 13.111194,
+   "recalculated_usd": 17.104926
+  },
+  {
+   "id": "8a47621b-8006-40cf-aa66-479cc5ec2235",
+   "task": "photonic-waveguide-routing",
+   "calls": 112,
+   "long_context_calls": 29,
+   "output_tokens": 60026,
+   "reasoning_tokens": 633838,
+   "recorded_usd": 14.993774,
+   "recalculated_usd": 19.000244
+  },
+  {
+   "id": "8b86aced-69b8-40cc-a352-3af9ce03b3b2",
+   "task": "photonic-waveguide-routing",
+   "calls": 176,
+   "long_context_calls": 30,
+   "output_tokens": 79375,
+   "reasoning_tokens": 922322,
+   "recorded_usd": 19.594294,
+   "recalculated_usd": 25.414462
+  },
+  {
+   "id": "a4857781-67f6-4269-bc5b-43dfc18d242b",
+   "task": "photonic-waveguide-routing",
+   "calls": 64,
+   "long_context_calls": 5,
+   "output_tokens": 33079,
+   "reasoning_tokens": 467150,
+   "recorded_usd": 7.534606,
+   "recalculated_usd": 10.465978
+  },
+  {
+   "id": "18ac25b4-36f6-4e63-9716-aceb336ad733",
+   "task": "production-planning",
+   "calls": 17,
+   "long_context_calls": 0,
+   "output_tokens": 12156,
+   "reasoning_tokens": 118790,
+   "recorded_usd": 1.43445,
+   "recalculated_usd": 2.14719
+  },
+  {
+   "id": "24f76124-b00b-46e4-a750-a702feb92034",
+   "task": "production-planning",
+   "calls": 36,
+   "long_context_calls": 2,
+   "output_tokens": 47472,
+   "reasoning_tokens": 172645,
+   "recorded_usd": 3.865508,
+   "recalculated_usd": 5.008322
+  },
+  {
+   "id": "2b3dbeba-b3dd-42f8-bda4-bfe0168e8416",
+   "task": "production-planning",
+   "calls": 47,
+   "long_context_calls": 1,
+   "output_tokens": 69403,
+   "reasoning_tokens": 173468,
+   "recorded_usd": 4.435074,
+   "recalculated_usd": 5.530398
+  },
+  {
+   "id": "707c4ea8-f1f9-482c-a065-82e0d7fe1421",
+   "task": "production-planning",
+   "calls": 33,
+   "long_context_calls": 3,
+   "output_tokens": 25269,
+   "reasoning_tokens": 173671,
+   "recorded_usd": 3.031402,
+   "recalculated_usd": 4.136032
+  },
+  {
+   "id": "f514cdd5-a018-4792-809b-63b7f91caf56",
+   "task": "production-planning",
+   "calls": 15,
+   "long_context_calls": 0,
+   "output_tokens": 18539,
+   "reasoning_tokens": 117275,
+   "recorded_usd": 1.051734,
+   "recalculated_usd": 1.755384
+  },
+  {
+   "id": "004bafb8-6bbe-42d9-998b-28d7627234e8",
+   "task": "react-lead-form",
+   "calls": 35,
+   "long_context_calls": 4,
+   "output_tokens": 35140,
+   "reasoning_tokens": 262772,
+   "recorded_usd": 3.70207,
+   "recalculated_usd": 5.357188
+  },
+  {
+   "id": "4172f9c5-27e8-4203-8493-5ab81b90d90b",
+   "task": "react-lead-form",
+   "calls": 7,
+   "long_context_calls": 0,
+   "output_tokens": 790,
+   "reasoning_tokens": 34244,
+   "recorded_usd": 0.165312,
+   "recalculated_usd": 0.370776
+  },
+  {
+   "id": "b3bc99a2-0742-49ae-96de-2484b5c7d2ad",
+   "task": "react-lead-form",
+   "calls": 42,
+   "long_context_calls": 8,
+   "output_tokens": 25902,
+   "reasoning_tokens": 149327,
+   "recorded_usd": 4.779596,
+   "recalculated_usd": 5.71949
+  },
+  {
+   "id": "d6ba90f0-ce8f-45a6-b4cf-8cc2fcde5749",
+   "task": "react-lead-form",
+   "calls": 43,
+   "long_context_calls": 4,
+   "output_tokens": 24552,
+   "reasoning_tokens": 140007,
+   "recorded_usd": 4.172926,
+   "recalculated_usd": 5.02018
+  },
+  {
+   "id": "fed31536-c16c-448c-bd47-971151e3850f",
+   "task": "react-lead-form",
+   "calls": 51,
+   "long_context_calls": 11,
+   "output_tokens": 36213,
+   "reasoning_tokens": 252993,
+   "recorded_usd": 5.935348,
+   "recalculated_usd": 7.499194
+  },
+  {
+   "id": "26229aa9-79a2-488a-a818-3537313e2392",
+   "task": "satb-audio-transcription",
+   "calls": 58,
+   "long_context_calls": 7,
+   "output_tokens": 49223,
+   "reasoning_tokens": 74324,
+   "recorded_usd": 4.700296,
+   "recalculated_usd": 5.183536
+  },
+  {
+   "id": "68e762a1-f974-40e6-b597-fb1d78eb4795",
+   "task": "satb-audio-transcription",
+   "calls": 49,
+   "long_context_calls": 0,
+   "output_tokens": 36399,
+   "reasoning_tokens": 78324,
+   "recorded_usd": 3.225706,
+   "recalculated_usd": 3.69565
+  },
+  {
+   "id": "914be9bb-dc1a-4f81-b956-47f436a3e596",
+   "task": "satb-audio-transcription",
+   "calls": 64,
+   "long_context_calls": 2,
+   "output_tokens": 54285,
+   "reasoning_tokens": 96318,
+   "recorded_usd": 3.981708,
+   "recalculated_usd": 4.577658
+  },
+  {
+   "id": "96f33dd9-8eb2-43e8-b17a-9c92e99797c1",
+   "task": "satb-audio-transcription",
+   "calls": 76,
+   "long_context_calls": 4,
+   "output_tokens": 60955,
+   "reasoning_tokens": 128402,
+   "recorded_usd": 5.135082,
+   "recalculated_usd": 5.963328
+  },
+  {
+   "id": "9867ad22-4ac0-44bc-a993-96d24cb6d295",
+   "task": "satb-audio-transcription",
+   "calls": 69,
+   "long_context_calls": 10,
+   "output_tokens": 40257,
+   "reasoning_tokens": 84714,
+   "recorded_usd": 5.191038,
+   "recalculated_usd": 5.720166
+  },
+  {
+   "id": "0dc594b0-e4b6-477d-9058-3d438d4f3f58",
+   "task": "session-window-debug",
+   "calls": 36,
+   "long_context_calls": 10,
+   "output_tokens": 27047,
+   "reasoning_tokens": 233725,
+   "recorded_usd": 4.110448,
+   "recalculated_usd": 5.594398
+  },
+  {
+   "id": "5e462830-3408-4ef5-b3be-5f46c257e92b",
+   "task": "session-window-debug",
+   "calls": 48,
+   "long_context_calls": 6,
+   "output_tokens": 39941,
+   "reasoning_tokens": 272260,
+   "recorded_usd": 4.681846,
+   "recalculated_usd": 6.358486
+  },
+  {
+   "id": "94bf209b-1fed-47cf-b495-84aa75c9629f",
+   "task": "session-window-debug",
+   "calls": 42,
+   "long_context_calls": 7,
+   "output_tokens": 24586,
+   "reasoning_tokens": 280986,
+   "recorded_usd": 4.649536,
+   "recalculated_usd": 6.438988
+  },
+  {
+   "id": "e502352a-1440-4044-870f-4ed417f14c0a",
+   "task": "session-window-debug",
+   "calls": 24,
+   "long_context_calls": 0,
+   "output_tokens": 15111,
+   "reasoning_tokens": 137578,
+   "recorded_usd": 2.01192,
+   "recalculated_usd": 2.837388
+  },
+  {
+   "id": "f484af36-58ed-4e69-ad84-5c2bcda46101",
+   "task": "session-window-debug",
+   "calls": 49,
+   "long_context_calls": 6,
+   "output_tokens": 25703,
+   "reasoning_tokens": 280657,
+   "recorded_usd": 4.65805,
+   "recalculated_usd": 6.375616
+  },
+  {
+   "id": "60d4ca0c-2f1a-4733-b85f-ec3a91bc5945",
+   "task": "sound-change-cascade",
+   "calls": 100,
+   "long_context_calls": 5,
+   "output_tokens": 72946,
+   "reasoning_tokens": 141826,
+   "recorded_usd": 6.84171,
+   "recalculated_usd": 7.740312
+  },
+  {
+   "id": "685bea24-c521-4034-89a6-739d136ef303",
+   "task": "sound-change-cascade",
+   "calls": 108,
+   "long_context_calls": 6,
+   "output_tokens": 102762,
+   "reasoning_tokens": 154216,
+   "recorded_usd": 8.62881,
+   "recalculated_usd": 9.585882
+  },
+  {
+   "id": "bacba3f0-518f-4983-adc5-60db9fcd6b0a",
+   "task": "sound-change-cascade",
+   "calls": 79,
+   "long_context_calls": 5,
+   "output_tokens": 78182,
+   "reasoning_tokens": 167481,
+   "recorded_usd": 5.5186,
+   "recalculated_usd": 6.588706
+  },
+  {
+   "id": "c769bd06-9e04-49b9-aba8-9db8a2f93e8f",
+   "task": "sound-change-cascade",
+   "calls": 102,
+   "long_context_calls": 8,
+   "output_tokens": 69450,
+   "reasoning_tokens": 163309,
+   "recorded_usd": 7.66087,
+   "recalculated_usd": 8.721064
+  },
+  {
+   "id": "f7fc2397-0872-4075-b79a-027c6e3f5b6f",
+   "task": "sound-change-cascade",
+   "calls": 39,
+   "long_context_calls": 4,
+   "output_tokens": 41441,
+   "reasoning_tokens": 118952,
+   "recorded_usd": 3.318428,
+   "recalculated_usd": 4.061264
+  },
+  {
+   "id": "15af7221-5598-4e4a-9dc8-56aacc7b67e4",
+   "task": "telecom-entity-resolution",
+   "calls": 123,
+   "long_context_calls": 7,
+   "output_tokens": 91160,
+   "reasoning_tokens": 127582,
+   "recorded_usd": 9.2106,
+   "recalculated_usd": 10.020168
+  },
+  {
+   "id": "3935a67a-cae9-48dd-aff7-0206d1da1170",
+   "task": "telecom-entity-resolution",
+   "calls": 98,
+   "long_context_calls": 8,
+   "output_tokens": 90613,
+   "reasoning_tokens": 140161,
+   "recorded_usd": 7.381028,
+   "recalculated_usd": 8.266874
+  },
+  {
+   "id": "3baa6098-6f04-4cdc-8a41-3dd7849ef910",
+   "task": "telecom-entity-resolution",
+   "calls": 103,
+   "long_context_calls": 11,
+   "output_tokens": 92920,
+   "reasoning_tokens": 138894,
+   "recorded_usd": 8.544558,
+   "recalculated_usd": 9.435372
+  },
+  {
+   "id": "72e9eb56-6a9d-4e35-8615-86758c07dee4",
+   "task": "telecom-entity-resolution",
+   "calls": 130,
+   "long_context_calls": 11,
+   "output_tokens": 106602,
+   "reasoning_tokens": 144797,
+   "recorded_usd": 10.635702,
+   "recalculated_usd": 11.554182
+  },
+  {
+   "id": "a3f35938-0ea3-419f-b407-b09c4a3837ba",
+   "task": "telecom-entity-resolution",
+   "calls": 117,
+   "long_context_calls": 9,
+   "output_tokens": 119836,
+   "reasoning_tokens": 117878,
+   "recorded_usd": 9.104688,
+   "recalculated_usd": 9.842484
+  },
+  {
+   "id": "7a2bf33a-dd39-4ce8-b11c-29cdd0912c2b",
+   "task": "vba-userform-port",
+   "calls": 68,
+   "long_context_calls": 6,
+   "output_tokens": 70232,
+   "reasoning_tokens": 176240,
+   "recorded_usd": 6.768272,
+   "recalculated_usd": 7.847192
+  },
+  {
+   "id": "b8c9d44e-3b76-4936-90d8-1db5b641af64",
+   "task": "vba-userform-port",
+   "calls": 75,
+   "long_context_calls": 3,
+   "output_tokens": 69816,
+   "reasoning_tokens": 163030,
+   "recorded_usd": 6.537044,
+   "recalculated_usd": 7.533692
+  },
+  {
+   "id": "c243af72-bf80-474e-a133-8893d56426a6",
+   "task": "vba-userform-port",
+   "calls": 76,
+   "long_context_calls": 12,
+   "output_tokens": 75795,
+   "reasoning_tokens": 202304,
+   "recorded_usd": 7.644326,
+   "recalculated_usd": 8.908094
+  },
+  {
+   "id": "e8a541ad-b7b2-472a-9e9f-77e96255b66e",
+   "task": "vba-userform-port",
+   "calls": 90,
+   "long_context_calls": 8,
+   "output_tokens": 83293,
+   "reasoning_tokens": 178491,
+   "recorded_usd": 8.462884,
+   "recalculated_usd": 9.592108
+  },
+  {
+   "id": "ee2f9cdc-b4ae-4949-8f05-3ef7a76e997d",
+   "task": "vba-userform-port",
+   "calls": 69,
+   "long_context_calls": 4,
+   "output_tokens": 83238,
+   "reasoning_tokens": 180774,
+   "recorded_usd": 6.269764,
+   "recalculated_usd": 7.432168
+  },
+  {
+   "id": "01f669f7-a14c-417c-b1f4-e022644e5101",
+   "task": "vllm-deepseek-streaming",
+   "calls": 133,
+   "long_context_calls": 12,
+   "output_tokens": 46672,
+   "reasoning_tokens": 158863,
+   "recorded_usd": 10.887352,
+   "recalculated_usd": 11.962918
+  },
+  {
+   "id": "46446d71-98eb-481f-809d-861083a7071b",
+   "task": "vllm-deepseek-streaming",
+   "calls": 155,
+   "long_context_calls": 14,
+   "output_tokens": 49790,
+   "reasoning_tokens": 228399,
+   "recorded_usd": 11.946656,
+   "recalculated_usd": 13.500074
+  },
+  {
+   "id": "576d6d1b-db7c-4440-b974-a3982c38ec32",
+   "task": "vllm-deepseek-streaming",
+   "calls": 194,
+   "long_context_calls": 18,
+   "output_tokens": 44703,
+   "reasoning_tokens": 233327,
+   "recorded_usd": 16.742626,
+   "recalculated_usd": 18.238162
+  },
+  {
+   "id": "c07e2f11-a644-4997-8e4d-876534dfc059",
+   "task": "vllm-deepseek-streaming",
+   "calls": 193,
+   "long_context_calls": 22,
+   "output_tokens": 55256,
+   "reasoning_tokens": 212587,
+   "recorded_usd": 15.46698,
+   "recalculated_usd": 16.87584
+  },
+  {
+   "id": "ea4f6c07-accc-4bf5-b569-cba821dc6ec8",
+   "task": "vllm-deepseek-streaming",
+   "calls": 130,
+   "long_context_calls": 13,
+   "output_tokens": 31861,
+   "reasoning_tokens": 154481,
+   "recorded_usd": 10.482482,
+   "recalculated_usd": 11.526212
+  },
+  {
+   "id": "1c01ac36-4c16-4aa1-a3d0-3a4fe4b994b4",
+   "task": "vpp-loss-divergence",
+   "calls": 39,
+   "long_context_calls": 0,
+   "output_tokens": 7893,
+   "reasoning_tokens": 15772,
+   "recorded_usd": 1.457206,
+   "recalculated_usd": 1.551838
+  },
+  {
+   "id": "9e3360ea-8d06-4591-bbe9-802630f8c491",
+   "task": "vpp-loss-divergence",
+   "calls": 154,
+   "long_context_calls": 11,
+   "output_tokens": 24699,
+   "reasoning_tokens": 80117,
+   "recorded_usd": 10.933334,
+   "recalculated_usd": 11.455394
+  },
+  {
+   "id": "b85e3664-57c0-4c71-aaaa-eef77611972a",
+   "task": "vpp-loss-divergence",
+   "calls": 174,
+   "long_context_calls": 15,
+   "output_tokens": 26331,
+   "reasoning_tokens": 72975,
+   "recorded_usd": 12.632412,
+   "recalculated_usd": 13.117014
+  },
+  {
+   "id": "c34ca568-bdfe-4816-a0cc-8d2952c23277",
+   "task": "vpp-loss-divergence",
+   "calls": 42,
+   "long_context_calls": 0,
+   "output_tokens": 8488,
+   "reasoning_tokens": 21593,
+   "recorded_usd": 1.838558,
+   "recalculated_usd": 1.968116
+  },
+  {
+   "id": "f1c8f9e2-a86d-49bb-ae1b-d21cf8c4d059",
+   "task": "vpp-loss-divergence",
+   "calls": 53,
+   "long_context_calls": 0,
+   "output_tokens": 9362,
+   "reasoning_tokens": 21286,
+   "recorded_usd": 2.379116,
+   "recalculated_usd": 2.506832
+  },
+  {
+   "id": "612def08-63c8-4efc-9f46-9062105585aa",
+   "task": "wal-recovery-ordering",
+   "calls": 21,
+   "long_context_calls": 0,
+   "output_tokens": 15106,
+   "reasoning_tokens": 97282,
+   "recorded_usd": 1.248222,
+   "recalculated_usd": 1.831914
+  },
+  {
+   "id": "73f57207-2983-4814-a338-99ec2fa4f2fd",
+   "task": "wal-recovery-ordering",
+   "calls": 38,
+   "long_context_calls": 0,
+   "output_tokens": 20784,
+   "reasoning_tokens": 102483,
+   "recorded_usd": 2.401708,
+   "recalculated_usd": 3.016606
+  },
+  {
+   "id": "c6707281-058c-4d22-aa45-614becabc323",
+   "task": "wal-recovery-ordering",
+   "calls": 19,
+   "long_context_calls": 0,
+   "output_tokens": 12490,
+   "reasoning_tokens": 113325,
+   "recorded_usd": 1.122086,
+   "recalculated_usd": 1.802036
+  },
+  {
+   "id": "c70ebb0c-7877-4980-9b56-0f6c9f26d658",
+   "task": "wal-recovery-ordering",
+   "calls": 31,
+   "long_context_calls": 0,
+   "output_tokens": 16227,
+   "reasoning_tokens": 101788,
+   "recorded_usd": 1.860816,
+   "recalculated_usd": 2.471544
+  },
+  {
+   "id": "cc640b0a-9326-40a2-8090-ba83a3342159",
+   "task": "wal-recovery-ordering",
+   "calls": 18,
+   "long_context_calls": 0,
+   "output_tokens": 15589,
+   "reasoning_tokens": 120881,
+   "recorded_usd": 1.414012,
+   "recalculated_usd": 2.139298
+  }
+ ]
+}

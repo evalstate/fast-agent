@@ -181,6 +181,43 @@
       "scan": true
     },
     {
+      "id": "tb4-grok47-xhigh",
+      "harness": "fast-agent",
+      "model": "Grok 4.7",
+      "effort": "xhigh",
+      "model_string": "xai.grok-4.7?reasoning=xhigh&transport=sse",
+      "date": "2026-10-20",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-grok47-xhigh-r1 (cohort tb4-grok47-xhigh-xai-oauth-sse-002)"
+      },
+      "expected": {
+        "passes": 40
+      },
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks. No pass has a high or critical finding; the four high findings (upstream vLLM fetched, NeMo fix commit fetched) are on failed trials. atif-scan 0.8.14 could not decide some checks in one pass, react-lead-form__wukC4AJ: two long shell commands left its search and verifier-watch checks undecided, and three compacted tool results its credential checks. Reviewed by hand: a local Vite build experiment, a one-off search of the app's own sources and listing of /app, /hidden, /eval and /tests (only /app existed), an edit, a config read and a grep of the project's sources. No benchmark lookup, watcher or delegation to another coding agent.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+        "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor 077c5ec6, with the published fast-agent-mcp 0.10.46 wheel; xAI API over SSE. fast-agent compacts Grok 4.7's context at 190k tokens, below xAI's 200k long-context price band. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "Two photonic-waveguide-routing trials failed when the xAI access token expired about six hours into the run (403 bad credentials). Both were rerun as replacements and one of the two passed. The originals are kept as evidence; the run as first launched scored 39/95.",
+        "One vpp-loss-divergence trial ended with NonZeroAgentExitCodeError and scores 0: the agent killed every process whose command line mentioned pretrain.py, which included its own fast-agent process (the task prompt is on its command line). Agent-caused, so not rerun.",
+        "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog 2026-10-11.1, rules grok-4.7-short / grok-4.7-long: $2 / $0.50 / $6 per million input / cached / output tokens, doubled above 200k context). xAI reports reasoning tokens inside output tokens, so reasoning is priced as output."
+      ],
+      "scan": true
+    },
+    {
       "id": "tb4-sol61-medium",
       "harness": "fast-agent",
       "model": "GPT-6.1 Sol",
@@ -530,7 +567,9 @@
       "leaderboard_row": "4643b23c-53e8-47ae-a3bd-9abc900e9588",
       "expected": {
         "passes": 180
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-claude-code-fable-5-1-low",
@@ -541,7 +580,9 @@
       "leaderboard_row": "e18d02ab-0973-4d86-872f-a353c8a7f344",
       "expected": {
         "passes": 143
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-claude-code-fable-5-1-max",
@@ -552,7 +593,9 @@
       "leaderboard_row": "c741608e-c94e-417d-b7a8-e67111a0c887",
       "expected": {
         "passes": 191
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-claude-code-fable-5-1-medium",
@@ -563,7 +606,9 @@
       "leaderboard_row": "83e6bf7e-aeb4-4116-9f30-ca8de96603fb",
       "expected": {
         "passes": 178
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-claude-code-fable-5-1-xhigh",
@@ -574,7 +619,9 @@
       "leaderboard_row": "9e1c5e11-748f-4f2e-911a-070a396d5bf8",
       "expected": {
         "passes": 191
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-claude-code-fable-5-max",
@@ -585,7 +632,9 @@
       "leaderboard_row": "36c077e0-4879-4444-b315-8532d66401d6",
       "expected": {
         "passes": 147
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-claude-code-glm-5-3-max",
@@ -596,7 +645,9 @@
       "leaderboard_row": "d72e8775-f4f1-4313-99e7-35b1cb499f24",
       "expected": {
         "passes": 138
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-claude-code-opus-4-8-max",
@@ -607,7 +658,9 @@
       "leaderboard_row": "952b4217-421f-4d14-849b-9968fcb2063b",
       "expected": {
         "passes": 78
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-claude-code-opus-5-high",
@@ -618,7 +671,9 @@
       "leaderboard_row": "0b2908ee-3035-447c-9876-e68fecb3f413",
       "expected": {
         "passes": 166
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-claude-code-opus-5-low",
@@ -629,7 +684,9 @@
       "leaderboard_row": "03fe4f10-b683-427b-a820-61e38145d28b",
       "expected": {
         "passes": 115
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-claude-code-opus-5-max",
@@ -643,7 +700,9 @@
       },
       "notes": [
         "Trial records show 173 passes; the leaderboard publishes 171. Cells are shown as recorded."
-      ]
+      ],
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-claude-code-opus-5-medium",
@@ -654,7 +713,9 @@
       "leaderboard_row": "8c102a88-0789-4ce7-b503-bd39e84e157b",
       "expected": {
         "passes": 148
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-claude-code-opus-5-xhigh",
@@ -665,7 +726,9 @@
       "leaderboard_row": "f7844abc-3109-4d5f-91ad-481df7b9fac2",
       "expected": {
         "passes": 178
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-claude-code-sonnet-5-max",
@@ -676,7 +739,9 @@
       "leaderboard_row": "8180b9e4-4990-43d0-b906-cd8b43adaaa2",
       "expected": {
         "passes": 41
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-codex-gpt-5-6-luna-max",
@@ -687,7 +752,9 @@
       "leaderboard_row": "51c6d76e-5baa-48c1-97b3-88656c620eef",
       "expected": {
         "passes": 57
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-codex-gpt-5-6-sol-max",
@@ -698,7 +765,9 @@
       "leaderboard_row": "0e349bde-b264-494d-a853-fada9c696192",
       "expected": {
         "passes": 123
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-codex-gpt-5-6-terra-max",
@@ -709,7 +778,9 @@
       "leaderboard_row": "e53da412-5e92-408c-b369-c767924c7c1c",
       "expected": {
         "passes": 71
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-codex-gpt-6-astra-high",
@@ -720,7 +791,9 @@
       "leaderboard_row": "3475050c-bf5e-4261-a3f6-0af5350af13f",
       "expected": {
         "passes": 191
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-codex-gpt-6-astra-low",
@@ -731,7 +804,9 @@
       "leaderboard_row": "b3ad58f3-b311-4d4d-875b-3158cf0309d6",
       "expected": {
         "passes": 167
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-codex-gpt-6-astra-max",
@@ -742,7 +817,9 @@
       "leaderboard_row": "5c537be4-7fc3-449b-8bfc-ceb9061c2535",
       "expected": {
         "passes": 192
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-codex-gpt-6-astra-medium",
@@ -753,7 +830,9 @@
       "leaderboard_row": "f3c3d5a6-6424-4acb-bfcc-615c3f79f6dd",
       "expected": {
         "passes": 179
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-codex-gpt-6-astra-xhigh",
@@ -764,7 +843,9 @@
       "leaderboard_row": "16db8ad5-84aa-4588-b660-1ce68c0d45e2",
       "expected": {
         "passes": 191
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-grok-build-grok-4-5-high",
@@ -775,7 +856,9 @@
       "leaderboard_row": "0eed5a0d-96b6-491b-aeb7-cd5e4700c2d7",
       "expected": {
         "passes": 41
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-grok-build-grok-4-6-high",
@@ -786,7 +869,9 @@
       "leaderboard_row": "26354542-edc0-40cd-8f8d-9fe6fbe92ac3",
       "expected": {
         "passes": 67
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-grok-build-grok-4-7-xhigh",
@@ -797,6 +882,12 @@
       "leaderboard_row": "84b39f56-fe3c-46c3-919f-3b67b73f9b49",
       "expected": {
         "passes": 124
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json",
+      "recalculated_cost": {
+        "file": "recalculated/tb4-grok-build-grok-4-7-xhigh.json",
+        "note": "Cost on the subset is our recalculation, not Harbor's recorded cost. Harbor's grok-build adapter counted only the Grok CLI's visible output tokens and left out the reasoning tokens the CLI reports separately (about 80% of all output here), so the Hub's output tokens and cost omit reasoning (harbor-framework/harbor#3805). We repriced each of the 95 subset trials from the CLI's per-call usage in the trial's public Hub log, the way Harbor prices it (LiteLLM's xai/grok-4.7 rates, long-context rates from 200k prompt tokens), with reasoning counted as output: $632.73 against $530.86 recorded (+19%). Our fast-agent runs record xAI's own output count, which includes reasoning. The full run's published total ($3,683.29) is Harbor's and omits reasoning the same way."
       }
     },
     {
@@ -808,7 +899,9 @@
       "leaderboard_row": "14f4da14-b86a-4dca-92d7-11178d4fe064",
       "expected": {
         "passes": 37
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-mini-swe-agent-gemini-3-8-flash-high",
@@ -819,7 +912,9 @@
       "leaderboard_row": "06850434-507d-4dbd-b74a-09d52519ee35",
       "expected": {
         "passes": 63
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-codex-gpt-6-1-sol-max",
@@ -832,7 +927,9 @@
       "submission_file": "leaderboard/submissions/2026-09-30-openai-gpt-6-1-sol-max-codex.json",
       "expected": {
         "passes": 192
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-claude-code-opus-5-5-max",
@@ -843,7 +940,9 @@
       "leaderboard_row": "7b805dbb-e77a-4d0a-892e-165f922f786c",
       "expected": {
         "passes": 214
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-claude-code-sonnet-5-5-max",
@@ -854,7 +953,9 @@
       "leaderboard_row": "723c6609-fe18-46d9-a1a3-dd4b6b0e0d00",
       "expected": {
         "passes": 204
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-codex-gpt-6-sol-max",
@@ -865,7 +966,9 @@
       "leaderboard_row": "a29d2361-9d5b-4a95-a56d-707070bd6c88",
       "expected": {
         "passes": 163
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-claude-code-glm-5-3-flash-none",
@@ -876,7 +979,9 @@
       "leaderboard_row": "ac7be218-79b6-464e-8861-9b5a7f760cb8",
       "expected": {
         "passes": 118
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-claude-code-qwen3-8-max-0902-max",
@@ -887,7 +992,9 @@
       "leaderboard_row": "1f7ed2b4-3a4e-41d9-a1e1-0d9dcdc3667a",
       "expected": {
         "passes": 89
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-codex-gpt-6-luna-max",
@@ -898,7 +1005,9 @@
       "leaderboard_row": "5bd8ac99-7353-4210-bdc5-153029e660d5",
       "expected": {
         "passes": 54
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     },
     {
       "id": "tb4-muse-code-muse-spark-1-3-xhigh",
@@ -909,7 +1018,9 @@
       "leaderboard_row": "c76c9ec8-b770-41ad-b0d2-e64db28bd478",
       "expected": {
         "passes": 48
-      }
+      },
+      "scan": true,
+      "scan_task_subset": "subset.json"
     }
   ]
 }

@@ -157,3 +157,21 @@ cost at list rates. Each run page's Evidence adds a list-rate estimate from the 
 token usage, which prices prompt-cache writes and calls the recorded cost missed. Runs
 through GitHub Copilot show list-price equivalents, not what Copilot billed. Each
 comparator's run page also shows its full 66-task run and published cost.
+
+Grok Build · Grok 4.7 xhigh is the exception: we recalculated its cost. Harbor's
+grok-build adapter counted only the Grok CLI's visible output tokens and left out the
+reasoning tokens the CLI reports separately, so the recorded output tokens and cost omit
+reasoning ([harbor-framework/harbor#3805](https://github.com/harbor-framework/harbor/pull/3805)).
+We repriced its 95 subset trials from the CLI's per-call usage in each trial's public Hub
+log, priced as Harbor prices them but with reasoning counted as output: $632.73, against
+$530.86 recorded. Its full run's published total is Harbor's and omits reasoning the same
+way. Our fast-agent runs record xAI's own output count, which includes reasoning.
+
+## atif-scan review
+
+Our runs and the leaderboard rows are scanned with
+[atif-scan](https://github.com/huggingface/atif-scan) on the 19 subset tasks: for a
+leaderboard row, exactly its 95 trials on those tasks. Every pass in our runs that
+atif-scan flags high or critical has a recorded review decision; the leaderboard rows'
+flags are not reviewed. Grok Build's trajectories keep only the context after its last
+compaction, so its scans see part of most trials' history.

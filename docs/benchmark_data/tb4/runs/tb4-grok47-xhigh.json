@@ -1,0 +1,811 @@
+{
+  "id": "tb4-grok47-xhigh",
+  "benchmark": "terminal-bench-4.0-subset",
+  "harness": "fast-agent",
+  "harness_version": "0.10.46",
+  "model": "Grok 4.7",
+  "effort": "xhigh",
+  "model_string": "xai.grok-4.7?reasoning=xhigh&transport=sse",
+  "date": "2026-10-20",
+  "timeout": "standard",
+  "jobs": [
+    {
+      "id": "tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic",
+      "name": "tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic (85 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic"
+    },
+    {
+      "id": "tb4-grok47-xhigh-xai-oauth-sse-002-hf-upgrade",
+      "name": "tb4-grok47-xhigh-xai-oauth-sse-002-hf-upgrade (10 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-upgrade",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-upgrade"
+    },
+    {
+      "id": "tb4-grok47-xhigh-xai-oauth-sse-002-rep-001",
+      "name": "tb4-grok47-xhigh-xai-oauth-sse-002-rep-001 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-rep-001",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-rep-001"
+    },
+    {
+      "id": "tb4-grok47-xhigh-xai-oauth-sse-002-rep-002",
+      "name": "tb4-grok47-xhigh-xai-oauth-sse-002-rep-002 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-rep-002",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-rep-002"
+    }
+  ],
+  "excluded_trials": [
+    {
+      "id": "a58f4e40-6a74-4443-9e40-eb2f76b89c74",
+      "task": "photonic-waveguide-routing",
+      "error_type": "NonZeroAgentExitCodeError",
+      "cost_usd": 30.17067999999999,
+      "reason": "NonZeroAgentExitCodeError (infrastructure); replaced by tb4-grok47-xhigh-xai-oauth-sse-002-rep-001. Not scored; its cost is still counted."
+    },
+    {
+      "id": "e1794ed5-90bf-4385-ba2d-76c844403790",
+      "task": "photonic-waveguide-routing",
+      "error_type": "NonZeroAgentExitCodeError",
+      "cost_usd": 22.598739999999996,
+      "reason": "NonZeroAgentExitCodeError (infrastructure); replaced by tb4-grok47-xhigh-xai-oauth-sse-002-rep-002. Not scored; its cost is still counted."
+    }
+  ],
+  "disqualified_trials": [],
+  "slots": 95,
+  "passes": 40,
+  "score": 42.11,
+  "tasks": {
+    "atrx-vep-crispr": "11111",
+    "cad-model": "01001",
+    "cargo-flight-dispatch": "00000",
+    "fin-saccr-rwa": "11110",
+    "gsea-proteomics": "00000",
+    "hof-topology-interpenetration": "10100",
+    "html-js-filter": "00000",
+    "mvcc-lsm-compaction": "11111",
+    "photonic-waveguide-routing": "11110",
+    "production-planning": "00000",
+    "react-lead-form": "11111",
+    "satb-audio-transcription": "00000",
+    "session-window-debug": "00100",
+    "sound-change-cascade": "11110",
+    "telecom-entity-resolution": "10111",
+    "vba-userform-port": "00010",
+    "vllm-deepseek-streaming": "00000",
+    "vpp-loss-divergence": "00e00",
+    "wal-recovery-ordering": "01011"
+  },
+  "trials": {
+    "atrx-vep-crispr": [
+      {
+        "name": "atrx-vep-crispr__76oK86k",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/atrx-vep-crispr__76oK86k"
+      },
+      {
+        "name": "atrx-vep-crispr__xYBiSea",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/atrx-vep-crispr__xYBiSea"
+      },
+      {
+        "name": "atrx-vep-crispr__4YBMzjm",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/atrx-vep-crispr__4YBMzjm"
+      },
+      {
+        "name": "atrx-vep-crispr__JToED9H",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/atrx-vep-crispr__JToED9H"
+      },
+      {
+        "name": "atrx-vep-crispr__8SQNk6w",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/atrx-vep-crispr__8SQNk6w"
+      }
+    ],
+    "cad-model": [
+      {
+        "name": "cad-model__C4MEHMQ",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/cad-model__C4MEHMQ"
+      },
+      {
+        "name": "cad-model__PZ3qjWZ",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/cad-model__PZ3qjWZ"
+      },
+      {
+        "name": "cad-model__C24yFQz",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/cad-model__C24yFQz"
+      },
+      {
+        "name": "cad-model__oaxQh3j",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/cad-model__oaxQh3j"
+      },
+      {
+        "name": "cad-model__33cdEkJ",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/cad-model__33cdEkJ"
+      }
+    ],
+    "cargo-flight-dispatch": [
+      {
+        "name": "cargo-flight-dispatch__9MzjcvZ",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/cargo-flight-dispatch__9MzjcvZ"
+      },
+      {
+        "name": "cargo-flight-dispatch__N7cYqAA",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/cargo-flight-dispatch__N7cYqAA"
+      },
+      {
+        "name": "cargo-flight-dispatch__wecUA3F",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/cargo-flight-dispatch__wecUA3F"
+      },
+      {
+        "name": "cargo-flight-dispatch__QtjEzcr",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/cargo-flight-dispatch__QtjEzcr"
+      },
+      {
+        "name": "cargo-flight-dispatch__T45bUqa",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/cargo-flight-dispatch__T45bUqa"
+      }
+    ],
+    "fin-saccr-rwa": [
+      {
+        "name": "fin-saccr-rwa__Ns7hbKC",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/fin-saccr-rwa__Ns7hbKC"
+      },
+      {
+        "name": "fin-saccr-rwa__p54LLuB",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/fin-saccr-rwa__p54LLuB"
+      },
+      {
+        "name": "fin-saccr-rwa__c42b4TE",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/fin-saccr-rwa__c42b4TE"
+      },
+      {
+        "name": "fin-saccr-rwa__esQC96W",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/fin-saccr-rwa__esQC96W"
+      },
+      {
+        "name": "fin-saccr-rwa__uRRNtCs",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/fin-saccr-rwa__uRRNtCs"
+      }
+    ],
+    "gsea-proteomics": [
+      {
+        "name": "gsea-proteomics__jV2NEAp",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-upgrade/gsea-proteomics__jV2NEAp"
+      },
+      {
+        "name": "gsea-proteomics__KYvqc3w",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-upgrade/gsea-proteomics__KYvqc3w"
+      },
+      {
+        "name": "gsea-proteomics__no7UgHU",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-upgrade/gsea-proteomics__no7UgHU"
+      },
+      {
+        "name": "gsea-proteomics__N3pzTsE",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-upgrade/gsea-proteomics__N3pzTsE"
+      },
+      {
+        "name": "gsea-proteomics__nr7Hcow",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-upgrade/gsea-proteomics__nr7Hcow"
+      }
+    ],
+    "hof-topology-interpenetration": [
+      {
+        "name": "hof-topology-interpenetration__7puHTqh",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/hof-topology-interpenetration__7puHTqh"
+      },
+      {
+        "name": "hof-topology-interpenetration__BDdRvbV",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/hof-topology-interpenetration__BDdRvbV"
+      },
+      {
+        "name": "hof-topology-interpenetration__r9MhtRE",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/hof-topology-interpenetration__r9MhtRE"
+      },
+      {
+        "name": "hof-topology-interpenetration__XKWEiyL",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/hof-topology-interpenetration__XKWEiyL"
+      },
+      {
+        "name": "hof-topology-interpenetration__3jrdbE2",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/hof-topology-interpenetration__3jrdbE2"
+      }
+    ],
+    "html-js-filter": [
+      {
+        "name": "html-js-filter__mFTZ759",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/html-js-filter__mFTZ759"
+      },
+      {
+        "name": "html-js-filter__T5CvwSg",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/html-js-filter__T5CvwSg"
+      },
+      {
+        "name": "html-js-filter__5MMpGgY",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/html-js-filter__5MMpGgY"
+      },
+      {
+        "name": "html-js-filter__2ED5WRm",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/html-js-filter__2ED5WRm"
+      },
+      {
+        "name": "html-js-filter__pBMd5mX",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/html-js-filter__pBMd5mX"
+      }
+    ],
+    "mvcc-lsm-compaction": [
+      {
+        "name": "mvcc-lsm-compaction__i2uxJ4Z",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/mvcc-lsm-compaction__i2uxJ4Z"
+      },
+      {
+        "name": "mvcc-lsm-compaction__iz4vL8S",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/mvcc-lsm-compaction__iz4vL8S"
+      },
+      {
+        "name": "mvcc-lsm-compaction__oyxHX7S",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/mvcc-lsm-compaction__oyxHX7S"
+      },
+      {
+        "name": "mvcc-lsm-compaction__6KL6ATk",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/mvcc-lsm-compaction__6KL6ATk"
+      },
+      {
+        "name": "mvcc-lsm-compaction__qJe5BNu",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/mvcc-lsm-compaction__qJe5BNu"
+      }
+    ],
+    "photonic-waveguide-routing": [
+      {
+        "name": "photonic-waveguide-routing__pVQEntH",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/photonic-waveguide-routing__pVQEntH"
+      },
+      {
+        "name": "photonic-waveguide-routing__tNok65J",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/photonic-waveguide-routing__tNok65J"
+      },
+      {
+        "name": "photonic-waveguide-routing__sshDqAA",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/photonic-waveguide-routing__sshDqAA"
+      },
+      {
+        "name": "photonic-waveguide-routing__HARyb9L",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-rep-001/photonic-waveguide-routing__HARyb9L"
+      },
+      {
+        "name": "photonic-waveguide-routing__k4jCCLX",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-rep-002/photonic-waveguide-routing__k4jCCLX"
+      }
+    ],
+    "production-planning": [
+      {
+        "name": "production-planning__uTMmCT3",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/production-planning__uTMmCT3"
+      },
+      {
+        "name": "production-planning__VegDU5c",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/production-planning__VegDU5c"
+      },
+      {
+        "name": "production-planning__nVpJ9zw",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/production-planning__nVpJ9zw"
+      },
+      {
+        "name": "production-planning__ezeYaGR",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/production-planning__ezeYaGR"
+      },
+      {
+        "name": "production-planning__8CGJQkK",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/production-planning__8CGJQkK"
+      }
+    ],
+    "react-lead-form": [
+      {
+        "name": "react-lead-form__wukC4AJ",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/react-lead-form__wukC4AJ"
+      },
+      {
+        "name": "react-lead-form__dHu7MoC",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/react-lead-form__dHu7MoC"
+      },
+      {
+        "name": "react-lead-form__RnYpywQ",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/react-lead-form__RnYpywQ"
+      },
+      {
+        "name": "react-lead-form__U2b83hQ",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/react-lead-form__U2b83hQ"
+      },
+      {
+        "name": "react-lead-form__ov5AqNh",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/react-lead-form__ov5AqNh"
+      }
+    ],
+    "satb-audio-transcription": [
+      {
+        "name": "satb-audio-transcription__jyLxPWH",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-upgrade/satb-audio-transcription__jyLxPWH"
+      },
+      {
+        "name": "satb-audio-transcription__fHZFvf9",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-upgrade/satb-audio-transcription__fHZFvf9"
+      },
+      {
+        "name": "satb-audio-transcription__62m6wz6",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-upgrade/satb-audio-transcription__62m6wz6"
+      },
+      {
+        "name": "satb-audio-transcription__w78CbrN",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-upgrade/satb-audio-transcription__w78CbrN"
+      },
+      {
+        "name": "satb-audio-transcription__5w2thKP",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-upgrade/satb-audio-transcription__5w2thKP"
+      }
+    ],
+    "session-window-debug": [
+      {
+        "name": "session-window-debug__FJLyMAE",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/session-window-debug__FJLyMAE"
+      },
+      {
+        "name": "session-window-debug__UTCuYWz",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/session-window-debug__UTCuYWz"
+      },
+      {
+        "name": "session-window-debug__MwPhub4",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/session-window-debug__MwPhub4"
+      },
+      {
+        "name": "session-window-debug__ieBjjwK",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/session-window-debug__ieBjjwK"
+      },
+      {
+        "name": "session-window-debug__oWWqmWk",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/session-window-debug__oWWqmWk"
+      }
+    ],
+    "sound-change-cascade": [
+      {
+        "name": "sound-change-cascade__A9AbT86",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/sound-change-cascade__A9AbT86"
+      },
+      {
+        "name": "sound-change-cascade__6saLhy9",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/sound-change-cascade__6saLhy9"
+      },
+      {
+        "name": "sound-change-cascade__ofZuBWJ",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/sound-change-cascade__ofZuBWJ"
+      },
+      {
+        "name": "sound-change-cascade__ippmvG4",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/sound-change-cascade__ippmvG4"
+      },
+      {
+        "name": "sound-change-cascade__uNHQhA8",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/sound-change-cascade__uNHQhA8"
+      }
+    ],
+    "telecom-entity-resolution": [
+      {
+        "name": "telecom-entity-resolution__4782fGU",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/telecom-entity-resolution__4782fGU"
+      },
+      {
+        "name": "telecom-entity-resolution__jFGnxUr",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/telecom-entity-resolution__jFGnxUr"
+      },
+      {
+        "name": "telecom-entity-resolution__9jhkJzs",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/telecom-entity-resolution__9jhkJzs"
+      },
+      {
+        "name": "telecom-entity-resolution__UyhBWkR",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/telecom-entity-resolution__UyhBWkR"
+      },
+      {
+        "name": "telecom-entity-resolution__MYmRyvF",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/telecom-entity-resolution__MYmRyvF"
+      }
+    ],
+    "vba-userform-port": [
+      {
+        "name": "vba-userform-port__g7NPmd8",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/vba-userform-port__g7NPmd8"
+      },
+      {
+        "name": "vba-userform-port__zmQ6GqF",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/vba-userform-port__zmQ6GqF"
+      },
+      {
+        "name": "vba-userform-port__FpeytaD",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/vba-userform-port__FpeytaD"
+      },
+      {
+        "name": "vba-userform-port__TVLa7T3",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/vba-userform-port__TVLa7T3"
+      },
+      {
+        "name": "vba-userform-port__AiosZ3Q",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/vba-userform-port__AiosZ3Q"
+      }
+    ],
+    "vllm-deepseek-streaming": [
+      {
+        "name": "vllm-deepseek-streaming__rH5mqa9",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/vllm-deepseek-streaming__rH5mqa9"
+      },
+      {
+        "name": "vllm-deepseek-streaming__NSxt2HW",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/vllm-deepseek-streaming__NSxt2HW"
+      },
+      {
+        "name": "vllm-deepseek-streaming__c9UpFqf",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/vllm-deepseek-streaming__c9UpFqf"
+      },
+      {
+        "name": "vllm-deepseek-streaming__NpeE7S8",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/vllm-deepseek-streaming__NpeE7S8"
+      },
+      {
+        "name": "vllm-deepseek-streaming__Z9cjTzD",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/vllm-deepseek-streaming__Z9cjTzD"
+      }
+    ],
+    "vpp-loss-divergence": [
+      {
+        "name": "vpp-loss-divergence__9yCRRpj",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/vpp-loss-divergence__9yCRRpj"
+      },
+      {
+        "name": "vpp-loss-divergence__QLmDfv2",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/vpp-loss-divergence__QLmDfv2"
+      },
+      {
+        "name": "vpp-loss-divergence__XxUQtpf",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/vpp-loss-divergence__XxUQtpf"
+      },
+      {
+        "name": "vpp-loss-divergence__qYrezcu",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/vpp-loss-divergence__qYrezcu"
+      },
+      {
+        "name": "vpp-loss-divergence__xFeDPyj",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/vpp-loss-divergence__xFeDPyj"
+      }
+    ],
+    "wal-recovery-ordering": [
+      {
+        "name": "wal-recovery-ordering__6ndpypg",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/wal-recovery-ordering__6ndpypg"
+      },
+      {
+        "name": "wal-recovery-ordering__kyJJkym",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/wal-recovery-ordering__kyJJkym"
+      },
+      {
+        "name": "wal-recovery-ordering__QtQp8Wc",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/wal-recovery-ordering__QtQp8Wc"
+      },
+      {
+        "name": "wal-recovery-ordering__QZeXSu4",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/wal-recovery-ordering__QZeXSu4"
+      },
+      {
+        "name": "wal-recovery-ordering__Qo69AeW",
+        "path": "tb4/19-task-v1/tb4-grok47-xhigh/jobs/tb4-grok47-xhigh-xai-oauth-sse-002-hf-basic/wal-recovery-ordering__Qo69AeW"
+      }
+    ]
+  },
+  "safety_cells": {},
+  "task_costs": {
+    "atrx-vep-crispr": 15.768098,
+    "cad-model": 32.456572,
+    "cargo-flight-dispatch": 7.982384,
+    "fin-saccr-rwa": 39.719734,
+    "gsea-proteomics": 15.71113,
+    "hof-topology-interpenetration": 28.165078,
+    "html-js-filter": 31.007072,
+    "mvcc-lsm-compaction": 7.747904,
+    "photonic-waveguide-routing": 85.397294,
+    "production-planning": 12.76914,
+    "react-lead-form": 24.66945,
+    "satb-audio-transcription": 25.414102,
+    "session-window-debug": 24.746144,
+    "sound-change-cascade": 22.555584,
+    "telecom-entity-resolution": 46.664424,
+    "vba-userform-port": 47.253974,
+    "vllm-deepseek-streaming": 79.746222,
+    "vpp-loss-divergence": 48.674254,
+    "wal-recovery-ordering": 8.5448
+  },
+  "errors": {
+    "NonZeroAgentExitCodeError": 1
+  },
+  "cost": {
+    "total_usd": 657.76,
+    "total_usd_exact": 657.76278,
+    "trials_with_cost": 95,
+    "trials": 95,
+    "excluded_trials_with_cost": 2,
+    "basis": "sum of Harbor recorded cost_usd over selected trials plus excluded (replaced) trials",
+    "matches_published": null
+  },
+  "tokens": {
+    "input": 855914092,
+    "cached": 805773568,
+    "output": 20837216,
+    "basis": "Harbor per-trial input_tokens (includes cached), cache_tokens, output_tokens"
+  },
+  "per_trial_cost": {
+    "median": 5.3767,
+    "p90": 13.8189,
+    "max": 30.1707
+  },
+  "published": null,
+  "reconciled": true,
+  "notes": [
+    "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+    "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor 077c5ec6, with the published fast-agent-mcp 0.10.46 wheel; xAI API over SSE. fast-agent compacts Grok 4.7's context at 190k tokens, below xAI's 200k long-context price band. Zero whole-trial retries; fast-agent's own provider retries apply.",
+    "Two photonic-waveguide-routing trials failed when the xAI access token expired about six hours into the run (403 bad credentials). Both were rerun as replacements and one of the two passed. The originals are kept as evidence; the run as first launched scored 39/95.",
+    "One vpp-loss-divergence trial ended with NonZeroAgentExitCodeError and scores 0: the agent killed every process whose command line mentioned pretrain.py, which included its own fast-agent process (the task prompt is on its command line). Agent-caused, so not rerun.",
+    "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog 2026-10-11.1, rules grok-4.7-short / grok-4.7-long: $2 / $0.50 / $6 per million input / cached / output tokens, doubled above 200k context). xAI reports reasoning tokens inside output tokens, so reasoning is priced as output.",
+    "Selected trials report several models: ['grok-4.7', 'xai.grok-4.7?reasoning=xhigh&transport=sse&web_search=off&x_search=off']."
+  ],
+  "scan": {
+    "version": "0.8.14",
+    "scope": "95 reported trials (findings also include 2 replaced originals, kept as evidence)",
+    "trials": 95,
+    "rewarded": 40,
+    "accuracy": 41.24,
+    "accuracy_se": 3.41,
+    "findings_medium_plus": {
+      "trials": 43,
+      "rewarded": 20,
+      "by_highest_priority": {
+        "high": 4,
+        "medium": 39,
+        "low": 8,
+        "info": 43,
+        "none": 3
+      },
+      "top": [
+        {
+          "check": "tb4.vllm_deepseek_streaming.upstream_source_fetched",
+          "title": "Upstream vLLM fetched (vllm-deepseek-streaming)",
+          "priority": "high",
+          "trials": 2,
+          "rewarded": 0
+        },
+        {
+          "check": "tb4.vpp_loss_divergence.fix_commit_fetched",
+          "title": "Upstream fix hunted (vpp-loss-divergence)",
+          "priority": "high",
+          "trials": 2,
+          "rewarded": 0
+        },
+        {
+          "check": "access.test_path",
+          "title": "Verifier test or solution path accessed",
+          "priority": "medium",
+          "trials": 36,
+          "rewarded": 14
+        },
+        {
+          "check": "access.evaluation_directory_probe",
+          "title": "Evaluation-directory discovery attempted",
+          "priority": "medium",
+          "trials": 23,
+          "rewarded": 11
+        },
+        {
+          "check": "access.evaluation_file_sweep",
+          "title": "Filesystem searched for evaluation files",
+          "priority": "medium",
+          "trials": 18,
+          "rewarded": 8
+        },
+        {
+          "check": "access.evaluation_sweep_stated",
+          "title": "Filesystem swept, seeking tests or answers",
+          "priority": "medium",
+          "trials": 3,
+          "rewarded": 1
+        }
+      ]
+    },
+    "review": {
+      "dq_threshold": "high",
+      "high_or_critical_rewarded": 0,
+      "other_model_trials": 0,
+      "incomplete_evidence_rewarded": 1,
+      "accuracy_if_flagged_failed": 42.11
+    },
+    "awareness": {
+      "trials": 44,
+      "stages": {
+        "noticed": {
+          "trials": 9,
+          "rewarded": 1
+        },
+        "named": {
+          "trials": 8,
+          "rewarded": 3
+        },
+        "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "probed": {
+          "trials": 32,
+          "rewarded": 17
+        },
+        "watched": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "cluster": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "searched": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "obtained": {
+          "trials": 0,
+          "rewarded": 0
+        }
+      },
+      "verifier_talk": {
+        "trials": 51,
+        "rewarded": 21
+      }
+    },
+    "evidence": {
+      "planned": 95,
+      "errored": 1,
+      "error_types": {
+        "NonZeroAgentExitCodeError": 1
+      },
+      "compacted_history": 0,
+      "without_trajectory": 0,
+      "incomplete_scans": 66,
+      "unmetered_trials": 0
+    },
+    "cost": {
+      "recorded": 0,
+      "trials_missing_cost": 97,
+      "estimated_unpriced": null,
+      "estimated_unmetered": null,
+      "estimated_total": 0
+    },
+    "tokens": {
+      "uncached_input": 50140524,
+      "cached_input": 805773568,
+      "output": 20837216
+    },
+    "walltime_hours": {
+      "trial_sum": 82.3,
+      "agent_sum": 78.1
+    },
+    "overrides": [],
+    "flagged_tasks": {
+      "atrx-vep-crispr": {
+        "trials": 4,
+        "rewarded": 4,
+        "max_priority": "medium"
+      },
+      "cargo-flight-dispatch": {
+        "trials": 5,
+        "rewarded": 0,
+        "max_priority": "medium"
+      },
+      "html-js-filter": {
+        "trials": 2,
+        "rewarded": 0,
+        "max_priority": "medium"
+      },
+      "mvcc-lsm-compaction": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "photonic-waveguide-routing": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "production-planning": {
+        "trials": 2,
+        "rewarded": 0,
+        "max_priority": "medium"
+      },
+      "react-lead-form": {
+        "trials": 4,
+        "rewarded": 4,
+        "max_priority": "medium"
+      },
+      "session-window-debug": {
+        "trials": 5,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "sound-change-cascade": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "telecom-entity-resolution": {
+        "trials": 3,
+        "rewarded": 3,
+        "max_priority": "medium"
+      },
+      "vba-userform-port": {
+        "trials": 2,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "vllm-deepseek-streaming": {
+        "trials": 2,
+        "rewarded": 0,
+        "max_priority": "high"
+      },
+      "vpp-loss-divergence": {
+        "trials": 5,
+        "rewarded": 0,
+        "max_priority": "high"
+      },
+      "wal-recovery-ordering": {
+        "trials": 5,
+        "rewarded": 3,
+        "max_priority": "medium"
+      }
+    },
+    "scanner": {
+      "commit": "b79c6c1f2c2a4904d56d9b23168c7d813e474d97",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--min-trials",
+        "5",
+        "--rules",
+        "docs/benchmark_data/tb4/atif-rules.json",
+        "--image-model",
+        "codexresponses.gpt-6-luna?reasoning=medium"
+      ],
+      "rules_sha256": "5f9f76ce20cc70e4a98c95e03f4fc7b491db7a2bb9a904fb2565366fb9448fd6"
+    },
+    "cells": {
+      "atrx-vep-crispr": "mmmml",
+      "cad-model": "lllll",
+      "cargo-flight-dispatch": "mmmmm",
+      "fin-saccr-rwa": "lllll",
+      "gsea-proteomics": "lllll",
+      "hof-topology-interpenetration": "lllll",
+      "html-js-filter": "llmml",
+      "mvcc-lsm-compaction": "mllll",
+      "photonic-waveguide-routing": "llmll",
+      "production-planning": "lllmm",
+      "react-lead-form": "mlmmm",
+      "satb-audio-transcription": "lllll",
+      "session-window-debug": "mmmmm",
+      "sound-change-cascade": "llmml",
+      "telecom-entity-resolution": "mlmml",
+      "vba-userform-port": "mllml",
+      "vllm-deepseek-streaming": "lhhll",
+      "vpp-loss-divergence": "hmhmm",
+      "wal-recovery-ordering": "mmmmm"
+    }
+  },
+  "as_run": {
+    "passes": 39,
+    "slots": 95
+  },
+  "review": {
+    "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+    "coverage": "Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks. No pass has a high or critical finding; the four high findings (upstream vLLM fetched, NeMo fix commit fetched) are on failed trials. atif-scan 0.8.14 could not decide some checks in one pass, react-lead-form__wukC4AJ: two long shell commands left its search and verifier-watch checks undecided, and three compacted tool results its credential checks. Reviewed by hand: a local Vite build experiment, a one-off search of the app's own sources and listing of /app, /hidden, /eval and /tests (only /app existed), an edit, a config read and a grep of the project's sources. No benchmark lookup, watcher or delegation to another coding agent.",
+    "recorded_passes": 40,
+    "recorded_score": 42.11,
+    "disqualified": [],
+    "cleared": []
+  }
+}

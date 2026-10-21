@@ -166,7 +166,11 @@ class Fetcher:
             cmd.append("--brief")
         # Key on the whole command (inputs, flags) and the scanner's source, so a
         # changed scanner, flag or input path never reuses a stale scan.
-        rules = [file_sha256(Path(extra[i + 1])) for i, a in enumerate(extra) if a == "--rules"]
+        rules = [
+            file_sha256(Path(extra[i + 1]))
+            for i, a in enumerate(extra)
+            if a in ("--rules", "--task-subset")
+        ]
         stamp = hashlib.sha1(
             json.dumps([cmd, scanner_source(atif_dir), rules]).encode()
         ).hexdigest()[:12]
@@ -225,6 +229,51 @@ def decide_flags(run: Json, out: Json, full: Json, selected: list[Json], review_
         raise SystemExit(
             f"{run['id']}: flagged passes without a review decision: " + "; ".join(undecided)
         )
+
+
+def recalculated_cost(run: Json, spec: Json, ordered: dict[str, list[Json]], base: Path) -> Json:
+    """Our own cost for some of a leaderboard row's trials, where the harness's recorded
+    cost is known to be wrong (``recalculated_cost.file``: one record per trial, made by
+    e.g. tb4/recalculate_grok_build.py). Every record must be a trial the row reports,
+    with the recorded cost the Hub lists for it, and each task it touches is covered whole,
+    so per-task costs replace the recorded ones exactly."""
+    data = json.loads((base / spec["file"]).read_text())
+    shown = {t["id"]: (task, t) for task, trials in ordered.items() for t in trials}
+    by_task: dict[str, list[Json]] = {}
+    for rec in data["trials"]:
+        if rec["id"] not in shown:
+            raise SystemExit(f"{run['id']}: recalculated trial {rec['id']} is not a reported trial")
+        task, trial = shown[rec["id"]]
+        recorded = trial["cost_usd"]
+        if rec["task"] != task or recorded is None or abs(recorded - rec["recorded_usd"]) > 1e-6:
+            raise SystemExit(f"{run['id']}: recalculated trial {rec['id']} disagrees with the Hub")
+        by_task.setdefault(task, []).append(rec)
+    if partial := sorted(t for t, recs in by_task.items() if len(recs) != len(ordered[t])):
+        raise SystemExit(f"{run['id']}: tasks only partly recalculated: {partial}")
+    recs = [r for task in by_task for r in by_task[task]]
+    total = sum(r["recalculated_usd"] for r in recs)
+    return {
+        "total_usd": round(total, 2),
+        "total_usd_exact": round(total, 6),
+        "recorded_usd": round(sum(r["recorded_usd"] for r in recs), 2),
+        "trials": len(recs),
+        "task_costs": {
+            task: round(sum(r["recalculated_usd"] for r in by_task[task]), 6)
+            for task in sorted(by_task)
+        },
+        "basis": data["basis"],
+        "source": spec["file"],
+        "note": spec.get("note"),
+    }
+
+
+def repo_path(arg: str) -> str:
+    """A scan argument that is a file in this repository, by its repository path."""
+    repo = HERE.parent.parent
+    path = Path(arg)
+    if path.is_absolute() and path.is_relative_to(repo):
+        return str(path.relative_to(repo))
+    return arg
 
 
 def scanner_source(atif_dir: Path) -> Json:
@@ -733,6 +782,7 @@ def build_run(
     scan_extra: tuple[str, ...] = (),
     scan_rules: Path | None = None,
     runs_dir: Path = HERE / "runs",
+    manifest_dir: Path = HERE,
 ) -> Json:
     notes: list[str] = list(run.get("notes", []))
     per_task = manifest["attempts_per_task"]
@@ -1017,6 +1067,8 @@ def build_run(
                 f"{run['id']}: repriced trials {repriced['trials']} != recorded-cost trials"
             )
         out["cost"]["repriced"] = repriced
+    if spec := run.get("recalculated_cost"):
+        out["cost"]["recalculated"] = recalculated_cost(run, spec, ordered, manifest_dir)
     if "bucket" in run:
         out["as_run"] = {
             "passes": sum(1 for t in selected + excluded if t["main_run"] and rewarded(t)),
@@ -1032,6 +1084,13 @@ def build_run(
             "cleared": review_cleared,
         }
 
+    scan_tasks: list[str] | None = None
+    if run.get("scan_task_subset"):
+        if not run.get("leaderboard_row"):
+            raise SystemExit(f"{run['id']}: scan_task_subset is for leaderboard rows")
+        scan_tasks = json.loads((manifest_dir / run["scan_task_subset"]).read_text())
+        if set(scan_tasks) - set(tasks):
+            raise SystemExit(f"{run['id']}: scan_task_subset names tasks outside the run")
     if scan and run.get("scan"):
         try:
             rules = ("--rules", str(scan_rules)) if scan_rules else ()
@@ -1049,30 +1108,47 @@ def build_run(
                     *scan_extra,
                 )
                 excluded_keys = {t["scan_key"] for t in excluded}
+            elif scan_tasks:
+                # A leaderboard row scanned on a task subset (atif-scan --task-subset):
+                # exactly the row's trials of those tasks, as the subset page reports it.
+                inputs = [f"harbor://rows/{run['leaderboard_row']}"]
+                extra = (
+                    "--task-subset",
+                    str(manifest_dir / run["scan_task_subset"]),
+                    "--min-trials",
+                    str(per_task),
+                    *rules,
+                    *scan_extra,
+                )
+                excluded_keys = set(excluded_cfg)
             else:
                 inputs = [f"harbor://jobs/{j}" for j in job_ids]
                 extra = (*rules, *scan_extra)
                 excluded_keys = set(excluded_cfg)
-            out["_scan_inputs"] = (inputs, extra, len(tasks))  # for --moments; not written
+            expect = len(scan_tasks or tasks)
+            out["_scan_inputs"] = (inputs, extra, expect)  # for --moments; not written
             brief = fetcher.scan(
-                run["id"], inputs, atif_dir, brief=True, expect=len(tasks), extra=extra
+                run["id"], inputs, atif_dir, brief=True, expect=expect, extra=extra
             )
             full = fetcher.scan(
-                run["id"], inputs, atif_dir, brief=False, expect=len(tasks), extra=extra
+                run["id"], inputs, atif_dir, brief=False, expect=expect, extra=extra
             )
             out["scan"] = summarize_scan(brief, full, excluded_keys)
+            if scan_tasks:
+                out["scan"]["scope"] = (
+                    f"the row's {out['scan']['trials']} trials on the"
+                    f" {len(scan_tasks)}-task subset ({run['scan_task_subset']})"
+                )
+                out["scan"]["tasks"] = scan_tasks
             out["scan"]["scanner"] = {
                 **scanner_source(atif_dir),
-                # The rules file by its repository path, not this machine's.
-                "args": [
-                    str(scan_rules.relative_to(HERE.parent.parent))
-                    if scan_rules and a == str(scan_rules)
-                    else a
-                    for a in extra
-                ],
+                # The rules and subset files by their repository paths, not this machine's.
+                "args": [repo_path(a) for a in extra],
                 "rules_sha256": file_sha256(scan_rules) if scan_rules else None,
             }
-            out["scan"]["cells"] = scan_cells(full, ordered, models[0])
+            out["scan"]["cells"] = scan_cells(
+                full, {t: ordered[t] for t in scan_tasks} if scan_tasks else ordered, models[0]
+            )
             # Hub trials are named by id here and by folder in atif-scan's output.
             out["_trial_alias"] = {
                 i["input_id"].split("/")[0]: i["hub_trial_id"]
@@ -1292,6 +1368,7 @@ def main() -> None:
             if manifest.get("scan_rules")
             else None,
             runs_dir=runs_dir,
+            manifest_dir=base,
         )
         scan_inputs = out.pop("_scan_inputs", None)
         alias = out.pop("_trial_alias", {})

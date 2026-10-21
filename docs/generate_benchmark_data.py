@@ -421,6 +421,20 @@ def _subset_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[st
         cells = "".join(raw["tasks"][t] for t in subset)
         full_cells = "".join(raw["tasks"][t] for t in full_tasks)
         task_costs = [raw["task_costs"][t] for t in subset]
+        recorded = [c for c in task_costs if c is not None]
+        # Our own cost for the subset trials, where the harness recorded it wrongly
+        # (fetch_runs.py recalculated_cost): it replaces the recorded cost on the subset.
+        recalc = raw["cost"].get("recalculated")
+        if recalc:
+            if set(recalc["task_costs"]) != set(subset):
+                raise ValueError(f"{path.stem}: a recalculated cost must cover the subset tasks")
+            task_costs = [recalc["task_costs"][t] for t in subset]
+        scan = raw.get("scan")
+        if scan and (
+            scan.get("tasks") != subset
+            or len("".join(scan["cells"][t] for t in subset)) != len(cells)
+        ):
+            raise ValueError(f"{path.stem}: a leaderboard row's scan must cover the subset tasks")
         known = [c for c in task_costs if c is not None]
         published = raw["published"]
         # A row whose trials recorded no cost at all (and publishes $0) has no cost to show.
@@ -458,9 +472,32 @@ def _subset_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[st
                     "total": None if no_cost else round(sum(known), 2),
                     "basis": "no cost recorded"
                     if no_cost
+                    else "our recalculated cost of the subset trials"
+                    if recalc
                     else "recorded trial costs on the subset tasks",
                     "estimate": not no_cost and len(known) < len(subset),
                     "taskCosts": task_costs,
+                    # Harbor's recorded cost on the subset, and (from the subset scan, which
+                    # reads the Hub listing) how many of its trials recorded one.
+                    "recorded": round(sum(recorded), 2) if recorded else None,
+                    **(
+                        {"coverage": scan["trials"] - scan["cost"]["trials_missing_cost"]}
+                        if scan
+                        else {}
+                    ),
+                    **(
+                        {
+                            "recalculated": {
+                                "total": recalc["total_usd"],
+                                "recorded": recalc["recorded_usd"],
+                                "trials": recalc["trials"],
+                                "basis": recalc["basis"],
+                                "note": recalc["note"],
+                            }
+                        }
+                        if recalc
+                        else {}
+                    ),
                 },
                 "full": {
                     "cells": full_cells,
@@ -476,7 +513,7 @@ def _subset_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[st
                 "excluded": [],
                 "source": published["source_url"],
                 "notes": notes,
-                "scan": None,
+                "scan": _scan_summary(scan, subset, folder / "atif-rules.json") if scan else None,
             }
         )
     return runs

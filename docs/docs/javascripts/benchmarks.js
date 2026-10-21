@@ -2138,7 +2138,8 @@
       // not the scan's: atif-scan doesn't read cost from local bench-run job folders.
       var uncosted = run.slots - run.cost.coverage;
       row("Trials without cost", String(uncosted), uncosted > 0);
-      row("Recorded cost", (run.cost.lowerBound ? "≥" : "") + moneyExact(run.cost.recorded));
+      if (run.cost.recorded !== null && run.cost.recorded !== undefined) row("Recorded cost", (run.cost.lowerBound ? "≥" : "") + moneyExact(run.cost.recorded));
+      if (run.cost.recalculated) row("Recalculated cost", moneyExact(run.cost.recalculated.total));
       if (run.cost.repriced) row("List-rate estimate", "~" + moneyExact(run.cost.repriced.total));
       if (s.cost.recorded > 0 && s.cost.estimated_total && s.cost.estimated_total !== s.cost.recorded) row("Est. with missing trials", "~" + moneyExact(s.cost.estimated_total));
     }
@@ -2581,6 +2582,11 @@
           "): ~" + moneyExact(run.cost.repriced.total) + " over " + run.cost.repriced.trials + " trials, under the scan's Evidence."
       );
       if (run.cost.repriced.note) cost.push(run.cost.repriced.note);
+    }
+    if (run.cost.recalculated) {
+      // A leaderboard row whose harness recorded cost wrongly: our recalculation is shown.
+      var rc = run.cost.recalculated;
+      cost.push(rc.note || "Shown: our recalculated cost, " + moneyExact(rc.total) + " over " + rc.trials + " trials; recorded " + moneyExact(rc.recorded) + ".");
     }
     if (run.cost.basis === "published leaderboard total" && run.cost.recorded !== run.cost.published) {
       cost.push("Cost shown is the published total (" + moneyExact(run.cost.published) + "); the public Hub job records " + moneyExact(run.cost.recorded) + " over " + run.cost.coverage + " trials.");

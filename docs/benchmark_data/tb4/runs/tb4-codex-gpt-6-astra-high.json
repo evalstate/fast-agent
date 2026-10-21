@@ -91,1124 +91,1454 @@
   "trials": {
     "atrx-vep-crispr": [
       {
-        "name": "ca813f57-26cf-4e07-b9e8-8775215e7982"
+        "name": "ca813f57-26cf-4e07-b9e8-8775215e7982",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ca916aa6-4442-4604-baa9-34d0a2a848fc"
+        "name": "ca916aa6-4442-4604-baa9-34d0a2a848fc",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "c9026b84-c3bb-4c93-9d88-a9523d05009d"
+        "name": "c9026b84-c3bb-4c93-9d88-a9523d05009d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "bf8fc08c-ac3c-4554-b833-9aa116a279a6"
+        "name": "bf8fc08c-ac3c-4554-b833-9aa116a279a6",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "605efda3-1251-4da6-bd17-f668d7d9af4d"
+        "name": "605efda3-1251-4da6-bd17-f668d7d9af4d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "batched-eval-parity": [
       {
-        "name": "d21ef2f1-c52b-4502-81f8-a382a9ef3201"
+        "name": "d21ef2f1-c52b-4502-81f8-a382a9ef3201",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "48da3d26-372e-4556-9d28-a78428676796"
+        "name": "48da3d26-372e-4556-9d28-a78428676796",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "d2c70fb2-c8e6-4d82-aa52-b4b541a4eba5"
+        "name": "d2c70fb2-c8e6-4d82-aa52-b4b541a4eba5",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "70afea6f-23ea-42f9-9e83-d4417c3c10d2"
+        "name": "70afea6f-23ea-42f9-9e83-d4417c3c10d2",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "df3c5ba0-e557-4e3a-81f6-6b7868610dd4"
+        "name": "df3c5ba0-e557-4e3a-81f6-6b7868610dd4",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "biped-contact-dynamics": [
       {
-        "name": "ac0e1610-02fe-436e-93dd-61f137903e4d"
+        "name": "ac0e1610-02fe-436e-93dd-61f137903e4d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "3f2dd3c9-1267-4ebb-bda2-316b68f1c772"
+        "name": "3f2dd3c9-1267-4ebb-bda2-316b68f1c772",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "06449c53-0e96-43c3-a6d0-c2ec665bea1c"
+        "name": "06449c53-0e96-43c3-a6d0-c2ec665bea1c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "e7a8ce70-f39f-42de-a327-b5d6311cc889"
+        "name": "e7a8ce70-f39f-42de-a327-b5d6311cc889",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "761e978f-99a6-40c2-8d1f-71cb4041a910"
+        "name": "761e978f-99a6-40c2-8d1f-71cb4041a910",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "bun-sourcemap-leak": [
       {
-        "name": "1dc41727-5d3b-414c-956e-001824602c66"
+        "name": "1dc41727-5d3b-414c-956e-001824602c66",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "0b1d50ae-0f20-4e2f-b96a-ec5c2c89d9c3"
+        "name": "0b1d50ae-0f20-4e2f-b96a-ec5c2c89d9c3",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "4dbe848d-6750-4252-8fbc-c3823f2e5266"
+        "name": "4dbe848d-6750-4252-8fbc-c3823f2e5266",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "b2c30d1b-e9ac-46cc-99c4-43bdf7ca4a70"
+        "name": "b2c30d1b-e9ac-46cc-99c4-43bdf7ca4a70",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "b567ae54-8684-4d79-afb2-0c6078b65256"
+        "name": "b567ae54-8684-4d79-afb2-0c6078b65256",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "cad-model": [
       {
-        "name": "44a6d043-b9e7-44fa-a1c1-5b739956d2af"
+        "name": "44a6d043-b9e7-44fa-a1c1-5b739956d2af",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "d5ccada5-3a8c-4b5a-8b72-844efd4c265e"
+        "name": "d5ccada5-3a8c-4b5a-8b72-844efd4c265e",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "0d6521d2-cc03-4878-8347-76b1bfb57a4a"
+        "name": "0d6521d2-cc03-4878-8347-76b1bfb57a4a",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "a914dec5-58ac-483f-aa69-94db0db261b6"
+        "name": "a914dec5-58ac-483f-aa69-94db0db261b6",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "acdd7d9e-4334-49b9-bc7c-5ec9b87a1d70"
+        "name": "acdd7d9e-4334-49b9-bc7c-5ec9b87a1d70",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "cargo-flight-dispatch": [
       {
-        "name": "a9a6bf5a-5b45-4a6f-a70b-4196e88feb4f"
+        "name": "a9a6bf5a-5b45-4a6f-a70b-4196e88feb4f",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "7945d604-d10e-44cf-b074-38353f40b93a"
+        "name": "7945d604-d10e-44cf-b074-38353f40b93a",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ad9617ea-1ae5-448f-8c68-2935a903b29f"
+        "name": "ad9617ea-1ae5-448f-8c68-2935a903b29f",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "9ba534d2-24f8-44ab-8b35-2b788b594249"
+        "name": "9ba534d2-24f8-44ab-8b35-2b788b594249",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ebe41de3-045d-4fee-8b6d-da65cb33e0cb"
+        "name": "ebe41de3-045d-4fee-8b6d-da65cb33e0cb",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "coq-block-bound": [
       {
-        "name": "1228a030-aa10-4916-bc9d-7981564e508e"
+        "name": "1228a030-aa10-4916-bc9d-7981564e508e",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ce3e65d4-800e-48d5-bf01-7bef18717482"
+        "name": "ce3e65d4-800e-48d5-bf01-7bef18717482",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "0401dc52-95ad-40b1-a739-dffa7997bdc7"
+        "name": "0401dc52-95ad-40b1-a739-dffa7997bdc7",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "179b7b62-2808-4b1b-a20e-45694214f874"
+        "name": "179b7b62-2808-4b1b-a20e-45694214f874",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "49113e26-fb23-420b-9235-f88041b67e97"
+        "name": "49113e26-fb23-420b-9235-f88041b67e97",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "ctr-optimization": [
       {
-        "name": "81184ac3-82fb-438e-9a78-fd8c5129824b"
+        "name": "81184ac3-82fb-438e-9a78-fd8c5129824b",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "2b9aefab-07b3-4aaa-8d4a-acf72cf821d3"
+        "name": "2b9aefab-07b3-4aaa-8d4a-acf72cf821d3",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "6cdd2627-265b-4863-934b-fabf1cfe5122"
+        "name": "6cdd2627-265b-4863-934b-fabf1cfe5122",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "7874dec7-dd51-4910-ad8d-ae462e94cd40"
+        "name": "7874dec7-dd51-4910-ad8d-ae462e94cd40",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "a5e66128-48f4-484c-9447-a6b595c03783"
+        "name": "a5e66128-48f4-484c-9447-a6b595c03783",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "cumulative-layout-shift": [
       {
-        "name": "014c87e2-cd9a-4427-9ab0-b50174d1ec4a"
+        "name": "014c87e2-cd9a-4427-9ab0-b50174d1ec4a",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "155b294a-eb6b-4d75-9403-1053b2fba985"
+        "name": "155b294a-eb6b-4d75-9403-1053b2fba985",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "103ab0d8-0785-402b-8da8-5e89279b9107"
+        "name": "103ab0d8-0785-402b-8da8-5e89279b9107",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "8fd6413f-3804-4db6-8646-b30e09510143"
+        "name": "8fd6413f-3804-4db6-8646-b30e09510143",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "d361de29-723d-4591-9fba-2ecdeb4b734c"
+        "name": "d361de29-723d-4591-9fba-2ecdeb4b734c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "data-anonymization": [
       {
-        "name": "aa0713c2-0b82-473e-93d8-a1087dcb2bf9"
+        "name": "aa0713c2-0b82-473e-93d8-a1087dcb2bf9",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ed45f31b-6961-4d8d-8c8b-7421cc88d473"
+        "name": "ed45f31b-6961-4d8d-8c8b-7421cc88d473",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "24477a36-aa50-4321-9405-8f7119ee6376"
+        "name": "24477a36-aa50-4321-9405-8f7119ee6376",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ba9b9230-58d4-4331-91fb-39c3a74b4e6b"
+        "name": "ba9b9230-58d4-4331-91fb-39c3a74b4e6b",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "64d3747c-1c9a-4bee-b737-f253b289f256"
+        "name": "64d3747c-1c9a-4bee-b737-f253b289f256",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "distributed-dedup": [
       {
-        "name": "80997f3e-c3ae-454b-a0ee-bf388f0fc7b6"
+        "name": "80997f3e-c3ae-454b-a0ee-bf388f0fc7b6",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "f3655355-d10a-45ad-af78-04437293e7c2"
+        "name": "f3655355-d10a-45ad-af78-04437293e7c2",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "3009c3e6-1140-4e78-8d03-131ec0b6bb5c"
+        "name": "3009c3e6-1140-4e78-8d03-131ec0b6bb5c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "9adc6651-a614-4d14-a0f3-d878f01c2233"
+        "name": "9adc6651-a614-4d14-a0f3-d878f01c2233",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "02bff1d8-7553-48a6-ae3e-a92d0f658c09"
+        "name": "02bff1d8-7553-48a6-ae3e-a92d0f658c09",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "embedding-drift-monitor": [
       {
-        "name": "6c3f6270-1d7b-427f-99d9-9c5cf9e2037a"
+        "name": "6c3f6270-1d7b-427f-99d9-9c5cf9e2037a",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "f2eb3003-3f4e-4c41-a397-f37509d6b1fa"
+        "name": "f2eb3003-3f4e-4c41-a397-f37509d6b1fa",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "4de2eac9-6733-4c56-a907-08bb8540bb60"
+        "name": "4de2eac9-6733-4c56-a907-08bb8540bb60",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "a7df688f-af3e-4791-8223-2157d2dd75b3"
+        "name": "a7df688f-af3e-4791-8223-2157d2dd75b3",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "0164b52c-ba6c-4add-a26b-c0e625d245ef"
+        "name": "0164b52c-ba6c-4add-a26b-c0e625d245ef",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "fin-saccr-rwa": [
       {
-        "name": "7e5e3fd3-b4ad-4dfd-bdf8-5d09b471e7fe"
+        "name": "7e5e3fd3-b4ad-4dfd-bdf8-5d09b471e7fe",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "e1384ae3-5656-43fd-87d3-f77197896244"
+        "name": "e1384ae3-5656-43fd-87d3-f77197896244",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "4ab66e45-dcf5-496a-a937-dde8439513e4"
+        "name": "4ab66e45-dcf5-496a-a937-dde8439513e4",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "deb094da-2aec-4f80-94a0-22acf5aa83cf"
+        "name": "deb094da-2aec-4f80-94a0-22acf5aa83cf",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "128689e3-51d6-4d89-8727-81eb321cb5f7"
+        "name": "128689e3-51d6-4d89-8727-81eb321cb5f7",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "foodstuff-beta-activity": [
       {
-        "name": "7ebd5a7e-2b55-493b-9571-09fd1fdca235"
+        "name": "7ebd5a7e-2b55-493b-9571-09fd1fdca235",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "7233bee5-ec5f-4dea-9c6f-6a1ace744314"
+        "name": "7233bee5-ec5f-4dea-9c6f-6a1ace744314",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "9734e42d-4a2c-4423-a170-54cddcdc206c"
+        "name": "9734e42d-4a2c-4423-a170-54cddcdc206c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "7c4c7060-4405-4410-858d-c5c01adc5a43"
+        "name": "7c4c7060-4405-4410-858d-c5c01adc5a43",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "45a60802-eed9-435b-ba10-6de5dd682f9d"
+        "name": "45a60802-eed9-435b-ba10-6de5dd682f9d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "formal-crypto": [
       {
-        "name": "9615cb53-8cb2-469c-bc4f-46c85be15406"
+        "name": "9615cb53-8cb2-469c-bc4f-46c85be15406",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "c12ba716-bad3-46ef-9a01-a14a3cc68fe6"
+        "name": "c12ba716-bad3-46ef-9a01-a14a3cc68fe6",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "3a018f5e-45de-4fcb-b2c1-8496cfb3d5f2"
+        "name": "3a018f5e-45de-4fcb-b2c1-8496cfb3d5f2",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "851e5abd-1aac-4787-9ee1-6331b55b6e48"
+        "name": "851e5abd-1aac-4787-9ee1-6331b55b6e48",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "a5673716-8880-422e-8f62-7030075faefb"
+        "name": "a5673716-8880-422e-8f62-7030075faefb",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "fp8-rmsnorm-gemm": [
       {
-        "name": "99e92bbd-7c3d-4069-ad4b-da4b576f3b63"
+        "name": "99e92bbd-7c3d-4069-ad4b-da4b576f3b63",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ca7dece2-c932-4c01-a67c-3308c648db6e"
+        "name": "ca7dece2-c932-4c01-a67c-3308c648db6e",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "80f15db2-6f0f-4ea1-b87d-ba5aa613d839"
+        "name": "80f15db2-6f0f-4ea1-b87d-ba5aa613d839",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "11cb3f22-79ec-4827-9474-838abd50848d"
+        "name": "11cb3f22-79ec-4827-9474-838abd50848d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "e26fc441-5a4f-4068-b801-b58eb4eb81cf"
+        "name": "e26fc441-5a4f-4068-b801-b58eb4eb81cf",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "freecad-impeller": [
       {
-        "name": "7995f566-9b22-46e0-978d-ce3eae8b829c"
+        "name": "7995f566-9b22-46e0-978d-ce3eae8b829c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "f2684770-782b-4a6d-94dc-14ca9011e09f"
+        "name": "f2684770-782b-4a6d-94dc-14ca9011e09f",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "29613ee9-00d0-4a93-a957-8a898bcb8386"
+        "name": "29613ee9-00d0-4a93-a957-8a898bcb8386",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "7b1394f6-4fb4-4be9-b6ae-19380264f9a6"
+        "name": "7b1394f6-4fb4-4be9-b6ae-19380264f9a6",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "bdd08422-dd53-42fd-b9bb-2547cd3ed0b5"
+        "name": "bdd08422-dd53-42fd-b9bb-2547cd3ed0b5",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "freecad-platform-drawing": [
       {
-        "name": "0decfb90-de01-4361-8354-9986dd611f2c"
+        "name": "0decfb90-de01-4361-8354-9986dd611f2c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "eed00e9e-7a49-44aa-896f-d7ef525c61d6"
+        "name": "eed00e9e-7a49-44aa-896f-d7ef525c61d6",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "4ddb89ed-b2d1-4e41-b0a5-bd635553848b"
+        "name": "4ddb89ed-b2d1-4e41-b0a5-bd635553848b",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ae1ab734-803f-4c5b-b3a9-d29381b2c436"
+        "name": "ae1ab734-803f-4c5b-b3a9-d29381b2c436",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "b1e3af18-73b8-46bd-bdb0-125ffa3050a0"
+        "name": "b1e3af18-73b8-46bd-bdb0-125ffa3050a0",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "freecad-spring-clip": [
       {
-        "name": "a09d7bfd-b1b9-47c2-9525-f84b9f74964d"
+        "name": "a09d7bfd-b1b9-47c2-9525-f84b9f74964d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "fd63c552-0b15-4c9c-a251-cdb1235a355a"
+        "name": "fd63c552-0b15-4c9c-a251-cdb1235a355a",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "b7936e29-6299-4708-b001-036c7af398b5"
+        "name": "b7936e29-6299-4708-b001-036c7af398b5",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "9ba96b97-3641-4ff5-afc1-22bf76fc9cb6"
+        "name": "9ba96b97-3641-4ff5-afc1-22bf76fc9cb6",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "9cbf7839-da29-4e12-b0a5-ddae73fe51fe"
+        "name": "9cbf7839-da29-4e12-b0a5-ddae73fe51fe",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "freight-dispatch-shift": [
       {
-        "name": "a20e1529-7057-4508-9ff1-e3ce631c66e5"
+        "name": "a20e1529-7057-4508-9ff1-e3ce631c66e5",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "afaaf781-c0d5-47bc-aff7-e5a1d6111b4c"
+        "name": "afaaf781-c0d5-47bc-aff7-e5a1d6111b4c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "859907c3-181e-4f77-941e-ee8083107e64"
+        "name": "859907c3-181e-4f77-941e-ee8083107e64",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "77615a39-2fdc-4e76-a489-13348000df58"
+        "name": "77615a39-2fdc-4e76-a489-13348000df58",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "8d3ed670-cfdc-49c3-844c-83a2d379534c"
+        "name": "8d3ed670-cfdc-49c3-844c-83a2d379534c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "glycan-ms2-elucidation": [
       {
-        "name": "cc4d3baf-b308-49cf-9336-0738e0341bf6"
+        "name": "cc4d3baf-b308-49cf-9336-0738e0341bf6",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "5f3b2d90-43f2-4ffe-a0a2-ba992677c68e"
+        "name": "5f3b2d90-43f2-4ffe-a0a2-ba992677c68e",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "5a2c1ef6-99cb-4ee0-9b72-b8dab9cd217d"
+        "name": "5a2c1ef6-99cb-4ee0-9b72-b8dab9cd217d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "b92c6a01-6dc4-40b6-afd6-cac5269239ec"
+        "name": "b92c6a01-6dc4-40b6-afd6-cac5269239ec",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "a6b58131-a77b-4ed7-8476-e0a5d7760f04"
+        "name": "a6b58131-a77b-4ed7-8476-e0a5d7760f04",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "gsea-proteomics": [
       {
-        "name": "f85ba3bb-e406-49df-8da4-873c1c08218e"
+        "name": "f85ba3bb-e406-49df-8da4-873c1c08218e",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "82f23c70-de6b-4855-b34d-9695d2ae5989"
+        "name": "82f23c70-de6b-4855-b34d-9695d2ae5989",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ee07267f-aab7-4a33-b2c8-5b8550dc447f"
+        "name": "ee07267f-aab7-4a33-b2c8-5b8550dc447f",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "d00ddd6a-a934-47da-97d9-7edf020a8131"
+        "name": "d00ddd6a-a934-47da-97d9-7edf020a8131",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "44ee5647-7495-4260-b5d6-ed49a7ed361b"
+        "name": "44ee5647-7495-4260-b5d6-ed49a7ed361b",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "heat-pump-warranty": [
       {
-        "name": "2d23f3df-0ecb-4d90-9318-f1cc538f49eb"
+        "name": "2d23f3df-0ecb-4d90-9318-f1cc538f49eb",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "f56ae870-9192-4ff1-8366-453e3202207f"
+        "name": "f56ae870-9192-4ff1-8366-453e3202207f",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "8a5a4331-409e-4314-a8a8-160d3b814f87"
+        "name": "8a5a4331-409e-4314-a8a8-160d3b814f87",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "5077c7d3-33a8-4059-8727-d18edc971c79"
+        "name": "5077c7d3-33a8-4059-8727-d18edc971c79",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "caa60c8d-6271-47f5-9fc6-dc8894587bc2"
+        "name": "caa60c8d-6271-47f5-9fc6-dc8894587bc2",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "hof-topology-interpenetration": [
       {
-        "name": "7d3504cc-ae51-40e8-9616-971b85d11bd7"
+        "name": "7d3504cc-ae51-40e8-9616-971b85d11bd7",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "31416c31-477a-4f18-a970-3783a5ab36e1"
+        "name": "31416c31-477a-4f18-a970-3783a5ab36e1",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "847ca2fc-4f2f-4799-bf82-6eb1342fb152"
+        "name": "847ca2fc-4f2f-4799-bf82-6eb1342fb152",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "29f2e249-050a-461e-8653-718dd6901175"
+        "name": "29f2e249-050a-461e-8653-718dd6901175",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "06a96693-f9aa-47f5-80c5-b4de98b3618c"
+        "name": "06a96693-f9aa-47f5-80c5-b4de98b3618c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "html-js-filter": [
       {
-        "name": "2b7ff175-ac3c-4d69-9afc-2314a60fd5da"
+        "name": "2b7ff175-ac3c-4d69-9afc-2314a60fd5da",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "e3428ae7-a155-41a4-b380-0a31d5e23ae7"
+        "name": "e3428ae7-a155-41a4-b380-0a31d5e23ae7",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "e1ce5b16-729b-496f-85da-43280c34ffcd"
+        "name": "e1ce5b16-729b-496f-85da-43280c34ffcd",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "0df97697-50db-4a1d-a621-3a7f03214395"
+        "name": "0df97697-50db-4a1d-a621-3a7f03214395",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "6a113995-321e-482f-9db9-032820202d53"
+        "name": "6a113995-321e-482f-9db9-032820202d53",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "interleaved-vigenere": [
       {
-        "name": "9d10c481-a14d-44da-831a-bdf79393439c"
+        "name": "9d10c481-a14d-44da-831a-bdf79393439c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "66f6d979-e846-4355-a78c-03cf1e9fe088"
+        "name": "66f6d979-e846-4355-a78c-03cf1e9fe088",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "72a538d2-9563-4cfb-94f6-4d75cddbc1dd"
+        "name": "72a538d2-9563-4cfb-94f6-4d75cddbc1dd",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "86de1f1b-5300-4aff-8fe4-37c0ed5e4524"
+        "name": "86de1f1b-5300-4aff-8fe4-37c0ed5e4524",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "70b29054-e844-42f6-9774-cfca7632a2d1"
+        "name": "70b29054-e844-42f6-9774-cfca7632a2d1",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "intrastat-meldung": [
       {
-        "name": "61049009-b9b4-4980-9a01-b940172dbeba"
+        "name": "61049009-b9b4-4980-9a01-b940172dbeba",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "c668f89a-9a24-4e7d-884c-76c83a93eab5"
+        "name": "c668f89a-9a24-4e7d-884c-76c83a93eab5",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "f64a263e-33b7-4f5d-9a16-21d7df878b44"
+        "name": "f64a263e-33b7-4f5d-9a16-21d7df878b44",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "13696501-861e-46cd-a81b-3ad6fced5fff"
+        "name": "13696501-861e-46cd-a81b-3ad6fced5fff",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "d286166a-9223-4716-8581-2c9ed74ce8ef"
+        "name": "d286166a-9223-4716-8581-2c9ed74ce8ef",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "jax-speedrun-gpu": [
       {
-        "name": "9fa7dc4f-868b-4ead-9aeb-9c2c9c56143d"
+        "name": "9fa7dc4f-868b-4ead-9aeb-9c2c9c56143d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "4769bb80-6bac-4a6e-86c6-bd0ee8422fbd"
+        "name": "4769bb80-6bac-4a6e-86c6-bd0ee8422fbd",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "72b45988-6cd5-488b-8e3c-c0b8ba114b10"
+        "name": "72b45988-6cd5-488b-8e3c-c0b8ba114b10",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "184935c9-bcca-47ab-a140-ff195a331093"
+        "name": "184935c9-bcca-47ab-a140-ff195a331093",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "cec6943e-3b31-452b-a8ad-4be189e2d343"
+        "name": "cec6943e-3b31-452b-a8ad-4be189e2d343",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "ks-solver-cpp": [
       {
-        "name": "8d66fb0f-a45e-4427-b77d-2f56c06a6cf7"
+        "name": "8d66fb0f-a45e-4427-b77d-2f56c06a6cf7",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ddf1070d-05e3-4e16-8419-cb4ed86c47ed"
+        "name": "ddf1070d-05e3-4e16-8419-cb4ed86c47ed",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "84775196-a0fb-4d92-8075-fe040feebf1b"
+        "name": "84775196-a0fb-4d92-8075-fe040feebf1b",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "a22c4377-b328-41be-9107-ce55fce632b0"
+        "name": "a22c4377-b328-41be-9107-ce55fce632b0",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "aac04d57-3f26-4498-b7b6-2da2ea31b53f"
+        "name": "aac04d57-3f26-4498-b7b6-2da2ea31b53f",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "kv-live-surgery": [
       {
-        "name": "9ad1b686-1998-436f-ace8-92f5d3f280ee"
+        "name": "9ad1b686-1998-436f-ace8-92f5d3f280ee",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "8176aa11-d531-4e76-a461-e0b316c9a64b"
+        "name": "8176aa11-d531-4e76-a461-e0b316c9a64b",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "4035a996-c4c9-4b97-bfdd-f0cfd9af792e"
+        "name": "4035a996-c4c9-4b97-bfdd-f0cfd9af792e",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "beabeb6e-36e8-4184-b3f4-77b58c7e06f1"
+        "name": "beabeb6e-36e8-4184-b3f4-77b58c7e06f1",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "d4c3b3cc-ef5f-44a4-8ab6-d6fa49159860"
+        "name": "d4c3b3cc-ef5f-44a4-8ab6-d6fa49159860",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "lake-temp-glm": [
       {
-        "name": "8275a6ac-63ec-4d30-9c68-4cd28171c71f"
+        "name": "8275a6ac-63ec-4d30-9c68-4cd28171c71f",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "e0f6b10c-5575-415d-9af1-2f15c944721d"
+        "name": "e0f6b10c-5575-415d-9af1-2f15c944721d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "5a0e931c-cf58-438b-96de-c47e5d5931c6"
+        "name": "5a0e931c-cf58-438b-96de-c47e5d5931c6",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "101baace-1b0b-4de8-949b-9a3c89d146ad"
+        "name": "101baace-1b0b-4de8-949b-9a3c89d146ad",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "1aebd828-e206-42c6-be8f-038f71f910bf"
+        "name": "1aebd828-e206-42c6-be8f-038f71f910bf",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "layout-config-recreation": [
       {
-        "name": "4f5f7366-2ae7-4c00-bc1b-76b440e6e350"
+        "name": "4f5f7366-2ae7-4c00-bc1b-76b440e6e350",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "af336014-f74c-40ee-87c4-2c2e3cc84273"
+        "name": "af336014-f74c-40ee-87c4-2c2e3cc84273",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "03a58349-abde-4e1a-89d1-a215dab793a0"
+        "name": "03a58349-abde-4e1a-89d1-a215dab793a0",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "33522a64-2928-4005-94ab-2c572691dc17"
+        "name": "33522a64-2928-4005-94ab-2c572691dc17",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "0b83d892-3deb-4610-a358-c34bd817def9"
+        "name": "0b83d892-3deb-4610-a358-c34bd817def9",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "layout-config-recreation2": [
       {
-        "name": "aece38a4-bf90-4660-a644-1530983d44b7"
+        "name": "aece38a4-bf90-4660-a644-1530983d44b7",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "2fbb80ae-cdfe-4bec-9f6d-a63c69225943"
+        "name": "2fbb80ae-cdfe-4bec-9f6d-a63c69225943",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "5675bd5c-f07b-4a58-9d93-d2df000962cb"
+        "name": "5675bd5c-f07b-4a58-9d93-d2df000962cb",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "027bfc14-0b53-49ec-9049-e760a2f05369"
+        "name": "027bfc14-0b53-49ec-9049-e760a2f05369",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "a7d75782-6a6a-4eda-a42c-e1dc14d95619"
+        "name": "a7d75782-6a6a-4eda-a42c-e1dc14d95619",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "legacy-utility-triage": [
       {
-        "name": "5d42eb85-85d1-453b-991a-8a87f37da36c"
+        "name": "5d42eb85-85d1-453b-991a-8a87f37da36c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "9c62f215-0850-4e9f-9143-881b465f72a1"
+        "name": "9c62f215-0850-4e9f-9143-881b465f72a1",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "b17a265c-e066-4b25-83a1-7973767557bc"
+        "name": "b17a265c-e066-4b25-83a1-7973767557bc",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ca3d20e2-b522-4ee1-a1a0-51996e6d1382"
+        "name": "ca3d20e2-b522-4ee1-a1a0-51996e6d1382",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "44ee9043-cbfb-4c8c-8653-4d2ea5d3492d"
+        "name": "44ee9043-cbfb-4c8c-8653-4d2ea5d3492d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "live-database-cutover": [
       {
-        "name": "779ba1d4-d4e7-4a68-b5e2-30b5723987b0"
+        "name": "779ba1d4-d4e7-4a68-b5e2-30b5723987b0",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "01deebbd-2a95-4241-9374-aa72e54b2895"
+        "name": "01deebbd-2a95-4241-9374-aa72e54b2895",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "c9bffa6b-5615-4d3f-a7e7-e7a576f32dfb"
+        "name": "c9bffa6b-5615-4d3f-a7e7-e7a576f32dfb",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "699e7e60-bed3-4dc3-a14b-4ea0702fd82f"
+        "name": "699e7e60-bed3-4dc3-a14b-4ea0702fd82f",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "30aa6372-5df0-4f85-a231-4fd6801eb69d"
+        "name": "30aa6372-5df0-4f85-a231-4fd6801eb69d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "math-eval-grader": [
       {
-        "name": "8fae39cf-2725-401f-b3e2-a08c02bfda91"
+        "name": "8fae39cf-2725-401f-b3e2-a08c02bfda91",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "59dc58bc-5f81-43dc-802c-63c42af065d2"
+        "name": "59dc58bc-5f81-43dc-802c-63c42af065d2",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "d2b5a8e5-a649-4376-b6b2-3aa2206395c5"
+        "name": "d2b5a8e5-a649-4376-b6b2-3aa2206395c5",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "b87057ab-a8a7-41ff-b8f8-606f323c9522"
+        "name": "b87057ab-a8a7-41ff-b8f8-606f323c9522",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "26b047f6-dd37-4673-a810-f65a0bf454fe"
+        "name": "26b047f6-dd37-4673-a810-f65a0bf454fe",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "medical-claims-processing": [
       {
-        "name": "e5fe700a-d9f2-40ea-93a0-0b7e7354849d"
+        "name": "e5fe700a-d9f2-40ea-93a0-0b7e7354849d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "492318d4-a553-4ad3-87b3-5478b9238bd9"
+        "name": "492318d4-a553-4ad3-87b3-5478b9238bd9",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "c924f8fc-5797-4fc2-a000-0be4d5811d41"
+        "name": "c924f8fc-5797-4fc2-a000-0be4d5811d41",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ad08618d-c8b8-447d-a309-223ccd183415"
+        "name": "ad08618d-c8b8-447d-a309-223ccd183415",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "56a712a2-f482-4936-ade3-94d116194f64"
+        "name": "56a712a2-f482-4936-ade3-94d116194f64",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "mp-checkpoint-consolidation": [
       {
-        "name": "7b5db043-068f-4447-9aa6-ea974cfbe8fb"
+        "name": "7b5db043-068f-4447-9aa6-ea974cfbe8fb",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "34d98f26-0b9b-451f-8e5d-eceaecc4395c"
+        "name": "34d98f26-0b9b-451f-8e5d-eceaecc4395c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "6d95626c-06a0-4154-b46a-73b3fc47a065"
+        "name": "6d95626c-06a0-4154-b46a-73b3fc47a065",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "0aa16604-1744-4ca5-a7f4-9e538fb348d4"
+        "name": "0aa16604-1744-4ca5-a7f4-9e538fb348d4",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "4e1d7e74-ae5b-4d89-9cee-e008a36726f7"
+        "name": "4e1d7e74-ae5b-4d89-9cee-e008a36726f7",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "music-harmony": [
       {
-        "name": "75abc895-445e-422a-a90c-c971781f0fb2"
+        "name": "75abc895-445e-422a-a90c-c971781f0fb2",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "bc0461cb-52c8-4051-bc35-8909fa161c10"
+        "name": "bc0461cb-52c8-4051-bc35-8909fa161c10",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "6eb3c04e-c427-43a2-9d7a-99da4cea4238"
+        "name": "6eb3c04e-c427-43a2-9d7a-99da4cea4238",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "a0adf308-5e38-4733-b3d8-1d776b40ac7e"
+        "name": "a0adf308-5e38-4733-b3d8-1d776b40ac7e",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "15f6966b-24fe-4f2a-b33a-24aca74f3433"
+        "name": "15f6966b-24fe-4f2a-b33a-24aca74f3433",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "mvcc-lsm-compaction": [
       {
-        "name": "c60dffcb-896e-47fa-8a4e-6787de815b06"
+        "name": "c60dffcb-896e-47fa-8a4e-6787de815b06",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "7a93d3bd-f66a-4b1e-9ff1-4893e247dd0b"
+        "name": "7a93d3bd-f66a-4b1e-9ff1-4893e247dd0b",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "4b43d52c-6421-498a-bfb5-5cb23caf036d"
+        "name": "4b43d52c-6421-498a-bfb5-5cb23caf036d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "541c810c-6aca-4e60-bff2-2cc43403378f"
+        "name": "541c810c-6aca-4e60-bff2-2cc43403378f",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "62759409-4ae1-46ad-867e-2405354ed75b"
+        "name": "62759409-4ae1-46ad-867e-2405354ed75b",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "nextjs-performance": [
       {
-        "name": "4b9bfa90-6c0c-484f-bbe1-4d7e2006415e"
+        "name": "4b9bfa90-6c0c-484f-bbe1-4d7e2006415e",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "27b90b34-0397-4029-a7cb-9bc2c5b4ec4e"
+        "name": "27b90b34-0397-4029-a7cb-9bc2c5b4ec4e",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "180879b1-12b4-4f5d-993c-ff6b04ec53b8"
+        "name": "180879b1-12b4-4f5d-993c-ff6b04ec53b8",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "a2bf4157-dd6b-42bb-ba92-1094b363fca0"
+        "name": "a2bf4157-dd6b-42bb-ba92-1094b363fca0",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "7c20f8da-e572-4d91-9713-f6c4b2dab533"
+        "name": "7c20f8da-e572-4d91-9713-f6c4b2dab533",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "ontology-kg-querying": [
       {
-        "name": "48c46e76-cf99-437b-b6e7-f07f788d17cd"
+        "name": "48c46e76-cf99-437b-b6e7-f07f788d17cd",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "12833449-b8d5-423f-90df-a96042b6dadb"
+        "name": "12833449-b8d5-423f-90df-a96042b6dadb",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ac8b07b2-ee59-4b60-8dd7-30898267e1de"
+        "name": "ac8b07b2-ee59-4b60-8dd7-30898267e1de",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "080d420e-a82f-4816-93e4-b999e1ed8f6e"
+        "name": "080d420e-a82f-4816-93e4-b999e1ed8f6e",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "d3058811-5b7e-4802-8d30-12222ba7ec1b"
+        "name": "d3058811-5b7e-4802-8d30-12222ba7ec1b",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "payments-pipeline-fix": [
       {
-        "name": "a54acbc3-269f-456c-bc29-09f06563e8b9"
+        "name": "a54acbc3-269f-456c-bc29-09f06563e8b9",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "fee47885-5686-4fb6-9b61-36016c8b6bf7"
+        "name": "fee47885-5686-4fb6-9b61-36016c8b6bf7",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "c66b3d03-e79f-4442-b773-9a8d5fc16b5f"
+        "name": "c66b3d03-e79f-4442-b773-9a8d5fc16b5f",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "35f0ad93-6004-47fe-9200-211ac154a026"
+        "name": "35f0ad93-6004-47fe-9200-211ac154a026",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "cb5a5b93-8dc9-4e7e-af2c-34b12ae5965f"
+        "name": "cb5a5b93-8dc9-4e7e-af2c-34b12ae5965f",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "photonic-waveguide-routing": [
       {
-        "name": "ef406f18-0b37-44b3-8b0b-f3d6e1029133"
+        "name": "ef406f18-0b37-44b3-8b0b-f3d6e1029133",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "7e724dc6-ea10-4679-b925-ea9121ebcee0"
+        "name": "7e724dc6-ea10-4679-b925-ea9121ebcee0",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "a3bf364d-458c-445d-adb9-8882c84313db"
+        "name": "a3bf364d-458c-445d-adb9-8882c84313db",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ff70d0e8-f564-41d4-a695-4b9a763b4275"
+        "name": "ff70d0e8-f564-41d4-a695-4b9a763b4275",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "be32c564-5ea5-4009-a715-fba67333fc7f"
+        "name": "be32c564-5ea5-4009-a715-fba67333fc7f",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "pretrain-shard-corruption": [
       {
-        "name": "e157e22f-b9f9-467f-91fa-12d0813f7c80"
+        "name": "e157e22f-b9f9-467f-91fa-12d0813f7c80",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "cad7b34e-f9b8-42c6-83e6-36b11b60a996"
+        "name": "cad7b34e-f9b8-42c6-83e6-36b11b60a996",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "eb3610b1-7de7-4994-bf00-4a941a0920c6"
+        "name": "eb3610b1-7de7-4994-bf00-4a941a0920c6",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "981c8417-9ae3-4af4-bf37-c866e4f4b515"
+        "name": "981c8417-9ae3-4af4-bf37-c866e4f4b515",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "599a2e62-7dff-4eee-8c34-dc20e3957209"
+        "name": "599a2e62-7dff-4eee-8c34-dc20e3957209",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "production-planning": [
       {
-        "name": "a694a840-de15-4af8-990a-d81818b1f072"
+        "name": "a694a840-de15-4af8-990a-d81818b1f072",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "92ee728f-3d7c-4b4c-9dea-300ec434ebe3"
+        "name": "92ee728f-3d7c-4b4c-9dea-300ec434ebe3",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "2ce59dc6-a44f-4c3f-81f3-fca7d0ea681d"
+        "name": "2ce59dc6-a44f-4c3f-81f3-fca7d0ea681d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "c8d6ad9f-29cb-4416-a21c-0974f3a1bbb3"
+        "name": "c8d6ad9f-29cb-4416-a21c-0974f3a1bbb3",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "25fdf816-be9e-4dd0-8099-0c2391b48952"
+        "name": "25fdf816-be9e-4dd0-8099-0c2391b48952",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "protein-autointerp-disulfide": [
       {
-        "name": "9384d4f7-980b-43b7-915c-ad2f351b4649"
+        "name": "9384d4f7-980b-43b7-915c-ad2f351b4649",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "9b585c13-bbc6-4ce1-88ad-6cfedc5e3470"
+        "name": "9b585c13-bbc6-4ce1-88ad-6cfedc5e3470",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "d7467b7f-2bcd-4cb4-8547-efe9f6793fca"
+        "name": "d7467b7f-2bcd-4cb4-8547-efe9f6793fca",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "0adf78ea-0c9c-4621-93c6-94c067e88770"
+        "name": "0adf78ea-0c9c-4621-93c6-94c067e88770",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "b945b8f7-d48c-4c3f-ab4b-cc27675ba1dd"
+        "name": "b945b8f7-d48c-4c3f-ab4b-cc27675ba1dd",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "react-lead-form": [
       {
-        "name": "a980f1e1-695f-4f49-987e-f49b2953c73e"
+        "name": "a980f1e1-695f-4f49-987e-f49b2953c73e",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "4cf651e1-c599-44ad-896e-be8ed692bb3a"
+        "name": "4cf651e1-c599-44ad-896e-be8ed692bb3a",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "68014b24-9e35-486c-b254-4c274335d0a8"
+        "name": "68014b24-9e35-486c-b254-4c274335d0a8",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "6a9a6571-edaf-4034-b428-7665b926701e"
+        "name": "6a9a6571-edaf-4034-b428-7665b926701e",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "fbe0f4f8-ea34-4217-9d72-5dd7a706ce3a"
+        "name": "fbe0f4f8-ea34-4217-9d72-5dd7a706ce3a",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "retro-console-soc": [
       {
-        "name": "06ec5e76-08c6-4880-8d13-79c441c97d6a"
+        "name": "06ec5e76-08c6-4880-8d13-79c441c97d6a",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "432ffad6-a2c7-4369-a754-b9b3000b068c"
+        "name": "432ffad6-a2c7-4369-a754-b9b3000b068c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "4d9c703e-19fc-4adf-8002-2a646d007e73"
+        "name": "4d9c703e-19fc-4adf-8002-2a646d007e73",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "b249d913-ca72-496e-b5ae-33b84f33ace0"
+        "name": "b249d913-ca72-496e-b5ae-33b84f33ace0",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "b3e3dd53-b65e-43b8-910d-b6527402ef1a"
+        "name": "b3e3dd53-b65e-43b8-910d-b6527402ef1a",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "risk-scorer-replay": [
       {
-        "name": "9b27726e-226f-4f49-9ada-e1108756c2d3"
+        "name": "9b27726e-226f-4f49-9ada-e1108756c2d3",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ae9c378c-1c1d-4d2e-94c4-8db12ef6b988"
+        "name": "ae9c378c-1c1d-4d2e-94c4-8db12ef6b988",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "9727cd3a-0093-40eb-9b3e-bbd0eb817a27"
+        "name": "9727cd3a-0093-40eb-9b3e-bbd0eb817a27",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "fbbde7c5-6600-4296-8d26-ac4e5d902c9b"
+        "name": "fbbde7c5-6600-4296-8d26-ac4e5d902c9b",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "0f0f6c64-6e6b-4058-9b30-fcf9cd0abb4f"
+        "name": "0f0f6c64-6e6b-4058-9b30-fcf9cd0abb4f",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "roy-polymorph-cn": [
       {
-        "name": "0fc3d7ec-b18e-499d-b2c4-0bb18d33d5d3"
+        "name": "0fc3d7ec-b18e-499d-b2c4-0bb18d33d5d3",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "d25de2e8-89a4-445b-812b-b6cc52de361e"
+        "name": "d25de2e8-89a4-445b-812b-b6cc52de361e",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "66b09d9c-34a6-4b5f-8f30-c22a8f50193c"
+        "name": "66b09d9c-34a6-4b5f-8f30-c22a8f50193c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "4bda8c5c-eca2-4040-bda1-5703163c9b6d"
+        "name": "4bda8c5c-eca2-4040-bda1-5703163c9b6d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "6860eeff-7071-457d-a584-87708be60dd4"
+        "name": "6860eeff-7071-457d-a584-87708be60dd4",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "rs-archive-clone": [
       {
-        "name": "32c75aa5-d16d-4c8a-a1ce-f5950de7f876"
+        "name": "32c75aa5-d16d-4c8a-a1ce-f5950de7f876",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "bd450353-61f6-4aec-bd9e-f97f1fa21084"
+        "name": "bd450353-61f6-4aec-bd9e-f97f1fa21084",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "21cee279-09ad-421b-bf7c-37627da3db7f"
+        "name": "21cee279-09ad-421b-bf7c-37627da3db7f",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "3d5196ef-0010-40dc-9e10-48652cf6845f"
+        "name": "3d5196ef-0010-40dc-9e10-48652cf6845f",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "53d014f2-2a29-4cb4-9794-e9bbc0436678"
+        "name": "53d014f2-2a29-4cb4-9794-e9bbc0436678",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "satb-audio-transcription": [
       {
-        "name": "b630f4f7-f4f5-42c8-9bc3-0da98bc293f5"
+        "name": "b630f4f7-f4f5-42c8-9bc3-0da98bc293f5",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "d14b38e7-7381-44ad-9ac9-877d1b250e29"
+        "name": "d14b38e7-7381-44ad-9ac9-877d1b250e29",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ff71b47e-2070-4a7e-af8c-59e5702e6cec"
+        "name": "ff71b47e-2070-4a7e-af8c-59e5702e6cec",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "14edfe61-e69f-446a-82cc-4a563d3b4bb5"
+        "name": "14edfe61-e69f-446a-82cc-4a563d3b4bb5",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "07fce123-566d-40ea-84e8-65d920093f3c"
+        "name": "07fce123-566d-40ea-84e8-65d920093f3c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "session-window-debug": [
       {
-        "name": "b32fda0d-8bf3-4aeb-9b26-695f1c443638"
+        "name": "b32fda0d-8bf3-4aeb-9b26-695f1c443638",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "4fdadde8-073a-4489-bc2a-404f86785871"
+        "name": "4fdadde8-073a-4489-bc2a-404f86785871",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "876ee2d2-4683-4743-99a4-163c2acf899d"
+        "name": "876ee2d2-4683-4743-99a4-163c2acf899d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ff8bf1b1-d3ed-4c4f-a9fd-f71ec4c58345"
+        "name": "ff8bf1b1-d3ed-4c4f-a9fd-f71ec4c58345",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "c34c2e73-eba2-4966-bb8b-9aaa6848782d"
+        "name": "c34c2e73-eba2-4966-bb8b-9aaa6848782d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "sglang-qwen-burst": [
       {
-        "name": "1e01cd94-8c04-4c24-9f1c-4295c4b1a938"
+        "name": "1e01cd94-8c04-4c24-9f1c-4295c4b1a938",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "6baba5c4-d09a-473c-9a5b-0d4e190588bd"
+        "name": "6baba5c4-d09a-473c-9a5b-0d4e190588bd",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "af2f340f-11b6-4796-997a-d6ac0a882a14"
+        "name": "af2f340f-11b6-4796-997a-d6ac0a882a14",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "9762939a-ec14-4441-a608-860151d3622b"
+        "name": "9762939a-ec14-4441-a608-860151d3622b",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "6b8a023c-415b-4750-a660-897442a71d16"
+        "name": "6b8a023c-415b-4750-a660-897442a71d16",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "shadow-relay": [
       {
-        "name": "49888d6b-9c5c-4f44-800a-ba855011d7c8"
+        "name": "49888d6b-9c5c-4f44-800a-ba855011d7c8",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "88f4443d-2d00-4e35-9d74-c5aa20f03751"
+        "name": "88f4443d-2d00-4e35-9d74-c5aa20f03751",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "5869b604-4c74-4159-a639-a0ef7fb83a2a"
+        "name": "5869b604-4c74-4159-a639-a0ef7fb83a2a",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "a613bd58-1fc6-4213-b889-3461c31c51f6"
+        "name": "a613bd58-1fc6-4213-b889-3461c31c51f6",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "df8d0cd1-77f3-4333-b856-463400b65cbb"
+        "name": "df8d0cd1-77f3-4333-b856-463400b65cbb",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "sound-change-cascade": [
       {
-        "name": "88b413e3-98fb-4153-938f-a171aa7ba1b6"
+        "name": "88b413e3-98fb-4153-938f-a171aa7ba1b6",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ed5d593a-c84f-4204-b327-e7e7416ce3e4"
+        "name": "ed5d593a-c84f-4204-b327-e7e7416ce3e4",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "1beb4e7c-ecc2-469f-a543-0fea6d10744c"
+        "name": "1beb4e7c-ecc2-469f-a543-0fea6d10744c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "5c691fc8-f0a7-45d1-85da-cc0079560740"
+        "name": "5c691fc8-f0a7-45d1-85da-cc0079560740",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "ac41bf4b-5d86-4b8f-8c3d-dabd585dd454"
+        "name": "ac41bf4b-5d86-4b8f-8c3d-dabd585dd454",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "takens-embedding-lean": [
       {
-        "name": "98c84a2e-f545-45e9-a7e6-375ecf0f9107"
+        "name": "98c84a2e-f545-45e9-a7e6-375ecf0f9107",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "f6e73498-7187-4a80-bcc2-b1f859592d5c"
+        "name": "f6e73498-7187-4a80-bcc2-b1f859592d5c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "110c6dc5-cd71-4136-a35f-678c492d1053"
+        "name": "110c6dc5-cd71-4136-a35f-678c492d1053",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "7b9a9ec5-cbaa-4a47-be67-4cf43799b504"
+        "name": "7b9a9ec5-cbaa-4a47-be67-4cf43799b504",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "26bab199-3cc2-451c-9f78-252f962d90ec"
+        "name": "26bab199-3cc2-451c-9f78-252f962d90ec",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "telecom-entity-resolution": [
       {
-        "name": "d469aeba-fb8e-4945-8b30-7ddfe7005e99"
+        "name": "d469aeba-fb8e-4945-8b30-7ddfe7005e99",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "314c0f96-7f0d-45b0-9d1a-a30a1e12cfba"
+        "name": "314c0f96-7f0d-45b0-9d1a-a30a1e12cfba",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "f5bc7773-39cd-4b99-8892-47624ece756f"
+        "name": "f5bc7773-39cd-4b99-8892-47624ece756f",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "0538b72a-8591-4acb-a4d2-9220ecf04d49"
+        "name": "0538b72a-8591-4acb-a4d2-9220ecf04d49",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "5a7baa2a-a067-4f18-a09c-431b3aec6886"
+        "name": "5a7baa2a-a067-4f18-a09c-431b3aec6886",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "uefi-bootkit": [
       {
-        "name": "001e393b-5e36-436a-8db5-f18dda0fb4a5"
+        "name": "001e393b-5e36-436a-8db5-f18dda0fb4a5",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "4cda97e4-8462-4e8d-89c9-7cea4e6106dc"
+        "name": "4cda97e4-8462-4e8d-89c9-7cea4e6106dc",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "7d9c7c2f-f2ca-422d-9944-402b2a19b1fb"
+        "name": "7d9c7c2f-f2ca-422d-9944-402b2a19b1fb",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "9e0da6ca-1f76-46c1-b20e-ff5416f9983c"
+        "name": "9e0da6ca-1f76-46c1-b20e-ff5416f9983c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "49a24454-bb1e-4643-9ac7-95051b08e3fa"
+        "name": "49a24454-bb1e-4643-9ac7-95051b08e3fa",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "vba-userform-port": [
       {
-        "name": "7416d646-692c-4513-8113-32408ea9372b"
+        "name": "7416d646-692c-4513-8113-32408ea9372b",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "c9637e47-bb7b-43ec-8598-999cc1339cf7"
+        "name": "c9637e47-bb7b-43ec-8598-999cc1339cf7",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "50a7ae5a-fd49-44d5-9e64-dce211d75321"
+        "name": "50a7ae5a-fd49-44d5-9e64-dce211d75321",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "e34fb69f-cd02-4db2-a7a0-c44c4e100027"
+        "name": "e34fb69f-cd02-4db2-a7a0-c44c4e100027",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "4e5a5109-b9dd-45ce-9c56-74cee8eece7d"
+        "name": "4e5a5109-b9dd-45ce-9c56-74cee8eece7d",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "vf2-speedup-networkx": [
       {
-        "name": "41262377-7f03-4ee6-925e-dca123c417e4"
+        "name": "41262377-7f03-4ee6-925e-dca123c417e4",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "6fc1433a-1278-4d83-a1e1-80e041d1dec4"
+        "name": "6fc1433a-1278-4d83-a1e1-80e041d1dec4",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "4ca1e556-4ee6-4fc2-a0f4-800fa6495b9b"
+        "name": "4ca1e556-4ee6-4fc2-a0f4-800fa6495b9b",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "449ddde4-d79f-49b3-997c-070bd8236043"
+        "name": "449ddde4-d79f-49b3-997c-070bd8236043",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "23f202c4-5315-4f00-8204-1a3026701a1c"
+        "name": "23f202c4-5315-4f00-8204-1a3026701a1c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "vllm-deepseek-streaming": [
       {
-        "name": "5af29980-4bd2-4c1b-be92-4c4669aca305"
+        "name": "5af29980-4bd2-4c1b-be92-4c4669aca305",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "d93c6da1-b0f7-48e7-a4a7-589a03f340b8"
+        "name": "d93c6da1-b0f7-48e7-a4a7-589a03f340b8",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "cd3743cb-98c0-41b1-873c-ab5f89eef2fd"
+        "name": "cd3743cb-98c0-41b1-873c-ab5f89eef2fd",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "e724df05-1081-4333-be3b-1588bc361f03"
+        "name": "e724df05-1081-4333-be3b-1588bc361f03",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "0e2bf816-5fe5-4a1a-9ae1-b9f78db18d51"
+        "name": "0e2bf816-5fe5-4a1a-9ae1-b9f78db18d51",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "vpp-loss-divergence": [
       {
-        "name": "7f1bf2b7-51b6-4b04-9358-1dedfb9fcc44"
+        "name": "7f1bf2b7-51b6-4b04-9358-1dedfb9fcc44",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "4d1a0664-9e0c-415b-a185-24553755bb28"
+        "name": "4d1a0664-9e0c-415b-a185-24553755bb28",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "545bc462-a392-4eca-bcc7-ca97005b62d0"
+        "name": "545bc462-a392-4eca-bcc7-ca97005b62d0",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "d620fc39-7808-476c-95a1-db61d104668e"
+        "name": "d620fc39-7808-476c-95a1-db61d104668e",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "e83184d0-e2f0-4b3d-af13-9a5e05666ab6"
+        "name": "e83184d0-e2f0-4b3d-af13-9a5e05666ab6",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "wal-recovery-ordering": [
       {
-        "name": "6f2f7da3-aca9-4f48-9463-6ce8349a583e"
+        "name": "6f2f7da3-aca9-4f48-9463-6ce8349a583e",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "d85e899d-04e3-4d4c-98b6-87685755e5cc"
+        "name": "d85e899d-04e3-4d4c-98b6-87685755e5cc",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "9a4d3301-7cb7-42d1-8fea-d9f3a9cce9b2"
+        "name": "9a4d3301-7cb7-42d1-8fea-d9f3a9cce9b2",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "5205c98a-f799-4a39-bd5f-853ce7d8b8dc"
+        "name": "5205c98a-f799-4a39-bd5f-853ce7d8b8dc",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "cd75bc6b-7cce-48d4-84d6-2db53be3517e"
+        "name": "cd75bc6b-7cce-48d4-84d6-2db53be3517e",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ],
     "wdm-design": [
       {
-        "name": "8ce9b2c4-cf17-48da-b279-979ae1e523a0"
+        "name": "8ce9b2c4-cf17-48da-b279-979ae1e523a0",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "b1f6072a-1535-44de-815f-338378b2c76c"
+        "name": "b1f6072a-1535-44de-815f-338378b2c76c",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "d2ac44e0-b7a3-4041-8977-32acc19a73a8"
+        "name": "d2ac44e0-b7a3-4041-8977-32acc19a73a8",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "a79bf395-9437-4c21-928e-fffe6a95961a"
+        "name": "a79bf395-9437-4c21-928e-fffe6a95961a",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       },
       {
-        "name": "25d3ae63-77a3-4ef0-99e4-602f50f6b274"
+        "name": "25d3ae63-77a3-4ef0-99e4-602f50f6b274",
+        "job": "86e3ac63-37c4-4003-8248-483fdb9b43ce"
       }
     ]
   },
@@ -1313,7 +1643,172 @@
   },
   "reconciled": true,
   "notes": [],
-  "scan": null,
+  "scan": {
+    "version": "0.8.14",
+    "scope": "the row's 95 trials on the 19-task subset (subset.json)",
+    "trials": 95,
+    "rewarded": 56,
+    "accuracy": 58.95,
+    "accuracy_se": 1.05,
+    "findings_medium_plus": {
+      "trials": 1,
+      "rewarded": 0,
+      "by_highest_priority": {
+        "medium": 1,
+        "low": 1,
+        "info": 81,
+        "none": 12
+      },
+      "top": [
+        {
+          "check": "side_channel.agent_history_probe",
+          "title": "Stored agent sessions listed or searched",
+          "priority": "medium",
+          "trials": 1,
+          "rewarded": 0
+        }
+      ]
+    },
+    "review": {
+      "dq_threshold": "high",
+      "high_or_critical_rewarded": 0,
+      "other_model_trials": 0,
+      "incomplete_evidence_rewarded": 24,
+      "accuracy_if_flagged_failed": null
+    },
+    "awareness": {
+      "trials": 0,
+      "stages": {
+        "noticed": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "named": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "probed": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "watched": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "cluster": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "searched": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "obtained": {
+          "trials": 0,
+          "rewarded": 0
+        }
+      },
+      "verifier_talk": {
+        "trials": 5,
+        "rewarded": 5
+      }
+    },
+    "evidence": {
+      "planned": 95,
+      "errored": 0,
+      "error_types": {},
+      "compacted_history": 0,
+      "without_trajectory": 0,
+      "incomplete_scans": 50,
+      "unmetered_trials": 0
+    },
+    "cost": {
+      "recorded": 341.83,
+      "trials_missing_cost": 0,
+      "estimated_unpriced": null,
+      "estimated_unmetered": null,
+      "estimated_total": 341.83
+    },
+    "tokens": {
+      "uncached_input": 8209602,
+      "cached_input": 134259793,
+      "output": 2509416
+    },
+    "walltime_hours": {
+      "trial_sum": 29.8,
+      "agent_sum": 25.4
+    },
+    "overrides": [],
+    "flagged_tasks": {
+      "cargo-flight-dispatch": {
+        "trials": 1,
+        "rewarded": 0,
+        "max_priority": "medium"
+      }
+    },
+    "tasks": [
+      "atrx-vep-crispr",
+      "cad-model",
+      "cargo-flight-dispatch",
+      "fin-saccr-rwa",
+      "gsea-proteomics",
+      "hof-topology-interpenetration",
+      "html-js-filter",
+      "mvcc-lsm-compaction",
+      "photonic-waveguide-routing",
+      "production-planning",
+      "react-lead-form",
+      "satb-audio-transcription",
+      "session-window-debug",
+      "sound-change-cascade",
+      "telecom-entity-resolution",
+      "vba-userform-port",
+      "vllm-deepseek-streaming",
+      "vpp-loss-divergence",
+      "wal-recovery-ordering"
+    ],
+    "scanner": {
+      "commit": "b79c6c1f2c2a4904d56d9b23168c7d813e474d97",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--task-subset",
+        "docs/benchmark_data/tb4/subset.json",
+        "--min-trials",
+        "5",
+        "--rules",
+        "docs/benchmark_data/tb4/atif-rules.json",
+        "--image-model",
+        "codexresponses.gpt-6-luna?reasoning=medium"
+      ],
+      "rules_sha256": "5f9f76ce20cc70e4a98c95e03f4fc7b491db7a2bb9a904fb2565366fb9448fd6"
+    },
+    "cells": {
+      "atrx-vep-crispr": "lllll",
+      "cad-model": "lllll",
+      "cargo-flight-dispatch": "lllml",
+      "fin-saccr-rwa": "lllll",
+      "gsea-proteomics": "lllll",
+      "hof-topology-interpenetration": "lllll",
+      "html-js-filter": "lllll",
+      "mvcc-lsm-compaction": "lllll",
+      "photonic-waveguide-routing": "lllll",
+      "production-planning": "lllll",
+      "react-lead-form": "lllll",
+      "satb-audio-transcription": "lllll",
+      "session-window-debug": "lllll",
+      "sound-change-cascade": "lllll",
+      "telecom-entity-resolution": "lllll",
+      "vba-userform-port": "lllll",
+      "vllm-deepseek-streaming": "lllll",
+      "vpp-loss-divergence": "lllll",
+      "wal-recovery-ordering": "lllll"
+    }
+  },
   "model_org": "OpenAI",
   "listed": "2026-09-03"
 }

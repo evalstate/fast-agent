@@ -15,6 +15,23 @@ turns everything here into `docs/docs/javascripts/benchmark-data.js`.
   The generator cuts them to the subset (cost: the recorded trial costs on the 19 tasks,
   `task_costs`) and keeps the full run for the run pages. TB4 rows carry no PR link, so
   their source is the row's Hub page.
+  - **Scanned on the subset** (`"scan": true, "scan_task_subset": "subset.json"`): atif-scan
+    0.8.14+ scans `harbor://rows/<row>` with `--task-subset`, so exactly the row's 95
+    trials on the subset tasks are downloaded and scanned, and every scan figure (findings,
+    awareness, evidence) is over them (`scan.scope`, `scan.tasks`). Leaderboard rows have
+    no review: their flags show as not reviewed.
+  - **Recalculated cost** (`recalculated_cost`: `file`, `note`): our own per-trial cost for
+    a row whose harness recorded cost wrongly, from a committed file of one record per
+    trial (id, task, recorded and recalculated USD). `fetch_runs.py` checks every record is
+    a reported trial with the Hub's recorded cost, and that each task is covered whole; the
+    generator then uses the recalculated task costs on the subset (`cost.recalculated`,
+    shown with the note under Accounting). `tb4-grok-build-grok-4-7-xhigh` uses it: Harbor's
+    grok-build adapter left the Grok CLI's reasoning tokens out of output and cost
+    (harbor-framework/harbor#3805). `tb4/recalculate_grok_build.py` reprices each subset
+    trial from the CLI's per-call usage in its public Hub archive, as Harbor prices it but
+    with reasoning counted as output, and stops unless the recorded cost is reproduced
+    first (95 of 95 to 1e-6: $530.86 recorded, $632.73 recalculated). The full run's
+    published total stays Harbor's.
 - **Our runs** (bench-run releases in the `evalstate/published-benchmarks` bucket under
   `tb4/19-task-v1/<run>/`) name `"tasks_file": "subset.json"`: they cover the 19 tasks
   only and show "subset only" where leaderboard rows show their full run. They are
@@ -207,7 +224,8 @@ One character per trial, ordered by `started_at`:
 
 ## Scan block
 
-`scan` summarises `atif-scan --brief --format json` over the run's full jobs; `scan.version`
+`scan` summarises `atif-scan --brief --format json` over the run's full jobs (TB4
+leaderboard rows: their subset trials); `scan.version`
 and `scan.scanner` (commit, local changes, flags) record what produced it. On 2026-10-08
 every scanned run (ours and the Claude Code / Terminus 2 comparators) was rescanned with
 atif-scan 0.7.0 (`e973303`), again on 2026-10-09 with 0.7.1 (`60844ae`), and on 2026-10-10 with 0.8.0 (`2a091b6`), and `--image-model 'codexresponses.gpt-6-luna?reasoning=medium'`.
