@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
@@ -61,7 +61,7 @@ class Simulator:
 
 
 @asynccontextmanager
-async def serve(simulator: Simulator) -> AsyncIterator[str]:
+async def serve(simulator: Simulator) -> AsyncGenerator[str]:
     async with await asyncio.start_server(simulator.handle, "127.0.0.1", 0) as server:
         port = server.sockets[0].getsockname()[1]
         yield f"http://127.0.0.1:{port}/backend-api/codex"

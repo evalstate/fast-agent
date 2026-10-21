@@ -186,7 +186,7 @@ class AsyncioExecutor(Executor):
             self._activity_semaphore = asyncio.Semaphore(self.config.max_concurrent_activities)
 
     @asynccontextmanager
-    async def _activity_limit(self) -> AsyncIterator[None]:
+    async def _activity_limit(self) -> AsyncGenerator[None]:
         if self._activity_semaphore is None:
             yield
             return

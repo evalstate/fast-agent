@@ -21,7 +21,7 @@ from fast_agent.config import Settings, get_settings, update_global_settings
 from fast_agent.constants import FAST_AGENT_RUNTIME_HOME
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
     from pathlib import Path
 
     from openai.types.chat import ChatCompletionToolParam
@@ -66,7 +66,7 @@ def _isolated_overlay_environment(
     home: Path | None,
     *,
     cleanup_base: Path,
-) -> Iterator[None]:
+) -> Generator[None]:
     env_keys = ("FAST_AGENT_HOME", "FAST_AGENT_HOME", FAST_AGENT_RUNTIME_HOME)
     previous = {key: os.environ.get(key) for key in env_keys}
 

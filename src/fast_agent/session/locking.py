@@ -11,9 +11,12 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, cast
+from typing import TYPE_CHECKING, cast
 
 from filelock import FileLock, Timeout
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 
 def _utc_now() -> str:
@@ -177,7 +180,7 @@ class SessionLockStore:
         )
 
     @contextmanager
-    def checkpoint(self, session_id: str, *, timeout: float = 0) -> Iterator[None]:
+    def checkpoint(self, session_id: str, *, timeout: float = 0) -> Generator[None]:
         lock = self.auxiliary(session_id, "checkpoint", timeout=timeout)
         try:
             lock.acquire()

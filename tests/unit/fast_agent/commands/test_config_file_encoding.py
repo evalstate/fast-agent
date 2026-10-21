@@ -24,7 +24,7 @@ from fast_agent.cli.commands import check_config as check_config_command
 from fast_agent.cli.commands import config as config_command
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
     from pathlib import Path
 
 # Deliberately mixes a character that no legacy Chinese codec can represent
@@ -34,7 +34,7 @@ CP936_SAFE = "团队默认横幅"
 
 
 @contextlib.contextmanager
-def _default_codec(codec: str) -> Iterator[None]:
+def _default_codec(codec: str) -> Generator[None]:
     """Makes implicit text IO use ``codec``, as a non-UTF-8 locale would.
 
     `pathlib.Path.open` resolves the default encoding inside `io.open`, and

@@ -100,7 +100,7 @@ class _Sandbox(SandboxProtocol):
     def __init__(self) -> None:
         self.id = "sandbox-job-123"
         self.test_files = _Files()
-        self.files: _Files = self.test_files
+        self.files = self.test_files
         self.cwd: str | None = None
         self.commands: list[str | list[str]] = []
 

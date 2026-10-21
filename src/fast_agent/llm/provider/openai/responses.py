@@ -331,7 +331,7 @@ class ResponsesLLM(
         self._responses_prompt_cache_key = uuid4().hex
         self._tool_call_id_map: dict[str, str] = {}
         self._tool_name_map: dict[str, str] = {}
-        self._tool_kind_map: dict[str, Literal["function", "custom"]] = {}
+        self._tool_kind_map: dict[str, str] = {}
         self._seen_tool_call_ids: set[str] = set()
         self._tool_call_diagnostics: dict[str, Any] | None = None
         self._last_ws_request_type: str | None = None

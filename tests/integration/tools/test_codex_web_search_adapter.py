@@ -3,7 +3,7 @@
 import asyncio
 import base64
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -29,7 +29,7 @@ SECRET = "private-token-and-query"
 @asynccontextmanager
 async def endpoint(
     status: int = 200, *, malformed: bool = False
-) -> AsyncIterator[tuple[str, list[dict[str, Any]]]]:
+) -> AsyncGenerator[tuple[str, list[dict[str, Any]]]]:
     requests: list[dict[str, Any]] = []
 
     async def serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:

@@ -25,7 +25,7 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.ui import console
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
 COPILOT_CLIENT_ID: Final = "Ov23li9BBH5sVoKopuI6"
 COPILOT_PROVIDER_ID: Final = "copilot"
@@ -206,7 +206,7 @@ async def poll_copilot_device_code(
 
 
 @contextmanager
-def _store_errors() -> Iterator[None]:
+def _store_errors() -> Generator[None]:
     # ValidationError/JSONDecodeError/UnicodeError are ValueErrors. Never expose
     # their model dumps, input values, or file contents in user-facing failures.
     try:

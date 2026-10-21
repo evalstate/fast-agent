@@ -7,7 +7,7 @@ from contextvars import ContextVar
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
 InteractiveDisplayMode: TypeAlias = Literal["normal", "progress_only", "monitor_only"]
 
@@ -29,7 +29,7 @@ def _interactive_transcript_enabled() -> bool:
 @contextmanager
 def suppress_interactive_display(
     mode: InteractiveDisplayMode = "progress_only",
-) -> Iterator[None]:
+) -> Generator[None]:
     """Temporarily suppress interactive transcript-oriented rendering."""
     token = _interactive_display_mode.set(mode)
     try:

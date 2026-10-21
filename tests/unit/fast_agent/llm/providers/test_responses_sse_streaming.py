@@ -23,7 +23,7 @@ from fast_agent.llm.request_params import RequestParams
 from fast_agent.types import LlmStopReason
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
 
     from mcp import Tool
     from openai import AsyncOpenAI
@@ -164,7 +164,7 @@ class _SimulatedSseMixin:
         client: Any,
         arguments: dict[str, Any],
         timeout_seconds: float | None = None,
-    ) -> AsyncIterator[_DelayedResponsesSseStream]:
+    ) -> AsyncGenerator[_DelayedResponsesSseStream]:
         del client, arguments, timeout_seconds
         self.sse_calls += 1
         yield self.sse_stream
@@ -297,7 +297,7 @@ async def test_explicit_end_turn_false_continues_without_synthetic_input(
     requests: list[list[dict[str, Any]]] = []
 
     @asynccontextmanager
-    async def stream_response(**kwargs: Any) -> AsyncIterator[_DelayedResponsesSseStream]:
+    async def stream_response(**kwargs: Any) -> AsyncGenerator[_DelayedResponsesSseStream]:
         requests.append(kwargs["arguments"]["input"])
         stream = _DelayedResponsesSseStream()
         stream.completed_message.content = [

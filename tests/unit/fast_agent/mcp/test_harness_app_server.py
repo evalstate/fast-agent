@@ -30,7 +30,7 @@ from fast_agent.tools.execution_environment import (
 from fast_agent.types import AgentRequest, AgentResponse, PromptMessageExtended
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
 
     from fastmcp import Context as MCPContext
 
@@ -90,7 +90,7 @@ class RecordingApp:
     async def open(
         self,
         request: AppOpenRequest | None = None,
-    ) -> "AsyncIterator[HarnessAppSession]":
+    ) -> "AsyncGenerator[HarnessAppSession]":
         resolved = request or AppOpenRequest()
         self.opened.append(resolved)
         yield self.session

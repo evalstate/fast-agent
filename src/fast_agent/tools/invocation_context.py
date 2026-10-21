@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping
+    from collections.abc import Generator, Mapping
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +53,7 @@ def local_tool_invocation_context(
     tool_name: str,
     arguments: Mapping[str, Any],
     tool_use_id: str | None = None,
-) -> Iterator[LocalToolInvocationContext]:
+) -> Generator[LocalToolInvocationContext]:
     """Expose tool-call metadata without adding parameters to a tool function."""
 
     context = LocalToolInvocationContext(
@@ -75,7 +75,7 @@ def agent_tool_invocation_context(
     arguments: Mapping[str, Any],
     tool_name: str | None = None,
     tool_use_id: str | None = None,
-) -> Iterator[AgentToolInvocationContext]:
+) -> Generator[AgentToolInvocationContext]:
     """Expose parent-supplied child-tool arguments during child execution."""
 
     context = AgentToolInvocationContext(

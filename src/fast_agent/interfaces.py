@@ -417,9 +417,13 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
     @property
     def initialized(self) -> bool: ...
 
-    instruction: str
+    @property
+    def instruction(self) -> str: ...
+
     config: "AgentConfig"
-    context: "Context | None"
+
+    @property
+    def context(self) -> "Context | None": ...
 
     def set_instruction(self, instruction: str) -> None: ...
 

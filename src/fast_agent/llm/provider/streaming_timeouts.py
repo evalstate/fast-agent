@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Self, TypeVar
@@ -187,7 +187,7 @@ async def enter_stream_with_timeout(
     *,
     timeout_seconds: float | None,
     timeout_message: str,
-) -> "AsyncIterator[Any]":
+) -> "AsyncGenerator[Any]":
     """Enter an async stream context with a startup timeout."""
 
     stream = await await_stream_start(

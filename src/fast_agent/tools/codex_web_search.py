@@ -16,7 +16,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.tools.web_search import SearchCommands, WebSearchError
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Generator, Sequence
 
     from fast_agent.agents.mcp_agent import McpAgent
     from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
@@ -70,7 +70,7 @@ class CodexWebSearchAdapter:
         self.scope: str | None = None
 
     @contextmanager
-    def turn(self, params: RequestParams | None) -> Iterator[None]:
+    def turn(self, params: RequestParams | None) -> Generator[None]:
         llm = self.agent.llm
         model = llm.get_request_params(params).model if llm and params else self.model.get()
         token = self.model.set(model)

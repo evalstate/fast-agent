@@ -10,7 +10,7 @@ This class extends LlmDecorator with LLM-specific interaction behaviors includin
 
 import json
 import os
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
@@ -211,7 +211,7 @@ class LlmAgent(LlmDecorator):
         self._last_turn_history_state = None
 
     @contextmanager
-    def _turn_indicator_scope(self) -> Iterator[None]:
+    def _turn_indicator_scope(self) -> Generator[None]:
         if self._turn_indicator_scope_depth == 0:
             self._websocket_turn_indicators.clear()
         self._turn_indicator_scope_depth += 1
@@ -221,7 +221,7 @@ class LlmAgent(LlmDecorator):
             self._turn_indicator_scope_depth -= 1
 
     @contextmanager
-    def defer_hook_status_messages(self, bucket: str = "default") -> Iterator[None]:
+    def defer_hook_status_messages(self, bucket: str = "default") -> Generator[None]:
         """Buffer hook status lines until the current hook boundary finishes."""
         self._deferred_hook_status_bucket_stack.append(bucket)
         try:

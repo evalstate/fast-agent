@@ -25,7 +25,7 @@ from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.types import PromptMessageExtended
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterator
+    from collections.abc import AsyncIterator, Generator
 
     from fast_agent.llm.stream_types import StreamChunk
 
@@ -74,7 +74,7 @@ class _FakeDisplay:
         return
 
     @contextmanager
-    def streaming_assistant_message(self, **_kwargs: object) -> Iterator[_FakeStreamHandle]:
+    def streaming_assistant_message(self, **_kwargs: object) -> Generator[_FakeStreamHandle]:
         yield self.handle
 
     async def show_assistant_message(
