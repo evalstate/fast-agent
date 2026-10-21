@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager, contextmanager
 
 import httpx2
@@ -21,7 +21,7 @@ from fast_agent.types import AgentRequest, AgentResponse
 
 
 @contextmanager
-def _temporary_env(**env_vars: str) -> Iterator[None]:
+def _temporary_env(**env_vars: str) -> Generator[None]:
     import os
 
     originals = {key: os.environ.get(key) for key in env_vars}
@@ -56,7 +56,7 @@ class _TokenEchoHarnessApp:
     async def open(
         self,
         request: AppOpenRequest | None = None,
-    ) -> AsyncIterator[_TokenEchoHarnessSession]:
+    ) -> AsyncGenerator[_TokenEchoHarnessSession]:
         del request
         yield _TokenEchoHarnessSession()
 

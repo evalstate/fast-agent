@@ -1355,7 +1355,7 @@ class OpenAIWebSearchSettings(BaseModel):
 class XAIWebSearchSettings(OpenAIWebSearchSettings):
     """xAI Responses web_search tool settings."""
 
-    tool_type: Literal["web_search"] = "web_search"
+    tool_type: Literal["web_search"] = "web_search"  # ty: ignore[invalid-mutable-override] -- provider restricts accepted config values; settings are not mutated after validation
     excluded_domains: list[str] | None = Field(
         default=None,
         description="Domains to exclude from xAI web search results (maximum 5).",
@@ -1416,10 +1416,6 @@ class ResponsesProviderSettingsBase(BaseModel):
             "with automatic SSE fallback."
         ),
     )
-    service_tier: Literal["fast", "flex"] | None = Field(
-        default=None,
-        description="Responses service tier: fast (priority) or flex.",
-    )
     web_search: OpenAIWebSearchSettings = Field(default_factory=OpenAIWebSearchSettings)
     native_compaction: bool = Field(
         default=NATIVE_COMPACTION_DEFAULT,
@@ -1438,6 +1434,10 @@ class OpenAISettings(ResponsesProviderSettingsBase):
 
     api_key: str | None = Field(default=None, description="OpenAI API key")
     base_url: str | None = Field(default=None, description="Override API endpoint")
+    service_tier: Literal["fast", "flex"] | None = Field(
+        default=None,
+        description="Responses service tier: fast (priority) or flex.",
+    )
     reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
         default=None,
         description="Unified reasoning setting (effort level or budget)",
@@ -1630,7 +1630,7 @@ class XAISettings(BaseModel):
 class MetaAIWebSearchSettings(OpenAIWebSearchSettings):
     """MetaAI Responses web_search (search grounding) settings."""
 
-    tool_type: Literal["web_search"] = "web_search"
+    tool_type: Literal["web_search"] = "web_search"  # ty: ignore[invalid-mutable-override] -- provider restricts accepted config values; settings are not mutated after validation
 
 
 class MetaAISettings(BaseModel):

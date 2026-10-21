@@ -30,7 +30,7 @@ from fast_agent.utils.transports import uses_mcp_remote_transport
 
 if TYPE_CHECKING:
     import threading
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
     from pathlib import Path
 
     from mcp.client import Transport
@@ -188,7 +188,7 @@ async def open_request_scoped_client(
     callback_runtime: MCPClientCallbackRuntime,
     trigger_oauth: bool | None = None,
     hooks: MCPClientHooks | None = None,
-) -> AsyncIterator[MCPClientConnection]:
+) -> AsyncGenerator[MCPClientConnection]:
     """Open a fresh client, escalating an automatic startup once at most."""
     oauth_mode = resolve_oauth_mode(config, trigger_oauth=trigger_oauth)
     response_signal = AuthChallengeSignal()

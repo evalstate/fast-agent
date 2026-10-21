@@ -16,7 +16,7 @@ from fast_agent.types import AgentRequest, AgentResponse, PromptMessageExtended,
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterator, Mapping
+    from collections.abc import AsyncGenerator, Generator, Mapping
     from contextlib import AbstractAsyncContextManager
 
     from mcp_types import PromptMessage
@@ -327,7 +327,7 @@ class DefaultHarnessApp:
     async def open(
         self,
         request: AppOpenRequest | None = None,
-    ) -> AsyncIterator[DefaultHarnessAppSession]:
+    ) -> AsyncGenerator[DefaultHarnessAppSession]:
         resolved = request or AppOpenRequest()
         session = await self._session_provider.session(
             resolved.session_id,
@@ -387,7 +387,7 @@ def _load_harness_app_factory(entrypoint: str) -> HarnessAppFactory:
 
 
 @contextmanager
-def _harness_app_import_path(settings: "Settings | None") -> Iterator[None]:
+def _harness_app_import_path(settings: "Settings | None") -> Generator[None]:
     paths: list[str] = []
     if settings is not None:
         home = getattr(settings, "_fast_agent_home", None)

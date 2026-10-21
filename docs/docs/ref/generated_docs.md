@@ -26,6 +26,9 @@ FAST_AGENT_REPO_PATH=../fast-agent uv run python docs/generate_reference_docs.py
 ```
 
 Generated files are written to `docs/_generated/` and included in pages via `pymdownx.snippets`.
+`exclude_docs` in `docs/zensical.toml` keeps them from being published as standalone pages.
+When moving or merging a page, delete it and add an entry to the `redirect_maps` table in
+`docs/zensical.toml` so existing links keep working.
 
 ## Source-Backed Config Values
 

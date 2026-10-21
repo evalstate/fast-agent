@@ -887,3 +887,14 @@ class TestAnthropicCaching:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_anthropic_client_strips_only_trailing_v1_segment() -> None:
+    ctx = Context()
+    ctx.config = Settings(
+        anthropic=AnthropicSettings(api_key="test_key", base_url="https://gateway.example/api1/v1")
+    )
+
+    client = AnthropicLLM(context=ctx)._initialize_anthropic_client()
+
+    assert str(client.base_url) == "https://gateway.example/api1/"

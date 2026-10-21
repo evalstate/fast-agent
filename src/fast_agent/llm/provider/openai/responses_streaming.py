@@ -7,6 +7,10 @@ from typing import TYPE_CHECKING, Any, Literal
 import httpx2
 from openai import APIError
 from openai.types.responses import (
+    Response,
+    ResponseError,
+    ResponseErrorEvent,
+    ResponseFailedEvent,
     ResponseReasoningSummaryTextDeltaEvent,
     ResponseReasoningTextDeltaEvent,
     ResponseTextDeltaEvent,
@@ -120,6 +124,28 @@ def _tool_progress_chunk(item: Any, *, family: ToolActivityFamily) -> str | None
         arguments = getattr(item, "arguments", None)
         return arguments if isinstance(arguments, str) and arguments else None
     return None
+
+
+def _responses_stream_failure(event: object) -> APIError:
+    body: dict[str, object] = {}
+    match event:
+        case ResponseFailedEvent(response=Response(error=ResponseError() as error)):
+            body = {
+                "message": error.message,
+                "code": error.code,
+                "param": error.param,
+                "type": error.type,
+            }
+        case ResponseErrorEvent():
+            # A flat event's type is the event discriminator, not an API error type.
+            body = {"message": event.message, "code": event.code, "param": event.param}
+    body = {key: value for key, value in body.items() if value}
+    message = str(body.setdefault("message", "Responses stream failed."))
+    return APIError(
+        message,
+        request=httpx2.Request("POST", "https://responses.invalid/responses"),
+        body=body,
+    )
 
 
 class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
@@ -824,28 +850,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 final_response = getattr(event, "response", None) or final_response
                 continue
             if is_responses_failure_event(event_type):
-                response = getattr(event, "response", None)
-                error = getattr(response, "error", None) if response is not None else event
-                message = getattr(error, "message", None)
-                code = getattr(error, "code", None)
-                if not isinstance(message, str) or not message:
-                    message = "Responses stream failed."
-                body: dict[str, object] = {"message": message}
-                if isinstance(code, str) and code:
-                    body["code"] = code
-                param = getattr(error, "param", None)
-                if isinstance(param, str):
-                    body["param"] = param
-                # A flat event's type is the event discriminator, not an API error type.
-                if response is not None:
-                    error_type = getattr(error, "type", None)
-                    if isinstance(error_type, str):
-                        body["type"] = error_type
-                raise APIError(
-                    message,
-                    request=httpx2.Request("POST", "https://responses.invalid/responses"),
-                    body=body,
-                )
+                raise _responses_stream_failure(event)
             if self._handle_responses_tool_stream_event(
                 event=event,
                 event_type=event_type,

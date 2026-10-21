@@ -418,6 +418,13 @@ class HarnessSessions:
         if record is None:
             return
 
+    async def close(self, session_id: str | None = None) -> None:
+        """Release a live session's instance, keeping any persisted history."""
+        await self._registry.delete(
+            _normalize_session_id(session_id),
+            before_delete=self._raise_if_active,
+        )
+
     async def _delete_persisted_record(self, record: _HarnessSessionRecord) -> None:
         if self._persistence is None:
             return

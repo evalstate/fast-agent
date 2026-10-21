@@ -137,6 +137,7 @@ async def configure_otel(config: "Settings") -> None:
     trace.set_tracer_provider(tracer_provider)
     _otel_tracer_provider = tracer_provider
 
+    # The Anthropic SDK emits its own spans via the global tracer provider set above.
     # OpenLLMetry (verified through 0.62.4) still uses asyncio.iscoroutinefunction while
     # importing its instrumentations. Keep that Python 3.14 deprecation local to
     # the third-party import; importing fast-agent with telemetry disabled stays clean.
@@ -153,13 +154,11 @@ async def configure_otel(config: "Settings") -> None:
             category=DeprecationWarning,
             module=r"opentelemetry\.instrumentation\.openai\..*",
         )
-        from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
         from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
         from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 
         OpenAIInstrumentor().instrument(tracer_provider=tracer_provider)
         GoogleGenAiSdkInstrumentor().instrument(tracer_provider=tracer_provider)
-        AnthropicInstrumentor().instrument(tracer_provider=tracer_provider)
 
 
 async def configure_logger(config: "Settings") -> None:

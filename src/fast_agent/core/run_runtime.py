@@ -32,7 +32,7 @@ from fast_agent.ui.usage_display import finalize_usage_report
 from fast_agent.utils.transports import uses_protocol_stdio
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable
+    from collections.abc import AsyncGenerator, Awaitable, Callable
 
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.fastagent import (
@@ -52,12 +52,15 @@ logger = get_logger(__name__)
 class FastAgentRunMixin:
     name: str
     args: Any
-    context: Any
     _agent_card_watch_reload: Callable[[], Awaitable[Any]] | None
     _agent_card_watch_task: asyncio.Task[None] | None
     _server_instance_dispose: Callable[[Any], Awaitable[None]] | None
-    _server_managed_instances: list[Any] | None
+    _server_managed_instances: list[Any]
     _skills_directory_override: Any
+
+    @property
+    def context(self) -> Any:
+        raise NotImplementedError
 
     def _get_acp_server_class(self) -> type[Any]:
         raise NotImplementedError
@@ -261,7 +264,7 @@ class FastAgentRunMixin:
         self,
         *,
         environment: "EnvironmentSelection" = None,
-    ) -> AsyncIterator["AgentApp"]:
+    ) -> AsyncGenerator["AgentApp"]:
         """
         Context manager for running the application.
         Initializes all registered agents.

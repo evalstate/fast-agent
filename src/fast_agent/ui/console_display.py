@@ -1,5 +1,5 @@
 import json
-from collections.abc import Callable, Iterator, Mapping, MutableMapping
+from collections.abc import Callable, Generator, Mapping, MutableMapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from json import JSONDecodeError
@@ -1485,7 +1485,7 @@ class ConsoleDisplay:
         show_hook_indicator: bool = False,
         tool_metadata_resolver: Callable[[str], Mapping[str, Any] | None] | None = None,
         context_baseline: StreamContextBaseline | None = None,
-    ) -> Iterator[StreamingHandle]:
+    ) -> Generator[StreamingHandle]:
         """Create a streaming context for assistant messages."""
         if not self._chat_output_enabled():
             yield _NullStreamingHandle()

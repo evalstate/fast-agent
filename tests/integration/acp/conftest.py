@@ -22,6 +22,8 @@ if str(TEST_DIR) not in sys.path:
 from test_client import TestClient  # noqa: E402
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
     from acp.client.connection import ClientSideConnection
 
 CONFIG_PATH = TEST_DIR / "fastagent.config.yaml"
@@ -68,7 +70,7 @@ async def _spawn_initialized_agent(
     fs_write: bool = True,
     client_name: str = "pytest-client",
     client_version: str = "0.0.1",
-) -> AsyncIterator[tuple[ClientSideConnection, TestClient, InitializeResponse]]:
+) -> AsyncGenerator[tuple[ClientSideConnection, TestClient, InitializeResponse]]:
     client = TestClient()
     async with spawn_agent_process(lambda _: client, *cmd) as (connection, _process):
         init_response = await _initialize_agent(

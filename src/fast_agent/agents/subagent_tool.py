@@ -57,7 +57,7 @@ from fast_agent.tools.invocation_context import get_local_tool_invocation_contex
 from fast_agent.ui.display_suppression import suppress_interactive_display
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Generator
 
     from fast_agent.agents.tool_runner import ToolRunner
     from fast_agent.interfaces import AgentProtocol
@@ -851,7 +851,7 @@ def _child_subagent_alias(child_session: Session | None) -> str | None:
 
 
 @contextmanager
-def _child_chat_suppressed(agent: ToolAgent) -> Iterator[None]:
+def _child_chat_suppressed(agent: ToolAgent) -> Generator[None]:
     """Hide nested panels while retaining tool execution and progress events."""
     settings = agent.display.logger_settings
     agent.display.update_logger_settings(

@@ -9,7 +9,7 @@ from fast_agent.mcp.connect_targets import (
 
 
 class CommandBase:
-    kind: str
+    """Marker base for command payloads; each subclass declares a frozen `kind` literal."""
 
 
 @dataclass(frozen=True, slots=True)

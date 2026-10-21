@@ -61,6 +61,7 @@ class HarnessMCPAppServerOptions:
     stateless_http: bool = False
     session_scope: MCPHarnessSessionScope = "connection"
     cleanup_session: SessionCleanup | None = None
+    release_session: SessionCleanup | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +101,7 @@ class HarnessMCPAppServer:
                 default_agent=options.default_agent,
                 session_scope=options.session_scope,
                 cleanup_session=options.cleanup_session,
+                release_session=options.release_session,
             ),
         )
         self.mcp_server = FastMCP(
@@ -213,6 +215,7 @@ def create_harness_mcp_app_runtime(
             stateless_http=options.instance_scope == "request",
             session_scope="request" if options.instance_scope == "request" else "connection",
             cleanup_session=sessions.delete if options.instance_scope == "request" else None,
+            release_session=None if options.instance_scope == "request" else sessions.close,
         ),
     )
     return HarnessMCPAppRuntime(server=server, sessions=sessions)

@@ -41,7 +41,7 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.utils.count_display import format_bytes
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Mapping
+    from collections.abc import Callable, Generator, Mapping
 
     from fast_agent.config import CompactionSettings
     from fast_agent.context import Context
@@ -590,7 +590,7 @@ def _resolved_path(raw_path: object | None) -> Path | None:
 @contextmanager
 def _compacting(
     llm: FastAgentLLMProtocol, action: ProgressAction = ProgressAction.COMPACTING
-) -> Iterator[None]:
+) -> Generator[None]:
     """Temporarily label side-channel model progress as compaction."""
     previous_verb = llm.verb
     llm.verb = action

@@ -6,6 +6,7 @@ from mcp_types import TextContent
 from fast_agent.a2a.config import A2AAgentConfig
 from fast_agent.a2a.remote_agent import A2ARemoteAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 from tests.integration.a2a.conftest import FAKE_A2A_HELP
 
@@ -380,3 +381,19 @@ async def test_a2a_connect_command_adds_runtime_agent(a2a_test_server) -> None:
         for remote in app.registered_agents().values():
             if isinstance(remote, A2ARemoteAgent):
                 await remote.shutdown()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_a2a_remote_agent_reports_unresolvable_card(a2a_test_server) -> None:
+    agent = A2ARemoteAgent(
+        config=AgentConfig(name="remote_missing", agent_type=AgentType.A2A),
+        a2a_config=A2AAgentConfig(
+            url=a2a_test_server.base_url, relative_card_path="/missing-card.json"
+        ),
+    )
+    try:
+        with pytest.raises(AgentConfigError, match="remote_missing"):
+            await agent.initialize()
+    finally:
+        await agent.shutdown()

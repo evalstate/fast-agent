@@ -75,7 +75,7 @@ class RequestParams(CreateMessageRequestParams):
     to avoid confusion with the 'message' parameter on 'generate' method.
     """
 
-    max_tokens: int | None = None
+    max_tokens: int | None = None  # ty: ignore[invalid-attribute-override] -- MCP SDK base requires int; fast-agent treats None as "use model default"
     """The maximum number of tokens to sample, as requested by the server."""
 
     model: str | None = None

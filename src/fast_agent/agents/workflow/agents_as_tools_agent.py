@@ -240,7 +240,7 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.utils.async_utils import gather_with_cancel
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping
+    from collections.abc import Generator, Mapping
 
     from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.agents.llm_agent import LlmAgent
@@ -574,7 +574,7 @@ class AgentsAsToolsAgent(McpAgent):
         return ListToolsResult(tools=tools)
 
     @contextmanager
-    def _child_display_suppressed(self, child: LlmAgent) -> Iterator[None]:
+    def _child_display_suppressed(self, child: LlmAgent) -> Generator[None]:
         """Context manager to hide child chat while keeping tool logs visible."""
         child_id = id(child)
         count = self._display_suppression_count.get(child_id, 0)

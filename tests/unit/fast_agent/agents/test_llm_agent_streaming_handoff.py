@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any, Iterator, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from mcp_types import TextContent
@@ -18,6 +18,9 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay, StreamingPreferences
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 
 class _FakeStreamHandle:
@@ -68,7 +71,7 @@ class _FakeDisplay(ConsoleDisplay):
         return StreamingPreferences(enabled=True, mode="markdown")
 
     @contextmanager
-    def streaming_assistant_message(self, **_kwargs: object) -> Iterator[_FakeStreamHandle]:
+    def streaming_assistant_message(self, **_kwargs: object) -> Generator[_FakeStreamHandle]:
         try:
             yield self._handle
         finally:
