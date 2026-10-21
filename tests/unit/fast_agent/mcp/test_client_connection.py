@@ -11,6 +11,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp_types import (
     INVALID_REQUEST,
+    LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
     BlobResourceContents,
     EmbeddedResource,
@@ -74,7 +75,7 @@ class StatefulStreamableHTTPSimulator:
                     "jsonrpc": "2.0",
                     "id": payload["id"],
                     "result": {
-                        "supportedVersions": ["2026-07-28"],
+                        "supportedVersions": [LATEST_PROTOCOL_VERSION],
                         "capabilities": {},
                         "resultType": "complete",
                     },
@@ -261,7 +262,7 @@ class MixedResponseStreamableHTTPSimulator:
                     "jsonrpc": "2.0",
                     "id": payload["id"],
                     "result": {
-                        "supportedVersions": ["2026-07-28"],
+                        "supportedVersions": [LATEST_PROTOCOL_VERSION],
                         "capabilities": {"tools": {"listChanged": False}},
                         "resultType": "complete",
                     },
@@ -650,7 +651,7 @@ async def test_skills_extension_requests_and_parses_results(
         for _, params in simulator.requests:
             meta = params["_meta"]
             assert isinstance(meta, dict)
-            assert meta["io.modelcontextprotocol/protocolVersion"] == "2026-07-28"
+            assert meta["io.modelcontextprotocol/protocolVersion"] == LATEST_PROTOCOL_VERSION
             assert isinstance(meta["io.modelcontextprotocol/clientInfo"], dict)
             assert isinstance(meta["io.modelcontextprotocol/clientCapabilities"], dict)
 
