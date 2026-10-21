@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal
+from unittest.mock import AsyncMock
 
 import pytest
 from mcp_types import (
@@ -1047,8 +1048,11 @@ def test_codexresponses_lite_adds_per_request_websocket_metadata() -> None:
 
 
 @pytest.mark.asyncio
-async def test_codexresponses_inlines_local_pdf_without_files_api(tmp_path: Path) -> None:
-    pdf_path = tmp_path / "sample.pdf"
+@pytest.mark.parametrize("filename", ["sample.pdf", "résumé #100%.pdf", "report%20.pdf"])
+async def test_codexresponses_inlines_local_pdf_without_files_api(
+    tmp_path: Path, filename: str
+) -> None:
+    pdf_path = tmp_path / filename
     pdf_path.write_bytes(b"%PDF-1.7 sample")
     llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name="gpt-5.6-luna")
 
@@ -1063,8 +1067,70 @@ async def test_codexresponses_inlines_local_pdf_without_files_api(tmp_path: Path
         "file_data": (
             f"data:application/pdf;base64,{base64.b64encode(pdf_path.read_bytes()).decode('ascii')}"
         ),
-        "filename": "sample.pdf",
+        "filename": filename,
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("filename", ["sample.pdf", "résumé #100%.pdf", "report%20.pdf"])
+async def test_responses_uploads_local_pdf_uri(
+    tmp_path: Path, filename: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdf_path = tmp_path / filename
+    pdf_bytes = b"%PDF-1.7 sample"
+    pdf_path.write_bytes(pdf_bytes)
+    llm = _build_responses_family_llm(Provider.RESPONSES)
+    client = AsyncOpenAI(api_key="test-key")
+    create_file = AsyncMock(return_value=SimpleNamespace(id="file-local-pdf"))
+    monkeypatch.setattr(client.files, "create", create_file)
+
+    normalized, changed = await llm._normalize_input_file_part(
+        client, {"type": "input_file", "file_url": pdf_path.as_uri()}
+    )
+
+    assert changed
+    assert normalized == {"type": "input_file", "file_id": "file-local-pdf"}
+    create_file.assert_awaited_once_with(
+        file=(filename, pdf_bytes, "application/pdf"), purpose="user_data"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="Native drive paths are Windows-specific")
+@pytest.mark.parametrize("forward_slashes", [False, True])
+@pytest.mark.parametrize("provider", [Provider.RESPONSES, Provider.CODEX_RESPONSES])
+async def test_responses_preserves_native_windows_file_urls(
+    tmp_path: Path,
+    forward_slashes: bool,
+    provider: Provider,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pdf_path = tmp_path / "report #100%20.pdf"
+    pdf_bytes = b"%PDF-1.7 native path"
+    pdf_path.write_bytes(pdf_bytes)
+    path = pdf_path.as_posix() if forward_slashes else str(pdf_path)
+    llm = _build_responses_family_llm(provider)
+    client = AsyncOpenAI(api_key="test-key")
+    create_file = AsyncMock(return_value=SimpleNamespace(id="file-native-pdf"))
+    monkeypatch.setattr(client.files, "create", create_file)
+
+    normalized, changed = await llm._normalize_input_file_part(
+        client, {"type": "input_file", "file_url": f"file://{path}"}
+    )
+
+    assert changed
+    if provider == Provider.CODEX_RESPONSES:
+        assert normalized == {
+            "type": "input_file",
+            "file_data": f"data:application/pdf;base64,{base64.b64encode(pdf_bytes).decode('ascii')}",
+            "filename": pdf_path.name,
+        }
+        create_file.assert_not_awaited()
+    else:
+        assert normalized == {"type": "input_file", "file_id": "file-native-pdf"}
+        create_file.assert_awaited_once_with(
+            file=(pdf_path.name, pdf_bytes, "application/pdf"), purpose="user_data"
+        )
 
 
 @pytest.mark.parametrize(

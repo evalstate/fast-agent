@@ -288,23 +288,10 @@ class OpenAILLM(
         file_url: str,
         filename: str | None,
     ) -> tuple[bytes | None, str | None, str | None]:
-        if file_url.startswith("data:"):
-            data_bytes, mime_type = self._decode_file_data(file_url)
-            return data_bytes, filename, mime_type
-        if file_url.startswith("file://"):
-            local_path = Path(file_url[len("file://") :])
-            if local_path.exists():
-                resolved_filename = filename or local_path.name
-                return (
-                    local_path.read_bytes(),
-                    resolved_filename,
-                    guess_mime_type(local_path.name),
-                )
-            return None, filename, None
         if file_url.startswith(("http://", "https://")):
             data_bytes, mime_type = await self._download_remote_file(file_url)
             return data_bytes, filename, mime_type
-        return None, filename, None
+        return self._file_bytes_from_url(file_url, filename)
 
     async def _normalize_chat_file_part(
         self,
