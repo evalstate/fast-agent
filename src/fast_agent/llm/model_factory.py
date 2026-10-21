@@ -1020,7 +1020,7 @@ def _validate_compaction_constraints(
         return
     if provider == Provider.COPILOT:
         spec = get_copilot_model(model_name)
-        if spec.wire_api == "responses" or spec.supports_threshold_compaction:
+        if spec.supports_native_compaction or spec.supports_threshold_compaction:
             return
         raise ModelConfigError(
             f"Copilot model '{model_name}' does not support native compaction "
@@ -1118,7 +1118,7 @@ class ModelFactory:
                 ModelQueryOverrides(
                     transport=(
                         "websocket"
-                        if get_copilot_model(model_name).wire_api == "responses"
+                        if "websocket" in get_copilot_model(model_name).transports
                         else "sse"
                     )
                 )

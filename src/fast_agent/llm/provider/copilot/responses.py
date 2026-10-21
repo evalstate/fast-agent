@@ -36,6 +36,7 @@ from fast_agent.mcp.mime_utils import guess_mime_type
 
 if TYPE_CHECKING:
     from fast_agent.llm.provider.copilot.broker import CopilotEndpoint
+    from fast_agent.llm.provider.copilot.models import CopilotModelSpec
     from fast_agent.types import RequestParams
 
 
@@ -63,8 +64,12 @@ class CopilotResponsesLLM(ResponsesLLM):
     def _provider_config_fallback_sections(self) -> tuple[str, ...]:
         return ()
 
+    @property
+    def _copilot_spec(self) -> CopilotModelSpec:
+        return get_copilot_model(self.default_request_params.model or "")
+
     def _default_transport_setting(self) -> ResponsesTransport:
-        return "websocket"
+        return "websocket" if "websocket" in self._copilot_spec.transports else "sse"
 
     def _validate_transport_support(
         self, model_name: str | None, transport: ResponsesTransport
@@ -77,7 +82,7 @@ class CopilotResponsesLLM(ResponsesLLM):
         return StatelessResponsesWsPlanner()
 
     def _replays_native_compaction(self) -> bool:
-        return True
+        return self._copilot_spec.supports_native_compaction
 
     def _resends_astra_effort_after_checkpoint(self) -> bool:
         return True

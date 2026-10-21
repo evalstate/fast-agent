@@ -35,6 +35,8 @@ PUBLIC_IDS = {
     "gpt-6.1-sol",
     "gpt-6-sol",
     "gpt-6-luna",
+    "grok-4.6",
+    "grok-4.7",
 }
 
 
@@ -57,11 +59,10 @@ def test_model_resolution_and_transport(model_id):
     assert resolved.provider == Provider.COPILOT
     assert resolved.wire_model_name == model_id
     spec = get_copilot_model(model_id)
-    assert resolved.model_config.transport == (
-        "websocket" if spec.wire_api == "responses" else "sse"
-    )
+    websocket = "websocket" in spec.transports
+    assert resolved.model_config.transport == ("websocket" if websocket else "sse")
     assert ModelFactory.parse_model_string(public_id + "?transport=sse").transport == "sse"
-    if spec.wire_api == "responses":
+    if websocket:
         assert ModelFactory.parse_model_string(public_id + "?transport=auto").transport == "auto"
         assert (
             ModelFactory.parse_model_string(public_id + "?transport=websocket").transport

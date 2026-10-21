@@ -17,6 +17,8 @@ class CopilotModelSpec:
     supports_web_search: bool = False
     supports_threshold_compaction: bool = False
     """Anthropic threshold compaction passes the gateway (on-demand compaction does not)."""
+    supports_native_compaction: bool = False
+    """OpenAI ``compaction_trigger`` checkpoints pass the gateway."""
 
 
 def _messages_model(
@@ -29,6 +31,23 @@ def _messages_model(
         named_tool_choice,
         ("sse",),
         supports_threshold_compaction=threshold_compaction,
+    )
+
+
+def _responses_model(
+    model_id: str,
+    *,
+    web_search: bool = True,
+    websocket: bool = True,
+    native_compaction: bool = True,
+) -> CopilotModelSpec:
+    return CopilotModelSpec(
+        model_id,
+        "responses",
+        True,
+        ("sse", "websocket") if websocket else ("sse",),
+        supports_web_search=web_search,
+        supports_native_compaction=native_compaction,
     )
 
 
@@ -45,37 +64,22 @@ COPILOT_MODELS: Final[Mapping[str, CopilotModelSpec]] = MappingProxyType(
             _messages_model("claude-haiku-4.5", True, threshold_compaction=False),
             _messages_model("claude-haiku-5.5", True),
             _messages_model("claude-fable-5", True),
-            CopilotModelSpec(
-                "gpt-6-astra",
-                "responses",
-                True,
-                ("sse", "websocket"),
-                supports_web_search=True,
-            ),
             *(
-                CopilotModelSpec(
-                    model_id,
-                    "responses",
-                    True,
-                    ("sse", "websocket"),
-                    supports_web_search=True,
+                _responses_model(model_id)
+                for model_id in (
+                    "gpt-6-astra",
+                    "gpt-6.1-sol",
+                    "gpt-6-sol",
+                    "gpt-6-luna",
+                    "gpt-5.6-sol",
                 )
-                for model_id in ("gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna")
             ),
-            CopilotModelSpec(
-                "gpt-5.6-sol",
-                "responses",
-                True,
-                ("sse", "websocket"),
-                supports_web_search=True,
-            ),
-            CopilotModelSpec("gpt-5.6-terra", "responses", True, ("sse", "websocket")),
-            CopilotModelSpec(
-                "gpt-5.6-luna",
-                "responses",
-                True,
-                ("sse", "websocket"),
-                supports_web_search=True,
+            _responses_model("gpt-5.6-terra", web_search=False),
+            _responses_model("gpt-5.6-luna"),
+            # xAI on the Copilot gateway: SSE only, and no compaction_trigger support.
+            *(
+                _responses_model(model_id, websocket=False, native_compaction=False)
+                for model_id in ("grok-4.7", "grok-4.6")
             ),
         )
     }

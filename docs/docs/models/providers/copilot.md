@@ -11,8 +11,8 @@ social:
 # GitHub Copilot
 
 The `copilot` provider uses native GitHub authentication and provides
-direct access to Anthropic and OpenAI models via Messages or
-Responses wire formats respectively. The Responses API supports websockets.
+direct access to Anthropic models via Messages, and OpenAI and xAI models
+via Responses. GPT models support websockets.
 
 The native provider sends `Copilot-Integration-Id: copilot-sdk` by default on
 Messages, Responses HTTP/SSE and WebSocket requests. 
@@ -261,6 +261,26 @@ The default (and explicit `?transport=websocket`) has **no SSE fallback**.
 Explicit `?transport=auto` tries WebSocket first, with SSE fallback on early errors.
 Ordinary OpenAI/Codex Responses defaults to `auto`.
 Claude models use SSE only. The native runtime does not query `/models`.
+
+## Grok
+
+`copilot.grok-4.7` and `copilot.grok-4.6` use the Responses
+route over HTTP/SSE only; the gateway offers no WebSocket endpoint for them.
+They inherit the `xai.grok-*` model parameters (reasoning efforts, shell
+profile, compaction threshold). Verified through the gateway: streaming,
+function tools (parallel and forced), stateless replay with encrypted
+reasoning, structured outputs, inline images, prompt caching, reasoning
+summaries and `?web_search=on`.
+
+Not available on this route:
+
+- Native compaction: the gateway rejects `compaction_trigger` and has no
+  `/responses/compact`, so fast-agent's summary compaction is used.
+- PDF input: as with direct `xai.grok-*`, PDF attachments are removed before
+  sending, with a notice (the gateway rejects them).
+- Custom (freeform) tools.
+- xAI `x_search`: the gateway executes it, but fast-agent does not yet enable it
+  for Copilot.
 
 ## Image attachments
 
