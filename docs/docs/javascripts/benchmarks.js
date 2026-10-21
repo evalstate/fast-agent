@@ -2144,7 +2144,18 @@
       if (s.cost.recorded > 0 && s.cost.estimated_total && s.cost.estimated_total !== s.cost.recorded) row("Est. with missing trials", "~" + moneyExact(s.cost.estimated_total));
     }
     if (s.walltimeHours) row("Trial walltime", Math.round(s.walltimeHours) + " h summed");
+    if (s.cacheHitRate !== undefined) row("Cache hit rate", s.cacheHitRate.toFixed(1) + "% of input tokens");
+    if (s.outputTokensPerAgentSecond !== undefined) row("Output speed", s.outputTokensPerAgentSecond.toFixed(1) + " tokens/s");
     ev.appendChild(dl);
+    if (s.outputTokensPerAgentSecond !== undefined) {
+      ev.appendChild(
+        el(
+          "p",
+          "fb-scan__note",
+          "Output speed is output tokens (reasoning included where the harness counts it) over the agents' summed time, tool calls and sandbox waits included: end-to-end throughput, not the model's decoding speed. Both figures are over the scanned trials."
+        )
+      );
+    }
     cols.appendChild(ev);
 
     box.appendChild(cols);

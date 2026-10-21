@@ -115,7 +115,10 @@ def _dedupe_findings(top: list[dict[str, Any]], rules_path: Path) -> list[dict[s
 
 
 def _scan_summary(
-    scan: dict[str, Any] | None, tasks: list[str], rules_path: Path
+    scan: dict[str, Any] | None,
+    tasks: list[str],
+    rules_path: Path,
+    output_tokens: int | None = None,
 ) -> dict[str, Any] | None:
     """Run-level atif-scan summary plus one code per trial, aligned with ``cells``.
 
@@ -148,8 +151,27 @@ def _scan_summary(
         "evidence": scan["evidence"],
         "cost": scan["cost"],
         "walltimeHours": scan["walltime_hours"]["trial_sum"],
+        **_throughput(scan, output_tokens),
         "cells": "".join(scan["cells"][task] for task in tasks),
     }
+
+
+def _throughput(scan: dict[str, Any], output_tokens: int | None = None) -> dict[str, Any]:
+    """Cache hit rate (cached share of input tokens) and output tokens per agent-second,
+    both over the scanned trials (the scan's own token and walltime totals, one population).
+    Agent time includes tool calls and sandbox waits, so this is end-to-end throughput,
+    not the model's decoding speed. ``output_tokens`` overrides the scan's output count
+    where the harness recorded it wrongly (reasoning left out)."""
+    tokens = scan.get("tokens") or {}
+    uncached, cached = tokens.get("uncached_input"), tokens.get("cached_input")
+    output = output_tokens if output_tokens is not None else tokens.get("output")
+    agent_hours = (scan.get("walltime_hours") or {}).get("agent_sum")
+    out: dict[str, Any] = {}
+    if uncached is not None and cached is not None and uncached + cached:
+        out["cacheHitRate"] = round(100 * cached / (uncached + cached), 1)
+    if output and agent_hours:
+        out["outputTokensPerAgentSecond"] = round(output / (agent_hours * 3600), 1)
+    return out
 
 
 def _review(raw: dict[str, Any]) -> dict[str, Any] | None:
@@ -429,6 +451,8 @@ def _subset_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[st
             if set(recalc["task_costs"]) != set(subset):
                 raise ValueError(f"{path.stem}: a recalculated cost must cover the subset tasks")
             task_costs = [recalc["task_costs"][t] for t in subset]
+            if raw.get("scan") and raw["scan"]["trials"] != recalc["trials"]:
+                raise ValueError(f"{path.stem}: recalculated trials differ from the scanned ones")
         scan = raw.get("scan")
         if scan and (
             scan.get("tasks") != subset
@@ -513,7 +537,15 @@ def _subset_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[st
                 "excluded": [],
                 "source": published["source_url"],
                 "notes": notes,
-                "scan": _scan_summary(scan, subset, folder / "atif-rules.json") if scan else None,
+                "scan": _scan_summary(
+                    scan,
+                    subset,
+                    folder / "atif-rules.json",
+                    # The recalculated trials are exactly the subset scan's trials.
+                    recalc.get("output_tokens") if recalc else None,
+                )
+                if scan
+                else None,
                 "review": _subset_review(raw, subset, cells),
             }
         )

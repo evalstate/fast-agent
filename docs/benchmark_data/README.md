@@ -240,6 +240,14 @@ with excluded trials, the other scan totals still include them (e.g. 446 trials)
 runs report the review, evidence and trial counts over the reported trials (`scan.scope`);
 finding tallies still include scanned replaced originals.
 
+The Evidence panel adds two figures from the scan's own token and walltime totals (one
+population, the scanned trials): **cache hit rate**, cached input tokens over all input
+tokens, and **output speed**, output tokens over summed agent time. Agent time includes
+tool calls and sandbox waits, so output speed is end-to-end throughput, not decoding
+speed (Hub runs record no per-call timing). Output is each harness's count; for
+`tb4-grok-build-grok-4-7-xhigh` it is the recalculated count with reasoning
+(`cost.recalculated.output_tokens`), since Harbor recorded visible output only.
+
 ## Caveats and runs not fully reconciled
 
 All 14 runs match the published pass count with 445 filled slots. One run is still

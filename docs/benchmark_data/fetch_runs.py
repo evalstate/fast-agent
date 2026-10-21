@@ -257,6 +257,8 @@ def recalculated_cost(run: Json, spec: Json, ordered: dict[str, list[Json]], bas
         "total_usd_exact": round(total, 6),
         "recorded_usd": round(sum(r["recorded_usd"] for r in recs), 2),
         "trials": len(recs),
+        # Output as billed: the visible tokens Harbor recorded plus the reasoning it left out.
+        "output_tokens": sum(r["output_tokens"] + r["reasoning_tokens"] for r in recs),
         "task_costs": {
             task: round(sum(r["recalculated_usd"] for r in by_task[task]), 6)
             for task in sorted(by_task)

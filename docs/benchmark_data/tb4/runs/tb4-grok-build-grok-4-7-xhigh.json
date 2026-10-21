@@ -1629,6 +1629,7 @@
       "total_usd_exact": 632.7251,
       "recorded_usd": 530.86,
       "trials": 95,
+      "output_tokens": 20097577,
       "task_costs": {
         "atrx-vep-crispr": 23.04432,
         "cad-model": 33.923774,
