@@ -218,8 +218,7 @@ class ShellRuntimeCallbacks:
 @dataclass(slots=True)
 class ActiveProcessPoll:
     tool_use_id: str
-    deadline_at: float
-    started_at: float
+    wait_seconds: int
     last_progress_emitted_at: float = 0.0
     pending_progress_task: asyncio.Task[None] | None = None
     heartbeat_task: asyncio.Task[None] | None = None
