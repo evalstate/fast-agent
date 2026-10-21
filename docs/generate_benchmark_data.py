@@ -514,9 +514,25 @@ def _subset_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[st
                 "source": published["source_url"],
                 "notes": notes,
                 "scan": _scan_summary(scan, subset, folder / "atif-rules.json") if scan else None,
+                "review": _subset_review(raw, subset, cells),
             }
         )
     return runs
+
+
+def _subset_review(raw: dict[str, Any], subset: list[str], cells: str) -> dict[str, Any] | None:
+    """Our review of a leaderboard row, over the subset: its disqualified trials are
+    already `x` in the cells, so the recorded figures add them back."""
+    review = _review(raw)
+    if review is None:
+        return None
+    dq = sum(1 for d in raw["review"]["disqualified"] if d["task"] in subset)
+    passes = cells.count("1") + dq
+    return {
+        **review,
+        "recordedPasses": passes,
+        "recordedScore": round(100 * passes / len(cells), 2),
+    }
 
 
 def _samples(

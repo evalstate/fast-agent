@@ -9,8 +9,8 @@
    "task": "fin-saccr-rwa",
    "attempt": 4,
    "reward": 1.0,
-   "decision": null,
-   "reason": null,
+   "decision": "disqualified",
+   "reason": "Disqualified: a web search for the regulation returned harbor-framework/terminal-bench issue #1578 about this task, stating how the task means the cross-currency swap to be treated (multi-driver: each currency leg mapped to its own interest-rate hedging set, single-driver FX ruled out). The query didn't name the benchmark, but the intended answer entered the agent's context.",
    "folder": "https://hub.harborframework.com/jobs/ddf13529-2897-5989-a666-54f10698907f/trials/4dc8d54b-4089-5ee6-9ef6-7e12925e4c54?tab=artifacts",
    "trace": "https://hub.harborframework.com/jobs/ddf13529-2897-5989-a666-54f10698907f/trials/4dc8d54b-4089-5ee6-9ef6-7e12925e4c54",
    "findings": [
@@ -78,8 +78,8 @@
    "task": "hof-topology-interpenetration",
    "attempt": 4,
    "reward": 1.0,
-   "decision": null,
-   "reason": null,
+   "decision": "disqualified",
+   "reason": "Disqualified: a web search for coordination-sequence values returned this task's own README from harbor-framework/terminal-bench (through a GitHub mirror proxy), stating the expected answers (each framework's net and first six coordination-sequence terms). The query didn't name the benchmark, but the answer entered the agent's context.",
    "folder": "https://hub.harborframework.com/jobs/ddf13529-2897-5989-a666-54f10698907f/trials/0e14448a-c576-5ec3-af27-47cef6784b66?tab=artifacts",
    "trace": "https://hub.harborframework.com/jobs/ddf13529-2897-5989-a666-54f10698907f/trials/0e14448a-c576-5ec3-af27-47cef6784b66",
    "findings": [
