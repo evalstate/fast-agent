@@ -104,6 +104,7 @@ from fast_agent.mcp.tool_result_metadata import (
 from fast_agent.mcp.tool_result_spool import spool_tool_result
 from fast_agent.mcp.tool_result_truncation import bound_tool_result_for_llm
 from fast_agent.paths import resolve_home_paths
+from fast_agent.ptc import PTC_TOOL_META, PTC_TOOL_NAME, ProgrammaticToolRuntime
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_TOOL_NAME
@@ -288,6 +289,7 @@ class McpAgent(ABC, ToolAgent):
         # set with the "attach" method
         self._llm: FastAgentLLMProtocol | None = None
         self._codex_web_search = CodexWebSearchAdapter(self)
+        self._ptc_runtime: ProgrammaticToolRuntime | None = None
 
         # Instantiate human input tool once if enabled in config
         self._human_input_tool = self._initial_human_input_tool()
@@ -488,6 +490,8 @@ class McpAgent(ABC, ToolAgent):
         await self._close_transient_artifact_store()
         if self._shell_runtime is not None:
             await self._shell_runtime.close()
+        if self._ptc_runtime is not None:
+            await self._ptc_runtime.close()
         await self._aggregator.close()
         await self._finalize_shutdown(run_hook=False)
 
@@ -1644,6 +1648,29 @@ class McpAgent(ABC, ToolAgent):
         Returns:
             Result of the tool call
         """
+        ptc_runtime = self._programmatic_tool_runtime()
+        if ptc_runtime is not None and name == PTC_TOOL_NAME:
+
+            async def dispatch(
+                nested_name: str, nested_arguments: dict[str, Any], call_id: str
+            ) -> CallToolResult:
+                return await self._call_ptc_nested_tool(
+                    nested_name, nested_arguments, call_id, request_params=request_params
+                )
+
+            return await ptc_runtime.execute(arguments or {}, dispatch)
+        return await self._dispatch_tool_call(
+            name, arguments, tool_use_id, request_params=request_params
+        )
+
+    async def _dispatch_tool_call(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        tool_use_id: str | None = None,
+        *,
+        request_params: RequestParams | None = None,
+    ) -> CallToolResult:
         with self._codex_web_search.turn(request_params):
             self._codex_web_search.sync()
             denial = await self._codex_web_search.permission_error(name, arguments, tool_use_id)
@@ -1667,6 +1694,44 @@ class McpAgent(ABC, ToolAgent):
             tool_use_id,
             request_tool_handler=request_tool_handler,
         )
+
+    def _programmatic_tool_runtime(self) -> ProgrammaticToolRuntime | None:
+        """Return the PTC runtime when programmatic tool calling is enabled."""
+        if self._ptc_runtime is None and self._context and self._context.config:
+            settings = self._context.config.ptc
+            if settings.enabled:
+                self._ptc_runtime = ProgrammaticToolRuntime(settings)
+        return self._ptc_runtime
+
+    async def _call_ptc_nested_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        call_id: str,
+        *,
+        request_params: RequestParams | None,
+    ) -> CallToolResult:
+        """Run a tool called from PTC sandbox code through the normal dispatch path."""
+        self.display.show_tool_call(
+            name,
+            arguments,
+            name=self._name,
+            tool_call_id=call_id,
+            source_label="PTC",
+        )
+        started = time.perf_counter()
+        result = await self._dispatch_tool_call(
+            name, arguments, call_id, request_params=request_params
+        )
+        self.display.show_tool_result(
+            result,
+            name=self._name,
+            tool_name=name,
+            timing_ms=round((time.perf_counter() - started) * 1000, 2),
+            tool_call_id=call_id,
+            source_label="PTC",
+        )
+        return result
 
     async def _call_local_tool(
         self,
@@ -2442,6 +2507,8 @@ class McpAgent(ABC, ToolAgent):
         is_filesystem_runtime_tool: bool,
         route_to_namespaced_candidate: bool,
     ) -> dict[str, Any] | None:
+        if tool_name == PTC_TOOL_NAME and self._ptc_runtime is not None:
+            return dict(PTC_TOOL_META)
         if self._shell_runtime_enabled and self._shell_runtime:
             if self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name:
                 return self._shell_runtime.metadata(tool_args)
@@ -2490,6 +2557,8 @@ class McpAgent(ABC, ToolAgent):
         lookup_name = tool_name.strip()
         if not lookup_name:
             return None
+        if lookup_name == PTC_TOOL_NAME and self._ptc_runtime is not None:
+            return dict(PTC_TOOL_META)
         if (
             self._shell_runtime_enabled
             and self._shell_runtime
@@ -2651,6 +2720,9 @@ class McpAgent(ABC, ToolAgent):
             await self._additional_runtime_tools(),
         )
 
+        ptc_runtime = self._programmatic_tool_runtime()
+        if ptc_runtime is not None:
+            merged_tools = ptc_runtime.model_tools(merged_tools)
         return ListToolsResult(tools=merged_tools)
 
     @staticmethod
