@@ -23,7 +23,7 @@ from mcp_types import (
     TextContent,
 )
 
-from fast_agent.constants import FAST_AGENT_PTC_VALUE
+from fast_agent.constants import FAST_AGENT_PTC_ERROR, FAST_AGENT_PTC_VALUE
 
 MEDIA_ID_KEY = "media_id"
 _MAX_RETAINED_MEDIA = 64
@@ -79,18 +79,23 @@ class MediaStore:
                 self._collect(item, found, depth=depth + 1)
 
 
-def tool_result_to_value(result: CallToolResult, media: MediaStore) -> Any:
+def tool_result_to_value(result: CallToolResult, media: MediaStore, *, name: str) -> Any:
     """Return the tool's program value, structured content, or parsed content blocks.
 
     A program value is the tool's own answer to sandbox code and is returned even for an error
     result: a shell command that exits non-zero, say, is data for the script. Other error
-    results raise ToolCallFailed so sandbox code can use try/except.
+    results raise ToolCallFailed, named after the sandbox function ``name``, so sandbox code can
+    use try/except.
     """
-    program_value = (result.meta or {}).get(FAST_AGENT_PTC_VALUE)
+    meta = result.meta or {}
+    program_value = meta.get(FAST_AGENT_PTC_VALUE)
     if program_value is not None:
         return program_value
     if result.is_error:
-        raise ToolCallFailed(_result_text(result) or "tool call failed")
+        message = meta.get(FAST_AGENT_PTC_ERROR)
+        if not isinstance(message, str):
+            message = _error_message(_result_text(result))
+        raise ToolCallFailed(f"{name}: {message or 'tool call failed'}")
     if result.structured_content is not None:
         media_values = [media.handle(block) for block in _media_blocks(result)]
         if not media_values:
@@ -144,6 +149,24 @@ def _maybe_json(text: str) -> Any:
         return json.loads(text)
     except ValueError:
         return text
+
+
+def _error_message(text: str) -> str:
+    """Summarise a model-facing error text for an exception message.
+
+    JSON error bodies (``{"error": ..., "message": ...}``), as returned by edit tools and many MCP
+    servers, become their message; the redundant ``Error:`` prefix is dropped.
+    """
+    stripped = text.strip()
+    if stripped.startswith("{"):
+        try:
+            payload = json.loads(stripped)
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict) and isinstance(payload.get("message"), str):
+            code = payload.get("error")
+            return f"{payload['message']} [{code}]" if isinstance(code, str) else payload["message"]
+    return stripped.removeprefix("Error:").strip()
 
 
 def _result_text(result: CallToolResult) -> str:

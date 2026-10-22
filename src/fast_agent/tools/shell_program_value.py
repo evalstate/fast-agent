@@ -13,7 +13,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypedDict
 
-from fast_agent.constants import FAST_AGENT_PTC_VALUE
+from fast_agent.constants import FAST_AGENT_PTC_ERROR, FAST_AGENT_PTC_VALUE
 from fast_agent.tools.shell_process import process_result_metadata
 
 if TYPE_CHECKING:
@@ -63,6 +63,9 @@ _PROCESS_RETURNS_NOTE = (
     'whose "content" holds retained combined output.'
 )
 _SUCCESS_STATUSES = frozenset({"completed", "running"})
+# Output kept per stream in a check=True exception message; the full streams stay available
+# to code that calls without check.
+_CHECK_OUTPUT_TAIL_CHARS = 1_000
 
 
 class ShellProgramValue(TypedDict):
@@ -202,7 +205,8 @@ def attach_process_program_value(
 
     Results without process metadata (invalid arguments, unknown process, a command that could
     not start) and, with ``check``, unsuccessful commands keep no value, so sandbox code sees
-    RuntimeError with the model-facing text.
+    RuntimeError. A ``check`` failure carries a short message (exit code or status plus output
+    tails) rather than the model-facing display text.
     """
     metadata = process_result_metadata(result)
     if metadata is None:
@@ -212,6 +216,10 @@ def attach_process_program_value(
     if status in {"failed", "unavailable"} and exit_code is None:
         return result
     if check and status not in _SUCCESS_STATUSES:
+        result.meta = {
+            **(result.meta or {}),
+            FAST_AGENT_PTC_ERROR: _check_failure_message(status, exit_code, output),
+        }
         return result
     value = ShellProgramValue(
         stdout=output.stdout,
@@ -222,6 +230,21 @@ def attach_process_program_value(
         truncated=output.truncated,
     )
     return with_program_value(result, dict(value))
+
+
+def _check_failure_message(status: str, exit_code: int | None, output: StreamText) -> str:
+    """Describe a ``check=True`` failure the way CalledProcessError would, with output tails."""
+    if exit_code is not None:
+        message = f"command failed with exit code {exit_code}"
+    elif status == "timed_out":
+        message = "command timed out"
+    else:
+        message = f"command {status}"
+    for label, text in (("stderr", output.stderr), ("stdout", output.stdout)):
+        tail = text.strip()[-_CHECK_OUTPUT_TAIL_CHARS:]
+        if tail:
+            message += f"\n{label} (tail):\n{tail}"
+    return message
 
 
 def attach_stop_program_value(result: CallToolResult) -> CallToolResult:

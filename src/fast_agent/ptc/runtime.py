@@ -448,7 +448,7 @@ class ProgrammaticToolRuntime:
             (stats.failed if result.is_error else stats.completed).append(function.tool_name)
             stats.url_elicitations.extend(url_elicitation_required_payloads(result))
             stats.calls.append(_call_record(call_id, function.tool_name, result))
-            return tool_result_to_value(result, self._media)
+            return tool_result_to_value(result, self._media, name=function.python_name)
 
         async def call(*args: Any, **kwargs: Any) -> Any:
             task = asyncio.create_task(run(*args, **kwargs))

@@ -798,7 +798,7 @@ async def test_shell_from_code_returns_streams_and_exit_code_instead_of_raising(
             f"    await {shell}(command='exit 1', check=True)\n"
             "    checked = 'not raised'\n"
             "except RuntimeError as exc:\n"
-            "    checked = 'exit code was 1' in str(exc)\n"
+            "    checked = 'failed with exit code 1' in str(exc)\n"
             "[float(r['stdout']) * 2, r['stderr'], r['exit_code'], checked]"
         )
 
@@ -809,6 +809,64 @@ async def test_shell_from_code_returns_streams_and_exit_code_instead_of_raising(
     finally:
         await agent.shutdown()
         await environment.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("call", "expected"),
+    [
+        (
+            "await SHELL(command='echo bad >&2; exit 3', check=True)",
+            "SHELL: command failed with exit code 3\nstderr (tail):\nbad",
+        ),
+        ("await SHELL(command='sleep 5', timeout=1, check=True)", "SHELL: command timed out"),
+        (
+            "await process(action='status', process_id='process-999')",
+            "process: managed shell process 'process-999' was not found",
+        ),
+        (
+            (
+                "await write_text_file(path='a.txt', content='hi')\n"
+                "    await edit_file(path='a.txt', old_string='zzz', new_string='y')"
+            ),
+            (
+                "edit_file: old_string was not found in the file. "
+                "Re-read the file and use the exact current text. [no_match]"
+            ),
+        ),
+    ],
+)
+async def test_failed_nested_calls_raise_short_messages_not_display_text(
+    tmp_path, call: str, expected: str
+) -> None:
+    """Exceptions name the function and the failure, without shell trailers or JSON bodies."""
+    environment = LocalEnvironment(logger=get_logger(__name__), working_directory=tmp_path)
+    agent = McpAgent(
+        AgentConfig(name="ptc-errors", servers=[], shell=True),
+        shell_environment=environment,
+        context=Context(
+            config=Settings(
+                ptc=ProgrammaticToolCallingSettings(enabled=True),
+                shell_execution=ShellSettings(tool_profile="freeform_shell", show_bash=False),
+            )
+        ),
+    )
+    try:
+        await agent.list_tools()
+        runtime = agent._programmatic_tool_runtime()
+        assert runtime is not None
+        shell = next(name for name, f in runtime.functions.items() if f.tool_name == "exec")
+        code = (
+            f"try:\n    {call.replace('SHELL', shell)}\n    message = None\n"
+            "except RuntimeError as exc:\n    message = str(exc)\nmessage"
+        )
+        result = await agent.call_tool(PTC_TOOL_NAME, {"code": code})
+    finally:
+        await agent.shutdown()
+        await environment.close()
+
+    assert not result.is_error, _text(result)
+    assert _text(result).endswith(f"Result:\n{expected.replace('SHELL', shell)}")
 
 
 def test_tools_declared_for_both_surfaces_are_direct_and_callable_from_code() -> None:
