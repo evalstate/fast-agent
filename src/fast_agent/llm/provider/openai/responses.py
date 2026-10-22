@@ -104,7 +104,7 @@ from fast_agent.utils.text import strip_casefold
 
 _logger = get_logger(__name__)
 
-DEFAULT_RESPONSES_MODEL = "gpt-5.2"
+DEFAULT_RESPONSES_MODEL = "gpt-5.6"
 DEFAULT_REASONING_EFFORT = "medium"
 # Routes whose compaction checkpoints are only readable on the same route.
 _ROUTE_BOUND_CHECKPOINT_ORIGINS = frozenset(
