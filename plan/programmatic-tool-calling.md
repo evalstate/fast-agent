@@ -55,7 +55,7 @@ sequenceDiagram
 ## 3. What the PoC implements
 
 - `src/fast_agent/ptc/`
-  - `stubs.py`: JSON schema → keyword-only async stubs. It handles enums (`Literal`), unions, arrays, optional parameters (`= None`, dropped before dispatch), output schemas (summarised in the docstring), and identifier and collision handling.
+  - `stubs.py`: JSON schema → keyword-only async stubs. It handles enums (`Literal`), unions, arrays, optional parameters (exact schema type with a `= ...` default; omitted arguments are not sent, explicit `None` is only accepted for nullable fields), `**kwargs` only for explicitly open schemas (`additionalProperties: true` or a schema), so a misspelled argument is still a type error, output schemas (summarised in the docstring), and identifier and collision handling.
   - `values.py`: `CallToolResult` → sandbox value. It prefers `structuredContent`, parses JSON text, and summarises media and resources. `isError` raises `RuntimeError` inside the sandbox, where try/except can catch it.
   - `runtime.py`: `ProgrammaticToolRuntime`. It owns a lazily started `AsyncMonty` pool and one persistent session per agent, with limits (`max_feed_duration_secs`, `max_memory`, a high `max_suspensions`). Feeds are serialised with a lock. The session is rebuilt when the tool surface changes, after a timeout (Monty gives no heap guarantees afterwards) or after a crash. Results use a Codex-style header; failures list the tool calls that already completed so the model doesn't repeat side effects.
 - `Settings.ptc` (`ProgrammaticToolCallingSettings`): `enabled`, `direct_tools`, `type_check`, `max_duration_seconds`, `max_memory_mb`.
@@ -114,21 +114,22 @@ print(ranked[:2])
 3. **Per-agent opt-in.** Add `ptc` to `AgentConfig` and AgentCards (`ptc: true`, `ptc_direct_tools`), with CLI `--ptc` applied like the subagent policy override. Add `--ptc` to `serve` and `acp`.
 4. **Display.** Group nested calls under the parent call (indented or aggregated), add a compact "PTC cell" summary, and use the parallel tool-call display when `gather` fans out.
 5. **Cancellation.** Ctrl-C or turn cancellation should cancel the feed (`feed_run` task cancel / terminate the worker) and in-flight nested calls.
-6. **Docs.** Generate a settings reference for `ptc` from the model (`docs/generate_reference_docs.py`), add a user guide page, and add the annotated block to `examples/setup/fast-agent.yaml`.
+6. **Readable docstrings in the model-facing catalogue (deferred from review).** Stub docstrings are rendered with `repr()` so that tool descriptions containing backslashes (`C:\Users`), triple quotes or control characters cannot break the type-check stubs. The same text is shown to the model, though, so long descriptions and `Args:` sections appear as single lines with literal `\n`. Either render pretty triple-quoted docstrings for the description and keep `repr()` for `type_check_stubs`, or emit a safely escaped triple-quoted literal for both.
+7. **Docs.** Generate a settings reference for `ptc` from the model (`docs/generate_reference_docs.py`), add a user guide page, and add the annotated block to `examples/setup/fast-agent.yaml`.
 
 ### Phase 2: parity with Codex
-7. **Long-running cells (`wait`).** Run feeds as background tasks with `yield_time_ms`. Return `Script running (cell N)` and add `execute_python_wait(cell_id, yield_time_ms, terminate)`. Monty `feed_start` snapshots also allow host-driven suspension and `dump()` for durable cells.
-8. **Media.** Forward image/audio blocks: keep a per-execution media list and expose `image(block)` / `attach(block)` helpers (host functions) whose content is appended to the `execute_python` result, as Codex does with `image()`/`audio()`.
-9. **Output budgeting.** Add a token budget per call (`max_output_tokens` parameter) with head/tail truncation, rather than only the byte cap.
-10. **Freeform tool input.** For Responses-API models, send `execute_python` as a custom/freeform tool (raw source, no JSON escaping), mirroring Codex's Lark grammar. Keep JSON `{code}` for other providers.
-11. **Large catalogues.** When there are many tools, render a compact catalogue (name and one-line description) plus a `describe_tools(pattern)` / `search_tools(query)` host function that returns full stubs, similar to Codex's deferred tools and `tool_search`.
-12. **Typed results.** Render MCP output schemas as `TypedDict`s in the stubs so the type checker validates result access, and unwrap FastMCP `{"result": …}` wrappers.
+8. **Long-running cells (`wait`).** Run feeds as background tasks with `yield_time_ms`. Return `Script running (cell N)` and add `execute_python_wait(cell_id, yield_time_ms, terminate)`. Monty `feed_start` snapshots also allow host-driven suspension and `dump()` for durable cells.
+9. **Media.** Forward image/audio blocks: keep a per-execution media list and expose `image(block)` / `attach(block)` helpers (host functions) whose content is appended to the `execute_python` result, as Codex does with `image()`/`audio()`.
+10. **Output budgeting.** Add a token budget per call (`max_output_tokens` parameter) with head/tail truncation, rather than only the byte cap.
+11. **Freeform tool input.** For Responses-API models, send `execute_python` as a custom/freeform tool (raw source, no JSON escaping), mirroring Codex's Lark grammar. Keep JSON `{code}` for other providers.
+12. **Large catalogues.** When there are many tools, render a compact catalogue (name and one-line description) plus a `describe_tools(pattern)` / `search_tools(query)` host function that returns full stubs, similar to Codex's deferred tools and `tool_search`.
+13. **Typed results.** Render MCP output schemas as `TypedDict`s in the stubs so the type checker validates result access, and unwrap FastMCP `{"result": …}` wrappers.
 
 ### Phase 3: beyond Codex
-13. **Eager or speculative execution** (Pydantic AI `_eager.py` / `_speculation.py`): feed closed statements while the model is still streaming, and pre-launch read-only literal calls.
-14. **Session persistence.** `AsyncMontySession.dump()` / `load_session()` alongside fast-agent session history, so `--resume` restores REPL state.
-15. **Remote sandbox.** `AsyncMontyWebsocket` for hosted Monty when running `serve`.
-16. **Evals.** Add a PTC vs direct benchmark (tokens, turns, accuracy) to `docs/benchmark_*` using the orders demo plus MCP servers with large payloads.
+14. **Eager or speculative execution** (Pydantic AI `_eager.py` / `_speculation.py`): feed closed statements while the model is still streaming, and pre-launch read-only literal calls.
+15. **Session persistence.** `AsyncMontySession.dump()` / `load_session()` alongside fast-agent session history, so `--resume` restores REPL state.
+16. **Remote sandbox.** `AsyncMontyWebsocket` for hosted Monty when running `serve`.
+17. **Evals.** Add a PTC vs direct benchmark (tokens, turns, accuracy) to `docs/benchmark_*` using the orders demo plus MCP servers with large payloads.
 
 ## 5. Risks and notes
 - **Monty subset.** No class inheritance, generators, `del`, or `async with/for`; a limited stdlib. Type checking catches most of these up front, and the tool description lists them.

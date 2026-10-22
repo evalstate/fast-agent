@@ -157,9 +157,8 @@ def _build_function(tool: Tool, python_name: str) -> PtcFunction:
             parameter_name = f"{parameter_name}_"
         used_names.add(parameter_name)
         is_required = schema_name in required_names
+        # Optional parameters keep their exact schema type; only nullable ones accept None.
         annotation = _annotation(property_schema)
-        if not is_required:
-            annotation = _union([annotation, "None"])
         description = (
             property_schema.get("description") if isinstance(property_schema, Mapping) else None
         )
@@ -173,8 +172,10 @@ def _build_function(tool: Tool, python_name: str) -> PtcFunction:
             )
         )
 
+    # Only an explicitly open schema gets **kwargs. JSON Schema allows extra properties when
+    # the key is absent, but treating that as closed keeps typo detection in the type check.
     additional = schema.get("additionalProperties")
-    accepts_extra = additional is not False
+    accepts_extra = additional is True or isinstance(additional, Mapping)
     returns = "dict[str, Any]" if tool.output_schema else "Any"
     return PtcFunction(
         python_name=python_name,
@@ -211,32 +212,42 @@ def _strip_schema(value: Any, *, property_map: bool = False) -> Any:
 
 def _render_parameter(parameter: PtcParameter) -> str:
     rendered = f"{parameter.python_name}: {parameter.annotation}"
-    return rendered if parameter.required else f"{rendered} = None"
+    # `= ...` marks "has a default" in a stub: omitting it lets the tool apply its own default.
+    return rendered if parameter.required else f"{rendered} = ..."
 
 
 def _annotation(schema: Any, depth: int = 0) -> str:
+    return _union(_union_members(schema, depth))
+
+
+def _union_members(schema: Any, depth: int) -> list[str]:
+    """Return flattened union members so nested unions never repeat a member."""
     if not isinstance(schema, Mapping) or depth > _MAX_ANNOTATION_DEPTH:
-        return "Any"
+        return ["Any"]
     if "const" in schema:
-        return _literal([schema["const"]])
+        return [_literal([schema["const"]])]
     enum = schema.get("enum")
     if isinstance(enum, list) and enum:
-        return _literal(enum)
+        return [_literal(enum)]
     for key in ("anyOf", "oneOf"):
         options = schema.get(key)
         if isinstance(options, list) and options:
-            return _union([_annotation(option, depth + 1) for option in options])
+            return [member for option in options for member in _union_members(option, depth + 1)]
 
     schema_type = schema.get("type")
     if isinstance(schema_type, list):
-        return _union([_annotation({**schema, "type": item}, depth + 1) for item in schema_type])
+        return [
+            member
+            for item in schema_type
+            for member in _union_members({**schema, "type": item}, depth + 1)
+        ]
     if isinstance(schema_type, str) and schema_type in _JSON_SCALAR_TYPES:
-        return _JSON_SCALAR_TYPES[schema_type]
+        return [_JSON_SCALAR_TYPES[schema_type]]
     if schema_type == "array":
-        return f"list[{_annotation(schema.get('items'), depth + 1)}]"
+        return [f"list[{_annotation(schema.get('items'), depth + 1)}]"]
     if schema_type == "object":
-        return "dict[str, Any]"
-    return "Any"
+        return ["dict[str, Any]"]
+    return ["Any"]
 
 
 def _literal(values: list[Any]) -> str:

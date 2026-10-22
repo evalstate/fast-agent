@@ -85,7 +85,7 @@ def test_model_sees_code_tool_plus_direct_tools_only() -> None:
     assert [tool.name for tool in tools] == [PTC_TOOL_NAME, "execute"]
     description = tools[0].description or ""
     assert "async def orders__get_orders(*, customer_id: str" in description
-    assert "async def list_tool(*, from_: str | None = None, **kwargs: Any)" in description
+    assert "async def list_tool(*, from_: str = ...)" in description
 
 
 @pytest.mark.asyncio
@@ -253,7 +253,8 @@ async def test_named_properties_respect_additional_properties(runtime, additiona
         {"code": "await update(id='x', kwargs='named', value=1)"}, dispatch
     )
 
-    if additional is False:
+    if additional in (False, None):
+        # Absent additionalProperties is treated as closed so misspelled arguments are caught.
         assert result.is_error
         assert "NOT executed" in _text(result)
         assert dispatch.calls == []
@@ -300,3 +301,71 @@ async def test_conversation_resets_discard_sandbox_state(reset, type_check) -> N
         assert "fresh" in _text(fresh)
     finally:
         await agent.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_misspelled_optional_argument_is_rejected_without_open_schema(runtime) -> None:
+    runtime.model_tools(
+        [
+            Tool(
+                name="search",
+                input_schema={
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}},
+                    "required": ["query"],
+                },
+            )
+        ]
+    )
+    dispatch = RecordingDispatcher()
+
+    typo = await runtime.execute({"code": "await search(query='x', limt=5)"}, dispatch)
+    valid = await runtime.execute({"code": "await search(query='x', limit=5)"}, dispatch)
+
+    assert typo.is_error and "NOT executed" in _text(typo)
+    assert not valid.is_error, _text(valid)
+    assert dispatch.calls == [("search", {"query": "x", "limit": 5})]
+
+
+@pytest.mark.asyncio
+async def test_explicit_none_is_only_accepted_for_nullable_optionals(runtime) -> None:
+    runtime.model_tools(
+        [
+            Tool(
+                name="filter",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "region": {"type": "string"},
+                        "status": {"anyOf": [{"enum": ["open", "closed"]}, {"type": "null"}]},
+                    },
+                },
+            )
+        ]
+    )
+    dispatch = RecordingDispatcher()
+
+    rejected = await runtime.execute({"code": "await filter_tool(region=None)"}, dispatch)
+    accepted = await runtime.execute(
+        {"code": "await filter_tool()\nawait filter_tool(status=None)"}, dispatch
+    )
+
+    assert rejected.is_error and "NOT executed" in _text(rejected)
+    assert not accepted.is_error, _text(accepted)
+    assert dispatch.calls == [("filter", {}), ("filter", {"status": None})]
+
+
+def test_nullable_unions_render_each_member_once() -> None:
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
+    schema = {
+        "type": "object",
+        "properties": {
+            "region": {"anyOf": [{"enum": ["EMEA", "AMER"]}, {"type": "null"}]},
+            "tags": {"type": ["array", "null"], "items": {"type": ["string", "null"]}},
+        },
+    }
+
+    description = runtime.model_tools([Tool(name="lookup", input_schema=schema)])[0].description
+
+    assert 'region: Literal["EMEA", "AMER"] | None = ...' in (description or "")
+    assert "tags: list[str | None] | None = ..." in (description or "")

@@ -32,7 +32,9 @@ if TYPE_CHECKING:
 PTC_TOOL_NAME = "execute_python"
 PTC_TOOL_META = {"variant": "code", "code_arg": "code", "language": "python"}
 _MAX_SUSPENSIONS = 100_000
-# Bound host-side print capture independently of Monty's sandbox memory limit.
+# Bound host-side print capture independently of Monty's sandbox memory limit. This protects
+# host memory, not model context: bound_tool_result_for_llm still caps what the model sees, so
+# do not tune this value for context size.
 _MAX_PRINT_CHARS = 1_000_000
 
 ToolDispatcher = Callable[[str, dict[str, Any], str], Awaitable[CallToolResult]]
@@ -46,6 +48,8 @@ or third-party packages. Importable modules: asyncio, json, math, re, datetime, 
 collections, itertools, functools, dataclasses, copy, base64, typing.
 - Every tool listed below is a pre-defined async function. Call it with keyword arguments \
 and `await`, e.g. `result = await some_tool(arg="value")`. Do not import or redefine them.
+- Parameters shown with `= ...` are optional: omit them to use the tool's default. Pass `None` \
+only where the annotation allows it.
 - Run independent calls concurrently with `import asyncio` then \
 `a, b = await asyncio.gather(tool_a(x=1), tool_b(y=2))` (positional awaitables only).
 - Tool results are Python values: structured content as a dict, JSON text parsed into \
