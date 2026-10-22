@@ -278,9 +278,7 @@ class ShellRuntime:
                 self._durable_process_store = DurableProcessStore(durable_process_root)
             except (DurableProcessError, OSError) as exc:
                 self._logger.warning(
-                    "Durable process storage is unavailable at %s: %s",
-                    durable_process_root,
-                    exc,
+                    f"Durable process storage is unavailable at {durable_process_root}: {exc}"
                 )
         self._attached_durable_processes: set[str] = set()
         self._durable_output_offsets: dict[str, int] = {}
