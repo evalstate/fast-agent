@@ -183,6 +183,7 @@ The built-in subagent, harness and attach_media tools were written for one reade
 - `ToolSurface` lists every reachable tool once, each with a `ToolExposure`: `MODEL` (the definition is sent to the model) or `PROGRAMMATIC` (an async function stub inside the `execute_python` description). Search-discoverable tools will be added as another exposure kind.
 - `McpAgent.tool_surface()` builds it from `list_tools()` plus the runtime's current functions, so it matches exactly what the sandbox runs (tools added by subclasses are included). Agents without the capability fall back to "everything is `MODEL`" through `resolve_tool_surface`.
 - Direct tools carry a reason: `declared by tool` (`meta.fast_agent.ptc.expose = "direct"`) or the matching `ptc.direct_tools` pattern.
+- `ptc.nested_tools` (fnmatch patterns) forces tools to be code-only, overriding a declared `direct`/`both` exposure; `["*"]` gives a code-only run (env `PTC__NESTED_TOOLS='["*"]'`). Precedence: `direct_tools`, then `nested_tools`, then the tool's own declaration. Added after tb21-luna-medium-ptc-flex-004: with shell/process exposed as `both`, GPT-6 Luna made about 91% of calls directly and PTC was effectively optional.
 - Context estimates use about 4 characters per token, shown as `~N tokens`: the definition size for model tools, and the stub size for programmatic functions. Stubs of at least about 500 tokens are flagged as large, because they bloat `execute_python`.
 
 | Command | Output |

@@ -1930,6 +1930,11 @@ class ProgrammaticToolCallingSettings(BaseModel):
     direct_tools: list[str] = Field(default_factory=list)
     """Tool names (fnmatch patterns) that stay directly callable alongside the code tool."""
 
+    nested_tools: list[str] = Field(default_factory=list)
+    """Tool names (fnmatch patterns) callable only from code, overriding a tool's own
+    `direct`/`both` exposure (e.g. the shell and process tools). `["*"]` makes every tool
+    code-only. `direct_tools` wins when both match."""
+
     tool_format: Literal["auto", "json", "freeform"] = "auto"
     """How the code tool receives source: `json` sends a `{"code": ...}` function argument;
     `freeform` sends raw Python as a Responses custom (grammar) tool, avoiding JSON escaping.

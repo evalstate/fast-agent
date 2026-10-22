@@ -831,6 +831,43 @@ def test_tools_declared_for_both_surfaces_are_direct_and_callable_from_code() ->
     assert "async def shell" not in (pinned_code_tool.description or "")
 
 
+@pytest.mark.parametrize(
+    ("nested_tools", "direct_tools", "expected_direct"),
+    [
+        (["shell"], [], ["control"]),
+        (["*"], [], []),
+        (["*"], ["control"], ["control"]),
+    ],
+)
+def test_nested_tools_setting_overrides_declared_direct_exposure(
+    nested_tools: list[str], direct_tools: list[str], expected_direct: list[str]
+) -> None:
+    """Code-only runs must be configurable even for tools that declare direct access."""
+    tools = [
+        Tool(
+            name="shell",
+            input_schema={"type": "object"},
+            meta={"fast_agent": {"ptc": {"expose": "both"}}},
+        ),
+        Tool(
+            name="control",
+            input_schema={"type": "object"},
+            meta={"fast_agent": {"ptc": {"expose": "direct"}}},
+        ),
+    ]
+    runtime = ProgrammaticToolRuntime(
+        ProgrammaticToolCallingSettings(
+            enabled=True, nested_tools=nested_tools, direct_tools=direct_tools
+        )
+    )
+
+    _code_tool, *direct = runtime.model_tools(tools)
+
+    assert [tool.name for tool in direct] == expected_direct
+    assert "shell" in runtime.functions
+    assert ("control" in runtime.functions) is (expected_direct == [])
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("type_check", [True, False])
 async def test_syntax_errors_are_explained_with_a_nested_quote_hint(type_check) -> None:

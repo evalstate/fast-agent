@@ -16,6 +16,9 @@ ptc:
   enabled: false
   # Tools (fnmatch patterns) that stay directly callable next to execute_python.
   direct_tools: []
+  # Tools (fnmatch patterns) callable only from code, overriding tools that declare direct
+  # access (shell/process use expose "both"). ["*"] gives a code-only run.
+  nested_tools: []
   # auto | json | freeform. freeform sends raw Python as a Responses custom (grammar) tool;
   # auto uses the model default (freeform for GPT-6).
   tool_format: auto

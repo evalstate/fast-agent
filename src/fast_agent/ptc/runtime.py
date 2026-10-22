@@ -405,9 +405,11 @@ class ProgrammaticToolRuntime:
         """Return why ``tool`` stays directly callable, or None when only code can call it."""
         if tool.name == PTC_TOOL_NAME:
             return None
-        pattern = self._direct_tools_pattern(tool)
+        pattern = _matching_pattern(tool, self._settings.direct_tools)
         if pattern is not None:
             return f'ptc.direct_tools "{pattern}"'
+        if _matching_pattern(tool, self._settings.nested_tools) is not None:
+            return None
         expose = tool_ptc_options(tool).get("expose")
         if expose == "direct":
             return "declared by tool"
@@ -417,19 +419,13 @@ class ProgrammaticToolRuntime:
 
     def _is_nested(self, tool: Tool) -> bool:
         """Return whether sandbox code can call ``tool``; ``ptc.direct_tools`` excludes it."""
-        if tool.name == PTC_TOOL_NAME or self._direct_tools_pattern(tool) is not None:
+        if tool.name == PTC_TOOL_NAME:
             return False
+        if _matching_pattern(tool, self._settings.direct_tools) is not None:
+            return False
+        if _matching_pattern(tool, self._settings.nested_tools) is not None:
+            return True
         return tool_ptc_options(tool).get("expose", "nested") in {"nested", "both"}
-
-    def _direct_tools_pattern(self, tool: Tool) -> str | None:
-        return next(
-            (
-                pattern
-                for pattern in self._settings.direct_tools
-                if fnmatch.fnmatchcase(tool.name, pattern)
-            ),
-            None,
-        )
 
     def _host_function(
         self,
@@ -536,6 +532,10 @@ class ProgrammaticToolRuntime:
         result = _error_result("\n".join(sections))
         _add_nested_metadata(result, stats)
         return result
+
+
+def _matching_pattern(tool: Tool, patterns: Sequence[str]) -> str | None:
+    return next((pattern for pattern in patterns if fnmatch.fnmatchcase(tool.name, pattern)), None)
 
 
 def _call_record(call_id: str, tool_name: str, result: CallToolResult) -> dict[str, Any]:
