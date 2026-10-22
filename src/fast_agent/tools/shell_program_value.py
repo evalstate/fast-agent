@@ -159,10 +159,10 @@ def programmatic_shell_tool(tool: Tool, *, contract: Tool | None = None) -> Tool
     contract = contract or tool
     schema = copy.deepcopy(contract.input_schema)
     schema.setdefault("properties", {})[PTC_CHECK_ARGUMENT] = _CHECK_SCHEMA
-    # Shell commands are both composed from code and run directly: a one-off command or one
-    # carrying heredocs and source code reads better as a direct call than a Python string.
+    # Under PTC, shell commands run from code only, so --ptc measures programmatic tool calling
+    # rather than an optional code tool. Use `ptc.direct_tools` to also expose them directly.
     options: dict[str, Any] = {
-        "expose": "both",
+        "expose": "nested",
         "input_schema": schema,
         "returns": _RETURNS_SCHEMA,
     }
@@ -176,7 +176,7 @@ def programmatic_shell_tool(tool: Tool, *, contract: Tool | None = None) -> Tool
 def programmatic_process_tool(tool: Tool) -> Tool:
     """Document the values a process lifecycle tool returns to sandbox code."""
     options = {
-        "expose": "both",
+        "expose": "nested",
         "description": f"{tool.description or ''}\n\n{_PROCESS_RETURNS_NOTE}".strip(),
     }
     meta = dict(tool.meta or {})

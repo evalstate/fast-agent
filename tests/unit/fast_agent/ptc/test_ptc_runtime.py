@@ -789,8 +789,9 @@ async def test_shell_from_code_returns_streams_and_exit_code_instead_of_raising(
         runtime = agent._programmatic_tool_runtime()
         assert runtime is not None
         shell = next(name for name, f in runtime.functions.items() if f.tool_name == "exec")
-        # The shell stays directly callable for commands that read badly as Python strings.
-        assert {PTC_TOOL_NAME, "exec", "process"} <= model_tools
+        # PTC is not optional: shell and process are reachable only through code.
+        assert model_tools == {PTC_TOOL_NAME}
+        assert {"exec", "process"} <= {f.tool_name for f in runtime.functions.values()}
         code = (
             f"r = await {shell}(command=\"printf '1.5'; echo oops >&2; exit 4\")\n"
             "try:\n"
