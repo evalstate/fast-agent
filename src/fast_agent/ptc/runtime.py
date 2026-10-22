@@ -27,6 +27,7 @@ from fast_agent.mcp.tool_result_metadata import (
     url_elicitation_required_payloads,
 )
 from fast_agent.ptc.stubs import PtcFunction, build_functions, render_stubs, tool_ptc_options
+from fast_agent.ptc.syntax import describe_syntax_error
 from fast_agent.ptc.values import MediaStore, render_value, tool_result_to_value
 from fast_agent.tools.apply_patch_tool import (
     APPLY_PATCH_INPUT_FIELD as FREEFORM_TOOL_INPUT_FIELD,
@@ -41,6 +42,7 @@ from fast_agent.tools.tool_surface import (
     estimate_tokens,
     tool_definition_tokens,
 )
+from fast_agent.utils.tool_names import is_shell_command_tool_name
 
 if TYPE_CHECKING:
     from pydantic_monty import AsyncMonty, AsyncMontySession
@@ -77,11 +79,17 @@ ToolDispatcher = Callable[[str, dict[str, Any], str], Awaitable[CallToolResult]]
 _INSTRUCTIONS = """\
 Run Python code to orchestrate and compose tool calls (programmatic tool calling).
 {input_note}
-- Code runs in Monty, a sandboxed subset of Python 3: no filesystem, network, environment \
-or third-party packages. Importable modules: asyncio, json, math, re, datetime, time, random, \
-collections, itertools, functools, dataclasses, copy, base64, typing.
+- Code runs in Monty, a sandboxed subset of Python 3.14: no file access (`open`, `os` and \
+`pathlib` file operations raise PermissionError), network, environment or third-party packages.
+- Importable modules: asyncio, base64, binascii, bisect, collections, copy, csv, dataclasses, \
+datetime, functools, hashlib, itertools, json, math, os.path, random, re, sys, time, tomllib, \
+typing, unicodedata. Many cover only part of their CPython API (functools has only reduce and \
+partial). Not available: enum, contextlib, io, string, struct, operator, heapq, decimal, \
+subprocess and anything else not listed.
+{shell_python_note}\
 - Every tool listed below is a pre-defined async function. Call it with keyword arguments \
 and `await`, e.g. `result = await some_tool(arg="value")`. Do not import or redefine them.
+{shared_note}\
 - Parameters shown with `= ...` are optional: omit them to use the tool's default. Pass `None` \
 only where the annotation allows it.
 - Run independent calls concurrently with `import asyncio` then \
@@ -95,8 +103,10 @@ key. To see media yourself, include its handles in the final expression, e.g. `s
 aggregate and summarise large tool results in code rather than returning them whole.
 - Variables and functions persist between calls, so later code can reuse earlier results.
 {type_check_note}\
-- Top-level `await` is supported. Not supported: class inheritance, generators/`yield`, \
-`del`, `async with`/`async for`, and `import *`.
+- Top-level `await` is supported. Rejected before running: class inheritance (so no custom \
+exception classes), method decorators (`@property`, `@staticmethod`, `@classmethod`), \
+generator functions/`yield`, `del`, `async with`/`async for`, `except*` and `import *`. \
+Generator expressions work. Functions have no attributes such as `__name__`.
 """
 _FUNCTIONS_BLOCK = """
 Available functions:
@@ -106,6 +116,16 @@ Available functions:
 _FREEFORM_INPUT_NOTE = (
     "This is a FREEFORM tool: the tool input is the Python source itself, exactly as it "
     "would appear in a .py file. Do not wrap it in JSON, quotes or markdown fences.\n"
+)
+_SHELL_PYTHON_NOTE = (
+    "- For full CPython or packages unavailable in Monty, use a shell tool to run a Python "
+    "script (e.g. `python3 script.py`). This uses the shell tool's environment and permissions, "
+    "not Monty's sandbox.\n"
+)
+_SHARED_NOTE = (
+    "- {functions} can also be called directly as tools, outside this code. Call them directly "
+    "for a one-off step, especially one whose text holds quotes, heredocs or source code, "
+    "and from code to run several steps or process their results.\n"
 )
 _TYPE_CHECK_NOTE = (
     "- Code is type-checked against these signatures first; on type errors nothing runs.\n"
@@ -158,6 +178,9 @@ class ProgrammaticToolRuntime:
         self._settings = settings
         self._functions: dict[str, PtcFunction] = {}
         self._nested_tools: dict[str, Tool] = {}
+        # Functions whose tools the model can also call directly.
+        self._shared_functions: tuple[str, ...] = ()
+        self._has_shell_tools = False
         self._tool_format: PtcToolFormat = "json"
         self._stubs = render_stubs({})
         self._pool: AsyncMonty | None = None
@@ -185,9 +208,18 @@ class ProgrammaticToolRuntime:
         """Replace the agent's tools with the code tool, keeping configured direct tools."""
         self._tool_format = tool_format
         direct = [tool for tool in tools if self._direct_reason(tool) is not None]
-        nested = [tool for tool in tools if self._direct_reason(tool) is None]
+        nested = [tool for tool in tools if self._is_nested(tool)]
+        self._has_shell_tools = any(
+            is_shell_command_tool_name(tool.name) for tool in (*direct, *nested)
+        )
         self._functions = build_functions(nested)
         self._nested_tools = {tool.name: tool for tool in nested}
+        direct_names = {tool.name for tool in direct}
+        self._shared_functions = tuple(
+            function.python_name
+            for function in self._functions.values()
+            if function.tool_name in direct_names
+        )
         self._stubs = render_stubs(self._functions)
         return [self.tool(), *direct]
 
@@ -226,7 +258,10 @@ class ProgrammaticToolRuntime:
         )
 
     def _instructions(self) -> str:
+        shared = ", ".join(f"`{name}`" for name in self._shared_functions)
         return _INSTRUCTIONS.format(
+            shell_python_note=_SHELL_PYTHON_NOTE if self._has_shell_tools else "",
+            shared_note=_SHARED_NOTE.format(functions=shared) if shared else "",
             input_note=_FREEFORM_INPUT_NOTE if self._tool_format == "freeform" else "",
             type_check_note=_TYPE_CHECK_NOTE if self._settings.type_check else "",
         )
@@ -323,16 +358,19 @@ class ProgrammaticToolRuntime:
                 await self._reset_session()
                 raise
             except MontyTypingError as exc:
+                # The type checker also reports syntax errors, mixed with errors they cause.
+                detail = exc.display()
+                report = self._describe_syntax_error(code) if "invalid-syntax" in detail else None
+                if report is not None:
+                    return _syntax_error_result(report, stats)
                 return _error_result(
                     "Type check failed; the code was NOT executed. Fix it and retry.\n"
                     + _restart_note(stats)
-                    + exc.display()
+                    + detail
                 )
             except MontySyntaxError as exc:
-                return _error_result(
-                    "Syntax error; the code was NOT executed.\n"
-                    + _restart_note(stats)
-                    + exc.display()
+                return _syntax_error_result(
+                    self._describe_syntax_error(code) or exc.display(), stats
                 )
             except MontyRuntimeError as exc:
                 detail = exc.display()
@@ -350,6 +388,9 @@ class ProgrammaticToolRuntime:
 
             return self._success(value, output, stats, started)
 
+    def _describe_syntax_error(self, code: str) -> str | None:
+        return describe_syntax_error(code, direct_functions=self._shared_functions)
+
     def invalidate_session(self) -> None:
         """Discard conversation state on the next execution, which can close it asynchronously."""
         self._session_stubs = None
@@ -361,12 +402,27 @@ class ProgrammaticToolRuntime:
         self._pool = None
 
     def _direct_reason(self, tool: Tool) -> str | None:
-        """Return why ``tool`` stays directly callable, or None when it runs in the sandbox."""
+        """Return why ``tool`` stays directly callable, or None when only code can call it."""
         if tool.name == PTC_TOOL_NAME:
             return None
-        if tool_ptc_options(tool).get("expose") == "direct":
+        pattern = self._direct_tools_pattern(tool)
+        if pattern is not None:
+            return f'ptc.direct_tools "{pattern}"'
+        expose = tool_ptc_options(tool).get("expose")
+        if expose == "direct":
             return "declared by tool"
-        pattern = next(
+        if expose == "both":
+            return "declared by tool; also callable from code"
+        return None
+
+    def _is_nested(self, tool: Tool) -> bool:
+        """Return whether sandbox code can call ``tool``; ``ptc.direct_tools`` excludes it."""
+        if tool.name == PTC_TOOL_NAME or self._direct_tools_pattern(tool) is not None:
+            return False
+        return tool_ptc_options(tool).get("expose", "nested") in {"nested", "both"}
+
+    def _direct_tools_pattern(self, tool: Tool) -> str | None:
+        return next(
             (
                 pattern
                 for pattern in self._settings.direct_tools
@@ -374,7 +430,6 @@ class ProgrammaticToolRuntime:
             ),
             None,
         )
-        return None if pattern is None else f'ptc.direct_tools "{pattern}"'
 
     def _host_function(
         self,
@@ -511,6 +566,12 @@ def _restart_note(stats: _ExecutionStats) -> str:
     return (
         "Note: the available tools changed, so the sandbox session was restarted before this "
         "run; variables from earlier runs are gone.\n"
+    )
+
+
+def _syntax_error_result(report: str, stats: _ExecutionStats) -> CallToolResult:
+    return _error_result(
+        "Syntax error; the code was NOT executed.\n" + _restart_note(stats) + report
     )
 
 

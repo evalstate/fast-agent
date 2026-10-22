@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import pytest_asyncio
@@ -31,6 +31,9 @@ from fast_agent.mcp.url_elicitation_required import (
 from fast_agent.ptc import PTC_TOOL_NAME, ProgrammaticToolRuntime
 from fast_agent.tools.invocation_context import is_programmatic_tool_call, outer_tool_call_id
 from fast_agent.tools.local_shell_executor import LocalEnvironment
+
+if TYPE_CHECKING:
+    from fast_agent.ptc.runtime import PtcToolFormat
 
 pytest.importorskip("pydantic_monty")
 
@@ -101,6 +104,73 @@ def test_model_sees_code_tool_plus_direct_tools_only() -> None:
     description = tools[0].description or ""
     assert "async def orders__get_orders(*, customer_id: str" in description
     assert "async def list_tool(*, from_: str = ...)" in description
+
+
+@pytest.mark.parametrize("tool_format", ["json", "freeform"])
+@pytest.mark.parametrize("exposure", ["nested", "direct", "both", "configured_direct"])
+@pytest.mark.parametrize(
+    ("tool_name", "expect_hint"),
+    [
+        ("shell", True),
+        ("runtime__Shell", True),
+        ("exec", True),
+        ("process", False),
+        ("read_text_file", False),
+        (None, False),
+    ],
+)
+def test_cpython_guidance_requires_a_shell_command_tool(
+    tool_format: PtcToolFormat, exposure: str, tool_name: str | None, expect_hint: bool
+) -> None:
+    """Only available command tools justify suggesting Python outside Monty."""
+    runtime = ProgrammaticToolRuntime(
+        ProgrammaticToolCallingSettings(
+            enabled=True,
+            direct_tools=[tool_name] if exposure == "configured_direct" and tool_name else [],
+        )
+    )
+    available = (
+        [
+            Tool(
+                name=tool_name,
+                input_schema={"type": "object"},
+                meta={"fast_agent": {"ptc": {"expose": exposure}}}
+                if exposure != "configured_direct"
+                else None,
+            )
+        ]
+        if tool_name
+        else []
+    )
+
+    tools = runtime.model_tools(available, tool_format=tool_format)
+    surface = runtime.surface(tools)
+
+    assert surface.programmatic is not None
+    expected = (
+        [
+            (
+                "- For full CPython or packages unavailable in Monty, use a shell tool to run a Python "
+                "script (e.g. `python3 script.py`). This uses the shell tool's environment and permissions, "
+                "not Monty's sandbox."
+            )
+        ]
+        if expect_hint
+        else []
+    )
+    for instructions in [tools[0].description or "", surface.programmatic.instructions]:
+        assert [
+            line for line in instructions.splitlines() if line.startswith("- For full CPython")
+        ] == expected
+
+
+def test_cpython_guidance_is_removed_when_shell_tool_is_removed() -> None:
+    """Refreshing the tool list must not retain guidance for an unavailable shell."""
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
+    initial = runtime.model_tools([])
+    runtime.model_tools([Tool(name="shell", input_schema={"type": "object"})])
+
+    assert runtime.model_tools([]) == initial
 
 
 @pytest.mark.asyncio
@@ -699,3 +769,121 @@ async def test_attach_media_from_code_stages_media_and_returns_a_handle_free_val
     finally:
         await agent.shutdown()
         await environment.close()
+
+
+@pytest.mark.asyncio
+async def test_shell_from_code_returns_streams_and_exit_code_instead_of_raising(tmp_path) -> None:
+    environment = LocalEnvironment(logger=get_logger(__name__), working_directory=tmp_path)
+    agent = McpAgent(
+        AgentConfig(name="ptc-shell", servers=[], shell=True),
+        shell_environment=environment,
+        context=Context(
+            config=Settings(
+                ptc=ProgrammaticToolCallingSettings(enabled=True),
+                shell_execution=ShellSettings(tool_profile="freeform_shell", show_bash=False),
+            )
+        ),
+    )
+    try:
+        model_tools = {tool.name for tool in (await agent.list_tools()).tools}
+        runtime = agent._programmatic_tool_runtime()
+        assert runtime is not None
+        shell = next(name for name, f in runtime.functions.items() if f.tool_name == "exec")
+        # The shell stays directly callable for commands that read badly as Python strings.
+        assert {PTC_TOOL_NAME, "exec", "process"} <= model_tools
+        code = (
+            f"r = await {shell}(command=\"printf '1.5'; echo oops >&2; exit 4\")\n"
+            "try:\n"
+            f"    await {shell}(command='exit 1', check=True)\n"
+            "    checked = 'not raised'\n"
+            "except RuntimeError as exc:\n"
+            "    checked = 'exit code was 1' in str(exc)\n"
+            "[float(r['stdout']) * 2, r['stderr'], r['exit_code'], checked]"
+        )
+
+        result = await agent.call_tool(PTC_TOOL_NAME, {"code": code}, "call-1")
+
+        assert not result.is_error, _text(result)
+        assert _text(result).endswith('Result:\n[3.0, "oops\\n", 4, true]')
+    finally:
+        await agent.shutdown()
+        await environment.close()
+
+
+def test_tools_declared_for_both_surfaces_are_direct_and_callable_from_code() -> None:
+    shared = Tool(
+        name="shell",
+        input_schema={"type": "object", "properties": {"command": {"type": "string"}}},
+        meta={"fast_agent": {"ptc": {"expose": "both"}}},
+    )
+    default = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
+    pinned = ProgrammaticToolRuntime(
+        ProgrammaticToolCallingSettings(enabled=True, direct_tools=["shell"])
+    )
+
+    code_tool, *direct = default.model_tools([shared])
+    pinned_code_tool, *pinned_direct = pinned.model_tools([shared])
+
+    assert [tool.name for tool in direct] == ["shell"]
+    assert "async def shell(*, command: str" in (code_tool.description or "")
+    assert "`shell` can also be called directly" in (code_tool.description or "")
+    assert [tool.name for tool in pinned_direct] == ["shell"]
+    assert "async def shell" not in (pinned_code_tool.description or "")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("type_check", [True, False])
+async def test_syntax_errors_are_explained_with_a_nested_quote_hint(type_check) -> None:
+    runtime = ProgrammaticToolRuntime(
+        ProgrammaticToolCallingSettings(enabled=True, type_check=type_check)
+    )
+    runtime.model_tools(TOOLS)
+    dispatch = RecordingDispatcher()
+    code = 'source = """def f():\n    """Docstring."""\n    return 1\n"""\nsource'
+    try:
+        result = await runtime.execute({"code": code}, dispatch)
+        unsupported = await runtime.execute({"code": "class A(B): pass"}, dispatch)
+    finally:
+        await runtime.close()
+
+    text = _text(result)
+    assert result.is_error and not dispatch.calls
+    assert 'File "ptc.py", line 2' in text
+    assert "SyntaxError:" in text
+    assert "delimited with ''' instead" in text
+    assert "unresolved-reference" not in text
+    assert unsupported.is_error and "SyntaxError:" not in _text(unsupported)
+
+
+def _listed_modules(instructions: str, label: str) -> list[str]:
+    text = " ".join(instructions.split())
+    listed = text.split(f"{label}: ", 1)[1].split(". ", 1)[0]
+    return [name.strip() for name in listed.replace(" and anything else not listed", "").split(",")]
+
+
+@pytest.mark.asyncio
+async def test_documented_sandbox_modules_match_the_installed_monty() -> None:
+    """Catch drift between the code tool description and the pinned pydantic-monty."""
+    from pydantic_monty import AsyncMonty
+
+    from fast_agent.ptc.stubs import SANDBOX_MODULES
+
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
+    instructions = runtime.model_tools([])[0].description or ""
+    available = _listed_modules(instructions, "Importable modules")
+    unavailable = [name for name in _listed_modules(instructions, "Not available") if name]
+
+    async def imports(pool: AsyncMonty, module: str) -> bool:
+        async with pool.checkout(script_name="probe.py") as session:
+            try:
+                await session.feed_run(f"import {module}")
+            except Exception:
+                return False
+            return True
+
+    async with AsyncMonty(min_processes=1, max_processes=1) as pool:
+        missing = [name for name in available if not await imports(pool, name)]
+        present = [name for name in unavailable if await imports(pool, name)]
+
+    assert missing == [] and present == []
+    assert {name.split(".")[0] for name in available} <= SANDBOX_MODULES

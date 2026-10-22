@@ -24,20 +24,25 @@ SANDBOX_MODULES = frozenset(
         "asyncio",
         "base64",
         "binascii",
+        "bisect",
         "collections",
         "copy",
+        "csv",
         "dataclasses",
         "datetime",
         "functools",
+        "hashlib",
         "itertools",
         "json",
         "math",
         "os",
         "pathlib",
+        "posixpath",
         "random",
         "re",
         "sys",
         "time",
+        "tomllib",
         "typing",
         "unicodedata",
     }
@@ -135,9 +140,13 @@ class PtcFunction:
 def tool_ptc_options(tool: Tool) -> Mapping[str, Any]:
     """Return the ``meta["fast_agent"]["ptc"]`` options a tool declares for PTC.
 
-    Supported keys: ``expose`` (``"nested"`` default, or ``"direct"`` to keep the tool next to
-    ``execute_python``) and ``returns`` (JSON schema of the value sandbox code receives, for
-    tools whose program-facing value differs from their model-facing text).
+    Supported keys: ``expose`` (``"nested"`` default; ``"direct"`` to keep the tool next to
+    ``execute_python`` instead; ``"both"`` for a sandbox function that is also directly
+    callable); ``returns`` (JSON schema of the value sandbox code receives, for
+    tools whose program-facing value differs from their model-facing text); and
+    ``input_schema``/``description`` (the keyword arguments and documentation sandbox code
+    sees, for tools whose model-facing wire format, such as freeform text, is not a keyword
+    call; the tool must accept those arguments from programmatic calls).
     """
     fast_agent_meta = (tool.meta or {}).get("fast_agent")
     if not isinstance(fast_agent_meta, Mapping):
@@ -161,7 +170,9 @@ def render_stubs(functions: Mapping[str, PtcFunction]) -> str:
 
 
 def _build_function(tool: Tool, python_name: str) -> PtcFunction:
-    schema = tool.input_schema if isinstance(tool.input_schema, Mapping) else {}
+    options = tool_ptc_options(tool)
+    ptc_schema = options.get("input_schema")
+    schema = ptc_schema if isinstance(ptc_schema, Mapping) else tool.input_schema
     properties = schema.get("properties")
     properties = properties if isinstance(properties, Mapping) else {}
     required = schema.get("required")
@@ -195,12 +206,13 @@ def _build_function(tool: Tool, python_name: str) -> PtcFunction:
     # the key is absent, but treating that as closed keeps typo detection in the type check.
     additional = schema.get("additionalProperties")
     accepts_extra = additional is True or isinstance(additional, Mapping)
-    returns_schema = tool_ptc_options(tool).get("returns")
+    returns_schema = options.get("returns")
     output_schema = returns_schema if isinstance(returns_schema, Mapping) else tool.output_schema
+    description = options.get("description")
     return PtcFunction(
         python_name=python_name,
         tool_name=tool.name,
-        description=tool.description or "",
+        description=description if isinstance(description, str) else tool.description or "",
         parameters=tuple(parameters),
         accepts_extra=accepts_extra,
         returns="dict[str, Any]" if output_schema else "Any",

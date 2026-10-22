@@ -630,7 +630,7 @@ def install_subagent_tool(
             transcript=transcript,
         )
         meta: dict[str, object] = {FAST_AGENT_SUBAGENT_RESULT_METADATA: result_metadata}
-        if is_programmatic_tool_call(parent_tool_call_id):
+        if is_programmatic_tool_call(parent_tool_call_id) and not is_error:
             meta[FAST_AGENT_PTC_VALUE] = {
                 "response": response_text,
                 "label": resolved_label,

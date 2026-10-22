@@ -82,13 +82,15 @@ class MediaStore:
 def tool_result_to_value(result: CallToolResult, media: MediaStore) -> Any:
     """Return the tool's program value, structured content, or parsed content blocks.
 
-    Raises ToolCallFailed for error results so sandbox code can use try/except.
+    A program value is the tool's own answer to sandbox code and is returned even for an error
+    result: a shell command that exits non-zero, say, is data for the script. Other error
+    results raise ToolCallFailed so sandbox code can use try/except.
     """
-    if result.is_error:
-        raise ToolCallFailed(_result_text(result) or "tool call failed")
     program_value = (result.meta or {}).get(FAST_AGENT_PTC_VALUE)
     if program_value is not None:
         return program_value
+    if result.is_error:
+        raise ToolCallFailed(_result_text(result) or "tool call failed")
     if result.structured_content is not None:
         media_values = [media.handle(block) for block in _media_blocks(result)]
         if not media_values:
