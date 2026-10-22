@@ -77,30 +77,32 @@ class PtcFunction:
     output_schema: str | None = None
 
     def bind_arguments(self, kwargs: Mapping[str, Any]) -> dict[str, Any]:
-        """Map sandbox keyword arguments back to the tool's schema argument names.
-
-        Optional parameters left as ``None`` are omitted so the tool applies its own default.
-        """
+        """Map supplied keywords to schema names, preserving explicit null values."""
         by_python_name = {parameter.python_name: parameter for parameter in self.parameters}
         arguments: dict[str, Any] = {}
         for name, value in kwargs.items():
             parameter = by_python_name.get(name)
             if parameter is None:
                 arguments[name] = value
-            elif value is not None or parameter.required:
+            else:
                 arguments[parameter.schema_name] = value
         return arguments
 
     def stub(self) -> str:
         signature = ", ".join(_render_parameter(parameter) for parameter in self._ordered())
         if self.accepts_extra:
-            signature = f"{signature}, **kwargs: Any" if signature else "**kwargs: Any"
+            extra_name = "kwargs"
+            parameter_names = {parameter.python_name for parameter in self.parameters}
+            while extra_name in parameter_names:
+                extra_name += "_"
+            extra = f"**{extra_name}: Any"
+            signature = f"{signature}, {extra}" if signature else extra
         if signature and not signature.startswith("**"):
             signature = f"*, {signature}"
         lines = [f"async def {self.python_name}({signature}) -> {self.returns}:"]
         docstring = self._docstring()
         if docstring:
-            lines.append(_indent(f'"""{docstring}\n"""'))
+            lines.append(f"    {docstring!r}")
         lines.append("    ...")
         return "\n".join(lines)
 
@@ -123,7 +125,7 @@ class PtcFunction:
             parts.append("Args:\n" + "\n".join(arg_lines))
         if self.output_schema:
             parts.append(f"Returns a dict matching this JSON schema: {self.output_schema}")
-        return "\n\n".join(parts).replace('"""', "'''")
+        return "\n\n".join(parts)
 
 
 def build_functions(tools: Sequence[Tool]) -> dict[str, PtcFunction]:
@@ -172,7 +174,7 @@ def _build_function(tool: Tool, python_name: str) -> PtcFunction:
         )
 
     additional = schema.get("additionalProperties")
-    accepts_extra = not properties and additional is not False
+    accepts_extra = additional is not False
     returns = "dict[str, Any]" if tool.output_schema else "Any"
     return PtcFunction(
         python_name=python_name,
@@ -278,7 +280,3 @@ def _unique(name: str, existing: Mapping[str, object]) -> str:
 
 def _one_line(text: str) -> str:
     return " ".join(text.split())
-
-
-def _indent(text: str) -> str:
-    return "\n".join(f"    {line}" if line else line for line in text.splitlines())

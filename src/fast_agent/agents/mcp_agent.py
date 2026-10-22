@@ -2691,6 +2691,8 @@ class McpAgent(ABC, ToolAgent):
 
     def clear(self, *, clear_prompts: bool = False) -> None:
         super().clear(clear_prompts=clear_prompts)
+        if self._ptc_runtime is not None:
+            self._ptc_runtime.invalidate_session()
         self._codex_web_search.history_loaded(None)
 
     def load_message_history(
@@ -2699,6 +2701,8 @@ class McpAgent(ABC, ToolAgent):
         if clear_state:
             # Reset provider/agent state without overwriting persisted search identity.
             super().clear(clear_prompts=True)
+            if self._ptc_runtime is not None:
+                self._ptc_runtime.invalidate_session()
         super().load_message_history(messages)
         self._codex_web_search.history_loaded(messages)
 

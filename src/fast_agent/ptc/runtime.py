@@ -15,6 +15,7 @@ import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
+from io import StringIO
 from typing import TYPE_CHECKING, Any
 
 from mcp_types import CallToolResult, TextContent, Tool
@@ -31,6 +32,8 @@ if TYPE_CHECKING:
 PTC_TOOL_NAME = "execute_python"
 PTC_TOOL_META = {"variant": "code", "code_arg": "code", "language": "python"}
 _MAX_SUSPENSIONS = 100_000
+# Bound host-side print capture independently of Monty's sandbox memory limit.
+_MAX_PRINT_CHARS = 1_000_000
 
 ToolDispatcher = Callable[[str, dict[str, Any], str], Awaitable[CallToolResult]]
 """Dispatch a nested call: (tool name, arguments, nested call id) -> result."""
@@ -68,6 +71,28 @@ class _ExecutionStats:
     completed: list[str] = field(default_factory=list)
     failed: list[str] = field(default_factory=list)
     started: int = 0
+
+
+@dataclass(slots=True)
+class _PrintedOutput:
+    buffer: StringIO = field(default_factory=StringIO)
+    size: int = 0
+    truncated: bool = False
+
+    def append(self, _stream: str, text: str) -> None:
+        remaining = _MAX_PRINT_CHARS - self.size
+        if len(text) > remaining:
+            self.truncated = True
+            text = text[:remaining]
+        if text:
+            self.buffer.write(text)
+            self.size += len(text)
+
+    def render(self) -> str:
+        printed = self.buffer.getvalue().rstrip()
+        if self.truncated:
+            printed += "\n[Printed output truncated]"
+        return printed
 
 
 class ProgrammaticToolRuntime:
@@ -140,7 +165,7 @@ class ProgrammaticToolRuntime:
         async with self._lock:
             self._executions += 1
             stats = _ExecutionStats()
-            output: list[str] = []
+            output = _PrintedOutput()
             lookup = {
                 name: self._host_function(function, dispatch, stats, execution=self._executions)
                 for name, function in self._functions.items()
@@ -151,7 +176,7 @@ class ProgrammaticToolRuntime:
                 value = await session.feed_run(
                     code,
                     external_lookup=lookup,
-                    print_callback=lambda _stream, text: output.append(text),
+                    print_callback=output.append,
                 )
             except MontyTypingError as exc:
                 return _error_result(
@@ -175,6 +200,10 @@ class ProgrammaticToolRuntime:
                 return self._failure(str(exc), output, stats, started)
 
             return self._success(value, output, stats, started)
+
+    def invalidate_session(self) -> None:
+        """Discard conversation state on the next execution, which can close it asynchronously."""
+        self._session_stubs = None
 
     async def close(self) -> None:
         await self._session_stack.aclose()
@@ -210,7 +239,7 @@ class ProgrammaticToolRuntime:
         if self._session is not None and self._session_stubs == self._stubs:
             return self._session
         if self._session is not None:
-            # The tool surface changed; stubs are fixed per checkout, so start a new session.
+            # Conversation resets and tool-surface changes both require a fresh checkout.
             await self._reset_session()
 
         if self._pool is None:
@@ -241,10 +270,10 @@ class ProgrammaticToolRuntime:
         self._session_stubs = None
 
     def _success(
-        self, value: Any, output: list[str], stats: _ExecutionStats, started: float
+        self, value: Any, output: _PrintedOutput, stats: _ExecutionStats, started: float
     ) -> CallToolResult:
         sections = [_header("completed", stats, started)]
-        printed = "".join(output).rstrip()
+        printed = output.render()
         if printed:
             sections.append(f"Output:\n{printed}")
         if value is not None:
@@ -254,10 +283,10 @@ class ProgrammaticToolRuntime:
         return CallToolResult(content=[TextContent(type="text", text="\n".join(sections))])
 
     def _failure(
-        self, detail: str, output: list[str], stats: _ExecutionStats, started: float
+        self, detail: str, output: _PrintedOutput, stats: _ExecutionStats, started: float
     ) -> CallToolResult:
         sections = [_header("failed", stats, started)]
-        printed = "".join(output).rstrip()
+        printed = output.render()
         if printed:
             sections.append(f"Output before the error:\n{printed}")
         if stats.completed:
