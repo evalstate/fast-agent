@@ -1930,6 +1930,11 @@ class ProgrammaticToolCallingSettings(BaseModel):
     direct_tools: list[str] = Field(default_factory=list)
     """Tool names (fnmatch patterns) that stay directly callable alongside the code tool."""
 
+    tool_format: Literal["auto", "json", "freeform"] = "auto"
+    """How the code tool receives source: `json` sends a `{"code": ...}` function argument;
+    `freeform` sends raw Python as a Responses custom (grammar) tool, avoiding JSON escaping.
+    `auto` uses the model's default (freeform for GPT-6)."""
+
     type_check: bool = True
     """Type-check code against generated tool stubs before running it."""
 

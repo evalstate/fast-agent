@@ -104,7 +104,7 @@ from fast_agent.mcp.tool_result_metadata import (
 from fast_agent.mcp.tool_result_spool import spool_tool_result
 from fast_agent.mcp.tool_result_truncation import bound_tool_result_for_llm
 from fast_agent.paths import resolve_home_paths
-from fast_agent.ptc import PTC_TOOL_META, PTC_TOOL_NAME, ProgrammaticToolRuntime
+from fast_agent.ptc import PTC_TOOL_NAME, ProgrammaticToolRuntime
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_TOOL_NAME
@@ -2556,7 +2556,7 @@ class McpAgent(ABC, ToolAgent):
         route_to_namespaced_candidate: bool,
     ) -> dict[str, Any] | None:
         if tool_name == PTC_TOOL_NAME and self._ptc_runtime is not None:
-            return dict(PTC_TOOL_META)
+            return self._ptc_runtime.tool_meta()
         if self._shell_runtime_enabled and self._shell_runtime:
             if self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name:
                 return self._shell_runtime.metadata(tool_args)
@@ -2606,7 +2606,7 @@ class McpAgent(ABC, ToolAgent):
         if not lookup_name:
             return None
         if lookup_name == PTC_TOOL_NAME and self._ptc_runtime is not None:
-            return dict(PTC_TOOL_META)
+            return self._ptc_runtime.tool_meta()
         if (
             self._shell_runtime_enabled
             and self._shell_runtime
@@ -2774,7 +2774,13 @@ class McpAgent(ABC, ToolAgent):
 
         ptc_runtime = self._programmatic_tool_runtime()
         if ptc_runtime is not None:
-            merged_tools = ptc_runtime.model_tools(merged_tools)
+            model_params = self._resolve_shell_model_params()
+            merged_tools = ptc_runtime.model_tools(
+                merged_tools,
+                tool_format=ptc_runtime.resolve_tool_format(
+                    model_params.ptc_tool_format if model_params is not None else None
+                ),
+            )
         return ListToolsResult(tools=merged_tools)
 
     async def tool_surface(self) -> ToolSurface:

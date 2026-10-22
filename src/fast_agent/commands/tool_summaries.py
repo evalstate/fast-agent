@@ -448,6 +448,8 @@ def build_tools_listing(agent: object, surface: ToolSurface) -> ToolsListing:
 
 def ptc_settings_label(ptc: ProgrammaticSurface) -> str:
     parts = ["Programmatic tool calling: on"]
+    if ptc.tool_format == "freeform":
+        parts.append("freeform input")
     if ptc.type_check:
         parts.append("type-checked")
     parts.append(f"{ptc.max_duration_seconds:g}s / {ptc.max_memory_mb} MB limits")

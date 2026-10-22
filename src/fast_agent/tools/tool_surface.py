@@ -13,7 +13,7 @@ import json
 import math
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -73,6 +73,7 @@ class ProgrammaticSurface:
     """Settings and model-facing instructions of the PTC code tool."""
 
     tool_name: str
+    tool_format: Literal["json", "freeform"]
     instructions: str
     type_check: bool
     max_duration_seconds: float

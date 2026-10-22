@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from io import StringIO
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from mcp_types import CallToolResult, ContentBlock, TextContent, Tool
 
@@ -28,6 +28,10 @@ from fast_agent.mcp.tool_result_metadata import (
 )
 from fast_agent.ptc.stubs import PtcFunction, build_functions, render_stubs, tool_ptc_options
 from fast_agent.ptc.values import MediaStore, render_value, tool_result_to_value
+from fast_agent.tools.apply_patch_tool import (
+    APPLY_PATCH_INPUT_FIELD as FREEFORM_TOOL_INPUT_FIELD,
+)
+from fast_agent.tools.apply_patch_tool import OPENAI_RESPONSES_CUSTOM_TOOL_META_KEY
 from fast_agent.tools.invocation_context import NESTED_PTC_CALL_SEPARATOR, programmatic_tool_call
 from fast_agent.tools.tool_surface import (
     ProgrammaticSurface,
@@ -46,6 +50,18 @@ if TYPE_CHECKING:
 
 PTC_TOOL_NAME = "execute_python"
 PTC_TOOL_META = {"variant": "code", "code_arg": "code", "language": "python"}
+PtcToolFormat = Literal["json", "freeform"]
+# Responses custom tool calls carry their raw input under this argument name.
+_FREEFORM_CODE_ARG = FREEFORM_TOOL_INPUT_FIELD
+_FREEFORM_TOOL_META = {
+    **PTC_TOOL_META,
+    "code_arg": _FREEFORM_CODE_ARG,
+    "code_format": "raw",
+}
+_FREEFORM_GRAMMAR = r"""
+start: SOURCE
+SOURCE: /[\s\S]+/
+"""
 _MAX_SUSPENSIONS = 100_000
 # Bound host-side print capture independently of Monty's sandbox memory limit. This protects
 # host memory, not model context: bound_tool_result_for_llm still caps what the model sees, so
@@ -60,7 +76,7 @@ ToolDispatcher = Callable[[str, dict[str, Any], str], Awaitable[CallToolResult]]
 
 _INSTRUCTIONS = """\
 Run Python code to orchestrate and compose tool calls (programmatic tool calling).
-
+{input_note}
 - Code runs in Monty, a sandboxed subset of Python 3: no filesystem, network, environment \
 or third-party packages. Importable modules: asyncio, json, math, re, datetime, time, random, \
 collections, itertools, functools, dataclasses, copy, base64, typing.
@@ -87,6 +103,10 @@ Available functions:
 ```python
 {stubs}```
 """
+_FREEFORM_INPUT_NOTE = (
+    "This is a FREEFORM tool: the tool input is the Python source itself, exactly as it "
+    "would appear in a .py file. Do not wrap it in JSON, quotes or markdown fences.\n"
+)
 _TYPE_CHECK_NOTE = (
     "- Code is type-checked against these signatures first; on type errors nothing runs.\n"
 )
@@ -138,6 +158,7 @@ class ProgrammaticToolRuntime:
         self._settings = settings
         self._functions: dict[str, PtcFunction] = {}
         self._nested_tools: dict[str, Tool] = {}
+        self._tool_format: PtcToolFormat = "json"
         self._stubs = render_stubs({})
         self._pool: AsyncMonty | None = None
         self._pool_stack = AsyncExitStack()
@@ -152,8 +173,17 @@ class ProgrammaticToolRuntime:
     def functions(self) -> Mapping[str, PtcFunction]:
         return self._functions
 
-    def model_tools(self, tools: Sequence[Tool]) -> list[Tool]:
+    def resolve_tool_format(self, model_default: PtcToolFormat | None) -> PtcToolFormat:
+        """Apply ``ptc.tool_format``, using the model's default when it is ``auto``."""
+        if self._settings.tool_format != "auto":
+            return self._settings.tool_format
+        return model_default or "json"
+
+    def model_tools(
+        self, tools: Sequence[Tool], *, tool_format: PtcToolFormat = "json"
+    ) -> list[Tool]:
         """Replace the agent's tools with the code tool, keeping configured direct tools."""
+        self._tool_format = tool_format
         direct = [tool for tool in tools if self._direct_reason(tool) is not None]
         nested = [tool for tool in tools if self._direct_reason(tool) is None]
         self._functions = build_functions(nested)
@@ -187,6 +217,7 @@ class ProgrammaticToolRuntime:
             tools=(*exposed, *nested),
             programmatic=ProgrammaticSurface(
                 tool_name=PTC_TOOL_NAME,
+                tool_format=self._tool_format,
                 instructions=self._instructions(),
                 type_check=self._settings.type_check,
                 max_duration_seconds=self._settings.max_duration_seconds,
@@ -195,26 +226,41 @@ class ProgrammaticToolRuntime:
         )
 
     def _instructions(self) -> str:
-        note = _TYPE_CHECK_NOTE if self._settings.type_check else ""
-        return _INSTRUCTIONS.format(type_check_note=note)
+        return _INSTRUCTIONS.format(
+            input_note=_FREEFORM_INPUT_NOTE if self._tool_format == "freeform" else "",
+            type_check_note=_TYPE_CHECK_NOTE if self._settings.type_check else "",
+        )
+
+    def tool_meta(self) -> dict[str, Any]:
+        """Display metadata for the code tool in its current input format."""
+        return dict(_FREEFORM_TOOL_META if self._tool_format == "freeform" else PTC_TOOL_META)
 
     def tool(self) -> Tool:
         stubs = "\n\n".join(function.stub() for function in self._functions.values())
+        freeform = self._tool_format == "freeform"
+        code_arg = _FREEFORM_CODE_ARG if freeform else "code"
+        meta = self.tool_meta()
+        if freeform:
+            # Providers without custom tools ignore this and send the JSON schema below.
+            meta[OPENAI_RESPONSES_CUSTOM_TOOL_META_KEY] = {
+                "type": "custom",
+                "format": {"type": "grammar", "syntax": "lark", "definition": _FREEFORM_GRAMMAR},
+            }
         return Tool(
             name=PTC_TOOL_NAME,
             description=self._instructions() + _FUNCTIONS_BLOCK.format(stubs=f"{stubs}\n"),
             input_schema={
                 "type": "object",
                 "properties": {
-                    "code": {
+                    code_arg: {
                         "type": "string",
                         "description": "Python source to run. Not JSON, not markdown fenced.",
                     }
                 },
-                "required": ["code"],
+                "required": [code_arg],
                 "additionalProperties": False,
             },
-            meta=dict(PTC_TOOL_META),
+            meta=meta,
         )
 
     async def execute(
@@ -225,7 +271,8 @@ class ProgrammaticToolRuntime:
         parent_call_id: str | None = None,
     ) -> CallToolResult:
         """Run model code; nested call ids derive from ``parent_call_id`` when it is known."""
-        code = arguments.get("code")
+        # Accept both input formats: history can contain calls made before a model switch.
+        code = arguments.get("code", arguments.get(_FREEFORM_CODE_ARG))
         if not isinstance(code, str) or not code.strip():
             return _error_result("`code` must be a non-empty string of Python source.")
 

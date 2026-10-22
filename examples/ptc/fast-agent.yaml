@@ -16,6 +16,9 @@ ptc:
   enabled: false
   # Tools (fnmatch patterns) that stay directly callable next to execute_python.
   direct_tools: []
+  # auto | json | freeform. freeform sends raw Python as a Responses custom (grammar) tool;
+  # auto uses the model default (freeform for GPT-6).
+  tool_format: auto
   type_check: true
   max_duration_seconds: 30
   max_memory_mb: 256
