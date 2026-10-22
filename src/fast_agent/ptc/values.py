@@ -1,12 +1,15 @@
 """Convert values crossing the sandbox boundary.
 
 Tool results become plain Python data inside the sandbox; the final script value becomes text
-for the model.
+for the model. Binary media cannot enter the sandbox, so it is held host-side and represented by
+a handle; handles in the final value bring their media back into the model's context.
 """
 
 from __future__ import annotations
 
 import json
+from collections import OrderedDict
+from collections.abc import Mapping
 from typing import Any
 
 from mcp_types import (
@@ -20,21 +23,78 @@ from mcp_types import (
     TextContent,
 )
 
+from fast_agent.constants import FAST_AGENT_PTC_VALUE
+
+MEDIA_ID_KEY = "media_id"
+_MAX_RETAINED_MEDIA = 64
+
 
 class ToolCallFailed(RuntimeError):
     """A nested tool returned an error result; surfaces in the sandbox as RuntimeError."""
 
 
-def tool_result_to_value(result: CallToolResult) -> Any:
-    """Return structured content when present, else parsed content blocks.
+class MediaStore:
+    """Host-side media referenced by handles inside the sandbox, bounded to recent items."""
+
+    def __init__(self) -> None:
+        self._blocks: OrderedDict[str, ContentBlock] = OrderedDict()
+        self._next = 0
+
+    def handle(self, block: ImageContent | AudioContent | EmbeddedResource) -> dict[str, Any]:
+        self._next += 1
+        media_id = f"media-{self._next}"
+        self._blocks[media_id] = block
+        while len(self._blocks) > _MAX_RETAINED_MEDIA:
+            self._blocks.popitem(last=False)
+        if isinstance(block, EmbeddedResource):
+            return {
+                "type": "resource",
+                "uri": str(block.resource.uri),
+                "mime_type": block.resource.mime_type,
+                MEDIA_ID_KEY: media_id,
+            }
+        return {"type": block.type, "mime_type": block.mime_type, MEDIA_ID_KEY: media_id}
+
+    def referenced(self, value: Any) -> list[ContentBlock]:
+        """Return media whose handles appear in ``value``, in order and without repeats."""
+        found: dict[str, ContentBlock] = {}
+        self._collect(value, found, depth=0)
+        return list(found.values())
+
+    def clear(self) -> None:
+        self._blocks.clear()
+
+    def _collect(self, value: Any, found: dict[str, ContentBlock], *, depth: int) -> None:
+        if depth > 8:
+            return
+        if isinstance(value, Mapping):
+            media_id = value.get(MEDIA_ID_KEY)
+            if isinstance(media_id, str) and media_id in self._blocks:
+                found.setdefault(media_id, self._blocks[media_id])
+                return
+            for item in value.values():
+                self._collect(item, found, depth=depth + 1)
+        elif isinstance(value, list | tuple):
+            for item in value:
+                self._collect(item, found, depth=depth + 1)
+
+
+def tool_result_to_value(result: CallToolResult, media: MediaStore) -> Any:
+    """Return the tool's program value, structured content, or parsed content blocks.
 
     Raises ToolCallFailed for error results so sandbox code can use try/except.
     """
     if result.is_error:
         raise ToolCallFailed(_result_text(result) or "tool call failed")
+    program_value = (result.meta or {}).get(FAST_AGENT_PTC_VALUE)
+    if program_value is not None:
+        return program_value
     if result.structured_content is not None:
-        return result.structured_content
-    values = [_content_to_value(block) for block in result.content]
+        media_values = [media.handle(block) for block in _media_blocks(result)]
+        if not media_values:
+            return result.structured_content
+        return {**result.structured_content, "media": media_values}
+    values = [_content_to_value(block, media) for block in result.content]
     if not values:
         return None
     return values[0] if len(values) == 1 else values
@@ -49,20 +109,26 @@ def render_value(value: Any) -> str:
         return repr(value)
 
 
-def _content_to_value(block: ContentBlock) -> Any:
+def _media_blocks(result: CallToolResult) -> list[ImageContent | AudioContent | EmbeddedResource]:
+    return [
+        block
+        for block in result.content
+        if isinstance(block, ImageContent | AudioContent)
+        or (
+            isinstance(block, EmbeddedResource) and isinstance(block.resource, BlobResourceContents)
+        )
+    ]
+
+
+def _content_to_value(block: ContentBlock, media: MediaStore) -> Any:
     match block:
         case TextContent(text=text):
             return _maybe_json(text)
-        case ImageContent(mime_type=mime_type) | AudioContent(mime_type=mime_type):
-            # Binary media is not forwarded into the sandbox in this proof of concept.
-            return {"type": block.type, "mime_type": mime_type, "omitted": True}
+        case ImageContent() | AudioContent():
+            return media.handle(block)
         case EmbeddedResource(resource=resource):
             if isinstance(resource, BlobResourceContents):
-                return {
-                    "type": "resource",
-                    "uri": str(resource.uri),
-                    "mime_type": resource.mime_type,
-                }
+                return media.handle(block)
             return _maybe_json(resource.text)
         case ResourceLink(uri=uri, name=name):
             return {"type": "resource_link", "uri": str(uri), "name": name}

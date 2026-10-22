@@ -8,6 +8,8 @@ mcp:
   servers:
     orders:
       target: "uv run orders_server.py"
+    media:
+      target: "uv run media_server.py"
 
 # Programmatic tool calling. `--ptc` on the command line sets `enabled: true`.
 ptc:

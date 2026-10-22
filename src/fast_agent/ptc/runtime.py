@@ -18,16 +18,31 @@ from dataclasses import dataclass, field
 from io import StringIO
 from typing import TYPE_CHECKING, Any
 
-from mcp_types import CallToolResult, TextContent, Tool
+from mcp_types import CallToolResult, ContentBlock, TextContent, Tool
 
+from fast_agent.constants import FAST_AGENT_PTC_CALLS, FAST_AGENT_SUBAGENT_RESULT_METADATA
 from fast_agent.core.exceptions import AgentConfigError
-from fast_agent.ptc.stubs import PtcFunction, build_functions, render_stubs
-from fast_agent.ptc.values import render_value, tool_result_to_value
+from fast_agent.mcp.tool_result_metadata import (
+    add_url_elicitation_required_payloads,
+    url_elicitation_required_payloads,
+)
+from fast_agent.ptc.stubs import PtcFunction, build_functions, render_stubs, tool_ptc_options
+from fast_agent.ptc.values import MediaStore, render_value, tool_result_to_value
+from fast_agent.tools.invocation_context import NESTED_PTC_CALL_SEPARATOR, programmatic_tool_call
+from fast_agent.tools.tool_surface import (
+    ProgrammaticSurface,
+    SurfaceTool,
+    ToolExposure,
+    ToolSurface,
+    estimate_tokens,
+    tool_definition_tokens,
+)
 
 if TYPE_CHECKING:
     from pydantic_monty import AsyncMonty, AsyncMontySession
 
     from fast_agent.config import ProgrammaticToolCallingSettings
+    from fast_agent.mcp.url_elicitation_required import URLElicitationRequiredDisplayPayload
 
 PTC_TOOL_NAME = "execute_python"
 PTC_TOOL_META = {"variant": "code", "code_arg": "code", "language": "python"}
@@ -37,10 +52,13 @@ _MAX_SUSPENSIONS = 100_000
 # do not tune this value for context size.
 _MAX_PRINT_CHARS = 1_000_000
 
+# Nested result metadata copied onto the execute_python result, which is what history keeps.
+_CARRIED_RESULT_META = (FAST_AGENT_SUBAGENT_RESULT_METADATA,)
+
 ToolDispatcher = Callable[[str, dict[str, Any], str], Awaitable[CallToolResult]]
 """Dispatch a nested call: (tool name, arguments, nested call id) -> result."""
 
-_DESCRIPTION = """\
+_INSTRUCTIONS = """\
 Run Python code to orchestrate and compose tool calls (programmatic tool calling).
 
 - Code runs in Monty, a sandboxed subset of Python 3: no filesystem, network, environment \
@@ -54,13 +72,17 @@ only where the annotation allows it.
 `a, b = await asyncio.gather(tool_a(x=1), tool_b(y=2))` (positional awaitables only).
 - Tool results are Python values: structured content as a dict, JSON text parsed into \
 dict/list, other text as str. A failing tool raises RuntimeError, which you can catch.
+- Images, audio and binary resources in tool results arrive as handle dicts with a `media_id` \
+key. To see media yourself, include its handles in the final expression, e.g. `shot` or \
+`[a, b]`; printed handles are not attached.
 - Only `print()` output and the value of the final expression are returned to you. Filter, \
 aggregate and summarise large tool results in code rather than returning them whole.
 - Variables and functions persist between calls, so later code can reuse earlier results.
 {type_check_note}\
 - Top-level `await` is supported. Not supported: class inheritance, generators/`yield`, \
 `del`, `async with`/`async for`, and `import *`.
-
+"""
+_FUNCTIONS_BLOCK = """
 Available functions:
 ```python
 {stubs}```
@@ -75,6 +97,11 @@ class _ExecutionStats:
     completed: list[str] = field(default_factory=list)
     failed: list[str] = field(default_factory=list)
     started: int = 0
+    calls: list[dict[str, Any]] = field(default_factory=list)
+    session_restarted: bool = False
+    # Nested results are consumed in the sandbox, so URL elicitations must be carried to the
+    # execute_python result for the user to see them.
+    url_elicitations: list[URLElicitationRequiredDisplayPayload] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -110,6 +137,7 @@ class ProgrammaticToolRuntime:
             )
         self._settings = settings
         self._functions: dict[str, PtcFunction] = {}
+        self._nested_tools: dict[str, Tool] = {}
         self._stubs = render_stubs({})
         self._pool: AsyncMonty | None = None
         self._pool_stack = AsyncExitStack()
@@ -118,6 +146,7 @@ class ProgrammaticToolRuntime:
         self._session_stubs: str | None = None
         self._lock = asyncio.Lock()
         self._executions = 0
+        self._media = MediaStore()
 
     @property
     def functions(self) -> Mapping[str, PtcFunction]:
@@ -125,18 +154,55 @@ class ProgrammaticToolRuntime:
 
     def model_tools(self, tools: Sequence[Tool]) -> list[Tool]:
         """Replace the agent's tools with the code tool, keeping configured direct tools."""
-        direct = [tool for tool in tools if self._is_direct(tool.name)]
-        nested = [tool for tool in tools if not self._is_direct(tool.name)]
+        direct = [tool for tool in tools if self._direct_reason(tool) is not None]
+        nested = [tool for tool in tools if self._direct_reason(tool) is None]
         self._functions = build_functions(nested)
+        self._nested_tools = {tool.name: tool for tool in nested}
         self._stubs = render_stubs(self._functions)
         return [self.tool(), *direct]
 
-    def tool(self) -> Tool:
+    def surface(self, model_tools: Sequence[Tool]) -> ToolSurface:
+        """Describe ``model_tools`` (as returned by ``model_tools()``) and the sandbox functions."""
+        exposed = [
+            SurfaceTool(
+                tool=tool,
+                exposure=ToolExposure.MODEL,
+                context_tokens=tool_definition_tokens(tool),
+                direct_reason=self._direct_reason(tool),
+            )
+            for tool in model_tools
+        ]
+        nested = [
+            SurfaceTool(
+                tool=self._nested_tools[function.tool_name],
+                exposure=ToolExposure.PROGRAMMATIC,
+                context_tokens=estimate_tokens(function.stub()),
+                python_name=function.python_name,
+                signature=function.signature(),
+                stub=function.stub(),
+            )
+            for function in self._functions.values()
+        ]
+        return ToolSurface(
+            tools=(*exposed, *nested),
+            programmatic=ProgrammaticSurface(
+                tool_name=PTC_TOOL_NAME,
+                instructions=self._instructions(),
+                type_check=self._settings.type_check,
+                max_duration_seconds=self._settings.max_duration_seconds,
+                max_memory_mb=self._settings.max_memory_mb,
+            ),
+        )
+
+    def _instructions(self) -> str:
         note = _TYPE_CHECK_NOTE if self._settings.type_check else ""
+        return _INSTRUCTIONS.format(type_check_note=note)
+
+    def tool(self) -> Tool:
         stubs = "\n\n".join(function.stub() for function in self._functions.values())
         return Tool(
             name=PTC_TOOL_NAME,
-            description=_DESCRIPTION.format(type_check_note=note, stubs=f"{stubs}\n"),
+            description=self._instructions() + _FUNCTIONS_BLOCK.format(stubs=f"{stubs}\n"),
             input_schema={
                 "type": "object",
                 "properties": {
@@ -152,8 +218,13 @@ class ProgrammaticToolRuntime:
         )
 
     async def execute(
-        self, arguments: Mapping[str, Any], dispatch: ToolDispatcher
+        self,
+        arguments: Mapping[str, Any],
+        dispatch: ToolDispatcher,
+        *,
+        parent_call_id: str | None = None,
     ) -> CallToolResult:
+        """Run model code; nested call ids derive from ``parent_call_id`` when it is known."""
         code = arguments.get("code")
         if not isinstance(code, str) or not code.strip():
             return _error_result("`code` must be a non-empty string of Python source.")
@@ -170,25 +241,52 @@ class ProgrammaticToolRuntime:
             self._executions += 1
             stats = _ExecutionStats()
             output = _PrintedOutput()
+            dispatches: list[asyncio.Task[Any]] = []
+            call_prefix = (
+                f"{parent_call_id}{NESTED_PTC_CALL_SEPARATOR}"
+                if parent_call_id
+                else f"ptc-{self._executions}-"
+            )
             lookup = {
-                name: self._host_function(function, dispatch, stats, execution=self._executions)
+                name: self._host_function(
+                    function, dispatch, stats, dispatches, call_prefix=call_prefix
+                )
                 for name, function in self._functions.items()
             }
             started = time.perf_counter()
-            session = await self._ensure_session()
             try:
-                value = await session.feed_run(
-                    code,
-                    external_lookup=lookup,
-                    print_callback=output.append,
-                )
+                session, stats.session_restarted = await self._ensure_session()
+                try:
+                    value = await session.feed_run(
+                        code,
+                        external_lookup=lookup,
+                        print_callback=output.append,
+                    )
+                except Exception:
+                    # A failed gather can leave sibling tools running. Settle them before
+                    # reporting completed side effects and copying nested result metadata.
+                    await asyncio.gather(*dispatches, return_exceptions=True)
+                    raise
+                await asyncio.gather(*dispatches, return_exceptions=True)
+            except asyncio.CancelledError:
+                for task in dispatches:
+                    task.cancel()
+                await asyncio.gather(*dispatches, return_exceptions=True)
+                # Monty finishes a cancelled checkout; it cannot be reused on the next turn.
+                await self._reset_session()
+                raise
             except MontyTypingError as exc:
                 return _error_result(
                     "Type check failed; the code was NOT executed. Fix it and retry.\n"
+                    + _restart_note(stats)
                     + exc.display()
                 )
             except MontySyntaxError as exc:
-                return _error_result(f"Syntax error; the code was NOT executed.\n{exc.display()}")
+                return _error_result(
+                    "Syntax error; the code was NOT executed.\n"
+                    + _restart_note(stats)
+                    + exc.display()
+                )
             except MontyRuntimeError as exc:
                 detail = exc.display()
                 if "time limit exceeded" in detail:
@@ -215,33 +313,60 @@ class ProgrammaticToolRuntime:
         self._session = None
         self._pool = None
 
-    def _is_direct(self, tool_name: str) -> bool:
-        return tool_name != PTC_TOOL_NAME and any(
-            fnmatch.fnmatchcase(tool_name, pattern) for pattern in self._settings.direct_tools
+    def _direct_reason(self, tool: Tool) -> str | None:
+        """Return why ``tool`` stays directly callable, or None when it runs in the sandbox."""
+        if tool.name == PTC_TOOL_NAME:
+            return None
+        if tool_ptc_options(tool).get("expose") == "direct":
+            return "declared by tool"
+        pattern = next(
+            (
+                pattern
+                for pattern in self._settings.direct_tools
+                if fnmatch.fnmatchcase(tool.name, pattern)
+            ),
+            None,
         )
+        return None if pattern is None else f'ptc.direct_tools "{pattern}"'
 
     def _host_function(
         self,
         function: PtcFunction,
         dispatch: ToolDispatcher,
         stats: _ExecutionStats,
+        dispatches: list[asyncio.Task[Any]],
         *,
-        execution: int,
+        call_prefix: str,
     ) -> Callable[..., Awaitable[Any]]:
-        async def call(*args: Any, **kwargs: Any) -> Any:
+        async def run(*args: Any, **kwargs: Any) -> Any:
             if args:
                 raise TypeError(f"{function.python_name}() accepts keyword arguments only")
             stats.started += 1
-            call_id = f"ptc-{execution}-{stats.started}"
-            result = await dispatch(function.tool_name, function.bind_arguments(kwargs), call_id)
+            call_id = f"{call_prefix}{stats.started}"
+            with programmatic_tool_call(call_id):
+                result = await dispatch(
+                    function.tool_name, function.bind_arguments(kwargs), call_id
+                )
             (stats.failed if result.is_error else stats.completed).append(function.tool_name)
-            return tool_result_to_value(result)
+            stats.url_elicitations.extend(url_elicitation_required_payloads(result))
+            stats.calls.append(_call_record(call_id, function.tool_name, result))
+            return tool_result_to_value(result, self._media)
+
+        async def call(*args: Any, **kwargs: Any) -> Any:
+            task = asyncio.create_task(run(*args, **kwargs))
+            dispatches.append(task)
+            # Own dispatch lifetime independently of Monty's callback tasks. Script errors
+            # drain these tasks; turn cancellation explicitly cancels and settles them.
+            return await asyncio.shield(task)
 
         return call
 
-    async def _ensure_session(self) -> AsyncMontySession:
+    async def _ensure_session(self) -> tuple[AsyncMontySession, bool]:
+        """Return the REPL session and whether a tool-surface change just restarted it."""
         if self._session is not None and self._session_stubs == self._stubs:
-            return self._session
+            return self._session, False
+        # A cleared _session_stubs means a conversation reset, which needs no notice.
+        restarted = self._session is not None and self._session_stubs is not None
         if self._session is not None:
             # Conversation resets and tool-surface changes both require a fresh checkout.
             await self._reset_session()
@@ -265,13 +390,14 @@ class ProgrammaticToolRuntime:
         )
         self._session = await self._session_stack.enter_async_context(session)
         self._session_stubs = self._stubs
-        return self._session
+        return self._session, restarted
 
     async def _reset_session(self) -> None:
         await self._session_stack.aclose()
         self._session_stack = AsyncExitStack()
         self._session = None
         self._session_stubs = None
+        self._media.clear()
 
     def _success(
         self, value: Any, output: _PrintedOutput, stats: _ExecutionStats, started: float
@@ -284,7 +410,13 @@ class ProgrammaticToolRuntime:
             sections.append(f"Result:\n{render_value(value)}")
         if not printed and value is None:
             sections.append("(no output; print() values or end with an expression)")
-        return CallToolResult(content=[TextContent(type="text", text="\n".join(sections))])
+        media = self._media.referenced(value)
+        if media:
+            sections.append(f"Attached {len(media)} media item(s) referenced by the result.")
+        content: list[ContentBlock] = [TextContent(type="text", text="\n".join(sections))]
+        result = CallToolResult(content=[*content, *media])
+        _add_nested_metadata(result, stats)
+        return result
 
     def _failure(
         self, detail: str, output: _PrintedOutput, stats: _ExecutionStats, started: float
@@ -295,18 +427,44 @@ class ProgrammaticToolRuntime:
             sections.append(f"Output before the error:\n{printed}")
         if stats.completed:
             sections.append(
-                "Tool calls that completed before the error (avoid repeating side effects): "
+                "Tool calls that completed (avoid repeating side effects): "
                 + ", ".join(stats.completed)
             )
         sections.append(f"Error:\n{detail}")
-        return _error_result("\n".join(sections))
+        result = _error_result("\n".join(sections))
+        _add_nested_metadata(result, stats)
+        return result
+
+
+def _call_record(call_id: str, tool_name: str, result: CallToolResult) -> dict[str, Any]:
+    record: dict[str, Any] = {"id": call_id, "tool": tool_name, "is_error": result.is_error}
+    meta = result.meta or {}
+    record.update({key: meta[key] for key in _CARRIED_RESULT_META if key in meta})
+    return record
+
+
+def _add_nested_metadata(result: CallToolResult, stats: _ExecutionStats) -> None:
+    add_url_elicitation_required_payloads(result, stats.url_elicitations)
+    if stats.calls:
+        result.meta = {**(result.meta or {}), FAST_AGENT_PTC_CALLS: stats.calls}
 
 
 def _header(status: str, stats: _ExecutionStats, started: float) -> str:
     elapsed = time.perf_counter() - started
     calls = len(stats.completed) + len(stats.failed)
     failed = f", {len(stats.failed)} failed" if stats.failed else ""
-    return f"Script {status} in {elapsed:.2f}s ({calls} tool calls{failed})"
+    header = f"Script {status} in {elapsed:.2f}s ({calls} tool calls{failed})"
+    note = _restart_note(stats).rstrip()
+    return f"{header}\n{note}" if note else header
+
+
+def _restart_note(stats: _ExecutionStats) -> str:
+    if not stats.session_restarted:
+        return ""
+    return (
+        "Note: the available tools changed, so the sandbox session was restarted before this "
+        "run; variables from earlier runs are gone.\n"
+    )
 
 
 def _error_result(text: str) -> CallToolResult:

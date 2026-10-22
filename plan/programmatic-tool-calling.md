@@ -119,7 +119,7 @@ print(ranked[:2])
 
 ### Phase 2: parity with Codex
 8. **Long-running cells (`wait`).** Run feeds as background tasks with `yield_time_ms`. Return `Script running (cell N)` and add `execute_python_wait(cell_id, yield_time_ms, terminate)`. Monty `feed_start` snapshots also allow host-driven suspension and `dump()` for durable cells.
-9. **Media.** Forward image/audio blocks: keep a per-execution media list and expose `image(block)` / `attach(block)` helpers (host functions) whose content is appended to the `execute_python` result, as Codex does with `image()`/`audio()`.
+9. **Media.** ✅ Done differently: media in nested results becomes a handle (`{"type", "mime_type", "media_id"}`), and handles in the final expression attach their media to the `execute_python` result (section 6). No helper functions are needed.
 10. **Output budgeting.** Add a token budget per call (`max_output_tokens` parameter) with head/tail truncation, rather than only the byte cap.
 11. **Freeform tool input.** For Responses-API models, send `execute_python` as a custom/freeform tool (raw source, no JSON escaping), mirroring Codex's Lark grammar. Keep JSON `{code}` for other providers.
 12. **Large catalogues.** When there are many tools, render a compact catalogue (name and one-line description) plus a `describe_tools(pattern)` / `search_tools(query)` host function that returns full stubs, similar to Codex's deferred tools and `tool_search`.
@@ -136,3 +136,59 @@ print(ranked[:2])
 - **Security.** The sandbox only reaches the host through tool functions. Nested calls have exactly the authority of the agent's tools: `--ptc --shell` is still a shell. Approval and permission flows must stay on the nested path (they do today through `call_tool`, apart from tool-runner hooks).
 - **Type-check context accumulates** across feeds within a session. This works well in testing; if false positives appear, fall back to Pydantic AI's approach of checking only the first snippet of a fresh REPL.
 - **`max_suspensions` is per checkout** and counts name lookups, so the PoC sets it to 100k.
+
+## 6. Tool surface contract and harness tools under PTC
+
+The built-in subagent, harness and attach_media tools were written for one reader, the model, which reads text. Under PTC, sandbox code consumes their results instead, and three things broke: result shape (prose with notices appended), media (dropped at the sandbox boundary), and control-plane tools that change the tool surface mid-script. The fix is a small, declarative contract that any tool can opt into.
+
+### 6.1 Contract (implemented)
+
+| Piece | Where | Meaning |
+| --- | --- | --- |
+| `meta.fast_agent.ptc.expose` | tool definition | `"nested"` (default) becomes a sandbox function. `"direct"` stays next to `execute_python` (it is merged with `ptc.direct_tools`). |
+| `meta.fast_agent.ptc.returns` | tool definition | JSON schema of the *program value*. The stub returns `dict[str, Any]` and documents the schema. |
+| `_meta["fast-agent-ptc-value"]` | tool result | The value sandbox code receives instead of the model text. Tools set it only when `is_programmatic_tool_call(tool_use_id)` is true, so direct-call history is unchanged. |
+| Media handles | `ptc/values.py` | Image, audio and blob-resource blocks become `{"type", "mime_type", "media_id"}` handles. Handles anywhere in the final expression attach their media to the `execute_python` result; printed handles do not. A bounded store is reset with the session. |
+| Nested call ids | `tools/invocation_context.py` | `<execute_python id>::ptc-<n>`. `outer_tool_call_id()` maps them back. |
+| `_meta["fast-agent-ptc-calls"]` | `execute_python` result | `{id, tool, is_error}` per nested call, plus the subagent result metadata, so history keeps what the nested results said. |
+| ACP | `McpAgent._call_ptc_tool` | `execute_python` gets start/complete events, and nested calls carry `parentToolCallId`. |
+| Traces | `trace_export_atif.py` | Children whose parent id is nested attach to the exported `execute_python` call (several children per call). |
+| `$ref` | `ptc/stubs.py` | Local `#/$defs` / `#/definitions` references are resolved, so a `$ref` enum becomes a `Literal` instead of `Any`. |
+| Surface changes | `ptc/runtime.py` | When the tool surface changes, the next run starts a fresh REPL and the result says so. |
+
+### 6.2 Built-in tools
+
+| Tool | Class | PTC exposure | Program value |
+| --- | --- | --- | --- |
+| `subagent` | delegation | nested (fan out with `asyncio.gather`) | `{response, label, transcript_path, session_id, model}`; the display uses the subagent view |
+| `get_resource` | context read | nested | text as `str`; image resources come back as `ImageContent`, so they are media handles under PTC and viewable images when called directly |
+| `attach_media` | context injection | nested; still stages media for the next model call | `{staged, name, mime_type, source, linked}`. It has no handle, so returning it never attaches the media twice |
+| `slash_command` | control plane | **direct** | n/a: `/mcp connect` and `/skills add` change the tool surface, which a running script cannot pick up |
+
+### 6.3 Proposed next steps (need sign-off)
+
+1. **Split `slash_command` into a read-only query surface and a mutating surface.** Read-only commands (`/status`, `/tools`, `/usage`, `/mcp list`, `/skills list`, `/commands --json`) are useful in scripts but currently return markdown. Proposal: give `CommandOutcome` a structured `data` payload and expose a nested `harness_query(command)` (or one typed function per read command, generated from command discovery metadata) whose program value is that data. Mutations stay on the direct `slash_command`.
+2. **Decide `attach_media` semantics under PTC.** Option A (current) stages immediately and is consistent with direct mode. Option B returns a media handle and does *not* stage, so "media reaches the model only when returned" holds everywhere and a script can load ten files and show two. Option B needs a PTC-specific tool description.
+3. **Typed program values.** Render `returns` and MCP output schemas as `TypedDict`s (roadmap item 13), so `r["respones"]` is a type error.
+4. **Nested-call hooks and planning** (roadmap item 1) are still open. Nested calls are now linked, but they still skip `ToolRunnerHooks`.
+
+### 6.4 Evals
+
+`examples/ptc/evals.py` runs the real CLI per case and checks both the answer and the path taken (from `--results` history): orders aggregation, a tool image, selecting one image among several, an image resource through `get_resource`, `attach_media`, concurrent subagents, and `slash_command` staying direct. The media cases ask for a colour that exists only in pixels.
+
+## 7. `/tools` under PTC
+
+`list_tools()` returns what the model receives, so under PTC `/tools` used to show only `execute_python` and `/tools <nested>` said "Tool not found". `/tools` now describes the agent's **tool surface** (`fast_agent/tools/tool_surface.py`):
+
+- `ToolSurface` lists every reachable tool once, each with a `ToolExposure`: `MODEL` (the definition is sent to the model) or `PROGRAMMATIC` (an async function stub inside the `execute_python` description). Search-discoverable tools will be added as another exposure kind.
+- `McpAgent.tool_surface()` builds it from `list_tools()` plus the runtime's current functions, so it matches exactly what the sandbox runs (tools added by subclasses are included). Agents without the capability fall back to "everything is `MODEL`" through `resolve_tool_surface`.
+- Direct tools carry a reason: `declared by tool` (`meta.fast_agent.ptc.expose = "direct"`) or the matching `ptc.direct_tools` pattern.
+- Context estimates use about 4 characters per token, shown as `~N tokens`: the definition size for model tools, and the stub size for programmatic functions. Stubs of at least about 500 tokens are flagged as large, because they bloat `execute_python`.
+
+| Command | Output |
+| --- | --- |
+| `/tools` | PTC settings line; **Sent to the model** (with direct reasons); **Callable from execute_python**, collapsed to per-source counts; large-stub warning; provider-hosted tools marked "not callable from code" |
+| `/tools --all` | The same, but each function shows its `await name(...)` signature and, when renamed, the original tool name |
+| `/tools <name>` | Accepts a tool name or Python name. Nested tools show the Python stub and the JSON schemas; `execute_python` shows the instructions and its function list instead of the stub dump |
+
+The TUI (Rich), ACP and harness (markdown) all render from the same `ToolsListing`.

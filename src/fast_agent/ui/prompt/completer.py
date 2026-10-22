@@ -48,6 +48,7 @@ from fast_agent.mcp.connect_targets import (
     connect_flag_requires_value_token,
 )
 from fast_agent.mcp.provider_management import provider_managed_base_url
+from fast_agent.tools.tool_surface import resolve_tool_surface
 from fast_agent.ui.prompt.attachment_tokens import (
     FILE_MENTION_SERVER,
     URL_MENTION_SERVER,
@@ -1496,9 +1497,10 @@ class AgentCompleter(Completer):
         agent = self._current_agent_object()
         if not isinstance(agent, CompleterToolAgent):
             return []
-        result = await agent.list_tools()
+        surface = await resolve_tool_surface(agent)
         return [
-            (tool.name, tool.description or "View complete JSON schema") for tool in result.tools
+            (surface_tool.tool.name, surface_tool.tool.description or "View complete JSON schema")
+            for surface_tool in surface.tools
         ]
 
     @staticmethod

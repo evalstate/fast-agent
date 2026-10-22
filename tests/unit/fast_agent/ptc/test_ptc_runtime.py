@@ -8,14 +8,29 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from mcp_types import CallToolResult, TextContent, Tool
+from mcp_types import CallToolResult, ImageContent, TextContent, Tool
+from PIL import Image as PILImage
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
-from fast_agent.config import ProgrammaticToolCallingSettings, Settings
+from fast_agent.agents.tool_result_channels import build_tool_result_message
+from fast_agent.config import ProgrammaticToolCallingSettings, Settings, ShellSettings
+from fast_agent.constants import (
+    FAST_AGENT_PTC_CALLS,
+    FAST_AGENT_PTC_VALUE,
+    FAST_AGENT_URL_ELICITATION_CHANNEL,
+)
 from fast_agent.context import Context
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.prompt import Prompt
+from fast_agent.mcp.tool_result_metadata import set_url_elicitation_required_payload
+from fast_agent.mcp.url_elicitation_required import (
+    URLElicitationDisplayItem,
+    URLElicitationRequiredDisplayPayload,
+)
 from fast_agent.ptc import PTC_TOOL_NAME, ProgrammaticToolRuntime
+from fast_agent.tools.invocation_context import is_programmatic_tool_call, outer_tool_call_id
+from fast_agent.tools.local_shell_executor import LocalEnvironment
 
 pytest.importorskip("pydantic_monty")
 
@@ -155,6 +170,124 @@ async def test_tool_errors_are_catchable_and_failures_report_completed_calls(run
     assert not caught.is_error and "denied" in _text(caught)
     assert failed.is_error
     assert "orders__get_orders" in _text(failed) and "denied" in _text(failed)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("catch_error", [False, True])
+async def test_gather_settles_sibling_side_effects_before_reporting(runtime, catch_error) -> None:
+    write_started = asyncio.Event()
+    failure_returned = asyncio.Event()
+    release_write = asyncio.Event()
+    writes: list[str] = []
+
+    async def dispatch(name: str, arguments: dict[str, Any], call_id: str) -> CallToolResult:
+        if name == "delete_everything":
+            await write_started.wait()
+            failure_returned.set()
+            return CallToolResult(content=[TextContent(type="text", text="denied")], is_error=True)
+        write_started.set()
+        await release_write.wait()
+        writes.append(call_id)
+        return CallToolResult(content=[TextContent(type="text", text="written")])
+
+    expression = "await asyncio.gather(orders__get_orders(customer_id='a'), delete_everything())"
+    code = "import asyncio\n" + (
+        f"try:\n    {expression}\nexcept RuntimeError:\n    pass" if catch_error else expression
+    )
+    execution = asyncio.create_task(runtime.execute({"code": code}, dispatch))
+    try:
+        await asyncio.wait_for(failure_returned.wait(), timeout=5)
+        done, _ = await asyncio.wait({execution}, timeout=0.05)
+        assert not done, "Execution returned while a sibling write was still pending"
+        release_write.set()
+        result = await asyncio.wait_for(execution, timeout=5)
+
+        assert bool(result.is_error) is not catch_error
+        assert len(writes) == 1
+        assert "2 tool calls, 1 failed" in _text(result)
+        records = (result.meta or {})[FAST_AGENT_PTC_CALLS]
+        assert {record["tool"] for record in records} == {
+            "orders__get_orders",
+            "delete_everything",
+        }
+        if not catch_error:
+            assert "avoid repeating side effects" in _text(result)
+            assert "orders__get_orders" in _text(result)
+    finally:
+        release_write.set()
+        await execution
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel_during_drain", [False, True])
+async def test_cancelled_execution_settles_tools_and_can_run_again(
+    runtime, cancel_during_drain
+) -> None:
+    write_started = asyncio.Event()
+    failure_returned = asyncio.Event()
+    write_settled = asyncio.Event()
+
+    async def dispatch(name: str, arguments: dict[str, Any], call_id: str) -> CallToolResult:
+        if name == "delete_everything":
+            await write_started.wait()
+            failure_returned.set()
+            return CallToolResult(content=[TextContent(type="text", text="denied")], is_error=True)
+        write_started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            write_settled.set()
+        return CallToolResult(content=[])
+
+    code = "await orders__get_orders(customer_id='a')"
+    if cancel_during_drain:
+        code = f"import asyncio\nawait asyncio.gather({code.removeprefix('await ')}, delete_everything())"
+    execution = asyncio.create_task(runtime.execute({"code": code}, dispatch))
+    try:
+        await asyncio.wait_for(write_started.wait(), timeout=5)
+        if cancel_during_drain:
+            await asyncio.wait_for(failure_returned.wait(), timeout=5)
+            await asyncio.wait({execution}, timeout=0.05)
+    finally:
+        execution.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(execution, timeout=5)
+
+    assert write_settled.is_set()
+    dispatch_again = RecordingDispatcher()
+    recovered = await runtime.execute({"code": "saved = 42\nsaved"}, dispatch_again)
+    reused = await runtime.execute({"code": "saved + 1"}, dispatch_again)
+    assert not recovered.is_error and _text(recovered).endswith("Result:\n42")
+    assert not reused.is_error and _text(reused).endswith("Result:\n43")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raise_in_context", [False, True])
+async def test_agent_context_exit_closes_ptc_resources(raise_in_context) -> None:
+    agent = McpAgent(
+        AgentConfig(name="ptc-lifecycle", servers=[]),
+        connection_persistence=False,
+        context=Context(config=Settings(ptc=ProgrammaticToolCallingSettings(enabled=True))),
+    )
+    try:
+        try:
+            async with agent:
+                await agent.list_tools()
+                result = await agent.call_tool(PTC_TOOL_NAME, {"code": "42"}, "call-1")
+                assert not result.is_error, _text(result)
+                runtime = agent._ptc_runtime
+                assert runtime is not None
+                assert runtime._session is not None and runtime._pool is not None
+                if raise_in_context:
+                    raise ValueError("context failed")
+        except ValueError as exc:
+            assert raise_in_context and str(exc) == "context failed"
+        runtime = agent._ptc_runtime
+        assert runtime is not None
+        assert runtime._session is None
+        assert runtime._pool is None
+    finally:
+        await agent.shutdown()
 
 
 @pytest.mark.asyncio
@@ -303,6 +436,42 @@ async def test_conversation_resets_discard_sandbox_state(reset, type_check) -> N
         await agent.shutdown()
 
 
+def _url_payload(server_name: str, url: str) -> URLElicitationRequiredDisplayPayload:
+    return URLElicitationRequiredDisplayPayload(
+        server_name=server_name,
+        request_method="tools/call",
+        elicitations=[URLElicitationDisplayItem(message="Sign in", url=url, elicitation_id=url)],
+        issues=[],
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fails", [False, True])
+async def test_nested_url_elicitations_reach_the_tool_result_message(runtime, fails) -> None:
+    async def dispatch(name: str, arguments: dict[str, Any], call_id: str) -> CallToolResult:
+        del arguments, call_id
+        is_error = name == "delete_everything"
+        result = CallToolResult(content=[TextContent(type="text", text="{}")], is_error=is_error)
+        set_url_elicitation_required_payload(result, _url_payload(name, f"https://{name}.test"))
+        return result
+
+    tail = "await delete_everything()" if fails else "None"
+    code = (
+        "try:\n    await delete_everything()\nexcept RuntimeError:\n    pass\n"
+        f"await orders__get_orders(customer_id='c1')\n{tail}"
+    )
+    result = await runtime.execute({"code": code}, dispatch)
+    assert result.is_error is fails
+
+    message = build_tool_result_message({"call-1": result})
+    assert message.channels is not None
+    [block] = message.channels[FAST_AGENT_URL_ELICITATION_CHANNEL]
+    assert isinstance(block, TextContent)
+    urls = [item["url"] for payload in json.loads(block.text) for item in payload["elicitations"]]
+    expected = ["https://delete_everything.test", "https://orders__get_orders.test"]
+    assert urls == expected + (["https://delete_everything.test"] if fails else [])
+
+
 @pytest.mark.asyncio
 async def test_misspelled_optional_argument_is_rejected_without_open_schema(runtime) -> None:
     runtime.model_tools(
@@ -369,3 +538,164 @@ def test_nullable_unions_render_each_member_once() -> None:
 
     assert 'region: Literal["EMEA", "AMER"] | None = ...' in (description or "")
     assert "tags: list[str | None] | None = ..." in (description or "")
+
+
+_PIXEL = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC"
+)
+
+
+@pytest.mark.asyncio
+async def test_referenced_definitions_are_typed_and_checked(runtime) -> None:
+    runtime.model_tools(
+        [
+            Tool(
+                name="label_run",
+                input_schema={
+                    "type": "object",
+                    "$defs": {
+                        "Colour": {"enum": ["red", "blue"]},
+                        "Label": {"type": "string", "maxLength": 32},
+                    },
+                    "properties": {
+                        "colour": {"$ref": "#/$defs/Colour"},
+                        "label": {"anyOf": [{"$ref": "#/$defs/Label"}, {"type": "null"}]},
+                    },
+                    "required": ["colour"],
+                },
+            )
+        ]
+    )
+    dispatch = RecordingDispatcher()
+
+    description = runtime.tool().description or ""
+    rejected = await runtime.execute({"code": "await label_run(colour='green')"}, dispatch)
+    accepted = await runtime.execute(
+        {"code": "await label_run(colour='red', label=None)"}, dispatch
+    )
+
+    assert 'colour: Literal["red", "blue"], label: str | None = ...' in description
+    assert rejected.is_error and "NOT executed" in _text(rejected)
+    assert not accepted.is_error, _text(accepted)
+
+
+def test_tools_declare_their_exposure_and_program_return_type() -> None:
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
+    control = Tool(
+        name="slash_command",
+        input_schema={"type": "object", "properties": {"command": {"type": "string"}}},
+        meta={"fast_agent": {"ptc": {"expose": "direct"}}},
+    )
+    returns = {"type": "object", "properties": {"answer": {"type": "string"}}}
+    delegate = Tool(
+        name="delegate",
+        input_schema={"type": "object", "properties": {}},
+        meta={"fast_agent": {"ptc": {"returns": returns}}},
+    )
+
+    code_tool, *direct = runtime.model_tools([control, delegate])
+
+    assert [tool.name for tool in direct] == ["slash_command"]
+    assert "async def delegate() -> dict[str, Any]:" in (code_tool.description or "")
+    assert '"answer"' in (code_tool.description or "")
+    assert "slash_command" not in (code_tool.description or "")
+
+
+@pytest.mark.asyncio
+async def test_media_reaches_the_model_only_when_the_script_returns_its_handle(runtime) -> None:
+    async def dispatch(name: str, arguments: dict[str, Any], call_id: str) -> CallToolResult:
+        del name, arguments, call_id
+        return CallToolResult(
+            content=[
+                TextContent(type="text", text="screenshot"),
+                ImageContent(type="image", data=_PIXEL, mime_type="image/png"),
+            ]
+        )
+
+    printed = await runtime.execute(
+        {"code": "caption, shot = await orders__get_orders(customer_id='a')\nprint(shot)"},
+        dispatch,
+    )
+    returned = await runtime.execute({"code": "{'caption': caption, 'image': shot}"}, dispatch)
+
+    assert not printed.is_error, _text(printed)
+    assert "media_id" in _text(printed)
+    assert [block.type for block in printed.content] == ["text"]
+    assert not returned.is_error, _text(returned)
+    assert [block.type for block in returned.content] == ["text", "image"]
+    image = returned.content[1]
+    assert isinstance(image, ImageContent) and image.data == _PIXEL
+
+
+@pytest.mark.asyncio
+async def test_program_values_replace_model_text_only_for_the_sandbox_caller(runtime) -> None:
+    seen_ids: list[str] = []
+
+    async def dispatch(name: str, arguments: dict[str, Any], call_id: str) -> CallToolResult:
+        del name, arguments
+        seen_ids.append(call_id)
+        result = CallToolResult(content=[TextContent(type="text", text="answer + notice")])
+        if is_programmatic_tool_call(call_id):
+            result.meta = {FAST_AGENT_PTC_VALUE: {"answer": "answer"}}
+        return result
+
+    result = await runtime.execute(
+        {"code": "(await orders__get_orders(customer_id='a'))['answer']"},
+        dispatch,
+        parent_call_id="call-7",
+    )
+
+    assert not result.is_error, _text(result)
+    assert _text(result).endswith("Result:\nanswer")
+    assert [outer_tool_call_id(call_id) for call_id in seen_ids] == ["call-7"]
+    assert not is_programmatic_tool_call(seen_ids[0])
+
+
+@pytest.mark.asyncio
+async def test_tool_surface_changes_restart_the_session_with_a_notice(runtime) -> None:
+    dispatch = RecordingDispatcher()
+    seeded = await runtime.execute({"code": "saved = 1\nsaved"}, dispatch)
+    unchanged = await runtime.execute({"code": "saved"}, dispatch)
+
+    runtime.model_tools([*TOOLS, Tool(name="extra", input_schema={"type": "object"})])
+    restarted = await runtime.execute({"code": "saved"}, dispatch)
+
+    assert not seeded.is_error and not unchanged.is_error
+    assert "restarted" not in _text(unchanged)
+    assert restarted.is_error
+    assert "sandbox session was restarted" in _text(restarted)
+
+
+@pytest.mark.asyncio
+async def test_attach_media_from_code_stages_media_and_returns_a_handle_free_value(
+    tmp_path,
+) -> None:
+    PILImage.new("RGB", (4, 4), (0, 0, 255)).save(tmp_path / "pixel.png")
+    environment = LocalEnvironment(logger=get_logger(__name__), working_directory=tmp_path)
+    agent = McpAgent(
+        AgentConfig(name="ptc-attach", servers=[], shell=True),
+        shell_environment=environment,
+        context=Context(
+            config=Settings(
+                ptc=ProgrammaticToolCallingSettings(enabled=True),
+                shell_execution=ShellSettings(enable_attach_media="on"),
+            )
+        ),
+    )
+    try:
+        await agent.list_tools()
+        from_code = await agent.call_tool(
+            PTC_TOOL_NAME, {"code": "await attach_media(source='pixel.png')"}, "call-1"
+        )
+        staged_from_code = agent._consume_pending_media_attachments()
+        direct = await agent.call_tool("attach_media", {"source": "pixel.png"}, "call-2")
+
+        assert not from_code.is_error, _text(from_code)
+        assert '"staged": true' in _text(from_code)
+        assert [block.type for block in from_code.content] == ["text"]
+        assert [block.type for block in staged_from_code] == ["image"]
+        assert FAST_AGENT_PTC_VALUE not in (direct.meta or {})
+        assert "Staged pixel.png" in _text(direct)
+    finally:
+        await agent.shutdown()
+        await environment.close()

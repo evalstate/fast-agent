@@ -120,6 +120,7 @@ from fast_agent.tools.filesystem_tool_definitions import (
     WRITE_TEXT_FILE_TOOL_NAME,
 )
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME, SkillReader
+from fast_agent.tools.tool_surface import ToolSurface
 from fast_agent.types import (
     PromptMessageExtended,
     RequestParams,
@@ -465,6 +466,8 @@ class McpAgent(ABC, ToolAgent):
         await self._close_transient_artifact_store()
         if self._shell_runtime is not None:
             await self._shell_runtime.close()
+        if self._ptc_runtime is not None:
+            await self._ptc_runtime.close()
         await self._aggregator.__aexit__(exc_type, exc_val, exc_tb)
 
     async def initialize(self) -> None:
@@ -1650,15 +1653,9 @@ class McpAgent(ABC, ToolAgent):
         """
         ptc_runtime = self._programmatic_tool_runtime()
         if ptc_runtime is not None and name == PTC_TOOL_NAME:
-
-            async def dispatch(
-                nested_name: str, nested_arguments: dict[str, Any], call_id: str
-            ) -> CallToolResult:
-                return await self._call_ptc_nested_tool(
-                    nested_name, nested_arguments, call_id, request_params=request_params
-                )
-
-            return await ptc_runtime.execute(arguments or {}, dispatch)
+            return await self._call_ptc_tool(
+                ptc_runtime, arguments or {}, tool_use_id, request_params=request_params
+            )
         return await self._dispatch_tool_call(
             name, arguments, tool_use_id, request_params=request_params
         )
@@ -1703,6 +1700,50 @@ class McpAgent(ABC, ToolAgent):
                 self._ptc_runtime = ProgrammaticToolRuntime(settings)
         return self._ptc_runtime
 
+    async def _call_ptc_tool(
+        self,
+        runtime: ProgrammaticToolRuntime,
+        arguments: dict[str, Any],
+        tool_use_id: str | None,
+        *,
+        request_params: RequestParams | None,
+    ) -> CallToolResult:
+        """Run execute_python, reporting it to ACP as the parent of its nested calls."""
+        # Local import: the fast_agent.acp package is only needed on this path.
+        from fast_agent.acp.tool_call_context import acp_tool_call_context
+
+        tool_handler = self._get_tool_handler(request_params)
+        acp_call_id: str | None = None
+        if tool_handler is not None:
+            with suppress(Exception):
+                acp_call_id = await tool_handler.on_tool_start(
+                    PTC_TOOL_NAME, "local", arguments, tool_use_id
+                )
+
+        async def dispatch(
+            nested_name: str, nested_arguments: dict[str, Any], call_id: str
+        ) -> CallToolResult:
+            with acp_tool_call_context(parent_tool_call_id=acp_call_id):
+                return await self._call_ptc_nested_tool(
+                    nested_name, nested_arguments, call_id, request_params=request_params
+                )
+
+        result = await runtime.execute(arguments, dispatch, parent_call_id=tool_use_id)
+        if tool_handler is not None and acp_call_id is not None:
+            error = None
+            if result.is_error:
+                error = "\n".join(
+                    block.text for block in result.content if isinstance(block, TextContent)
+                )
+            with suppress(Exception):
+                await tool_handler.on_tool_complete(
+                    acp_call_id,
+                    not result.is_error,
+                    None if result.is_error else list(result.content),
+                    error,
+                )
+        return result
+
     async def _call_ptc_nested_tool(
         self,
         name: str,
@@ -1712,25 +1753,32 @@ class McpAgent(ABC, ToolAgent):
         request_params: RequestParams | None,
     ) -> CallToolResult:
         """Run a tool called from PTC sandbox code through the normal dispatch path."""
-        self.display.show_tool_call(
-            name,
-            arguments,
-            name=self._name,
-            tool_call_id=call_id,
-            source_label="PTC",
-        )
+        is_subagent = self._is_builtin_subagent_tool(self._tool_display_metadata(name))
+        if is_subagent:
+            self._show_subagent_message(arguments)
+        else:
+            self.display.show_tool_call(
+                name,
+                arguments,
+                name=self._name,
+                tool_call_id=call_id,
+                source_label="PTC",
+            )
         started = time.perf_counter()
         result = await self._dispatch_tool_call(
             name, arguments, call_id, request_params=request_params
         )
-        self.display.show_tool_result(
-            result,
-            name=self._name,
-            tool_name=name,
-            timing_ms=round((time.perf_counter() - started) * 1000, 2),
-            tool_call_id=call_id,
-            source_label="PTC",
-        )
+        if is_subagent:
+            await self._show_subagent_result(result)
+        else:
+            self.display.show_tool_result(
+                result,
+                name=self._name,
+                tool_name=name,
+                timing_ms=round((time.perf_counter() - started) * 1000, 2),
+                tool_call_id=call_id,
+                source_label="PTC",
+            )
         return result
 
     async def _call_local_tool(
@@ -2728,6 +2776,14 @@ class McpAgent(ABC, ToolAgent):
         if ptc_runtime is not None:
             merged_tools = ptc_runtime.model_tools(merged_tools)
         return ListToolsResult(tools=merged_tools)
+
+    async def tool_surface(self) -> ToolSurface:
+        """Describe every tool the model can reach, including those only callable from PTC code."""
+        model_tools = (await self.list_tools()).tools
+        ptc_runtime = self._programmatic_tool_runtime()
+        if ptc_runtime is None:
+            return ToolSurface.direct(model_tools)
+        return ptc_runtime.surface(model_tools)
 
     @staticmethod
     def _append_unique_tools(

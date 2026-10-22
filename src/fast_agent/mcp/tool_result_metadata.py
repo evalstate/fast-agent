@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, TypedDict, TypeGuard, cast
 from weakref import WeakKeyDictionary
 
 from mcp_types import CallToolResult
@@ -63,7 +63,7 @@ def set_url_elicitation_required_payload(
     payload: "URLElicitationRequiredDisplayPayload",
 ) -> None:
     if isinstance(target, CallToolResult):
-        _metadata(target)[_URL_ELICITATION_META_KEY] = payload
+        _metadata(target)[_URL_ELICITATION_META_KEY] = [payload]
         return
     try:
         _OBJECT_URL_ELICITATION_METADATA[target] = payload
@@ -71,14 +71,35 @@ def set_url_elicitation_required_payload(
         _STRONG_URL_ELICITATION_METADATA[id(target)] = (target, payload)
 
 
+def add_url_elicitation_required_payloads(
+    result: CallToolResult,
+    payloads: Sequence["URLElicitationRequiredDisplayPayload"],
+) -> None:
+    """Attach payloads, e.g. from nested calls, alongside any already on the result."""
+    if payloads:
+        existing = url_elicitation_required_payloads(result)
+        _metadata(result)[_URL_ELICITATION_META_KEY] = [*existing, *payloads]
+
+
+def url_elicitation_required_payloads(
+    result: CallToolResult,
+) -> list["URLElicitationRequiredDisplayPayload"]:
+    value = (result.meta or {}).get(_URL_ELICITATION_META_KEY)
+    if not isinstance(value, list):
+        return []
+    return [
+        payload
+        for payload in cast("list[object]", value)
+        if _is_url_elicitation_required_payload(payload)
+    ]
+
+
 def url_elicitation_required_payload(
     target: object,
 ) -> "URLElicitationRequiredDisplayPayload | None":
     if isinstance(target, CallToolResult):
-        metadata = target.meta or {}
-        payload = metadata.get(_URL_ELICITATION_META_KEY)
-        if _is_url_elicitation_required_payload(payload):
-            return payload
+        payloads = url_elicitation_required_payloads(target)
+        return payloads[0] if payloads else None
 
     try:
         payload = _OBJECT_URL_ELICITATION_METADATA.get(target)
@@ -94,7 +115,7 @@ def url_elicitation_required_payload(
 
 def _is_url_elicitation_required_payload(
     payload: object,
-) -> bool:
+) -> TypeGuard["URLElicitationRequiredDisplayPayload"]:
     from fast_agent.mcp.url_elicitation_required import (
         URLElicitationRequiredDisplayPayload,
     )
