@@ -11,7 +11,7 @@ from rich.text import Text
 
 from fast_agent.commands.handlers._text_formatting import indexed_row
 from fast_agent.commands.handlers._text_utils import truncate_description
-from fast_agent.commands.renderers.tools_markdown import render_tool_detail_markdown
+from fast_agent.commands.renderers.tools_markdown import render_tool_query_markdown
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.commands.tool_summaries import (
     ProviderToolSummary,
@@ -36,7 +36,7 @@ _APP_SUFFIX_BADGE_PATTERN = re.compile(
     f"({'|'.join(re.escape(badge) for badge in APP_SUFFIX_BADGES)})"
 )
 SHOW_ALL_FLAG = "--all"
-TOOLS_USAGE = f"/tools [{SHOW_ALL_FLAG}|<tool-name>]"
+TOOLS_USAGE = f"/tools [{SHOW_ALL_FLAG}|ptc|<tool-name>]"
 _GROUP_NAMES_WIDTH = 60
 _SIGNATURE_WIDTH = 96
 
@@ -254,7 +254,8 @@ def _append_programmatic_tools(
     if not show_all:
         content.append("\n")
         content.append(
-            f"     /tools {SHOW_ALL_FLAG} lists signatures · /tools <name> shows one function",
+            f"     /tools {SHOW_ALL_FLAG} lists signatures · /tools <name> shows one function · "
+            "/tools ptc shows the full code tool description",
             style="dim",
         )
         content.append("\n\n")
@@ -326,8 +327,8 @@ async def handle_list_tools(
     surface = await resolve_tool_surface(agent)
 
     if query.tool_name is not None:
-        surface_tool = surface.find(query.tool_name)
-        if surface_tool is None:
+        detail = render_tool_query_markdown(query.tool_name, surface)
+        if detail is None:
             outcome.add_message(
                 f"Tool not found: {query.tool_name}",
                 channel="warning",
@@ -336,7 +337,7 @@ async def handle_list_tools(
             )
             return outcome
         outcome.add_message(
-            render_tool_detail_markdown(surface_tool, surface),
+            detail,
             right_info="tools",
             agent_name=agent_name,
             render_markdown=True,

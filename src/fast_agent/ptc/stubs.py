@@ -47,7 +47,8 @@ SANDBOX_MODULES = frozenset(
         "unicodedata",
     }
 )
-_RESERVED_GLOBALS = frozenset(dir(builtins)) | SANDBOX_MODULES
+# Helpers defined by the runtime prelude must remain callable alongside tool functions.
+_RESERVED_GLOBALS = frozenset(dir(builtins)) | SANDBOX_MODULES | {"settle"}
 _JSON_SCALAR_TYPES = {
     "string": "str",
     "integer": "int",
@@ -56,8 +57,7 @@ _JSON_SCALAR_TYPES = {
     "null": "None",
 }
 _MAX_ANNOTATION_DEPTH = 4
-_MAX_OUTPUT_SCHEMA_CHARS = 1200
-_SCHEMA_NOISE_KEYS = frozenset({"title", "$schema", "additionalProperties"})
+_MAX_RETURNS_CHARS = 1200
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +79,8 @@ class PtcFunction:
     parameters: tuple[PtcParameter, ...]
     accepts_extra: bool
     returns: str
-    output_schema: str | None = None
+    returns_shape: str | None = None
+    """Compact rendering of the output schema, e.g. ``{id: str, tags?: list[str]}``."""
 
     def bind_arguments(self, kwargs: Mapping[str, Any]) -> dict[str, Any]:
         """Map supplied keywords to schema names, preserving explicit null values."""
@@ -111,7 +112,9 @@ class PtcFunction:
         lines = [f"async def {self.signature()}:"]
         docstring = self._docstring()
         if docstring:
-            lines.append(f"    {docstring!r}")
+            first, *rest = _docstring_literal(docstring).split("\n")
+            body = "\n".join([first, *(f"    {line}" if line else "" for line in rest)])
+            lines.append(f'    """{body}"""')
         lines.append("    ...")
         return "\n".join(lines)
 
@@ -132,8 +135,8 @@ class PtcFunction:
                 for parameter in documented
             ]
             parts.append("Args:\n" + "\n".join(arg_lines))
-        if self.output_schema:
-            parts.append(f"Returns a dict matching this JSON schema: {self.output_schema}")
+        if self.returns_shape:
+            parts.append(f"Returns: {self.returns_shape}")
         return "\n\n".join(parts)
 
 
@@ -216,7 +219,7 @@ def _build_function(tool: Tool, python_name: str) -> PtcFunction:
         parameters=tuple(parameters),
         accepts_extra=accepts_extra,
         returns="dict[str, Any]" if output_schema else "Any",
-        output_schema=_compact_schema(output_schema),
+        returns_shape=_returns_shape(output_schema, _definitions(output_schema or {})),
     )
 
 
@@ -229,26 +232,57 @@ def _definitions(schema: Mapping[str, Any]) -> Mapping[str, Any]:
     return definitions
 
 
-def _compact_schema(schema: Mapping[str, Any] | None) -> str | None:
-    """Render an output schema compactly, dropping annotation-only keys."""
+def _returns_shape(schema: Mapping[str, Any] | None, definitions: Mapping[str, Any]) -> str | None:
+    """Render an output schema as a compact TypedDict-like shape.
+
+    Top-level field descriptions become trailing comments, one field per line; nested
+    descriptions are dropped.
+    """
     if not schema:
         return None
-    rendered = json.dumps(_strip_schema(schema), separators=(",", ":"), ensure_ascii=False)
-    if len(rendered) > _MAX_OUTPUT_SCHEMA_CHARS:
-        return f"{rendered[:_MAX_OUTPUT_SCHEMA_CHARS]}…"
+    properties = schema.get("properties")
+    described = isinstance(properties, Mapping) and any(
+        isinstance(field, Mapping) and isinstance(field.get("description"), str)
+        for field in properties.values()
+    )
+    if described:
+        rendered = _object_shape(schema, definitions, 0, comments=True)
+    else:
+        rendered = _annotation(schema, definitions, shape=True)
+    if len(rendered) > _MAX_RETURNS_CHARS:
+        return f"{rendered[:_MAX_RETURNS_CHARS]}…"
     return rendered
 
 
-def _strip_schema(value: Any, *, property_map: bool = False) -> Any:
-    if isinstance(value, Mapping):
-        return {
-            key: _strip_schema(item, property_map=key == "properties" and not property_map)
-            for key, item in value.items()
-            if property_map or (key not in _SCHEMA_NOISE_KEYS and not str(key).startswith("x-"))
-        }
-    if isinstance(value, list):
-        return [_strip_schema(item) for item in value]
-    return value
+def _object_shape(
+    schema: Mapping[str, Any], definitions: Mapping[str, Any], depth: int, *, comments: bool = False
+) -> str:
+    properties = schema.get("properties")
+    properties = properties if isinstance(properties, Mapping) else {}
+    required = schema.get("required")
+    required_names = set(required) if isinstance(required, list) else set()
+    fields: list[tuple[str, str]] = []
+    for name, field in properties.items():
+        key = name if str(name).isidentifier() else json.dumps(str(name))
+        optional = "" if name in required_names else "?"
+        rendered = f"{key}{optional}: {_annotation(field, definitions, depth + 1, shape=True)}"
+        description = field.get("description") if isinstance(field, Mapping) else None
+        fields.append((rendered, _one_line(description) if isinstance(description, str) else ""))
+    if not comments:
+        return "{" + ", ".join(field for field, _ in fields) + "}"
+    lines = [f"    {field},{f'  # {note}' if note else ''}" for field, note in fields]
+    return "{\n" + "\n".join(lines) + "\n}"
+
+
+def _docstring_literal(text: str) -> str:
+    """Escape ``text`` for the body of a triple-double-quoted string literal."""
+    escaped = "".join(
+        char if char == "\n" or char.isprintable() else char.encode("unicode_escape").decode()
+        for char in text.replace("\\", "\\\\")
+    )
+    escaped = escaped.replace('"""', '\\"\\"\\"')
+    # A trailing quote would merge with the closing delimiter.
+    return escaped[:-1] + '\\"' if escaped.endswith('"') else escaped
 
 
 def _render_parameter(parameter: PtcParameter) -> str:
@@ -257,12 +291,20 @@ def _render_parameter(parameter: PtcParameter) -> str:
     return rendered if parameter.required else f"{rendered} = ..."
 
 
-def _annotation(schema: Any, definitions: Mapping[str, Any], depth: int = 0) -> str:
-    return _union(_union_members(schema, definitions, depth))
+def _annotation(
+    schema: Any, definitions: Mapping[str, Any], depth: int = 0, *, shape: bool = False
+) -> str:
+    return _union(_union_members(schema, definitions, depth, shape=shape))
 
 
-def _union_members(schema: Any, definitions: Mapping[str, Any], depth: int) -> list[str]:
-    """Return flattened union members so nested unions never repeat a member."""
+def _union_members(
+    schema: Any, definitions: Mapping[str, Any], depth: int, *, shape: bool = False
+) -> list[str]:
+    """Return flattened union members so nested unions never repeat a member.
+
+    ``shape`` renders documentation rather than a type annotation: objects show their fields
+    and enums are written as ``"a" | "b"``.
+    """
     if not isinstance(schema, Mapping) or depth > _MAX_ANNOTATION_DEPTH:
         return ["Any"]
     ref = schema.get("$ref")
@@ -271,19 +313,17 @@ def _union_members(schema: Any, definitions: Mapping[str, Any], depth: int) -> l
         if target is None:
             return ["Any"]
         siblings = {key: value for key, value in schema.items() if key != "$ref"}
-        return _union_members({**target, **siblings}, definitions, depth + 1)
-    if "const" in schema:
-        return [_literal([schema["const"]])]
-    enum = schema.get("enum")
-    if isinstance(enum, list) and enum:
-        return [_literal(enum)]
+        return _union_members({**target, **siblings}, definitions, depth + 1, shape=shape)
+    values = [schema["const"]] if "const" in schema else schema.get("enum")
+    if isinstance(values, list) and values:
+        return _literal_members(values) if shape else [_literal(values)]
     for key in ("anyOf", "oneOf"):
         options = schema.get(key)
         if isinstance(options, list) and options:
             return [
                 member
                 for option in options
-                for member in _union_members(option, definitions, depth + 1)
+                for member in _union_members(option, definitions, depth + 1, shape=shape)
             ]
 
     schema_type = schema.get("type")
@@ -291,13 +331,20 @@ def _union_members(schema: Any, definitions: Mapping[str, Any], depth: int) -> l
         return [
             member
             for item in schema_type
-            for member in _union_members({**schema, "type": item}, definitions, depth + 1)
+            for member in _union_members(
+                {**schema, "type": item}, definitions, depth + 1, shape=shape
+            )
         ]
     if isinstance(schema_type, str) and schema_type in _JSON_SCALAR_TYPES:
         return [_JSON_SCALAR_TYPES[schema_type]]
     if schema_type == "array":
-        return [f"list[{_annotation(schema.get('items'), definitions, depth + 1)}]"]
+        return [f"list[{_annotation(schema.get('items'), definitions, depth + 1, shape=shape)}]"]
+    if schema_type in ("object", None) and shape and isinstance(schema.get("properties"), Mapping):
+        return [_object_shape(schema, definitions, depth)]
     if schema_type == "object":
+        additional = schema.get("additionalProperties")
+        if shape and isinstance(additional, Mapping):
+            return [f"dict[str, {_annotation(additional, definitions, depth + 1, shape=True)}]"]
         return ["dict[str, Any]"]
     return ["Any"]
 
@@ -314,6 +361,12 @@ def _literal(values: list[Any]) -> str:
     if not all(value is None or isinstance(value, str | int | bool) for value in values):
         return "Any"
     return f"Literal[{', '.join(json.dumps(value) if isinstance(value, str) else repr(value) for value in values)}]"
+
+
+def _literal_members(values: list[Any]) -> list[str]:
+    if not all(value is None or isinstance(value, str | int | bool) for value in values):
+        return ["Any"]
+    return [json.dumps(value) if isinstance(value, str) else repr(value) for value in values]
 
 
 def _union(annotations: list[str]) -> str:

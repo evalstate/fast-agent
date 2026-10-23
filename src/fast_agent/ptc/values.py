@@ -86,6 +86,10 @@ def tool_result_to_value(result: CallToolResult, media: MediaStore, *, name: str
     result: a shell command that exits non-zero, say, is data for the script. Other error
     results raise ToolCallFailed, named after the sandbox function ``name``, so sandbox code can
     use try/except.
+
+    Structured results with non-text blocks use a ``structured_content``/``content`` envelope
+    to preserve the payload without colliding with server-defined fields. Text blocks are
+    superseded by structured content, as in direct tool results.
     """
     meta = result.meta or {}
     program_value = meta.get(FAST_AGENT_PTC_VALUE)
@@ -97,10 +101,14 @@ def tool_result_to_value(result: CallToolResult, media: MediaStore, *, name: str
             message = _error_message(_result_text(result))
         raise ToolCallFailed(f"{name}: {message or 'tool call failed'}")
     if result.structured_content is not None:
-        media_values = [media.handle(block) for block in _media_blocks(result)]
-        if not media_values:
+        content_values = [
+            _content_to_value(block, media)
+            for block in result.content
+            if not isinstance(block, TextContent)
+        ]
+        if not content_values:
             return result.structured_content
-        return {**result.structured_content, "media": media_values}
+        return {"structured_content": result.structured_content, "content": content_values}
     values = [_content_to_value(block, media) for block in result.content]
     if not values:
         return None
@@ -114,17 +122,6 @@ def render_value(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False, default=_json_fallback)
     except (TypeError, ValueError):
         return repr(value)
-
-
-def _media_blocks(result: CallToolResult) -> list[ImageContent | AudioContent | EmbeddedResource]:
-    return [
-        block
-        for block in result.content
-        if isinstance(block, ImageContent | AudioContent)
-        or (
-            isinstance(block, EmbeddedResource) and isinstance(block.resource, BlobResourceContents)
-        )
-    ]
 
 
 def _content_to_value(block: ContentBlock, media: MediaStore) -> Any:

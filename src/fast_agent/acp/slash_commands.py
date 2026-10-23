@@ -310,7 +310,7 @@ class SlashCommandHandler:
                 name="tools",
                 description="List available tools",
                 handler=self._handle_tools,
-                input_hint="[--all|<tool-name>]",
+                input_hint="[--all|ptc|<tool-name>]",
             ),
             _BuiltinSlashCommandSpec(
                 name="tool",

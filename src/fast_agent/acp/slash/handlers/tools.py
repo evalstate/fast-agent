@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from fast_agent.commands.handlers.tools import parse_tools_query
 from fast_agent.commands.renderers.tools_markdown import (
-    render_tool_detail_markdown,
+    render_tool_query_markdown,
     render_tools_markdown,
 )
 from fast_agent.commands.tool_summaries import build_tools_listing
@@ -52,10 +52,10 @@ async def handle_tools(handler: "SlashCommandHandler", arguments: str | None = N
         )
 
     if query.tool_name is not None:
-        surface_tool = surface.find(query.tool_name)
-        if surface_tool is None:
+        detail = render_tool_query_markdown(query.tool_name, surface)
+        if detail is None:
             return "\n".join([f"# {heading}", "", f"Tool not found: {query.tool_name}"])
-        return render_tool_detail_markdown(surface_tool, surface)
+        return detail
 
     listing = build_tools_listing(agent, surface)
     if listing.is_empty:

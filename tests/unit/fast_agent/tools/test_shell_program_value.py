@@ -135,7 +135,7 @@ def test_freeform_shell_is_a_keyword_function_in_the_sandbox() -> None:
         "timeout: int = ..., check: bool = ...) -> dict[str, Any]"
     )
     assert "not JSON" not in function.stub()
-    assert '"exit_code"' in function.stub()
+    assert "exit_code: int | None," in function.stub()
 
 
 def test_large_streams_keep_head_and_tail() -> None:

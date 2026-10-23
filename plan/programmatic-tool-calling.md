@@ -1,6 +1,6 @@
 # Programmatic tool calling (PTC) for fast-agent
 
-Status: proof of concept on `feat/ptc-monty-poc` (`fast-agent go --ptc`).
+Status: proof of concept on `feat/ptc-monty-poc` (`fast-agent go --ptc`). Plan last reconciled with the code at `d17c0b7d` plus uncommitted working-tree changes to `ptc/runtime.py`, `ptc/stubs.py` and `ptc/values.py`. Items marked *(uncommitted)* exist only in the working tree.
 
 ## 1. What Codex does ("code mode")
 
@@ -55,15 +55,17 @@ sequenceDiagram
 ## 3. What the PoC implements
 
 - `src/fast_agent/ptc/`
-  - `stubs.py`: JSON schema → keyword-only async stubs. It handles enums (`Literal`), unions, arrays, optional parameters (exact schema type with a `= ...` default; omitted arguments are not sent, explicit `None` is only accepted for nullable fields), `**kwargs` only for explicitly open schemas (`additionalProperties: true` or a schema), so a misspelled argument is still a type error, output schemas (summarised in the docstring), and identifier and collision handling.
-  - `values.py`: `CallToolResult` → sandbox value. It prefers `structuredContent`, parses JSON text, and summarises media and resources. `isError` raises `RuntimeError` inside the sandbox, where try/except can catch it.
-  - `runtime.py`: `ProgrammaticToolRuntime`. It owns a lazily started `AsyncMonty` pool and one persistent session per agent, with limits (`max_feed_duration_secs`, `max_memory`, a high `max_suspensions`). Feeds are serialised with a lock. The session is rebuilt when the tool surface changes, after a timeout (Monty gives no heap guarantees afterwards) or after a crash. Results use a Codex-style header; failures list the tool calls that already completed so the model doesn't repeat side effects.
-- `Settings.ptc` (`ProgrammaticToolCallingSettings`): `enabled`, `direct_tools`, `type_check`, `max_duration_seconds`, `max_memory_mb`.
+  - `stubs.py`: JSON schema → keyword-only async stubs. It handles enums (`Literal`), unions, arrays, optional parameters (exact schema type with a `= ...` default; omitted arguments are not sent, explicit `None` is only accepted for nullable fields), `**kwargs` only for explicitly open schemas (`additionalProperties: true` or a schema), so a misspelled argument is still a type error, output schemas (rendered as a compact `Returns: {...}` shape in the docstring *(uncommitted; previously compact JSON schema)*; the return annotation stays `dict[str, Any]`), and identifier and collision handling. Docstrings are escaped triple-quoted literals, so the model and the type checker see the same readable multi-line text *(uncommitted; previously `repr()`)*.
+  - `values.py`: `CallToolResult` → sandbox value. A tool's program value (`_meta["fast-agent-ptc-value"]`) wins, even on an error result. Otherwise it prefers `structuredContent`, parses JSON text, and turns media into handles. *(Uncommitted)* A structured result that also has non-text blocks becomes `{"structured_content": ..., "content": [...]}` instead of merging a `media` key into the server's fields. Other `isError` results raise `ToolCallFailed` (a `RuntimeError`) named after the sandbox function, e.g. `edit_file: old_string was not found [no_match]`. The message comes from `_meta["fast-agent-ptc-error"]` when the tool sets it, otherwise from the error text, with JSON `{error, message}` bodies summarised.
+  - `runtime.py`: `ProgrammaticToolRuntime`. It owns a lazily started `AsyncMonty` pool and one persistent session per agent, with limits (`max_feed_duration_secs`, `max_memory`, a high `max_suspensions`). Feeds are serialised with a lock. The session is rebuilt when the tool surface changes, after a timeout (Monty gives no heap guarantees afterwards), after a crash, after cancellation or when the conversation is cleared. *(Uncommitted)* Every session first runs a prelude that pre-imports `asyncio` and defines `settle(aw)` (reserved, so no tool can shadow it), which returns an exception instead of raising, so `gather` can collect partial results (Monty does not support `return_exceptions=`). Printed output is capped at 1M characters host-side. Results use a Codex-style header; failures list the tool calls that already completed so the model doesn't repeat side effects.
+  - `syntax.py`: syntax errors, including those reported by the type checker, are described with CPython's parser plus a hint for nested triple quotes. The code never runs.
+- `Settings.ptc` (`ProgrammaticToolCallingSettings`): `enabled`, `direct_tools`, `nested_tools`, `tool_format`, `type_check`, `max_duration_seconds` (sandbox compute time only, not time spent waiting on tools), `max_memory_mb`.
+- Structured shell and process values (`tools/shell_program_value.py`), section 6.2.
 - `fast-agent go --ptc` sets `ptc.enabled` at runtime.
 - `McpAgent` integration: `list_tools()` swaps in the code tool, `call_tool()` intercepts it, and nested calls are shown as `(PTC)` tool calls. The code tool carries `{"variant": "code", "language": "python"}` metadata so the existing code display renders highlighted Python while streaming.
 - Optional dependency: `fast-agent-mcp[ptc]` (`pydantic-monty>=1.2.0`). It is also in the dev group. A clear `AgentConfigError` is raised if it is missing.
-- Demo: `examples/ptc/` (order-analytics MCP server and config).
-- Tests: `tests/unit/fast_agent/ptc/test_ptc_runtime.py` runs real Monty for concurrency, persistence, name mapping, type-check rejection and error semantics. The CLI flag test is in `test_go_command.py`.
+- Demo: `examples/ptc/` (order-analytics and media MCP servers, config, and `evals.py`).
+- Tests: `tests/unit/fast_agent/ptc/test_ptc_runtime.py` runs real Monty for concurrency, persistence, name mapping, type-check rejection, error semantics and cancellation. A test there also checks that the module list in the instructions matches Monty. `test_ptc_freeform.py` covers freeform input, `tools/test_shell_program_value.py` the shell values, `commands/test_tools_ptc_surface.py` `/tools`, and `test_go_command.py` the CLI flag.
 
 ### End-to-end evidence (gpt-6-astra via Codex OAuth)
 
@@ -104,38 +106,41 @@ print(ranked[:2])
 | Input tokens | 7,766 | 5,282 |
 | Answer | Stark C006 $9,703.40, Aperture | same (correct) |
 
-`--ptc --shell` also works. The shell tool becomes `await shell(input=...)` and keeps its own output display.
+`--ptc --shell` also works. The shell tool becomes a keyword-argument function (even when its model-facing form is freeform text) that returns `{stdout, stderr, exit_code, status, …}`, and keeps its own output display.
 
 ## 4. Roadmap
 
 ### Phase 1: harden the PoC
-1. **Hooks and approvals for nested calls.** Today nested calls bypass `ToolRunnerHooks.before_tool_call/after_tool_call`, which only fire for model-visible calls. Route nested calls through a shared "execute planned call" seam, as Codex does with `ToolCallSource::CodeMode`, so hooks, tool-call planning metadata, result spooling (`_retain_full_tool_result`) and history annotations apply. Record nested calls in the `execute_python` result `_meta` for transcripts and ATIF trajectories.
-2. **Agents-as-tools / workflow agents.** `AgentsAsToolsAgent.list_tools()` appends child-agent tools *after* `McpAgent.list_tools()`, so they currently stay direct. Move the PTC transform to the final "tools sent to the LLM" boundary (`ToolRunner` / `ToolAgent.list_tools` consumers) so every agent type is covered once.
-3. **Per-agent opt-in.** Add `ptc` to `AgentConfig` and AgentCards (`ptc: true`, `ptc_direct_tools`), with CLI `--ptc` applied like the subagent policy override. Add `--ptc` to `serve` and `acp`.
-4. **Display.** Group nested calls under the parent call (indented or aggregated), add a compact "PTC cell" summary, and use the parallel tool-call display when `gather` fans out.
-5. **Cancellation.** Ctrl-C or turn cancellation should cancel the feed (`feed_run` task cancel / terminate the worker) and in-flight nested calls.
-6. **Readable docstrings in the model-facing catalogue (deferred from review).** Stub docstrings are rendered with `repr()` so that tool descriptions containing backslashes (`C:\Users`), triple quotes or control characters cannot break the type-check stubs. The same text is shown to the model, though, so long descriptions and `Args:` sections appear as single lines with literal `\n`. Either render pretty triple-quoted docstrings for the description and keep `repr()` for `type_check_stubs`, or emit a safely escaped triple-quoted literal for both.
-7. **Docs.** Generate a settings reference for `ptc` from the model (`docs/generate_reference_docs.py`), add a user guide page, and add the annotated block to `examples/setup/fast-agent.yaml`.
+1. **Hooks and approvals for nested calls.** Still open. Nested calls go through `_dispatch_tool_call` and bypass `ToolRunnerHooks.before_tool_call/after_tool_call`, which only fire for model-visible calls. Route nested calls through a shared "execute planned call" seam, as Codex does with `ToolCallSource::CodeMode`, so hooks and tool-call planning metadata apply. ✅ Already done: nested calls are recorded in the `execute_python` result `_meta` (`fast-agent-ptc-calls`) and linked in ATIF traces. Result spooling is not needed on the nested path, because sandbox code consumes nested results and the `execute_python` result still goes through `bound_tool_result_for_llm`.
+2. **Agents-as-tools / workflow agents.** Still open, and confirmed: `AgentsAsToolsAgent.list_tools()` calls `super().list_tools()`, which has already swapped in `execute_python`, and then appends child-agent tools, so those stay direct and cannot be called from code. Move the PTC transform to the final "tools sent to the LLM" boundary (`ToolRunner` / `ToolAgent.list_tools` consumers) so every agent type is covered once.
+3. **Per-agent opt-in.** Still open. Add `ptc` to `AgentConfig` and AgentCards (`ptc: true`, `ptc_direct_tools`), with CLI `--ptc` applied like the subagent policy override. Add `--ptc` to `serve` and `acp`. Decide first whether subagents inherit PTC: today `McpAgent._programmatic_tool_runtime()` reads the global `config.ptc`, so `--ptc` enables it for every `McpAgent` in the process, subagents included.
+4. **Display.** Still open. Nested calls are shown individually with a `(PTC)` label. Group them under the parent call (indented or aggregated), add a compact "PTC cell" summary, and use the parallel tool-call display when `gather` fans out.
+5. **Cancellation.** Partly done. When the `execute_python` task is cancelled, the runtime cancels and settles in-flight nested calls and resets the sandbox session (covered by a unit test). Still to verify end to end: that Ctrl-C and ACP turn cancellation reach it, and that the Monty worker stops rather than finishing the feed.
+6. **Readable docstrings.** ✅ Done *(uncommitted)*. Stubs use escaped triple-quoted docstrings, so the model and `type_check_stubs` see the same readable multi-line text, and backslashes, triple quotes and control characters cannot break the stubs.
+7. **Docs.** Still open. Generate a settings reference for `ptc` from the model (`docs/generate_reference_docs.py`), add a user guide page, and add the annotated block to `examples/setup/fast-agent.yaml`.
+8. **Script wall-clock limit.** New. `max_duration_seconds` counts only sandbox compute time, so a script awaiting a hung nested call blocks the turn indefinitely. Add an overall wall-clock limit per `execute_python` call that cancels the feed and in-flight nested calls (reusing item 5) as a stopgap until item 9.
 
 ### Phase 2: parity with Codex
-8. **Long-running cells (`wait`).** Run feeds as background tasks with `yield_time_ms`. Return `Script running (cell N)` and add `execute_python_wait(cell_id, yield_time_ms, terminate)`. Monty `feed_start` snapshots also allow host-driven suspension and `dump()` for durable cells.
-9. **Media.** ✅ Done differently: media in nested results becomes a handle (`{"type", "mime_type", "media_id"}`), and handles in the final expression attach their media to the `execute_python` result (section 6). No helper functions are needed.
-10. **Output budgeting.** Add a token budget per call (`max_output_tokens` parameter) with head/tail truncation, rather than only the byte cap.
-11. **Freeform tool input** (implemented). `ptc.tool_format` is `auto`, `json` or `freeform`. `auto` uses the model database `ptc_tool_format`, which is `freeform` for GPT-6 (Astra/Sol/Luna, 6.1 Sol) and unset (JSON) elsewhere; GPT-5.6 can opt in with `tool_format: freeform`. In freeform mode `execute_python` carries a permissive Lark grammar (`start: SOURCE`) as a Responses custom tool, and the raw source arrives as `{"input": ...}`. Providers without custom tools ignore the metadata and use the JSON schema, which also uses `input`. `execute` accepts either `code` or `input`, so history from before a model switch still runs. The tool metadata sets `code_format: raw`, so the streaming preview shows the raw input as highlighted Python.
-12. **Large catalogues.** When there are many tools, render a compact catalogue (name and one-line description) plus a `describe_tools(pattern)` / `search_tools(query)` host function that returns full stubs, similar to Codex's deferred tools and `tool_search`.
-13. **Typed results.** Render MCP output schemas as `TypedDict`s in the stubs so the type checker validates result access, and unwrap FastMCP `{"result": …}` wrappers.
+9. **Long-running cells (`wait`).** Run feeds as background tasks with `yield_time_ms`. Return `Script running (cell N)` and add `execute_python_wait(cell_id, yield_time_ms, terminate)`. Monty `feed_start` snapshots also allow host-driven suspension and `dump()` for durable cells.
+10. **Media.** ✅ Done differently: media in nested results becomes a handle (`{"type", "mime_type", "media_id"}`), and handles in the final expression attach their media to the `execute_python` result (section 6). No helper functions are needed.
+11. **Output budgeting.** Add a token budget per call (`max_output_tokens` parameter) with head/tail truncation, rather than only the byte cap.
+12. **Freeform tool input** (implemented). `ptc.tool_format` is `auto`, `json` or `freeform`. `auto` uses the model database `ptc_tool_format`, which is `freeform` for GPT-6 (Astra/Sol/Luna, 6.1 Sol) and unset (JSON) elsewhere; GPT-5.6 can opt in with `tool_format: freeform`. In freeform mode `execute_python` carries a permissive Lark grammar (`start: SOURCE`) as a Responses custom tool, and the raw source arrives as `{"input": ...}`. Providers without custom tools ignore the metadata and use the JSON schema, which also uses `input`. `execute` accepts either `code` or `input`, so history from before a model switch still runs. The tool metadata sets `code_format: raw`, so the streaming preview shows the raw input as highlighted Python.
+13. **Large catalogues.** When there are many tools, render a compact catalogue (name and one-line description) plus a `describe_tools(pattern)` / `search_tools(query)` host function that returns full stubs, similar to Codex's deferred tools and `tool_search`.
+14. **Typed results.** Partly done *(uncommitted)*. Output schemas and `ptc.returns` are rendered as a compact shape in the docstring (`Returns: {...}`, with field descriptions as comments), so the model sees the structure. Still open: annotate the return as a `TypedDict` so the type checker rejects `r["respones"]`, and unwrap FastMCP `{"result": …}` wrappers.
 
 ### Phase 3: beyond Codex
-14. **Eager or speculative execution** (Pydantic AI `_eager.py` / `_speculation.py`): feed closed statements while the model is still streaming, and pre-launch read-only literal calls.
-15. **Session persistence.** `AsyncMontySession.dump()` / `load_session()` alongside fast-agent session history, so `--resume` restores REPL state.
-16. **Remote sandbox.** `AsyncMontyWebsocket` for hosted Monty when running `serve`.
-17. **Evals.** Add a PTC vs direct benchmark (tokens, turns, accuracy) to `docs/benchmark_*` using the orders demo plus MCP servers with large payloads.
+15. **Eager or speculative execution** (Pydantic AI `_eager.py` / `_speculation.py`): feed closed statements while the model is still streaming, and pre-launch read-only literal calls.
+16. **Session persistence.** `AsyncMontySession.dump()` / `load_session()` alongside fast-agent session history, so `--resume` restores REPL state.
+17. **Remote sandbox.** `AsyncMontyWebsocket` for hosted Monty when running `serve`.
+18. **Evals.** Partly done. `examples/ptc/evals.py` checks answers and paths (section 6.4), and terminal-bench runs (`tb21-…`) have driven exposure and error-message fixes. Still open: a PTC vs direct benchmark (tokens, turns, accuracy) in `docs/benchmark_*` using the orders demo plus MCP servers with large payloads.
 
 ## 5. Risks and notes
 - **Monty subset.** No class inheritance, generators, `del`, or `async with/for`; a limited stdlib. Type checking catches most of these up front, and the tool description lists them.
 - **Security.** The sandbox only reaches the host through tool functions. Nested calls have exactly the authority of the agent's tools: `--ptc --shell` is still a shell. Approval and permission flows must stay on the nested path (they do today through `call_tool`, apart from tool-runner hooks).
 - **Type-check context accumulates** across feeds within a session. This works well in testing; if false positives appear, fall back to Pydantic AI's approach of checking only the first snippet of a fresh REPL.
 - **`max_suspensions` is per checkout** and counts name lookups, so the PoC sets it to 100k.
+- **No overall time limit.** `max_duration_seconds` is sandbox compute time only, so a hung nested call blocks the turn (roadmap item 8).
+- **`--ptc` is process-wide.** It applies to every `McpAgent`, subagents included, until per-agent opt-in lands (roadmap item 3).
 
 ## 6. Tool surface contract and harness tools under PTC
 
@@ -145,9 +150,12 @@ The built-in subagent, harness and attach_media tools were written for one reade
 
 | Piece | Where | Meaning |
 | --- | --- | --- |
-| `meta.fast_agent.ptc.expose` | tool definition | `"nested"` (default) becomes a sandbox function. `"direct"` stays next to `execute_python` (it is merged with `ptc.direct_tools`). |
-| `meta.fast_agent.ptc.returns` | tool definition | JSON schema of the *program value*. The stub returns `dict[str, Any]` and documents the schema. |
-| `_meta["fast-agent-ptc-value"]` | tool result | The value sandbox code receives instead of the model text. Tools set it only when `is_programmatic_tool_call(tool_use_id)` is true, so direct-call history is unchanged. |
+| `meta.fast_agent.ptc.expose` | tool definition | `"nested"` (default) becomes a sandbox function only. `"direct"` stays next to `execute_python` and is not callable from code. `"both"` is a sandbox function that is also directly callable; the instructions then tell the model when to use each. |
+| Exposure precedence | `ptc/runtime.py` | `ptc.direct_tools` (fnmatch) > `ptc.nested_tools` (fnmatch; `["*"]` forces a code-only run) > the tool's `expose`. |
+| `meta.fast_agent.ptc.returns` | tool definition | JSON schema of the *program value*. The stub returns `dict[str, Any]` and documents the schema as a `Returns:` shape. |
+| `meta.fast_agent.ptc.input_schema` / `description` | tool definition | The keyword arguments and documentation sandbox code sees, for tools whose model-facing wire format is not a keyword call (for example a freeform shell). The tool must accept those arguments from programmatic calls. |
+| `_meta["fast-agent-ptc-value"]` | tool result | The value sandbox code receives instead of the model text. Tools set it only when `is_programmatic_tool_call(tool_use_id)` is true, so direct-call history is unchanged. It takes precedence over `isError`: a tool that sets it on an error result (a non-zero shell exit) returns data instead of raising. |
+| `_meta["fast-agent-ptc-error"]` | tool result | Short sandbox-facing message for an error result without a program value. The sandbox raises `RuntimeError("<function>: <message>")` instead of the model-facing error text. |
 | Media handles | `ptc/values.py` | Image, audio and blob-resource blocks become `{"type", "mime_type", "media_id"}` handles. Handles anywhere in the final expression attach their media to the `execute_python` result; printed handles do not. A bounded store is reset with the session. |
 | Nested call ids | `tools/invocation_context.py` | `<execute_python id>::ptc-<n>`. `outer_tool_call_id()` maps them back. |
 | `_meta["fast-agent-ptc-calls"]` | `execute_python` result | `{id, tool, is_error}` per nested call, plus the subagent result metadata, so history keeps what the nested results said. |
@@ -164,13 +172,19 @@ The built-in subagent, harness and attach_media tools were written for one reade
 | `get_resource` | context read | nested | text as `str`; image resources come back as `ImageContent`, so they are media handles under PTC and viewable images when called directly |
 | `attach_media` | context injection | nested; still stages media for the next model call | `{staged, name, mime_type, source, linked}`. It has no handle, so returning it never attaches the media twice |
 | `slash_command` | control plane | **direct** | n/a: `/mcp connect` and `/skills add` change the tool surface, which a running script cannot pick up |
+| shell (`execute` / freeform shell) | local execution | nested (`ptc.direct_tools` restores direct access) | `{stdout, stderr, exit_code, status, process_id, truncated}`. A non-zero exit is a value; `check=True` raises `RuntimeError` (`<fn>: command failed with exit code N` plus stderr/stdout tails) on failure, timeout or termination. A freeform shell is a keyword-argument function in code, and `timeout=` works. |
+| process lifecycle | local execution | nested | `status`/`wait` give the shell dict with output since the last read (managed and durable processes); `stop` gives `{process_id, status}`; `list` gives a list |
+| filesystem (`read_text_file`, `edit_file`, …) | local execution | nested | text or parsed JSON. Errors raise with the JSON error message and code, e.g. `edit_file: old_string was not found [no_match]` |
+
+Shell and process were briefly `expose: "both"` (`a9994bc4`). In tb21-luna-medium-ptc-flex-004, GPT-6 Luna then made about 91% of its calls directly, so PTC was effectively optional. They are `nested` again (`f325b59d`), and `--ptc` is code-only by default.
 
 ### 6.3 Proposed next steps (need sign-off)
 
 1. **Split `slash_command` into a read-only query surface and a mutating surface.** Read-only commands (`/status`, `/tools`, `/usage`, `/mcp list`, `/skills list`, `/commands --json`) are useful in scripts but currently return markdown. Proposal: give `CommandOutcome` a structured `data` payload and expose a nested `harness_query(command)` (or one typed function per read command, generated from command discovery metadata) whose program value is that data. Mutations stay on the direct `slash_command`.
-2. **Decide `attach_media` semantics under PTC.** Option A (current) stages immediately and is consistent with direct mode. Option B returns a media handle and does *not* stage, so "media reaches the model only when returned" holds everywhere and a script can load ten files and show two. Option B needs a PTC-specific tool description.
-3. **Typed program values.** Render `returns` and MCP output schemas as `TypedDict`s (roadmap item 13), so `r["respones"]` is a type error.
+2. **`attach_media` semantics under PTC: decided, option A.** `attach_media` is a context-injection tool: its effect is "this ends up in your context", so it stages immediately in code as in direct mode, and its program value carries no handle. A "load media, return a handle, attach only if returned" variant adds nothing, because handles are opaque in the sandbox and selection already happens before the call (on paths, names or metadata); pixel-level processing belongs in a shell script. Media therefore reaches the model two ways: handles in the final expression (media returned by tools, attached to the `execute_python` result) and `attach_media` (files and URLs, staged for the next model call). Still to do: say so in the PTC tool description, document that media staged by a script that later fails stays staged, and add an eval for handle and staged media arriving in the same model call.
+3. **Typed program values.** Render `returns` and MCP output schemas as `TypedDict`s (roadmap item 14), so `r["respones"]` is a type error.
 4. **Nested-call hooks and planning** (roadmap item 1) are still open. Nested calls are now linked, but they still skip `ToolRunnerHooks`.
+5. **Retire or keep `expose: "both"`.** No built-in tool uses it since `f325b59d`. Keep it for third-party tools, or remove it and rely on `ptc.direct_tools` for "also direct".
 
 ### 6.4 Evals
 
@@ -182,8 +196,8 @@ The built-in subagent, harness and attach_media tools were written for one reade
 
 - `ToolSurface` lists every reachable tool once, each with a `ToolExposure`: `MODEL` (the definition is sent to the model) or `PROGRAMMATIC` (an async function stub inside the `execute_python` description). Search-discoverable tools will be added as another exposure kind.
 - `McpAgent.tool_surface()` builds it from `list_tools()` plus the runtime's current functions, so it matches exactly what the sandbox runs (tools added by subclasses are included). Agents without the capability fall back to "everything is `MODEL`" through `resolve_tool_surface`.
-- Direct tools carry a reason: `declared by tool` (`meta.fast_agent.ptc.expose = "direct"`) or the matching `ptc.direct_tools` pattern.
-- `ptc.nested_tools` (fnmatch patterns) forces tools to be code-only, overriding a declared `direct`/`both` exposure; `["*"]` gives a code-only run (env `PTC__NESTED_TOOLS='["*"]'`). Precedence: `direct_tools`, then `nested_tools`, then the tool's own declaration. Added after tb21-luna-medium-ptc-flex-004: with shell/process exposed as `both`, GPT-6 Luna made about 91% of calls directly and PTC was effectively optional. Shell and process are now `nested` again, so `--ptc` is code-only by default; `ptc.direct_tools: ["<shell>", "process"]` restores direct access when wanted.
+- Direct tools carry a reason: `declared by tool` (`meta.fast_agent.ptc.expose = "direct"`), `declared by tool; also callable from code` (`"both"`), or the matching `ptc.direct_tools` pattern.
+- `ptc.nested_tools` forces tools to be code-only (precedence in section 6.1); `["*"]` gives a code-only run (env `PTC__NESTED_TOOLS='["*"]'`). `ptc.direct_tools: ["<shell>", "process"]` restores direct shell access when wanted.
 - Context estimates use about 4 characters per token, shown as `~N tokens`: the definition size for model tools, and the stub size for programmatic functions. Stubs of at least about 500 tokens are flagged as large, because they bloat `execute_python`.
 
 | Command | Output |

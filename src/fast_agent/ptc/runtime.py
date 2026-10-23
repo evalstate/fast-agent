@@ -77,36 +77,44 @@ ToolDispatcher = Callable[[str, dict[str, Any], str], Awaitable[CallToolResult]]
 """Dispatch a nested call: (tool name, arguments, nested call id) -> result."""
 
 _INSTRUCTIONS = """\
-Run Python code to orchestrate and compose tool calls (programmatic tool calling).
-{input_note}
-- Code runs in Monty, a sandboxed subset of Python 3.14: no file access (`open`, `os` and \
-`pathlib` file operations raise PermissionError), network, environment or third-party packages.
-- Importable modules: asyncio, base64, binascii, bisect, collections, copy, csv, dataclasses, \
+Run Python that calls tools as functions. Only `print()` output and the final expression \
+value are returned to you: filter and aggregate large results in code.
+{input_note}\
+- Sandbox: a subset of Python 3.14 with no file access, network, environment or packages. \
+Importable modules: asyncio, base64, binascii, bisect, collections, copy, csv, dataclasses, \
 datetime, functools, hashlib, itertools, json, math, os.path, random, re, sys, time, tomllib, \
-typing, unicodedata. Many cover only part of their CPython API (functools has only reduce and \
-partial). Not available: enum, contextlib, io, string, struct, operator, heapq, decimal, \
-subprocess and anything else not listed.
+typing, unicodedata. Some are partial (functools has only reduce and partial). Not available: \
+enum, contextlib, io, string, struct, operator, heapq, decimal, subprocess.
 {shell_python_note}\
-- Every tool listed below is a pre-defined async function. Call it with keyword arguments \
-and `await`, e.g. `result = await some_tool(arg="value")`. Do not import or redefine them.
+- Each function below is a pre-defined async tool: `r = await tool(arg="value")`, keyword \
+arguments only, no import needed. `= ...` marks an optional parameter; pass `None` only \
+where the type allows it.
 {shared_note}\
-- Parameters shown with `= ...` are optional: omit them to use the tool's default. Pass `None` \
-only where the annotation allows it.
-- Run independent calls concurrently with `import asyncio` then \
-`a, b = await asyncio.gather(tool_a(x=1), tool_b(y=2))` (positional awaitables only).
-- Tool results are Python values: structured content as a dict, JSON text parsed into \
-dict/list, other text as str. A failing tool raises RuntimeError, which you can catch.
-- Images, audio and binary resources in tool results arrive as handle dicts with a `media_id` \
-key. To see media yourself, include its handles in the final expression, e.g. `shot` or \
-`[a, b]`; printed handles are not attached.
-- Only `print()` output and the value of the final expression are returned to you. Filter, \
-aggregate and summarise large tool results in code rather than returning them whole.
-- Variables and functions persist between calls, so later code can reuse earlier results.
-{type_check_note}\
-- Top-level `await` is supported. Rejected before running: class inheritance (so no custom \
-exception classes), method decorators (`@property`, `@staticmethod`, `@classmethod`), \
-generator functions/`yield`, `del`, `async with`/`async for`, `except*` and `import *`. \
-Generator expressions work. Functions have no attributes such as `__name__`.
+- Run independent calls together (asyncio is pre-imported): \
+`a, b = await asyncio.gather(f(x=1), g(y=2))`; keep dependent steps sequential. `settle(aw)` returns an exception instead of raising, so \
+`await asyncio.gather(*[settle(f(x=x)) for x in xs])` returns every result \
+(`return_exceptions=` is unsupported).
+{shell_batch_note}\
+- Results are Python values: structured content as a dict, JSON text parsed, other text as \
+str. A failing tool raises RuntimeError.
+- Images, audio and binary resources arrive as `{{"media_id": ...}}` handles. To see them, \
+return the handles in the final expression; printed handles are not attached. A structured \
+result with such blocks is `{{"structured_content": ..., "content": [...]}}`.
+- Variables persist between calls.{type_check_note}
+- Top-level `await` works. Unsupported: class inheritance, decorators, `yield`, `del`, \
+`async with`/`async for`, `except*`, `import *`.
+"""
+# Helpers defined in every sandbox session before model code runs. asyncio is pre-imported
+# because models routinely call asyncio.gather without importing it.
+_PRELUDE = """\
+import asyncio
+
+
+async def settle(awaitable):
+    try:
+        return await awaitable
+    except Exception as exc:
+        return exc
 """
 _FUNCTIONS_BLOCK = """
 Available functions:
@@ -114,22 +122,22 @@ Available functions:
 {stubs}```
 """
 _FREEFORM_INPUT_NOTE = (
-    "This is a FREEFORM tool: the tool input is the Python source itself, exactly as it "
-    "would appear in a .py file. Do not wrap it in JSON, quotes or markdown fences.\n"
+    "This is a FREEFORM tool: send the Python source itself, not JSON, quotes or markdown fences.\n"
+)
+_SHELL_BATCH_NOTE = (
+    "- Run independent shell commands as separate gathered `shell` calls, not chained with "
+    "separators; each result keeps its own stdout, stderr and exit_code.\n"
 )
 _SHELL_PYTHON_NOTE = (
-    "- For full CPython or packages unavailable in Monty, use a shell tool to run a Python "
-    "script (e.g. `python3 script.py`). This uses the shell tool's environment and permissions, "
-    "not Monty's sandbox.\n"
+    "- For full CPython or packages, run a script with the shell tool (e.g. `python3 x.py`), "
+    "outside this sandbox.\n"
 )
 _SHARED_NOTE = (
-    "- {functions} can also be called directly as tools, outside this code. Call them directly "
-    "for a one-off step, especially one whose text holds quotes, heredocs or source code, "
-    "and from code to run several steps or process their results.\n"
+    "- {functions} can also be called directly as tools: directly for a one-off step, "
+    "especially with quotes, heredocs or source code; from code for several steps or to "
+    "process results.\n"
 )
-_TYPE_CHECK_NOTE = (
-    "- Code is type-checked against these signatures first; on type errors nothing runs.\n"
-)
+_TYPE_CHECK_NOTE = " Code is type-checked against these signatures first; on errors nothing runs."
 
 
 @dataclass(slots=True)
@@ -181,6 +189,7 @@ class ProgrammaticToolRuntime:
         # Functions whose tools the model can also call directly.
         self._shared_functions: tuple[str, ...] = ()
         self._has_shell_tools = False
+        self._has_nested_shell_tools = False
         self._tool_format: PtcToolFormat = "json"
         self._stubs = render_stubs({})
         self._pool: AsyncMonty | None = None
@@ -212,6 +221,7 @@ class ProgrammaticToolRuntime:
         self._has_shell_tools = any(
             is_shell_command_tool_name(tool.name) for tool in (*direct, *nested)
         )
+        self._has_nested_shell_tools = any(is_shell_command_tool_name(tool.name) for tool in nested)
         self._functions = build_functions(nested)
         self._nested_tools = {tool.name: tool for tool in nested}
         direct_names = {tool.name for tool in direct}
@@ -261,6 +271,7 @@ class ProgrammaticToolRuntime:
         shared = ", ".join(f"`{name}`" for name in self._shared_functions)
         return _INSTRUCTIONS.format(
             shell_python_note=_SHELL_PYTHON_NOTE if self._has_shell_tools else "",
+            shell_batch_note=_SHELL_BATCH_NOTE if self._has_nested_shell_tools else "",
             shared_note=_SHARED_NOTE.format(functions=shared) if shared else "",
             input_note=_FREEFORM_INPUT_NOTE if self._tool_format == "freeform" else "",
             type_check_note=_TYPE_CHECK_NOTE if self._settings.type_check else "",
@@ -487,6 +498,8 @@ class ProgrammaticToolRuntime:
             },
         )
         self._session = await self._session_stack.enter_async_context(session)
+        # Defined in the sandbox (not a host function) so it can await sandbox coroutines.
+        await self._session.feed_run(_PRELUDE)
         self._session_stubs = self._stubs
         return self._session, restarted
 

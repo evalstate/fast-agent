@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING
 
 from fast_agent.commands.renderers.markdown_blocks import (
@@ -27,7 +28,12 @@ if TYPE_CHECKING:
     from fast_agent.commands.tool_summaries import ProviderToolSummary, ToolsListing, ToolSummary
     from fast_agent.tools.tool_surface import ProgrammaticSurface, SurfaceTool, ToolSurface
 
-TOOLS_LIST_HINT = "`/tools --all` lists signatures · `/tools <name>` shows one function"
+TOOLS_LIST_HINT = (
+    "`/tools --all` lists signatures · `/tools <name>` shows one function · "
+    "`/tools ptc` shows the full code tool description"
+)
+PTC_QUERY = "ptc"
+"""``/tools ptc`` shows the code tool description exactly as the model receives it."""
 
 
 def render_tool_schema_markdown(tool: "Tool", *, preamble: "Sequence[str]" = ()) -> str:
@@ -74,6 +80,38 @@ def _render_code_tool_markdown(
             "\n".join(lines),
         ),
     )
+
+
+def render_ptc_description_markdown(surface: "ToolSurface") -> str | None:
+    """Render the code tool description verbatim, with its stubs; None when PTC is off."""
+    ptc = surface.programmatic
+    code_tool = surface.find(ptc.tool_name) if ptc is not None else None
+    if ptc is None or code_tool is None:
+        return None
+    description = code_tool.tool.description or ""
+    longest_run = max((len(run) for run in re.findall(r"`+", description)), default=0)
+    fence = "`" * max(3, longest_run + 1)
+    return "\n\n".join(
+        [
+            f"# PTC: {escape_markdown_text(ptc.tool_name)} description",
+            f"_{escape_markdown_text(ptc_settings_label(ptc))}_",
+            (
+                f"Sent to the model verbatim as the {markdown_code_span(ptc.tool_name)} tool "
+                f"description ({format_token_estimate(code_tool.context_tokens)} with its schema)."
+            ),
+            f"{fence}text\n{description.rstrip()}\n{fence}",
+        ]
+    )
+
+
+def render_tool_query_markdown(name: str, surface: "ToolSurface") -> str | None:
+    """Render ``/tools <name>``: one tool, or the full PTC description for ``ptc``."""
+    surface_tool = surface.find(name)
+    if surface_tool is not None:
+        return render_tool_detail_markdown(surface_tool, surface)
+    if name.casefold() == PTC_QUERY:
+        return render_ptc_description_markdown(surface)
+    return None
 
 
 def render_tool_detail_markdown(surface_tool: "SurfaceTool", surface: "ToolSurface") -> str:

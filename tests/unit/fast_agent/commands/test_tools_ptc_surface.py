@@ -114,6 +114,27 @@ async def test_tools_detail_for_code_tool_lists_functions_without_stub_dump() ->
 
 
 @pytest.mark.asyncio
+async def test_tools_ptc_shows_the_code_tool_description_verbatim() -> None:
+    agent = _agent(ptc=True)
+    code_tool = next(
+        tool for tool in (await agent.list_tools()).tools if tool.name == PTC_TOOL_NAME
+    )
+
+    rendered = await _tools(agent, "ptc")
+
+    assert (code_tool.description or "").replace("\\", "").rstrip() in rendered
+    assert "Available functions:" in rendered and "async def list_tool(" in rendered
+    assert "/tools ptc" in await _tools(agent)
+
+
+@pytest.mark.asyncio
+async def test_tools_ptc_is_not_found_when_ptc_is_off() -> None:
+    rendered = await _tools(_agent(ptc=False), "ptc")
+
+    assert "Tool not found: ptc" in rendered
+
+
+@pytest.mark.asyncio
 async def test_tools_without_ptc_lists_only_model_tools() -> None:
     rendered = await _tools(_agent(ptc=False))
 
@@ -127,4 +148,4 @@ async def test_tools_without_ptc_lists_only_model_tools() -> None:
 async def test_tools_rejects_invalid_arguments(arguments: str) -> None:
     rendered = await _tools(_agent(ptc=True), arguments, ok=False)
 
-    assert "Usage: /tools [--all|<tool-name>]" in rendered
+    assert "Usage: /tools [--all|ptc|<tool-name>]" in rendered

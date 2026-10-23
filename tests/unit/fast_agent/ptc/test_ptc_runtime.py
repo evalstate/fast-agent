@@ -8,7 +8,18 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 import pytest_asyncio
-from mcp_types import CallToolResult, ImageContent, TextContent, Tool
+from mcp_types import (
+    AudioContent,
+    BlobResourceContents,
+    CallToolResult,
+    ContentBlock,
+    EmbeddedResource,
+    ImageContent,
+    ResourceLink,
+    TextContent,
+    TextResourceContents,
+    Tool,
+)
 from PIL import Image as PILImage
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -147,21 +158,69 @@ def test_cpython_guidance_requires_a_shell_command_tool(
     surface = runtime.surface(tools)
 
     assert surface.programmatic is not None
-    expected = (
+    for instructions in [tools[0].description or "", surface.programmatic.instructions]:
+        hints = [
+            line for line in instructions.splitlines() if line.startswith("- For full CPython")
+        ]
+        assert len(hints) == (1 if expect_hint else 0)
+        assert ("- Run independent shell commands" in instructions) is (
+            expect_hint and exposure in ("nested", "both")
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("type_check", [True, False])
+async def test_settle_helper_and_tool_are_both_callable(type_check: bool) -> None:
+    runtime = ProgrammaticToolRuntime(
+        ProgrammaticToolCallingSettings(enabled=True, type_check=type_check)
+    )
+    tools = runtime.model_tools(
         [
-            (
-                "- For full CPython or packages unavailable in Monty, use a shell tool to run a Python "
-                "script (e.g. `python3 script.py`). This uses the shell tool's environment and permissions, "
-                "not Monty's sandbox."
+            Tool(
+                name="settle",
+                input_schema={
+                    "type": "object",
+                    "properties": {"invoice_id": {"type": "string"}},
+                    "required": ["invoice_id"],
+                },
             )
         ]
-        if expect_hint
-        else []
     )
-    for instructions in [tools[0].description or "", surface.programmatic.instructions]:
-        assert [
-            line for line in instructions.splitlines() if line.startswith("- For full CPython")
-        ] == expected
+    function_name = next(iter(runtime.functions))
+    assert function_name != "settle"
+    assert f"async def {function_name}(*, invoice_id: str)" in (tools[0].description or "")
+    dispatch = RecordingDispatcher()
+    try:
+        result = await runtime.execute(
+            {"code": f"await settle({function_name}(invoice_id='123'))"}, dispatch
+        )
+        assert not result.is_error, _text(result)
+        assert dispatch.calls == [("settle", {"invoice_id": "123"})]
+        assert json.loads(_text(result).split("Result:\n", 1)[1])["tool"] == "settle"
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_settle_gathers_every_result_and_survives_session_reset(runtime) -> None:
+    """``settle`` is the allSettled pattern: Monty's gather() has no return_exceptions.
+
+    asyncio is pre-imported along with it, so the snippet needs no import.
+    """
+    dispatch = RecordingDispatcher()
+    code = (
+        "rs = await asyncio.gather(settle(orders__get_orders(customer_id='a')), "
+        "settle(delete_everything()), settle(orders__get_orders(customer_id='b')))\n"
+        "[type(r).__name__ for r in rs]"
+    )
+
+    first = await runtime.execute({"code": code}, dispatch)
+    runtime.invalidate_session()
+    after_reset = await runtime.execute({"code": code}, dispatch)
+
+    for result in (first, after_reset):
+        assert not result.is_error, _text(result)
+        assert _text(result).endswith('Result:\n["dict", "RuntimeError", "dict"]')
 
 
 def test_cpython_guidance_is_removed_when_shell_tool_is_removed() -> None:
@@ -390,7 +449,7 @@ async def test_tool_documentation_is_safe_python_source(runtime) -> None:
         [
             Tool(
                 name="documented",
-                description="Read C:\\Users\\name, \"\"\"quoted\"\"\" and '''quoted'''.\nNext line.\x00",
+                description='Read C:\\Users\\name, """quoted""" and \'\'\'quoted\'\'\'.\nNext line.\x00 "end"',
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -649,6 +708,40 @@ async def test_referenced_definitions_are_typed_and_checked(runtime) -> None:
     assert not accepted.is_error, _text(accepted)
 
 
+def test_return_shape_documents_fields_compactly() -> None:
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
+    returns = {
+        "type": "object",
+        "properties": {
+            "items": {"type": "array", "items": {"$ref": "#/$defs/Item"}},
+            "next": {"type": ["string", "null"]},
+        },
+        "required": ["items"],
+        "$defs": {
+            "Item": {
+                "type": "object",
+                "properties": {"id": {"type": "string"}, "kind": {"enum": ["a", "b"]}},
+                "required": ["id", "kind"],
+            }
+        },
+    }
+    described = {
+        "type": "object",
+        "properties": {"code": {"type": "integer", "description": "Exit code."}},
+        "required": ["code"],
+    }
+    tools = [
+        Tool(name="page", input_schema={"type": "object"}, output_schema=returns),
+        Tool(name="run", input_schema={"type": "object"}, output_schema=described),
+    ]
+
+    description = runtime.model_tools(tools)[0].description or ""
+
+    assert 'Returns: {items: list[{id: str, kind: "a" | "b"}], next?: str | None}' in description
+    assert "Returns: {\n        code: int,  # Exit code.\n    }" in description
+    assert "JSON schema" not in description
+
+
 def test_tools_declare_their_exposure_and_program_return_type() -> None:
     runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
     control = Tool(
@@ -667,7 +760,7 @@ def test_tools_declare_their_exposure_and_program_return_type() -> None:
 
     assert [tool.name for tool in direct] == ["slash_command"]
     assert "async def delegate() -> dict[str, Any]:" in (code_tool.description or "")
-    assert '"answer"' in (code_tool.description or "")
+    assert "Returns: {answer?: str}" in (code_tool.description or "")
     assert "slash_command" not in (code_tool.description or "")
 
 
@@ -695,6 +788,82 @@ async def test_media_reaches_the_model_only_when_the_script_returns_its_handle(r
     assert [block.type for block in returned.content] == ["text", "image"]
     image = returned.content[1]
     assert isinstance(image, ImageContent) and image.data == _PIXEL
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("extra_kind", [None, "image", "audio", "blob", "text_resource"])
+@pytest.mark.parametrize(
+    "payload",
+    [{}, {"media": {"caption": "important"}, "content": "original", "structured_content": 42}],
+)
+async def test_structured_results_preserve_payload_and_artifacts(
+    runtime, extra_kind: str | None, payload: dict[str, Any]
+) -> None:
+    link = ResourceLink(type="resource_link", uri="https://example.com/report.csv", name="report")
+    blocks: list[ContentBlock] = [
+        TextContent(type="text", text="Superseded by structured content"),
+        link,
+    ]
+    match extra_kind:
+        case "image":
+            blocks.append(ImageContent(type="image", data=_PIXEL, mime_type="image/png"))
+        case "audio":
+            blocks.append(AudioContent(type="audio", data="AA==", mime_type="audio/wav"))
+        case "blob":
+            blocks.append(
+                EmbeddedResource(
+                    type="resource",
+                    resource=BlobResourceContents(
+                        uri="file:///report.pdf", blob="AA==", mime_type="application/pdf"
+                    ),
+                )
+            )
+        case "text_resource":
+            blocks.append(
+                EmbeddedResource(
+                    type="resource",
+                    resource=TextResourceContents(uri="file:///notes.txt", text="Artifact notes"),
+                )
+            )
+    tool_result = CallToolResult(content=blocks, structured_content=payload)
+
+    async def dispatch(name: str, arguments: dict[str, Any], call_id: str) -> CallToolResult:
+        return tool_result
+
+    result = await runtime.execute({"code": "await orders__get_orders(customer_id='a')"}, dispatch)
+
+    assert not result.is_error, _text(result)
+    value = json.loads(_text(result).split("Result:\n", 1)[1].splitlines()[0])
+    assert value["structured_content"] == payload
+    assert value["content"][0] == {
+        "type": "resource_link",
+        "uri": str(link.uri),
+        "name": link.name,
+    }
+    assert len(value["content"]) == len(blocks) - 1
+    if extra_kind in ("image", "audio", "blob"):
+        assert value["content"][1]["media_id"]
+        assert result.content[1:] == blocks[2:]
+    else:
+        assert len(result.content) == 1
+        if extra_kind == "text_resource":
+            assert value["content"][1] == "Artifact notes"
+    assert tool_result.structured_content == payload
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [{}, {"media": {"caption": "important"}}])
+async def test_structured_results_without_artifacts_keep_their_shape(runtime, payload) -> None:
+    async def dispatch(name: str, arguments: dict[str, Any], call_id: str) -> CallToolResult:
+        return CallToolResult(
+            content=[TextContent(type="text", text="Superseded by structured content")],
+            structured_content=payload,
+        )
+
+    result = await runtime.execute({"code": "await orders__get_orders(customer_id='a')"}, dispatch)
+
+    assert not result.is_error, _text(result)
+    assert json.loads(_text(result).split("Result:\n", 1)[1]) == payload
 
 
 @pytest.mark.asyncio
