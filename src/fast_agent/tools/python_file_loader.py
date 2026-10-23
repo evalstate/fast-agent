@@ -57,7 +57,7 @@ def load_callable_from_file_spec(
     base_path: Path | None = None,
     module_name_prefix: str,
     messages: PythonCallableLoadMessages,
-    register_module: bool = False,
+    register_module: bool = True,
 ) -> Callable[..., Any]:
     parsed_spec = parse_callable_file_spec(
         spec,
@@ -81,6 +81,7 @@ def load_callable_from_file_spec(
 
     module = importlib.util.module_from_spec(spec_obj)
     if register_module:
+        # Decorators and postponed annotations resolve types through sys.modules.
         sys.modules[module_name] = module
     try:
         spec_obj.loader.exec_module(module)
