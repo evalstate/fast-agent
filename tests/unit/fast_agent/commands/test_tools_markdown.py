@@ -11,8 +11,19 @@ from fast_agent.commands.tool_summaries import (
     PROVIDER_MANAGED_CONNECTOR_SUFFIX,
     PROVIDER_MANAGED_MCP_SUFFIX,
     ProviderToolSummary,
+    ToolsListing,
     ToolSummary,
 )
+
+
+def _render(
+    summaries: list[ToolSummary],
+    *,
+    heading: str,
+    provider_summaries: list[ProviderToolSummary] | None = None,
+) -> str:
+    listing = ToolsListing(model=summaries, programmatic=[], provider=provider_summaries or [])
+    return render_tools_markdown(listing, heading=heading)
 
 
 def test_render_tool_schema_markdown_omits_undeclared_structured_output() -> None:
@@ -37,7 +48,7 @@ def test_render_tool_schema_markdown_includes_declared_structured_output() -> No
 
 
 def test_render_tools_markdown_includes_local_tool_details() -> None:
-    rendered = render_tools_markdown(
+    rendered = _render(
         [
             ToolSummary(
                 name="read_text_file",
@@ -58,7 +69,7 @@ def test_render_tools_markdown_includes_local_tool_details() -> None:
 
 
 def test_render_tools_markdown_handles_backticks_in_code_span_values() -> None:
-    rendered = render_tools_markdown(
+    rendered = _render(
         [
             ToolSummary(
                 name="dynamic_tool",
@@ -77,7 +88,7 @@ def test_render_tools_markdown_handles_backticks_in_code_span_values() -> None:
 
 
 def test_render_tools_markdown_trims_args_and_omits_blank_args() -> None:
-    rendered = render_tools_markdown(
+    rendered = _render(
         [
             ToolSummary(
                 name="dynamic_tool",
@@ -96,7 +107,7 @@ def test_render_tools_markdown_trims_args_and_omits_blank_args() -> None:
 
 
 def test_render_tools_markdown_trims_template_and_omits_blank_template() -> None:
-    rendered = render_tools_markdown(
+    rendered = _render(
         [
             ToolSummary(
                 name="with_template",
@@ -123,7 +134,7 @@ def test_render_tools_markdown_trims_template_and_omits_blank_template() -> None
 
 
 def test_render_tools_markdown_escapes_external_tool_metadata() -> None:
-    rendered = render_tools_markdown(
+    rendered = _render(
         [
             ToolSummary(
                 name="read_[file]",
@@ -143,7 +154,7 @@ def test_render_tools_markdown_escapes_external_tool_metadata() -> None:
 
 
 def test_render_tools_markdown_trims_header_title_and_omits_blank_suffix() -> None:
-    rendered = render_tools_markdown(
+    rendered = _render(
         [
             ToolSummary(
                 name="read_text_file",
@@ -162,20 +173,20 @@ def test_render_tools_markdown_trims_header_title_and_omits_blank_suffix() -> No
 
 
 def test_render_tools_markdown_normalizes_markdown_heading() -> None:
-    rendered = render_tools_markdown([], heading="# tools")
+    rendered = _render([], heading="# tools")
 
     assert rendered.startswith("# tools")
     assert not rendered.startswith("# #")
 
 
 def test_render_tools_markdown_escapes_heading() -> None:
-    rendered = render_tools_markdown([], heading="tools_[draft]*")
+    rendered = _render([], heading="tools_[draft]*")
 
     assert rendered == "# tools\\_\\[draft\\]\\*"
 
 
 def test_render_tools_markdown_truncates_long_description_blockquote() -> None:
-    rendered = render_tools_markdown(
+    rendered = _render(
         [
             ToolSummary(
                 name="verbose_tool",
@@ -194,7 +205,7 @@ def test_render_tools_markdown_truncates_long_description_blockquote() -> None:
 
 
 def test_render_tools_markdown_includes_provider_hosted_tools() -> None:
-    rendered = render_tools_markdown(
+    rendered = _render(
         [],
         heading="tools",
         provider_summaries=[
@@ -211,7 +222,7 @@ def test_render_tools_markdown_includes_provider_hosted_tools() -> None:
 
 
 def test_render_tools_markdown_uses_provider_summary_suffix() -> None:
-    rendered = render_tools_markdown(
+    rendered = _render(
         [],
         heading="tools",
         provider_summaries=[
@@ -228,7 +239,7 @@ def test_render_tools_markdown_uses_provider_summary_suffix() -> None:
 
 
 def test_render_tools_markdown_marks_disabled_provider_tool_state() -> None:
-    rendered = render_tools_markdown(
+    rendered = _render(
         [],
         heading="tools",
         provider_summaries=[
@@ -244,7 +255,7 @@ def test_render_tools_markdown_marks_disabled_provider_tool_state() -> None:
 
 
 def test_render_tools_markdown_marks_unknown_provider_tool_state() -> None:
-    rendered = render_tools_markdown(
+    rendered = _render(
         [],
         heading="tools",
         provider_summaries=[
@@ -261,7 +272,7 @@ def test_render_tools_markdown_marks_unknown_provider_tool_state() -> None:
 
 
 def test_render_tools_markdown_escapes_provider_tool_metadata() -> None:
-    rendered = render_tools_markdown(
+    rendered = _render(
         [],
         heading="tools",
         provider_summaries=[

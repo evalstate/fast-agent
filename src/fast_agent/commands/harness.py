@@ -492,15 +492,11 @@ def _execute_commands_command(arguments: str) -> str:
 
 def _parse_tools_argument(arguments: str) -> str | None:
     try:
-        tokens = split_commandline(arguments, syntax="posix")
+        argument = " ".join(split_commandline(arguments, syntax="posix"))
+        tools_handlers.parse_tools_query(argument)
     except ValueError as exc:
         raise AgentConfigError("Invalid /tools arguments", str(exc)) from exc
-    if len(tokens) > 1:
-        raise AgentConfigError(
-            "Invalid /tools arguments",
-            "Usage: /tools [summary|<tool-name>]",
-        )
-    return tokens[0] if tokens else None
+    return argument or None
 
 
 async def execute_harness_command(

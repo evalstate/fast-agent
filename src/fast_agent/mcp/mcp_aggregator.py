@@ -2018,7 +2018,7 @@ class MCPAggregator(ContextDependent):
         except Exception:
             # Don't let transport tracking errors break normal operation
             logger.debug(
-                "Failed to notify stdio transport activity for %s", server_name, exc_info=True
+                f"Failed to notify stdio transport activity for {server_name}", exc_info=True
             )
 
     async def get_server_instructions(self) -> dict[str, tuple[str | None, list[str]]]:
@@ -2243,8 +2243,7 @@ class MCPAggregator(ContextDependent):
             return metrics.snapshot()
         except Exception:
             logger.debug(
-                "Failed to snapshot transport metrics for server '%s'",
-                server_conn.server_name,
+                f"Failed to snapshot transport metrics for server '{server_conn.server_name}'",
                 exc_info=True,
             )
             return None

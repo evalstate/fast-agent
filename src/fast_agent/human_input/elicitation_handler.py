@@ -1,5 +1,7 @@
+import asyncio
 import json
 from typing import Any
+from weakref import WeakKeyDictionary
 
 from fast_agent.human_input.elicitation_state import elicitation_state
 from fast_agent.human_input.types import (
@@ -15,6 +17,14 @@ from fast_agent.ui.elicitation_style import (
     ELICITATION_STYLE,
 )
 from fast_agent.ui.progress_display import progress_display
+
+# Concurrent tool calls (parallel calls, PTC asyncio.gather, multi-request input rounds) can
+# elicit at once; the terminal can only show one form, so prompts take turns.
+_prompt_locks: WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = WeakKeyDictionary()
+
+
+def _prompt_lock() -> asyncio.Lock:
+    return _prompt_locks.setdefault(asyncio.get_running_loop(), asyncio.Lock())
 
 
 def _effective_agent_name(
@@ -145,17 +155,18 @@ async def elicitation_input_callback(
 
     try:
         request_id = request.request_id or ""
-        if elicitation_state.is_disabled(effective_server_name):
-            return _cancelled_response(request_id)
-
         schema = _requested_schema(request)
-        with herdr_blocked():
-            response = await _prompt_for_elicitation(
-                request=request,
-                agent_name=effective_agent_name,
-                server_name=effective_server_name,
-                schema=schema,
-            )
+        async with _prompt_lock():
+            # Checked after waiting, so choosing "disable" in one form cancels queued ones.
+            if elicitation_state.is_disabled(effective_server_name):
+                return _cancelled_response(request_id)
+            with herdr_blocked():
+                response = await _prompt_for_elicitation(
+                    request=request,
+                    agent_name=effective_agent_name,
+                    server_name=effective_server_name,
+                    schema=schema,
+                )
         return HumanInputResponse(
             request_id=request_id,
             response=response.strip(),

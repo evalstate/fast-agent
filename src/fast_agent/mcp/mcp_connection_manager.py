@@ -664,8 +664,7 @@ async def _run_subscription_loop(server_conn: ServerConnection) -> None:
             server_conn.subscription_state = "error"
             _record_listen_transport_event(server_conn, "error", detail=str(exc))
             logger.debug(
-                "%s: subscription stream failed",
-                server_conn.server_name,
+                f"{server_conn.server_name}: subscription stream failed",
                 exc_info=True,
             )
         finally:
@@ -1261,8 +1260,7 @@ class MCPConnectionManager(ContextDependent):
         timeout_action: str,
     ) -> ServerConnection:
         logger.info(
-            "%s: Received authentication challenge; retrying with OAuth enabled",
-            server_name,
+            f"{server_name}: Received authentication challenge; retrying with OAuth enabled"
         )
         self._oauth_required_servers.add(server_name)
         await self._clear_running_server_state(server_name, server_conn)

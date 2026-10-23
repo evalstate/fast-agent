@@ -84,6 +84,10 @@ class ModelParameters(BaseModel):
     shell_tool_profile: ResolvedShellToolProfile | None = None
     """Optional model-specific shell contract selected when shell tool profile is auto."""
 
+    ptc_tool_format: Literal["json", "freeform"] | None = None
+    """Default input format of the programmatic tool calling code tool when
+    ``ptc.tool_format`` is auto. ``None`` means JSON."""
+
     tool_input_stream_delta_limit: int | None = Field(default=None, ge=1)
     """Abort and retry a Responses stream attempt when one tool call's streamed input
     exceeds this many delta events (about one token each); guards against runaway
@@ -686,6 +690,8 @@ class ModelDatabase:
         # (Responses custom-grammar) contract named "shell".
         shell_tool_profile="freeform_shell",
         shell_edit_tool="write_text_file",
+        # Like the shell, PTC code is sent as raw Python through a custom-grammar tool.
+        ptc_tool_format="freeform",
         text_verbosity_spec=TextVerbositySpec(default="low"),
         response_transports=("sse", "websocket"),
         response_websocket_providers=(Provider.RESPONSES, Provider.CODEX_RESPONSES),

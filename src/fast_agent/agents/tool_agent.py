@@ -198,6 +198,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 name=tool.name,
                 description=tool.description,
                 input_schema=tool.parameters,
+                meta=dict(tool.meta) if tool.meta else None,
             )
         )
 
@@ -212,6 +213,13 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         if tool is None or not isinstance(tool.meta, Mapping):
             return None
         metadata = dict(tool.meta)
+        fast_agent_meta = metadata.get("fast_agent")
+        if isinstance(fast_agent_meta, Mapping) and "ptc" in fast_agent_meta:
+            # PTC exposure options describe the tool surface, not a call; keep them out of
+            # the per-call metadata that is displayed and persisted with history.
+            metadata["fast_agent"] = {
+                key: value for key, value in fast_agent_meta.items() if key != "ptc"
+            }
         return metadata or None
 
     def resolve_stream_tool_metadata(self, tool_name: str) -> Mapping[str, Any] | None:

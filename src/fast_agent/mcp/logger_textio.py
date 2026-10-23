@@ -46,7 +46,7 @@ class LoggerTextIO(io.StringIO):
         try:
             self._on_line(line)
         except Exception:
-            logger.debug("%s: stderr line hook failed", self.server_name, exc_info=True)
+            logger.debug(f"{self.server_name}: stderr line hook failed", exc_info=True)
 
     def write(self, s: str) -> int:
         """

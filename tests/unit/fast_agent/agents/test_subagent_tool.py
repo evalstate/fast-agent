@@ -35,8 +35,12 @@ from fast_agent.agents.subagent_tool import (
 )
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks
-from fast_agent.config import MCPServerSettings
-from fast_agent.constants import FAST_AGENT_SUBAGENT_RESULT_METADATA, FAST_AGENT_TOOL_METADATA
+from fast_agent.config import MCPServerSettings, ProgrammaticToolCallingSettings, Settings
+from fast_agent.constants import (
+    FAST_AGENT_PTC_CALLS,
+    FAST_AGENT_SUBAGENT_RESULT_METADATA,
+    FAST_AGENT_TOOL_METADATA,
+)
 from fast_agent.context import Context
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
@@ -56,6 +60,7 @@ from fast_agent.mcp.helpers.content_helpers import get_text, text_content
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp_server_registry import ServerRegistry
+from fast_agent.ptc import PTC_TOOL_NAME
 from fast_agent.session import (
     Session,
     SessionChildLinkSnapshot,
@@ -66,6 +71,7 @@ from fast_agent.session import (
 )
 from fast_agent.session.trace_export_atif import AtifRunSource, build_atif_trajectory
 from fast_agent.tools.execution_environment import TemporaryArtifact
+from fast_agent.tools.invocation_context import outer_tool_call_id
 from fast_agent.tools.local_shell_executor import LocalEnvironment
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -2357,3 +2363,82 @@ async def test_parallel_subagent_monitor_rows_have_distinct_identity_and_cleanup
     assert all(events[-1].action == ProgressAction.READY for events in rows_by_name.values())
     assert not [event for event in progress.events if event.agent_name == "parent"]
     assert progress._taskmap == {}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_ptc_subagents_return_program_values_and_link_to_the_code_call(tmp_path) -> None:
+    pytest.importorskip("pydantic_monty")
+    environment = LocalEnvironment(
+        logger=get_logger(__name__),
+        working_directory=tmp_path,
+    )
+    parent = McpAgent(
+        AgentConfig("parent", model="passthrough", subagents=True, shell=True),
+        shell_environment=environment,
+        context=Context(
+            config=Settings(ptc=ProgrammaticToolCallingSettings(enabled=True)),
+            server_registry=ServerRegistry(),
+        ),
+    )
+    created: list[InspectingLLM] = []
+    await parent.attach_llm(inspecting_factory(created))
+    parent.enable_subagent_trajectory_capture()
+    assert install_subagent_tool(parent)
+
+    code_tool = (await parent.list_tools()).tools[0]
+    [subagent_stub] = [
+        line for line in (code_tool.description or "").splitlines() if "def subagent(" in line
+    ]
+    assert "label: str | None = ..." in subagent_stub
+    assert subagent_stub.endswith("-> dict[str, Any]:")
+
+    code = (
+        "import asyncio\n"
+        "rs = await asyncio.gather(\n"
+        "    subagent(message='first', label='alpha'), subagent(message='second', label='beta')\n"
+        ")\n"
+        "[(r['label'], r['response'].split(' |')[0], r['transcript_path'] is not None) for r in rs]"
+    )
+    request = Prompt.assistant(
+        tool_calls={
+            "parent-call": CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(name=PTC_TOOL_NAME, arguments={"code": code}),
+            )
+        }
+    )
+
+    result = await parent.run_tools(request)
+
+    assert result.tool_results is not None
+    code_result = result.tool_results["parent-call"]
+    assert not code_result.is_error, get_text(code_result.content[0])
+    assert '[["alpha", "first", true], ["beta", "second", true]]' in (
+        get_text(code_result.content[0]) or ""
+    )
+    assert code_result.meta is not None
+    nested = code_result.meta[FAST_AGENT_PTC_CALLS]
+    assert len(nested) == 2
+    for call in nested:
+        assert outer_tool_call_id(call["id"]) == "parent-call"
+        assert call[FAST_AGENT_SUBAGENT_RESULT_METADATA]["parent_tool_call_id"] == call["id"]
+
+    trajectory = build_atif_trajectory(
+        AtifRunSource(
+            session_id="run-ptc",
+            agent_name=parent.name,
+            model_name="passthrough",
+            provider="fast-agent",
+            history=[request, result],
+            message_timestamps=(None, None),
+            transient_child_trajectories=parent.subagent_trajectory_records,
+        )
+    )
+    assert trajectory.subagent_trajectories is not None
+    assert len(trajectory.subagent_trajectories) == 2
+    observation = next(step.observation for step in trajectory.steps if step.observation)
+    [observed] = [item for item in observation.results if item.source_call_id == "parent-call"]
+    assert len(observed.subagent_trajectory_ref or []) == 2
+    await parent.shutdown()
+    await environment.close()

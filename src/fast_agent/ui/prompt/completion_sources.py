@@ -1413,7 +1413,11 @@ def _tools_command_completions(
         return []
 
     entries = completer._run_async_completion(completer._list_tool_completion_entries) or []
-    candidates = entries if prefix == "/tool " else [("summary", "List available tools"), *entries]
+    candidates = (
+        entries
+        if prefix == "/tool "
+        else [("--all", "List every tool, including PTC function signatures"), *entries]
+    )
     return [
         Completion(
             name,

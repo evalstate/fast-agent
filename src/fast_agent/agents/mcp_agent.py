@@ -104,6 +104,7 @@ from fast_agent.mcp.tool_result_metadata import (
 from fast_agent.mcp.tool_result_spool import spool_tool_result
 from fast_agent.mcp.tool_result_truncation import bound_tool_result_for_llm
 from fast_agent.paths import resolve_home_paths
+from fast_agent.ptc import PTC_TOOL_NAME, ProgrammaticToolRuntime
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_TOOL_NAME
@@ -119,6 +120,7 @@ from fast_agent.tools.filesystem_tool_definitions import (
     WRITE_TEXT_FILE_TOOL_NAME,
 )
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME, SkillReader
+from fast_agent.tools.tool_surface import ToolSurface
 from fast_agent.types import (
     PromptMessageExtended,
     RequestParams,
@@ -288,6 +290,7 @@ class McpAgent(ABC, ToolAgent):
         # set with the "attach" method
         self._llm: FastAgentLLMProtocol | None = None
         self._codex_web_search = CodexWebSearchAdapter(self)
+        self._ptc_runtime: ProgrammaticToolRuntime | None = None
 
         # Instantiate human input tool once if enabled in config
         self._human_input_tool = self._initial_human_input_tool()
@@ -463,6 +466,8 @@ class McpAgent(ABC, ToolAgent):
         await self._close_transient_artifact_store()
         if self._shell_runtime is not None:
             await self._shell_runtime.close()
+        if self._ptc_runtime is not None:
+            await self._ptc_runtime.close()
         await self._aggregator.__aexit__(exc_type, exc_val, exc_tb)
 
     async def initialize(self) -> None:
@@ -488,6 +493,8 @@ class McpAgent(ABC, ToolAgent):
         await self._close_transient_artifact_store()
         if self._shell_runtime is not None:
             await self._shell_runtime.close()
+        if self._ptc_runtime is not None:
+            await self._ptc_runtime.close()
         await self._aggregator.close()
         await self._finalize_shutdown(run_hook=False)
 
@@ -1644,6 +1651,23 @@ class McpAgent(ABC, ToolAgent):
         Returns:
             Result of the tool call
         """
+        ptc_runtime = self._programmatic_tool_runtime()
+        if ptc_runtime is not None and name == PTC_TOOL_NAME:
+            return await self._call_ptc_tool(
+                ptc_runtime, arguments or {}, tool_use_id, request_params=request_params
+            )
+        return await self._dispatch_tool_call(
+            name, arguments, tool_use_id, request_params=request_params
+        )
+
+    async def _dispatch_tool_call(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        tool_use_id: str | None = None,
+        *,
+        request_params: RequestParams | None = None,
+    ) -> CallToolResult:
         with self._codex_web_search.turn(request_params):
             self._codex_web_search.sync()
             denial = await self._codex_web_search.permission_error(name, arguments, tool_use_id)
@@ -1667,6 +1691,95 @@ class McpAgent(ABC, ToolAgent):
             tool_use_id,
             request_tool_handler=request_tool_handler,
         )
+
+    def _programmatic_tool_runtime(self) -> ProgrammaticToolRuntime | None:
+        """Return the PTC runtime when programmatic tool calling is enabled."""
+        if self._ptc_runtime is None and self._context and self._context.config:
+            settings = self._context.config.ptc
+            if settings.enabled:
+                self._ptc_runtime = ProgrammaticToolRuntime(settings)
+        return self._ptc_runtime
+
+    async def _call_ptc_tool(
+        self,
+        runtime: ProgrammaticToolRuntime,
+        arguments: dict[str, Any],
+        tool_use_id: str | None,
+        *,
+        request_params: RequestParams | None,
+    ) -> CallToolResult:
+        """Run execute_python, reporting it to ACP as the parent of its nested calls."""
+        # Local import: the fast_agent.acp package is only needed on this path.
+        from fast_agent.acp.tool_call_context import acp_tool_call_context
+
+        tool_handler = self._get_tool_handler(request_params)
+        acp_call_id: str | None = None
+        if tool_handler is not None:
+            with suppress(Exception):
+                acp_call_id = await tool_handler.on_tool_start(
+                    PTC_TOOL_NAME, "local", arguments, tool_use_id
+                )
+
+        async def dispatch(
+            nested_name: str, nested_arguments: dict[str, Any], call_id: str
+        ) -> CallToolResult:
+            with acp_tool_call_context(parent_tool_call_id=acp_call_id):
+                return await self._call_ptc_nested_tool(
+                    nested_name, nested_arguments, call_id, request_params=request_params
+                )
+
+        result = await runtime.execute(arguments, dispatch, parent_call_id=tool_use_id)
+        if tool_handler is not None and acp_call_id is not None:
+            error = None
+            if result.is_error:
+                error = "\n".join(
+                    block.text for block in result.content if isinstance(block, TextContent)
+                )
+            with suppress(Exception):
+                await tool_handler.on_tool_complete(
+                    acp_call_id,
+                    not result.is_error,
+                    None if result.is_error else list(result.content),
+                    error,
+                )
+        return result
+
+    async def _call_ptc_nested_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        call_id: str,
+        *,
+        request_params: RequestParams | None,
+    ) -> CallToolResult:
+        """Run a tool called from PTC sandbox code through the normal dispatch path."""
+        is_subagent = self._is_builtin_subagent_tool(self._tool_display_metadata(name))
+        if is_subagent:
+            self._show_subagent_message(arguments)
+        else:
+            self.display.show_tool_call(
+                name,
+                arguments,
+                name=self._name,
+                tool_call_id=call_id,
+                source_label="PTC",
+            )
+        started = time.perf_counter()
+        result = await self._dispatch_tool_call(
+            name, arguments, call_id, request_params=request_params
+        )
+        if is_subagent:
+            await self._show_subagent_result(result)
+        else:
+            self.display.show_tool_result(
+                result,
+                name=self._name,
+                tool_name=name,
+                timing_ms=round((time.perf_counter() - started) * 1000, 2),
+                tool_call_id=call_id,
+                source_label="PTC",
+            )
+        return result
 
     async def _call_local_tool(
         self,
@@ -2442,6 +2555,8 @@ class McpAgent(ABC, ToolAgent):
         is_filesystem_runtime_tool: bool,
         route_to_namespaced_candidate: bool,
     ) -> dict[str, Any] | None:
+        if tool_name == PTC_TOOL_NAME and self._ptc_runtime is not None:
+            return self._ptc_runtime.tool_meta()
         if self._shell_runtime_enabled and self._shell_runtime:
             if self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name:
                 return self._shell_runtime.metadata(tool_args)
@@ -2490,6 +2605,8 @@ class McpAgent(ABC, ToolAgent):
         lookup_name = tool_name.strip()
         if not lookup_name:
             return None
+        if lookup_name == PTC_TOOL_NAME and self._ptc_runtime is not None:
+            return self._ptc_runtime.tool_meta()
         if (
             self._shell_runtime_enabled
             and self._shell_runtime
@@ -2622,6 +2739,8 @@ class McpAgent(ABC, ToolAgent):
 
     def clear(self, *, clear_prompts: bool = False) -> None:
         super().clear(clear_prompts=clear_prompts)
+        if self._ptc_runtime is not None:
+            self._ptc_runtime.invalidate_session()
         self._codex_web_search.history_loaded(None)
 
     def load_message_history(
@@ -2630,6 +2749,8 @@ class McpAgent(ABC, ToolAgent):
         if clear_state:
             # Reset provider/agent state without overwriting persisted search identity.
             super().clear(clear_prompts=True)
+            if self._ptc_runtime is not None:
+                self._ptc_runtime.invalidate_session()
         super().load_message_history(messages)
         self._codex_web_search.history_loaded(messages)
 
@@ -2651,7 +2772,24 @@ class McpAgent(ABC, ToolAgent):
             await self._additional_runtime_tools(),
         )
 
+        ptc_runtime = self._programmatic_tool_runtime()
+        if ptc_runtime is not None:
+            model_params = self._resolve_shell_model_params()
+            merged_tools = ptc_runtime.model_tools(
+                merged_tools,
+                tool_format=ptc_runtime.resolve_tool_format(
+                    model_params.ptc_tool_format if model_params is not None else None
+                ),
+            )
         return ListToolsResult(tools=merged_tools)
+
+    async def tool_surface(self) -> ToolSurface:
+        """Describe every tool the model can reach, including those only callable from PTC code."""
+        model_tools = (await self.list_tools()).tools
+        ptc_runtime = self._programmatic_tool_runtime()
+        if ptc_runtime is None:
+            return ToolSurface.direct(model_tools)
+        return ptc_runtime.surface(model_tools)
 
     @staticmethod
     def _append_unique_tools(
