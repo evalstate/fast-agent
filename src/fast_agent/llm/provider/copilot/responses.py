@@ -24,6 +24,7 @@ from fast_agent.llm.provider.openai.responses import (
     _ResponsesWsAttemptState,
     _ResponsesWsContext,
 )
+from fast_agent.llm.provider.openai.responses_raw_stream import open_raw_responses_stream
 from fast_agent.llm.provider.openai.responses_websocket import (
     ManagedWebSocketConnection,
     StatelessResponsesWsPlanner,
@@ -136,6 +137,22 @@ class CopilotResponsesLLM(ResponsesLLM):
         # headers belong on this client, without changing the process environment.
         client._custom_headers = headers
         return client
+
+    def _response_sse_stream(
+        self,
+        *,
+        client: AsyncOpenAI,
+        arguments: dict[str, Any],
+        timeout_seconds: float | None = None,
+    ):
+        # Copilot SSE does not keep response.id constant across lifecycle events,
+        # which the SDK's responses.stream() accumulator rejects (openai>=3.34).
+        return open_raw_responses_stream(
+            client=client,
+            arguments=arguments,
+            timeout_seconds=timeout_seconds,
+            label="Copilot Responses",
+        )
 
     def _base_responses_url(self) -> str:
         return self._provider_base_url()
