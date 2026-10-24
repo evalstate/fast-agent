@@ -4,6 +4,8 @@ import pytest
 
 from fast_agent import FastAgent
 from fast_agent.batch import BatchRunner, extract_structured_output, extract_text_output
+from fast_agent.batch.output import write_jsonl_record
+from fast_agent.batch.runner import _read_jsonl
 
 
 @pytest.mark.asyncio
@@ -39,6 +41,21 @@ async def test_batch_runner_returns_rows_and_artifact_paths(tmp_path):
     assert result.summary["processed_rows"] == 1
     assert result.artifact_paths["output"] == output_path
     assert result.artifact_paths["summary"] == summary_path
+
+
+@pytest.mark.parametrize("separator", ["\u0085", "\u2028", "\u2029", "\n"])
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+def test_batch_output_reader_preserves_line_separators_in_json_strings(
+    tmp_path, separator, newline
+):
+    output_path = tmp_path / "out.jsonl"
+    message = f"first{separator}second"
+    records = [{"id": 1, "result": message}, {"id": 2, "result": "next record"}]
+    with output_path.open("w", encoding="utf-8", newline=newline) as handle:
+        for record in records:
+            write_jsonl_record(handle, record)
+
+    assert _read_jsonl(output_path) == records
 
 
 @pytest.mark.asyncio
