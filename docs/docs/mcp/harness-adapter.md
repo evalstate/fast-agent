@@ -135,7 +135,8 @@ adapter.register_agent_tool(
 
 `render_arguments` uses the same `{{field}}` placeholder style as batch
 generation. Non-string fields are JSON encoded. Use `{{arguments_json}}` when
-you want the full argument object.
+you want the full argument object. This placeholder is reserved: an argument
+named `arguments_json` remains inside the full object rather than replacing it.
 
 If you omit `input_schema`, the tool accepts a single `message` argument and
 sends that text to the agent.

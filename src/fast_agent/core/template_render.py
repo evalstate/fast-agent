@@ -58,11 +58,10 @@ def render_mapping_template(
     json_placeholder: str,
 ) -> TemplateRenderResult:
     """Render a prompt template from mapping fields plus a full JSON placeholder."""
-    rendered_values: dict[str, str] = {
-        json_placeholder: json.dumps(dict(values), ensure_ascii=False, indent=2)
-    }
+    rendered_values: dict[str, str] = {}
     for field_name, value in values.items():
         rendered_values[field_name] = (
             value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
         )
+    rendered_values[json_placeholder] = json.dumps(dict(values), ensure_ascii=False, indent=2)
     return render_template_text(template, rendered_values)
