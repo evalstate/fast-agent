@@ -118,7 +118,7 @@ def _needs_shell_wrapper(command: str) -> bool:
             return True
         if char in _SHELL_EXPANSION_CHARS:
             return True
-        if char == "~" and at_word_start:
+        if char in {"~", "#"} and at_word_start:
             return True
         at_word_start = False
 

@@ -344,6 +344,8 @@ async def test_unquoted_shell_operator_still_forces_shell_wrapper() -> None:
         "ls ~/work",
         "sleep 1 &",
         "echo primary || echo fallback",
+        "touch build.log # ci-marker",
+        "# just a comment",
     ],
 )
 @pytest.mark.asyncio
@@ -361,6 +363,46 @@ async def test_common_shell_syntax_uses_shell_wrapper(command: str) -> None:
 
     _, create_params = conn.calls[0]
     assert_shell_wrapped(create_params, command)
+
+
+@pytest.mark.parametrize(
+    ("command", "expected_command", "expected_args"),
+    [
+        ("echo a#b", "echo", ["a#b"]),
+        ("curl https://example.com/p#frag", "curl", ["https://example.com/p#frag"]),
+        ('echo "#"', "echo", ["#"]),
+        pytest.param(
+            "echo '#'",
+            "echo",
+            ["#"],
+            marks=pytest.mark.skipif(os.name == "nt", reason="cmd.exe has no single quotes"),
+        ),
+        pytest.param(
+            "echo \\#",
+            "echo",
+            ["#"],
+            marks=pytest.mark.skipif(os.name == "nt", reason="cmd.exe has no backslash escapes"),
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_hash_inside_word_or_quotes_does_not_force_shell_wrapper(
+    command: str, expected_command: str, expected_args: list[str]
+) -> None:
+    runtime, conn = build_runtime(
+        responses=[
+            {"terminalId": "terminal-1"},
+            {"exitCode": 0, "signal": None},
+            {"output": "ok", "truncated": False, "exitCode": 0},
+            {},
+        ]
+    )
+
+    await runtime.execute({"command": command})
+
+    _, create_params = conn.calls[0]
+    assert create_params["command"] == expected_command
+    assert create_params["args"] == expected_args
 
 
 @pytest.mark.asyncio
