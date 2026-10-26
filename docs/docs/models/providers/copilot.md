@@ -109,6 +109,7 @@ not canonical and has no alias; use `copilot.claude-opus-5`.
 | `copilot.gpt-5.6-sol` | Responses |
 | `copilot.gpt-6-astra` | Responses |
 | `copilot.gpt-6.1-sol` | Responses |
+| `copilot.gpt-6.1-terra` | Responses |
 | `copilot.gpt-6-sol` | Responses |
 | `copilot.gpt-6-luna` | Responses |
 
@@ -118,7 +119,7 @@ with `(cp)`; this does not change the model name used in configuration.
 
 ## Structured output
 
-GPT-6 Astra/Sol/Luna and GPT-6.1 Sol use Responses JSON schema (`text.format`).
+GPT-6 Astra/Sol/Luna and GPT-6.1 Sol/Terra use Responses JSON schema (`text.format`).
 Opus 5.5 and Sonnet 5.5 select Messages JSON schema (`output_config.format`)
 automatically, without direct Anthropic beta headers. Regular tools can coexist
 with the schema; explicit `structured_tool_policy` overrides remain supported.

@@ -12,4 +12,5 @@
 | `sol` | `codexresponses.gpt-6.1-sol?reasoning=high` |
 | `sol56` | `codexresponses.gpt-5.6-sol?reasoning=high` |
 | `sol6` | `codexresponses.gpt-6-sol?reasoning=medium` |
-| `terra` | `codexresponses.gpt-5.6-terra?reasoning=high` |
+| `terra` | `codexresponses.gpt-6.1-terra?reasoning=high` |
+| `terra56` | `codexresponses.gpt-5.6-terra?reasoning=high` |

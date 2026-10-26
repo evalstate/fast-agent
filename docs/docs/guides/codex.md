@@ -28,7 +28,7 @@ This starts **fast-agent** pre-configured for a Codex-style coding workflow.
 - A `dev` coding agent for interactive software work
 - A bounded rg-first search helper backed by `codexspark`
 - WebSocket-capable transport for modern Codex/OpenAI models
-- Filesystem editing tools selected for the model: GPT-6 models (Astra, Sol, Luna) default to
+- Filesystem editing tools selected for the model: GPT-6/6.1 models (Astra, Sol, Terra, Luna) default to
   `write_text_file` plus `edit_file`; patch-oriented models use `apply_patch`
 - Preconfigured MCP targets available from `/mcp attach`
 
@@ -37,7 +37,7 @@ filesystem and **fast-agent** services. `AGENTS.md` is included automatically if
 present. Customise the agent by editing `.fast-agent/agent-cards/dev.md`.
 
 The GPT-6 writer/editor default applies to both Responses and Codex Responses,
-including the `astra`, `sol`, `luna` and `codexplan` aliases. To explicitly select the
+including the `astra`, `sol`, `terra`, `luna` and `codexplan` aliases. To explicitly select the
 Codex-style patch interface instead:
 
 ```yaml
@@ -76,9 +76,10 @@ Device login failures do not automatically switch to browser login. Credentials
 are stored in your OS keyring, with a secure file fallback. After that you can use
 Codex OAuth model aliases such as:
 
-- `codexplan` — GPT-6-Astra with medium reasoning
-- `sol` — GPT-6-Sol with medium reasoning
-- `luna` — GPT-6-Luna with medium reasoning
+- `codexplan` — GPT-6-Astra with high reasoning
+- `sol` — GPT-6.1-Sol with high reasoning
+- `terra` — GPT-6.1-Terra with high reasoning (`terra56` retains GPT-5.6-Terra)
+- `luna` — GPT-6-Luna with high reasoning
 
 If you prefer, you can also run model setup explicitly:
 

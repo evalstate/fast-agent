@@ -711,6 +711,10 @@ class ModelDatabase:
     # `none`/`minimal` effort (verified on Codex OAuth and Copilot Responses).
     OPENAI_GPT_61_SOL = OPENAI_GPT_6_ASTRA
 
+    # Terra supports none through max effort, with medium as the API default.
+    # https://developers.openai.com/api/docs/models/gpt-6.1-terra
+    OPENAI_GPT_61_TERRA = _with_fast(OPENAI_GPT_6_SOL_LUNA)
+
     # Freeform shell comes from Astra. The runaway-input limit is about 1.8x the
     # largest observed legitimate GPT-6 Luna tool input (35,438 tokens); observed
     # runaways streamed whitespace for 25-73 minutes.
@@ -1445,6 +1449,7 @@ class ModelDatabase:
         "gpt-5.6-luna": _with_fast(OPENAI_GPT_56_LUNA),
         "gpt-6-astra": OPENAI_GPT_6_ASTRA,
         "gpt-6.1-sol": OPENAI_GPT_61_SOL,
+        "gpt-6.1-terra": OPENAI_GPT_61_TERRA,
         "gpt-6-sol": OPENAI_GPT_6_SOL_LUNA,
         "gpt-6-luna": _with_fast(OPENAI_GPT_6_LUNA),
         "gpt-5.4-mini": OPENAI_GPT_54_SMALL.model_copy(
@@ -1592,6 +1597,7 @@ class ModelDatabase:
             for model, params in (
                 ("gpt-6-astra", OPENAI_GPT_6_ASTRA),
                 ("gpt-6.1-sol", OPENAI_GPT_61_SOL),
+                ("gpt-6.1-terra", OPENAI_GPT_61_TERRA),
                 ("gpt-6-sol", OPENAI_GPT_6_SOL_LUNA),
                 ("gpt-6-luna", _with_fast(OPENAI_GPT_6_LUNA)),
             )
@@ -1601,11 +1607,12 @@ class ModelDatabase:
             )
         }
     )
-    # Codex Responses defaults Astra, GPT-6.1 Sol and Luna to high effort, and serves
+    # Codex Responses defaults Astra, GPT-6.1 Sol/Terra and Luna to high effort, and serves
     # GPT-6.1 Sol with a 500k base window (the opt-in long-context window is unchanged).
     for _model, _window in (
         ("gpt-6-astra", None),
         ("gpt-6.1-sol", 500_000),
+        ("gpt-6.1-terra", None),
         ("gpt-6-luna", None),
     ):
         _PROVIDER_MODEL_OVERRIDES[(Provider.CODEX_RESPONSES, _model)] = _with_default_effort(

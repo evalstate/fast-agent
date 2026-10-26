@@ -578,7 +578,9 @@ def test_codexresponses_fast_service_tier_query_requires_model_support(
         ModelFactory.parse_model_string(f"codexresponses.{model_name}?service_tier=fast")
 
 
-@pytest.mark.parametrize("model_name", ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"])
+@pytest.mark.parametrize(
+    "model_name", ["gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna"]
+)
 def test_responses_gpt6_flex_service_tier_query(model_name: str) -> None:
     config = ModelFactory.parse_model_string(f"responses.{model_name}?service_tier=flex")
 
@@ -1592,6 +1594,9 @@ def test_long_context_false_overrides_preset(default: str) -> None:
     [
         ("astra", "high"),
         ("sol", "high"),
+        ("terra", "high"),
+        ("codexresponses.gpt-6.1-terra", "high"),
+        ("responses.gpt-6.1-terra", "medium"),
         ("luna", "high"),
         ("codexresponses.gpt-6-astra", "high"),
         ("codexresponses.gpt-6.1-sol", "high"),
@@ -1620,6 +1625,49 @@ def test_gpt6_reasoning_default_by_route_and_override(
         assert llm.reasoning_effort_spec.default.value == default
 
 
+@pytest.mark.parametrize(
+    "provider", [Provider.RESPONSES, Provider.CODEX_RESPONSES, Provider.COPILOT]
+)
+@pytest.mark.parametrize("effort", ["none", "low", "medium", "high", "xhigh", "max"])
+def test_terra_routes_build_responses_requests(provider: Provider, effort: str) -> None:
+    from fast_agent.llm.provider.copilot.responses import CopilotResponsesLLM
+    from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
+
+    model = f"{provider.value}.gpt-6.1-terra?reasoning={effort}"
+    agent = LlmAgent(AgentConfig(name="test"), context=Context(config=Settings()))
+    llm = ModelFactory.create_factory(model)(agent, context=agent.context)
+    expected_class = {
+        Provider.RESPONSES: ResponsesLLM,
+        Provider.CODEX_RESPONSES: CodexResponsesLLM,
+        Provider.COPILOT: CopilotResponsesLLM,
+    }[provider]
+    assert type(llm) is expected_class
+    assert isinstance(llm, ResponsesLLM)
+    assert llm.model_name == "gpt-6.1-terra"
+    if isinstance(llm, CopilotResponsesLLM):
+        from fast_agent.llm.provider.copilot.broker import CopilotEndpoint
+
+        llm._copilot_endpoint.set(
+            CopilotEndpoint(
+                model_id=llm.model_name,
+                wire_api="responses",
+                transport="websocket",
+                base_url="https://copilot.example",
+                headers={},
+            )
+        )
+    args = llm._build_response_args(
+        [], RequestParams(model=llm.model_name, system_prompt="instructions"), None
+    )
+    assert args["model"] == "gpt-6.1-terra"
+    assert args["reasoning"]["effort"] == effort
+    assert llm.resolved_model.provider == provider
+    assert any(
+        ModelFactory.resolve_model_spec(entry.model).wire_model_name == "gpt-6.1-terra"
+        for entry in ModelSelectionCatalog.list_current_entries(provider)
+    )
+
+
 @pytest.mark.parametrize("model", ["sol6", "responses.gpt-6-luna"])
 @pytest.mark.parametrize(("query", "expected"), [("", "medium"), ("?reasoning=none", "none")])
 def test_gpt_6_sol_luna_reasoning_default_and_none(model: str, query: str, expected: str) -> None:
@@ -1638,6 +1686,8 @@ def test_gpt_6_sol_luna_reasoning_default_and_none(model: str, query: str, expec
         # Codex serves GPT-6.1 Sol with a 500k base window; other routes keep 272k.
         ("sol", 872_000, 500_000),
         ("gpt-6.1-sol", 1_050_000, 272_000),
+        ("terra", 872_000, 272_000),
+        ("gpt-6.1-terra", 1_050_000, 272_000),
     ],
 )
 @pytest.mark.parametrize("query", ["", "?long_context=false", "?long_context=true", "?context=1m"])
