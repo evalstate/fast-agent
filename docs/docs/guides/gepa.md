@@ -295,7 +295,14 @@ Artifact evals often benefit from subprocess isolation. A failed candidate
 should usually produce side-info and artifacts, not corrupt the working tree or
 abort the optimization without evidence.
 
-## Make Trackio the default dashboard
+## Trackio dashboard (temporarily suspended)
+
+The `trackio` extra is temporarily suspended, and `gepa` no longer installs
+Trackio. Trackio requires `pillow<13`, which conflicts with fast-agent's
+security requirement of `pillow>=13.0.0`. GEPA optimization remains available
+without Trackio. The dashboard helpers and examples below are retained for
+environments with a compatible Trackio installation; use local evaluation
+artifacts and batch telemetry files in the meantime.
 
 GEPA runs can be long-lived. [Trackio](https://github.com/gradio-app/trackio) is
 recommended to provide a live view of optimizer progress, reflection cost, batch
@@ -355,21 +362,15 @@ Good Trackio screenshots for this guide would show:
 
 ## Call fast-agent from GEPA
 
-Install GEPA and Trackio support with the `gepa` optional dependency:
+Install GEPA with the `gepa` optional dependency:
 
 ```bash
 uv add "fast-agent-mcp[gepa]"
 ```
 
-PyPI packages cannot declare direct Git dependencies in extras, so the published
-extra depends on the latest PyPI GEPA release plus Trackio. Trackio-specific GEPA
-helpers require a GEPA release with Trackio support; until that support is
-available on PyPI, install the integration branch in your application
-environment:
-
-```bash
-uv add "gepa @ git+https://github.com/evalstate/gepa.git@feat/trackio"
-```
+This extra installs PyPI GEPA without Trackio. Trackio dashboard calls in the
+examples below require a compatible Trackio installation and a GEPA release
+with Trackio support; omit those calls while Trackio support is suspended.
 
 See the [Extension Reference](../ref/extension_reference/#gepa) for the exact
 dependency set and adapter class signatures.
