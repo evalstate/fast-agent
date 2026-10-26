@@ -226,6 +226,9 @@ def attach_process_program_value(
             **(result.meta or {}),
             FAST_AGENT_PTC_ERROR: _check_failure_message(status, exit_code, output),
         }
+        # A process stopped by another call reports terminated/cancelled without an error
+        # flag; check must still raise, and only error results raise in sandbox code.
+        result.is_error = True
         return result
     value = ShellProgramValue(
         stdout=output.stdout,

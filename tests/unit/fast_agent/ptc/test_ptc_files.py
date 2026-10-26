@@ -19,7 +19,7 @@ from fast_agent.constants import FAST_AGENT_PTC_CALLS, FAST_AGENT_PTC_VALUE
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ptc import PTC_TOOL_NAME
-from fast_agent.ptc.files import SandboxFilesystem, SandboxFileTools
+from fast_agent.ptc.files import SandboxFilesystem, SandboxFileTools, _OpenedContents
 from fast_agent.tools.filesystem_tool_definitions import build_read_text_file_tool
 from fast_agent.tools.local_shell_executor import LocalEnvironment
 from fast_agent.tools.shell_program_value import programmatic_shell_tool
@@ -488,6 +488,31 @@ async def test_file_access_uses_only_shells_that_return_shell_values() -> None:
     )
 
     assert (text, calls) == ("text", ["read_text_file"])
+
+
+def test_contents_read_ahead_by_open_are_bounded(monkeypatch) -> None:
+    monkeypatch.setattr("fast_agent.ptc.files._MAX_OPENED_BYTES", 10)
+    opened = _OpenedContents()
+
+    for name in ("a", "b", "c"):
+        opened.put((name, False), name * 6)
+
+    assert opened.pop(("a", False)) is None and opened.pop(("b", False)) is None
+    assert opened.pop(("c", False)) == "cccccc"
+    assert opened.pop(("c", False)) is None
+
+
+@pytest.mark.asyncio
+async def test_reads_after_eviction_fetch_the_file_again(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("fast_agent.ptc.files._MAX_OPENED_BYTES", 16)
+    for name in ("a", "b", "c"):
+        (tmp_path / f"{name}.txt").write_text(name * 12)
+    code = """
+handles = [open(f"{name}.txt") for name in ("a", "b", "c")]  # a is evicted by c
+[handle.read() for handle in handles]
+"""
+    async with _agent(tmp_path) as (agent, _shell):
+        assert _value(await _run(agent, code)) == ["a" * 12, "b" * 12, "c" * 12]
 
 
 @pytest.mark.asyncio

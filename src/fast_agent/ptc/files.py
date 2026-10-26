@@ -21,6 +21,7 @@ import errno
 import os
 import re
 import shlex
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
@@ -78,6 +79,8 @@ _WRITE_OPERATIONS = frozenset(
 # Raw bytes per shell write; base64 inflates them by 4/3, staying well under Linux's 128 KiB
 # limit on a single command-line argument.
 _SHELL_WRITE_CHUNK = 64 * 1024
+# Contents open() read ahead of read() are kept up to this size in total.
+_MAX_OPENED_BYTES = 16 * 1024 * 1024
 # Buffered writes are committed early past this size, bounding host memory per script.
 _MAX_BUFFERED_WRITE_BYTES = 8 * 1024 * 1024
 # Sandbox reads load the whole file into the sandbox, even for read(n). Binary data crosses the
@@ -229,6 +232,43 @@ class _PendingWrite:
         )
 
 
+class _OpenedContents:
+    """Contents open() read, kept for the read() that usually follows, bounded in size.
+
+    Monty keeps no live file handles, so close() never reaches the host and an opened file that
+    is never read would otherwise stay cached until the script ends, outside Monty's memory
+    limit. Evicting the oldest entries is safe: a later read just fetches the file again.
+    """
+
+    def __init__(self) -> None:
+        self._entries: OrderedDict[tuple[str, bool], str | bytes] = OrderedDict()
+        self._size = 0
+
+    def put(self, key: tuple[str, bool], data: str | bytes) -> None:
+        self.pop(key)
+        self._entries[key] = data
+        self._size += len(data)
+        while self._size > _MAX_OPENED_BYTES and len(self._entries) > 1:
+            _, evicted = self._entries.popitem(last=False)
+            self._size -= len(evicted)
+
+    def pop(self, key: tuple[str, bool]) -> str | bytes | None:
+        data = self._entries.pop(key, None)
+        if data is not None:
+            self._size -= len(data)
+        return data
+
+    def forget(self, path: str) -> None:
+        """Drop entries for ``path`` or anything under it."""
+        prefix = path.rstrip("/") + "/"
+        for key in [key for key in self._entries if key[0] == path or key[0].startswith(prefix)]:
+            self.pop(key)
+
+    def clear(self) -> None:
+        self._entries.clear()
+        self._size = 0
+
+
 class SandboxFilesystem:
     """Answers one execution's sandbox OS calls with nested tool calls."""
 
@@ -240,7 +280,7 @@ class SandboxFilesystem:
         # Buffered data lives in the host process, outside Monty's memory limit.
         self._pending_size = 0
         # Content read by open() to check the file, served to the read that follows it.
-        self._opened: dict[tuple[str, bool], str | bytes] = {}
+        self._opened = _OpenedContents()
         self._flush_lock = asyncio.Lock()
 
     def handler(
@@ -313,10 +353,10 @@ class SandboxFilesystem:
             case "open":
                 return await self._open(path, str(args[1]))
             case "Path.read_text":
-                cached = self._opened.pop((path, False), None)
+                cached = self._opened.pop((path, False))
                 return cached if cached is not None else await self._read_text(path)
             case "Path.read_bytes":
-                cached = self._opened.pop((path, True), None)
+                cached = self._opened.pop((path, True))
                 return cached if cached is not None else await self._read_bytes(path)
             case "Path.exists":
                 return (await self._kind(path, name))[0] != "n"
@@ -360,9 +400,7 @@ class SandboxFilesystem:
 
     def _forget_opened(self, path: str) -> None:
         """Drop contents open() read for ``path`` or anything under it: a change replaces them."""
-        prefix = path.rstrip("/") + "/"
-        for key in [key for key in self._opened if key[0] == path or key[0].startswith(prefix)]:
-            del self._opened[key]
+        self._opened.forget(path)
 
     def _require_writer(self, operation: str) -> None:
         if self._tools.write is None and self._tools.shell is None:
@@ -389,8 +427,9 @@ class SandboxFilesystem:
         action = handle.mode[0]
         if action == "r":
             # Reading now reports a missing file from open() itself, as CPython does.
-            self._opened[(path, handle.binary)] = (
-                await self._read_bytes(path) if handle.binary else await self._read_text(path)
+            self._opened.put(
+                (path, handle.binary),
+                await self._read_bytes(path) if handle.binary else await self._read_text(path),
             )
         else:
             self._require_writer("open")

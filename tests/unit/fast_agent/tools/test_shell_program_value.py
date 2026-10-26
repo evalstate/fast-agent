@@ -12,6 +12,7 @@ import pytest
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.constants import FAST_AGENT_PTC_VALUE
 from fast_agent.ptc.stubs import build_functions
+from fast_agent.ptc.values import MediaStore, ToolCallFailed, tool_result_to_value
 from fast_agent.tools.invocation_context import programmatic_tool_call
 from fast_agent.tools.shell_process import process_result_metadata
 from fast_agent.tools.shell_program_value import ShellStreamCapture
@@ -160,6 +161,32 @@ async def test_durable_output_dropped_by_the_spool_is_reported_as_truncated(
     seen = "".join(value["stdout"] for value in [launched, *polls])
     assert len(seen) <= 64 < len("".join(f"{i}\n" for i in range(1, 201)))
     assert any(value["truncated"] for value in [launched, *polls])
+
+
+@pytest.mark.asyncio
+async def test_a_checked_command_stopped_elsewhere_raises() -> None:
+    runtime = _runtime(
+        "luna_exec",
+        idle_yield_seconds=0.05,
+        foreground_yield_seconds=0.2,
+        foreground_auto_await_max_seconds=0,
+    )
+    try:
+        checked = asyncio.create_task(
+            _call_from_sandbox(runtime, {"command": "sleep 30", "check": True})
+        )
+        await asyncio.sleep(0.6)  # past the foreground yield, inside the check wait
+        (process_id,) = runtime._managed_processes
+        await _call_from_sandbox(
+            runtime, {"action": "stop", "process_id": process_id}, tool="process"
+        )
+        result = await asyncio.wait_for(checked, timeout=10)
+    finally:
+        await runtime.close()
+
+    assert result.is_error
+    with pytest.raises(ToolCallFailed, match="shell: command (terminated|cancelled)"):
+        tool_result_to_value(result, MediaStore(), name="shell")
 
 
 @pytest.mark.asyncio
