@@ -32,6 +32,7 @@ SANDBOX_MODULES = frozenset(
         "csv",
         "dataclasses",
         "datetime",
+        "decimal",
         "functools",
         "hashlib",
         "itertools",
@@ -178,7 +179,7 @@ def build_functions(tools: Sequence[Tool]) -> dict[str, PtcFunction]:
 
 
 # Builtins the Monty runtime provides but its bundled type-checker stubs omit (pydantic-monty
-# 1.3), declared so code using them passes type checking.
+# 1.3 and 1.4), declared so code using them passes type checking.
 _MISSING_BUILTIN_STUBS = """
 def open(
     file: Any,

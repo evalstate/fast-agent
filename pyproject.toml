@@ -95,7 +95,7 @@ all-providers = [
 ]
 # Programmatic tool calling (--ptc) sandbox, install with: uv pip install fast-agent-mcp[ptc]
 ptc = [
-    "pydantic-monty>=1.3.0",
+    "pydantic-monty>=1.4.0",
 ]
 
 [build-system]
@@ -157,7 +157,7 @@ dev = [
     "ipdb>=0.13.13",
     "zensical==0.0.71",
     "pytest-xdist>=3.8",
-    "pydantic-monty>=1.3.0",
+    "pydantic-monty>=1.4.0",
 ]
 
 [project.scripts]

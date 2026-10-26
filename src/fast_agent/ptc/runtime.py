@@ -103,9 +103,9 @@ filter and aggregate large results in code.
 {io_note}\
 - Sandbox: a subset of Python 3.14 with no environment or packages. \
 Importable modules: asyncio, base64, binascii, bisect, collections, copy, csv, dataclasses, \
-datetime, functools, hashlib, itertools, json, math, os.path, random, re, sys, time, tomllib, \
-typing, unicodedata. Some are partial (functools has only reduce and partial). Not available: \
-enum, contextlib, io, string, struct, operator, heapq, decimal, subprocess.
+datetime, decimal, functools, hashlib, itertools, json, math, os.path, random, re, sys, time, \
+tomllib, typing, unicodedata. Some are partial (functools has only reduce and partial). Not \
+available: enum, contextlib, io, string, struct, operator, heapq, subprocess.
 {shell_python_note}\
 {shared_note}\
 - Run independent calls together (asyncio is pre-imported): \
@@ -119,7 +119,8 @@ str. A failing call raises RuntimeError.
 return the handles in the final expression; printed handles are not attached. A structured \
 result with such blocks is `{{"structured_content": ..., "content": [...]}}`.
 - {store_note}{type_check_note}
-- Top-level `await` works. Unsupported: class inheritance, decorators, `yield`, `del`, \
+- Top-level `await` works. Unsupported: class inheritance, method decorators (`@staticmethod`, \
+`@classmethod`, `@property`), `yield`, `del`, \
 `async with`/`async for`, `except*`, `import *`.
 """
 # Helpers defined in every sandbox session before model code runs. asyncio is pre-imported
@@ -202,7 +203,7 @@ _UNSUPPORTED_IO_ERROR = re.compile(
     r"Module `os` has no member"
     r"|Cannot resolve imported module `(?:subprocess|shutil|glob|io|socket|urllib|http|requests)"
 )
-# pydantic-monty 1.3 runs os.walk, os.scandir and map, but its type-checker stubs omit them.
+# pydantic-monty (1.3, 1.4) runs os.walk, os.scandir and map, but its type-checker stubs omit them.
 _STUB_GAP = re.compile(
     r"Module `os` has no member `(?:walk|scandir)`|Name `map` used when not defined"
 )
