@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -284,6 +285,81 @@ async def test_type_errors_reject_code_before_any_tool_runs(runtime) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code",
+    [
+        "print(open('/app/main.py').read())",
+        "import os\nprint(os.listdir('/app'))",
+        "from pathlib import Path\nPath('/app/x').read_text()",
+        "import subprocess",
+    ],
+)
+async def test_direct_io_attempts_are_redirected_to_tool_functions(runtime, code) -> None:
+    """Weaker models read a bare PermissionError as "no file access" and give up."""
+    result = await runtime.execute({"code": code}, RecordingDispatcher())
+
+    assert result.is_error
+    assert "await orders__get_orders(customer_id=...)" in _text(result)
+
+
+@pytest.mark.asyncio
+async def test_unawaited_tool_calls_are_flagged(runtime) -> None:
+    result = await runtime.execute(
+        {"code": "print(orders__get_orders(customer_id='c1'))"}, RecordingDispatcher()
+    )
+
+    assert "not awaited" in _text(result)
+
+
+def test_direct_calls_to_code_only_tools_point_back_into_the_sandbox(runtime) -> None:
+    hint = runtime.unavailable_tool_hint("orders__get_orders")
+
+    assert hint is not None
+    assert PTC_TOOL_NAME in hint
+    assert "await orders__get_orders(customer_id=...)" in hint
+    assert runtime.unavailable_tool_hint("execute") is None
+    assert runtime.unavailable_tool_hint("no_such_tool") is None
+
+
+def test_instructions_call_sandbox_callables_functions_not_tools() -> None:
+    """Models answer "tool" with a direct tool call, so only the bridging sentence may say it."""
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
+    bash = Tool(
+        name="bash",
+        input_schema={
+            "type": "object",
+            "properties": {"command": {"type": "string"}},
+            "required": ["command"],
+        },
+    )
+
+    code_tool, *_ = runtime.model_tools([TOOLS[0], bash])
+    instructions = (code_tool.description or "").split("Available functions:")[0]
+    mentions = [line for line in instructions.splitlines() if re.search(r"\btools?\b", line, re.I)]
+
+    assert len(mentions) == 1
+    assert "use a tool of the same name" in mentions[0]
+    assert "gathered `bash` calls" in instructions
+    assert "run it with `python3` via `await bash(command=...)`" in instructions
+
+
+def test_instructions_show_a_concrete_tool_call_for_io() -> None:
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
+    shell = Tool(
+        name="bash",
+        input_schema={
+            "type": "object",
+            "properties": {"command": {"type": "string"}},
+            "required": ["command"],
+        },
+    )
+
+    code_tool, *_ = runtime.model_tools([TOOLS[0], shell])
+
+    assert "e.g. `r = await bash(command=...)`" in (code_tool.description or "")
+
+
+@pytest.mark.asyncio
 async def test_tool_errors_are_catchable_and_failures_report_completed_calls(runtime) -> None:
     dispatch = RecordingDispatcher()
 
@@ -333,7 +409,7 @@ async def test_gather_settles_sibling_side_effects_before_reporting(runtime, cat
 
         assert bool(result.is_error) is not catch_error
         assert len(writes) == 1
-        assert "2 tool calls, 1 failed" in _text(result)
+        assert "2 calls, 1 failed" in _text(result)
         records = (result.meta or {})[FAST_AGENT_PTC_CALLS]
         assert {record["tool"] for record in records} == {
             "orders__get_orders",

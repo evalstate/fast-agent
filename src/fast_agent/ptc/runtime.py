@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import importlib.util
+import re
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
@@ -26,6 +27,7 @@ from fast_agent.mcp.tool_result_metadata import (
     add_url_elicitation_required_payloads,
     url_elicitation_required_payloads,
 )
+from fast_agent.ptc.files import SandboxFilesystem, SandboxFileTools
 from fast_agent.ptc.stubs import PtcFunction, build_functions, render_stubs, tool_ptc_options
 from fast_agent.ptc.syntax import describe_syntax_error
 from fast_agent.ptc.values import MediaStore, render_value, tool_result_to_value
@@ -77,18 +79,17 @@ ToolDispatcher = Callable[[str, dict[str, Any], str], Awaitable[CallToolResult]]
 """Dispatch a nested call: (tool name, arguments, nested call id) -> result."""
 
 _INSTRUCTIONS = """\
-Run Python that calls tools as functions. Only `print()` output and the final expression \
-value are returned to you: filter and aggregate large results in code.
+Run Python code. Only `print()` output and the final expression value are returned to you: \
+filter and aggregate large results in code.
 {input_note}\
-- Sandbox: a subset of Python 3.14 with no file access, network, environment or packages. \
+{functions_note}\
+{io_note}\
+- Sandbox: a subset of Python 3.14 with no environment or packages. \
 Importable modules: asyncio, base64, binascii, bisect, collections, copy, csv, dataclasses, \
 datetime, functools, hashlib, itertools, json, math, os.path, random, re, sys, time, tomllib, \
 typing, unicodedata. Some are partial (functools has only reduce and partial). Not available: \
 enum, contextlib, io, string, struct, operator, heapq, decimal, subprocess.
 {shell_python_note}\
-- Each function below is a pre-defined async tool: `r = await tool(arg="value")`, keyword \
-arguments only, no import needed. `= ...` marks an optional parameter; pass `None` only \
-where the type allows it.
 {shared_note}\
 - Run independent calls together (asyncio is pre-imported): \
 `a, b = await asyncio.gather(f(x=1), g(y=2))`; keep dependent steps sequential. `settle(aw)` returns an exception instead of raising, so \
@@ -96,7 +97,7 @@ where the type allows it.
 (`return_exceptions=` is unsupported).
 {shell_batch_note}\
 - Results are Python values: structured content as a dict, JSON text parsed, other text as \
-str. A failing tool raises RuntimeError.
+str. A failing call raises RuntimeError.
 - Images, audio and binary resources arrive as `{{"media_id": ...}}` handles. To see them, \
 return the handles in the final expression; printed handles are not attached. A structured \
 result with such blocks is `{{"structured_content": ..., "content": [...]}}`.
@@ -124,12 +125,26 @@ Available functions:
 _FREEFORM_INPUT_NOTE = (
     "This is a FREEFORM tool: send the Python source itself, not JSON, quotes or markdown fences.\n"
 )
+# The sandbox callables are always "functions"; "tool" means only something the model can call
+# directly (execute_python, or a function also exposed as a direct tool). Models act on "tool"
+# by emitting a direct tool call, so the wording must not blur the two.
+_FUNCTIONS_NOTE = (
+    "- The functions listed below are already defined in this Python{only_code}. Where other "
+    'instructions say to use a tool of the same name (e.g. "use the `{tool}` tool"), call '
+    "`{call}` here.\n"
+    '- Call them as `r = await name(arg="value")`: async, keyword arguments only, no import '
+    "needed. `= ...` marks an optional parameter; pass `None` only where the type allows it.\n"
+)
 _SHELL_BATCH_NOTE = (
-    "- Run independent shell commands as separate gathered `shell` calls, not chained with "
+    "- Run independent shell commands as separate gathered `{function}` calls, not chained with "
     "separators; each result keeps its own stdout, stderr and exit_code.\n"
 )
 _SHELL_PYTHON_NOTE = (
-    "- For full CPython or packages, run a script with the shell tool (e.g. `python3 x.py`), "
+    "- For full CPython or packages, write a script and run it with `python3` via `{call}`, "
+    "outside this sandbox.\n"
+)
+_DIRECT_SHELL_PYTHON_NOTE = (
+    "- For full CPython or packages, run a script (e.g. `python3 x.py`) with the `{tool}` tool, "
     "outside this sandbox.\n"
 )
 _SHARED_NOTE = (
@@ -137,6 +152,34 @@ _SHARED_NOTE = (
     "especially with quotes, heredocs or source code; from code for several steps or to "
     "process results.\n"
 )
+_IO_NOTE = (
+    "- The functions are your only access to files, commands and the network, e.g. "
+    "`r = {example}`. Python's own `open()`, `os`, `pathlib` and `subprocess` cannot reach "
+    "files or processes here.\n"
+)
+_FILES_NOTE = (
+    "- `open()`, `pathlib.Path` and the `os` file functions (`os.listdir`, `os.walk`, "
+    "`os.path.exists`, `os.makedirs`, ...) work on the real files; relative paths start in the "
+    "working directory. Each file operation runs through {functions}, with the same "
+    "permissions.{commands}\n"
+)
+_COMMANDS_NOTE = (
+    " Commands and the network need the functions, e.g. `r = {example}`; "
+    "`subprocess` is unavailable."
+)
+# Sandbox errors from trying to do I/O directly instead of through tool functions.
+_DIRECT_IO_ERROR = re.compile(
+    r"PermissionError|`open` used when not defined|Module `os` has no member"
+    r"|Cannot resolve imported module `(?:subprocess|shutil|glob|io|socket|urllib|http|requests)"
+)
+# The same, when file operations are served by tools: only processes and other I/O are missing.
+_UNSUPPORTED_IO_ERROR = re.compile(
+    r"Module `os` has no member"
+    r"|Cannot resolve imported module `(?:subprocess|shutil|glob|io|socket|urllib|http|requests)"
+)
+# pydantic-monty 1.3 runs os.walk and os.scandir, but its type-checker stubs omit them.
+_STUB_GAP = re.compile(r"Module `os` has no member `(?:walk|scandir)`")
+_MAX_HINT_EXAMPLES = 4
 _TYPE_CHECK_NOTE = " Code is type-checked against these signatures first; on errors nothing runs."
 
 
@@ -150,6 +193,34 @@ class _ExecutionStats:
     # Nested results are consumed in the sandbox, so URL elicitations must be carried to the
     # execute_python result for the user to see them.
     url_elicitations: list[URLElicitationRequiredDisplayPayload] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class _NestedCalls:
+    """Runs one execution's nested tool calls, for sandbox functions and file operations."""
+
+    dispatch: ToolDispatcher
+    stats: _ExecutionStats
+    call_prefix: str
+    tasks: list[asyncio.Task[CallToolResult]] = field(default_factory=list)
+
+    async def call(self, tool_name: str, arguments: dict[str, Any]) -> CallToolResult:
+        task = asyncio.create_task(self._run(tool_name, arguments))
+        self.tasks.append(task)
+        # Own dispatch lifetime independently of Monty's callback tasks. Script errors
+        # drain these tasks; turn cancellation explicitly cancels and settles them.
+        return await asyncio.shield(task)
+
+    async def _run(self, tool_name: str, arguments: dict[str, Any]) -> CallToolResult:
+        stats = self.stats
+        stats.started += 1
+        call_id = f"{self.call_prefix}{stats.started}"
+        with programmatic_tool_call(call_id):
+            result = await self.dispatch(tool_name, arguments, call_id)
+        (stats.failed if result.is_error else stats.completed).append(tool_name)
+        stats.url_elicitations.extend(url_elicitation_required_payloads(result))
+        stats.calls.append(_call_record(call_id, tool_name, result))
+        return result
 
 
 @dataclass(slots=True)
@@ -188,8 +259,8 @@ class ProgrammaticToolRuntime:
         self._nested_tools: dict[str, Tool] = {}
         # Functions whose tools the model can also call directly.
         self._shared_functions: tuple[str, ...] = ()
-        self._has_shell_tools = False
-        self._has_nested_shell_tools = False
+        self._shell_function: PtcFunction | None = None
+        self._direct_shell_tool: str | None = None
         self._tool_format: PtcToolFormat = "json"
         self._stubs = render_stubs({})
         self._pool: AsyncMonty | None = None
@@ -197,6 +268,9 @@ class ProgrammaticToolRuntime:
         self._session: AsyncMontySession | None = None
         self._session_stack = AsyncExitStack()
         self._session_stubs: str | None = None
+        # The working directory last passed to the session; os.chdir() then persists in it.
+        self._session_cwd: str | None = None
+        self._file_tools = SandboxFileTools()
         self._lock = asyncio.Lock()
         self._executions = 0
         self._media = MediaStore()
@@ -218,11 +292,19 @@ class ProgrammaticToolRuntime:
         self._tool_format = tool_format
         direct = [tool for tool in tools if self._direct_reason(tool) is not None]
         nested = [tool for tool in tools if self._is_nested(tool)]
-        self._has_shell_tools = any(
-            is_shell_command_tool_name(tool.name) for tool in (*direct, *nested)
-        )
-        self._has_nested_shell_tools = any(is_shell_command_tool_name(tool.name) for tool in nested)
         self._functions = build_functions(nested)
+        self._shell_function = next(
+            (
+                function
+                for function in self._functions.values()
+                if is_shell_command_tool_name(function.tool_name)
+            ),
+            None,
+        )
+        self._direct_shell_tool = next(
+            (tool.name for tool in direct if is_shell_command_tool_name(tool.name)), None
+        )
+        self._file_tools = SandboxFileTools.from_tools(tools)
         self._nested_tools = {tool.name: tool for tool in nested}
         direct_names = {tool.name for tool in direct}
         self._shared_functions = tuple(
@@ -270,11 +352,99 @@ class ProgrammaticToolRuntime:
     def _instructions(self) -> str:
         shared = ", ".join(f"`{name}`" for name in self._shared_functions)
         return _INSTRUCTIONS.format(
-            shell_python_note=_SHELL_PYTHON_NOTE if self._has_shell_tools else "",
-            shell_batch_note=_SHELL_BATCH_NOTE if self._has_nested_shell_tools else "",
+            functions_note=self._functions_note(),
+            io_note=self._io_note(),
+            shell_python_note=self._shell_python_note(),
+            shell_batch_note=_SHELL_BATCH_NOTE.format(function=self._shell_function.python_name)
+            if self._shell_function
+            else "",
             shared_note=_SHARED_NOTE.format(functions=shared) if shared else "",
             input_note=_FREEFORM_INPUT_NOTE if self._tool_format == "freeform" else "",
             type_check_note=_TYPE_CHECK_NOTE if self._settings.type_check else "",
+        )
+
+    def _functions_note(self) -> str:
+        if not self._functions:
+            return ""
+        example = self._example_function()
+        return _FUNCTIONS_NOTE.format(
+            only_code="" if self._shared_functions else ", and code is the only way to call them",
+            tool=example.tool_name,
+            call=f"{example.example_call()}",
+        )
+
+    def _shell_python_note(self) -> str:
+        if self._shell_function is not None:
+            return _SHELL_PYTHON_NOTE.format(call=self._shell_function.example_call())
+        if self._direct_shell_tool is not None:
+            return _DIRECT_SHELL_PYTHON_NOTE.format(tool=self._direct_shell_tool)
+        return ""
+
+    def _io_note(self) -> str:
+        example = self._example_function().example_call() if self._functions else None
+        if self._file_tools.available:
+            names = [f"`{name}`" for name in self._file_tools.tool_names()]
+            functions = names[0] if len(names) == 1 else f"{', '.join(names[:-1])} or {names[-1]}"
+            return _FILES_NOTE.format(
+                functions=functions,
+                commands=_COMMANDS_NOTE.format(example=example) if example else "",
+            )
+        return _IO_NOTE.format(example=example) if example else ""
+
+    def _io_guidance(self) -> str:
+        """Tell sandbox code that cannot do some I/O itself which functions can."""
+        if not self._functions:
+            return "No functions are available to do it."
+        examples = ", ".join(
+            f"`{function.example_call()}`"
+            for function in list(self._functions.values())[:_MAX_HINT_EXAMPLES]
+        )
+        return f"Call the functions from this code instead, e.g. {examples}."
+
+    def _example_function(self) -> PtcFunction:
+        functions = list(self._functions.values())
+        shell = (
+            function for function in functions if is_shell_command_tool_name(function.tool_name)
+        )
+        return next(shell, functions[0])
+
+    def _direct_io_hint(self, detail: str) -> str:
+        """Point code that tried to do I/O itself at the tool functions that can."""
+        if not self._functions:
+            return ""
+        if self._file_tools.available:
+            unsupported = (
+                line
+                for line in detail.splitlines()
+                if _UNSUPPORTED_IO_ERROR.search(line) and not _STUB_GAP.search(line)
+            )
+            if next(unsupported, None) is None:
+                return ""
+            return (
+                "\nHint: that is not available in the sandbox. Use `open()`, `pathlib.Path` "
+                "(including `Path.glob`) or `os` for files. " + self._io_guidance()
+            )
+        if _DIRECT_IO_ERROR.search(detail) is None:
+            return ""
+        return "\nHint: sandbox code cannot touch files or processes itself. " + self._io_guidance()
+
+    def unavailable_tool_hint(self, name: str) -> str | None:
+        """Explain how to reach a tool the model called directly that only code can call."""
+        function = next(
+            (
+                function
+                for function in self._functions.values()
+                if name in (function.tool_name, function.python_name)
+                and function.python_name not in self._shared_functions
+            ),
+            None,
+        )
+        if function is None:
+            return None
+        return (
+            f"`{name}` is not a direct tool; it is a function inside `{PTC_TOOL_NAME}`. "
+            f"Call `{PTC_TOOL_NAME}` with code such as `r = {function.example_call()}` "
+            "then `print(r)`."
         )
 
     def tool_meta(self) -> dict[str, Any]:
@@ -315,8 +485,13 @@ class ProgrammaticToolRuntime:
         dispatch: ToolDispatcher,
         *,
         parent_call_id: str | None = None,
+        cwd: str | None = None,
     ) -> CallToolResult:
-        """Run model code; nested call ids derive from ``parent_call_id`` when it is known."""
+        """Run model code; nested call ids derive from ``parent_call_id`` when it is known.
+
+        ``cwd`` is the tools' working directory, against which sandbox code resolves relative
+        file paths; it must be an absolute POSIX path.
+        """
         # Accept both input formats: history can contain calls made before a model switch.
         code = arguments.get("code", arguments.get(_FREEFORM_CODE_ARG))
         if not isinstance(code, str) or not code.strip():
@@ -334,32 +509,57 @@ class ProgrammaticToolRuntime:
             self._executions += 1
             stats = _ExecutionStats()
             output = _PrintedOutput()
-            dispatches: list[asyncio.Task[Any]] = []
-            call_prefix = (
-                f"{parent_call_id}{NESTED_PTC_CALL_SEPARATOR}"
-                if parent_call_id
-                else f"ptc-{self._executions}-"
+            calls = _NestedCalls(
+                dispatch,
+                stats,
+                call_prefix=(
+                    f"{parent_call_id}{NESTED_PTC_CALL_SEPARATOR}"
+                    if parent_call_id
+                    else f"ptc-{self._executions}-"
+                ),
             )
+            files = SandboxFilesystem(self._file_tools, calls.call, guidance=self._io_guidance())
+            dispatches = calls.tasks
             lookup = {
-                name: self._host_function(
-                    function, dispatch, stats, dispatches, call_prefix=call_prefix
-                )
+                name: self._host_function(function, calls, files)
                 for name, function in self._functions.items()
             }
+            write_error: str | None = None
             started = time.perf_counter()
             try:
                 session, stats.session_restarted = await self._ensure_session()
+                feed_cwd = None if cwd == self._session_cwd else cwd
                 try:
-                    value = await session.feed_run(
-                        code,
-                        external_lookup=lookup,
-                        print_callback=output.append,
-                    )
+                    try:
+                        value = await session.feed_run(
+                            code,
+                            external_lookup=lookup,
+                            print_callback=output.append,
+                            os=files.handler,
+                            cwd=feed_cwd,
+                        )
+                    except MontyTypingError as exc:
+                        if not _only_stub_gaps(exc.display()):
+                            raise
+                        value = await session.feed_run(
+                            code,
+                            external_lookup=lookup,
+                            print_callback=output.append,
+                            os=files.handler,
+                            cwd=feed_cwd,
+                            skip_type_check=True,
+                        )
                 except Exception:
+                    # Buffered writes happened before the error, as they would in CPython.
+                    write_error = await files.finish()
                     # A failed gather can leave sibling tools running. Settle them before
                     # reporting completed side effects and copying nested result metadata.
                     await asyncio.gather(*dispatches, return_exceptions=True)
                     raise
+                finally:
+                    if feed_cwd is not None:
+                        self._session_cwd = feed_cwd
+                write_error = await files.finish()
                 await asyncio.gather(*dispatches, return_exceptions=True)
             except asyncio.CancelledError:
                 for task in dispatches:
@@ -378,6 +578,7 @@ class ProgrammaticToolRuntime:
                     "Type check failed; the code was NOT executed. Fix it and retry.\n"
                     + _restart_note(stats)
                     + detail
+                    + self._direct_io_hint(detail)
                 )
             except MontySyntaxError as exc:
                 return _syntax_error_result(
@@ -389,7 +590,9 @@ class ProgrammaticToolRuntime:
                     # Monty gives no heap guarantees after a timeout: start a fresh session.
                     await self._reset_session()
                     detail += "\nThe sandbox session was reset; earlier variables are gone."
-                return self._failure(detail, output, stats, started)
+                if write_error is not None:
+                    detail += f"\nAlso, committing buffered file writes failed: {write_error}"
+                return self._failure(detail + self._direct_io_hint(detail), output, stats, started)
             except MontyCrashedError as exc:
                 await self._reset_session()
                 detail = f"{exc}\nThe sandbox crashed and was reset; earlier variables are gone."
@@ -397,6 +600,13 @@ class ProgrammaticToolRuntime:
             except MontyError as exc:
                 return self._failure(str(exc), output, stats, started)
 
+            if write_error is not None:
+                return self._failure(
+                    f"The script finished but committing its file writes failed: {write_error}",
+                    output,
+                    stats,
+                    started,
+                )
             return self._success(value, output, stats, started)
 
     def _describe_syntax_error(self, code: str) -> str | None:
@@ -439,34 +649,15 @@ class ProgrammaticToolRuntime:
         return tool_ptc_options(tool).get("expose", "nested") in {"nested", "both"}
 
     def _host_function(
-        self,
-        function: PtcFunction,
-        dispatch: ToolDispatcher,
-        stats: _ExecutionStats,
-        dispatches: list[asyncio.Task[Any]],
-        *,
-        call_prefix: str,
+        self, function: PtcFunction, calls: _NestedCalls, files: SandboxFilesystem
     ) -> Callable[..., Awaitable[Any]]:
-        async def run(*args: Any, **kwargs: Any) -> Any:
+        async def call(*args: Any, **kwargs: Any) -> Any:
             if args:
                 raise TypeError(f"{function.python_name}() accepts keyword arguments only")
-            stats.started += 1
-            call_id = f"{call_prefix}{stats.started}"
-            with programmatic_tool_call(call_id):
-                result = await dispatch(
-                    function.tool_name, function.bind_arguments(kwargs), call_id
-                )
-            (stats.failed if result.is_error else stats.completed).append(function.tool_name)
-            stats.url_elicitations.extend(url_elicitation_required_payloads(result))
-            stats.calls.append(_call_record(call_id, function.tool_name, result))
+            # The tool must see files the script wrote, not a stale buffer.
+            await files.before_tool_call()
+            result = await calls.call(function.tool_name, function.bind_arguments(kwargs))
             return tool_result_to_value(result, self._media, name=function.python_name)
-
-        async def call(*args: Any, **kwargs: Any) -> Any:
-            task = asyncio.create_task(run(*args, **kwargs))
-            dispatches.append(task)
-            # Own dispatch lifetime independently of Monty's callback tasks. Script errors
-            # drain these tasks; turn cancellation explicitly cancels and settles them.
-            return await asyncio.shield(task)
 
         return call
 
@@ -508,6 +699,7 @@ class ProgrammaticToolRuntime:
         self._session_stack = AsyncExitStack()
         self._session = None
         self._session_stubs = None
+        self._session_cwd = None
         self._media.clear()
 
     def _success(
@@ -521,6 +713,11 @@ class ProgrammaticToolRuntime:
             sections.append(f"Result:\n{render_value(value)}")
         if not printed and value is None:
             sections.append("(no output; print() values or end with an expression)")
+        if "<coroutine " in "\n".join(sections):
+            sections.append(
+                "Note: a function call was not awaited, so its result was lost (the call still "
+                "ran). Use `r = await name(...)`."
+            )
         media = self._media.referenced(value)
         if media:
             sections.append(f"Attached {len(media)} media item(s) referenced by the result.")
@@ -538,13 +735,18 @@ class ProgrammaticToolRuntime:
             sections.append(f"Output before the error:\n{printed}")
         if stats.completed:
             sections.append(
-                "Tool calls that completed (avoid repeating side effects): "
-                + ", ".join(stats.completed)
+                "Calls that completed (avoid repeating side effects): " + ", ".join(stats.completed)
             )
         sections.append(f"Error:\n{detail}")
         result = _error_result("\n".join(sections))
         _add_nested_metadata(result, stats)
         return result
+
+
+def _only_stub_gaps(diagnostics: str) -> bool:
+    """Whether type checking failed only on functions Monty runs but its stubs omit."""
+    errors = [line for line in diagnostics.splitlines() if "error[" in line]
+    return bool(errors) and all(_STUB_GAP.search(line) for line in errors)
 
 
 def _matching_pattern(tool: Tool, patterns: Sequence[str]) -> str | None:
@@ -568,7 +770,7 @@ def _header(status: str, stats: _ExecutionStats, started: float) -> str:
     elapsed = time.perf_counter() - started
     calls = len(stats.completed) + len(stats.failed)
     failed = f", {len(stats.failed)} failed" if stats.failed else ""
-    header = f"Script {status} in {elapsed:.2f}s ({calls} tool calls{failed})"
+    header = f"Script {status} in {elapsed:.2f}s ({calls} call{'' if calls == 1 else 's'}{failed})"
     note = _restart_note(stats).rstrip()
     return f"{header}\n{note}" if note else header
 
@@ -577,7 +779,7 @@ def _restart_note(stats: _ExecutionStats) -> str:
     if not stats.session_restarted:
         return ""
     return (
-        "Note: the available tools changed, so the sandbox session was restarted before this "
+        "Note: the available functions changed, so the sandbox session was restarted before this "
         "run; variables from earlier runs are gone.\n"
     )
 

@@ -715,6 +715,9 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         )
         for unavailable_call in plan.unavailable_calls:
             error_message = f"Tool '{unavailable_call.name}' is not available.{available_summary}"
+            hint = self._unavailable_tool_hint(unavailable_call.name)
+            if hint:
+                error_message = f"{error_message} {hint}"
             logger.warning(error_message)
             self._record_tool_error_result(
                 correlation_id=unavailable_call.correlation_id,
@@ -723,6 +726,10 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 tool_call_id=unavailable_call.correlation_id if should_parallel else None,
             )
         return plan.planned_calls
+
+    def _unavailable_tool_hint(self, name: str) -> str | None:
+        """Return guidance for reaching a tool the model called but cannot call directly."""
+        return None
 
     def _planned_tool_call_display_request(
         self,

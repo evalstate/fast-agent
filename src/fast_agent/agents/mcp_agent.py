@@ -1700,6 +1700,19 @@ class McpAgent(ABC, ToolAgent):
                 self._ptc_runtime = ProgrammaticToolRuntime(settings)
         return self._ptc_runtime
 
+    def _ptc_working_directory(self) -> str | None:
+        """The shell's working directory, where sandbox code resolves relative file paths."""
+        if self._shell_runtime is None or not self._shell_runtime_enabled:
+            return None
+        cwd = self._shell_runtime.working_directory().as_posix()
+        # Monty paths are POSIX; a Windows host directory cannot be the sandbox's.
+        return cwd if cwd.startswith("/") else None
+
+    def _unavailable_tool_hint(self, name: str) -> str | None:
+        if self._ptc_runtime is None:
+            return None
+        return self._ptc_runtime.unavailable_tool_hint(name)
+
     async def _call_ptc_tool(
         self,
         runtime: ProgrammaticToolRuntime,
@@ -1728,7 +1741,9 @@ class McpAgent(ABC, ToolAgent):
                     nested_name, nested_arguments, call_id, request_params=request_params
                 )
 
-        result = await runtime.execute(arguments, dispatch, parent_call_id=tool_use_id)
+        result = await runtime.execute(
+            arguments, dispatch, parent_call_id=tool_use_id, cwd=self._ptc_working_directory()
+        )
         if tool_handler is not None and acp_call_id is not None:
             error = None
             if result.is_error:

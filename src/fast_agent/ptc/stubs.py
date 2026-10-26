@@ -108,6 +108,13 @@ class PtcFunction:
             parameters = f"*, {parameters}"
         return f"{self.python_name}({parameters}) -> {self.returns}"
 
+    def example_call(self) -> str:
+        """Return an awaited call with required arguments, e.g. ``await bash(command=...)``."""
+        arguments = ", ".join(
+            f"{parameter.python_name}=..." for parameter in self._ordered() if parameter.required
+        )
+        return f"await {self.python_name}({arguments})"
+
     def stub(self) -> str:
         lines = [f"async def {self.signature()}:"]
         docstring = self._docstring()
@@ -167,9 +174,30 @@ def build_functions(tools: Sequence[Tool]) -> dict[str, PtcFunction]:
     return functions
 
 
+# Builtins the Monty runtime provides but its bundled type-checker stubs omit (pydantic-monty
+# 1.3), declared so code using them passes type checking.
+_MISSING_BUILTIN_STUBS = """
+def open(
+    file: Any,
+    mode: str = "r",
+    buffering: int = -1,
+    encoding: str | None = None,
+    errors: str | None = None,
+    newline: str | None = None,
+) -> Any: ...
+
+
+class FileNotFoundError(OSError): ...
+class FileExistsError(OSError): ...
+class IsADirectoryError(OSError): ...
+class NotADirectoryError(OSError): ...
+class PermissionError(OSError): ...
+"""
+
+
 def render_stubs(functions: Mapping[str, PtcFunction]) -> str:
     body = "\n\n\n".join(function.stub() for function in functions.values())
-    return f"from typing import Any, Literal\n\n\n{body}\n"
+    return f"from typing import Any, Literal\n\n{_MISSING_BUILTIN_STUBS}\n\n{body}\n"
 
 
 def _build_function(tool: Tool, python_name: str) -> PtcFunction:
