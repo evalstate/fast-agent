@@ -291,9 +291,11 @@ async def test_rename_follows_rename_semantics(tmp_path) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "file.txt").write_text("data")
     os.link(tmp_path / "file.txt", tmp_path / "hardlink.txt")
+    (tmp_path / "alias").symlink_to(tmp_path / "file.txt")
     code = """
 import os
 os.rename("empty", "empty")
+os.rename("alias", os.path.abspath("alias"))
 os.rename("file.txt", "hardlink.txt")
 os.rename("hardlink.txt", "link")
 errors = []
@@ -309,6 +311,7 @@ errors
         errors = _value(await _run(agent, code))
 
     assert (tmp_path / "file.txt").read_text() == "data"
+    assert (tmp_path / "alias").is_symlink()
     assert not (tmp_path / "link").is_symlink() and (tmp_path / "link").read_text() == "data"
     assert list((tmp_path / "target_dir").iterdir()) == []
     assert (tmp_path / "empty").is_dir() and not (tmp_path / "src").exists()

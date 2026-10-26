@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -13,6 +14,9 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.config import ProgrammaticToolCallingSettings, Settings
 from fast_agent.context import Context
+from fast_agent.hooks.hook_context import HookContext
+from fast_agent.hooks.session_history import save_session_history
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.ptc import PTC_TOOL_NAME, ProgrammaticToolRuntime
 from fast_agent.ptc.store import SandboxStore
 from fast_agent.session import SessionHydrator
@@ -124,9 +128,10 @@ async def test_tools_named_like_store_functions_do_not_shadow_them() -> None:
     assert text.endswith('Result:\n[1, "store"]'), text
 
 
-def _agent(*, ptc: bool = True) -> McpAgent:
+def _agent(*, ptc: bool = True, session_manager: SessionManager | None = None) -> McpAgent:
     settings = Settings(ptc=ProgrammaticToolCallingSettings(enabled=ptc))
-    return McpAgent(AgentConfig(name="coder", servers=[]), context=Context(config=settings))
+    context = Context(config=settings, session_manager=session_manager)
+    return McpAgent(AgentConfig(name="coder", servers=[]), context=context)
 
 
 @pytest.mark.asyncio
@@ -135,11 +140,21 @@ async def test_stored_values_are_saved_forked_and_resumed_with_the_session(tmp_p
         cwd=tmp_path, home_override=tmp_path / ".fast-agent", respect_env_override=False
     )
     session = manager.create_session()
-    original = _agent()
+    original = _agent(session_manager=manager)
     try:
         await original.list_tools()
         await original.call_tool(PTC_TOOL_NAME, {"code": "await store('rows', [(1, b'x')])"})
-        await session.save_history(original)
+        # Save the way a turn end does: the hook passes a HistoryAgent wrapper.
+        original.load_message_history([Prompt.user("keep the rows")])
+        message = original.message_history[-1]
+        await save_session_history(
+            HookContext(
+                runner=SimpleNamespace(iteration=1, request_params=None),
+                agent=original,
+                message=message,
+                hook_type="after_turn_complete",
+            )
+        )
     finally:
         await original.shutdown()
 

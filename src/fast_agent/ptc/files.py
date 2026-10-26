@@ -129,7 +129,11 @@ def _require_size_at_most(limit: int) -> str:
 # directory is $d; the target is replaced only where rename(2) would replace it.
 _RENAME_SCRIPT = (
     'd=0; [ -d "$p" ] && [ ! -L "$p" ] && d=1; '
-    # The same file, including hard links: rename(2) succeeds without changing anything.
+    # The same directory entry (a symlink included), or hard links to the same file: rename(2)
+    # succeeds without changing anything. -ef follows symlinks, so it only compares entries'
+    # parent directories, or two non-symlinks.
+    'if [ "$(basename -- "$p")" = "$(basename -- "$t")" ] '
+    '&& [ "$(dirname -- "$p")" -ef "$(dirname -- "$t")" ]; then exit 0; fi; '
     'if [ ! -L "$p" ] && [ ! -L "$t" ] && [ "$p" -ef "$t" ]; then exit 0; fi; '
     'if [ -L "$t" ]; then [ "$d" = 1 ] && fail ENOTDIR; rm -f -- "$t"; '
     'elif [ -d "$t" ]; then [ "$d" = 1 ] || fail EISDIR; '
