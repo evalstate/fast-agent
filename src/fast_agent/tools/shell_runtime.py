@@ -2743,6 +2743,8 @@ class ShellRuntime:
             )
             if not programmatic:
                 return result
+            if check and not parsed.background:
+                result = await self._await_checked_process(result, tool_use_id)
             output = await self._take_sandbox_output(result)
             return attach_process_program_value(result, output, check=check)
 
@@ -2758,6 +2760,33 @@ class ShellRuntime:
             return attach_process_program_value(result, await self._take_sandbox_output(result))
         if action == "stop":
             return attach_stop_program_value(result)
+        return result
+
+    async def _await_checked_process(
+        self, result: CallToolResult, tool_use_id: str | None
+    ) -> CallToolResult:
+        """Wait out a ``check=True`` command that yielded, as ``subprocess.run`` would.
+
+        Sandbox code cannot act on a check until the command ends, so a foreground yield
+        would only hand it a command whose success is still unknown.
+        """
+        while (
+            (metadata := process_result_metadata(result)) is not None
+            and metadata.get("process_status") == "running"
+            and (process_id := metadata.get("process_id")) is not None
+        ):
+            try:
+                result = await self._call_process_lifecycle_tool(
+                    POLL_PROCESS_TOOL_NAME,
+                    {"process_id": process_id, "wait_sec": self._max_process_poll_seconds},
+                    tool_use_id=tool_use_id,
+                )
+            except asyncio.CancelledError:
+                # Still the foreground command of the cancelled call, as in _execute_parsed.
+                process = self._managed_processes.get(process_id)
+                if process is not None and process.lifecycle == "session":
+                    await self._terminate_managed_process_task(process)
+                raise
         return result
 
     async def _call_process_tool(

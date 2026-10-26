@@ -15,6 +15,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from fast_agent.ptc.store import STORE_FUNCTION_NAMES, STORE_STUBS
+
 if TYPE_CHECKING:
     from mcp_types import Tool
 
@@ -47,8 +49,9 @@ SANDBOX_MODULES = frozenset(
         "unicodedata",
     }
 )
-# Helpers defined by the runtime prelude must remain callable alongside tool functions.
-_RESERVED_GLOBALS = frozenset(dir(builtins)) | SANDBOX_MODULES | {"settle"}
+# Helpers defined by the runtime (the prelude's settle, the store functions) must remain
+# callable alongside tool functions.
+_RESERVED_GLOBALS = frozenset(dir(builtins)) | SANDBOX_MODULES | {"settle"} | STORE_FUNCTION_NAMES
 _JSON_SCALAR_TYPES = {
     "string": "str",
     "integer": "int",
@@ -197,7 +200,9 @@ class PermissionError(OSError): ...
 
 def render_stubs(functions: Mapping[str, PtcFunction]) -> str:
     body = "\n\n\n".join(function.stub() for function in functions.values())
-    return f"from typing import Any, Literal\n\n{_MISSING_BUILTIN_STUBS}\n\n{body}\n"
+    return (
+        f"from typing import Any, Literal\n\n{_MISSING_BUILTIN_STUBS}\n\n{STORE_STUBS}\n\n{body}\n"
+    )
 
 
 def _build_function(tool: Tool, python_name: str) -> PtcFunction:

@@ -18,6 +18,7 @@ from fast_agent.mcp.prompts.prompt_load import (
 )
 
 from .snapshot import (
+    PtcStoreProvider,
     SessionAgentSnapshot,
     SessionAttachmentRef,
     SessionRequestSettingsSnapshot,
@@ -263,6 +264,11 @@ class SessionHydrator:
             await self._restore_agent_transcript(
                 session, agent_name, agent, agent_snapshot, policy, state
             )
+        if policy.restore_runtime_state:
+            # After the transcript: loading history as a new conversation clears the store.
+            self._restore_agent_ptc_store(
+                session, agent, agent_name, agent_snapshot, state.warnings
+            )
         if policy.restore_prompt:
             self._restore_agent_prompt(agent_name, agent, agent_snapshot, state)
 
@@ -318,6 +324,34 @@ class SessionHydrator:
             SessionHydrationWarning(
                 code="shell-restore-skipped",
                 message=f"Did not restore shell access for agent {agent_name!r}: {reason}.",
+                agent_name=agent_name,
+            )
+        )
+
+    @staticmethod
+    def _restore_agent_ptc_store(
+        session: Session,
+        agent: AgentProtocol,
+        agent_name: str,
+        agent_snapshot: SessionAgentSnapshot,
+        warnings: list[SessionHydrationWarning],
+    ) -> None:
+        filename = agent_snapshot.ptc_store_file
+        if filename is None:
+            return
+        if not isinstance(agent, PtcStoreProvider) or (store := agent.ptc_store) is None:
+            reason = "programmatic tool calling is not enabled"
+        else:
+            try:
+                store.restore((session.directory / filename).read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                reason = f"{filename} could not be read ({exc})"
+            else:
+                return
+        warnings.append(
+            SessionHydrationWarning(
+                code="ptc-store-restore-skipped",
+                message=f"Did not restore stored PTC values for agent {agent_name!r}: {reason}.",
                 agent_name=agent_name,
             )
         )

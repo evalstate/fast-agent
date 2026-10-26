@@ -119,6 +119,7 @@ from fast_agent.tools.filesystem_tool_definitions import (
     READ_TEXT_FILE_TOOL_NAME,
     WRITE_TEXT_FILE_TOOL_NAME,
 )
+from fast_agent.tools.invocation_context import sandbox_file_operation
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME, SkillReader
 from fast_agent.tools.tool_surface import ToolSurface
 from fast_agent.types import (
@@ -195,6 +196,7 @@ if TYPE_CHECKING:
     from fast_agent.agents.tool_call_planning import PlannedToolCall
     from fast_agent.context import Context
     from fast_agent.mcp.app_integrations import AppServerConfig
+    from fast_agent.ptc.store import SandboxStore
     from fast_agent.tools.environment_filesystem_runtime import EnvironmentFilesystemRuntime
     from fast_agent.tools.execution_environment import (
         EnvironmentTemporaryArtifacts,
@@ -1700,11 +1702,28 @@ class McpAgent(ABC, ToolAgent):
                 self._ptc_runtime = ProgrammaticToolRuntime(settings)
         return self._ptc_runtime
 
+    @property
+    def ptc_store(self) -> SandboxStore | None:
+        """Values PTC code kept with ``store()``; sessions save and restore them."""
+        runtime = self._programmatic_tool_runtime()
+        return runtime.store if runtime is not None else None
+
     def _ptc_working_directory(self) -> str | None:
-        """The shell's working directory, where sandbox code resolves relative file paths."""
-        if self._shell_runtime is None or not self._shell_runtime_enabled:
-            return None
-        cwd = self._shell_runtime.working_directory().as_posix()
+        """Where sandbox code resolves relative file paths: where the agent's file tools work.
+
+        That is the shell's directory when there is a shell (its environment may be remote);
+        otherwise an injected filesystem runtime, such as ACP's, which works in the ACP session's
+        directory, or the agent's own working directory.
+        """
+        if self._shell_runtime is not None and self._shell_runtime_enabled:
+            cwd = self._shell_runtime.working_directory().as_posix()
+        else:
+            acp = self._context.acp if self._context is not None else None
+            if acp is not None and acp.session_cwd:
+                directory = Path(acp.session_cwd)
+            else:
+                directory = self.config.cwd if self.config.cwd is not None else Path.cwd()
+            cwd = directory.absolute().as_posix()
         # Monty paths are POSIX; a Windows host directory cannot be the sandbox's.
         return cwd if cwd.startswith("/") else None
 
@@ -1768,6 +1787,21 @@ class McpAgent(ABC, ToolAgent):
         request_params: RequestParams | None,
     ) -> CallToolResult:
         """Run a tool called from PTC sandbox code through the normal dispatch path."""
+        if (file_operation := sandbox_file_operation()) is not None:
+            # Internal calls serving open()/pathlib/os: their commands and base64 output are
+            # transport detail, so show one line naming the operation.
+            started = time.perf_counter()
+            result = await self._dispatch_tool_call(
+                name, arguments, call_id, request_params=request_params
+            )
+            self.display.show_sandbox_file_operation(
+                file_operation,
+                name=self._name,
+                tool_name=name,
+                is_error=result.is_error,
+                timing_ms=round((time.perf_counter() - started) * 1000, 2),
+            )
+            return result
         is_subagent = self._is_builtin_subagent_tool(self._tool_display_metadata(name))
         if is_subagent:
             self._show_subagent_message(arguments)
@@ -1826,7 +1860,9 @@ class McpAgent(ABC, ToolAgent):
                 arguments,
                 tool_use_id,
                 show_tool_call_id=self._show_shell_tool_call_id,
-                defer_display_to_tool_result=self._defer_shell_display_to_tool_result,
+                defer_display_to_tool_result=(
+                    self._defer_shell_display_to_tool_result or sandbox_file_operation() is not None
+                ),
             )
 
         return await self._call_builtin_tool(
@@ -2755,7 +2791,7 @@ class McpAgent(ABC, ToolAgent):
     def clear(self, *, clear_prompts: bool = False) -> None:
         super().clear(clear_prompts=clear_prompts)
         if self._ptc_runtime is not None:
-            self._ptc_runtime.invalidate_session()
+            self._ptc_runtime.reset_conversation()
         self._codex_web_search.history_loaded(None)
 
     def load_message_history(
@@ -2765,7 +2801,7 @@ class McpAgent(ABC, ToolAgent):
             # Reset provider/agent state without overwriting persisted search identity.
             super().clear(clear_prompts=True)
             if self._ptc_runtime is not None:
-                self._ptc_runtime.invalidate_session()
+                self._ptc_runtime.reset_conversation()
         super().load_message_history(messages)
         self._codex_web_search.history_loaded(messages)
 

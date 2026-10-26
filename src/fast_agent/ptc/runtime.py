@@ -1,7 +1,8 @@
 """Programmatic tool calling runtime backed by a pydantic-monty sandbox.
 
-The model sees one tool, ``execute_python``. Its code runs in a persistent Monty REPL where
-each agent tool is an async function. Nested calls are dispatched back through the agent's
+The model sees one tool, ``execute_python``. Each run's code executes in a fresh Monty sandbox
+where each agent tool is an async function; values a run keeps with ``store()`` are what later
+runs can ``load()``. Nested calls are dispatched back through the agent's
 normal tool path, so MCP routing, permissions and local runtimes still apply; only printed
 output and the final expression value are returned to the model.
 """
@@ -21,13 +22,24 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from mcp_types import CallToolResult, ContentBlock, TextContent, Tool
 
-from fast_agent.constants import FAST_AGENT_PTC_CALLS, FAST_AGENT_SUBAGENT_RESULT_METADATA
+from fast_agent.constants import (
+    FAST_AGENT_PTC_CALLS,
+    FAST_AGENT_PTC_VALUE,
+    FAST_AGENT_SUBAGENT_RESULT_METADATA,
+)
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.mcp.tool_result_metadata import (
     add_url_elicitation_required_payloads,
     url_elicitation_required_payloads,
 )
-from fast_agent.ptc.files import SandboxFilesystem, SandboxFileTools
+from fast_agent.ptc.files import (
+    MAX_BINARY_READ_BYTES,
+    MAX_TEXT_READ_BYTES,
+    SandboxFilesystem,
+    SandboxFileTools,
+    format_size,
+)
+from fast_agent.ptc.store import STORE_STUBS, SandboxStore
 from fast_agent.ptc.stubs import PtcFunction, build_functions, render_stubs, tool_ptc_options
 from fast_agent.ptc.syntax import describe_syntax_error
 from fast_agent.ptc.values import MediaStore, render_value, tool_result_to_value
@@ -44,7 +56,12 @@ from fast_agent.tools.tool_surface import (
     estimate_tokens,
     tool_definition_tokens,
 )
-from fast_agent.utils.tool_names import is_shell_command_tool_name
+from fast_agent.utils.text import summarize_command
+from fast_agent.utils.tool_names import (
+    POLL_PROCESS_TOOL_NAME,
+    PROCESS_TOOL_NAME,
+    is_shell_command_tool_name,
+)
 
 if TYPE_CHECKING:
     from pydantic_monty import AsyncMonty, AsyncMontySession
@@ -101,7 +118,7 @@ str. A failing call raises RuntimeError.
 - Images, audio and binary resources arrive as `{{"media_id": ...}}` handles. To see them, \
 return the handles in the final expression; printed handles are not attached. A structured \
 result with such blocks is `{{"structured_content": ..., "content": [...]}}`.
-- Variables persist between calls.{type_check_note}
+- {store_note}{type_check_note}
 - Top-level `await` works. Unsupported: class inheritance, decorators, `yield`, `del`, \
 `async with`/`async for`, `except*`, `import *`.
 """
@@ -163,6 +180,14 @@ _FILES_NOTE = (
     "working directory. Each file operation runs through {functions}, with the same "
     "permissions.{commands}\n"
 )
+_READ_LIMITS_NOTE = (
+    "- `open()` loads the whole file, even for `read(n)` or `seek()`: at most {binary} binary "
+    "or {text} text. `struct` and `int.from_bytes` are unavailable.{advice}\n"
+)
+_READ_LIMITS_ADVICE = (
+    " For large or binary files, run commands such as `head -c`, `xxd` or `python3` with "
+    "`{shell}` instead."
+)
 _COMMANDS_NOTE = (
     " Commands and the network need the functions, e.g. `r = {example}`; "
     "`subprocess` is unavailable."
@@ -177,10 +202,20 @@ _UNSUPPORTED_IO_ERROR = re.compile(
     r"Module `os` has no member"
     r"|Cannot resolve imported module `(?:subprocess|shutil|glob|io|socket|urllib|http|requests)"
 )
-# pydantic-monty 1.3 runs os.walk and os.scandir, but its type-checker stubs omit them.
-_STUB_GAP = re.compile(r"Module `os` has no member `(?:walk|scandir)`")
+# pydantic-monty 1.3 runs os.walk, os.scandir and map, but its type-checker stubs omit them.
+_STUB_GAP = re.compile(
+    r"Module `os` has no member `(?:walk|scandir)`|Name `map` used when not defined"
+)
+# How Monty renders a coroutine from a function call that was never awaited.
+_UNAWAITED_CALL = re.compile(r"<coroutine external_future\(\d+\)>")
 _MAX_HINT_EXAMPLES = 4
 _TYPE_CHECK_NOTE = " Code is type-checked against these signatures first; on errors nothing runs."
+# Each run gets a fresh sandbox; the store is the only state that carries between runs.
+_STORE_NOTE = (
+    "Each run starts in a fresh sandbox: variables, functions and imports do not carry over. "
+    'Keep values later runs need with `await store("rows", rows)` and get them back with '
+    '`rows = await load("rows")`; `await stored()` lists what is kept.'
+)
 
 
 @dataclass(slots=True)
@@ -189,10 +224,22 @@ class _ExecutionStats:
     failed: list[str] = field(default_factory=list)
     started: int = 0
     calls: list[dict[str, Any]] = field(default_factory=list)
-    session_restarted: bool = False
     # Nested results are consumed in the sandbox, so URL elicitations must be carried to the
     # execute_python result for the user to see them.
     url_elicitations: list[URLElicitationRequiredDisplayPayload] = field(default_factory=list)
+    # Commands the shell returned while still running, by process id, with their command
+    # text; a later wait or stop that sees them end removes them.
+    running: dict[str, str] = field(default_factory=dict)
+
+    def track_process(self, arguments: Mapping[str, Any], result: CallToolResult) -> None:
+        value = (result.meta or {}).get(FAST_AGENT_PTC_VALUE)
+        if not isinstance(value, Mapping) or not isinstance(value.get("process_id"), str):
+            return
+        process_id = value["process_id"]
+        if value.get("status") != "running":
+            self.running.pop(process_id, None)
+        elif process_id not in self.running:
+            self.running[process_id] = str(arguments.get("command") or "")
 
 
 @dataclass(slots=True)
@@ -218,6 +265,7 @@ class _NestedCalls:
         with programmatic_tool_call(call_id):
             result = await self.dispatch(tool_name, arguments, call_id)
         (stats.failed if result.is_error else stats.completed).append(tool_name)
+        stats.track_process(arguments, result)
         stats.url_elicitations.extend(url_elicitation_required_payloads(result))
         stats.calls.append(_call_record(call_id, tool_name, result))
         return result
@@ -246,7 +294,7 @@ class _PrintedOutput:
 
 
 class ProgrammaticToolRuntime:
-    """Owns the Monty pool and REPL session used to run model-written tool orchestration."""
+    """Owns the Monty pool, a fresh sandbox per run, and the store that runs share."""
 
     def __init__(self, settings: ProgrammaticToolCallingSettings) -> None:
         if importlib.util.find_spec("pydantic_monty") is None:
@@ -265,11 +313,7 @@ class ProgrammaticToolRuntime:
         self._stubs = render_stubs({})
         self._pool: AsyncMonty | None = None
         self._pool_stack = AsyncExitStack()
-        self._session: AsyncMontySession | None = None
-        self._session_stack = AsyncExitStack()
-        self._session_stubs: str | None = None
-        # The working directory last passed to the session; os.chdir() then persists in it.
-        self._session_cwd: str | None = None
+        self._store = SandboxStore()
         self._file_tools = SandboxFileTools()
         self._lock = asyncio.Lock()
         self._executions = 0
@@ -360,6 +404,7 @@ class ProgrammaticToolRuntime:
             else "",
             shared_note=_SHARED_NOTE.format(functions=shared) if shared else "",
             input_note=_FREEFORM_INPUT_NOTE if self._tool_format == "freeform" else "",
+            store_note=_STORE_NOTE,
             type_check_note=_TYPE_CHECK_NOTE if self._settings.type_check else "",
         )
 
@@ -385,9 +430,16 @@ class ProgrammaticToolRuntime:
         if self._file_tools.available:
             names = [f"`{name}`" for name in self._file_tools.tool_names()]
             functions = names[0] if len(names) == 1 else f"{', '.join(names[:-1])} or {names[-1]}"
-            return _FILES_NOTE.format(
+            files_note = _FILES_NOTE.format(
                 functions=functions,
                 commands=_COMMANDS_NOTE.format(example=example) if example else "",
+            )
+            return files_note + _READ_LIMITS_NOTE.format(
+                binary=format_size(MAX_BINARY_READ_BYTES),
+                text=format_size(MAX_TEXT_READ_BYTES),
+                advice=_READ_LIMITS_ADVICE.format(shell=self._shell_function.python_name)
+                if self._shell_function
+                else "",
             )
         return _IO_NOTE.format(example=example) if example else ""
 
@@ -452,7 +504,9 @@ class ProgrammaticToolRuntime:
         return dict(_FREEFORM_TOOL_META if self._tool_format == "freeform" else PTC_TOOL_META)
 
     def tool(self) -> Tool:
-        stubs = "\n\n".join(function.stub() for function in self._functions.values())
+        stubs = "\n\n".join(
+            [*(function.stub() for function in self._functions.values()), STORE_STUBS.rstrip()]
+        )
         freeform = self._tool_format == "freeform"
         code_arg = _FREEFORM_CODE_ARG if freeform else "code"
         meta = self.tool_meta()
@@ -520,83 +574,52 @@ class ProgrammaticToolRuntime:
             )
             files = SandboxFilesystem(self._file_tools, calls.call, guidance=self._io_guidance())
             dispatches = calls.tasks
-            lookup = {
+            lookup: dict[str, Callable[..., Awaitable[Any]]] = {
                 name: self._host_function(function, calls, files)
                 for name, function in self._functions.items()
             }
+            lookup.update(self._store.functions())
             write_error: str | None = None
             started = time.perf_counter()
             try:
-                session, stats.session_restarted = await self._ensure_session()
-                feed_cwd = None if cwd == self._session_cwd else cwd
-                try:
+                async with await self._checkout() as session:
+                    await session.feed_run(_PRELUDE)
                     try:
-                        value = await session.feed_run(
-                            code,
-                            external_lookup=lookup,
-                            print_callback=output.append,
-                            os=files.handler,
-                            cwd=feed_cwd,
-                        )
-                    except MontyTypingError as exc:
-                        if not _only_stub_gaps(exc.display()):
-                            raise
-                        value = await session.feed_run(
-                            code,
-                            external_lookup=lookup,
-                            print_callback=output.append,
-                            os=files.handler,
-                            cwd=feed_cwd,
-                            skip_type_check=True,
-                        )
-                except Exception:
-                    # Buffered writes happened before the error, as they would in CPython.
+                        value = await self._feed(session, code, lookup, output, files, cwd)
+                    except Exception:
+                        # Buffered writes happened before the error, as they would in CPython.
+                        write_error = await files.finish()
+                        # A failed gather can leave sibling tools running. Settle them before
+                        # reporting completed side effects and copying nested result metadata.
+                        await asyncio.gather(*dispatches, return_exceptions=True)
+                        raise
                     write_error = await files.finish()
-                    # A failed gather can leave sibling tools running. Settle them before
-                    # reporting completed side effects and copying nested result metadata.
                     await asyncio.gather(*dispatches, return_exceptions=True)
-                    raise
-                finally:
-                    if feed_cwd is not None:
-                        self._session_cwd = feed_cwd
-                write_error = await files.finish()
-                await asyncio.gather(*dispatches, return_exceptions=True)
             except asyncio.CancelledError:
                 for task in dispatches:
                     task.cancel()
                 await asyncio.gather(*dispatches, return_exceptions=True)
-                # Monty finishes a cancelled checkout; it cannot be reused on the next turn.
-                await self._reset_session()
                 raise
             except MontyTypingError as exc:
                 # The type checker also reports syntax errors, mixed with errors they cause.
                 detail = exc.display()
                 report = self._describe_syntax_error(code) if "invalid-syntax" in detail else None
                 if report is not None:
-                    return _syntax_error_result(report, stats)
+                    return _syntax_error_result(report)
                 return _error_result(
                     "Type check failed; the code was NOT executed. Fix it and retry.\n"
-                    + _restart_note(stats)
                     + detail
                     + self._direct_io_hint(detail)
                 )
             except MontySyntaxError as exc:
-                return _syntax_error_result(
-                    self._describe_syntax_error(code) or exc.display(), stats
-                )
+                return _syntax_error_result(self._describe_syntax_error(code) or exc.display())
             except MontyRuntimeError as exc:
                 detail = exc.display()
-                if "time limit exceeded" in detail:
-                    # Monty gives no heap guarantees after a timeout: start a fresh session.
-                    await self._reset_session()
-                    detail += "\nThe sandbox session was reset; earlier variables are gone."
                 if write_error is not None:
                     detail += f"\nAlso, committing buffered file writes failed: {write_error}"
                 return self._failure(detail + self._direct_io_hint(detail), output, stats, started)
             except MontyCrashedError as exc:
-                await self._reset_session()
-                detail = f"{exc}\nThe sandbox crashed and was reset; earlier variables are gone."
-                return self._failure(detail, output, stats, started)
+                return self._failure(f"{exc}\nThe sandbox crashed.", output, stats, started)
             except MontyError as exc:
                 return self._failure(str(exc), output, stats, started)
 
@@ -612,14 +635,18 @@ class ProgrammaticToolRuntime:
     def _describe_syntax_error(self, code: str) -> str | None:
         return describe_syntax_error(code, direct_functions=self._shared_functions)
 
-    def invalidate_session(self) -> None:
-        """Discard conversation state on the next execution, which can close it asynchronously."""
-        self._session_stubs = None
+    @property
+    def store(self) -> SandboxStore:
+        """Values sandbox code keeps between runs; sessions persist and restore it."""
+        return self._store
+
+    def reset_conversation(self) -> None:
+        """Forget what earlier runs of this conversation kept: stored values and media."""
+        self._store.clear()
+        self._media.clear()
 
     async def close(self) -> None:
-        await self._session_stack.aclose()
         await self._pool_stack.aclose()
-        self._session = None
         self._pool = None
 
     def _direct_reason(self, tool: Tool) -> str | None:
@@ -661,23 +688,15 @@ class ProgrammaticToolRuntime:
 
         return call
 
-    async def _ensure_session(self) -> tuple[AsyncMontySession, bool]:
-        """Return the REPL session and whether a tool-surface change just restarted it."""
-        if self._session is not None and self._session_stubs == self._stubs:
-            return self._session, False
-        # A cleared _session_stubs means a conversation reset, which needs no notice.
-        restarted = self._session is not None and self._session_stubs is not None
-        if self._session is not None:
-            # Conversation resets and tool-surface changes both require a fresh checkout.
-            await self._reset_session()
-
+    async def _checkout(self) -> AsyncMontySession:
+        """Check out a fresh sandbox for one run; nothing but the store carries between runs."""
         if self._pool is None:
             from pydantic_monty import AsyncMonty
 
             self._pool = await self._pool_stack.enter_async_context(
                 AsyncMonty(min_processes=1, max_processes=2)
             )
-        session = self._pool.checkout(
+        return self._pool.checkout(
             script_name="ptc.py",
             type_check=self._settings.type_check,
             type_check_stubs=self._stubs if self._settings.type_check else None,
@@ -688,19 +707,37 @@ class ProgrammaticToolRuntime:
                 "max_suspensions": _MAX_SUSPENSIONS,
             },
         )
-        self._session = await self._session_stack.enter_async_context(session)
-        # Defined in the sandbox (not a host function) so it can await sandbox coroutines.
-        await self._session.feed_run(_PRELUDE)
-        self._session_stubs = self._stubs
-        return self._session, restarted
 
-    async def _reset_session(self) -> None:
-        await self._session_stack.aclose()
-        self._session_stack = AsyncExitStack()
-        self._session = None
-        self._session_stubs = None
-        self._session_cwd = None
-        self._media.clear()
+    async def _feed(
+        self,
+        session: AsyncMontySession,
+        code: str,
+        lookup: dict[str, Callable[..., Awaitable[Any]]],
+        output: _PrintedOutput,
+        files: SandboxFilesystem,
+        cwd: str | None,
+    ) -> Any:
+        from pydantic_monty import MontyTypingError
+
+        try:
+            return await session.feed_run(
+                code,
+                external_lookup=lookup,
+                print_callback=output.append,
+                os=files.handler,
+                cwd=cwd,
+            )
+        except MontyTypingError as exc:
+            if not _only_stub_gaps(exc.display()):
+                raise
+        return await session.feed_run(
+            code,
+            external_lookup=lookup,
+            print_callback=output.append,
+            os=files.handler,
+            cwd=cwd,
+            skip_type_check=True,
+        )
 
     def _success(
         self, value: Any, output: _PrintedOutput, stats: _ExecutionStats, started: float
@@ -711,13 +748,15 @@ class ProgrammaticToolRuntime:
             sections.append(f"Output:\n{printed}")
         if value is not None:
             sections.append(f"Result:\n{render_value(value)}")
-        if not printed and value is None:
+        if not printed and value is None and not stats.running:
             sections.append("(no output; print() values or end with an expression)")
-        if "<coroutine " in "\n".join(sections):
+        if _UNAWAITED_CALL.search("\n".join(sections)):
             sections.append(
                 "Note: a function call was not awaited, so its result was lost (the call still "
                 "ran). Use `r = await name(...)`."
             )
+        if stats.running:
+            sections.append(self._running_note(stats))
         media = self._media.referenced(value)
         if media:
             sections.append(f"Attached {len(media)} media item(s) referenced by the result.")
@@ -725,6 +764,34 @@ class ProgrammaticToolRuntime:
         result = CallToolResult(content=[*content, *media])
         _add_nested_metadata(result, stats)
         return result
+
+    def _running_note(self, stats: _ExecutionStats) -> str:
+        """Name the commands the shell returned before they finished: their output is partial."""
+        count = len(stats.running)
+        noun, pronoun = ("command", "it") if count == 1 else ("commands", "them")
+        header = (
+            f"Note: {count} {noun} returned while still running, so the output this script "
+            f"saw from {pronoun} is incomplete:"
+        )
+        lines = [header]
+        lines.extend(
+            f"- {process_id}: `{summarize_command(command)}`" if command else f"- {process_id}"
+            for process_id, command in stats.running.items()
+        )
+        process_id = next(iter(stats.running))
+        wait = self._process_wait_call(process_id)
+        how = f"Wait for {pronoun} with `{wait}`" if wait else f"Wait for {pronoun}"
+        lines.append(f"{how}, or pass `check=True` to make a command wait until it finishes.")
+        return "\n".join(lines)
+
+    def _process_wait_call(self, process_id: str) -> str | None:
+        for function in self._functions.values():
+            name = function.tool_name.casefold()
+            if name == PROCESS_TOOL_NAME:
+                return f'await {function.python_name}(action="wait", process_id="{process_id}")'
+            if name == POLL_PROCESS_TOOL_NAME:
+                return f'await {function.python_name}(process_id="{process_id}")'
+        return None
 
     def _failure(
         self, detail: str, output: _PrintedOutput, stats: _ExecutionStats, started: float
@@ -738,6 +805,8 @@ class ProgrammaticToolRuntime:
                 "Calls that completed (avoid repeating side effects): " + ", ".join(stats.completed)
             )
         sections.append(f"Error:\n{detail}")
+        if stats.running:
+            sections.append(self._running_note(stats))
         result = _error_result("\n".join(sections))
         _add_nested_metadata(result, stats)
         return result
@@ -770,24 +839,11 @@ def _header(status: str, stats: _ExecutionStats, started: float) -> str:
     elapsed = time.perf_counter() - started
     calls = len(stats.completed) + len(stats.failed)
     failed = f", {len(stats.failed)} failed" if stats.failed else ""
-    header = f"Script {status} in {elapsed:.2f}s ({calls} call{'' if calls == 1 else 's'}{failed})"
-    note = _restart_note(stats).rstrip()
-    return f"{header}\n{note}" if note else header
+    return f"Script {status} in {elapsed:.2f}s ({calls} call{'' if calls == 1 else 's'}{failed})"
 
 
-def _restart_note(stats: _ExecutionStats) -> str:
-    if not stats.session_restarted:
-        return ""
-    return (
-        "Note: the available functions changed, so the sandbox session was restarted before this "
-        "run; variables from earlier runs are gone.\n"
-    )
-
-
-def _syntax_error_result(report: str, stats: _ExecutionStats) -> CallToolResult:
-    return _error_result(
-        "Syntax error; the code was NOT executed.\n" + _restart_note(stats) + report
-    )
+def _syntax_error_result(report: str) -> CallToolResult:
+    return _error_result("Syntax error; the code was NOT executed.\n" + report)
 
 
 def _error_result(text: str) -> CallToolResult:

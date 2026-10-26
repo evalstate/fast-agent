@@ -1068,6 +1068,25 @@ class ConsoleDisplay:
             return
         self._tool_display.show_tool_result(result, **kwargs)
 
+    def show_sandbox_file_operation(
+        self,
+        description: str,
+        *,
+        name: str | None,
+        tool_name: str,
+        is_error: bool,
+        timing_ms: float,
+    ) -> None:
+        if not display_tools_enabled():
+            return
+        self._tool_display.show_sandbox_file_operation(
+            description,
+            name=name,
+            tool_name=tool_name,
+            is_error=is_error,
+            timing_ms=timing_ms,
+        )
+
     def show_history_tool_result(
         self,
         result: CallToolResult,

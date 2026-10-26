@@ -107,6 +107,56 @@ async def test_check_raises_for_failures_only() -> None:
 
 
 @pytest.mark.asyncio
+async def test_check_waits_for_commands_that_outlive_the_foreground_limit() -> None:
+    runtime = _runtime(
+        "luna_exec",
+        idle_yield_seconds=0.05,
+        foreground_yield_seconds=0.2,
+        foreground_auto_await_max_seconds=0,
+    )
+    try:
+        unchecked = _value(await _call_from_sandbox(runtime, {"command": "sleep 0.6; echo a"}))
+        checked = _value(
+            await _call_from_sandbox(
+                runtime, {"command": "echo start; sleep 0.6; echo done", "check": True}
+            )
+        )
+    finally:
+        await runtime.close()
+
+    assert unchecked["status"] == "running"
+    assert (checked["status"], checked["exit_code"]) == ("completed", 0)
+    assert checked["stdout"] == "start\ndone\n"
+
+
+@pytest.mark.asyncio
+async def test_cancelling_a_checked_command_stops_it() -> None:
+    runtime = _runtime(
+        "luna_exec",
+        idle_yield_seconds=0.05,
+        foreground_yield_seconds=0.2,
+        foreground_auto_await_max_seconds=0,
+    )
+    try:
+        call = asyncio.create_task(
+            _call_from_sandbox(runtime, {"command": "sleep 30", "check": True})
+        )
+        await asyncio.sleep(0.6)  # past the foreground yield, inside the check wait
+        call.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await call
+        # Read before close(), which terminates every process anyway.
+        states = [
+            (process.task.done(), process.terminated)
+            for process in runtime._managed_processes.values()
+        ]
+    finally:
+        await runtime.close()
+
+    assert states == [(True, True)]
+
+
+@pytest.mark.asyncio
 async def test_timeouts_are_values_and_model_calls_keep_their_wire_format() -> None:
     runtime = _runtime("freeform_shell")
     try:

@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
+import errno
 import json
+import os
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from mcp_types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.config import ProgrammaticToolCallingSettings, Settings, ShellSettings
-from fast_agent.constants import FAST_AGENT_PTC_CALLS
+from fast_agent.constants import FAST_AGENT_PTC_CALLS, FAST_AGENT_PTC_VALUE
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ptc import PTC_TOOL_NAME
+from fast_agent.ptc.files import SandboxFilesystem, SandboxFileTools
+from fast_agent.tools.filesystem_tool_definitions import build_read_text_file_tool
 from fast_agent.tools.local_shell_executor import LocalEnvironment
 from fast_agent.utils.tool_names import is_shell_command_tool_name
 
@@ -139,6 +143,227 @@ async def test_buffered_writes_land_in_one_call_before_a_tool_reads_the_file(tmp
     assert _value(result) == 20
     assert tools[0] == "write_text_file"
     assert len(tools) == 2
+
+
+@pytest.mark.asyncio
+async def test_reads_over_the_size_limit_fail_before_loading_the_file(tmp_path) -> None:
+    (tmp_path / "small.bin").write_bytes(b"\x00" * (500 * 1024))
+    (tmp_path / "large.iso").write_bytes(b"\x00" * (600 * 1024))
+    (tmp_path / "large.txt").write_text("x" * (5 * 1024 * 1024))
+    code = """
+from pathlib import Path
+out = {"small": len(open("small.bin", "rb").read())}
+for name, read in (
+    ("binary", lambda: open("large.iso", "rb").read(16)),
+    ("text", lambda: Path("large.txt").read_text()),
+):
+    try:
+        read()
+    except OSError as exc:
+        out[name] = [type(exc).__name__, str(exc)]
+out
+"""
+    async with _agent(tmp_path) as (agent, _shell):
+        value = _value(await _run(agent, code))
+
+    assert value["small"] == 500 * 1024
+    for name, size, limit in (("binary", "600 KB", "512 KB"), ("text", "5 MB", "4 MB")):
+        kind, message = value[name]
+        assert kind == "OSError"
+        assert f"File too large to read in the sandbox ({size}; the limit is {limit}" in message
+        assert "head -c" in message
+
+
+@pytest.mark.asyncio
+async def test_file_operations_still_running_at_the_shell_limit_are_stopped() -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def call(tool_name: str, arguments: dict[str, Any]) -> CallToolResult:
+        calls.append((tool_name, arguments))
+        value = {"stdout": "", "exit_code": None, "status": "running", "process_id": "process-7"}
+        return CallToolResult(content=[], meta={FAST_AGENT_PTC_VALUE: value})
+
+    shell = Tool(
+        name="execute",
+        input_schema={"type": "object", "properties": {"command": {"type": "string"}}},
+    )
+    process = Tool(
+        name="process",
+        input_schema={
+            "type": "object",
+            "properties": {"action": {"type": "string"}, "process_id": {"type": "string"}},
+        },
+    )
+    files = SandboxFilesystem(SandboxFileTools.from_tools([shell, process]), call, guidance="")
+
+    with pytest.raises(OSError) as raised:
+        await files.handler(name="Path.read_bytes", args=("/slow.bin",), kwargs={}, is_async=True)
+
+    assert raised.value.errno == errno.ETIMEDOUT
+    assert calls[-1] == ("process", {"action": "stop", "process_id": "process-7"})
+
+
+@pytest.mark.asyncio
+async def test_file_operations_display_as_one_line_without_their_transport(
+    tmp_path, monkeypatch
+) -> None:
+    (tmp_path / "blob.bin").write_bytes(bytes(range(256)))
+    shown: list[tuple[str, str]] = []
+    async with _agent(tmp_path) as (agent, shell):
+        monkeypatch.setattr(
+            agent.display,
+            "show_tool_call",
+            lambda tool_name, *_args, **_kwargs: shown.append(("call", tool_name)),
+        )
+        monkeypatch.setattr(
+            agent.display,
+            "show_sandbox_file_operation",
+            lambda description, **_kwargs: shown.append(("file", description)),
+        )
+        code = f"data = open('blob.bin', 'rb').read()\nawait {shell}(command='true')\nlen(data)"
+        assert _value(await _run(agent, code)) == 256
+
+    assert shown == [("file", f"read {(tmp_path / 'blob.bin').as_posix()}"), ("call", shell)]
+
+
+@pytest.mark.asyncio
+async def test_file_handles_passed_as_paths_are_resolved_to_their_path() -> None:
+    from pydantic_monty import MontyFileHandle
+
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def call(tool_name: str, arguments: dict[str, Any]) -> CallToolResult:
+        calls.append((tool_name, arguments))
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
+
+    write = Tool(
+        name="write_text_file",
+        input_schema={
+            "type": "object",
+            "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+        },
+    )
+    files = SandboxFilesystem(SandboxFileTools.from_tools([write]), call, guidance="")
+    handle = MontyFileHandle("/work/out.txt", "w")
+
+    await files.handler(name="Path.write_text", args=(handle, "data"), kwargs={}, is_async=True)
+    await files.finish()
+
+    assert calls == [("write_text_file", {"path": "/work/out.txt", "content": "data"})]
+
+
+@pytest.mark.asyncio
+async def test_buffered_writes_are_committed_early_past_the_size_bound(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr("fast_agent.ptc.files._MAX_BUFFERED_WRITE_BYTES", 16)
+    code = """
+from pathlib import Path
+with open("log.txt", "w") as f:
+    for i in range(20):
+        f.write(f"line {i}\\n")
+with open("log.txt", "a") as f:
+    f.write("tail\\n")
+for name in ("a.bin", "b.bin"):
+    Path(name).write_bytes(b"0123456789" * 4)
+Path("a.bin").write_bytes(b"replaced")
+"""
+    async with _agent(tmp_path) as (agent, _shell):
+        result = await _run(agent, code)
+        commits = len((result.meta or {})[FAST_AGENT_PTC_CALLS])
+
+    assert not result.is_error, _text(result)
+    assert (tmp_path / "log.txt").read_text() == "".join(
+        f"line {i}\n" for i in range(20)
+    ) + "tail\n"
+    assert (tmp_path / "a.bin").read_bytes() == b"replaced"
+    assert (tmp_path / "b.bin").read_bytes() == b"0123456789" * 4
+    assert commits > 4, commits  # committed while writing, not once at the end
+
+
+@pytest.mark.asyncio
+async def test_rename_follows_rename_semantics(tmp_path) -> None:
+    (tmp_path / "empty").mkdir()
+    (tmp_path / "target_dir").mkdir()
+    (tmp_path / "link").symlink_to(tmp_path / "target_dir")
+    (tmp_path / "full").mkdir()
+    (tmp_path / "full" / "x").write_text("x")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "file.txt").write_text("data")
+    os.link(tmp_path / "file.txt", tmp_path / "hardlink.txt")
+    code = """
+import os
+os.rename("empty", "empty")
+os.rename("file.txt", "hardlink.txt")
+os.rename("hardlink.txt", "link")
+errors = []
+for source, target in (("src", "full"), ("src", "link"), ("empty", "file.txt")):
+    try:
+        os.rename(source, target)
+    except OSError as exc:
+        errors.append(str(exc))
+os.rename("src", "empty")
+errors
+"""
+    async with _agent(tmp_path) as (agent, _shell):
+        errors = _value(await _run(agent, code))
+
+    assert (tmp_path / "file.txt").read_text() == "data"
+    assert not (tmp_path / "link").is_symlink() and (tmp_path / "link").read_text() == "data"
+    assert list((tmp_path / "target_dir").iterdir()) == []
+    assert (tmp_path / "empty").is_dir() and not (tmp_path / "src").exists()
+    assert ["Directory not empty" in errors[0], "Not a directory" in errors[1]] == [True, True]
+    assert "Not a directory" in errors[2]
+
+
+class _RecordingFilesystem:
+    """An injected filesystem runtime (as ACP provides) for an agent without a shell."""
+
+    def __init__(self) -> None:
+        self.reads: list[str] = []
+
+    @property
+    def tools(self) -> list[Tool]:
+        return [build_read_text_file_tool()]
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        tool_use_id: str | None = None,
+        *,
+        request_params: Any = None,
+    ) -> CallToolResult:
+        self.reads.append(str((arguments or {})["path"]))
+        return CallToolResult(content=[TextContent(type="text", text="notes")])
+
+    def metadata(self) -> dict[str, Any]:
+        return {}
+
+
+@pytest.mark.asyncio
+async def test_relative_paths_resolve_against_the_agent_directory_without_a_shell(
+    tmp_path,
+) -> None:
+    filesystem = _RecordingFilesystem()
+    agent = McpAgent(
+        AgentConfig(name="ptc-no-shell", servers=[], cwd=tmp_path),
+        context=Context(config=Settings(ptc=ProgrammaticToolCallingSettings(enabled=True))),
+    )
+    agent.set_filesystem_runtime(filesystem)
+    try:
+        await agent.list_tools()
+        result = await _run(agent, "from pathlib import Path\nPath('notes.txt').read_text()")
+    finally:
+        await agent.shutdown()
+
+    assert _value_text(result) == "notes"
+    assert filesystem.reads == [(tmp_path / "notes.txt").as_posix()]
+
+
+def _value_text(result: CallToolResult) -> str:
+    assert not result.is_error, _text(result)
+    return _text(result).split("Result:\n", 1)[1]
 
 
 @pytest.mark.asyncio

@@ -34,7 +34,12 @@ from fast_agent.tools.filesystem_tool_definitions import (
     READ_TEXT_FILE_TOOL_NAME,
     WRITE_TEXT_FILE_TOOL_NAME,
 )
-from fast_agent.utils.tool_names import is_shell_command_tool_name
+from fast_agent.tools.invocation_context import sandbox_file_operation_call
+from fast_agent.utils.tool_names import (
+    PROCESS_TOOL_NAME,
+    TERMINATE_PROCESS_TOOL_NAME,
+    is_shell_command_tool_name,
+)
 
 if TYPE_CHECKING:
     from mcp_types import Tool
@@ -73,9 +78,16 @@ _WRITE_OPERATIONS = frozenset(
 # Raw bytes per shell write; base64 inflates them by 4/3, staying well under Linux's 128 KiB
 # limit on a single command-line argument.
 _SHELL_WRITE_CHUNK = 64 * 1024
+# Buffered writes are committed early past this size, bounding host memory per script.
+_MAX_BUFFERED_WRITE_BYTES = 8 * 1024 * 1024
+# Sandbox reads load the whole file into the sandbox, even for read(n). Binary data crosses the
+# shell as base64, so its limit keeps the encoded text under the shell's stream capture limit.
+MAX_BINARY_READ_BYTES = 512 * 1024
+MAX_TEXT_READ_BYTES = 4 * 1024 * 1024
 # Shell scripts report a known failure as "E:<ERRNO NAME>" on stderr and exit 3.
 _FAIL = 'fail() { printf "E:%s" "$1" >&2; exit 3; }; '
 _ERRNO_TOKEN = re.compile(r"E:([A-Z]+)")
+_TOO_LARGE = re.compile(r"E:EFBIG (\d+) (\d+)")
 _ERRNO_NUMBER = re.compile(r"\[Errno (\d+)\]")
 _ERRNO_NAMES = {
     "ENOENT": errno.ENOENT,
@@ -105,6 +117,26 @@ _SCAN_ENTRY_SCRIPT = (
 _REQUIRE_EXISTS = 'if [ ! -e "$p" ] && [ ! -L "$p" ]; then fail ENOENT; fi; '
 _REQUIRE_FILE = _REQUIRE_EXISTS + '[ -d "$p" ] && fail EISDIR; '
 _REQUIRE_DIR = _REQUIRE_EXISTS + '[ -d "$p" ] || fail ENOTDIR; '
+
+
+def _require_size_at_most(limit: int) -> str:
+    """Fail with ``E:EFBIG <size> <limit>`` when the file at ``$p`` exceeds ``limit`` bytes."""
+    return f's=$(wc -c < "$p") || exit 1; [ "$s" -le {limit} ] || fail "EFBIG $s {limit}"; '
+
+
+# rename(2) semantics in POSIX sh, since `mv` follows a symlinked or directory target into it
+# (GNU `mv -T` would avoid that, but BSD and some BusyBox builds lack it). A source that is a
+# directory is $d; the target is replaced only where rename(2) would replace it.
+_RENAME_SCRIPT = (
+    'd=0; [ -d "$p" ] && [ ! -L "$p" ] && d=1; '
+    # The same file, including hard links: rename(2) succeeds without changing anything.
+    'if [ ! -L "$p" ] && [ ! -L "$t" ] && [ "$p" -ef "$t" ]; then exit 0; fi; '
+    'if [ -L "$t" ]; then [ "$d" = 1 ] && fail ENOTDIR; rm -f -- "$t"; '
+    'elif [ -d "$t" ]; then [ "$d" = 1 ] || fail EISDIR; '
+    'rmdir -- "$t" 2>/dev/null || fail ENOTEMPTY; '
+    'elif [ -e "$t" ] && [ "$d" = 1 ]; then fail ENOTDIR; fi; '
+    'mv -f -- "$p" "$t"'
+)
 _UNLINK = _REQUIRE_EXISTS + 'if [ -d "$p" ] && [ ! -L "$p" ]; then fail EISDIR; fi; rm -f -- "$p"'
 
 
@@ -115,6 +147,8 @@ class SandboxFileTools:
     read: PtcFunction | None = None
     write: PtcFunction | None = None
     shell: PtcFunction | None = None
+    # Stops a file operation's command that outlived the shell's foreground limit.
+    stop: PtcFunction | None = None
 
     @classmethod
     def from_tools(cls, tools: Sequence[Tool]) -> SandboxFileTools:
@@ -122,7 +156,13 @@ class SandboxFileTools:
             [
                 tool
                 for tool in tools
-                if tool.name in (READ_TEXT_FILE_TOOL_NAME, WRITE_TEXT_FILE_TOOL_NAME)
+                if tool.name
+                in (
+                    READ_TEXT_FILE_TOOL_NAME,
+                    WRITE_TEXT_FILE_TOOL_NAME,
+                    PROCESS_TOOL_NAME,
+                    TERMINATE_PROCESS_TOOL_NAME,
+                )
                 or is_shell_command_tool_name(tool.name)
             ]
         ).values()
@@ -132,6 +172,7 @@ class SandboxFileTools:
             read=by_name.get(READ_TEXT_FILE_TOOL_NAME),
             write=by_name.get(WRITE_TEXT_FILE_TOOL_NAME),
             shell=shell,
+            stop=by_name.get(PROCESS_TOOL_NAME) or by_name.get(TERMINATE_PROCESS_TOOL_NAME),
         )
 
     @property
@@ -156,6 +197,11 @@ def _runs_commands(function: PtcFunction) -> bool:
 class _PendingWrite:
     truncate: bool
     chunks: list[str | bytes] = field(default_factory=list)
+    size: int = 0
+
+    def add(self, data: str | bytes) -> None:
+        self.chunks.append(data)
+        self.size += len(data)
 
     def data(self) -> str | bytes:
         if all(isinstance(chunk, str) for chunk in self.chunks):
@@ -173,6 +219,8 @@ class SandboxFilesystem:
         self._call = call
         self._guidance = guidance
         self._pending: dict[str, _PendingWrite] = {}
+        # Buffered data lives in the host process, outside Monty's memory limit.
+        self._pending_size = 0
         # Content read by open() to check the file, served to the read that follows it.
         self._opened: dict[tuple[str, bool], str | bytes] = {}
         self._flush_lock = asyncio.Lock()
@@ -212,11 +260,13 @@ class SandboxFilesystem:
             while self._pending:
                 path = next(iter(self._pending))
                 pending = self._pending.pop(path)
+                self._pending_size -= pending.size
                 try:
                     await self._commit(path, pending)
                 except OSError:
                     unwritten = list(self._pending)
                     self._pending.clear()
+                    self._pending_size = 0
                     if unwritten:
                         raise OSError(
                             f"writing {path} failed, so later writes to {', '.join(unwritten)} "
@@ -225,10 +275,16 @@ class SandboxFilesystem:
                     raise
 
     async def _run(self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
-        path = str(args[0])
+        from pydantic_monty.os_access import path_from_arg
+
+        # Monty documents the first argument as a path or the handle open() returned.
+        path = str(path_from_arg(args[0]))
         if name in _WRITE_OPERATIONS:
             self._require_writer(name)
             self._buffer(path, args[1], truncate=name.startswith("Path.write"))
+            if self._pending_size > _MAX_BUFFERED_WRITE_BYTES:
+                # Safe mid-stream: after open() later writes to a file arrive as appends.
+                await self.flush()
             return len(args[1])
         if name in ("Path.resolve", "Path.absolute"):
             # Monty already made the path absolute and normalised; symlinks are not resolved.
@@ -290,8 +346,11 @@ class SandboxFilesystem:
     def _buffer(self, path: str, data: str | bytes, *, truncate: bool) -> None:
         pending = self._pending.get(path)
         if truncate or pending is None:
+            if pending is not None:
+                self._pending_size -= pending.size
             pending = self._pending[path] = _PendingWrite(truncate=truncate)
-        pending.chunks.append(data)
+        pending.add(data)
+        self._pending_size += len(data)
 
     async def _open(self, path: str, mode: str) -> Any:
         from pydantic_monty import MontyFileHandle
@@ -309,21 +368,34 @@ class SandboxFilesystem:
         return handle
 
     async def _read_text(self, path: str) -> str:
-        if self._tools.read is not None:
-            result = await self._call_function(self._tools.read, {"path": path})
-            if result.is_error:
-                raise _os_error(_result_text(result), path)
-            return _result_text(result)
-        return (await self._read_bytes(path)).decode()
+        if self._tools.read is None:
+            return (await self._read_bytes(path)).decode()
+        if self._tools.shell is not None:
+            await self._shell(
+                "check size", path, _REQUIRE_FILE + _require_size_at_most(MAX_TEXT_READ_BYTES)
+            )
+        result = await self._call_function(self._tools.read, {"path": path}, f"read {path}")
+        if result.is_error:
+            raise _os_error(_result_text(result), path)
+        text = _result_text(result)
+        if (size := len(text.encode())) > MAX_TEXT_READ_BYTES:
+            raise _too_large(path, size, MAX_TEXT_READ_BYTES)
+        return text
 
     async def _read_bytes(self, path: str) -> bytes:
-        output = await self._shell("read", path, _REQUIRE_FILE + 'base64 < "$p"')
+        output = await self._shell(
+            "read",
+            path,
+            _REQUIRE_FILE + _require_size_at_most(MAX_BINARY_READ_BYTES) + 'base64 < "$p"',
+        )
         return base64.b64decode(output)
 
     async def _commit(self, path: str, pending: _PendingWrite) -> None:
         data = pending.data()
         if pending.truncate and isinstance(data, str) and self._tools.write is not None:
-            result = await self._call_function(self._tools.write, {"path": path, "content": data})
+            result = await self._call_function(
+                self._tools.write, {"path": path, "content": data}, f"write {path}"
+            )
             if result.is_error:
                 raise _os_error(_result_text(result), path)
             return
@@ -336,7 +408,7 @@ class SandboxFilesystem:
             except FileNotFoundError:
                 existing = ""
             result = await self._call_function(
-                self._tools.write, {"path": path, "content": existing + data}
+                self._tools.write, {"path": path, "content": existing + data}, f"append {path}"
             )
             if result.is_error:
                 raise _os_error(_result_text(result), path)
@@ -435,9 +507,7 @@ class SandboxFilesystem:
         await self._shell(
             "Path.rename",
             source,
-            _REQUIRE_EXISTS + f"t={shlex.quote(target)}; "
-            'if [ -d "$t" ] && [ ! -L "$t" ]; then [ -d "$p" ] || fail EISDIR; '
-            'rmdir -- "$t" 2>/dev/null || fail ENOTEMPTY; fi; mv -f -- "$p" "$t"',
+            _REQUIRE_EXISTS + f"t={shlex.quote(target)}; " + _RENAME_SCRIPT,
         )
 
     async def _shell(self, operation: str, path: str, script: str) -> str:
@@ -446,15 +516,24 @@ class SandboxFilesystem:
         if shell is None:
             raise self._unavailable(operation)
         command = f"p={shlex.quote(path)}; {_FAIL}{script}"
+        description = f"{operation} {path}"
         arguments: dict[str, Any] = {"command": command}
         if any(parameter.python_name == "description" for parameter in shell.parameters):
-            arguments["description"] = f"Python {operation} {path}"
-        result = await self._call_function(shell, arguments)
+            arguments["description"] = f"Python {description}"
+        result = await self._call_function(shell, arguments, description)
         value = (result.meta or {}).get(FAST_AGENT_PTC_VALUE)
         if not isinstance(value, Mapping):
             raise OSError(f"{operation} {path}: {_result_text(result) or 'shell call failed'}")
         stdout = str(value.get("stdout") or "")
         if value.get("exit_code") != 0:
+            if value.get("status") == "running":
+                await self._stop(value.get("process_id"))
+                raise OSError(
+                    errno.ETIMEDOUT,
+                    f"{operation} did not finish within the shell's foreground limit and was "
+                    "stopped; use a shell command for slow file work",
+                    path,
+                )
             if value.get("status") not in ("completed", "failed"):
                 raise OSError(f"{operation} {path}: shell command {value.get('status')}")
             raise _os_error(str(value.get("stderr") or stdout), path)
@@ -465,14 +544,28 @@ class SandboxFilesystem:
             )
         return stdout
 
+    async def _stop(self, process_id: object) -> None:
+        """Stop a file operation's command: the model never asked for it, so it must not linger."""
+        stop = self._tools.stop
+        if stop is None or not isinstance(process_id, str):
+            return
+        arguments: dict[str, Any] = {"process_id": process_id}
+        if stop.tool_name == PROCESS_TOOL_NAME:
+            arguments["action"] = "stop"
+        await self._call_function(stop, arguments, f"stop {process_id}")
+
     async def _call_function(
-        self, function: PtcFunction, arguments: dict[str, Any]
+        self, function: PtcFunction, arguments: dict[str, Any], description: str
     ) -> CallToolResult:
-        return await self._call(function.tool_name, function.bind_arguments(arguments))
+        # The nested call's task copies this context, so displays can tell it is internal.
+        with sandbox_file_operation_call(description):
+            return await self._call(function.tool_name, function.bind_arguments(arguments))
 
 
 def _os_error(message: str, path: str) -> OSError:
     """Rebuild the OSError a tool or shell script reported, keeping its errno subclass."""
+    if (too_large := _TOO_LARGE.search(message)) is not None:
+        return _too_large(path, int(too_large.group(1)), int(too_large.group(2)))
     code: int | None = None
     if (token := _ERRNO_TOKEN.search(message)) is not None:
         code = _ERRNO_NAMES.get(token.group(1))
@@ -483,6 +576,23 @@ def _os_error(message: str, path: str) -> OSError:
     if code is None:
         return OSError(f"{path}: {message.strip() or 'operation failed'}")
     return OSError(code, os.strerror(code), path)
+
+
+def _too_large(path: str, size: int, limit: int) -> OSError:
+    return OSError(
+        errno.EFBIG,
+        f"File too large to read in the sandbox ({format_size(size)}; the limit is "
+        f"{format_size(limit)}, and even read(n) loads the whole file). Process it with a shell "
+        "command instead, e.g. head -c, xxd, sha256sum or python3",
+        path,
+    )
+
+
+def format_size(size: int) -> str:
+    for unit, scale in (("GB", 1 << 30), ("MB", 1 << 20), ("KB", 1 << 10)):
+        if size >= scale:
+            return f"{size / scale:.1f}".removesuffix(".0") + f" {unit}"
+    return f"{size} bytes"
 
 
 def _result_text(result: CallToolResult) -> str:

@@ -203,7 +203,7 @@ async def test_settle_helper_and_tool_are_both_callable(type_check: bool) -> Non
 
 
 @pytest.mark.asyncio
-async def test_settle_gathers_every_result_and_survives_session_reset(runtime) -> None:
+async def test_settle_gathers_every_result_and_survives_conversation_reset(runtime) -> None:
     """``settle`` is the allSettled pattern: Monty's gather() has no return_exceptions.
 
     asyncio is pre-imported along with it, so the snippet needs no import.
@@ -216,7 +216,7 @@ async def test_settle_gathers_every_result_and_survives_session_reset(runtime) -
     )
 
     first = await runtime.execute({"code": code}, dispatch)
-    runtime.invalidate_session()
+    runtime.reset_conversation()
     after_reset = await runtime.execute({"code": code}, dispatch)
 
     for result in (first, after_reset):
@@ -234,27 +234,32 @@ def test_cpython_guidance_is_removed_when_shell_tool_is_removed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_concurrent_calls_and_state_persists_between_executions(runtime) -> None:
+async def test_runs_start_fresh_and_share_only_what_they_store(runtime) -> None:
     dispatch = RecordingDispatcher()
 
     first = await runtime.execute(
         {
             "code": (
-                "import asyncio\n"
                 "rs = await asyncio.gather("
                 "*[orders__get_orders(customer_id=c) for c in ['a', 'b', 'c']])\n"
+                "await store('ids', [r['call_id'] for r in rs])\n"
                 "print(len(rs))\n"
                 "[r['arguments']['customer_id'] for r in rs]"
             )
         },
         dispatch,
     )
-    second = await runtime.execute({"code": "rs[0]['call_id']"}, dispatch)
+    variable = await runtime.execute({"code": "rs[0]['call_id']"}, dispatch)
+    stored = await runtime.execute({"code": "(await load('ids'))[0]"}, dispatch)
+    # Nothing pins a name's type across runs: each run type-checks on its own.
+    rebound = await runtime.execute({"code": "rs = 'now a string'\nrs"}, dispatch)
 
     assert not first.is_error, _text(first)
     assert "3" in _text(first) and '["a", "b", "c"]' in _text(first)
     assert len(dispatch.calls) == 3
-    assert not second.is_error and "ptc-1-" in _text(second)
+    assert variable.is_error and "`rs` used when not defined" in _text(variable)
+    assert not stored.is_error and "ptc-1-" in _text(stored)
+    assert not rebound.is_error, _text(rebound)
 
 
 @pytest.mark.asyncio
@@ -311,6 +316,83 @@ async def test_unawaited_tool_calls_are_flagged(runtime) -> None:
     assert "not awaited" in _text(result)
 
 
+@pytest.mark.asyncio
+async def test_printed_coroutine_text_is_not_mistaken_for_an_unawaited_call(runtime) -> None:
+    result = await runtime.execute(
+        {"code": "print('if \"<coroutine \" in text: <coroutine object f at 0x1>')"},
+        RecordingDispatcher(),
+    )
+
+    assert "not awaited" not in _text(result)
+
+
+@pytest.mark.asyncio
+async def test_builtins_missing_from_monty_stubs_still_run(runtime) -> None:
+    result = await runtime.execute({"code": "list(map(str, [1, 2]))"}, RecordingDispatcher())
+
+    assert not result.is_error, _text(result)
+    assert _text(result).endswith('Result:\n["1", "2"]')
+
+
+class ProcessDispatcher:
+    """A shell whose commands outlive the foreground limit until a wait sees them finish."""
+
+    async def __call__(self, name: str, arguments: dict[str, Any], call_id: str) -> CallToolResult:
+        process_id = arguments.get("process_id") or f"process-{call_id[-1]}"
+        status = "completed" if name == "process" else "running"
+        value = {
+            "stdout": "",
+            "stderr": "",
+            "exit_code": 0 if status == "completed" else None,
+            "status": status,
+            "process_id": process_id,
+            "truncated": False,
+        }
+        return CallToolResult(
+            content=[TextContent(type="text", text=status)], meta={FAST_AGENT_PTC_VALUE: value}
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fails", [False, True])
+async def test_commands_still_running_at_the_end_are_reported(fails: bool) -> None:
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
+    runtime.model_tools(
+        [
+            Tool(
+                name="execute",
+                description="Shell",
+                input_schema={"type": "object", "properties": {"command": {"type": "string"}}},
+            ),
+            Tool(
+                name="process",
+                description="Processes",
+                input_schema={
+                    "type": "object",
+                    "properties": {"action": {"type": "string"}, "process_id": {"type": "string"}},
+                },
+            ),
+        ]
+    )
+    code = (
+        "a = await execute(command='apt-get install -y r-base-core')\n"
+        "b = await execute(command='make')\n"
+        "await process(action='wait', process_id=b['process_id'])\n"
+        + ("1 / 0" if fails else "print(a['stdout'])")
+    )
+    try:
+        result = await runtime.execute({"code": code}, ProcessDispatcher(), parent_call_id="c")
+    finally:
+        await runtime.close()
+
+    text = _text(result)
+    assert result.is_error is fails
+    assert "1 command returned while still running" in text
+    assert "- process-1: `apt-get install -y r-base-core`" in text
+    assert 'await process(action="wait", process_id="process-1")' in text
+    assert "process-2" not in text
+
+
 def test_direct_calls_to_code_only_tools_point_back_into_the_sandbox(runtime) -> None:
     hint = runtime.unavailable_tool_hint("orders__get_orders")
 
@@ -357,6 +439,39 @@ def test_instructions_show_a_concrete_tool_call_for_io() -> None:
     code_tool, *_ = runtime.model_tools([TOOLS[0], shell])
 
     assert "e.g. `r = await bash(command=...)`" in (code_tool.description or "")
+
+
+def test_instructions_point_runs_at_the_store_for_shared_state() -> None:
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
+    code_tool, *_ = runtime.model_tools([TOOLS[0]])
+    description = code_tool.description or ""
+
+    assert "Each run starts in a fresh sandbox" in description
+    assert 'rows = await load("rows")' in description
+    for stub in ("async def store(", "async def load(", "async def stored("):
+        assert stub in description.split("Available functions:")[1]
+
+
+def test_instructions_state_that_sandbox_reads_load_whole_files() -> None:
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
+    shell = Tool(
+        name="bash",
+        input_schema={
+            "type": "object",
+            "properties": {"command": {"type": "string"}},
+            "required": ["command"],
+        },
+    )
+
+    code_tool, *_ = runtime.model_tools([TOOLS[0], shell])
+    line = next(
+        line
+        for line in (code_tool.description or "").splitlines()
+        if line.startswith("- `open()` loads the whole file")
+    )
+
+    assert "even for `read(n)` or `seek()`: at most 512 KB binary or 4 MB text" in line
+    assert "`head -c`, `xxd` or `python3` with `bash` instead" in line
 
 
 @pytest.mark.asyncio
@@ -460,8 +575,10 @@ async def test_cancelled_execution_settles_tools_and_can_run_again(
 
     assert write_settled.is_set()
     dispatch_again = RecordingDispatcher()
-    recovered = await runtime.execute({"code": "saved = 42\nsaved"}, dispatch_again)
-    reused = await runtime.execute({"code": "saved + 1"}, dispatch_again)
+    recovered = await runtime.execute(
+        {"code": "await store('saved', 42)\nawait load('saved')"}, dispatch_again
+    )
+    reused = await runtime.execute({"code": "await load('saved') + 1"}, dispatch_again)
     assert not recovered.is_error and _text(recovered).endswith("Result:\n42")
     assert not reused.is_error and _text(reused).endswith("Result:\n43")
 
@@ -482,14 +599,13 @@ async def test_agent_context_exit_closes_ptc_resources(raise_in_context) -> None
                 assert not result.is_error, _text(result)
                 runtime = agent._ptc_runtime
                 assert runtime is not None
-                assert runtime._session is not None and runtime._pool is not None
+                assert runtime._pool is not None
                 if raise_in_context:
                     raise ValueError("context failed")
         except ValueError as exc:
             assert raise_in_context and str(exc) == "context failed"
         runtime = agent._ptc_runtime
         assert runtime is not None
-        assert runtime._session is None
         assert runtime._pool is None
     finally:
         await agent.shutdown()
@@ -615,28 +731,23 @@ async def test_conversation_resets_discard_sandbox_state(reset, type_check) -> N
     )
     try:
         await agent.list_tools()
-        seeded = await agent.call_tool(PTC_TOOL_NAME, {"code": "saved: int = 42\nsaved"})
+        seeded = await agent.call_tool(PTC_TOOL_NAME, {"code": "await store('saved', 42)"})
         assert not seeded.is_error, _text(seeded)
+        load_saved = {"code": "await load('saved', 'gone')"}
 
-        # Ordinary history replacement (including compaction) keeps the REPL intact.
+        # Ordinary history replacement (including compaction) keeps the store.
         agent.load_message_history([Prompt.user("updated history")])
         await agent.list_tools()
-        retained = await agent.call_tool(PTC_TOOL_NAME, {"code": "saved"})
-        assert not retained.is_error, _text(retained)
-        assert "42" in _text(retained)
+        retained = await agent.call_tool(PTC_TOOL_NAME, load_saved)
+        assert _text(retained).endswith("Result:\n42"), _text(retained)
 
         if reset == "load_history":
             agent.load_message_history([Prompt.user("new conversation")], clear_state=True)
         else:
             agent.clear(clear_prompts=reset == "clear_prompts")
         await agent.list_tools()
-        missing = await agent.call_tool(PTC_TOOL_NAME, {"code": "saved"})
-        assert missing.is_error, _text(missing)
-
-        # A new annotation must also work: old type-check state is gone.
-        fresh = await agent.call_tool(PTC_TOOL_NAME, {"code": "saved: str = 'fresh'\nsaved"})
-        assert not fresh.is_error, _text(fresh)
-        assert "fresh" in _text(fresh)
+        cleared = await agent.call_tool(PTC_TOOL_NAME, load_saved)
+        assert _text(cleared).endswith("Result:\ngone"), _text(cleared)
     finally:
         await agent.shutdown()
 
@@ -852,10 +963,20 @@ async def test_media_reaches_the_model_only_when_the_script_returns_its_handle(r
         )
 
     printed = await runtime.execute(
-        {"code": "caption, shot = await orders__get_orders(customer_id='a')\nprint(shot)"},
+        {
+            "code": (
+                "caption, shot = await orders__get_orders(customer_id='a')\n"
+                "await store('shot', [caption, shot])\n"
+                "print(shot)"
+            )
+        },
         dispatch,
     )
-    returned = await runtime.execute({"code": "{'caption': caption, 'image': shot}"}, dispatch)
+    # A stored handle still brings its media back from a later run.
+    returned = await runtime.execute(
+        {"code": "caption, shot = await load('shot')\n{'caption': caption, 'image': shot}"},
+        dispatch,
+    )
 
     assert not printed.is_error, _text(printed)
     assert "media_id" in _text(printed)
@@ -967,18 +1088,15 @@ async def test_program_values_replace_model_text_only_for_the_sandbox_caller(run
 
 
 @pytest.mark.asyncio
-async def test_tool_surface_changes_restart_the_session_with_a_notice(runtime) -> None:
+async def test_stored_values_survive_tool_surface_changes(runtime) -> None:
     dispatch = RecordingDispatcher()
-    seeded = await runtime.execute({"code": "saved = 1\nsaved"}, dispatch)
-    unchanged = await runtime.execute({"code": "saved"}, dispatch)
+    seeded = await runtime.execute({"code": "await store('saved', 1)"}, dispatch)
 
     runtime.model_tools([*TOOLS, Tool(name="extra", input_schema={"type": "object"})])
-    restarted = await runtime.execute({"code": "saved"}, dispatch)
+    loaded = await runtime.execute({"code": "await extra()\nawait load('saved')"}, dispatch)
 
-    assert not seeded.is_error and not unchanged.is_error
-    assert "restarted" not in _text(unchanged)
-    assert restarted.is_error
-    assert "sandbox session was restarted" in _text(restarted)
+    assert not seeded.is_error, _text(seeded)
+    assert _text(loaded).endswith("Result:\n1"), _text(loaded)
 
 
 @pytest.mark.asyncio

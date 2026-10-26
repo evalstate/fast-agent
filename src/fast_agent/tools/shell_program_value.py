@@ -27,8 +27,9 @@ PTC_CHECK_ARGUMENT = "check"
 _CHECK_SCHEMA = {
     "type": "boolean",
     "description": (
-        "Raise RuntimeError when the command fails, times out or is stopped. By default a "
-        "non-zero exit is returned in exit_code and does not raise."
+        "Wait until the command finishes, then raise RuntimeError if it failed, timed out or "
+        "was stopped. By default a command still running at the foreground limit is returned "
+        "with status 'running', and a non-zero exit is returned in exit_code and does not raise."
     ),
 }
 _RETURNS_SCHEMA = {

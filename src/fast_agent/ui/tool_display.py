@@ -680,6 +680,30 @@ class ToolDisplay:
         console.ensure_blocking_console()
         console.console.print(line, markup=self._markup)
 
+    def show_sandbox_file_operation(
+        self,
+        description: str,
+        *,
+        name: str | None,
+        tool_name: str,
+        is_error: bool,
+        timing_ms: float,
+    ) -> None:
+        """One line for a tool call serving sandbox file I/O, instead of its raw call and output."""
+        annotations = [f"via {self._display_tool_name(tool_name)}"]
+        if is_error:
+            annotations.append("failed")
+        annotations.append(self._display._format_elapsed(timing_ms / 1000))
+        line = self._compact_event_line(
+            message_type=MessageType.TOOL_RESULT,
+            name=name,
+            identity=f"PTC file {description}",
+            annotations=annotations,
+            is_error=is_error,
+        )
+        console.ensure_blocking_console()
+        console.console.print(line, markup=self._markup)
+
     def show_parallel_tool_results(self, requests: "Sequence[ToolResultDisplayRequest]") -> None:
         """Render a parallel result batch, compacting safe generic text results."""
         groups: dict[tuple[str | None, ...], list[ToolResultDisplayRequest]] = {}
