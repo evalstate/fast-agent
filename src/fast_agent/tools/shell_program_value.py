@@ -23,6 +23,10 @@ if TYPE_CHECKING:
 # model, so this bounds host memory rather than model context.
 PTC_STREAM_CHAR_LIMIT = 1_000_000
 PTC_CHECK_ARGUMENT = "check"
+# Declared in a tool's PTC options when its sandbox results carry a ShellProgramValue; sandbox
+# file access needs that contract, not just a shell-like name (ACP and MCP shells lack it).
+PTC_VALUE_CONTRACT_OPTION = "value_contract"
+SHELL_PROGRAM_VALUE_CONTRACT = "shell-program-value"
 
 _CHECK_SCHEMA = {
     "type": "boolean",
@@ -169,6 +173,7 @@ def programmatic_shell_tool(tool: Tool, *, contract: Tool | None = None) -> Tool
         "expose": "nested",
         "input_schema": schema,
         "returns": _RETURNS_SCHEMA,
+        PTC_VALUE_CONTRACT_OPTION: SHELL_PROGRAM_VALUE_CONTRACT,
     }
     if contract is not tool and contract.description:
         options["description"] = contract.description

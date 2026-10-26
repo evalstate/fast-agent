@@ -250,11 +250,14 @@ class _NestedCalls:
     dispatch: ToolDispatcher
     stats: _ExecutionStats
     call_prefix: str
-    tasks: list[asyncio.Task[CallToolResult]] = field(default_factory=list)
+    # Outstanding dispatches only: a finished task holds its full result, which sandbox code may
+    # long since have discarded, so keeping them all would grow host memory with fetched data.
+    tasks: set[asyncio.Task[CallToolResult]] = field(default_factory=set)
 
     async def call(self, tool_name: str, arguments: dict[str, Any]) -> CallToolResult:
         task = asyncio.create_task(self._run(tool_name, arguments))
-        self.tasks.append(task)
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
         # Own dispatch lifetime independently of Monty's callback tasks. Script errors
         # drain these tasks; turn cancellation explicitly cancels and settles them.
         return await asyncio.shield(task)
@@ -597,7 +600,7 @@ class ProgrammaticToolRuntime:
                     write_error = await files.finish()
                     await asyncio.gather(*dispatches, return_exceptions=True)
             except asyncio.CancelledError:
-                for task in dispatches:
+                for task in list(dispatches):
                     task.cancel()
                 await asyncio.gather(*dispatches, return_exceptions=True)
                 raise

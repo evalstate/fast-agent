@@ -8,6 +8,7 @@ a handle; handles in the final value bring their media back into the model's con
 from __future__ import annotations
 
 import json
+import secrets
 from collections import OrderedDict
 from collections.abc import Mapping
 from typing import Any
@@ -39,10 +40,13 @@ class MediaStore:
     def __init__(self) -> None:
         self._blocks: OrderedDict[str, ContentBlock] = OrderedDict()
         self._next = 0
+        # Handles outlive this store (store() persists them with the session), so a restored
+        # handle must not name media a later runtime fetched under the same number.
+        self._prefix = f"media-{secrets.token_hex(4)}"
 
     def handle(self, block: ImageContent | AudioContent | EmbeddedResource) -> dict[str, Any]:
         self._next += 1
-        media_id = f"media-{self._next}"
+        media_id = f"{self._prefix}-{self._next}"
         self._blocks[media_id] = block
         while len(self._blocks) > _MAX_RETAINED_MEDIA:
             self._blocks.popitem(last=False)

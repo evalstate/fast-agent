@@ -41,8 +41,11 @@ from fast_agent.mcp.url_elicitation_required import (
     URLElicitationRequiredDisplayPayload,
 )
 from fast_agent.ptc import PTC_TOOL_NAME, ProgrammaticToolRuntime
+from fast_agent.ptc.runtime import _ExecutionStats, _NestedCalls
+from fast_agent.ptc.values import MediaStore
 from fast_agent.tools.invocation_context import is_programmatic_tool_call, outer_tool_call_id
 from fast_agent.tools.local_shell_executor import LocalEnvironment
+from fast_agent.tools.shell_program_value import programmatic_shell_tool
 
 if TYPE_CHECKING:
     from fast_agent.ptc.runtime import PtcToolFormat
@@ -317,6 +320,28 @@ async def test_unawaited_tool_calls_are_flagged(runtime) -> None:
 
 
 @pytest.mark.asyncio
+async def test_finished_nested_calls_are_not_retained() -> None:
+    calls = _NestedCalls(RecordingDispatcher(), _ExecutionStats(), call_prefix="ptc-1-")
+
+    for customer in ("a", "b", "c"):
+        await calls.call("orders__get_orders", {"customer_id": customer})
+    await asyncio.sleep(0)
+
+    assert not calls.tasks
+
+
+def test_media_handles_from_another_store_do_not_resolve() -> None:
+    image = ImageContent(type="image", data=_PIXEL, mime_type="image/png")
+    restored = MediaStore().handle(image)
+    current = MediaStore()
+    fetched = current.handle(image)
+
+    assert restored["media_id"] != fetched["media_id"]
+    assert current.referenced({"old": restored}) == []
+    assert current.referenced({"new": fetched}) == [image]
+
+
+@pytest.mark.asyncio
 async def test_printed_coroutine_text_is_not_mistaken_for_an_unawaited_call(runtime) -> None:
     result = await runtime.execute(
         {"code": "print('if \"<coroutine \" in text: <coroutine object f at 0x1>')"},
@@ -454,13 +479,15 @@ def test_instructions_point_runs_at_the_store_for_shared_state() -> None:
 
 def test_instructions_state_that_sandbox_reads_load_whole_files() -> None:
     runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
-    shell = Tool(
-        name="bash",
-        input_schema={
-            "type": "object",
-            "properties": {"command": {"type": "string"}},
-            "required": ["command"],
-        },
+    shell = programmatic_shell_tool(
+        Tool(
+            name="bash",
+            input_schema={
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["command"],
+            },
+        )
     )
 
     code_tool, *_ = runtime.model_tools([TOOLS[0], shell])

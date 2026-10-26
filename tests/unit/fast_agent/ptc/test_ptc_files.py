@@ -22,12 +22,19 @@ from fast_agent.ptc import PTC_TOOL_NAME
 from fast_agent.ptc.files import SandboxFilesystem, SandboxFileTools
 from fast_agent.tools.filesystem_tool_definitions import build_read_text_file_tool
 from fast_agent.tools.local_shell_executor import LocalEnvironment
+from fast_agent.tools.shell_program_value import programmatic_shell_tool
 from fast_agent.utils.tool_names import is_shell_command_tool_name
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
 pytest.importorskip("pydantic_monty")
+
+_COMMAND_SCHEMA = {
+    "type": "object",
+    "properties": {"command": {"type": "string"}},
+    "required": ["command"],
+}
 
 
 @asynccontextmanager
@@ -183,10 +190,7 @@ async def test_file_operations_still_running_at_the_shell_limit_are_stopped() ->
         value = {"stdout": "", "exit_code": None, "status": "running", "process_id": "process-7"}
         return CallToolResult(content=[], meta={FAST_AGENT_PTC_VALUE: value})
 
-    shell = Tool(
-        name="execute",
-        input_schema={"type": "object", "properties": {"command": {"type": "string"}}},
-    )
+    shell = programmatic_shell_tool(Tool(name="execute", input_schema=_COMMAND_SCHEMA))
     process = Tool(
         name="process",
         input_schema={
@@ -457,6 +461,33 @@ async def test_a_relative_agent_directory_resolves_for_the_sandbox(tmp_path, mon
     work = (tmp_path / "work").resolve().as_posix()
     assert _value(written) == [work, work]
     assert (tmp_path / "work" / "out.txt").read_text() == "hi"
+
+
+@pytest.mark.asyncio
+async def test_file_access_uses_only_shells_that_return_shell_values() -> None:
+    acp_terminal = Tool(name="execute", input_schema=_COMMAND_SCHEMA)
+    mcp_shell = Tool(name="remote__execute", input_schema=_COMMAND_SCHEMA)
+    local_shell = programmatic_shell_tool(Tool(name="bash", input_schema=_COMMAND_SCHEMA))
+    read = build_read_text_file_tool()
+
+    chosen = SandboxFileTools.from_tools([mcp_shell, acp_terminal, local_shell]).shell
+    without_contract = SandboxFileTools.from_tools([read, acp_terminal, mcp_shell])
+
+    assert chosen is not None and chosen.tool_name == "bash"
+    assert without_contract.shell is None
+
+    calls: list[str] = []
+
+    async def call(tool_name: str, arguments: dict[str, Any]) -> CallToolResult:
+        calls.append(tool_name)
+        return CallToolResult(content=[TextContent(type="text", text="text")])
+
+    files = SandboxFilesystem(without_contract, call, guidance="")
+    text = await files.handler(
+        name="Path.read_text", args=(Path("/work/a.txt"),), kwargs={}, is_async=True
+    )
+
+    assert (text, calls) == ("text", ["read_text_file"])
 
 
 @pytest.mark.asyncio

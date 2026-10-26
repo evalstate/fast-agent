@@ -29,17 +29,17 @@ from typing import TYPE_CHECKING, Any
 from mcp_types import CallToolResult, TextContent
 
 from fast_agent.constants import FAST_AGENT_PTC_VALUE
-from fast_agent.ptc.stubs import PtcFunction, build_functions
+from fast_agent.ptc.stubs import PtcFunction, build_functions, tool_ptc_options
 from fast_agent.tools.filesystem_tool_definitions import (
     READ_TEXT_FILE_TOOL_NAME,
     WRITE_TEXT_FILE_TOOL_NAME,
 )
 from fast_agent.tools.invocation_context import sandbox_file_operation_call
-from fast_agent.utils.tool_names import (
-    PROCESS_TOOL_NAME,
-    TERMINATE_PROCESS_TOOL_NAME,
-    is_shell_command_tool_name,
+from fast_agent.tools.shell_program_value import (
+    PTC_VALUE_CONTRACT_OPTION,
+    SHELL_PROGRAM_VALUE_CONTRACT,
 )
+from fast_agent.utils.tool_names import PROCESS_TOOL_NAME, TERMINATE_PROCESS_TOOL_NAME
 
 if TYPE_CHECKING:
     from mcp_types import Tool
@@ -172,7 +172,7 @@ class SandboxFileTools:
                     PROCESS_TOOL_NAME,
                     TERMINATE_PROCESS_TOOL_NAME,
                 )
-                or is_shell_command_tool_name(tool.name)
+                or _returns_shell_values(tool)
             ]
         ).values()
         by_name = {function.tool_name: function for function in candidates}
@@ -194,6 +194,15 @@ class SandboxFileTools:
             for function in (self.read, self.write, self.shell)
             if function is not None
         ]
+
+
+def _returns_shell_values(tool: Tool) -> bool:
+    """Whether the tool's sandbox results carry the ShellProgramValue that ``_shell`` reads.
+
+    A shell-like name is not enough: ACP terminal and MCP shell tools return display text.
+    """
+    contract = tool_ptc_options(tool).get(PTC_VALUE_CONTRACT_OPTION)
+    return contract == SHELL_PROGRAM_VALUE_CONTRACT
 
 
 def _runs_commands(function: PtcFunction) -> bool:
