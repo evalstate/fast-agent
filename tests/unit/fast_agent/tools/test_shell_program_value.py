@@ -130,6 +130,39 @@ async def test_check_waits_for_commands_that_outlive_the_foreground_limit() -> N
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+async def test_durable_output_dropped_by_the_spool_is_reported_as_truncated(
+    tmp_path: Path,
+) -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-program-value-test"),
+        model_shell_tool_name="shell",
+        config=Settings(
+            shell_execution=ShellSettings(
+                tool_profile="luna_exec", show_bash=False, durable_output_max_bytes=64
+            )
+        ),
+        working_directory=tmp_path,
+        durable_process_root=tmp_path / "processes",
+    )
+    try:
+        launched = _value(
+            await _call_from_sandbox(
+                runtime, {"command": "seq 1 200; sleep 0.3", "background": True}
+            )
+        )
+        await asyncio.sleep(0)
+        polls = await _wait_from_sandbox(runtime, launched["process_id"])
+    finally:
+        await runtime.close()
+
+    seen = "".join(value["stdout"] for value in [launched, *polls])
+    assert len(seen) <= 64 < len("".join(f"{i}\n" for i in range(1, 201)))
+    assert any(value["truncated"] for value in [launched, *polls])
+
+
+@pytest.mark.asyncio
 async def test_cancelling_a_checked_command_stops_it() -> None:
     runtime = _runtime(
         "luna_exec",

@@ -304,6 +304,8 @@ class ShellRuntime:
         self._durable_output_offsets: dict[str, int] = {}
         # Per-stream spool offsets already returned to sandbox code, keyed by process id.
         self._durable_sandbox_offsets: dict[str, dict[DurableProcessStream, int]] = {}
+        # Spool bytes dropped as of the sandbox's previous read, per durable process.
+        self._durable_sandbox_dropped: dict[str, int] = {}
         self._durable_output_total_offsets: dict[str, int] = {}
         self._durable_output_dropped_offsets: dict[str, int] = {}
         self._durable_observed_output_bytes: dict[str, int] = {}
@@ -793,6 +795,10 @@ class ShellRuntime:
         from pathlib import Path
 
         return Path(self._working_directory or self._environment.cwd)
+
+    def command_working_directory(self) -> str:
+        """The absolute directory a command runs in when it names none, local or remote."""
+        return self._resolve_managed_working_directory(None)
 
     def set_working_directory(self, working_directory: Path | None) -> None:
         """Set the working directory used for shell execution."""
@@ -2089,7 +2095,9 @@ class ShellRuntime:
         if runtime_info.kind == "local":
             base_path = Path(base_cwd)
             if not base_path.is_absolute():
-                base_path = Path(self._environment.cwd) / base_path
+                # Relative to the process, as the local executor resolved it: the executor's
+                # cwd is already this directory, so joining onto it would double it.
+                base_path = Path.cwd() / base_path
             if requested_cwd is None:
                 candidate = str(base_path)
             else:
@@ -2884,6 +2892,11 @@ class ShellRuntime:
             )
             truncated = truncated or stream_truncated
             offsets[stream] = max(retained, offset)
+        # Output past the spool's retention limit is dropped and never reaches sandbox code.
+        dropped = snapshot.stdout_dropped_bytes + snapshot.stderr_dropped_bytes
+        if dropped > self._durable_sandbox_dropped.get(process_id, 0):
+            truncated = True
+        self._durable_sandbox_dropped[process_id] = dropped
         return StreamText(
             stdout=texts[DurableProcessStream.STDOUT],
             stderr=texts[DurableProcessStream.STDERR],

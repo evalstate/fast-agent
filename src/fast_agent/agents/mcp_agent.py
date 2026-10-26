@@ -1716,7 +1716,7 @@ class McpAgent(ABC, ToolAgent):
         directory, or the agent's own working directory.
         """
         if self._shell_runtime is not None and self._shell_runtime_enabled:
-            cwd = self._shell_runtime.working_directory().as_posix()
+            cwd = Path(self._shell_runtime.command_working_directory()).as_posix()
         else:
             acp = self._context.acp if self._context is not None else None
             if acp is not None and acp.session_cwd:

@@ -6,6 +6,7 @@ import errno
 import json
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -25,7 +26,6 @@ from fast_agent.utils.tool_names import is_shell_command_tool_name
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
-    from pathlib import Path
 
 pytest.importorskip("pydantic_monty")
 
@@ -367,6 +367,96 @@ async def test_relative_paths_resolve_against_the_agent_directory_without_a_shel
 def _value_text(result: CallToolResult) -> str:
     assert not result.is_error, _text(result)
     return _text(result).split("Result:\n", 1)[1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs POSIX permissions")
+async def test_a_failed_rename_keeps_the_target_it_would_replace(tmp_path) -> None:
+    (tmp_path / "locked").mkdir()
+    (tmp_path / "locked" / "source").write_text("source")
+    (tmp_path / "locked" / "source_dir").mkdir()
+    (tmp_path / "target_file").write_text("target")
+    (tmp_path / "link").symlink_to(tmp_path / "target_file")
+    (tmp_path / "empty").mkdir()
+    (tmp_path / "locked").chmod(0o555)
+    code = """
+import os
+errors = []
+for source, target in (("locked/source", "link"), ("locked/source_dir", "empty")):
+    try:
+        os.rename(source, target)
+    except OSError as exc:
+        errors.append(type(exc).__name__)
+errors
+"""
+    try:
+        async with _agent(tmp_path) as (agent, _shell):
+            errors = _value(await _run(agent, code))
+    finally:
+        (tmp_path / "locked").chmod(0o755)
+
+    assert errors == ["PermissionError", "PermissionError"]
+    assert (tmp_path / "link").is_symlink() and (tmp_path / "link").read_text() == "target"
+    assert (tmp_path / "empty").is_dir()
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "empty",
+        "link",
+        "locked",
+        "target_file",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reads_after_a_change_see_the_new_contents(tmp_path) -> None:
+    (tmp_path / "a.txt").write_text("old a")
+    (tmp_path / "b.txt").write_text("old b")
+    (tmp_path / "c.txt").write_text("c")
+    code = """
+import os
+from pathlib import Path
+fa = open("a.txt")
+Path("a.txt").write_text("new a")
+fb = open("b.txt")
+os.rename("c.txt", "b.txt")
+[fa.read(), fb.read()]
+"""
+    async with _agent(tmp_path) as (agent, _shell):
+        assert _value(await _run(agent, code)) == ["new a", "c"]
+
+
+@pytest.mark.asyncio
+async def test_a_relative_agent_directory_resolves_for_the_sandbox(tmp_path, monkeypatch) -> None:
+    (tmp_path / "work").mkdir()
+    monkeypatch.chdir(tmp_path)
+    agent = McpAgent(
+        AgentConfig(name="ptc-relative", servers=[], shell=True, cwd=Path("work")),
+        context=Context(
+            config=Settings(
+                ptc=ProgrammaticToolCallingSettings(enabled=True),
+                shell_execution=ShellSettings(show_bash=False),
+            )
+        ),
+    )
+    try:
+        await agent.list_tools()
+        runtime = agent._programmatic_tool_runtime()
+        assert runtime is not None
+        shell = next(
+            name
+            for name, function in runtime.functions.items()
+            if is_shell_command_tool_name(function.tool_name)
+        )
+        written = await _run(
+            agent,
+            "open('out.txt', 'w').write('hi')\nimport os\n"
+            f"[os.getcwd(), (await {shell}(command='pwd'))['stdout'].strip()]",
+        )
+    finally:
+        await agent.shutdown()
+
+    work = (tmp_path / "work").resolve().as_posix()
+    assert _value(written) == [work, work]
+    assert (tmp_path / "work" / "out.txt").read_text() == "hi"
 
 
 @pytest.mark.asyncio

@@ -126,7 +126,8 @@ def _require_size_at_most(limit: int) -> str:
 
 # rename(2) semantics in POSIX sh, since `mv` follows a symlinked or directory target into it
 # (GNU `mv -T` would avoid that, but BSD and some BusyBox builds lack it). A source that is a
-# directory is $d; the target is replaced only where rename(2) would replace it.
+# directory is $d. A target rename(2) would replace (a symlink, or an empty directory for a
+# directory source) is moved aside to $a rather than deleted, and put back if the move fails.
 _RENAME_SCRIPT = (
     'd=0; [ -d "$p" ] && [ ! -L "$p" ] && d=1; '
     # The same directory entry (a symlink included), or hard links to the same file: rename(2)
@@ -135,11 +136,15 @@ _RENAME_SCRIPT = (
     'if [ "$(basename -- "$p")" = "$(basename -- "$t")" ] '
     '&& [ "$(dirname -- "$p")" -ef "$(dirname -- "$t")" ]; then exit 0; fi; '
     'if [ ! -L "$p" ] && [ ! -L "$t" ] && [ "$p" -ef "$t" ]; then exit 0; fi; '
-    'if [ -L "$t" ]; then [ "$d" = 1 ] && fail ENOTDIR; rm -f -- "$t"; '
+    "a=; "
+    'if [ -L "$t" ]; then [ "$d" = 1 ] && fail ENOTDIR; a=1; '
     'elif [ -d "$t" ]; then [ "$d" = 1 ] || fail EISDIR; '
-    'rmdir -- "$t" 2>/dev/null || fail ENOTEMPTY; '
+    '[ -z "$(ls -A -- "$t")" ] || fail ENOTEMPTY; a=1; '
     'elif [ -e "$t" ] && [ "$d" = 1 ]; then fail ENOTDIR; fi; '
-    'mv -f -- "$p" "$t"'
+    'if [ -z "$a" ]; then mv -f -- "$p" "$t"; exit; fi; '
+    'a="$t.ptc-rename-$$"; mv -f -- "$t" "$a" || exit 1; '
+    'if mv -f -- "$p" "$t"; then if [ -L "$a" ]; then rm -f -- "$a"; else rmdir -- "$a"; fi; '
+    'else s=$?; mv -f -- "$a" "$t"; exit "$s"; fi'
 )
 _UNLINK = _REQUIRE_EXISTS + 'if [ -d "$p" ] && [ ! -L "$p" ]; then fail EISDIR; fi; rm -f -- "$p"'
 
@@ -285,6 +290,7 @@ class SandboxFilesystem:
         path = str(path_from_arg(args[0]))
         if name in _WRITE_OPERATIONS:
             self._require_writer(name)
+            self._forget_opened(path)
             self._buffer(path, args[1], truncate=name.startswith("Path.write"))
             if self._pending_size > _MAX_BUFFERED_WRITE_BYTES:
                 # Safe mid-stream: after open() later writes to a file arrive as appends.
@@ -328,15 +334,26 @@ class SandboxFilesystem:
                     exist_ok=bool(kwargs.get("exist_ok")),
                 )
             case "Path.unlink":
+                self._forget_opened(path)
                 await self._shell(name, path, _UNLINK)
                 return None
             case "Path.rmdir":
+                self._forget_opened(path)
                 await self._shell(name, path, _REQUIRE_DIR + 'rmdir -- "$p"')
                 return None
             case "Path.rename":
-                await self._rename(path, str(args[1]))
+                target = str(path_from_arg(args[1]))
+                self._forget_opened(path)
+                self._forget_opened(target)
+                await self._rename(path, target)
                 return None
         raise NotImplementedError(name)
+
+    def _forget_opened(self, path: str) -> None:
+        """Drop contents open() read for ``path`` or anything under it: a change replaces them."""
+        prefix = path.rstrip("/") + "/"
+        for key in [key for key in self._opened if key[0] == path or key[0].startswith(prefix)]:
+            del self._opened[key]
 
     def _require_writer(self, operation: str) -> None:
         if self._tools.write is None and self._tools.shell is None:
