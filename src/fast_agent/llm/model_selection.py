@@ -59,6 +59,7 @@ class ModelSelectionCatalog:
         Provider.RESPONSES: (
             _builtin_entry("gpt-6-astra"),
             _builtin_entry("gpt-6.1-sol"),
+            _builtin_entry("gpt-6.1-terra", fast=True),
             _builtin_entry("gpt-6-sol"),
             _builtin_entry("gpt-6-luna", fast=True),
             _builtin_entry("gpt-5.6-sol"),
@@ -282,10 +283,11 @@ class ModelSelectionCatalog:
         Provider.CODEX_RESPONSES: (
             _builtin_entry("astra", display_label="GPT-6-Astra"),
             _builtin_entry("sol", display_label="GPT-6.1-Sol"),
+            _builtin_entry("terra", display_label="GPT-6.1-Terra", fast=True),
             _builtin_entry("sol6", display_label="GPT-6-Sol"),
             _builtin_entry("luna", display_label="GPT-6-Luna", fast=True),
             _builtin_entry("sol56"),
-            _builtin_entry("terra"),
+            _builtin_entry("terra56"),
             _builtin_entry("luna56"),
             _builtin_entry("codexplan"),
             _builtin_entry("codexplan55"),

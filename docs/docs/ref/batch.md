@@ -156,8 +156,12 @@ Appending and de-duplicating result rows into a Hugging Face dataset is not impl
 
 ### Trackio monitoring
 
-Trackio is optional and explicit opt-in. Install `fast-agent-mcp[trackio]` or
-`fast-agent-mcp[gepa]`, then pass `--project` or `--trackio-project`.
+The `trackio` extra is temporarily suspended, and `gepa` no longer installs
+Trackio. Trackio requires `pillow<13`, which conflicts with fast-agent's
+security requirement of `pillow>=13.0.0`. For now, omit `--project` and
+`--trackio-project` or use `--no-trackio`; use `--telemetry-output` and
+`--summary-output` for local monitoring. The options below are retained for
+environments with a compatible Trackio installation.
 
 | Option                         | Description                                                                                 |
 | ------------------------------ | ------------------------------------------------------------------------------------------- |

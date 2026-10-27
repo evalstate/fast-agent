@@ -22,21 +22,17 @@ GEPA support lives in `fast_agent.integrations.gepa`.
 uv add "fast-agent-mcp[gepa]"
 ```
 
-The published `gepa` extra installs PyPI GEPA and Trackio:
+The published `gepa` extra installs PyPI GEPA:
 
 ```text
 gepa>=0.1.1
-trackio>=0.27.0
 ```
 
-PyPI packages cannot declare direct Git dependencies in extras. Trackio-specific
-GEPA helpers require a GEPA release with Trackio support; until that support is
-available on PyPI, install the integration branch in your application
-environment:
-
-```bash
-uv add "gepa @ git+https://github.com/evalstate/gepa.git@feat/trackio"
-```
+The `trackio` extra is temporarily suspended, and `gepa` no longer installs
+Trackio. Trackio requires `pillow<13`, which conflicts with fast-agent's
+security requirement of `pillow>=13.0.0`. GEPA optimization remains available
+without Trackio monitoring. Trackio integration helpers are retained for a
+future compatible release.
 
 Use the [GEPA Optimization guide](../guides/gepa/) for workflow guidance. In
 short:

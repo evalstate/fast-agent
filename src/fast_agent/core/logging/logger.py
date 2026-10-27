@@ -146,6 +146,7 @@ class Logger:
     def debug(
         self,
         message: str,
+        *,
         name: str | None = None,
         context: EventContext | None = None,
         **data,
@@ -156,6 +157,7 @@ class Logger:
     def info(
         self,
         message: str,
+        *,
         name: str | None = None,
         context: EventContext | None = None,
         **data,
@@ -166,6 +168,7 @@ class Logger:
     def warning(
         self,
         message: str,
+        *,
         name: str | None = None,
         context: EventContext | None = None,
         **data,
@@ -176,6 +179,7 @@ class Logger:
     def error(
         self,
         message: str,
+        *,
         name: str | None = None,
         context: EventContext | None = None,
         **data,
@@ -186,6 +190,7 @@ class Logger:
     def exception(
         self,
         message: str,
+        *,
         name: str | None = None,
         context: EventContext | None = None,
         **data,
@@ -202,6 +207,7 @@ class Logger:
     def progress(
         self,
         message: str,
+        *,
         name: str | None = None,
         percentage: float | None = None,
         context: EventContext | None = None,

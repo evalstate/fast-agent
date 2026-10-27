@@ -19,9 +19,8 @@ from fast_agent.constants import (
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.mcp.tool_result_metadata import (
     fatal_tool_error,
-    url_elicitation_required_payload,
+    url_elicitation_required_payloads,
 )
-from fast_agent.mcp.url_elicitation_required import URLElicitationRequiredDisplayPayload
 from fast_agent.types import PromptMessageExtended, ToolTimingInfo
 
 if TYPE_CHECKING:
@@ -110,12 +109,11 @@ def build_tool_result_message(
 def _deferred_url_elicitation_payloads(
     tool_results: Mapping[str, CallToolResult],
 ) -> list[dict[str, object]]:
-    payloads: list[dict[str, object]] = []
-    for result in tool_results.values():
-        payload = url_elicitation_required_payload(result)
-        if isinstance(payload, URLElicitationRequiredDisplayPayload):
-            payloads.append(asdict(payload))
-    return payloads
+    return [
+        asdict(payload)
+        for result in tool_results.values()
+        for payload in url_elicitation_required_payloads(result)
+    ]
 
 
 def _add_channel(

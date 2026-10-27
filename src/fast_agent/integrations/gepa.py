@@ -28,9 +28,8 @@ NumericMetric: TypeAlias = int | float
 GEPA_EXTRA_REQUIREMENTS = {"gepa": "gepa"}
 GEPA_EXTRA_INSTALL_MESSAGE = (
     'Install fast-agent with the GEPA extra, "fast-agent-mcp[gepa]", '
-    "in the environment where fast-agent runs. Trackio-specific GEPA helpers require "
-    "a GEPA release with Trackio support; until that is released, install GEPA from "
-    "the Trackio integration branch in your application environment."
+    "in the environment where fast-agent runs. The extra no longer installs Trackio: "
+    "Trackio support is temporarily suspended until it supports the security-fixed Pillow >=13."
 )
 
 

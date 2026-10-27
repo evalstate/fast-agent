@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LlmAgentProtocol
     from fast_agent.llm.usage_tracking import UsageAccumulator
+    from fast_agent.ptc.store import SandboxStore
     from fast_agent.types import PromptMessageExtended
 
 
@@ -57,6 +58,12 @@ class HistoryAgent:
         from fast_agent.mcp.types import McpAgentProtocol
 
         return isinstance(self.agent, McpAgentProtocol) and self.agent.shell_runtime_enabled
+
+    @property
+    def ptc_store(self) -> SandboxStore | None:
+        from fast_agent.session.snapshot import PtcStoreProvider
+
+        return self.agent.ptc_store if isinstance(self.agent, PtcStoreProvider) else None
 
     def list_attached_mcp_servers(self) -> list[str]:
         if isinstance(self.agent, _AttachedMcpServerProvider):

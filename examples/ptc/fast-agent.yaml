@@ -1,0 +1,27 @@
+default_model: "codexresponses.gpt-6-astra?reasoning=low"
+
+logger:
+  level: "error"
+  type: "console"
+
+mcp:
+  servers:
+    orders:
+      target: "uv run orders_server.py"
+    media:
+      target: "uv run media_server.py"
+
+# Programmatic tool calling. `--ptc` on the command line sets `enabled: true`.
+ptc:
+  enabled: false
+  # Tools (fnmatch patterns) that stay directly callable next to execute_python.
+  direct_tools: []
+  # Tools (fnmatch patterns) callable only from code, overriding tools that declare direct
+  # access (shell/process use expose "both"). ["*"] gives a code-only run.
+  nested_tools: []
+  # auto | json | freeform. freeform sends raw Python as a Responses custom (grammar) tool;
+  # auto uses the model default (freeform for GPT-6).
+  tool_format: auto
+  type_check: true
+  max_duration_seconds: 30
+  max_memory_mb: 256
