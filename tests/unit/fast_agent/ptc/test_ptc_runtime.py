@@ -490,11 +490,11 @@ def test_instructions_state_that_sandbox_reads_load_whole_files() -> None:
         )
     )
 
-    code_tool, *_ = runtime.model_tools([TOOLS[0], shell])
+    code_tool, *_ = runtime.model_tools([TOOLS[0], shell], file_read=True, file_write=True)
     line = next(
         line
         for line in (code_tool.description or "").splitlines()
-        if line.startswith("- `open()` loads the whole file")
+        if line.startswith("- File reads load the whole file")
     )
 
     assert "even for `read(n)` or `seek()`: at most 512 KB binary or 4 MB text" in line

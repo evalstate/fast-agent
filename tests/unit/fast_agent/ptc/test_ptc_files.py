@@ -1,8 +1,7 @@
-"""Sandbox file I/O (open(), pathlib, os) served by the agent's file and shell tools."""
+"""Experimental native local filesystem access from Monty."""
 
 from __future__ import annotations
 
-import errno
 import json
 import os
 from contextlib import asynccontextmanager
@@ -15,26 +14,18 @@ from mcp_types import CallToolResult, TextContent, Tool
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.config import ProgrammaticToolCallingSettings, Settings, ShellSettings
-from fast_agent.constants import FAST_AGENT_PTC_CALLS, FAST_AGENT_PTC_VALUE
+from fast_agent.constants import FAST_AGENT_PTC_CALLS
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ptc import PTC_TOOL_NAME
-from fast_agent.ptc.files import SandboxFilesystem, SandboxFileTools, _OpenedContents
 from fast_agent.tools.filesystem_tool_definitions import build_read_text_file_tool
 from fast_agent.tools.local_shell_executor import LocalEnvironment
-from fast_agent.tools.shell_program_value import programmatic_shell_tool
 from fast_agent.utils.tool_names import is_shell_command_tool_name
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
 pytest.importorskip("pydantic_monty")
-
-_COMMAND_SCHEMA = {
-    "type": "object",
-    "properties": {"command": {"type": "string"}},
-    "required": ["command"],
-}
 
 
 @asynccontextmanager
@@ -135,7 +126,7 @@ out
 
 
 @pytest.mark.asyncio
-async def test_buffered_writes_land_in_one_call_before_a_tool_reads_the_file(tmp_path) -> None:
+async def test_native_writes_are_visible_to_tools_without_nested_filesystem_calls(tmp_path) -> None:
     async with _agent(tmp_path) as (agent, shell):
         code = (
             "with open('log.txt', 'w') as f:\n"
@@ -148,8 +139,8 @@ async def test_buffered_writes_land_in_one_call_before_a_tool_reads_the_file(tmp
         tools = [call["tool"] for call in (result.meta or {})[FAST_AGENT_PTC_CALLS]]
 
     assert _value(result) == 20
-    assert tools[0] == "write_text_file"
-    assert len(tools) == 2
+    assert len(tools) == 1
+    assert is_shell_command_tool_name(tools[0])
 
 
 @pytest.mark.asyncio
@@ -179,110 +170,6 @@ out
         assert kind == "OSError"
         assert f"File too large to read in the sandbox ({size}; the limit is {limit}" in message
         assert "head -c" in message
-
-
-@pytest.mark.asyncio
-async def test_file_operations_still_running_at_the_shell_limit_are_stopped() -> None:
-    calls: list[tuple[str, dict[str, Any]]] = []
-
-    async def call(tool_name: str, arguments: dict[str, Any]) -> CallToolResult:
-        calls.append((tool_name, arguments))
-        value = {"stdout": "", "exit_code": None, "status": "running", "process_id": "process-7"}
-        return CallToolResult(content=[], meta={FAST_AGENT_PTC_VALUE: value})
-
-    shell = programmatic_shell_tool(Tool(name="execute", input_schema=_COMMAND_SCHEMA))
-    process = Tool(
-        name="process",
-        input_schema={
-            "type": "object",
-            "properties": {"action": {"type": "string"}, "process_id": {"type": "string"}},
-        },
-    )
-    files = SandboxFilesystem(SandboxFileTools.from_tools([shell, process]), call, guidance="")
-
-    with pytest.raises(OSError) as raised:
-        await files.handler(name="Path.read_bytes", args=("/slow.bin",), kwargs={}, is_async=True)
-
-    assert raised.value.errno == errno.ETIMEDOUT
-    assert calls[-1] == ("process", {"action": "stop", "process_id": "process-7"})
-
-
-@pytest.mark.asyncio
-async def test_file_operations_display_as_one_line_without_their_transport(
-    tmp_path, monkeypatch
-) -> None:
-    (tmp_path / "blob.bin").write_bytes(bytes(range(256)))
-    shown: list[tuple[str, str]] = []
-    async with _agent(tmp_path) as (agent, shell):
-        monkeypatch.setattr(
-            agent.display,
-            "show_tool_call",
-            lambda tool_name, *_args, **_kwargs: shown.append(("call", tool_name)),
-        )
-        monkeypatch.setattr(
-            agent.display,
-            "show_sandbox_file_operation",
-            lambda description, **_kwargs: shown.append(("file", description)),
-        )
-        code = f"data = open('blob.bin', 'rb').read()\nawait {shell}(command='true')\nlen(data)"
-        assert _value(await _run(agent, code)) == 256
-
-    assert shown == [("file", f"read {(tmp_path / 'blob.bin').as_posix()}"), ("call", shell)]
-
-
-@pytest.mark.asyncio
-async def test_file_handles_passed_as_paths_are_resolved_to_their_path() -> None:
-    from pydantic_monty import MontyFileHandle
-
-    calls: list[tuple[str, dict[str, Any]]] = []
-
-    async def call(tool_name: str, arguments: dict[str, Any]) -> CallToolResult:
-        calls.append((tool_name, arguments))
-        return CallToolResult(content=[TextContent(type="text", text="ok")])
-
-    write = Tool(
-        name="write_text_file",
-        input_schema={
-            "type": "object",
-            "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
-        },
-    )
-    files = SandboxFilesystem(SandboxFileTools.from_tools([write]), call, guidance="")
-    handle = MontyFileHandle("/work/out.txt", "w")
-
-    await files.handler(name="Path.write_text", args=(handle, "data"), kwargs={}, is_async=True)
-    await files.finish()
-
-    assert calls == [("write_text_file", {"path": "/work/out.txt", "content": "data"})]
-
-
-@pytest.mark.asyncio
-async def test_buffered_writes_are_committed_early_past_the_size_bound(
-    tmp_path, monkeypatch
-) -> None:
-    monkeypatch.setattr("fast_agent.ptc.files._MAX_BUFFERED_WRITE_BYTES", 16)
-    code = """
-from pathlib import Path
-with open("log.txt", "w") as f:
-    for i in range(20):
-        f.write(f"line {i}\\n")
-with open("log.txt", "a") as f:
-    f.write("tail\\n")
-for name in ("a.bin", "b.bin"):
-    Path(name).write_bytes(b"0123456789" * 4)
-Path("a.bin").write_bytes(b"replaced")
-"""
-    async with _agent(tmp_path) as (agent, _shell):
-        result = await _run(agent, code)
-        commits = len((result.meta or {})[FAST_AGENT_PTC_CALLS])
-
-    assert not result.is_error, _text(result)
-    assert (tmp_path / "log.txt").read_text() == "".join(
-        f"line {i}\n" for i in range(20)
-    ) + "tail\n"
-    assert (tmp_path / "a.bin").read_bytes() == b"replaced"
-    assert (tmp_path / "b.bin").read_bytes() == b"0123456789" * 4
-    assert commits > 4, commits  # committed while writing, not once at the end
 
 
 @pytest.mark.asyncio
@@ -352,7 +239,10 @@ class _RecordingFilesystem:
 async def test_relative_paths_resolve_against_the_agent_directory_without_a_shell(
     tmp_path,
 ) -> None:
-    filesystem = _RecordingFilesystem()
+    from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
+
+    (tmp_path / "notes.txt").write_text("notes")
+    filesystem = LocalFilesystemRuntime(get_logger(__name__), tmp_path, enable_write=False)
     agent = McpAgent(
         AgentConfig(name="ptc-no-shell", servers=[], cwd=tmp_path),
         context=Context(config=Settings(ptc=ProgrammaticToolCallingSettings(enabled=True))),
@@ -361,11 +251,13 @@ async def test_relative_paths_resolve_against_the_agent_directory_without_a_shel
     try:
         await agent.list_tools()
         result = await _run(agent, "from pathlib import Path\nPath('notes.txt').read_text()")
+        denied = await _run(agent, "from pathlib import Path\nPath('out.txt').write_text('no')")
     finally:
         await agent.shutdown()
 
     assert _value_text(result) == "notes"
-    assert filesystem.reads == [(tmp_path / "notes.txt").as_posix()]
+    assert denied.is_error and "PermissionError" in _text(denied)
+    assert not (tmp_path / "out.txt").exists()
 
 
 def _value_text(result: CallToolResult) -> str:
@@ -464,58 +356,6 @@ async def test_a_relative_agent_directory_resolves_for_the_sandbox(tmp_path, mon
 
 
 @pytest.mark.asyncio
-async def test_file_access_uses_only_shells_that_return_shell_values() -> None:
-    acp_terminal = Tool(name="execute", input_schema=_COMMAND_SCHEMA)
-    mcp_shell = Tool(name="remote__execute", input_schema=_COMMAND_SCHEMA)
-    local_shell = programmatic_shell_tool(Tool(name="bash", input_schema=_COMMAND_SCHEMA))
-    read = build_read_text_file_tool()
-
-    chosen = SandboxFileTools.from_tools([mcp_shell, acp_terminal, local_shell]).shell
-    without_contract = SandboxFileTools.from_tools([read, acp_terminal, mcp_shell])
-
-    assert chosen is not None and chosen.tool_name == "bash"
-    assert without_contract.shell is None
-
-    calls: list[str] = []
-
-    async def call(tool_name: str, arguments: dict[str, Any]) -> CallToolResult:
-        calls.append(tool_name)
-        return CallToolResult(content=[TextContent(type="text", text="text")])
-
-    files = SandboxFilesystem(without_contract, call, guidance="")
-    text = await files.handler(
-        name="Path.read_text", args=(Path("/work/a.txt"),), kwargs={}, is_async=True
-    )
-
-    assert (text, calls) == ("text", ["read_text_file"])
-
-
-def test_contents_read_ahead_by_open_are_bounded(monkeypatch) -> None:
-    monkeypatch.setattr("fast_agent.ptc.files._MAX_OPENED_BYTES", 10)
-    opened = _OpenedContents()
-
-    for name in ("a", "b", "c"):
-        opened.put((name, False), name * 6)
-
-    assert opened.pop(("a", False)) is None and opened.pop(("b", False)) is None
-    assert opened.pop(("c", False)) == "cccccc"
-    assert opened.pop(("c", False)) is None
-
-
-@pytest.mark.asyncio
-async def test_reads_after_eviction_fetch_the_file_again(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("fast_agent.ptc.files._MAX_OPENED_BYTES", 16)
-    for name in ("a", "b", "c"):
-        (tmp_path / f"{name}.txt").write_text(name * 12)
-    code = """
-handles = [open(f"{name}.txt") for name in ("a", "b", "c")]  # a is evicted by c
-[handle.read() for handle in handles]
-"""
-    async with _agent(tmp_path) as (agent, _shell):
-        assert _value(await _run(agent, code)) == ["a" * 12, "b" * 12, "c" * 12]
-
-
-@pytest.mark.asyncio
 async def test_odd_entries_list_and_stat_like_python(tmp_path) -> None:
     (tmp_path / "dangling").symlink_to(tmp_path / "missing")
     (tmp_path / "names").mkdir()
@@ -551,3 +391,244 @@ async def test_writes_made_before_a_script_error_are_kept(tmp_path) -> None:
     assert result.is_error
     assert "ZeroDivisionError" in _text(result)
     assert (tmp_path / "partial.txt").read_text() == "done"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shell", [False, True])
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_custom_and_mixed_filesystems_require_an_adapter(tmp_path, shell, enabled) -> None:
+    from fast_agent.core.exceptions import AgentConfigError
+
+    filesystem = _RecordingFilesystem()
+    agent = McpAgent(
+        AgentConfig(name="ptc-custom", servers=[], shell=shell, cwd=tmp_path),
+        context=Context(config=Settings(ptc=ProgrammaticToolCallingSettings(enabled=enabled))),
+    )
+    agent.set_filesystem_runtime(filesystem)
+    try:
+        if enabled:
+            with pytest.raises(AgentConfigError, match="local POSIX"):
+                await agent.list_tools()
+            with pytest.raises(AgentConfigError, match="local POSIX"):
+                await _run(agent, "open('out.txt', 'w').write('wrong workspace')")
+        else:
+            tools = await agent.list_tools()
+            assert PTC_TOOL_NAME not in {tool.name for tool in tools.tools}
+            assert not (await agent.call_tool("read_text_file", {"path": "notes.txt"})).is_error
+            assert filesystem.reads == ["notes.txt"]
+    finally:
+        await agent.shutdown()
+    assert not (tmp_path / "out.txt").exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["docker", "custom-local"])
+async def test_nonlocal_and_unknown_environments_are_rejected(tmp_path, kind) -> None:
+    from fast_agent.core.exceptions import AgentConfigError
+    from fast_agent.tools.docker_shell_environment import DockerShellEnvironment
+
+    class CustomEnvironment(LocalEnvironment):
+        pass
+
+    environment = (
+        DockerShellEnvironment(container="unused")
+        if kind == "docker"
+        else CustomEnvironment(logger=get_logger(__name__), working_directory=tmp_path)
+    )
+    agent = McpAgent(
+        AgentConfig(name="ptc-environment", servers=[], shell=True),
+        shell_environment=environment,
+        context=Context(config=Settings(ptc=ProgrammaticToolCallingSettings(enabled=True))),
+    )
+    try:
+        with pytest.raises(AgentConfigError, match="local POSIX"):
+            await agent.__aenter__()
+    finally:
+        await agent.shutdown()
+        await environment.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("context_only", [False, True])
+async def test_acp_terminal_requires_an_adapter(context_only) -> None:
+    from unittest.mock import Mock
+
+    from acp import AgentSideConnection
+
+    from fast_agent.acp.acp_context import ACPContext
+    from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+    from fast_agent.core.exceptions import AgentConfigError
+
+    connection = Mock(spec=AgentSideConnection)
+    acp = ACPContext(connection=connection, session_id="ptc")
+    terminal = ACPTerminalRuntime(connection, "ptc", "test")
+    agent = McpAgent(
+        AgentConfig(name="ptc-acp", servers=[]),
+        context=Context(
+            config=Settings(ptc=ProgrammaticToolCallingSettings(enabled=True)), acp=acp
+        ),
+    )
+    if context_only:
+        acp.set_terminal_runtime(terminal)
+    else:
+        agent.set_external_runtime(terminal)
+    try:
+        with pytest.raises(AgentConfigError, match="local POSIX"):
+            await agent.list_tools()
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_named_mcp_tools_do_not_grant_host_filesystem_access(tmp_path) -> None:
+    from fast_agent.ptc.runtime import ProgrammaticToolRuntime
+
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
+    runtime.model_tools(
+        [
+            build_read_text_file_tool(),
+            Tool(name="remote__execute", input_schema={"type": "object"}),
+        ]
+    )
+    (tmp_path / "secret").write_text("not available")
+
+    async def call(_name, _arguments, _call_id) -> CallToolResult:
+        pytest.fail("Native file access must not dispatch MCP tools")
+
+    try:
+        result = await runtime.execute(
+            {"code": "open('secret').read()"}, call, cwd=tmp_path.as_posix()
+        )
+    finally:
+        await runtime.close()
+    assert result.is_error and "PermissionError" in _text(result)
+    assert "not available" not in _text(result)
+
+
+@pytest.mark.asyncio
+async def test_open_does_not_read_or_keep_file_descriptors(tmp_path, monkeypatch) -> None:
+    import fast_agent.ptc.files as files
+
+    path = tmp_path / "data.txt"
+    path.write_text("old")
+    descriptors: list[int] = []
+    native_open = files.os.open
+
+    def record_open(*args, **kwargs):
+        fd = native_open(*args, **kwargs)
+        descriptors.append(fd)
+        return fd
+
+    def unexpected_read(*args):
+        pytest.fail("open must not read file contents")
+
+    monkeypatch.setattr(files.os, "open", record_open)
+    monkeypatch.setattr(files, "_read", unexpected_read)
+    adapter = files.SandboxFilesystem(read=True, write=True)
+    for _ in range(20):
+        await adapter(name="open", args=(path, "r"), kwargs={}, is_async=True)
+    for descriptor in descriptors:
+        with pytest.raises(OSError):
+            os.fstat(descriptor)
+
+
+@pytest.mark.asyncio
+async def test_cancellation_settles_a_started_native_write(tmp_path, monkeypatch) -> None:
+    import asyncio
+    import threading
+
+    from fast_agent.ptc.files import SandboxFilesystem
+
+    started = threading.Event()
+    release = threading.Event()
+    native_write = SandboxFilesystem.path_write_text
+
+    def slow_write(self, path, data):
+        started.set()
+        assert release.wait(timeout=5)
+        return native_write(self, path, data)
+
+    monkeypatch.setattr(SandboxFilesystem, "path_write_text", slow_write)
+    async with _agent(tmp_path) as (agent, _shell):
+        task = asyncio.create_task(
+            _run(agent, "from pathlib import Path\nPath('out').write_text('ok')")
+        )
+        try:
+            assert await asyncio.to_thread(started.wait, 5)
+            task.cancel()
+            await asyncio.sleep(0.01)
+            assert not task.done()
+        finally:
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        assert (tmp_path / "out").read_text() == "ok"
+
+
+@pytest.mark.asyncio
+async def test_native_errors_and_text_semantics(tmp_path) -> None:
+    (tmp_path / "text").write_bytes("café\r\nline\rend".encode())
+    (tmp_path / "directory").mkdir()
+    os.mkfifo(tmp_path / "fifo")
+    code = """
+from pathlib import Path
+errors = []
+for action in (
+    lambda: open('directory'),
+    lambda: open('fifo'),
+    lambda: Path('missing/child').write_text('no'),
+):
+    try:
+        action()
+    except OSError as exc:
+        errors.append(type(exc).__name__)
+[Path('text').read_text(), errors]
+"""
+    async with _agent(tmp_path) as (agent, _shell):
+        assert _value(await _run(agent, code)) == [
+            "café\nline\nend",
+            ["IsADirectoryError", "OSError", "FileNotFoundError"],
+        ]
+    assert not (tmp_path / "missing").exists()
+
+
+@pytest.mark.asyncio
+async def test_environment_changes_cannot_reuse_a_local_ptc_runtime(tmp_path) -> None:
+    from fast_agent.core.exceptions import AgentConfigError
+
+    settings = Settings(ptc=ProgrammaticToolCallingSettings(enabled=True))
+    agent = McpAgent(
+        AgentConfig(name="ptc-switch", servers=[], shell=True, cwd=tmp_path),
+        context=Context(config=settings),
+    )
+    try:
+        await agent.list_tools()
+        agent.set_filesystem_runtime(_RecordingFilesystem())
+        with pytest.raises(AgentConfigError, match="local POSIX"):
+            await _run(agent, "open('wrong', 'w').write('no')")
+        settings.ptc.enabled = False
+        tools = await agent.list_tools()
+        assert PTC_TOOL_NAME not in {tool.name for tool in tools.tools}
+    finally:
+        await agent.shutdown()
+    assert not (tmp_path / "wrong").exists()
+
+
+@pytest.mark.asyncio
+async def test_local_environment_filesystem_cwd_without_a_shell(tmp_path) -> None:
+    from fast_agent.tools.environment_filesystem_runtime import EnvironmentFilesystemRuntime
+
+    (tmp_path / "notes").write_text("local environment")
+    environment = LocalEnvironment(logger=get_logger(__name__), working_directory=tmp_path)
+    agent = McpAgent(
+        AgentConfig(name="ptc-local-files", servers=[]),
+        shell_environment=environment,
+        context=Context(config=Settings(ptc=ProgrammaticToolCallingSettings(enabled=True))),
+    )
+    agent.set_filesystem_runtime(EnvironmentFilesystemRuntime(environment, enable_write=False))
+    try:
+        await agent.list_tools()
+        assert _value_text(await _run(agent, "open('notes').read()")) == "local environment"
+    finally:
+        await agent.shutdown()
+        await environment.close()

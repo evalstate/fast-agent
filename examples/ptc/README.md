@@ -18,9 +18,15 @@ uv run fast-agent go --ptc --servers orders \
   -m "Which EMEA customer has the highest total revenue from delivered orders? Include the runner-up."
 ```
 
-PTC combines with the other runtimes. For example, `--ptc --shell` exposes the shell tool as
-`await shell(...)`. Configure limits and directly exposed tools under `ptc:` in
-`fast-agent.yaml`.
+PTC is experimental and currently supports local POSIX environments only. Docker, remote,
+ACP-owned terminal/filesystem and custom environments are rejected until adapters are available.
+For example, `--ptc --shell` exposes the local shell as `await shell(...)`. Configure limits
+and directly exposed tools under `ptc:` in `fast-agent.yaml`.
+
+When local shell or filesystem access is enabled, Python file functions pass through to the host
+filesystem in the agent's working directory. They do not invoke tools or tool permission prompts;
+this is not a filesystem sandbox. Reads are bounded to 512 KB binary or 4 MB text; even `read(n)`
+loads the whole file. This pass-through may change or be removed as the design evolves.
 
 The expected answer is Stark (C006) with $9,703.40, and the runner-up is Aperture (C012) with $6,385.75.
 

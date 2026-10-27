@@ -82,6 +82,11 @@ class LocalFilesystemRuntime(FilesystemRuntimeBase):
         """Update the base directory used for relative file paths."""
         self._working_directory = working_directory
 
+    @property
+    def working_directory(self) -> Path:
+        """Absolute directory used by local file operations."""
+        return self._base_directory()
+
     def _base_directory(self) -> Path:
         if self._working_directory is None:
             return Path.cwd()

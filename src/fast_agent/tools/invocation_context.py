@@ -73,33 +73,6 @@ def programmatic_tool_call(call_id: str) -> Generator[None]:
         _programmatic_tool_call_id.reset(token)
 
 
-_sandbox_file_operation: ContextVar[str | None] = ContextVar(
-    "sandbox_file_operation",
-    default=None,
-)
-
-
-def sandbox_file_operation() -> str | None:
-    """Describe the sandbox file operation the current nested PTC call serves, if any.
-
-    Sandbox ``open()``/``pathlib``/``os`` calls run as internal tool calls (often a shell
-    script moving base64); displays show this description instead of their raw call and output.
-    """
-
-    return _sandbox_file_operation.get()
-
-
-@contextmanager
-def sandbox_file_operation_call(description: str) -> Generator[None]:
-    """Mark tool calls started in this block as serving a sandbox file operation."""
-
-    token = _sandbox_file_operation.set(description)
-    try:
-        yield
-    finally:
-        _sandbox_file_operation.reset(token)
-
-
 def is_programmatic_tool_call(tool_use_id: str | None) -> bool:
     """Return whether ``tool_use_id`` identifies the PTC nested call being dispatched."""
 

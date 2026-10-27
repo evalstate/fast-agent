@@ -47,6 +47,11 @@ if TYPE_CHECKING:
 class EnvironmentFilesystemRuntime(FilesystemRuntimeBase):
     """Expose existing LLM filesystem tools against an environment filesystem."""
 
+    @property
+    def filesystem(self) -> EnvironmentFilesystem:
+        """The filesystem owning this runtime's paths."""
+        return self._filesystem
+
     def __init__(
         self,
         filesystem: "EnvironmentFilesystem",

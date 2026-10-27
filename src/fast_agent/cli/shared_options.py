@@ -226,7 +226,7 @@ class CommonAgentOptions:
             "--ptc",
             help=(
                 "Programmatic tool calling: expose tools as async Python functions behind a "
-                "single sandboxed code tool (requires pydantic-monty)."
+                "single code tool (experimental; local POSIX only; requires pydantic-monty)."
             ),
         )
 

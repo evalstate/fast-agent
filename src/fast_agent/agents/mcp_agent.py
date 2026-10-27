@@ -119,7 +119,6 @@ from fast_agent.tools.filesystem_tool_definitions import (
     READ_TEXT_FILE_TOOL_NAME,
     WRITE_TEXT_FILE_TOOL_NAME,
 )
-from fast_agent.tools.invocation_context import sandbox_file_operation
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME, SkillReader
 from fast_agent.tools.tool_surface import ToolSurface
 from fast_agent.types import (
@@ -460,6 +459,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def __aenter__(self):
         """Initialize the agent and its MCP aggregator."""
+        self._programmatic_tool_runtime()
         await self._aggregator.__aenter__()
         return self
 
@@ -1696,11 +1696,53 @@ class McpAgent(ABC, ToolAgent):
 
     def _programmatic_tool_runtime(self) -> ProgrammaticToolRuntime | None:
         """Return the PTC runtime when programmatic tool calling is enabled."""
-        if self._ptc_runtime is None and self._context and self._context.config:
-            settings = self._context.config.ptc
-            if settings.enabled:
-                self._ptc_runtime = ProgrammaticToolRuntime(settings)
+        if not self._context or not self._context.config:
+            return None
+        settings = self._context.config.ptc
+        if not settings.enabled:
+            return None
+        self._validate_ptc_environment()
+        if self._ptc_runtime is None:
+            self._ptc_runtime = ProgrammaticToolRuntime(settings)
         return self._ptc_runtime
+
+    def _validate_ptc_environment(self) -> None:
+        """Do not route another environment's paths into the local PTC pass-through."""
+        from fast_agent.tools.composite_filesystem_runtime import CompositeFilesystemRuntime
+        from fast_agent.tools.environment_filesystem_runtime import EnvironmentFilesystemRuntime
+        from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
+        from fast_agent.tools.local_shell_executor import LocalEnvironment
+
+        def local_filesystem(runtime: FilesystemRuntime | None) -> bool:
+            if runtime is None or type(runtime) is LocalFilesystemRuntime:
+                return True
+            if type(runtime) is CompositeFilesystemRuntime:
+                return local_filesystem(runtime.primary) and local_filesystem(runtime.fallback)
+            return (
+                type(runtime) is EnvironmentFilesystemRuntime
+                and type(runtime.filesystem) is LocalEnvironment
+                and runtime.filesystem is self._shell_environment
+            )
+
+        acp = self._context.acp if self._context is not None else None
+        if (
+            os.name != "posix"
+            or (
+                self._shell_environment is not None
+                and type(self._shell_environment) is not LocalEnvironment
+            )
+            or self._external_runtime is not None
+            or not local_filesystem(self._filesystem_runtime)
+            or (
+                acp is not None
+                and (acp.terminal_runtime is not None or acp.filesystem_runtime is not None)
+            )
+        ):
+            raise AgentConfigError(
+                "PTC currently supports local POSIX execution only",
+                "Disable --ptc/ptc.enabled for ACP-owned, remote, Docker or custom environments "
+                "until filesystem adapters are available. Host-local file access was not enabled.",
+            )
 
     @property
     def ptc_store(self) -> SandboxStore | None:
@@ -1708,24 +1750,20 @@ class McpAgent(ABC, ToolAgent):
         runtime = self._programmatic_tool_runtime()
         return runtime.store if runtime is not None else None
 
-    def _ptc_working_directory(self) -> str | None:
-        """Where sandbox code resolves relative file paths: where the agent's file tools work.
-
-        That is the shell's directory when there is a shell (its environment may be remote);
-        otherwise an injected filesystem runtime, such as ACP's, which works in the ACP session's
-        directory, or the agent's own working directory.
-        """
+    def _ptc_working_directory(self) -> str:
+        """Resolve local sandbox paths against the agent's effective working directory."""
         if self._shell_runtime is not None and self._shell_runtime_enabled:
             cwd = Path(self._shell_runtime.command_working_directory()).as_posix()
         else:
-            acp = self._context.acp if self._context is not None else None
-            if acp is not None and acp.session_cwd:
-                directory = Path(acp.session_cwd)
+            runtime = self._local_filesystem_runtime()
+            if runtime is not None:
+                directory = runtime.working_directory
+            elif (environment_runtime := self._environment_filesystem_runtime()) is not None:
+                directory = Path(environment_runtime.filesystem.resolve_path("."))
             else:
                 directory = self.config.cwd if self.config.cwd is not None else Path.cwd()
             cwd = directory.absolute().as_posix()
-        # Monty paths are POSIX; a Windows host directory cannot be the sandbox's.
-        return cwd if cwd.startswith("/") else None
+        return cwd
 
     def _unavailable_tool_hint(self, name: str) -> str | None:
         if self._ptc_runtime is None:
@@ -1787,21 +1825,6 @@ class McpAgent(ABC, ToolAgent):
         request_params: RequestParams | None,
     ) -> CallToolResult:
         """Run a tool called from PTC sandbox code through the normal dispatch path."""
-        if (file_operation := sandbox_file_operation()) is not None:
-            # Internal calls serving open()/pathlib/os: their commands and base64 output are
-            # transport detail, so show one line naming the operation.
-            started = time.perf_counter()
-            result = await self._dispatch_tool_call(
-                name, arguments, call_id, request_params=request_params
-            )
-            self.display.show_sandbox_file_operation(
-                file_operation,
-                name=self._name,
-                tool_name=name,
-                is_error=result.is_error,
-                timing_ms=round((time.perf_counter() - started) * 1000, 2),
-            )
-            return result
         is_subagent = self._is_builtin_subagent_tool(self._tool_display_metadata(name))
         if is_subagent:
             self._show_subagent_message(arguments)
@@ -1860,9 +1883,7 @@ class McpAgent(ABC, ToolAgent):
                 arguments,
                 tool_use_id,
                 show_tool_call_id=self._show_shell_tool_call_id,
-                defer_display_to_tool_result=(
-                    self._defer_shell_display_to_tool_result or sandbox_file_operation() is not None
-                ),
+                defer_display_to_tool_result=self._defer_shell_display_to_tool_result,
             )
 
         return await self._call_builtin_tool(
@@ -2826,8 +2847,17 @@ class McpAgent(ABC, ToolAgent):
         ptc_runtime = self._programmatic_tool_runtime()
         if ptc_runtime is not None:
             model_params = self._resolve_shell_model_params()
+            filesystem_tools = (
+                {tool.name for tool in self._filesystem_runtime.tools}
+                if self._filesystem_runtime is not None
+                else set()
+            )
             merged_tools = ptc_runtime.model_tools(
                 merged_tools,
+                file_read=self._shell_runtime_enabled
+                or READ_TEXT_FILE_TOOL_NAME in filesystem_tools,
+                file_write=self._shell_runtime_enabled
+                or WRITE_TEXT_FILE_TOOL_NAME in filesystem_tools,
                 tool_format=ptc_runtime.resolve_tool_format(
                     model_params.ptc_tool_format if model_params is not None else None
                 ),

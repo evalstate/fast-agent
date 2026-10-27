@@ -1925,7 +1925,7 @@ class ProgrammaticToolCallingSettings(BaseModel):
     """
 
     enabled: bool = False
-    """Expose tools through the Python code tool instead of directly (`--ptc`)."""
+    """Expose tools through the Python code tool (`--ptc`); experimental, local POSIX only."""
 
     direct_tools: list[str] = Field(default_factory=list)
     """Tool names (fnmatch patterns) that stay directly callable alongside the code tool."""

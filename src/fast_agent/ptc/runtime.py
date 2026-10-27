@@ -32,13 +32,6 @@ from fast_agent.mcp.tool_result_metadata import (
     add_url_elicitation_required_payloads,
     url_elicitation_required_payloads,
 )
-from fast_agent.ptc.files import (
-    MAX_BINARY_READ_BYTES,
-    MAX_TEXT_READ_BYTES,
-    SandboxFilesystem,
-    SandboxFileTools,
-    format_size,
-)
 from fast_agent.ptc.store import STORE_STUBS, SandboxStore
 from fast_agent.ptc.stubs import PtcFunction, build_functions, render_stubs, tool_ptc_options
 from fast_agent.ptc.syntax import describe_syntax_error
@@ -68,6 +61,7 @@ if TYPE_CHECKING:
 
     from fast_agent.config import ProgrammaticToolCallingSettings
     from fast_agent.mcp.url_elicitation_required import URLElicitationRequiredDisplayPayload
+    from fast_agent.ptc.files import SandboxFilesystem
 
 PTC_TOOL_NAME = "execute_python"
 PTC_TOOL_META = {"variant": "code", "code_arg": "code", "language": "python"}
@@ -178,11 +172,11 @@ _IO_NOTE = (
 _FILES_NOTE = (
     "- `open()`, `pathlib.Path` and the `os` file functions (`os.listdir`, `os.walk`, "
     "`os.path.exists`, `os.makedirs`, ...) work on the real files; relative paths start in the "
-    "working directory. Each file operation runs through {functions}, with the same "
-    "permissions.{commands}\n"
+    "working directory. File access is experimental local Python pass-through, not a "
+    "filesystem sandbox; it does not invoke tools or tool permission prompts.{commands}\n"
 )
 _READ_LIMITS_NOTE = (
-    "- `open()` loads the whole file, even for `read(n)` or `seek()`: at most {binary} binary "
+    "- File reads load the whole file, even for `read(n)` or `seek()`: at most {binary} binary "
     "or {text} text. `struct` and `int.from_bytes` are unavailable.{advice}\n"
 )
 _READ_LIMITS_ADVICE = (
@@ -318,7 +312,8 @@ class ProgrammaticToolRuntime:
         self._pool: AsyncMonty | None = None
         self._pool_stack = AsyncExitStack()
         self._store = SandboxStore()
-        self._file_tools = SandboxFileTools()
+        self._file_read = False
+        self._file_write = False
         self._lock = asyncio.Lock()
         self._executions = 0
         self._media = MediaStore()
@@ -334,7 +329,12 @@ class ProgrammaticToolRuntime:
         return model_default or "json"
 
     def model_tools(
-        self, tools: Sequence[Tool], *, tool_format: PtcToolFormat = "json"
+        self,
+        tools: Sequence[Tool],
+        *,
+        tool_format: PtcToolFormat = "json",
+        file_read: bool = False,
+        file_write: bool = False,
     ) -> list[Tool]:
         """Replace the agent's tools with the code tool, keeping configured direct tools."""
         self._tool_format = tool_format
@@ -352,7 +352,8 @@ class ProgrammaticToolRuntime:
         self._direct_shell_tool = next(
             (tool.name for tool in direct if is_shell_command_tool_name(tool.name)), None
         )
-        self._file_tools = SandboxFileTools.from_tools(tools)
+        self._file_read = file_read
+        self._file_write = file_write
         self._nested_tools = {tool.name: tool for tool in nested}
         direct_names = {tool.name for tool in direct}
         self._shared_functions = tuple(
@@ -431,11 +432,10 @@ class ProgrammaticToolRuntime:
 
     def _io_note(self) -> str:
         example = self._example_function().example_call() if self._functions else None
-        if self._file_tools.available:
-            names = [f"`{name}`" for name in self._file_tools.tool_names()]
-            functions = names[0] if len(names) == 1 else f"{', '.join(names[:-1])} or {names[-1]}"
+        if self._file_read or self._file_write:
+            from fast_agent.ptc.files import MAX_BINARY_READ_BYTES, MAX_TEXT_READ_BYTES, format_size
+
             files_note = _FILES_NOTE.format(
-                functions=functions,
                 commands=_COMMANDS_NOTE.format(example=example) if example else "",
             )
             return files_note + _READ_LIMITS_NOTE.format(
@@ -468,7 +468,7 @@ class ProgrammaticToolRuntime:
         """Point code that tried to do I/O itself at the tool functions that can."""
         if not self._functions:
             return ""
-        if self._file_tools.available:
+        if self._file_read or self._file_write:
             unsupported = (
                 line
                 for line in detail.splitlines()
@@ -576,14 +576,15 @@ class ProgrammaticToolRuntime:
                     else f"ptc-{self._executions}-"
                 ),
             )
-            files = SandboxFilesystem(self._file_tools, calls.call, guidance=self._io_guidance())
+            from fast_agent.ptc.files import SandboxFilesystem
+
+            files = SandboxFilesystem(read=self._file_read, write=self._file_write)
             dispatches = calls.tasks
             lookup: dict[str, Callable[..., Awaitable[Any]]] = {
-                name: self._host_function(function, calls, files)
+                name: self._host_function(function, calls)
                 for name, function in self._functions.items()
             }
             lookup.update(self._store.functions())
-            write_error: str | None = None
             started = time.perf_counter()
             try:
                 async with await self._checkout() as session:
@@ -591,13 +592,10 @@ class ProgrammaticToolRuntime:
                     try:
                         value = await self._feed(session, code, lookup, output, files, cwd)
                     except Exception:
-                        # Buffered writes happened before the error, as they would in CPython.
-                        write_error = await files.finish()
                         # A failed gather can leave sibling tools running. Settle them before
                         # reporting completed side effects and copying nested result metadata.
                         await asyncio.gather(*dispatches, return_exceptions=True)
                         raise
-                    write_error = await files.finish()
                     await asyncio.gather(*dispatches, return_exceptions=True)
             except asyncio.CancelledError:
                 for task in list(dispatches):
@@ -619,21 +617,14 @@ class ProgrammaticToolRuntime:
                 return _syntax_error_result(self._describe_syntax_error(code) or exc.display())
             except MontyRuntimeError as exc:
                 detail = exc.display()
-                if write_error is not None:
-                    detail += f"\nAlso, committing buffered file writes failed: {write_error}"
                 return self._failure(detail + self._direct_io_hint(detail), output, stats, started)
             except MontyCrashedError as exc:
                 return self._failure(f"{exc}\nThe sandbox crashed.", output, stats, started)
             except MontyError as exc:
                 return self._failure(str(exc), output, stats, started)
+            finally:
+                await files.close()
 
-            if write_error is not None:
-                return self._failure(
-                    f"The script finished but committing its file writes failed: {write_error}",
-                    output,
-                    stats,
-                    started,
-                )
             return self._success(value, output, stats, started)
 
     def _describe_syntax_error(self, code: str) -> str | None:
@@ -680,13 +671,11 @@ class ProgrammaticToolRuntime:
         return tool_ptc_options(tool).get("expose", "nested") in {"nested", "both"}
 
     def _host_function(
-        self, function: PtcFunction, calls: _NestedCalls, files: SandboxFilesystem
+        self, function: PtcFunction, calls: _NestedCalls
     ) -> Callable[..., Awaitable[Any]]:
         async def call(*args: Any, **kwargs: Any) -> Any:
             if args:
                 raise TypeError(f"{function.python_name}() accepts keyword arguments only")
-            # The tool must see files the script wrote, not a stale buffer.
-            await files.before_tool_call()
             result = await calls.call(function.tool_name, function.bind_arguments(kwargs))
             return tool_result_to_value(result, self._media, name=function.python_name)
 
@@ -728,7 +717,7 @@ class ProgrammaticToolRuntime:
                 code,
                 external_lookup=lookup,
                 print_callback=output.append,
-                os=files.handler,
+                os=files,
                 cwd=cwd,
             )
         except MontyTypingError as exc:
@@ -738,7 +727,7 @@ class ProgrammaticToolRuntime:
             code,
             external_lookup=lookup,
             print_callback=output.append,
-            os=files.handler,
+            os=files,
             cwd=cwd,
             skip_type_check=True,
         )
