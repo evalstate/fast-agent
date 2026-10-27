@@ -1027,10 +1027,10 @@ def test_glimmer_alias_uses_together_with_recommended_sampling() -> None:
     assert config.top_k == 64
 
 
-def test_builtin_glm_alias_uses_glm_52_default() -> None:
+def test_builtin_glm_alias_uses_glm_53_default() -> None:
     config = ModelFactory.parse_model_string("glm")
     assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "zai-org/GLM-5.2:zai-org"
+    assert config.model_name == "zai-org/GLM-5.3:zai-org"
 
 
 def test_zaiglm_alias_uses_native_zai_provider() -> None:

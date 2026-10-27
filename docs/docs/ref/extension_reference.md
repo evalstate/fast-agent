@@ -19,20 +19,28 @@ integration you need.
 GEPA support lives in `fast_agent.integrations.gepa`.
 
 ```bash
-uv add "fast-agent-mcp[gepa]"
+uv pip install 'fast-agent-mcp[gepa]'
 ```
 
-The published `gepa` extra installs PyPI GEPA:
+The published `gepa` extra installs PyPI GEPA and Trackio:
 
 ```text
 gepa>=0.1.1
+trackio>=0.44.0
 ```
 
-The `trackio` extra is temporarily suspended, and `gepa` no longer installs
-Trackio. Trackio requires `pillow<13`, which conflicts with fast-agent's
-security requirement of `pillow>=13.0.0`. GEPA optimization remains available
-without Trackio monitoring. Trackio integration helpers are retained for a
-future compatible release.
+Trackio 0.44.0 permits Pillow <14, compatible with fast-agent's security
+requirement of `pillow>=13.0.0`. For batch monitoring without GEPA, install
+only the Trackio extra with `uv pip install 'fast-agent-mcp[trackio]'`.
+
+!!! warning "GEPA API compatibility"
+
+    PyPI GEPA 0.1.4 lacks Trackio options in `optimize_anything.TrackingConfig`
+    and `gepa.api.optimize()`. Installing the extra does not change that API.
+    Before using `make_gepa_trackio_dashboard()`, `make_gepa_tracking_config()`,
+    or `gepa_api_trackio_kwargs()`, check that your GEPA version supports the
+    Trackio options. Otherwise omit those calls and their tracking arguments;
+    GEPA optimization and batch Trackio monitoring remain available.
 
 Use the [GEPA Optimization guide](../guides/gepa/) for workflow guidance. In
 short:

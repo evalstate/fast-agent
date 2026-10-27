@@ -511,7 +511,7 @@ def test_hf_route_profiles_preserve_route_specific_cleanup(
 
 
 @pytest.mark.parametrize("model", ("GLM-5.3", "GLM-5.3-Flash"))
-@pytest.mark.parametrize("backend", ("", ":together", ":deepinfra"))
+@pytest.mark.parametrize("backend", ("", ":auto", ":zai-org", ":deepinfra"))
 @pytest.mark.parametrize(
     "query, effort", (("", "max"), ("?reasoning=low", "low"), ("?reasoning=high", "high"))
 )

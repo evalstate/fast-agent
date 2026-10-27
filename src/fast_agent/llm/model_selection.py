@@ -191,16 +191,31 @@ class ModelSelectionCatalog:
                 description="image-only HF route",
             ),
             _builtin_entry(
-                "GLM 5.2 (zai-org)",
-                display_label="GLM 5.2 (zai-org)",
+                "GLM 5.3 (together)",
+                display_label="GLM 5.3 (together)",
             ),
             _builtin_entry(
-                "GLM 5.2 (fireworks-ai)",
-                display_label="GLM 5.2 (fireworks-ai)",
+                "GLM 5.3 (novita)",
+                display_label="GLM 5.3 (novita)",
             ),
             _builtin_entry(
-                "GLM 5.2 (deepinfra)",
-                display_label="GLM 5.2 (deepinfra)",
+                "GLM 5.3 (zai-org)",
+                display_label="GLM 5.3 (zai-org)",
+            ),
+            _builtin_entry(
+                "GLM 5.3 Flash (together)",
+                display_label="GLM 5.3 Flash (together)",
+                fast=True,
+            ),
+            _builtin_entry(
+                "GLM 5.3 Flash (novita)",
+                display_label="GLM 5.3 Flash (novita)",
+                fast=True,
+            ),
+            _builtin_entry(
+                "GLM 5.3 Flash (zai-org)",
+                display_label="GLM 5.3 Flash (zai-org)",
+                fast=True,
             ),
             _builtin_entry(
                 "kimi27",

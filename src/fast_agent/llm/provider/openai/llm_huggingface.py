@@ -8,6 +8,7 @@ from fast_agent.llm.provider.openai.huggingface_router_profiles import (
     HUGGINGFACE_CUSTOM_ENDPOINT_BACKEND,
     HUGGINGFACE_ROUTE_PROFILES,
     HuggingFaceRouteProfile,
+    ThinkingWithReasoningEffort,
 )
 from fast_agent.llm.provider.openai.llm_openai_compatible import OpenAICompatibleLLM
 from fast_agent.llm.provider_types import Provider
@@ -167,6 +168,17 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
             arguments,
             setting=self.reasoning_effort,
             spec=spec,
+        )
+
+    def _preserves_raw_reasoning_history(self, model: str) -> bool:
+        route = self._router_route(model)
+        if route is None:
+            return False
+        profile = HUGGINGFACE_ROUTE_PROFILES.resolve(route)
+        # Preserve forced GLM-5.3 reasoning on every backend, and older routes
+        # whose thinking contract also requests clear_thinking=False.
+        return route.model in {"zai-org/glm-5.3", "zai-org/glm-5.3-flash"} or (
+            profile is not None and isinstance(profile.reasoning, ThinkingWithReasoningEffort)
         )
 
     def _should_emit_reasoning_stream(self, reasoning_mode: str | None) -> bool:

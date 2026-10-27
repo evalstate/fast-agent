@@ -27,7 +27,99 @@ fast-agent --model hf.moonshotai/kimi-k2-instruct-0905:groq
 fast-agent --model "hf.moonshotai/Kimi-K2.6:novita?reasoning=on"
 ```
 
-Curated aliases such as `kimi`, `deepseek-hf`, `glm`, and `minimax` include provider choices and request defaults tested with fast-agent features such as structured outputs and tool use. Capability can still vary by backing provider.
+Curated aliases such as `kimi`, `deepseek-hf`, `glm`, and `minimax` include provider choices and request defaults. Capabilities and supported parameters vary by backing provider; see the route-specific notes below.
+
+## GLM-5.3 and GLM-5.3-Flash
+
+`glm` and `glm53` select `hf.zai-org/GLM-5.3:zai-org`; `glm53flash` selects
+`hf.zai-org/GLM-5.3-Flash:zai-org`. The HF picker offers both models through
+Together, Novita, and Z.ai, replacing its GLM-5.2 entries:
+
+| Picker alias | Route |
+| --- | --- |
+| `GLM 5.3 (together)` | `hf.zai-org/GLM-5.3:together` |
+| `GLM 5.3 (novita)` | `hf.zai-org/GLM-5.3:novita` |
+| `GLM 5.3 (zai-org)` | `hf.zai-org/GLM-5.3:zai-org` |
+| `GLM 5.3 Flash (together)` | `hf.zai-org/GLM-5.3-Flash:together` |
+| `GLM 5.3 Flash (novita)` | `hf.zai-org/GLM-5.3-Flash:novita` |
+| `GLM 5.3 Flash (zai-org)` | `hf.zai-org/GLM-5.3-Flash:zai-org` |
+
+The explicit `glm52` and `GLM 5.2 (zai-org)`, `GLM 5.2 (fireworks-ai)`, and
+`GLM 5.2 (deepinfra)` aliases remain available for compatibility. Native
+[Z.ai](zai.md) aliases and its GLM-5.2 provider default are unchanged.
+
+```bash
+fast-agent --model glm
+fast-agent --model "glm53flash?reasoning=low"
+fast-agent --model "hf.zai-org/GLM-5.3:together?reasoning=high"
+fast-agent --model "hf.zai-org/GLM-5.3-Flash:novita?reasoning=max"
+```
+
+Both fast-agent model profiles keep reasoning enabled and expose `low`, `high`, and
+`max` effort levels, defaulting to `max`; disabled thinking is not supported.
+The existing effort normalizer maps `off`/`none` back to `max`, not disabled
+thinking. Each route sends top-level `reasoning_effort`, with backend-specific preserved
+thinking controls:
+
+| Backend | Additional request fields | Evidence |
+| --- | --- | --- |
+| Together | `chat_template_kwargs.clear_thinking: false` | [Together's GLM-5.3 guide](https://docs.together.ai/docs/glm-5.3-quickstart) documents effort and preserved thinking. |
+| Novita | No additional thinking fields | [Novita's model page](https://novita.ai/models/model-detail/zai-org-glm-5.3) lists `low`/`high`/`max`; its [chat reference](https://novita.ai/docs/api-reference/model-apis-llm-create-chat-completion) does not fully specify the wire contract. Top-level effort was accepted live without `separate_reasoning`. |
+| Z.ai (`zai-org`) | `thinking: {type: enabled, clear_thinking: false}` | [Z.ai's GLM-5.3 guide](https://docs.z.ai/guides/llm/glm-5.3) and [thinking guide](https://docs.z.ai/guides/capabilities/thinking-mode) document always-on and preserved thinking. |
+
+Together additionally documents `medium`, but it is not part of this common
+HF profile. Accepted effort parameters do not prove that every backend applies
+distinct reasoning budgets. Fast-agent preserves streamed reasoning exactly,
+including whitespace, and replays it as `reasoning_content` on later turns and
+tool-result continuations. Offline stream simulations exercise this separately
+from live request-acceptance checks.
+
+Structured output uses JSON object mode, schema instructions, and fast-agent
+validation—not strict OpenAI `json_schema` mode. The smoke checks below do not
+establish support for every OpenAI-compatible request parameter.
+
+[GLM-5.3](https://huggingface.co/zai-org/GLM-5.3) is text-only.
+[GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash) supports text and
+image input through HF. Native Z.ai PDF/MOV support is **not** advertised for
+these HF routes.
+
+### Dated evidence and limitations
+
+Research and synthetic FastAgent harness testing on **October 27, 2026**
+covered all six routes. The final live run passed **39 of 39 inference cases**:
+default/low/high/max reasoning acceptance, actual function-tool execution and
+continuation, schema-validated structured output, and Flash PNG recognition
+on all three backends. Every successful case reported prompt/completion usage.
+All six offline capability checks passed after restricting HF Flash metadata
+to text/images.
+
+Together Flash image recognition timed out at 120 seconds in the initial run,
+then passed in 71 seconds in the final run; latency can vary substantially.
+Reasoning content was observed across all routes, but is not necessarily
+present for every trivial prompt or structured response.
+
+Discovery was inconsistent: HF's per-model
+[inference provider mappings](https://huggingface.co/docs/hub/models-inference)
+listed Together as live, while the [router model listing](https://router.huggingface.co/v1/models)
+omitted those Together routes. Explicit routed requests nevertheless passed.
+Treat listings as discovery hints, not proof of availability or failover.
+
+To reproduce with `HF_TOKEN` or an HF cached login, explicitly authorize
+billable synthetic requests:
+
+```bash
+uv run examples/huggingface-glm53-smoke.py --live
+uv run examples/huggingface-glm53-smoke.py --live --backend together --model GLM-5.3-Flash --case image
+uv run examples/huggingface-glm53-smoke.py --case capabilities
+```
+
+The script isolates workspace configuration, tools, and skills. By default it
+caps each inference at 1,024 output tokens and each case at 120 seconds with at
+most three iterations; it does not validate full context/output limits or
+native PDF/video support. `--backend`, `--model`, and `--case` can be repeated;
+`--max-tokens` accepts 256, 512, 1024, or 2048. Sanitized results are written to
+`/tmp/glm53-live-results.md` (override with `--report`); request acceptance alone
+does not establish effort effectiveness.
 
 ## DeepSeek V4.1 Flash
 

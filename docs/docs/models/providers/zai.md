@@ -68,13 +68,17 @@ fast-agent go --model zai.glm-5.3-flash --message "Describe the attached image."
 ```
 
 For compatibility, the provider default and `zaiglm` alias remain GLM-5.2.
-The older `glm` and `glm52` aliases also retain their Hugging Face routes:
+The `glm` alias now selects GLM-5.3 through Hugging Face, as does `glm53`;
+`glm53flash` selects its Flash variant. The explicit `glm52` alias retains its
+HF GLM-5.2 route. These HF aliases do not change the native provider default:
 
 ```text
 zaiglm53       -> zai.glm-5.3
 zaiglm53flash  -> zai.glm-5.3-flash
 zaiglm         -> zai.glm-5.2
-glm            -> hf.zai-org/GLM-5.2:zai-org
+glm            -> hf.zai-org/GLM-5.3:zai-org
+glm53          -> hf.zai-org/GLM-5.3:zai-org
+glm53flash     -> hf.zai-org/GLM-5.3-Flash:zai-org
 glm52          -> hf.zai-org/GLM-5.2:zai-org
 ```
 
@@ -91,8 +95,9 @@ fast-agent go --model "zaiglm53?reasoning=high" --message "Solve this."
 fast-agent go --model "zaiglm53?reasoning=max" --message "Solve this."
 ```
 
-`max` is the default. GLM-5.3 rejects disabled thinking and unsupported effort
-values such as `none` and `medium`.
+`max` is the default. Disabled thinking and effort values such as `none` and
+`medium` are outside this profile's supported contract. Fast-agent normalizes
+those settings to `max` before sending the request.
 
 ### Sampling
 

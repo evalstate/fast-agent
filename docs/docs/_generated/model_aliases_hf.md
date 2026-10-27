@@ -17,14 +17,22 @@
 | `deepseekv4pro-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `gemma4` | `hf.google/gemma-4-31B-it:cerebras?temperature=1.0&top_p=0.95` |
 | `glimmer` | `hf.meta-models/Muse-Glimmer-30B:together?temperature=1.0&top_p=0.95&top_k=64` |
-| `glm` | `hf.zai-org/GLM-5.2:zai-org` |
+| `glm` | `hf.zai-org/GLM-5.3:zai-org` |
 | `GLM 5.2 (deepinfra)` | `hf.zai-org/GLM-5.2:deepinfra` |
 | `GLM 5.2 (fireworks-ai)` | `hf.zai-org/GLM-5.2:fireworks-ai` |
 | `GLM 5.2 (zai-org)` | `hf.zai-org/GLM-5.2:zai-org` |
+| `GLM 5.3 (novita)` | `hf.zai-org/GLM-5.3:novita` |
+| `GLM 5.3 (together)` | `hf.zai-org/GLM-5.3:together` |
+| `GLM 5.3 (zai-org)` | `hf.zai-org/GLM-5.3:zai-org` |
+| `GLM 5.3 Flash (novita)` | `hf.zai-org/GLM-5.3-Flash:novita` |
+| `GLM 5.3 Flash (together)` | `hf.zai-org/GLM-5.3-Flash:together` |
+| `GLM 5.3 Flash (zai-org)` | `hf.zai-org/GLM-5.3-Flash:zai-org` |
 | `glm47` | `hf.zai-org/GLM-4.7:cerebras` |
 | `glm5` | `hf.zai-org/GLM-5:novita` |
 | `glm51` | `hf.zai-org/GLM-5.1:together` |
 | `glm52` | `hf.zai-org/GLM-5.2:zai-org` |
+| `glm53` | `hf.zai-org/GLM-5.3:zai-org` |
+| `glm53flash` | `hf.zai-org/GLM-5.3-Flash:zai-org` |
 | `google/gemma-4-31b-it` | `google/gemma-4-31b-it` |
 | `gpt-oss` | `hf.openai/gpt-oss-120b:cerebras` |
 | `gpt-oss-20b` | `hf.openai/gpt-oss-20b` |

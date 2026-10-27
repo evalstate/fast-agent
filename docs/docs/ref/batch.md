@@ -156,12 +156,17 @@ Appending and de-duplicating result rows into a Hugging Face dataset is not impl
 
 ### Trackio monitoring
 
-The `trackio` extra is temporarily suspended, and `gepa` no longer installs
-Trackio. Trackio requires `pillow<13`, which conflicts with fast-agent's
-security requirement of `pillow>=13.0.0`. For now, omit `--project` and
-`--trackio-project` or use `--no-trackio`; use `--telemetry-output` and
-`--summary-output` for local monitoring. The options below are retained for
-environments with a compatible Trackio installation.
+Install the optional Trackio dependency in the environment where fast-agent
+runs:
+
+```bash
+uv pip install 'fast-agent-mcp[trackio]'
+```
+
+The extra installs `trackio>=0.44.0`, also included in the `gepa` extra.
+Enable monitoring with `--project` or `--trackio-project`. Omit these options
+or use `--no-trackio` to use local monitoring only via `--telemetry-output`
+and `--summary-output`.
 
 | Option                         | Description                                                                                 |
 | ------------------------------ | ------------------------------------------------------------------------------------------- |

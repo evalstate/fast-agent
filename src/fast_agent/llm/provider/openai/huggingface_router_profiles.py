@@ -44,7 +44,7 @@ def _set_chat_template_kwarg(
     value: object,
 ) -> None:
     raw = extra_body.get("chat_template_kwargs")
-    chat_kwargs = raw if isinstance(raw, dict) else {}
+    chat_kwargs = dict(raw) if isinstance(raw, dict) else {}
     chat_kwargs[key] = value
     extra_body["chat_template_kwargs"] = chat_kwargs
 
@@ -57,6 +57,7 @@ class TopLevelReasoningEffort:
     effort_map: Mapping[str, str] | None = None
     toggle_disable: bool = True
     chat_template_toggle_field: str | None = None
+    chat_template_kwargs: Mapping[str, object] | None = None
     cleanup_extra_body: frozenset[str] = frozenset()
 
     def apply(
@@ -94,6 +95,12 @@ class TopLevelReasoningEffort:
         elif self.effort_map:
             effort = self.effort_map.get(effort, effort)
         arguments["reasoning_effort"] = effort
+
+        if self.chat_template_kwargs:
+            extra_body = _extra_body(arguments)
+            for key, value in self.chat_template_kwargs.items():
+                _set_chat_template_kwarg(extra_body, key, value)
+            _commit_extra_body(arguments, extra_body)
 
         if not self.cleanup_extra_body:
             return
@@ -248,6 +255,22 @@ _KIMI_K3_REASONING = TopLevelReasoningEffort(
     toggle_disable=False,
     cleanup_extra_body=frozenset({"thinking", "chat_template_kwargs"}),
 )
+# GLM-5.3 and Flash share the common low/high/max effort contract.
+# Together preserves reasoning via chat_template_kwargs, not Z.ai's thinking object.
+_GLM_53_TOGETHER_REASONING = TopLevelReasoningEffort(
+    default_effort="max",
+    allowed_efforts=frozenset({"low", "high", "max"}),
+    toggle_disable=False,
+    chat_template_kwargs={"clear_thinking": False},
+    cleanup_extra_body=frozenset({"thinking"}),
+)
+# Novita accepts top-level effort; do not assume Z.ai-specific thinking controls.
+_GLM_53_NOVITA_REASONING = TopLevelReasoningEffort(
+    default_effort="max",
+    allowed_efforts=frozenset({"low", "high", "max"}),
+    toggle_disable=False,
+    cleanup_extra_body=frozenset({"thinking"}),
+)
 _GLM_52_REASONING = ThinkingWithReasoningEffort()
 _GLM_52_DEEPINFRA_REASONING = TopLevelReasoningEffort(
     default_effort="max",
@@ -339,6 +362,19 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
             model=_GLM_52,
             profile=HuggingFaceRouteProfile(reasoning=_GLM_52_REASONING),
         ),
+        *(
+            RouterProfileRule(
+                model=model,
+                backends=frozenset({backend}),
+                profile=HuggingFaceRouteProfile(reasoning=reasoning),
+            )
+            for model in ("zai-org/glm-5.3", "zai-org/glm-5.3-flash")
+            for backend, reasoning in (
+                ("together", _GLM_53_TOGETHER_REASONING),
+                ("novita", _GLM_53_NOVITA_REASONING),
+            )
+        ),
+        # Z.ai and unspecified/auto routes retain the existing thinking contract.
         RouterProfileRule(
             model="zai-org/glm-5.3",
             profile=HuggingFaceRouteProfile(reasoning=ThinkingWithReasoningEffort()),
