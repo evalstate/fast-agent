@@ -516,6 +516,34 @@ handles = [open(f"{name}.txt") for name in ("a", "b", "c")]  # a is evicted by c
 
 
 @pytest.mark.asyncio
+async def test_odd_entries_list_and_stat_like_python(tmp_path) -> None:
+    (tmp_path / "dangling").symlink_to(tmp_path / "missing")
+    (tmp_path / "names").mkdir()
+    (tmp_path / "names" / "one\ntwo").write_text("x")
+    (tmp_path / "names" / "two").write_text("y")
+    code = """
+import os
+from pathlib import Path
+try:
+    os.stat("dangling")
+    stat = "no error"
+except OSError as exc:
+    stat = type(exc).__name__
+[
+    stat,
+    sorted(os.listdir("names")),
+    sorted(p.name for p in Path("names").glob("*")),
+    sorted(f for _, _, files in os.walk("names") for f in files),
+]
+"""
+    async with _agent(tmp_path) as (agent, _shell):
+        stat, *listings = _value(await _run(agent, code))
+
+    assert stat == "FileNotFoundError"
+    assert listings == [["one\ntwo", "two"]] * 3
+
+
+@pytest.mark.asyncio
 async def test_writes_made_before_a_script_error_are_kept(tmp_path) -> None:
     async with _agent(tmp_path) as (agent, _shell):
         result = await _run(agent, "open('partial.txt', 'w').write('done')\n1 / 0")

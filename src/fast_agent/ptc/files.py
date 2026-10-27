@@ -113,9 +113,10 @@ _KIND_SCRIPT = (
     'if [ -d "$p" ]; then k=d; elif [ -f "$p" ]; then k=f; elif [ -e "$p" ]; then k=o; '
     'else k=n; fi; l=0; [ -L "$p" ] && l=1; printf "%s%s\\n" "$k" "$l"'
 )
+# Entries are NUL-terminated: a file name can contain a newline, but no path contains NUL.
 _SCAN_ENTRY_SCRIPT = (
     'for f do t=o; if [ -d "$f" ]; then t=d; elif [ -f "$f" ]; then t=f; fi; l=0; '
-    '[ -L "$f" ] && l=1; printf "%s%s %s\\n" "$t" "$l" "$f"; done'
+    '[ -L "$f" ] && l=1; printf "%s%s %s\\0" "$t" "$l" "$f"; done'
 )
 _REQUIRE_EXISTS = 'if [ ! -e "$p" ] && [ ! -L "$p" ]; then fail ENOENT; fi; '
 _REQUIRE_FILE = _REQUIRE_EXISTS + '[ -d "$p" ] && fail EISDIR; '
@@ -507,10 +508,12 @@ class SandboxFilesystem:
         output = await self._shell(
             "Path.stat",
             path,
-            _REQUIRE_EXISTS
+            # stat follows symlinks, so a dangling one is missing, as for os.stat().
+            '[ -e "$p" ] || fail ENOENT; '
             + "if s=$(stat -L -c '%f %i %d %h %u %g %s %X %Y %Z' -- \"$p\" 2>/dev/null); "
             'then printf "%s" "$s"; elif [ -d "$p" ]; then printf "x d"; '
-            'else printf "x f %s" "$(wc -c < "$p" | tr -d " ")"; fi',
+            # Unquoted $n drops the padding some wc implementations print.
+            'else n=$(wc -c < "$p") || exit 1; printf "x f %s" $n; fi',
         )
         fields = output.split()
         if fields[0] == "x":
@@ -535,9 +538,9 @@ class SandboxFilesystem:
         output = await self._shell(
             "Path.iterdir",
             path,
-            _REQUIRE_DIR + '[ -r "$p" ] || fail EACCES; find "$p" -mindepth 1 -maxdepth 1',
+            _REQUIRE_DIR + '[ -r "$p" ] || fail EACCES; find "$p" -mindepth 1 -maxdepth 1 -print0',
         )
-        return [PurePosixPath(line) for line in output.splitlines() if line]
+        return [PurePosixPath(entry) for entry in output.split("\0") if entry]
 
     async def _scan(self, path: str, *, max_depth: int | None, follow_symlinks: bool) -> list[Any]:
         from pydantic_monty.os_access import ScanEntry
@@ -553,8 +556,8 @@ class SandboxFilesystem:
         )
         prefix = path.rstrip("/") + "/"
         entries: list[Any] = []
-        for line in output.splitlines():
-            flags, _, entry_path = line.partition(" ")
+        for record in output.split("\0"):
+            flags, _, entry_path = record.partition(" ")
             if len(flags) != 2 or not entry_path:
                 continue
             relative = "" if entry_path == path else entry_path.removeprefix(prefix)
