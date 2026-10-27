@@ -128,6 +128,61 @@ fast-agent export latest --privacy-filter --download-privacy-filter
   `--download-privacy-filter` to allow the initial model download.
 - `--no-home` runs do not persist sessions, so there is nothing to export later.
 
+## PTC tool-call metadata in ATIF
+
+For programmatic tool calling (PTC), the parent `execute_python` call still contains
+the source program. Its observation's `extra` also carries the intercepted nested
+tool calls from result metadata (`fast-agent-ptc-calls`):
+
+```json
+{
+  "ptc_calls_schema": "fast-agent.ptc-calls/v1",
+  "ptc_calls": [
+    {
+      "id": "parent::ptc-1",
+      "tool": "read_text_file",
+      "arguments": {"path": "/work/dynamically-selected.txt"},
+      "is_error": false,
+      "status": "completed"
+    }
+  ]
+}
+```
+
+- `id`, `tool`, and `is_error` retain their existing meanings; IDs are opaque.
+  Existing nested subagent metadata is retained alongside these fields.
+- `arguments` is a detached JSON snapshot of the resolved argument dictionary at
+  dispatch, including dynamically constructed values. Records are appended before
+  awaiting dispatch, in invocation order, not parallel completion order. JSON
+  normalization applies (for example, Python tuples become arrays).
+- `status: "completed"` means a tool returned, **not** that it succeeded:
+  inspect `is_error`. A returned running-process handle also counts as completed
+  dispatch, not completed process execution. `"raised"` means dispatch raised an
+  exception (`is_error: true`). `"in_flight"` and `"cancelled"` have
+  `is_error: null`; neither asserts success or absence of side effects. Turn
+  cancellation can prevent a parent result from being saved at all.
+- Arguments that cannot be JSON-serialized are represented by `arguments: null`
+  and `arguments_error: "not_json_serializable"`. Capture failure does not block
+  dispatch; no stringified substitute is recorded.
+- An empty array means that execution recorded no intercepted tool dispatches.
+  Older results may omit the ledger, or contain entries without `arguments` and
+  `status`; export does not reconstruct them. The schema marker describes this
+  metadata envelope, not a guarantee of capture completeness.
+
+This is a tool-invocation ledger, **not a complete execution audit**. It does not
+include full nested tool results: PTC deliberately filters those inside Python.
+Metadata is not placed in model-visible result text and is not evidence that the
+model saw a nested result. Direct Python filesystem pass-through (`open()`,
+`pathlib`, `os` file functions) bypasses tool dispatch and tool permission prompts,
+so those reads/writes do not appear here. Use intercepted file tools when their
+invocations need to be recorded.
+
+Like ordinary tool arguments, snapshots can contain secrets, file contents,
+paths, or commands, even when the program does not print them. Protect saved
+history and review exports before sharing. ATIF `--privacy-filter` processes
+nested argument values just like ordinary tool argument values; it is not a
+guarantee that all secrets are removed.
+
 ## Interactive equivalent
 
 Inside the interactive prompt, use `/session export`:

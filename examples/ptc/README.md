@@ -30,6 +30,18 @@ loads the whole file. This pass-through may change or be removed as the design e
 
 The expected answer is Stark (C006) with $9,703.40, and the runner-up is Aperture (C012) with $6,385.75.
 
+## Inspecting nested calls
+
+ATIF exports keep the parent program and include a `ptc_calls` ledger in the
+`execute_python` observation's `extra` (`ptc_calls_schema: fast-agent.ptc-calls/v1`).
+It records dispatched tool names, IDs, resolved argument snapshots, and outcomes
+in invocation order, without adding them to model-visible text or dumping filtered
+nested results. Arguments may contain sensitive file contents or secrets.
+Direct Python filesystem pass-through is **not** intercepted or recorded in this
+ledger; it is not a complete execution audit. See the
+[export metadata reference](../../docs/docs/ref/export_command.md#ptc-tool-call-metadata-in-atif)
+for the schema, legacy/capture limitations, and privacy filtering.
+
 ## Evals
 
 `evals.py` runs a handful of quick end-to-end checks through the real CLI. Each one checks the

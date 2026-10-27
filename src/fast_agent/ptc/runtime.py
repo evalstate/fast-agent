@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import importlib.util
+import json
 import re
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -260,12 +261,24 @@ class _NestedCalls:
         stats = self.stats
         stats.started += 1
         call_id = f"{self.call_prefix}{stats.started}"
-        with programmatic_tool_call(call_id):
-            result = await self.dispatch(tool_name, arguments, call_id)
+        # Snapshot before dispatch: tools may mutate arguments, and parallel calls may
+        # finish out of order. This ledger is metadata, never model-visible output.
+        record = _started_call_record(call_id, tool_name, arguments)
+        stats.calls.append(record)
+        try:
+            with programmatic_tool_call(call_id):
+                result = await self.dispatch(tool_name, arguments, call_id)
+        except asyncio.CancelledError:
+            record["status"] = "cancelled"
+            raise
+        except Exception:
+            record.update(status="raised", is_error=True)
+            stats.failed.append(tool_name)
+            raise
+        record.update(_call_record(call_id, tool_name, result), status="completed")
         (stats.failed if result.is_error else stats.completed).append(tool_name)
         stats.track_process(arguments, result)
         stats.url_elicitations.extend(url_elicitation_required_payloads(result))
-        stats.calls.append(_call_record(call_id, tool_name, result))
         return result
 
 
@@ -815,6 +828,24 @@ def _matching_pattern(tool: Tool, patterns: Sequence[str]) -> str | None:
     return next((pattern for pattern in patterns if fnmatch.fnmatchcase(tool.name, pattern)), None)
 
 
+def _started_call_record(call_id: str, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    # Tool arguments cross an untyped boundary. JSON round-tripping both detaches nested
+    # mutable values and ensures the audit metadata can be persisted/exported.
+    record: dict[str, Any] = {
+        "id": call_id,
+        "tool": tool_name,
+        "arguments": None,
+        "is_error": None,
+        "status": "in_flight",
+    }
+    try:
+        record["arguments"] = json.loads(json.dumps(arguments, allow_nan=False))
+    except (TypeError, ValueError, RecursionError):
+        # Do not change dispatch behavior or stringify arbitrary objects into the trace.
+        record["arguments_error"] = "not_json_serializable"
+    return record
+
+
 def _call_record(call_id: str, tool_name: str, result: CallToolResult) -> dict[str, Any]:
     record: dict[str, Any] = {"id": call_id, "tool": tool_name, "is_error": result.is_error}
     meta = result.meta or {}
@@ -824,8 +855,7 @@ def _call_record(call_id: str, tool_name: str, result: CallToolResult) -> dict[s
 
 def _add_nested_metadata(result: CallToolResult, stats: _ExecutionStats) -> None:
     add_url_elicitation_required_payloads(result, stats.url_elicitations)
-    if stats.calls:
-        result.meta = {**(result.meta or {}), FAST_AGENT_PTC_CALLS: stats.calls}
+    result.meta = {**(result.meta or {}), FAST_AGENT_PTC_CALLS: stats.calls}
 
 
 def _header(status: str, stats: _ExecutionStats, started: float) -> str:

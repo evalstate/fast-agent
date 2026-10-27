@@ -553,10 +553,14 @@ async def test_gather_settles_sibling_side_effects_before_reporting(runtime, cat
         assert len(writes) == 1
         assert "2 calls, 1 failed" in _text(result)
         records = (result.meta or {})[FAST_AGENT_PTC_CALLS]
-        assert {record["tool"] for record in records} == {
+        # The failed call returns first, but the ledger remains in dispatch order.
+        assert [record["tool"] for record in records] == [
             "orders__get_orders",
             "delete_everything",
-        }
+        ]
+        assert [record["arguments"] for record in records] == [{"customer_id": "a"}, {}]
+        assert [record["is_error"] for record in records] == [False, True]
+        assert all(record["status"] == "completed" for record in records)
         if not catch_error:
             assert "avoid repeating side effects" in _text(result)
             assert "orders__get_orders" in _text(result)
@@ -1373,3 +1377,83 @@ async def test_documented_sandbox_modules_match_the_installed_monty() -> None:
 
     assert missing == [] and present == []
     assert {name.split(".")[0] for name in available} <= SANDBOX_MODULES
+
+
+@pytest.mark.asyncio
+async def test_call_ledger_snapshots_nested_arguments_before_dispatch() -> None:
+    arguments = {"payload": {"values": ["original"], "optional": None}}
+
+    async def dispatch(name: str, args: dict[str, Any], call_id: str) -> CallToolResult:
+        args["payload"]["values"].append("mutated")
+        return CallToolResult(content=[])
+
+    stats = _ExecutionStats()
+    calls = _NestedCalls(dispatch, stats, call_prefix="snapshot-")
+    await calls.call("write", arguments)
+
+    assert arguments["payload"]["values"] == ["original", "mutated"]
+    assert stats.calls[0]["arguments"] == {"payload": {"values": ["original"], "optional": None}}
+    assert json.loads(json.dumps(stats.calls)) == stats.calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [b"binary", {"set"}, float("nan")])
+async def test_unserializable_arguments_do_not_block_dispatch(value: object) -> None:
+    dispatch = RecordingDispatcher()
+
+    async def accept(name: str, args: dict[str, Any], call_id: str) -> CallToolResult:
+        # The dispatcher accepts non-JSON Python values; audit capture must not reject them.
+        dispatch.calls.append((name, args))
+        return CallToolResult(content=[])
+
+    stats = _ExecutionStats()
+    await _NestedCalls(accept, stats, call_prefix="non-json-").call("accept", {"value": value})
+
+    assert dispatch.calls == [("accept", {"value": value})]
+    [record] = json.loads(json.dumps(stats.calls, allow_nan=False))
+    assert record["arguments"] is None
+    assert record["arguments_error"] == "not_json_serializable"
+    assert record["status"] == "completed"
+    assert record["is_error"] is False
+
+
+@pytest.mark.asyncio
+async def test_dispatch_exception_is_in_call_ledger(runtime) -> None:
+    async def dispatch(name: str, args: dict[str, Any], call_id: str) -> CallToolResult:
+        raise ValueError("transport failed")
+
+    result = await runtime.execute(
+        {"code": "await orders__get_orders(customer_id='failed')"}, dispatch
+    )
+
+    assert result.is_error
+    [record] = (result.meta or {})[FAST_AGENT_PTC_CALLS]
+    assert record["arguments"] == {"customer_id": "failed"}
+    assert record["status"] == "raised"
+    assert record["is_error"] is True
+
+
+@pytest.mark.asyncio
+async def test_pending_and_cancelled_dispatch_do_not_claim_success() -> None:
+    started = asyncio.Event()
+
+    async def dispatch(name: str, args: dict[str, Any], call_id: str) -> CallToolResult:
+        started.set()
+        await asyncio.Event().wait()
+        return CallToolResult(content=[])
+
+    stats = _ExecutionStats()
+    calls = _NestedCalls(dispatch, stats, call_prefix="cancel-")
+    task = asyncio.create_task(calls.call("write", {"path": "pending"}))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+        [record] = stats.calls
+        assert record["status"] == "in_flight"
+        assert record["is_error"] is None
+    finally:
+        for pending in list(calls.tasks):
+            pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert record["status"] == "cancelled"
+    assert record["is_error"] is None

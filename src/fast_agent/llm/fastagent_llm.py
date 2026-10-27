@@ -47,7 +47,7 @@ from fast_agent.llm.compaction_support import (
 )
 from fast_agent.llm.memory import Memory, SimpleMemory
 from fast_agent.llm.model_database import ModelDatabase, ModelParameters
-from fast_agent.llm.provider.error_utils import EmptyCompletionError
+from fast_agent.llm.provider.error_utils import EmptyCompletionError, provider_policy_code
 from fast_agent.llm.provider.streaming_timeouts import (
     StreamIdleTimeoutError,
     StreamTiming,
@@ -758,6 +758,11 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             try:
                 result = await func(*args, **kwargs)
             except Exception as e:
+                # A policy refusal is a terminal response, including when the SDK
+                # represents it as a generic fatal BadRequestError.
+                if provider_policy_code(e):
+                    last_error = e
+                    break
                 if self._is_fatal_retry_error(e):
                     raise
 
