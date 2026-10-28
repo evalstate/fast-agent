@@ -60,6 +60,8 @@ Classify this record:
 {{row_json}}
 ```
 
+The `row_json` placeholder is reserved for the complete row, even when an input column has that name. The column's value remains present inside that JSON object.
+
 For CSV input, all values are strings because they come from CSV fields. JSONL preserves the JSON value types. Parquet scalar values are normalized for JSON output and templates; dates/times become ISO strings, decimals become strings, and bytes are decoded as UTF-8 with replacement for invalid bytes.
 
 ### Parquet SQL selection

@@ -255,6 +255,7 @@ Template details:
 
 - `{{field_name}}` inserts a top-level field from the row.
 - `{{row_json}}` inserts the complete row as pretty-printed JSON.
+- `row_json` is reserved for the complete row, even when an input column has that name.
 - String values are inserted as-is.
 - Non-string values are JSON encoded before insertion.
 - Missing fields produce a row-level `MissingTemplateField` error.
