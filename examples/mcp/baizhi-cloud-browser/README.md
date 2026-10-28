@@ -33,4 +33,10 @@ Disconnecting fast-agent does not end cloud browser runs or stop their billing. 
 
 If authentication fails, check the exact `/mcp` URL, key applicability, and complete header. Do not enter only `Bearer` or use `Authorization=Bearer ...` as the header value. If management tools work but page navigation is missing, configure the separate CDP client.
 
-Contributed by `ctcbyzx`, who maintains the Baizhi Cloud Browser integration materials.
+## Maintenance and support
+
+Example configuration: [fast-agent.yaml](./fast-agent.yaml).
+
+Maintained by [ctcbyzx](https://github.com/ctcbyzx), a contributor to [Chaitin's public integration guides](https://github.com/chaitin/baizhi-cloud-browser). See [other browser integrations](https://github.com/ctcbyzx/baizhi-cloud-browser).
+
+For setup help, use the [integration issue tracker](https://github.com/ctcbyzx/baizhi-cloud-browser/issues) and include the client version and a redacted error. Use the service console for private account or billing questions.
