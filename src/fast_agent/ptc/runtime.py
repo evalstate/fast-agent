@@ -90,10 +90,24 @@ _CARRIED_RESULT_META = (FAST_AGENT_SUBAGENT_RESULT_METADATA,)
 ToolDispatcher = Callable[[str, dict[str, Any], str], Awaitable[CallToolResult]]
 """Dispatch a nested call: (tool name, arguments, nested call id) -> result."""
 
+PTC_BATCHING_INSTRUCTION = (
+    "Batch independent searches, file reads, and other read-only calls in a single "
+    "`execute_python` invocation using `asyncio.gather`. Prefer this over separate invocations "
+    "or sequential awaits when no result depends on another. Inspect every result; use "
+    "`settle()` when each result must be collected despite individual failures. Keep dependent "
+    "steps, approvals, and potentially conflicting mutations sequential."
+)
+
 _INSTRUCTIONS = """\
 Run Python code. Only `print()` output and the final expression value are returned to you: \
 filter and aggregate large results in code.
 {input_note}\
+- {batching_instruction}
+- asyncio is pre-imported: `a, b = await asyncio.gather(f(x=1), g(y=2))`. \
+`settle(aw)` returns an exception instead of raising, so \
+`await asyncio.gather(*[settle(f(x=x)) for x in xs])` returns every result \
+(`return_exceptions=` is unsupported).
+{shell_batch_note}\
 {functions_note}\
 {io_note}\
 - Sandbox: a subset of Python 3.14 with no environment or packages. \
@@ -103,11 +117,6 @@ tomllib, typing, unicodedata. Some are partial (functools has only reduce and pa
 available: enum, contextlib, io, string, struct, operator, heapq, subprocess.
 {shell_python_note}\
 {shared_note}\
-- Run independent calls together (asyncio is pre-imported): \
-`a, b = await asyncio.gather(f(x=1), g(y=2))`; keep dependent steps sequential. `settle(aw)` returns an exception instead of raising, so \
-`await asyncio.gather(*[settle(f(x=x)) for x in xs])` returns every result \
-(`return_exceptions=` is unsupported).
-{shell_batch_note}\
 - Results are Python values: structured content as a dict, JSON text parsed, other text as \
 str. A failing call raises RuntimeError.
 - Images, audio and binary resources arrive as `{{"media_id": ...}}` handles. To see them, \
@@ -414,6 +423,7 @@ class ProgrammaticToolRuntime:
     def _instructions(self) -> str:
         shared = ", ".join(f"`{name}`" for name in self._shared_functions)
         return _INSTRUCTIONS.format(
+            batching_instruction=PTC_BATCHING_INSTRUCTION,
             functions_note=self._functions_note(),
             io_note=self._io_note(),
             shell_python_note=self._shell_python_note(),

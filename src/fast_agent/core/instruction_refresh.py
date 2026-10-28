@@ -350,7 +350,8 @@ async def rebuild_agent_instruction(
 
         # Build the instruction using the agent's current state
         template = agent.instruction_template
-        if not template:
+        # Runtime guidance can still change when the source template is empty.
+        if not template and not isinstance(agent, RenderedInstructionProcessor):
             return InstructionRefreshResult(
                 updated_skill_manifests=updated_skill_manifests,
                 updated_skill_registry=updated_skill_registry,

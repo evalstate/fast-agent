@@ -3,7 +3,9 @@
 `--ptc` replaces an agent's tools with a single `execute_python` tool. The model writes Python
 that runs in a [pydantic-monty](https://github.com/pydantic/monty) sandbox. Each tool is an
 async function in that sandbox, and only printed output and the final expression value come
-back into context.
+back into context. When PTC is enabled, agent instructions encourage batching independent
+read-only calls with `asyncio.gather`, inspecting every result, and keeping dependent steps,
+approvals, and potentially conflicting mutations sequential.
 
 ```bash
 uv pip install 'fast-agent-mcp[ptc]'   # already included in the dev environment
@@ -49,13 +51,19 @@ answer and *how* the model got there (from the saved history):
 
 | Case | Checks |
 | --- | --- |
-| `orders` | aggregation in one script (`execute_python` used) |
+| `orders` | unprompted batching: awaited `gather` plus ≥2 `orders__get_orders` dispatches in one `execute_python` invocation |
 | `tool-image` | an MCP tool image reaches the model when the script returns its handle |
 | `tool-image-select` | several images fetched; exactly one returned and shown |
 | `resource-image` | `get_resource` on an image resource (`swatch://west`) |
 | `attach-media` | `attach_media` from a script stages `assets/swatch-attach.png` |
-| `subagents` | two subagents run concurrently from one script |
+| `subagents` | explicitly requested batching: awaited `gather` plus ≥2 `subagent` dispatches in one `execute_python` invocation |
 | `slash-direct` | `slash_command` stays a direct tool rather than a sandbox function |
+
+The orders prompt asks only for the revenue ranking, not parallelism. The batching checks parse
+Python (`code` or freeform `input`) for `await asyncio.gather(...)` or `await gather(...)` and
+match nested dispatch metadata by parent call ID. Comments and strings do not count, nor do
+calls spread across separate scripts. This is evidence that the model requests batching, **not
+proof of runtime overlap**: the checker does not trace data flow into `gather` or measure timing.
 
 The swatch colours exist only in the image pixels, so the media cases pass only if the image
 actually reached the model.

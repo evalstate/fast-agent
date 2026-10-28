@@ -104,7 +104,7 @@ from fast_agent.mcp.tool_result_metadata import (
 from fast_agent.mcp.tool_result_spool import spool_tool_result
 from fast_agent.mcp.tool_result_truncation import bound_tool_result_for_llm
 from fast_agent.paths import resolve_home_paths
-from fast_agent.ptc import PTC_TOOL_NAME, ProgrammaticToolRuntime
+from fast_agent.ptc import PTC_BATCHING_INSTRUCTION, PTC_TOOL_NAME, ProgrammaticToolRuntime
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_TOOL_NAME
@@ -637,12 +637,19 @@ class McpAgent(ABC, ToolAgent):
         return self._subagent_directive_found
 
     def process_rendered_instruction(self, instruction: str) -> str:
-        """Record and hide built-in subagent directives after rendering."""
+        """Resolve subagent directives and append guidance for enabled runtime tools."""
         directive = resolve_subagent_directive(instruction)
         self._subagent_directive_found |= directive.found
-        if self.config.subagent_child:
-            return directive.subagent_instruction
-        return directive.instruction
+        instruction = (
+            directive.subagent_instruction if self.config.subagent_child else directive.instruction
+        )
+        # Subagent installation can process an already-rendered instruction again.
+        if (
+            self._programmatic_tool_runtime() is not None
+            and PTC_BATCHING_INSTRUCTION not in instruction
+        ):
+            instruction = "\n\n".join(filter(None, (instruction, PTC_BATCHING_INSTRUCTION)))
+        return instruction
 
     def _clone_config(self) -> AgentConfig:
         config = super()._clone_config()
@@ -793,6 +800,7 @@ class McpAgent(ABC, ToolAgent):
         )
 
         if not self._instruction_template:
+            self.set_instruction(self.process_rendered_instruction(""))
             return
 
         # Build the instruction using the central helper
