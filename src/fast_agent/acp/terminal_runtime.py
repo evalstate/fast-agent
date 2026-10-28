@@ -111,11 +111,11 @@ def _needs_shell_wrapper(command: str) -> bool:
             quote = char
             at_word_start = False
             continue
+        if char in _SHELL_ONLY_CHARS:
+            return True
         if char.isspace():
             at_word_start = True
             continue
-        if char in _SHELL_ONLY_CHARS:
-            return True
         if char in _SHELL_EXPANSION_CHARS:
             return True
         if char == "~" and at_word_start:

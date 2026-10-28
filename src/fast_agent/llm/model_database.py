@@ -84,6 +84,10 @@ class ModelParameters(BaseModel):
     shell_tool_profile: ResolvedShellToolProfile | None = None
     """Optional model-specific shell contract selected when shell tool profile is auto."""
 
+    ptc_tool_format: Literal["json", "freeform"] | None = None
+    """Default input format of the programmatic tool calling code tool when
+    ``ptc.tool_format`` is auto. ``None`` means JSON."""
+
     tool_input_stream_delta_limit: int | None = Field(default=None, ge=1)
     """Abort and retry a Responses stream attempt when one tool call's streamed input
     exceeds this many delta events (about one token each); guards against runaway
@@ -686,6 +690,8 @@ class ModelDatabase:
         # (Responses custom-grammar) contract named "shell".
         shell_tool_profile="freeform_shell",
         shell_edit_tool="write_text_file",
+        # Like the shell, PTC code is sent as raw Python through a custom-grammar tool.
+        ptc_tool_format="freeform",
         text_verbosity_spec=TextVerbositySpec(default="low"),
         response_transports=("sse", "websocket"),
         response_websocket_providers=(Provider.RESPONSES, Provider.CODEX_RESPONSES),
@@ -704,6 +710,10 @@ class ModelDatabase:
     # GPT-6.1 Sol keeps the GPT-6 Sol tool/transport layout but, like Astra, rejects
     # `none`/`minimal` effort (verified on Codex OAuth and Copilot Responses).
     OPENAI_GPT_61_SOL = OPENAI_GPT_6_ASTRA
+
+    # Terra supports none through max effort, with medium as the API default.
+    # https://developers.openai.com/api/docs/models/gpt-6.1-terra
+    OPENAI_GPT_61_TERRA = _with_fast(OPENAI_GPT_6_SOL_LUNA)
 
     # Freeform shell comes from Astra. The runaway-input limit is about 1.8x the
     # largest observed legitimate GPT-6 Luna tool input (35,438 tokens); observed
@@ -1439,6 +1449,7 @@ class ModelDatabase:
         "gpt-5.6-luna": _with_fast(OPENAI_GPT_56_LUNA),
         "gpt-6-astra": OPENAI_GPT_6_ASTRA,
         "gpt-6.1-sol": OPENAI_GPT_61_SOL,
+        "gpt-6.1-terra": OPENAI_GPT_61_TERRA,
         "gpt-6-sol": OPENAI_GPT_6_SOL_LUNA,
         "gpt-6-luna": _with_fast(OPENAI_GPT_6_LUNA),
         "gpt-5.4-mini": OPENAI_GPT_54_SMALL.model_copy(
@@ -1586,6 +1597,7 @@ class ModelDatabase:
             for model, params in (
                 ("gpt-6-astra", OPENAI_GPT_6_ASTRA),
                 ("gpt-6.1-sol", OPENAI_GPT_61_SOL),
+                ("gpt-6.1-terra", OPENAI_GPT_61_TERRA),
                 ("gpt-6-sol", OPENAI_GPT_6_SOL_LUNA),
                 ("gpt-6-luna", _with_fast(OPENAI_GPT_6_LUNA)),
             )
@@ -1595,11 +1607,12 @@ class ModelDatabase:
             )
         }
     )
-    # Codex Responses defaults Astra, GPT-6.1 Sol and Luna to high effort, and serves
+    # Codex Responses defaults Astra, GPT-6.1 Sol/Terra and Luna to high effort, and serves
     # GPT-6.1 Sol with a 500k base window (the opt-in long-context window is unchanged).
     for _model, _window in (
         ("gpt-6-astra", None),
         ("gpt-6.1-sol", 500_000),
+        ("gpt-6.1-terra", None),
         ("gpt-6-luna", None),
     ):
         _PROVIDER_MODEL_OVERRIDES[(Provider.CODEX_RESPONSES, _model)] = _with_default_effort(

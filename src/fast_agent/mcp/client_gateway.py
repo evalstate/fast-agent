@@ -233,8 +233,7 @@ async def open_request_scoped_client(
             if not can_escalate:
                 raise
             logger.info(
-                "%s: Received authentication challenge; retrying with OAuth enabled",
-                server_name,
+                f"{server_name}: Received authentication challenge; retrying with OAuth enabled"
             )
             continue
 
@@ -368,7 +367,7 @@ def _transport_metrics_hook(
         try:
             metrics.record_event(event)
         except Exception:
-            logger.debug("%s: transport metrics hook failed", server_name, exc_info=True)
+            logger.debug(f"{server_name}: transport metrics hook failed", exc_info=True)
 
     return record
 
@@ -427,7 +426,7 @@ def _http_diagnostic_hooks(
                         )
                     )
         except Exception:
-            logger.debug("%s: HTTP diagnostics hook failed", server_name, exc_info=True)
+            logger.debug(f"{server_name}: HTTP diagnostics hook failed", exc_info=True)
 
     async def capture_response(response: httpx2.Response) -> None:
         try:
@@ -477,7 +476,7 @@ def _http_diagnostic_hooks(
                 elif is_discovery:
                     metrics.record_discovery_response(response.status_code)
         except Exception:
-            logger.debug("%s: HTTP diagnostics hook failed", server_name, exc_info=True)
+            logger.debug(f"{server_name}: HTTP diagnostics hook failed", exc_info=True)
 
     response_handlers.append(capture_response)
     return {

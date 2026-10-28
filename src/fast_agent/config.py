@@ -1916,6 +1916,42 @@ class ToolDisplaySettings(BaseModel):
     """Aggregate safe parallel calls to the same generic tool."""
 
 
+class ProgrammaticToolCallingSettings(BaseModel):
+    """Programmatic tool calling (PTC): tools are called from model-written Python code.
+
+    When enabled, agents expose a single code execution tool instead of their tools. The
+    model writes Python that runs in a pydantic-monty sandbox where every tool is an async
+    function; only printed output and the final expression value return to the context.
+    """
+
+    enabled: bool = False
+    """Expose tools through the Python code tool (`--ptc`); experimental, local POSIX only."""
+
+    direct_tools: list[str] = Field(default_factory=list)
+    """Tool names (fnmatch patterns) that stay directly callable alongside the code tool."""
+
+    nested_tools: list[str] = Field(default_factory=list)
+    """Tool names (fnmatch patterns) callable only from code, overriding a tool's own
+    `direct`/`both` exposure (e.g. the shell and process tools). `["*"]` makes every tool
+    code-only. `direct_tools` wins when both match."""
+
+    tool_format: Literal["auto", "json", "freeform"] = "auto"
+    """How the code tool receives source: `json` sends a `{"code": ...}` function argument;
+    `freeform` sends raw Python as a Responses custom (grammar) tool, avoiding JSON escaping.
+    `auto` uses the model's default (freeform for GPT-6)."""
+
+    type_check: bool = True
+    """Type-check code against generated tool stubs before running it."""
+
+    max_duration_seconds: float = Field(default=30.0, gt=0)
+    """Sandbox compute time limit per execution (time awaiting tools is not counted)."""
+
+    max_memory_mb: int = Field(default=256, gt=0)
+    """Sandbox memory limit per execution."""
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class TUISettings(BaseModel):
     """Interactive TUI settings."""
 
@@ -2543,6 +2579,9 @@ class Settings(BaseSettings):
 
     shell_execution: ShellSettings = Field(default_factory=ShellSettings)
     """Shell execution timeout and warning settings."""
+
+    ptc: ProgrammaticToolCallingSettings = Field(default_factory=ProgrammaticToolCallingSettings)
+    """Programmatic tool calling: call tools from sandboxed Python code."""
 
     llm_retries: int = 2
     """

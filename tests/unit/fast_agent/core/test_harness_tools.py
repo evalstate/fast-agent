@@ -4,11 +4,12 @@ import json
 from typing import TYPE_CHECKING
 
 import pytest
+from mcp_types import BlobResourceContents, ReadResourceResult, TextResourceContents
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.tool_agent import ToolAgent
-from fast_agent.config import Settings, SkillsSettings
+from fast_agent.config import ProgrammaticToolCallingSettings, Settings, SkillsSettings
 from fast_agent.context import Context
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.harness_tools import (
@@ -20,6 +21,7 @@ from fast_agent.core.harness_tools import (
 )
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
+from fast_agent.ptc import PTC_TOOL_NAME
 from fast_agent.skills.mcp_registry import McpRegistrySkill, McpSkillRegistry
 from fast_agent.tools.function_tool_loader import build_default_function_tool
 
@@ -479,3 +481,35 @@ async def test_isolated_clone_does_not_inherit_harness_tools() -> None:
         assert HARNESS_TOOL_NAMES <= _tool_names(parent)
     finally:
         await clone.shutdown()
+
+
+class _ImageResourceAgent(McpAgent):
+    async def get_resource(
+        self, resource_uri: str, namespace: str | None = None, server_name: str | None = None
+    ) -> ReadResourceResult:
+        del namespace, server_name
+        return ReadResourceResult(
+            contents=[
+                TextResourceContents(uri=resource_uri, mime_type="text/plain", text="caption"),
+                BlobResourceContents(uri=resource_uri, mime_type="image/png", blob="iVBORw0K"),
+            ]
+        )
+
+
+@pytest.mark.asyncio
+async def test_get_resource_returns_images_as_media_and_slash_command_stays_direct() -> None:
+    pytest.importorskip("pydantic_monty")
+    agent = _ImageResourceAgent(
+        config=AgentConfig("dev", harness_tools=True),
+        context=Context(config=Settings(ptc=ProgrammaticToolCallingSettings(enabled=True))),
+    )
+    assert set_harness_tools(agent, True)
+
+    result = await agent.call_tool(GET_RESOURCE_TOOL_NAME, {"uri": "res://shot"})
+    tools = (await agent.list_tools()).tools
+
+    assert [block.type for block in result.content] == ["text", "text", "image"]
+    assert "caption" in (get_text(result.content[0]) or "")
+    assert [tool.name for tool in tools] == [PTC_TOOL_NAME, SLASH_COMMAND_TOOL_NAME]
+    assert "async def get_resource(" in (tools[0].description or "")
+    await agent.shutdown()

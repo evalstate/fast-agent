@@ -20,8 +20,10 @@ if TYPE_CHECKING:
 
 
 TRACKIO_MISSING_MESSAGE = (
-    "Trackio batch monitoring requires trackio. Install fast-agent-mcp[trackio], "
-    "fast-agent-mcp[gepa], or install trackio in this environment."
+    "Trackio batch monitoring is unavailable: the trackio extra is temporarily suspended "
+    "because Trackio requires Pillow <13, while fast-agent requires Pillow >=13 for security fixes. "
+    "The gepa extra no longer installs Trackio. Omit --project/--trackio-project or use "
+    "--no-trackio; use --telemetry-output and --summary-output for local monitoring."
 )
 
 

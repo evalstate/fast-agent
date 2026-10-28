@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fast_agent.tools.shell_program_value import ShellStreamCapture
+
 from fast_agent.tools.output_truncation import (
     format_output_truncation_notice,
     split_output_byte_limit,
@@ -53,6 +55,8 @@ class ShellOutputBuffer:
     retained_output_complete: bool = True
     retained_output_via_process: bool = False
     extended_guidance: bool = False
+    # Separate stdout/stderr for sandbox code; only set for programmatic shell calls.
+    streams: ShellStreamCapture | None = None
 
     def append(self, text: str) -> None:
         output_blob = text.encode("utf-8", errors="replace")
@@ -94,6 +98,8 @@ class ShellOutputBuffer:
                 len(text.encode("utf-8", errors="replace")),
                 is_stderr=is_stderr,
             )
+        if self.streams is not None:
+            self.streams.append(text, is_stderr=is_stderr)
         self.append(text if not is_stderr else f"[stderr] {text}")
 
     def record_stream_bytes(self, byte_count: int, *, is_stderr: bool) -> None:

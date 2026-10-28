@@ -198,6 +198,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 name=tool.name,
                 description=tool.description,
                 input_schema=tool.parameters,
+                meta=dict(tool.meta) if tool.meta else None,
             )
         )
 
@@ -212,6 +213,13 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         if tool is None or not isinstance(tool.meta, Mapping):
             return None
         metadata = dict(tool.meta)
+        fast_agent_meta = metadata.get("fast_agent")
+        if isinstance(fast_agent_meta, Mapping) and "ptc" in fast_agent_meta:
+            # PTC exposure options describe the tool surface, not a call; keep them out of
+            # the per-call metadata that is displayed and persisted with history.
+            metadata["fast_agent"] = {
+                key: value for key, value in fast_agent_meta.items() if key != "ptc"
+            }
         return metadata or None
 
     def resolve_stream_tool_metadata(self, tool_name: str) -> Mapping[str, Any] | None:
@@ -707,6 +715,9 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         )
         for unavailable_call in plan.unavailable_calls:
             error_message = f"Tool '{unavailable_call.name}' is not available.{available_summary}"
+            hint = self._unavailable_tool_hint(unavailable_call.name)
+            if hint:
+                error_message = f"{error_message} {hint}"
             logger.warning(error_message)
             self._record_tool_error_result(
                 correlation_id=unavailable_call.correlation_id,
@@ -715,6 +726,10 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 tool_call_id=unavailable_call.correlation_id if should_parallel else None,
             )
         return plan.planned_calls
+
+    def _unavailable_tool_hint(self, name: str) -> str | None:
+        """Return guidance for reaching a tool the model called but cannot call directly."""
+        return None
 
     def _planned_tool_call_display_request(
         self,

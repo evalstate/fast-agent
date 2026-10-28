@@ -255,6 +255,7 @@ Template details:
 
 - `{{field_name}}` inserts a top-level field from the row.
 - `{{row_json}}` inserts the complete row as pretty-printed JSON.
+- `row_json` is reserved for the complete row, even when an input column has that name.
 - String values are inserted as-is.
 - Non-string values are JSON encoded before insertion.
 - Missing fields produce a row-level `MissingTemplateField` error.
@@ -432,8 +433,14 @@ Use these outputs together:
 
 ## 8. Monitor expensive batches with Trackio
 
-Trackio monitoring is explicit opt-in. Install `fast-agent-mcp[trackio]` or
-`fast-agent-mcp[gepa]`, then pass a project:
+The `trackio` extra is temporarily suspended, and `gepa` no longer installs
+Trackio. Trackio requires `pillow<13`, which conflicts with fast-agent's
+security requirement of `pillow>=13.0.0`. Use `--telemetry-output` and
+`--summary-output` for local monitoring; omit `--project` and
+`--trackio-project` or pass `--no-trackio`.
+
+The following opt-in example is retained for environments with a compatible
+Trackio installation:
 
 ```bash
 fast-agent batch run \

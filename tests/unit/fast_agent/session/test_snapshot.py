@@ -327,7 +327,7 @@ def test_load_session_reads_legacy_file_without_rewriting_it(tmp_path) -> None:
     assert session is not None
     assert metadata_path.read_text(encoding="utf-8") == original_text
     snapshot = session.load_snapshot()
-    assert snapshot.schema_version == 5
+    assert snapshot.schema_version == SESSION_SNAPSHOT_SCHEMA_VERSION
     assert snapshot.session_id == session_id
     assert snapshot.continuation.active_agent == "dev"
     assert snapshot.continuation.agents["dev"].history_file == "history_dev.json"
@@ -397,7 +397,7 @@ def test_v3_snapshot_migrates_execution_metadata() -> None:
 
     snapshot = load_session_snapshot(payload)
 
-    assert snapshot.schema_version == 5
+    assert snapshot.schema_version == SESSION_SNAPSHOT_SCHEMA_VERSION
     assert snapshot.execution == SessionExecutionSnapshot()
 
 
@@ -415,7 +415,7 @@ def test_v4_snapshot_migrates_capability_mode() -> None:
 
     snapshot = load_session_snapshot(payload)
 
-    assert snapshot.schema_version == 5
+    assert snapshot.schema_version == SESSION_SNAPSHOT_SCHEMA_VERSION
     assert snapshot.continuation.agents == {}
 
 
@@ -1008,7 +1008,7 @@ async def test_save_history_writes_captured_snapshot_payload(tmp_path: Path) -> 
     await session.save_history(cast("AgentProtocol", agent))
 
     payload = json.loads((session.directory / "session.json").read_text(encoding="utf-8"))
-    assert payload["schema_version"] == 5
+    assert payload["schema_version"] == SESSION_SNAPSHOT_SCHEMA_VERSION
     assert payload["continuation"]["active_agent"] == "main"
     assert payload["metadata"]["first_user_preview"] == "hello save path"
 
