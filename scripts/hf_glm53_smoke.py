@@ -1,8 +1,8 @@
 """Opt-in, billable HF GLM-5.3 / Flash smoke; only synthetic inputs.
 
-uv run examples/huggingface-glm53-smoke.py --live
-FAST_AGENT_LLM_TRACE=1 uv run examples/huggingface-glm53-smoke.py --live --backend together
-uv run examples/huggingface-glm53-smoke.py --case capabilities
+uv run scripts/hf_glm53_smoke.py --live
+FAST_AGENT_LLM_TRACE=1 uv run scripts/hf_glm53_smoke.py --live --backend together
+uv run scripts/hf_glm53_smoke.py --case capabilities
 
 Uses HF_TOKEN or the HF login cache, not home/workspace config, tools or skills.
 Each case has a 120s deadline, at most three inference iterations, and a token cap.

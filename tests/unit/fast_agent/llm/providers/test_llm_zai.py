@@ -258,10 +258,13 @@ def test_zai_glm_5_3_forces_documented_reasoning(
 
 
 @pytest.mark.parametrize("model", ["glm-5.3", "glm-5.3-flash"])
-@pytest.mark.parametrize("reasoning", [False, "none", "medium"])
-def test_zai_glm_5_3_invalid_reasoning_falls_back_to_max(
+@pytest.mark.parametrize(
+    ("reasoning", "expected"), [(False, "max"), ("none", "max"), ("medium", "high")]
+)
+def test_zai_glm_5_3_unsupported_reasoning_maps_to_documented_effort(
     model: str,
     reasoning: bool | str,
+    expected: str,
 ) -> None:
     request = _request(
         ZaiLLM(
@@ -271,13 +274,27 @@ def test_zai_glm_5_3_invalid_reasoning_falls_back_to_max(
         )
     )
 
-    assert request["reasoning_effort"] == "max"
+    assert request["reasoning_effort"] == expected
     assert request["extra_body"] == {
         "thinking": {
             "type": "enabled",
             "clear_thinking": False,
         }
     }
+
+
+@pytest.mark.parametrize("model", ["glm-5.2", "glm-5.3"])
+def test_zai_request_shaping_does_not_mutate_metadata(model: str) -> None:
+    llm = ZaiLLM(context=Context(config=Settings()), model=model)
+    metadata = {"extra_body": {"custom": {"value": 1}}}
+    params = RequestParams(model=model, metadata=metadata)
+
+    first = llm._prepare_api_request([{"role": "user", "content": "hello"}], [_TOOL], params)
+    second = llm._prepare_api_request([{"role": "user", "content": "hello"}], [_TOOL], params)
+
+    assert metadata == {"extra_body": {"custom": {"value": 1}}}
+    assert first == second
+    assert first["extra_body"]["custom"] == {"value": 1}
 
 
 def test_zai_reasoning_request_uses_max_tokens() -> None:

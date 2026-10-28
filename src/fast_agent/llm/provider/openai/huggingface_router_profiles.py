@@ -44,7 +44,7 @@ def _set_chat_template_kwarg(
     value: object,
 ) -> None:
     raw = extra_body.get("chat_template_kwargs")
-    chat_kwargs = dict(raw) if isinstance(raw, dict) else {}
+    chat_kwargs = raw if isinstance(raw, dict) else {}
     chat_kwargs[key] = value
     extra_body["chat_template_kwargs"] = chat_kwargs
 
@@ -230,6 +230,8 @@ class GenericDisableReasoningToggle:
 @dataclass(frozen=True, slots=True)
 class HuggingFaceRouteProfile:
     reasoning: HuggingFaceReasoningProfile | None = None
+    # Replay streamed reasoning chunks verbatim in history instead of normalizing them.
+    preserve_raw_reasoning: bool = False
     structured_json_mode: Literal["schema", "object"] | None = None
     omit_default_max_tokens: bool = False
     max_output_tokens: int | None = None
@@ -360,13 +362,16 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
         ),
         RouterProfileRule(
             model=_GLM_52,
-            profile=HuggingFaceRouteProfile(reasoning=_GLM_52_REASONING),
+            # Requests clear_thinking=False, so prior reasoning must replay verbatim.
+            profile=HuggingFaceRouteProfile(
+                reasoning=_GLM_52_REASONING, preserve_raw_reasoning=True
+            ),
         ),
         *(
             RouterProfileRule(
                 model=model,
                 backends=frozenset({backend}),
-                profile=HuggingFaceRouteProfile(reasoning=reasoning),
+                profile=HuggingFaceRouteProfile(reasoning=reasoning, preserve_raw_reasoning=True),
             )
             for model in ("zai-org/glm-5.3", "zai-org/glm-5.3-flash")
             for backend, reasoning in (
@@ -375,13 +380,14 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
             )
         ),
         # Z.ai and unspecified/auto routes retain the existing thinking contract.
-        RouterProfileRule(
-            model="zai-org/glm-5.3",
-            profile=HuggingFaceRouteProfile(reasoning=ThinkingWithReasoningEffort()),
-        ),
-        RouterProfileRule(
-            model="zai-org/glm-5.3-flash",
-            profile=HuggingFaceRouteProfile(reasoning=ThinkingWithReasoningEffort()),
+        *(
+            RouterProfileRule(
+                model=model,
+                profile=HuggingFaceRouteProfile(
+                    reasoning=ThinkingWithReasoningEffort(), preserve_raw_reasoning=True
+                ),
+            )
+            for model in ("zai-org/glm-5.3", "zai-org/glm-5.3-flash")
         ),
         RouterProfileRule(
             model=_KIMI_K3,

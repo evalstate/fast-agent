@@ -1037,7 +1037,7 @@ def test_zaiglm_alias_uses_native_zai_provider() -> None:
     config = ModelFactory.parse_model_string("zaiglm")
 
     assert config.provider == Provider.ZAI
-    assert config.model_name == "glm-5.2"
+    assert config.model_name == "glm-5.3"
 
 
 def test_opus_alias_resolves_to_current_catalog_model():

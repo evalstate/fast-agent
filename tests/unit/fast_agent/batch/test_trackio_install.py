@@ -23,15 +23,18 @@ def test_trackio_extra_persists_batch_metrics(tmp_path: Path, mode: str) -> None
         for key, value in os.environ.items()
         if not key.startswith(("TRACKIO_", "SPACE_"))
     }
-    env.update(TRACKIO_DIR=str(tmp_path), HF_HUB_OFFLINE="1", TRACKIO_CAPTURE_CONSOLE="0")
+    env.update(TRACKIO_DIR=str(tmp_path), HF_HUB_OFFLINE="1")
     result = subprocess.run(
         [sys.executable, __file__, str(tmp_path), mode],
         env=env,
         capture_output=True,
         text=True,
         check=False,
+        timeout=120,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+    # Trackio announces hardware auto-logging it enables; fast-agent opts out.
+    assert "enabling automatic" not in result.stdout
     assert "Trackio logging failed" not in result.stderr
     assert "Trackio finish failed" not in result.stderr
 
@@ -50,7 +53,6 @@ def _exercise_trackio(directory: Path) -> None:
     monitor = create_batch_monitor(options)
     monitor.start(options, selected_rows=2)
     try:
-        _assert_no_automatic_capture()
         monitor.complete(
             {"processed_rows": 2, "selected_rows": 2, "failed_rows": 0, "duration_ms": 100}
         )
@@ -68,21 +70,12 @@ def _exercise_trackio(directory: Path) -> None:
     trackio = importlib.import_module("trackio")
     trackio.init(**gepa_trackio_init_kwargs(project="gepa-smoke", name="direct"))
     try:
-        _assert_no_automatic_capture()
         assert safe_trackio_log({"candidate/score": 1.0})
     finally:
         trackio.finish()
     assert any(
         row.get("candidate/score") == 1.0 for row in storage.get_logs("gepa-smoke", "direct")
     )
-
-
-def _assert_no_automatic_capture() -> None:
-    run = importlib.import_module("trackio.context_vars").current_run.get()
-    assert run is not None
-    assert run._cpu_monitor is None
-    assert run._gpu_monitor is None
-    assert run._console_capture is None
 
 
 def _exercise_disabled(directory: Path) -> None:

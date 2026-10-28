@@ -9,6 +9,7 @@ from abc import abstractmethod
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import nullcontext
 from contextvars import ContextVar
+from copy import deepcopy
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -1496,8 +1497,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         # Finally, add any metadata fields as a last layer of overrides
         # This ensures metadata can override anything previously set if keys conflict.
+        # Deep-copied so provider request shaping never mutates caller metadata.
         if request_params.metadata:
-            arguments.update(request_params.metadata)
+            arguments.update(deepcopy(request_params.metadata))
 
         return arguments
 

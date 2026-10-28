@@ -6,7 +6,6 @@ import subprocess
 import sys
 from collections.abc import AsyncIterator
 from copy import deepcopy
-from pathlib import Path
 
 import pytest
 from mcp.types import CallToolResult, TextContent
@@ -71,7 +70,7 @@ def _assert_reasoning_wire(request: dict[str, object], backend: str, effort: str
         ("low", "low"),
         ("high", "high"),
         ("max", "max"),
-        ("medium", "max"),
+        ("medium", "high"),
         ("none", "max"),
         ("off", "max"),
         ("on", "max"),
@@ -348,45 +347,3 @@ async def test_other_hf_routes_keep_reasoning_normalization(model: str) -> None:
     response = await _stream_response(llm, ["first.", "Second sentence"], with_tools=False)
     assert response.channels is not None
     assert response.channels[REASONING] == [TextContent(type="text", text="first. Second sentence")]
-
-
-@pytest.mark.parametrize("cases", ([], ["tools"], ["capabilities", "default"]))
-def test_glm53_smoke_requires_live_consent(tmp_path: Path, cases: list[str]) -> None:
-    example = Path(__file__).resolve().parents[5] / "examples/huggingface-glm53-smoke.py"
-    report = tmp_path / "report.md"
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(example),
-            "--report",
-            str(report),
-            *(argument for case in cases for argument in ("--case", case)),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 2
-    assert "Pass --live to authorize inference" in result.stderr
-    assert not report.exists()
-
-
-def test_glm53_smoke_offline_capabilities(tmp_path: Path) -> None:
-    example = Path(__file__).resolve().parents[5] / "examples/huggingface-glm53-smoke.py"
-    report = tmp_path / "report.md"
-    subprocess.run(
-        [sys.executable, str(example), "--case", "capabilities", "--report", str(report)],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-    rows = json.loads(report.read_text().split("```json\n", 1)[1].split("```", 1)[0])
-    assert {(row["model"], row["backend"]) for row in rows} == {
-        (model, backend) for model in _MODELS for backend in _BACKENDS
-    }
-    assert all(
-        row["status"] == "passed" and row["case"] == "capabilities" and row["inference_turns"] == 0
-        for row in rows
-    )

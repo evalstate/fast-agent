@@ -167,7 +167,7 @@ class ModelSelectionCatalog:
         Provider.ZAI: (
             _builtin_entry("zaiglm53", display_label="GLM 5.3"),
             _builtin_entry("zaiglm53flash", display_label="GLM 5.3 Flash", fast=True),
-            _builtin_entry("zaiglm", display_label="GLM 5.2", current=True),
+            _builtin_entry("zaiglm52", display_label="GLM 5.2"),
         ),
         Provider.MOONSHOT: (_builtin_entry("kimik3", display_label="Kimi K3"),),
         Provider.OPENROUTER: (),

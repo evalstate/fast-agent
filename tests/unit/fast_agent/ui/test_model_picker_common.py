@@ -521,7 +521,8 @@ def test_huggingface_picker_supersedes_glm52_with_glm53_routes() -> None:
         ("GLM 5.2 (zai-org)", "hf.zai-org/GLM-5.2:zai-org"),
         ("GLM 5.2 (fireworks-ai)", "hf.zai-org/GLM-5.2:fireworks-ai"),
         ("GLM 5.2 (deepinfra)", "hf.zai-org/GLM-5.2:deepinfra"),
-        ("zaiglm", "zai.glm-5.2"),
+        ("zaiglm", "zai.glm-5.3"),
+        ("zaiglm52", "zai.glm-5.2"),
     ],
 )
 def test_glm_alias_migration_preserves_explicit_and_native_routes(alias: str, route: str) -> None:
@@ -540,7 +541,7 @@ def test_build_snapshot_includes_native_zai_provider() -> None:
     assert [entry.alias for entry in option.curated_entries] == [
         "zaiglm53",
         "zaiglm53flash",
-        "zaiglm",
+        "zaiglm52",
     ]
     assert [entry.model for entry in option.curated_entries] == [
         "zai.glm-5.3",

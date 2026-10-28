@@ -71,7 +71,7 @@ batch-parquet = [
 ]
 gepa = [
     "gepa>=0.1.1",
-    "trackio>=0.44.0",
+    "fast-agent-mcp[trackio]",
 ]
 trackio = [
     "trackio>=0.44.0",
