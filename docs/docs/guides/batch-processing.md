@@ -433,14 +433,22 @@ Use these outputs together:
 
 ## 8. Monitor expensive batches with Trackio
 
-The `trackio` extra is temporarily suspended, and `gepa` no longer installs
-Trackio. Trackio requires `pillow<13`, which conflicts with fast-agent's
-security requirement of `pillow>=13.0.0`. Use `--telemetry-output` and
-`--summary-output` for local monitoring; omit `--project` and
-`--trackio-project` or pass `--no-trackio`.
+Install the `trackio` optional dependency in the environment where fast-agent
+runs:
 
-The following opt-in example is retained for environments with a compatible
-Trackio installation:
+```bash
+uv pip install 'fast-agent-mcp[trackio]'
+```
+
+The extra installs `trackio>=0.44.0`; the `gepa` extra also includes it.
+Trackio 0.44.0 permits Pillow <14, compatible with fast-agent's security
+requirement of `pillow>=13.0.0`.
+
+Monitoring is opt-in: set `--project` (alias `--trackio-project`) to enable it.
+Omit these options or pass `--no-trackio` to use local monitoring only via
+`--telemetry-output` and `--summary-output`.
+
+For example:
 
 ```bash
 fast-agent batch run \
@@ -463,7 +471,9 @@ fast-agent batch run \
 Batch Trackio logs aggregate progress, timing, token usage, and provider cache
 behavior under `batch/` metric names. Charts use processed rows as the natural
 step, so cumulative token counters and cache/rate percentages can be compared
-across repeated runs.
+across repeated runs. Automatic CPU/system and GPU metric collection is disabled.
+Once monitoring is enabled, Trackio also honors `TRACKIO_SPACE_ID` and
+`TRACKIO_SERVER_URL`; leave these unset for local-only Trackio storage.
 
 Useful charts include:
 

@@ -128,7 +128,7 @@ def build_agent_instruction_context(
 
 
 def get_instruction_template(agent: InstructionContextAgent) -> str | None:
-    if isinstance(agent, InstructionTemplateCapable) and agent.instruction_template:
+    if isinstance(agent, InstructionTemplateCapable):
         return agent.instruction_template
 
     instruction = agent.config.instruction
@@ -147,7 +147,7 @@ async def apply_instruction_context(
 ) -> None:
     for agent in agents:
         template = get_instruction_template(agent)
-        if not template:
+        if template is None:
             continue
         resolved_context = build_agent_instruction_context(agent, context_vars)
         aggregator = None
@@ -174,7 +174,7 @@ async def apply_instruction_context(
         )
         if isinstance(agent, RenderedInstructionProcessor):
             resolved = agent.process_rendered_instruction(resolved)
-        if resolved is None or resolved == template:
+        if resolved is None or resolved == agent.instruction:
             continue
 
         agent.set_instruction(resolved)

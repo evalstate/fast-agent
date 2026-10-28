@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.model_selection import CatalogModelEntry
 from fast_agent.llm.provider_types import Provider
@@ -487,6 +488,47 @@ def test_build_snapshot_places_deepseek_under_llamacpp() -> None:
     )
 
 
+def test_huggingface_picker_supersedes_glm52_with_glm53_routes() -> None:
+    snapshot = build_snapshot(config_payload={})
+    options = model_options_for_provider(snapshot, Provider.HUGGINGFACE, source="curated")
+    glm_options = {
+        option.preset_token: option
+        for option in options
+        if option.preset_token and option.preset_token.startswith("GLM 5.")
+    }
+
+    expected = {
+        f"GLM 5.3{label} ({backend})": f"hf.zai-org/GLM-5.3{suffix}:{backend}"
+        for label, suffix in [("", ""), (" Flash", "-Flash")]
+        for backend in ("together", "novita", "zai-org")
+    }
+    assert {alias: option.spec for alias, option in glm_options.items()} == expected
+    for alias, option in glm_options.items():
+        assert alias in option.label
+        assert ("fast" in option.label) == ("Flash" in alias)
+        assert ModelFactory.parse_model_string(alias) == ModelFactory.parse_model_string(
+            option.spec
+        )
+
+
+@pytest.mark.parametrize(
+    ("alias", "route"),
+    [
+        ("glm", "hf.zai-org/GLM-5.3:zai-org"),
+        ("glm53", "hf.zai-org/GLM-5.3:zai-org"),
+        ("glm53flash", "hf.zai-org/GLM-5.3-Flash:zai-org"),
+        ("glm52", "hf.zai-org/GLM-5.2:zai-org"),
+        ("GLM 5.2 (zai-org)", "hf.zai-org/GLM-5.2:zai-org"),
+        ("GLM 5.2 (fireworks-ai)", "hf.zai-org/GLM-5.2:fireworks-ai"),
+        ("GLM 5.2 (deepinfra)", "hf.zai-org/GLM-5.2:deepinfra"),
+        ("zaiglm", "zai.glm-5.3"),
+        ("zaiglm52", "zai.glm-5.2"),
+    ],
+)
+def test_glm_alias_migration_preserves_explicit_and_native_routes(alias: str, route: str) -> None:
+    assert ModelFactory.parse_model_string(alias) == ModelFactory.parse_model_string(route)
+
+
 def test_build_snapshot_includes_native_zai_provider() -> None:
     snapshot = build_snapshot(config_payload={})
     option = next(
@@ -499,7 +541,7 @@ def test_build_snapshot_includes_native_zai_provider() -> None:
     assert [entry.alias for entry in option.curated_entries] == [
         "zaiglm53",
         "zaiglm53flash",
-        "zaiglm",
+        "zaiglm52",
     ]
     assert [entry.model for entry in option.curated_entries] == [
         "zai.glm-5.3",

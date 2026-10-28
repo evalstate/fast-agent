@@ -1562,7 +1562,11 @@ class ModelDatabase:
         ),
         "zai-org/glm-5.3": GLM_5_3.model_copy(update={"default_provider": Provider.HUGGINGFACE}),
         "zai-org/glm-5.3-flash": GLM_5_3_FLASH.model_copy(
-            update={"default_provider": Provider.HUGGINGFACE}
+            update={
+                "default_provider": Provider.HUGGINGFACE,
+                # Only image input is verified through HF, not native Z.ai PDF/video.
+                "tokenizes": ["text/plain", "image/jpeg", "image/png"],
+            }
         ),
         "minimaxai/minimax-m2": GLM_46,
         "minimaxai/minimax-m2.1": MINIMAX_21,

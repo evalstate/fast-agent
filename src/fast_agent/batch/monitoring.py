@@ -20,9 +20,9 @@ if TYPE_CHECKING:
 
 
 TRACKIO_MISSING_MESSAGE = (
-    "Trackio batch monitoring is unavailable: the trackio extra is temporarily suspended "
-    "because Trackio requires Pillow <13, while fast-agent requires Pillow >=13 for security fixes. "
-    "The gepa extra no longer installs Trackio. Omit --project/--trackio-project or use "
+    "Trackio batch monitoring requires the trackio extra. "
+    "Install it with uv pip install 'fast-agent-mcp[trackio]' "
+    "in the environment where fast-agent runs. Omit --project/--trackio-project or use "
     "--no-trackio; use --telemetry-output and --summary-output for local monitoring."
 )
 
@@ -177,6 +177,7 @@ class TrackioBatchMonitor:
             "config": config,
             "embed": False,
             "auto_log_gpu": False,
+            "auto_log_cpu": False,
         }
         _set_if_not_none(init_kwargs, "group", self.options.group)
         _set_if_not_none(init_kwargs, "space_id", self.options.space_id)

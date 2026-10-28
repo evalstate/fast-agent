@@ -16,6 +16,7 @@ reached the model.
 from __future__ import annotations
 
 import argparse
+import ast
 import asyncio
 import json
 import os
@@ -79,8 +80,46 @@ def nested_tools(history: History) -> list[str]:
     ]
 
 
-def used_code(history: History) -> str | None:
-    return None if code_results(history) else "execute_python was never called"
+def requests_gather(code: str) -> bool:
+    """Recognize awaited gather syntax, not data flow or runtime overlap."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Await) or not isinstance(node.value, ast.Call):
+            continue
+        func = node.value.func
+        if isinstance(func, ast.Name) and func.id == "gather":
+            return True
+        if (
+            isinstance(func, ast.Attribute)
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "asyncio"
+            and func.attr == "gather"
+        ):
+            return True
+    return False
+
+
+def requested_batch(history: History, tool: str) -> str | None:
+    """Require gather syntax and relevant dispatches in the same invocation."""
+    results = tool_results(history)
+    for call_id, name, arguments in tool_calls(history):
+        if name != PTC_TOOL:
+            continue
+        code = arguments.get("code", arguments.get("input"))
+        if not isinstance(code, str) or not requests_gather(code):
+            continue
+        result = results.get(call_id, {})
+        calls = (result.get("_meta") or {}).get(PTC_CALLS_META, [])
+        if sum(call["tool"] == tool for call in calls) >= 2:
+            return None
+    return f"expected awaited gather and >= 2 {tool} dispatches in one execute_python invocation"
+
+
+def batched_orders(history: History) -> str | None:
+    return requested_batch(history, "orders__get_orders")
 
 
 def image_in_code_result(history: History) -> str | None:
@@ -112,9 +151,8 @@ def staged_attachment(history: History) -> str | None:
     return "no staged media message reached the model"
 
 
-def parallel_subagents(history: History) -> str | None:
-    count = nested_tools(history).count("subagent")
-    return None if count >= 2 else f"expected >= 2 subagent calls from code, saw {count}"
+def batched_subagents(history: History) -> str | None:
+    return requested_batch(history, "subagent")
 
 
 def direct_slash_command(history: History) -> str | None:
@@ -129,7 +167,7 @@ CASES = (
         "Which EMEA customer has the highest total revenue from delivered orders? "
         "Give the name and the runner-up.",
         ("stark", "aperture"),
-        used_code,
+        batched_orders,
     ),
     Case(
         "tool-image",
@@ -164,7 +202,7 @@ CASES = (
         "From a single script, run two subagents concurrently: one finds the capital of "
         "France, the other the capital of Japan. Report both capitals.",
         ("paris", "tokyo"),
-        parallel_subagents,
+        batched_subagents,
     ),
     Case(
         "slash-direct",

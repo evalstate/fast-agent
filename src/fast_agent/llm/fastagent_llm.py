@@ -9,6 +9,7 @@ from abc import abstractmethod
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import nullcontext
 from contextvars import ContextVar
+from copy import deepcopy
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -47,7 +48,7 @@ from fast_agent.llm.compaction_support import (
 )
 from fast_agent.llm.memory import Memory, SimpleMemory
 from fast_agent.llm.model_database import ModelDatabase, ModelParameters
-from fast_agent.llm.provider.error_utils import EmptyCompletionError
+from fast_agent.llm.provider.error_utils import EmptyCompletionError, provider_policy_code
 from fast_agent.llm.provider.streaming_timeouts import (
     StreamIdleTimeoutError,
     StreamTiming,
@@ -758,6 +759,11 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             try:
                 result = await func(*args, **kwargs)
             except Exception as e:
+                # A policy refusal is a terminal response, including when the SDK
+                # represents it as a generic fatal BadRequestError.
+                if provider_policy_code(e):
+                    last_error = e
+                    break
                 if self._is_fatal_retry_error(e):
                     raise
 
@@ -1491,8 +1497,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         # Finally, add any metadata fields as a last layer of overrides
         # This ensures metadata can override anything previously set if keys conflict.
+        # Deep-copied so provider request shaping never mutates caller metadata.
         if request_params.metadata:
-            arguments.update(request_params.metadata)
+            arguments.update(deepcopy(request_params.metadata))
 
         return arguments
 

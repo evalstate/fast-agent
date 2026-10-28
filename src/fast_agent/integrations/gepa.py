@@ -27,9 +27,8 @@ NumericMetric: TypeAlias = int | float
 
 GEPA_EXTRA_REQUIREMENTS = {"gepa": "gepa"}
 GEPA_EXTRA_INSTALL_MESSAGE = (
-    'Install fast-agent with the GEPA extra, "fast-agent-mcp[gepa]", '
-    "in the environment where fast-agent runs. The extra no longer installs Trackio: "
-    "Trackio support is temporarily suspended until it supports the security-fixed Pillow >=13."
+    "Install fast-agent with the GEPA extra using uv pip install 'fast-agent-mcp[gepa]' "
+    "in the environment where fast-agent runs."
 )
 
 
@@ -78,6 +77,7 @@ def gepa_trackio_init_kwargs(
         "project": project,
         "embed": embed,
         "auto_log_gpu": auto_log_gpu,
+        "auto_log_cpu": False,
     }
     if name is not None:
         init_kwargs["name"] = name

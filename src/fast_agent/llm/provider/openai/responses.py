@@ -39,6 +39,7 @@ from fast_agent.llm.provider.error_utils import (
     EmptyCompletionError,
     build_stream_failure_response,
     is_empty_completion,
+    provider_policy_code,
 )
 from fast_agent.llm.provider.openai._stream_capture import (
     save_stream_request as _save_stream_request,
@@ -1255,7 +1256,11 @@ class ResponsesLLM(
             self._last_transport_used = RESPONSES_TRANSPORT_WEBSOCKET
             return _ResponsesCompletionResult(response, streamed_summary, normalized_input)
         except ResponsesWebSocketError as error:
-            if context.transport != RESPONSES_TRANSPORT_AUTO or error.stream_started:
+            if (
+                context.transport != RESPONSES_TRANSPORT_AUTO
+                or error.stream_started
+                or provider_policy_code(error)
+            ):
                 raise
             return await self._run_responses_sse_fallback(
                 input_items=input_items,
@@ -1836,6 +1841,8 @@ class ResponsesLLM(
         attempt_state.retry_after_release = (
             attempt_state.attempt == 0
             and not error.stream_started
+            and not error.response_failed
+            and not provider_policy_code(error)
             and (
                 attempt_state.reused_existing_connection
                 or error.error_code
@@ -2029,8 +2036,8 @@ class ResponsesLLM(
         )
 
     def _handle_retry_failure(self, error: Exception) -> PromptMessageExtended | None:
-        """Return the legacy error-channel response when retries are exhausted."""
-        if isinstance(error, APIError):
+        """Persist exhausted provider failures, without hiding programming/config errors."""
+        if isinstance(error, (APIError, ResponsesWebSocketError, TimeoutError)):
             model_name = self.default_request_params.model or DEFAULT_RESPONSES_MODEL
             return build_stream_failure_response(self.provider, error, model_name)
         return None

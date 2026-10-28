@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import importlib.util
+import json
 import re
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -89,10 +90,24 @@ _CARRIED_RESULT_META = (FAST_AGENT_SUBAGENT_RESULT_METADATA,)
 ToolDispatcher = Callable[[str, dict[str, Any], str], Awaitable[CallToolResult]]
 """Dispatch a nested call: (tool name, arguments, nested call id) -> result."""
 
+PTC_BATCHING_INSTRUCTION = (
+    "Batch independent searches, file reads, and other read-only calls in a single "
+    "`execute_python` invocation using `asyncio.gather`. Prefer this over separate invocations "
+    "or sequential awaits when no result depends on another. Inspect every result; use "
+    "`settle()` when each result must be collected despite individual failures. Keep dependent "
+    "steps, approvals, and potentially conflicting mutations sequential."
+)
+
 _INSTRUCTIONS = """\
 Run Python code. Only `print()` output and the final expression value are returned to you: \
 filter and aggregate large results in code.
 {input_note}\
+- {batching_instruction}
+- asyncio is pre-imported: `a, b = await asyncio.gather(f(x=1), g(y=2))`. \
+`settle(aw)` returns an exception instead of raising, so \
+`await asyncio.gather(*[settle(f(x=x)) for x in xs])` returns every result \
+(`return_exceptions=` is unsupported).
+{shell_batch_note}\
 {functions_note}\
 {io_note}\
 - Sandbox: a subset of Python 3.14 with no environment or packages. \
@@ -102,11 +117,6 @@ tomllib, typing, unicodedata. Some are partial (functools has only reduce and pa
 available: enum, contextlib, io, string, struct, operator, heapq, subprocess.
 {shell_python_note}\
 {shared_note}\
-- Run independent calls together (asyncio is pre-imported): \
-`a, b = await asyncio.gather(f(x=1), g(y=2))`; keep dependent steps sequential. `settle(aw)` returns an exception instead of raising, so \
-`await asyncio.gather(*[settle(f(x=x)) for x in xs])` returns every result \
-(`return_exceptions=` is unsupported).
-{shell_batch_note}\
 - Results are Python values: structured content as a dict, JSON text parsed, other text as \
 str. A failing call raises RuntimeError.
 - Images, audio and binary resources arrive as `{{"media_id": ...}}` handles. To see them, \
@@ -260,12 +270,24 @@ class _NestedCalls:
         stats = self.stats
         stats.started += 1
         call_id = f"{self.call_prefix}{stats.started}"
-        with programmatic_tool_call(call_id):
-            result = await self.dispatch(tool_name, arguments, call_id)
+        # Snapshot before dispatch: tools may mutate arguments, and parallel calls may
+        # finish out of order. This ledger is metadata, never model-visible output.
+        record = _started_call_record(call_id, tool_name, arguments)
+        stats.calls.append(record)
+        try:
+            with programmatic_tool_call(call_id):
+                result = await self.dispatch(tool_name, arguments, call_id)
+        except asyncio.CancelledError:
+            record["status"] = "cancelled"
+            raise
+        except Exception:
+            record.update(status="raised", is_error=True)
+            stats.failed.append(tool_name)
+            raise
+        record.update(_call_record(call_id, tool_name, result), status="completed")
         (stats.failed if result.is_error else stats.completed).append(tool_name)
         stats.track_process(arguments, result)
         stats.url_elicitations.extend(url_elicitation_required_payloads(result))
-        stats.calls.append(_call_record(call_id, tool_name, result))
         return result
 
 
@@ -401,6 +423,7 @@ class ProgrammaticToolRuntime:
     def _instructions(self) -> str:
         shared = ", ".join(f"`{name}`" for name in self._shared_functions)
         return _INSTRUCTIONS.format(
+            batching_instruction=PTC_BATCHING_INSTRUCTION,
             functions_note=self._functions_note(),
             io_note=self._io_note(),
             shell_python_note=self._shell_python_note(),
@@ -815,6 +838,24 @@ def _matching_pattern(tool: Tool, patterns: Sequence[str]) -> str | None:
     return next((pattern for pattern in patterns if fnmatch.fnmatchcase(tool.name, pattern)), None)
 
 
+def _started_call_record(call_id: str, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    # Tool arguments cross an untyped boundary. JSON round-tripping both detaches nested
+    # mutable values and ensures the audit metadata can be persisted/exported.
+    record: dict[str, Any] = {
+        "id": call_id,
+        "tool": tool_name,
+        "arguments": None,
+        "is_error": None,
+        "status": "in_flight",
+    }
+    try:
+        record["arguments"] = json.loads(json.dumps(arguments, allow_nan=False))
+    except (TypeError, ValueError, RecursionError):
+        # Do not change dispatch behavior or stringify arbitrary objects into the trace.
+        record["arguments_error"] = "not_json_serializable"
+    return record
+
+
 def _call_record(call_id: str, tool_name: str, result: CallToolResult) -> dict[str, Any]:
     record: dict[str, Any] = {"id": call_id, "tool": tool_name, "is_error": result.is_error}
     meta = result.meta or {}
@@ -824,8 +865,7 @@ def _call_record(call_id: str, tool_name: str, result: CallToolResult) -> dict[s
 
 def _add_nested_metadata(result: CallToolResult, stats: _ExecutionStats) -> None:
     add_url_elicitation_required_payloads(result, stats.url_elicitations)
-    if stats.calls:
-        result.meta = {**(result.meta or {}), FAST_AGENT_PTC_CALLS: stats.calls}
+    result.meta = {**(result.meta or {}), FAST_AGENT_PTC_CALLS: stats.calls}
 
 
 def _header(status: str, stats: _ExecutionStats, started: float) -> str:

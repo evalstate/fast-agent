@@ -33,7 +33,7 @@ Optional provider settings:
 zai:
   api_key: "${ZAI_API_KEY}"
   base_url: "https://api.z.ai/api/paas/v4/"
-  default_model: "glm-5.2"
+  default_model: "glm-5.3"
   # default_headers:
   #   X-Custom-Header: value
 ```
@@ -51,9 +51,9 @@ zai:
 
 | Model | Native alias | Input | Context | Maximum output |
 |---|---|---|---:|---:|
-| GLM-5.3 | `zaiglm53` | Text | 1,000,000 | 131,072 |
+| GLM-5.3 | `zaiglm`, `zaiglm53` | Text | 1,000,000 | 131,072 |
 | GLM-5.3-Flash | `zaiglm53flash` | Text, image, linked MOV/PDF | 1,000,000 | 131,072 |
-| GLM-5.2 | `zaiglm` | Text | 1,000,000 | 131,072 |
+| GLM-5.2 | `zaiglm52` | Text | 1,000,000 | 131,072 |
 
 Use either an alias, bare canonical model ID, or provider-qualified ID:
 
@@ -67,14 +67,20 @@ fast-agent go --model glm-5.3-flash --message "Describe the attached image."
 fast-agent go --model zai.glm-5.3-flash --message "Describe the attached image."
 ```
 
-For compatibility, the provider default and `zaiglm` alias remain GLM-5.2.
-The older `glm` and `glm52` aliases also retain their Hugging Face routes:
+The `zaiglm` alias selects native GLM-5.3; use `zaiglm52` for native GLM-5.2.
+The `glm` and `glm53` aliases select GLM-5.3 through Hugging Face, and
+`glm53flash` selects its Flash variant. The explicit `glm52` alias retains its
+HF GLM-5.2 route. The native provider default (a bare `zai` model) is
+GLM-5.3.
 
 ```text
 zaiglm53       -> zai.glm-5.3
 zaiglm53flash  -> zai.glm-5.3-flash
-zaiglm         -> zai.glm-5.2
-glm            -> hf.zai-org/GLM-5.2:zai-org
+zaiglm         -> zai.glm-5.3
+zaiglm52       -> zai.glm-5.2
+glm            -> hf.zai-org/GLM-5.3:zai-org
+glm53          -> hf.zai-org/GLM-5.3:zai-org
+glm53flash     -> hf.zai-org/GLM-5.3-Flash:zai-org
 glm52          -> hf.zai-org/GLM-5.2:zai-org
 ```
 
@@ -91,8 +97,9 @@ fast-agent go --model "zaiglm53?reasoning=high" --message "Solve this."
 fast-agent go --model "zaiglm53?reasoning=max" --message "Solve this."
 ```
 
-`max` is the default. GLM-5.3 rejects disabled thinking and unsupported effort
-values such as `none` and `medium`.
+`max` is the default. `minimal` maps to `low` and `medium` to `high`. Disabled
+thinking is not supported; `none`/`off` are ignored with a warning and `max` is
+used.
 
 ### Sampling
 
