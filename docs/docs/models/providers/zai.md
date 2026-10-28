@@ -33,7 +33,7 @@ Optional provider settings:
 zai:
   api_key: "${ZAI_API_KEY}"
   base_url: "https://api.z.ai/api/paas/v4/"
-  default_model: "glm-5.2"
+  default_model: "glm-5.3"
   # default_headers:
   #   X-Custom-Header: value
 ```
@@ -70,8 +70,8 @@ fast-agent go --model zai.glm-5.3-flash --message "Describe the attached image."
 The `zaiglm` alias selects native GLM-5.3; use `zaiglm52` for native GLM-5.2.
 The `glm` and `glm53` aliases select GLM-5.3 through Hugging Face, and
 `glm53flash` selects its Flash variant. The explicit `glm52` alias retains its
-HF GLM-5.2 route. The native provider default (a bare `zai` model) remains
-GLM-5.2:
+HF GLM-5.2 route. The native provider default (a bare `zai` model) is
+GLM-5.3.
 
 ```text
 zaiglm53       -> zai.glm-5.3

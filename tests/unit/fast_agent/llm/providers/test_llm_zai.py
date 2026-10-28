@@ -81,10 +81,10 @@ def test_zai_glm_5_3_model_specs_use_native_provider(
     assert parsed.model_name == model_name
 
 
-def test_zai_defaults_to_glm_5_2_and_official_endpoint() -> None:
+def test_zai_defaults_to_glm_5_3_and_official_endpoint() -> None:
     llm = ZaiLLM(context=Context(config=Settings()), model="")
 
-    assert llm.default_request_params.model == "glm-5.2"
+    assert llm.default_request_params.model == "glm-5.3"
     assert llm._base_url() == ZAI_BASE_URL
 
 
