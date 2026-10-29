@@ -2413,7 +2413,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         match response.stop_reason:
             case "stop_sequence":
                 return _AnthropicStopResult(LlmStopReason.STOP_SEQUENCE)
-            case "max_tokens":
+            case "max_tokens" | "model_context_window_exceeded":
                 return _AnthropicStopResult(LlmStopReason.MAX_TOKENS)
             case "refusal":
                 return _AnthropicStopResult(LlmStopReason.SAFETY)
