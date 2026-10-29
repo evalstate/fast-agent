@@ -94,6 +94,7 @@ class RouterAgent(LlmAgent):
         self.agents = agents
         self.routing_instruction = routing_instruction
         self.agent_map = {agent.name: agent for agent in agents}
+        self._instruction_template = config.instruction
 
         # Set up base router request parameters with just the base instruction for now
         if default_request_params:
@@ -110,6 +111,11 @@ class RouterAgent(LlmAgent):
             )
 
         self._default_request_params = merged_params
+
+    @property
+    def instruction_template(self) -> str:
+        """Refresh source, including worker cards once initialized."""
+        return self._instruction_template
 
     async def initialize(self) -> None:
         """Initialize the router and all agents."""
@@ -129,6 +135,7 @@ class RouterAgent(LlmAgent):
             combined_system_prompt = (
                 ROUTING_SYSTEM_INSTRUCTION + "\n\n" + complete_routing_instruction
             )
+            self._instruction_template = combined_system_prompt
             self.set_instruction(combined_system_prompt)
 
     async def shutdown(self) -> None:

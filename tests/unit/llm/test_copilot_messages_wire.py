@@ -19,8 +19,7 @@ from fast_agent.llm.provider.copilot.broker import CopilotEndpoint
 from fast_agent.llm.provider.copilot.messages import CopilotMessagesLLM
 
 
-@pytest.mark.parametrize("status", [200, 307, 308])
-def test_messages_wire_ignores_ambient_credentials(status: int) -> None:
+def test_messages_wire_ignores_ambient_credentials() -> None:
     # A child process supplies hostile ambient state without patching SDKs or globals.
     env = dict(os.environ)
     for name in (
@@ -49,11 +48,12 @@ def test_messages_wire_ignores_ambient_credentials(status: int) -> None:
     env.pop("NO_PROXY", None)
     env.pop("no_proxy", None)
     result = subprocess.run(
-        [sys.executable, __file__, str(status)],
+        [sys.executable, __file__],
         env=env,
         capture_output=True,
         text=True,
         check=False,
+        timeout=20,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -149,4 +149,7 @@ async def _exercise_wire(status: int) -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(_exercise_wire(int(sys.argv[1])))
+    # Ambient configuration is identical for each response; import the real SDK
+    # once, while keeping a fresh loop, server, and provider for each scenario.
+    for status in (200, 307, 308):
+        asyncio.run(_exercise_wire(status))

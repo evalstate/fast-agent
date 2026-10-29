@@ -13,189 +13,53 @@ from fast_agent.mcp.helpers.content_helpers import get_text
 
 
 @pytest.mark.integration
-def test_agent_message_cli():
-    """Test sending a message via command line to a FastAgent program."""
-    # Get the path to the test_agent.py file (in the same directory as this test)
+@pytest.mark.parametrize("agent_args", [("--agent", "test"), ()], ids=["named", "default"])
+@pytest.mark.parametrize(
+    ("input_args", "expected"),
+    [
+        (("--message", "Hello from command line test"), "Hello from command line test"),
+        (("--prompt-file", "prompt.txt"), "this is from the prompt file"),
+    ],
+    ids=["message", "prompt-file"],
+)
+def test_agent_message_cli(
+    agent_args: tuple[str, ...], input_args: tuple[str, ...], expected: str
+) -> None:
+    """CLI arguments reach the selected passthrough agent in a real child process."""
     test_dir = os.path.dirname(os.path.abspath(__file__))
-    test_agent_path = os.path.join(test_dir, "integration_agent.py")
-
-    # Test message
-    test_message = "Hello from command line test"
-
-    # Run the test agent with the --agent and --message flags
     result = subprocess.run(
-        [
-            "uv",
-            "run",
-            test_agent_path,
-            "--agent",
-            "test",
-            "--message",
-            test_message,
-            #  "--quiet",  # Suppress progress display, etc. for cleaner output
-        ],
+        [sys.executable, "integration_agent.py", *agent_args, *input_args],
         capture_output=True,
         check=False,
         text=True,
-        cwd=test_dir,  # Run in the test directory to use its config
+        cwd=test_dir,
+        timeout=15,
     )
-
-    # Check that the command succeeded
-    assert result.returncode == 0, f"Command failed with output: {result.stderr}"
-
-    command_output = result.stdout
-    # With the passthrough model, the output should contain the input message
-    assert test_message in command_output, "Test message not found in agent response"
-    # this is from show_user_output
-    assert "▎▶ test" in command_output, "show chat messages included in output"
+    assert result.returncode == 0, result.stderr
+    assert expected in result.stdout
+    assert "▎▶ test" in result.stdout
 
 
 @pytest.mark.integration
-def test_agent_message_cli_default_agent():
-    """Test sending a message via command line without --agent uses the app default agent."""
-    # Get the path to the test_agent.py file (in the same directory as this test)
+def test_agent_message_cli_quiet_flag() -> None:
     test_dir = os.path.dirname(os.path.abspath(__file__))
-    test_agent_path = os.path.join(test_dir, "integration_agent.py")
-
-    # Test message
-    test_message = "Hello from command line test (default agent)"
-
     result = subprocess.run(
-        [
-            "uv",
-            "run",
-            test_agent_path,
-            "--message",
-            test_message,
-        ],
+        [sys.executable, "integration_agent.py", "--message", "quiet response", "--quiet"],
         capture_output=True,
         check=False,
         text=True,
-        cwd=test_dir,  # Run in the test directory to use its config
+        cwd=test_dir,
+        timeout=15,
     )
-
-    # Check that the command succeeded
-    assert result.returncode == 0, f"Command failed with output: {result.stderr}"
-
-    command_output = result.stdout
-    # With the passthrough model, the output should contain the input message
-    assert test_message in command_output, "Test message not found in agent response"
-    # this is from show_user_output
-    assert "▎▶ test" in command_output, "show chat messages included in output"
-
-
-@pytest.mark.integration
-def test_agent_message_prompt_file():
-    """Test sending a message via command line to a FastAgent program."""
-    # Get the path to the test_agent.py file (in the same directory as this test)
-    test_dir = os.path.dirname(os.path.abspath(__file__))
-    test_agent_path = os.path.join(test_dir, "integration_agent.py")
-
-    # Run the test agent with the --agent and --message flags
-    result = subprocess.run(
-        ["uv", "run", test_agent_path, "--agent", "test", "--prompt-file", "prompt.txt"],
-        capture_output=True,
-        check=False,
-        text=True,
-        cwd=test_dir,  # Run in the test directory to use its config
-    )
-
-    # Check that the command succeeded
-    assert result.returncode == 0, f"Command failed with output: {result.stderr}"
-
-    command_output = result.stdout
-    # With the passthrough model, the output should contain the input message
-    assert "this is from the prompt file" in command_output, (
-        "Test message not found in agent response"
-    )
-    # this is from show_user_output
-    assert "▎▶ test" in command_output, "show chat messages included in output"
-
-
-@pytest.mark.integration
-def test_agent_message_prompt_file_default_agent():
-    """Test sending a prompt file via command line without --agent uses the app default agent."""
-    # Get the path to the test_agent.py file (in the same directory as this test)
-    test_dir = os.path.dirname(os.path.abspath(__file__))
-    test_agent_path = os.path.join(test_dir, "integration_agent.py")
-
-    result = subprocess.run(
-        ["uv", "run", test_agent_path, "--prompt-file", "prompt.txt"],
-        capture_output=True,
-        check=False,
-        text=True,
-        cwd=test_dir,  # Run in the test directory to use its config
-    )
-
-    # Check that the command succeeded
-    assert result.returncode == 0, f"Command failed with output: {result.stderr}"
-
-    command_output = result.stdout
-    # With the passthrough model, the output should contain the input message
-    assert "this is from the prompt file" in command_output, (
-        "Test message not found in agent response"
-    )
-    # this is from show_user_output
-    assert "▎▶ test" in command_output, "show chat messages included in output"
-
-
-@pytest.mark.integration
-def test_agent_message_cli_quiet_flag():
-    """Test sending a message via command line to a FastAgent program."""
-    # Get the path to the test_agent.py file (in the same directory as this test)
-    test_dir = os.path.dirname(os.path.abspath(__file__))
-    test_agent_path = os.path.join(test_dir, "integration_agent.py")
-
-    # Test message
-    test_message = "Hello from command line test"
-
-    # Run the test agent with the --agent and --message flags
-    result = subprocess.run(
-        [
-            "uv",
-            "run",
-            test_agent_path,
-            "--agent",
-            "test",
-            "--message",
-            test_message,
-            "--quiet",  # Suppress progress display, etc. for cleaner output
-        ],
-        capture_output=True,
-        check=False,
-        text=True,
-        cwd=test_dir,  # Run in the test directory to use its config
-    )
-
-    # Check that the command succeeded
-    assert result.returncode == 0, f"Command failed with output: {result.stderr}"
-
-    command_output = result.stdout
-    # With the passthrough model, the output should contain the input message
-    assert test_message in command_output, "Test message not found in agent response"
-    # this is from show_user_output
-    assert "[USER]" not in command_output, "show chat messages included in output"
+    assert result.returncode == 0, result.stderr
+    assert "quiet response" in result.stdout
+    assert "▎▶ test" not in result.stdout
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_agent_server_option_stdio(fast_agent):
-    """Test STDIO transport works end-to-end."""
-
-    @fast_agent.agent(name="client", servers=["std_io"])
-    async def agent_function():
-        async with fast_agent.run() as agent:
-            assert "connected" == await agent.send("connected")
-            result = await agent.send('***CALL_TOOL test {"message": "stdio server test"}')
-            assert "stdio server test" == result
-
-    await agent_function()
-
-
-@pytest.mark.integration
-@pytest.mark.asyncio
-async def test_agent_server_option_stdio_and_prompt_history(fast_agent):
-    """Test STDIO transport preserves prompt history."""
+async def test_agent_server_stdio_roundtrips_and_lists_prompts(fast_agent):
+    """Round-trip multiple messages and list prompts through a real stdio server."""
 
     @fast_agent.agent(name="client", servers=["std_io"])
     async def agent_function():

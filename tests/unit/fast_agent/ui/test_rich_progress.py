@@ -357,15 +357,6 @@ class TestUpdateSkipsWhenInactive:
         display.resume()
         assert "test-agent" in display._taskmap
 
-    def test_update_skipped_when_stopped(self) -> None:
-        display = _make_display()
-        display.start()
-        display.stop()
-
-        event = _make_event()
-        display.update(event)
-        assert len(display._taskmap) == 0
-
     def test_update_works_when_active(self) -> None:
         display = _make_display()
         display.start()

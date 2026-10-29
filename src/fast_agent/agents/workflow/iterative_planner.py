@@ -183,6 +183,7 @@ class IterativePlanner(LlmAgent):
         # Extract plan_type from kwargs before passing to parent
         kwargs.pop("plan_type", "full")
         super().__init__(config, context=context, **kwargs)
+        self._instruction_template = config.instruction
 
         self.plan_iterations = plan_iterations
         self._plan_telemetry_provider: PlanTelemetryProvider = NoOpPlanTelemetryProvider()
@@ -197,6 +198,11 @@ class IterativePlanner(LlmAgent):
         if provider is None:
             provider = NoOpPlanTelemetryProvider()
         self._plan_telemetry_provider = provider
+
+    @property
+    def instruction_template(self) -> str:
+        """Refresh source, including worker cards once initialized."""
+        return self._instruction_template
 
     async def initialize(self) -> None:
         """Initialize the orchestrator agent and worker agents."""
@@ -221,6 +227,7 @@ class IterativePlanner(LlmAgent):
         system_prompt = self.config.instruction.replace("{{agents}}", agents_str)
 
         # Update the instruction with the formatted system prompt
+        self._instruction_template = system_prompt
         self.set_instruction(system_prompt)
         # Initialize the base agent with the updated system prompt
         await super().initialize()

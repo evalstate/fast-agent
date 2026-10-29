@@ -86,6 +86,7 @@ def test_research_refinement_also_accepts_labeled_actionable_task() -> None:
 
 def test_huggingface_research_config_reads_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     module = _research_server_module()
+    monkeypatch.setenv("HF_TOKEN", "test-research-token")
     monkeypatch.setenv("FAST_AGENT_RESEARCH_HF_BUCKET", "org/research-bucket")
     monkeypatch.setenv("FAST_AGENT_RESEARCH_HF_IMAGE", "python:3.13")
     monkeypatch.setenv("FAST_AGENT_RESEARCH_HF_FLAVOR", "cpu-upgrade")
@@ -98,7 +99,7 @@ def test_huggingface_research_config_reads_environment(monkeypatch: pytest.Monke
         bucket="org/research-bucket",
         image="python:3.13",
         flavor="cpu-upgrade",
-        token=None,
+        token="test-research-token",
         namespace=None,
         forward_hf_token=True,
         create_bucket=False,

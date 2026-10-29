@@ -22,7 +22,7 @@ from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import load_model_overlay_registry
-from fast_agent.llm.model_selection import ModelSelectionCatalog
+from fast_agent.llm.model_selection import CatalogModelEntry, ModelSelectionCatalog
 from fast_agent.llm.provider.anthropic.vertex_config import GoogleAdcStatus
 from fast_agent.llm.provider_types import Provider
 from fast_agent.utils.collections import unique_preserve_order
@@ -44,22 +44,6 @@ def _write_overlay(home: "Path", name: str, *, provider: str, model: str) -> Non
         ),
         encoding="utf-8",
     )
-
-
-def _static_current_entries(provider: Provider) -> list:
-    return [
-        entry
-        for entry in ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[provider]
-        if entry.current
-    ]
-
-
-def test_list_current_models_for_provider() -> None:
-    models = ModelSelectionCatalog.list_current_models(Provider.ANTHROPIC)
-    expected = unique_preserve_order(
-        entry.model for entry in _static_current_entries(Provider.ANTHROPIC)
-    )
-    assert models == expected
 
 
 def test_list_current_aliases_for_provider() -> None:
@@ -171,23 +155,34 @@ def test_non_current_aliases_are_listed_but_not_current() -> None:
         non_current_aliases = ModelSelectionCatalog.list_non_current_aliases(provider)
 
         assert set(current_aliases).isdisjoint(non_current_aliases)
-        assert non_current_aliases == [
-            entry.alias
-            for entry in ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER.get(provider, ())
-            if not entry.current
-        ]
 
 
-def test_list_fast_models_uses_explicit_curated_designation() -> None:
-    for provider in (
-        Provider.ANTHROPIC,
-        Provider.CODEX_RESPONSES,
-        Provider.HUGGINGFACE,
-        Provider.GROQ,
-    ):
-        assert ModelSelectionCatalog.list_fast_models(provider) == unique_preserve_order(
-            entry.model for entry in _static_current_entries(provider) if entry.fast
-        )
+def test_catalog_filters_and_deduplicates_without_reordering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        ModelSelectionCatalog,
+        "CATALOG_ENTRIES_BY_PROVIDER",
+        {
+            Provider.ANTHROPIC: (
+                CatalogModelEntry(alias="primary", model="model-a"),
+                CatalogModelEntry(alias="retired", model="model-old", current=False, fast=True),
+                CatalogModelEntry(alias="quick", model="model-b", fast=True),
+                CatalogModelEntry(alias="alternate", model="model-a"),
+                CatalogModelEntry(alias="quick", model="model-b", fast=True),
+            ),
+            Provider.GOOGLE: (CatalogModelEntry(alias="other-provider", model="model-c"),),
+        },
+    )
+
+    assert ModelSelectionCatalog.list_current_models(Provider.ANTHROPIC) == ["model-a", "model-b"]
+    assert ModelSelectionCatalog.list_current_aliases(Provider.ANTHROPIC) == [
+        "primary",
+        "quick",
+        "alternate",
+    ]
+    assert ModelSelectionCatalog.list_non_current_aliases(Provider.ANTHROPIC) == ["retired"]
+    assert ModelSelectionCatalog.list_fast_models(Provider.ANTHROPIC) == ["model-b"]
 
 
 def test_groq_current_aliases_drop_deprecated_kimi_entry() -> None:
@@ -195,29 +190,6 @@ def test_groq_current_aliases_drop_deprecated_kimi_entry() -> None:
 
     assert "kimigroq" not in aliases
     assert "qwen3-32b" in aliases
-
-
-@pytest.mark.parametrize(
-    "provider",
-    (
-        Provider.ANTHROPIC,
-        Provider.GOOGLE,
-        Provider.HUGGINGFACE,
-        Provider.CODEX_RESPONSES,
-    ),
-)
-def test_current_catalog_helpers_project_current_entries(provider: Provider) -> None:
-    current_entries = _static_current_entries(provider)
-
-    assert ModelSelectionCatalog.list_current_aliases(provider) == [
-        entry.alias for entry in current_entries
-    ]
-    assert ModelSelectionCatalog.list_current_models(provider) == unique_preserve_order(
-        entry.model for entry in current_entries
-    )
-    assert ModelSelectionCatalog.list_fast_models(provider) == unique_preserve_order(
-        entry.model for entry in current_entries if entry.fast
-    )
 
 
 def test_is_fast_model_normalizes_provider_prefix() -> None:

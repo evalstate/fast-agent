@@ -8,12 +8,9 @@ This test covers the modes not tested in other files:
 
 import pytest
 
-from fast_agent.core.logging.logger import get_logger
-
-logger = get_logger(__name__)
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 
-@pytest.mark.asyncio
 async def test_auto_cancel_mode(fast_agent):
     """Test that auto_cancel mode works when configured."""
 
@@ -25,26 +22,13 @@ async def test_auto_cancel_mode(fast_agent):
     async def test_agent():
         async with fast_agent.run() as agent:
             app = agent["auto-cancel-agent"]
-            # This should auto-cancel due to config
-            # Auto-cancel might result in an exception or a cancellation response
-            try:
-                result = await app.call_tool("simple_rating", {})
-                print(f"Result: {result}")
-                # If we get a result, it should indicate cancellation
-                result_str = str(result).lower()
-                assert "cancel" in result_str or "decline" in result_str, (
-                    f"Expected cancellation response, got: {result}"
-                )
-                print("✓ Auto-cancel mode test completed")
-            except Exception as e:
-                # Auto-cancel might result in an exception, which is also valid
-                print(f"Auto-cancel test result: {e}")
-                print("✓ Auto-cancel mode working (cancelled as expected)")
+            result = await app.call_tool("simple_rating", {})
+            assert not result.is_error
+            assert "cancel" in str(result).lower()
 
     await test_agent()
 
 
-@pytest.mark.asyncio
 async def test_none_mode(fast_agent):
     """Test that 'none' mode disables elicitation capability advertisement."""
 
@@ -62,9 +46,8 @@ async def test_none_mode(fast_agent):
             print(f"Server reports capabilities: {capabilities_text}")
 
             # Should NOT have elicitation capability
-            assert (
-                "✗ Elicitation" in capabilities_text or "✓ Elicitation" not in capabilities_text
-            ), f"None mode should NOT advertise elicitation capability. Got: {capabilities_text}"
+            assert not result.is_error
+            assert "✗ Elicitation" in capabilities_text
             print("✓ None mode working - elicitation capability NOT advertised")
 
     await test_agent()

@@ -806,19 +806,6 @@ class TestAnthropicAssistantConverter(unittest.TestCase):
         self.assertEqual(content_blocks(anthropic_msg)[0]["type"], "text")
         self.assertEqual(content_blocks(anthropic_msg)[0]["text"], self.sample_text)
 
-    def test_single_text_content_conversion(self):
-        """Test conversion of a single TextContent item to Anthropic format."""
-        text_content = TextContent(type="text", text=self.sample_text)
-        multipart = PromptMessageExtended(role="assistant", content=[text_content])
-
-        anthropic_msg = AnthropicConverter.convert_to_anthropic(multipart)
-
-        # Assertions
-        self.assertEqual(anthropic_msg["role"], "assistant")
-        self.assertEqual(len(content_blocks(anthropic_msg)), 1)
-        self.assertEqual(content_blocks(anthropic_msg)[0]["type"], "text")
-        self.assertEqual(content_blocks(anthropic_msg)[0]["text"], self.sample_text)
-
     def test_single_image_content_conversion(self):
         """Test conversion of a single ImageContent item to Anthropic format."""
         image_base64 = base64.b64encode(b"fake_image_data").decode("utf-8")
