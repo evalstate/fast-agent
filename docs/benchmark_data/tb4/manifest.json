@@ -990,10 +990,13 @@
       }
     },
     {
-      "id": "tb4-claude-code-glm-5-3-flash-none",
+      "id": "tb4-claude-code-glm-5-3-flash-max",
       "harness": "Claude Code",
       "model": "GLM-5.3-Flash",
-      "effort": "none",
+      "effort": "max",
+      "notes": [
+        "The leaderboard lists reasoning effort \"none\": Claude Code set no effort (z-ai/glm-5.3-flash through OpenRouter), and GLM-5.3-Flash always reasons, defaulting to max."
+      ],
       "timeout": "standard",
       "leaderboard_row": "ac7be218-79b6-464e-8861-9b5a7f760cb8",
       "expected": {
