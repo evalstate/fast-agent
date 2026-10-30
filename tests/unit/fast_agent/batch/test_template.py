@@ -12,6 +12,16 @@ def test_default_template_dumps_pretty_row_json():
     assert json.dumps({"id": "1", "count": 2}, indent=2) in rendered.text
 
 
+def test_default_template_preserves_complete_row_when_field_is_named_row_json():
+    row = {"row_json": "source payload", "topic": "billing"}
+
+    rendered = render_row_template(DEFAULT_ROW_TEMPLATE, row)
+
+    assert rendered.error is None
+    assert rendered.text is not None
+    assert json.loads(rendered.text.removeprefix("Input record:\n\n")) == row
+
+
 def test_template_renders_field_placeholders_and_row_json():
     rendered = render_row_template(
         "Message: {{message}}\nPayload:\n{{row_json}}",

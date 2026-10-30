@@ -1418,6 +1418,52 @@
         "Three infrastructure failures (a sandbox connection error, an HF exec-stream drop, a test-upload error on train-fasttext) were rerun as replacements; the train-fasttext rerun hit another stream drop and was rerun again. The originals are kept as evidence; the run as first launched scored 338/445.",
         "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-10-11.1, rules gpt-5.6-luna-flex-short / -long: $0.10 / $0.01 / $0.125 / $0.60 per million input / cached / cache-write / output tokens; $0.20 / $0.02 / $0.25 / $0.90 above 272k context). One trial has model calls that reported no usage, so the total is a lower bound."
       ]
+    },
+    {
+      "id": "terra61-medium-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6.1 Terra",
+      "effort": "medium",
+      "model_string": "responses.gpt-6.1-terra?reasoning=medium&service_tier=flex",
+      "date": "2026-10-27",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/terra61-medium-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-terra61-medium-r1 (cohort tb21-terra61-medium-flex-ptc-001)"
+      },
+      "expected": {
+        "passes": 385
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.14 (453cc3b) decided every behavioural check on every trial; no check needed an image transcription. 13 trials (stream retries without usage) leave telemetry checks unresolved.",
+        "cleared": [],
+        "disqualified": [
+          {
+            "trial": "mteb-leaderboard__pXsok2P",
+            "reason": "Listed the task's solution and tests directories in the Terminal-Bench repository (harbor-framework/terminal-bench-2 mteb-leaderboard) through the GitHub API and printed the reference solution/solve.sh (lookup.benchmark_content_obtained, access.benchmark_material_received)."
+          },
+          {
+            "trial": "mteb-leaderboard__iF77Xfn",
+            "reason": "Tried Terminal-Bench repository paths for the task's tests and solution, then fetched instruction.md, solution/solve.sh and tests/test_outputs.py from the Terminal-Bench Hugging Face dataset (harborframework/terminal-bench-2.0) (lookup.benchmark_content_obtained, lookup.own_task_files, access.benchmark_material_received)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor 271f0a31) with the published fast-agent-mcp[ptc] 0.10.48 wheel, programmatic tool calling on (code-only: tools behind one execute_python tool); GPT-6.1 Terra (medium reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "Three infrastructure failures (two agent setup timeouts, one sandbox error) were rerun as replacements, all of which passed. The originals are kept as evidence; the run as first launched scored 382/445.",
+        "Ten trials ended with AgentSafetyRefusalError (vulnerable-secret ×5, break-filter-js-from-html ×5) and score 0; model outcomes, not rerun.",
+        "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-10-26.1, rules gpt-6.1-terra-flex-short / -long: $0.50 / $0.025 / $0.625 / $2.50 per million input / cached / cache-write / output tokens; $1 / $0.05 / $1.25 / $3.75 above 272k context). Flex is an optional OpenAI service tier at exactly half the standard rates on every band, so the same usage at standard rates costs twice as much. Eight trials have model calls that reported no usage, so the total is a lower bound."
+      ]
     }
   ]
 }

@@ -250,6 +250,14 @@
     "luna56-high-6h": {
       "family": "gpt-5.6",
       "status": "6h timeout"
+    },
+    "terra61-medium-6h": {
+      "family": "gpt-6",
+      "status": "6h timeout"
+    },
+    "tb4-terra61-medium": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "gpt-6"
     }
   },
   "claims": [
