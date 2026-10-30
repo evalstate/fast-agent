@@ -645,7 +645,14 @@ class ModelSelectionCatalog:
                 home=home,
             ).entries_for_provider(provider)
         ]
-        models = ModelDatabase.list_models()
+        # OpenRouter's discovery adapter owns its available suggestions. Runtime
+        # metadata also contains explicit/legacy models and must not repopulate
+        # the catalog after discovery filters those suggestions.
+        models = (
+            list(ModelDatabase.MODELS)
+            if provider == Provider.OPENROUTER
+            else ModelDatabase.list_models()
+        )
         if provider == Provider.ANTHROPIC_VERTEX:
             static_models = [
                 f"{provider.config_name}.{model}"
