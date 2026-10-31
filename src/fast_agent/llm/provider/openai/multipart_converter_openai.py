@@ -1,6 +1,6 @@
 import json
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import Any, cast
 
 from mcp_types import (
     AudioContent,
@@ -28,6 +28,7 @@ from openai.types.chat.chat_completion_tool_message_param import ChatCompletionC
 from openai.types.chat.chat_completion_user_message_param import ChatCompletionContentPartParam
 
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.provider.openai.tool_call_extra import extra_content_by_tool_id
 from fast_agent.mcp.helpers.content_helpers import (
     canonicalize_tool_result_content_for_llm,
     get_image_data,
@@ -135,7 +136,8 @@ class OpenAIConverter:
                 ChatCompletionAssistantMessageParam(
                     role="assistant",
                     tool_calls=OpenAIConverter._convert_tool_calls_to_openai(
-                        multipart_msg.tool_calls
+                        multipart_msg.tool_calls,
+                        extra_content_by_tool_id(multipart_msg.channels),
                     ),
                     content=OpenAIConverter._assistant_tool_call_content(multipart_msg.content),
                 )
@@ -168,18 +170,25 @@ class OpenAIConverter:
     @staticmethod
     def _convert_tool_calls_to_openai(
         tool_calls: Mapping[str, CallToolRequest],
+        extra_content_by_id: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> list[ChatCompletionMessageToolCallParam]:
-        return [
-            ChatCompletionMessageToolCallParam(
-                id=tool_id,
-                type="function",
-                function={
+        # Gemini 3 rejects a follow-up tool call that omits extra_content.
+        extras = extra_content_by_id or {}
+        converted: list[ChatCompletionMessageToolCallParam] = []
+        for tool_id, request in tool_calls.items():
+            payload: dict[str, Any] = {
+                "id": tool_id,
+                "type": "function",
+                "function": {
                     "name": request.params.name,
                     "arguments": json.dumps(request.params.arguments or {}),
                 },
-            )
-            for tool_id, request in tool_calls.items()
-        ]
+            }
+            extra = extras.get(tool_id)
+            if extra:
+                payload["extra_content"] = dict(extra)
+            converted.append(cast("ChatCompletionMessageToolCallParam", payload))
+        return converted
 
     @staticmethod
     def _assistant_tool_call_content(content: list) -> str:

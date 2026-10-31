@@ -1,5 +1,6 @@
 import asyncio
 import json
+from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
 from functools import partial
@@ -58,6 +59,14 @@ from fast_agent.llm.provider.openai.schema_sanitizer import (
     should_strip_tool_schema_defaults,
 )
 from fast_agent.llm.provider.openai.structured_output import OpenAIStructuredOutputMixin
+from fast_agent.llm.provider.openai.tool_call_extra import (
+    add_tool_call_extra_channel,
+    remember_chunk_tool_call_extra,
+    remember_tool_call_extra,
+    retain_completion_tool_call_extra,
+    tool_call_extra_by_id,
+    write_tool_call_extra_content,
+)
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider.reasoning_config import reasoning_setting_from_config
 from fast_agent.llm.provider.streaming_timeouts import (
@@ -810,6 +819,7 @@ class OpenAILLM(
         # Track tool call state for stream events
         tool_call_started: dict[int, dict[str, Any]] = {}
         notified_tool_indices: set[int] = set()
+        tool_call_extra_by_index: dict[int, dict[str, Any]] = {}
 
         # Process the stream chunks
         # Cancellation is handled via asyncio.Task.cancel() which raises CancelledError
@@ -820,6 +830,7 @@ class OpenAILLM(
             self._raise_stream_chunk_error(chunk)
             # Handle chunk accumulation
             state.handle_chunk(chunk)
+            remember_chunk_tool_call_extra(chunk, tool_call_extra_by_index)
             # Process streaming events for tool calls
             cumulative_content, estimated_tokens, reasoning_active, _ = (
                 self._process_stream_chunk_common(
@@ -903,6 +914,7 @@ class OpenAILLM(
             history_reasoning_segments,
             source="OpenAI streaming response",
         )
+        retain_completion_tool_call_extra(final_completion, tool_call_extra_by_index)
 
         return final_completion, history_reasoning_segments
 
@@ -965,6 +977,7 @@ class OpenAILLM(
 
         if delta_tool_call.id:
             tool_call["id"] = delta_tool_call.id
+        remember_tool_call_extra(tool_call, delta_tool_call)
         if not delta_tool_call.function:
             return
         if delta_tool_call.function.name:
@@ -1033,16 +1046,18 @@ class OpenAILLM(
             tool_call_data = state.tool_calls_map[idx]
             if not tool_call_data["id"] or not tool_call_data["function"]["name"]:
                 continue
-            tool_calls.append(
-                ChatCompletionMessageToolCall(
-                    id=tool_call_data["id"],
-                    type=tool_call_data["type"],
-                    function=Function(
-                        name=tool_call_data["function"]["name"],
-                        arguments=tool_call_data["function"]["arguments"],
-                    ),
-                )
+            tool_call = ChatCompletionMessageToolCall(
+                id=tool_call_data["id"],
+                type=tool_call_data["type"],
+                function=Function(
+                    name=tool_call_data["function"]["name"],
+                    arguments=tool_call_data["function"]["arguments"],
+                ),
             )
+            extra_content = tool_call_data.get("extra_content")
+            if isinstance(extra_content, dict) and extra_content:
+                write_tool_call_extra_content(tool_call, extra_content)
+            tool_calls.append(tool_call)
         return tool_calls or None
 
     def _raise_for_incomplete_manual_tools(
@@ -1461,10 +1476,12 @@ class OpenAILLM(
         reasoning_blocks: list[ContentBlock] | None,
         choice: Any,
         stop_result: _OpenAIStopResult,
+        tool_call_extra: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> dict[str, list[ContentBlock]] | None:
         channels: dict[str, list[ContentBlock]] = {}
         if reasoning_blocks:
             channels[REASONING] = reasoning_blocks
+        add_tool_call_extra_channel(channels, tool_call_extra)
         if stop_result.stop_reason == LlmStopReason.SAFETY:
             channels[FAST_AGENT_SAFETY_DETAILS] = [
                 TextContent(
@@ -1514,6 +1531,7 @@ class OpenAILLM(
                 reasoning_blocks=reasoning_blocks,
                 choice=choice,
                 stop_result=stop_result,
+                tool_call_extra=tool_call_extra_by_id(message.tool_calls),
             ),
             stop_reason=stop_result.stop_reason,
         )
