@@ -380,7 +380,7 @@
         "points": [
           {
             "title": "Scoring",
-            "text": "Every run is 89 tasks × 5 attempts. Scores count all 445 slots, so a missing or errored attempt scores zero. ± is one standard error, clustered by task."
+            "text": "Every run is 89 tasks × 5 attempts. Scores count all 445 slots. An attempt passes when the verifier rewards it, even if the agent errored or timed out; a missing or unrewarded attempt scores zero. ± is one standard error, clustered by task."
           },
           {
             "title": "Our runs",
@@ -435,7 +435,7 @@
           },
           {
             "title": "Our runs",
-            "text": "fast-agent runs through bench-run on HF Jobs: the 19 tasks only, at each task's native deadline, with no whole-trial retries. Infrastructure failures are rerun as replacements and the originals kept; every trial is public. HF Jobs matches hardware by capacity rather than strictly enforcing CPU and RAM limits, and the frozen hof-topology-interpenetration image is amd64-only. Claude models drew provider safety stops on atrx-vep-crispr and html-js-filter in our runs; they score 0."
+            "text": "fast-agent runs through bench-run on HF Jobs: the 19 tasks only, at each task's native deadline, with no whole-trial retries. Infrastructure failures are rerun as replacements and the originals kept; every trial is public. HF Jobs matches hardware by capacity rather than strictly enforcing CPU and RAM limits, and the frozen hof-topology-interpenetration image is amd64-only. Claude models drew provider safety stops on atrx-vep-crispr and html-js-filter in our runs; the verifier rewarded none of them, so they score 0."
           },
           {
             "title": "Cost",
