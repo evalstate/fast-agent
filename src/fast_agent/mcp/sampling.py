@@ -36,6 +36,9 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Stop reasons defined by the MCP sampling spec for a final (non-tool) result.
+_SAMPLING_STOP_REASONS = (LlmStopReason.STOP_SEQUENCE, LlmStopReason.MAX_TOKENS)
+
 
 @dataclass(frozen=True, slots=True)
 class _SamplingModelSelection:
@@ -180,11 +183,14 @@ def _sampling_response(
             stop_reason="toolUse",
         )
 
+    stop_reason = llm_response.stop_reason
+    if stop_reason not in _SAMPLING_STOP_REASONS:
+        stop_reason = LlmStopReason.END_TURN
     return CreateMessageResult(
         role=llm_response.role,
         content=TextContent(type="text", text=llm_response.first_text()),
         model=model,
-        stop_reason=LlmStopReason.END_TURN.value,
+        stop_reason=stop_reason.value,
     )
 
 
