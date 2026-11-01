@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, TypeGuard
 from fast_agent.batch import BatchRunner, BatchRunResult
 from fast_agent.eval import ArtifactRun, CandidateRun
 from fast_agent.utils.async_utils import run_coroutine
+from fast_agent.utils.env import utf8_python_child_env
 
 if TYPE_CHECKING:
     from fast_agent.batch.runner import BatchBackend
@@ -1462,5 +1463,8 @@ def _run_command(
         timeout=timeout_seconds,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=utf8_python_child_env(),
         check=False,
     )

@@ -22,6 +22,7 @@ from fast_agent.tools.durable_processes import (
 )
 from fast_agent.ui.usage_display import collect_agents_from_provider
 from fast_agent.utils.commandline import split_commandline
+from fast_agent.utils.env import utf8_python_child_env
 from fast_agent.utils.markdown import escape_markdown_table_cell, markdown_code_span
 from fast_agent.utils.text import strip_to_none, summarize_command
 from fast_agent.utils.time import format_duration
@@ -448,6 +449,7 @@ async def handle_check(
         *command,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=utf8_python_child_env(),
     )
     stdout, stderr = await process.communicate()
     stdout_text = _decoded_process_output(stdout)

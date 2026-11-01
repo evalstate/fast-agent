@@ -262,7 +262,7 @@ def _load_codex_cli_tokens() -> CodexOAuthTokens | None:
     except OSError:
         return None
     try:
-        payload = json.loads(auth_path.read_text())
+        payload = json.loads(auth_path.read_text(encoding="utf-8"))
     except Exception:
         return None
     if not isinstance(payload, dict):

@@ -326,6 +326,7 @@ def _start_pipe_shell_process(
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
         bufsize=1,
         errors="replace",
         env=shell_env,

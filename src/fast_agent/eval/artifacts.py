@@ -127,6 +127,8 @@ class CandidateRun:
                 timeout=timeout_seconds,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
             )
             stdout = completed.stdout

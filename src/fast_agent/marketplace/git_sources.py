@@ -85,6 +85,8 @@ def resolve_git_commit(repo_root: Path, revision: str | None) -> str | None:
         ["git", "-C", str(repo_root), "rev-parse", f"{rev}^{{commit}}"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if result.returncode != 0:
@@ -101,6 +103,8 @@ def resolve_git_path_oid(repo_root: Path, commit: str, repo_path: str) -> str | 
         ["git", "-C", str(repo_root), "rev-parse", f"{commit}:{repo_path}"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if result.returncode != 0:
@@ -143,6 +147,8 @@ def is_git_source_dirty(repo_root: Path, source_path: Path) -> bool:
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if result.returncode != 0:
@@ -151,7 +157,9 @@ def is_git_source_dirty(repo_root: Path, source_path: Path) -> bool:
 
 
 def run_git(args: list[str]) -> None:
-    result = subprocess.run(args, capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        args, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False
+    )
     if result.returncode != 0:
         stderr = subprocess_failure_detail(result)
         raise RuntimeError(f"Git command failed: {' '.join(args)}\n{stderr}")
@@ -399,6 +407,8 @@ def resolve_source_path_oid(
             _sparse_clone_args(repo_url, repo_ref, tmp_path),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
         if result.returncode != 0:

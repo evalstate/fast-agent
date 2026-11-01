@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 from fast_agent.batch.monitoring import BatchTrackioOptions
 from fast_agent.batch.structured import StructuredBatchOptions, run_parallel_structured_batch
+from fast_agent.utils.env import utf8_python_child_env
 from fast_agent.utils.text import strip_to_none
 
 BatchBackend = Literal["harness", "process"]
@@ -259,7 +260,15 @@ class BatchRunner:
                 encoding="utf-8",
             )
             command.extend(["--trackio-config-json", str(trackio_config_path)])
-        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=utf8_python_child_env(),
+            check=False,
+        )
         if completed.returncode != 0:
             raise RuntimeError(
                 f"fast-agent batch process failed with exit {completed.returncode}\n"

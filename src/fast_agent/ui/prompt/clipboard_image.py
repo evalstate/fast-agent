@@ -153,6 +153,8 @@ def _wslpath_to_linux(windows_path: str) -> Path:
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
     except Exception as exc:
         raise ClipboardImagePasteError(f"failed to convert Windows path: {exc}") from exc
@@ -169,6 +171,8 @@ def _run_powershell_clipboard_script(script: str) -> subprocess.CompletedProcess
                 check=True,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=10,
             )
         except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:

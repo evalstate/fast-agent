@@ -238,6 +238,8 @@ def _find_git_root(path: Path) -> Path | None:
         ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if result.returncode != 0:
