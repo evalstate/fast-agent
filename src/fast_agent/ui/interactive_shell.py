@@ -14,6 +14,7 @@ from fast_agent.config import get_settings
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.tools.execution_environment import ShellExecutionResult
 from fast_agent.ui.console import rich_print
+from fast_agent.utils.text import UTF8_LOCALE_FALLBACK_ERRORS
 
 
 @dataclass(slots=True)
@@ -328,7 +329,7 @@ def _start_pipe_shell_process(
         text=True,
         encoding="utf-8",
         bufsize=1,
-        errors="replace",
+        errors=UTF8_LOCALE_FALLBACK_ERRORS,
         env=shell_env,
     )
 
