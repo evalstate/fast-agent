@@ -717,12 +717,10 @@ class DecoratorMixin:
             agents: List of agent names this orchestrator can use
             instruction: Base instruction for the orchestrator
             model: Model specification string
-            use_history: Whether to maintain conversation history
             request_params: Additional request parameters for the LLM
-            human_input: Whether to enable human input capabilities
-            plan_type: Planning approach - "full" or "iterative"
-            plan_iterations: Maximum number of planning iterations (0 for unlimited)
+            plan_iterations: Maximum number of planning iterations (0 or less for unlimited)
             default: Whether to mark this as the default agent
+            api_key: Optional API key for the LLM provider
 
         Returns:
             A decorator that registers the orchestrator with proper type annotations
