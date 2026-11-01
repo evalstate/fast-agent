@@ -50,6 +50,9 @@ def load_plugin_tool_call_reviewers(
     """Load reviewers once per spec set; a failed load is kept so its calls are denied."""
     loaded: list[LoadedPluginToolCallReview] = []
     for spec in specs:
+        if spec.load_error is not None:
+            loaded.append(LoadedPluginToolCallReview(spec.plugin_name, None, spec.load_error))
+            continue
         try:
             handler = load_callable_from_file_spec(
                 spec.handler,

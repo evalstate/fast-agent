@@ -231,6 +231,11 @@ def load_enabled_plugin_contributions(
                 UserWarning,
                 stacklevel=2,
             )
+            if _mentions_tool_call_review(plugin_dir):
+                # Review fails closed: keep the guard so its calls are denied, not run unreviewed.
+                tool_call_review[name] = PluginToolCallReviewSpec(
+                    plugin_name=name, handler="", load_error=str(exc)
+                )
             continue
         commands.update(manifest.commands)
         if manifest.post_user_turn is not None:
@@ -242,6 +247,17 @@ def load_enabled_plugin_contributions(
         post_user_turn=post_user_turn,
         tool_call_review=tool_call_review,
     )
+
+
+def _mentions_tool_call_review(plugin_dir: Path) -> bool:
+    """Whether a manifest that failed to load may declare a review hook.
+
+    A text match also covers manifests that are not valid YAML.
+    """
+    manifest_text = (plugin_dir / PLUGIN_MANIFEST_FILENAME).read_text(
+        encoding="utf-8", errors="replace"
+    )
+    return "tool_call_review" in manifest_text
 
 
 def _resolve_enabled_plugin_dir(*, destination_root: Path, name: str) -> Path:

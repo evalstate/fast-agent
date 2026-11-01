@@ -58,6 +58,8 @@ class PluginPostUserTurnSpec:
 class PluginToolCallReviewSpec:
     plugin_name: str
     handler: str
+    load_error: str | None = None
+    """Set when an enabled review plugin's manifest failed to load; its calls are denied."""
 
 
 @dataclass(frozen=True, slots=True)

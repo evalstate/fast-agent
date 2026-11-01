@@ -23,6 +23,7 @@ from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.mcp_aggregator import NamespacedTool
 from fast_agent.plugins.manifest import load_plugin_manifest
 from fast_agent.plugins.models import PluginToolCall, PluginToolCallReviewSpec
+from fast_agent.plugins.operations import load_enabled_plugin_contributions
 from fast_agent.plugins.tool_call_review import (
     load_plugin_tool_call_reviewers,
     review_plugin_tool_calls,
@@ -62,6 +63,48 @@ def test_manifest_v2_rejects_tool_call_review(tmp_path: Path) -> None:
 
     with pytest.raises(AgentConfigError, match="schema_version: 3"):
         load_plugin_manifest(tmp_path / "guard")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        "schema_version: 3\nname: guard\nhooks:\n  tool_call_review: /abs/guard.py:review\n",
+        "schema_version: 2\nname: guard\nhooks:\n  tool_call_review: ./guard.py:review\n",
+        "schema_version: 3\nname: guard\nhooks: [tool_call_review\n",
+    ],
+    ids=["absolute-handler", "schema-too-old", "invalid-yaml"],
+)
+async def test_enabled_review_plugin_with_broken_manifest_denies_calls(
+    tmp_path: Path, manifest: str
+) -> None:
+    (tmp_path / "guard").mkdir()
+    (tmp_path / "guard" / "plugin.yaml").write_text(manifest, encoding="utf-8")
+
+    with pytest.warns(UserWarning, match="Failed to load enabled fast-agent plugin 'guard'"):
+        contributions = load_enabled_plugin_contributions(
+            destination_root=tmp_path, enabled=["guard"]
+        )
+    reviewers = load_plugin_tool_call_reviewers(tuple(contributions.tool_call_review.values()))
+
+    denials = await _review(reviewers, CALLS)
+
+    assert set(denials) == {"a", "b"}
+    assert "review plugin 'guard' failed to load" in denials["a"]
+
+
+def test_broken_manifest_without_review_hook_adds_no_reviewer(tmp_path: Path) -> None:
+    (tmp_path / "cmds").mkdir()
+    (tmp_path / "cmds" / "plugin.yaml").write_text(
+        "schema_version: 9\nname: cmds\n", encoding="utf-8"
+    )
+
+    with pytest.warns(UserWarning):
+        contributions = load_enabled_plugin_contributions(
+            destination_root=tmp_path, enabled=["cmds"]
+        )
+
+    assert contributions.tool_call_review == {}
 
 
 def _reviewers(tmp_path: Path, source: str, *names: str) -> tuple[LoadedPluginToolCallReview, ...]:
