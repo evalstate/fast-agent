@@ -223,6 +223,11 @@ def load_enabled_plugin_contributions(
     for name in enabled:
         plugin_dir = _resolve_enabled_plugin_dir(destination_root=destination_root, name=name)
         if not (plugin_dir / PLUGIN_MANIFEST_FILENAME).is_file():
+            warnings.warn(
+                f"Enabled fast-agent plugin '{name}' is not installed in {destination_root}",
+                UserWarning,
+                stacklevel=2,
+            )
             continue
         try:
             manifest = load_plugin_manifest(plugin_dir)

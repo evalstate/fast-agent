@@ -267,7 +267,7 @@ def test_default_user_global_plugins_are_loaded(tmp_path: Path, monkeypatch) -> 
     assert set(settings.commands) == {"global-finder"}
 
 
-def test_missing_home_plugin_is_skipped_without_dropping_project_plugins(
+def test_missing_home_plugin_is_skipped_with_warning_without_dropping_project_plugins(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -308,7 +308,9 @@ def test_missing_home_plugin_is_skipped_without_dropping_project_plugins(
         warnings.simplefilter("always")
         settings = get_settings(config_path)
 
-    assert captured == []
+    assert [str(warning.message) for warning in captured] == [
+        f"Enabled fast-agent plugin 'missing-global' is not installed in {home / 'plugins'}"
+    ]
     assert settings.commands is not None
     assert set(settings.commands) == {"project-helper"}
 
