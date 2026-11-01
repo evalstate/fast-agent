@@ -239,6 +239,59 @@ does not fail the completed agent turn or prevent later display plugins from
 running. Hooks require `schema_version: 2`; schema v1 remains supported for
 command-only plugins.
 
+### Tool-call review hooks
+
+Manifest schema v3 adds a `tool_call_review` hook. It runs before an
+assistant message's tool calls execute (MCP, shell, filesystem, function and
+agent tools alike) and can deny any of them:
+
+```yaml
+schema_version: 3
+name: tool-guard
+version: 0.1.0
+requires_fast_agent: ">=0.10.50"
+description: Deny shell commands that delete files.
+hooks:
+  tool_call_review: ./guard.py:review
+```
+
+```python
+from fast_agent.plugins import PluginToolCallReviewContext
+
+
+def review(ctx: PluginToolCallReviewContext) -> dict[str, str] | None:
+    return {
+        call.id: "Deleting files needs the user's approval."
+        for call in ctx.tool_calls
+        if "rm " in str(call.arguments.get("command", ""))
+    }
+```
+
+Return the denied call ids mapped to the error text the model receives as each
+call's result, or `None` to let every call run. Denied calls never execute; the
+others run as usual. The handler may be synchronous or asynchronous.
+
+The context contains:
+
+- `plugin_name`, `agent_name`, and `model` — the reviewing plugin and the agent
+  and model making the calls.
+- `instruction` — the agent's system prompt.
+- `tools` — the tools offered to the model.
+- `history` — the conversation before the request, as stored.
+- `request` — the assistant message making the calls.
+- `tool_calls` — `PluginToolCall(id, name, arguments)` for each call, after
+  fast-agent resolved its tool name. Calls to unavailable tools are rejected
+  before review.
+- `config` — the plugin's mapping from `plugins.config.<plugin-name>`.
+
+Reviewers run for every agent and subagent, in every mode (TUI, `--message`,
+ACP, serve), in enabled-plugin order; each sees only the calls earlier
+reviewers let through. Review fails closed: a reviewer that cannot be loaded,
+raises, or returns anything other than a mapping or `None` denies every call it
+was given. With programmatic tool calling (`--ptc`), reviewers see the code
+tool's call, not the tool calls made from inside the code. Reviewers are loaded
+at the first tool call; restart fast-agent after enabling or updating one.
+
 ### Price calculator
 
 The

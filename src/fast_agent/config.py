@@ -45,7 +45,11 @@ from fast_agent.mcp.server_declaration import (
     MCPServerDeclaration,
     effective_server_view,
 )
-from fast_agent.plugins.models import PluginContributions, PluginPostUserTurnSpec
+from fast_agent.plugins.models import (
+    PluginContributions,
+    PluginPostUserTurnSpec,
+    PluginToolCallReviewSpec,
+)
 from fast_agent.tools.environment_config import EnvironmentSpec
 from fast_agent.tools.shell_profiles import ShellToolProfile
 from fast_agent.types.streaming import StreamingMode
@@ -2597,6 +2601,7 @@ class Settings(BaseSettings):
     _fast_agent_settings_source: Literal["manual", "discovered"] = PrivateAttr(default="manual")
     _logger_path_explicit: bool = PrivateAttr(default=False)
     _plugin_post_user_turn: tuple[PluginPostUserTurnSpec, ...] = PrivateAttr(default=())
+    _plugin_tool_call_review: tuple[PluginToolCallReviewSpec, ...] = PrivateAttr(default=())
 
     def __init__(self, **values: Any) -> None:
         raw_mcp = values.get("mcp")
@@ -2889,6 +2894,7 @@ def _settings_from_sources(
     plugin_contributions = _merge_enabled_plugin_contributions(settings)
     settings.commands = plugin_contributions.commands or None
     settings._plugin_post_user_turn = tuple(plugin_contributions.post_user_turn.values())
+    settings._plugin_tool_call_review = tuple(plugin_contributions.tool_call_review.values())
     return settings
 
 
@@ -2955,6 +2961,7 @@ def _merge_enabled_plugin_contributions(settings: Settings) -> PluginContributio
 
     plugin_commands: dict[str, PluginCommandActionSpec] = {}
     post_user_turn: dict[str, PluginPostUserTurnSpec] = {}
+    tool_call_review: dict[str, PluginToolCallReviewSpec] = {}
     if enabled_sources.home and settings._fast_agent_global_plugin_home:
         contributions = _load_enabled_plugin_contributions_from_root(
             destination_root=Path(settings._fast_agent_global_plugin_home) / "plugins",
@@ -2964,6 +2971,7 @@ def _merge_enabled_plugin_contributions(settings: Settings) -> PluginContributio
         )
         plugin_commands.update(contributions.commands)
         post_user_turn.update(contributions.post_user_turn)
+        tool_call_review.update(contributions.tool_call_review)
 
     if enabled_sources.project:
         contributions = _load_enabled_plugin_contributions_from_root(
@@ -2974,10 +2982,15 @@ def _merge_enabled_plugin_contributions(settings: Settings) -> PluginContributio
         )
         plugin_commands.update(contributions.commands)
         post_user_turn.update(contributions.post_user_turn)
+        tool_call_review.update(contributions.tool_call_review)
 
     merged = dict(plugin_commands)
     merged.update(inline_commands)
-    return PluginContributions(commands=merged, post_user_turn=post_user_turn)
+    return PluginContributions(
+        commands=merged,
+        post_user_turn=post_user_turn,
+        tool_call_review=tool_call_review,
+    )
 
 
 def _load_enabled_plugin_contributions_from_root(

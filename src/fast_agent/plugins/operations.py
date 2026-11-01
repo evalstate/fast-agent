@@ -30,6 +30,7 @@ from fast_agent.plugins.models import (
     PluginContributions,
     PluginPostUserTurnSpec,
     PluginSourceOrigin,
+    PluginToolCallReviewSpec,
     PluginUpdateInfo,
     PluginUpdateStatus,
 )
@@ -217,6 +218,7 @@ def load_enabled_plugin_contributions(
 ) -> PluginContributions:
     commands: dict[str, Any] = {}
     post_user_turn: dict[str, PluginPostUserTurnSpec] = {}
+    tool_call_review: dict[str, PluginToolCallReviewSpec] = {}
     for name in enabled:
         plugin_dir = _resolve_enabled_plugin_dir(destination_root=destination_root, name=name)
         if not (plugin_dir / PLUGIN_MANIFEST_FILENAME).is_file():
@@ -233,7 +235,13 @@ def load_enabled_plugin_contributions(
         commands.update(manifest.commands)
         if manifest.post_user_turn is not None:
             post_user_turn[manifest.name] = manifest.post_user_turn
-    return PluginContributions(commands=commands, post_user_turn=post_user_turn)
+        if manifest.tool_call_review is not None:
+            tool_call_review[manifest.name] = manifest.tool_call_review
+    return PluginContributions(
+        commands=commands,
+        post_user_turn=post_user_turn,
+        tool_call_review=tool_call_review,
+    )
 
 
 def _resolve_enabled_plugin_dir(*, destination_root: Path, name: str) -> Path:

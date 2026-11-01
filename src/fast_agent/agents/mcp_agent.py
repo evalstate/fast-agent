@@ -54,6 +54,7 @@ from fast_agent.agents.mcp_tool_presentation import (
 )
 from fast_agent.agents.subagent_directive import resolve_subagent_directive
 from fast_agent.agents.tool_agent import ToolAgent
+from fast_agent.agents.tool_call_planning import plan_tool_calls
 from fast_agent.commands.model_capabilities import (
     resolve_model_name,
     resolve_model_params,
@@ -2185,21 +2186,22 @@ class McpAgent(ABC, ToolAgent):
         tool_timings: dict[str, ToolTimingInfo] = {}
         tool_metadata: dict[str, dict[str, Any]] = {}
 
-        available_tools = await self._available_tool_names_for_run_tools()
-        tool_catalog = self._aggregator.tool_catalog()
+        available_tools, tool_catalog, known_tool_names = await self._run_tool_names()
 
         tool_call_items = list(request.tool_calls.items())
         should_parallel = should_parallelize_tool_calls(len(tool_call_items))
         self._maybe_close_display_for_parallel_subagent_tools(tool_call_items, should_parallel)
         resolved_calls = self._plan_tool_calls(
             tool_call_items,
-            known_tool_names={
-                HUMAN_INPUT_TOOL_NAME,
-                *available_tools,
-                *tool_catalog.routable_tool_names(),
-            },
+            known_tool_names=known_tool_names,
             case_insensitive_tool_names=available_tools,
             available_tools=available_tools,
+            should_parallel=should_parallel,
+            tool_results=tool_results,
+        )
+        resolved_calls = await self._review_planned_tool_calls(
+            request,
+            resolved_calls,
             should_parallel=should_parallel,
             tool_results=tool_results,
         )
@@ -2267,6 +2269,28 @@ class McpAgent(ABC, ToolAgent):
 
     async def _available_tool_names_for_run_tools(self) -> list[str]:
         return listed_tool_names(await self.list_tools())
+
+    async def _run_tool_names(self) -> tuple[list[str], MCPToolCatalog, set[str]]:
+        """Return the available tool names, tool catalog and every name a call may target."""
+        available_tools = await self._available_tool_names_for_run_tools()
+        tool_catalog = self._aggregator.tool_catalog()
+        known_tool_names = {
+            HUMAN_INPUT_TOOL_NAME,
+            *available_tools,
+            *tool_catalog.routable_tool_names(),
+        }
+        return available_tools, tool_catalog, known_tool_names
+
+    async def _resolve_tool_calls_for_review(
+        self, tool_call_items: list[tuple[str, Any]]
+    ) -> list[PlannedToolCall]:
+        """Resolve tool names as ``run_tools`` would, leaving unavailable calls out."""
+        available_tools, _, known_tool_names = await self._run_tool_names()
+        return plan_tool_calls(
+            tool_call_items,
+            known_tool_names=known_tool_names,
+            case_insensitive_tool_names=available_tools,
+        ).planned_calls
 
     def _maybe_close_display_for_parallel_subagent_tools(
         self,
