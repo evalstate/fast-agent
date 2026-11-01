@@ -109,6 +109,30 @@ def test_update_line_with_unicode_dash() -> None:
         assert _read_text(path) == "import asyncio  # HELLO\n"
 
 
+def test_update_context_line_with_form_feed() -> None:
+    with TemporaryDirectory() as tmp:
+        path = Path(tmp) / "paged.py"
+        path.write_text(
+            "def a():\n    pass\n\f\ndef b():\n    return 1\n", encoding="utf-8", newline=""
+        )
+
+        patch = (
+            "*** Begin Patch\n"
+            f"*** Update File: {path}\n"
+            "@@\n"
+            " \f\n"
+            " def b():\n"
+            "-    return 1\n"
+            "+    return 2\n"
+            "*** End Patch"
+        )
+
+        stdout, stderr = _run_patch(patch)
+
+        assert stderr == ""
+        assert _read_text(path) == "def a():\n    pass\n\f\ndef b():\n    return 2\n"
+
+
 def test_pure_addition_chunk_followed_by_removal() -> None:
     with TemporaryDirectory() as tmp:
         path = Path(tmp) / "panic.txt"

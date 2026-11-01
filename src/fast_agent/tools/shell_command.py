@@ -7,6 +7,8 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Literal
 
+from fast_agent.utils.text import split_lines
+
 type ShellDetachmentKind = Literal["none", "ambiguous", "service_detach"]
 
 _HEREDOC_PATTERN = re.compile(
@@ -203,7 +205,7 @@ def _heredoc_declarations(
 
 
 def _without_heredoc_bodies(command: str) -> str:
-    lines = command.splitlines(keepends=True)
+    lines = split_lines(command, keepends=True)
     kept: list[str] = []
     delimiters: deque[tuple[str, bool]] = deque()
     quote: str | None = None
@@ -424,7 +426,7 @@ def shell_heredoc_bodies(
     quote: str | None = None
     offset = 0
 
-    for line in command.splitlines(keepends=True):
+    for line in split_lines(command, keepends=True):
         line_end = offset + len(line)
         if pending:
             current = pending[0]

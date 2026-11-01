@@ -30,6 +30,7 @@ from fast_agent.tools.filesystem_tool_args import (
     parse_read_text_file_arguments,
     parse_write_text_file_arguments,
 )
+from fast_agent.utils.text import split_lines
 
 from .execution_environment import EnvironmentFilesystemWithBytes
 
@@ -95,7 +96,7 @@ class EnvironmentFilesystemRuntime(FilesystemRuntimeBase):
             return text_result(f"Error reading file: {exc}", is_error=True)
 
         if parsed.line is not None or parsed.limit is not None:
-            lines = content.splitlines()
+            lines = split_lines(content)
             start_index = (parsed.line - 1) if parsed.line is not None else 0
             selected = lines[start_index:]
             if parsed.limit is not None:

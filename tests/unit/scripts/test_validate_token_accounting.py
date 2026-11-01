@@ -212,6 +212,30 @@ def test_validate_token_accounting_artifacts(tmp_path: Path) -> None:
     assert report.atif.cached_tokens == 30
 
 
+def test_validate_token_accounting_accepts_unicode_line_separators_in_codex_records(
+    tmp_path: Path,
+) -> None:
+    manager, session_dir = _write_session(tmp_path)
+    codex_path = tmp_path / "trace.jsonl"
+    atif_path = tmp_path / "trace.json"
+    _export(manager, session_dir, codex_path, "codex")
+    _export(manager, session_dir, atif_path, "atif")
+
+    # Codex writes JSONL without escaping U+2028/U+2029, as serde_json does.
+    records = [
+        json.loads(line) for line in codex_path.read_text(encoding="utf-8").split("\n") if line
+    ]
+    records[0]["payload"]["note"] = "one\u2028two\u2029three\x85four"
+    codex_path.write_text(
+        "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
+        encoding="utf-8",
+    )
+
+    report = validate_artifacts(session_dir=session_dir, codex_path=codex_path, atif_path=atif_path)
+
+    assert report.codex.token_records == 2
+
+
 def test_validate_token_accounting_rejects_incorrect_codex_total(tmp_path: Path) -> None:
     manager, session_dir = _write_session(tmp_path)
     codex_path = tmp_path / "trace.jsonl"

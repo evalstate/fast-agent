@@ -11,6 +11,7 @@ from fast_agent.tools.filesystem_tool_args import (
     is_permission_error,
     permission_denied_message,
 )
+from fast_agent.utils.text import split_lines
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -382,8 +383,8 @@ def _line_range_for_span(contents: str, start: int, end: int) -> tuple[int, int]
 def _unified_diff(display_path: str, original_contents: str, new_contents: str) -> str:
     return "".join(
         difflib.unified_diff(
-            original_contents.splitlines(keepends=True),
-            new_contents.splitlines(keepends=True),
+            split_lines(original_contents, keepends=True),
+            split_lines(new_contents, keepends=True),
             fromfile=f"a/{display_path}",
             tofile=f"b/{display_path}",
         )

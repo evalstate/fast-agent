@@ -8,6 +8,21 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
+def split_lines(text: str, *, keepends: bool = False) -> list[str]:
+    """Split text into lines at ``\\n`` (and ``\\r\\n``) only, like files, JSONL and shells.
+
+    ``str.splitlines()`` also breaks at ``\\v``, ``\\f``, ``\\x1c``-``\\x1e``, ``\\x85``,
+    ``\\u2028`` and ``\\u2029``, which can legitimately appear inside a line.
+    """
+    *lines, last = text.split("\n")
+    split = (
+        [f"{line}\n" for line in lines] if keepends else [line.removesuffix("\r") for line in lines]
+    )
+    if last:
+        split.append(last)
+    return split
+
+
 def collapse_whitespace(value: str | None) -> str:
     return "" if not value else " ".join(value.split())
 

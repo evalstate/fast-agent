@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Literal, TypeAlias
 
 from fast_agent.patch.errors import InvalidHunkError, InvalidPatchError
+from fast_agent.utils.text import split_lines
 
 BEGIN_PATCH_MARKER = "*** Begin Patch"
 END_PATCH_MARKER = "*** End Patch"
@@ -80,7 +81,8 @@ def parse_patch(patch: str) -> ApplyPatchArgs:
 
 
 def parse_patch_text(patch: str, mode: ParseMode) -> ApplyPatchArgs:
-    lines = patch.strip().splitlines()
+    # Split like the engine splits target files, so form feeds etc. stay inside lines.
+    lines = split_lines(patch.strip())
     lines = _check_patch_boundaries(lines, mode)
 
     hunks: list[Hunk] = []

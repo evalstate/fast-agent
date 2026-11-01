@@ -16,6 +16,7 @@ from fast_agent.llm.usage_tracking import UsageReport
 from fast_agent.mcp.prompt_serialization import load_messages
 from fast_agent.session.atif_models import AtifFinalMetrics, AtifMetrics, AtifStep, AtifTrajectory
 from fast_agent.session.snapshot import load_session_snapshot
+from fast_agent.utils.text import split_lines
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -262,7 +263,7 @@ def validate_session(session_dir: Path) -> tuple[SessionReport, list[UsageSignat
 def _codex_records(path: Path) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = split_lines(path.read_text(encoding="utf-8"))
     except OSError as exc:
         raise ArtifactValidationError(f"failed to read {path}: {exc}") from exc
     for line_number, line in enumerate(lines, start=1):

@@ -37,6 +37,7 @@ from fast_agent.tools.filesystem_tool_args import (
     parse_write_text_file_arguments,
     permission_denied_message,
 )
+from fast_agent.utils.text import split_lines
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -122,7 +123,7 @@ class LocalFilesystemRuntime(FilesystemRuntimeBase):
             return text_result(f"Error reading file: {exc}", is_error=True)
 
         if parsed.line is not None or parsed.limit is not None:
-            lines = content.splitlines()
+            lines = split_lines(content)
             start_index = (parsed.line - 1) if parsed.line is not None else 0
             end_index = start_index + parsed.limit if parsed.limit is not None else None
             content = "\n".join(lines[start_index:end_index])
