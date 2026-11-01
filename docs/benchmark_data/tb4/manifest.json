@@ -990,10 +990,13 @@
       }
     },
     {
-      "id": "tb4-claude-code-glm-5-3-flash-none",
+      "id": "tb4-claude-code-glm-5-3-flash-max",
       "harness": "Claude Code",
       "model": "GLM-5.3-Flash",
-      "effort": "none",
+      "effort": "max",
+      "notes": [
+        "The leaderboard lists reasoning effort \"none\": Claude Code set no effort (z-ai/glm-5.3-flash through OpenRouter), and GLM-5.3-Flash always reasons, defaulting to max."
+      ],
       "timeout": "standard",
       "leaderboard_row": "ac7be218-79b6-464e-8861-9b5a7f760cb8",
       "expected": {
@@ -1055,6 +1058,43 @@
       },
       "scan": true,
       "scan_task_subset": "subset.json"
+    },
+    {
+      "id": "tb4-terra61-medium",
+      "harness": "fast-agent",
+      "model": "GPT-6.1 Terra",
+      "effort": "medium",
+      "model_string": "responses.gpt-6.1-terra?reasoning=medium&service_tier=flex",
+      "date": "2026-10-27",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-terra61-medium",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-terra61-medium-flex-r1 (cohort tb4-terra61-medium-flex-ptc-001)"
+      },
+      "expected": {
+        "passes": 39
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.14 (453cc3b) decided every behavioural check on every trial; no check needed an image transcription, and no trial has a finding at medium or above.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+        "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor 271f0a31, with the published fast-agent-mcp[ptc] 0.10.48 wheel, programmatic tool calling on (code-only); GPT-6.1 Terra (medium reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "One photonic-waveguide-routing trial ended with VerifierTimeoutError and scores 0 (left as run).",
+        "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-10-26.1, rules gpt-6.1-terra-flex-short / -long: $0.50 / $0.025 / $0.625 / $2.50 per million input / cached / cache-write / output tokens; $1 / $0.05 / $1.25 / $3.75 above 272k context). Flex is an optional OpenAI service tier at exactly half the standard rates on every band, so the same usage at standard rates costs twice as much. Six trials have model calls that reported no usage, so the total is a lower bound."
+      ],
+      "scan": true
     }
   ]
 }

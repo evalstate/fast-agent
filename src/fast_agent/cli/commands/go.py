@@ -384,6 +384,7 @@ def go(
     no_shell: bool = CommonAgentOptions.no_shell(),
     subagents: bool | None = CommonAgentOptions.subagents(),
     subagent_model: str | None = CommonAgentOptions.subagent_model(),
+    ptc: bool = CommonAgentOptions.ptc(),
     reload: bool = typer.Option(
         False,
         "--reload",
@@ -557,6 +558,7 @@ def go(
         no_shell=no_shell,
         subagents=subagents,
         subagent_model=subagent_model,
+        ptc=ptc,
         mode="interactive",
         instance_scope="shared",
         reload=reload,

@@ -1,6 +1,6 @@
 {
  "format": "fast-agent-moments/1",
- "run": "tb4-claude-code-glm-5-3-flash-none",
+ "run": "tb4-claude-code-glm-5-3-flash-max",
  "scanner_version": "0.8.14",
  "note": "Masked excerpts (best effort) from atif-scan's highlight export: said / ran / got at each finding.",
  "cards": [],

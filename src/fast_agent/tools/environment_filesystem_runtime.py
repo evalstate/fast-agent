@@ -7,14 +7,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlparse
 
-from fast_agent.mcp.mime_utils import is_image_mime_type
-from fast_agent.mcp.tool_result_metadata import set_tool_result_media_preview
 from fast_agent.patch.errors import ApplyPatchError, InvalidHunkError, InvalidPatchError
 from fast_agent.patch.parser import parse_patch
 from fast_agent.tools.apply_patch_tool import extract_apply_patch_input
 from fast_agent.tools.attach_media import (
     DEFAULT_ATTACH_MEDIA_MAX_BYTES,
-    attach_media_staging_message,
+    attach_media_tool_result,
     attachment_uri,
     build_attach_media_from_bytes,
     build_attach_media_link,
@@ -48,6 +46,11 @@ if TYPE_CHECKING:
 
 class EnvironmentFilesystemRuntime(FilesystemRuntimeBase):
     """Expose existing LLM filesystem tools against an environment filesystem."""
+
+    @property
+    def filesystem(self) -> EnvironmentFilesystem:
+        """The filesystem owning this runtime's paths."""
+        return self._filesystem
 
     def __init__(
         self,
@@ -114,7 +117,6 @@ class EnvironmentFilesystemRuntime(FilesystemRuntimeBase):
     async def attach_media(
         self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
     ) -> CallToolResult:
-        del tool_use_id
         if not isinstance(self._filesystem, EnvironmentFilesystemWithBytes):
             return text_result(
                 "Error: attach_media is not available for this environment filesystem",
@@ -148,13 +150,7 @@ class EnvironmentFilesystemRuntime(FilesystemRuntimeBase):
             return text_result(str(exc), is_error=True)
 
         self._pending_media_attachments.append(attached.block)
-        result = text_result(
-            attach_media_staging_message(attached),
-            is_error=False,
-        )
-        if is_image_mime_type(attached.mime_type):
-            set_tool_result_media_preview(result, [attached.block])
-        return result
+        return attach_media_tool_result(attached, tool_use_id=tool_use_id)
 
     async def edit_file(
         self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None

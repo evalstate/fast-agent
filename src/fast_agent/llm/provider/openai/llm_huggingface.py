@@ -169,6 +169,10 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
             spec=spec,
         )
 
+    def _preserves_raw_reasoning_history(self, model: str) -> bool:
+        profile = self._route_profile(model)
+        return profile is not None and profile.preserve_raw_reasoning
+
     def _should_emit_reasoning_stream(self, reasoning_mode: str | None) -> bool:
         if reasoning_mode not in {"stream", "reasoning_content", "tags", "gpt_oss"}:
             return True

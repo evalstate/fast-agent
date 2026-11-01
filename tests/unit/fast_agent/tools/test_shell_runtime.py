@@ -517,6 +517,28 @@ def _parse_poll(runtime: ShellRuntime, arguments: dict[str, Any]):
     )
 
 
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+def test_shell_runtime_starts_without_durable_storage_on_non_private_root(
+    tmp_path: Path,
+) -> None:
+    """Filesystems such as exFAT cannot make the process root private (0700)."""
+    from fast_agent.core.logging.logger import get_logger
+
+    root = tmp_path / "processes"
+    root.mkdir(mode=0o755)
+    root.chmod(0o755)
+
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=get_logger(__name__),
+        working_directory=tmp_path,
+        durable_process_root=root,
+    )
+
+    assert runtime.enabled
+    assert runtime.durable_process_root is None
+
+
 def test_shell_output_byte_limit_coerces_invalid_values() -> None:
     logger = logging.getLogger("shell-runtime-test")
     runtime = ShellRuntime(activation_reason="test", logger=logger)

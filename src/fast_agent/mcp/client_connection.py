@@ -44,6 +44,7 @@ from fast_agent.mcp.skills_extension import (
 from fast_agent.mcp.tool_result_metadata import set_url_elicitation_required_payload
 from fast_agent.mcp.uri_security import SANITIZED_INLINE_RESOURCE_URI, is_file_uri
 from fast_agent.mcp.url_elicitation_required import (
+    URLElicitationDisplayItem,
     URLElicitationRequiredDisplayPayload,
     build_url_elicitation_required_display_payload,
 )
@@ -329,29 +330,27 @@ class MCPClientConnection:
         operation: Awaitable[T],
         sanitize: Callable[[T], T],
     ) -> T:
-        self.callbacks.discard_pending_url_elicitations()
-        try:
-            result = sanitize(await self._request(operation))
-        except ServerSessionTerminatedError:
-            self.callbacks.discard_pending_url_elicitations()
-            raise
-        except MCPError as exc:
-            self.callbacks.discard_pending_url_elicitations()
-            if exc.code == URL_ELICITATION_REQUIRED:
-                payload = build_url_elicitation_required_display_payload(
-                    exc.data,
-                    server_name=self.callbacks.display_server_name,
-                    request_method=method,
-                )
-                set_url_elicitation_required_payload(exc, payload)
-            raise
+        with self.callbacks.url_elicitation_scope() as scope:
+            try:
+                result = sanitize(await self._request(operation))
+            except MCPError as exc:
+                if exc.code == URL_ELICITATION_REQUIRED:
+                    payload = build_url_elicitation_required_display_payload(
+                        exc.data,
+                        server_name=self.callbacks.display_server_name,
+                        request_method=method,
+                    )
+                    set_url_elicitation_required_payload(exc, payload)
+                raise
+            items = self.callbacks.consume_url_elicitations(scope)
 
-        self._attach_pending_url_elicitations(result, method)
+        self._attach_pending_url_elicitations(result, method, items)
         self._attach_url_elicitation_result(result, method)
         return result
 
-    def _attach_pending_url_elicitations(self, result: object, method: str) -> None:
-        items = self.callbacks.consume_pending_url_elicitations()
+    def _attach_pending_url_elicitations(
+        self, result: object, method: str, items: list[URLElicitationDisplayItem]
+    ) -> None:
         if not items:
             return
         payload = URLElicitationRequiredDisplayPayload(

@@ -193,7 +193,7 @@ class ScopedAgentInstancePool:
         try:
             await self._instance_factory.dispose_instance(instance)
         except Exception:
-            logger.exception("Agent instance disposal failed during %s", phase)
+            logger.exception(f"Agent instance disposal failed during {phase}")
 
     async def shutdown(self) -> None:
         await self.dispose_all_connection_instances()

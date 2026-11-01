@@ -240,6 +240,12 @@ with excluded trials, the other scan totals still include them (e.g. 446 trials)
 runs report the review, evidence and trial counts over the reported trials (`scan.scope`);
 finding tallies still include scanned replaced originals.
 
+`scan.lures` (atif-scan 0.8.10+) is the install-lure ladder over the same trials as
+`scan.cells`: each trial counted once at the furthest rung it reached (surfaced,
+instructions, pursued, followed), with the trials themselves and a trace link in
+`attempts`. The run page's Install Lures panel shows it, or says the run's scan predates
+the checks. Older scans have no `lures` block; a rescan at 0.8.10+ adds it.
+
 The Evidence panel adds two figures from the scan's own token and walltime totals (one
 population, the scanned trials): **cache hit rate**, cached input tokens over all input
 tokens, and **output speed**, output tokens over summed agent time. Agent time includes

@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import base64
 
-from mcp_types import BlobResourceContents, ReadResourceResult, TextResourceContents
+from fastmcp.tools import ToolResult
+from mcp_types import (
+    BlobResourceContents,
+    ContentBlock,
+    ImageContent,
+    ReadResourceResult,
+    TextResourceContents,
+)
 
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.commands.harness import execute_harness_command
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.internal_resources import read_internal_resource
-from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.helpers.content_helpers import get_text, text_content
+from fast_agent.mcp.mime_utils import is_image_mime_type
 from fast_agent.tools.function_tool_loader import build_default_function_tool
 
 SLASH_COMMAND_TOOL_NAME = "slash_command"
@@ -22,11 +30,23 @@ HARNESS_TOOL_METADATA = {
         "inherit_to_clone": False,
     }
 }
+# slash_command is control plane: it can change the agent's own tools, which programmatic tool
+# calling code cannot see until its next run, so it stays directly callable under PTC.
+_SLASH_COMMAND_METADATA = {
+    "fast_agent": {
+        **HARNESS_TOOL_METADATA["fast_agent"],
+        "ptc": {"expose": "direct"},
+    }
+}
+_HARNESS_METADATA = {
+    SLASH_COMMAND_TOOL_NAME: _SLASH_COMMAND_METADATA,
+    GET_RESOURCE_TOOL_NAME: HARNESS_TOOL_METADATA,
+}
 
 
 def _is_harness_tool(agent: ToolAgent, name: str) -> bool:
     tool = agent._execution_tools.get(name)
-    return tool is not None and tool.meta == HARNESS_TOOL_METADATA
+    return tool is not None and tool.meta == _HARNESS_METADATA[name]
 
 
 def harness_tools_enabled(agent: object) -> bool:
@@ -58,11 +78,34 @@ def _resource_text(result: ReadResourceResult, *, max_chars: int = 4000) -> str:
     return rendered if len(rendered) <= max_chars else rendered[: max_chars - 1] + "…\n[truncated]"
 
 
-async def _read_resource(agent: ToolAgent, uri: str, server_name: str | None = None) -> str:
+def _resource_content(result: ReadResourceResult) -> list[ContentBlock]:
+    """Return images as viewable media and everything else as a bounded text rendering."""
+    images: list[ContentBlock] = []
+    others: list[TextResourceContents | BlobResourceContents] = []
+    for content in result.contents:
+        mime_type = content.mime_type
+        if (
+            isinstance(content, BlobResourceContents)
+            and mime_type is not None
+            and is_image_mime_type(mime_type)
+        ):
+            images.append(text_content(f"Image resource {content.uri} ({mime_type}):"))
+            images.append(ImageContent(type="image", data=content.blob, mime_type=mime_type))
+        else:
+            others.append(content)
+    if not others:
+        return images
+    rest = result.model_copy(update={"contents": others})
+    return [text_content(_resource_text(rest)), *images]
+
+
+async def _read_resource(
+    agent: ToolAgent, uri: str, server_name: str | None = None
+) -> list[ContentBlock]:
     if uri.startswith("internal://"):
-        return read_internal_resource(uri)
+        return [text_content(read_internal_resource(uri))]
     result = await agent.get_resource(resource_uri=uri, namespace=server_name)
-    return _resource_text(result)
+    return _resource_content(result)
 
 
 def set_harness_tools(agent: object, enabled: bool | None = None) -> bool:
@@ -81,7 +124,7 @@ def set_harness_tools(agent: object, enabled: bool | None = None) -> bool:
 
     for name in HARNESS_TOOL_NAMES:
         existing = agent._execution_tools.get(name)
-        if existing is not None and existing.meta != HARNESS_TOOL_METADATA:
+        if existing is not None and not _is_harness_tool(agent, name):
             raise AgentConfigError(f"Tool name '{name}' is reserved by fast-agent")
 
     agent.config.harness_tools = True
@@ -94,8 +137,8 @@ def set_harness_tools(agent: object, enabled: bool | None = None) -> bool:
             skill_source_overrides=skill_source_overrides,
         )
 
-    async def get_resource(uri: str, server_name: str | None = None) -> str:
-        return await _read_resource(agent, uri, server_name)
+    async def get_resource(uri: str, server_name: str | None = None) -> ToolResult:
+        return ToolResult(content=await _read_resource(agent, uri, server_name))
 
     if not _is_harness_tool(agent, SLASH_COMMAND_TOOL_NAME):
         agent.add_tool(
@@ -108,7 +151,7 @@ def set_harness_tools(agent: object, enabled: bool | None = None) -> bool:
                     "Use `/commands` for help or `/commands --json` for the machine-readable "
                     "command surface."
                 ),
-                metadata=HARNESS_TOOL_METADATA,
+                metadata=_SLASH_COMMAND_METADATA,
             )
         )
     if not _is_harness_tool(agent, GET_RESOURCE_TOOL_NAME):
@@ -117,7 +160,8 @@ def set_harness_tools(agent: object, enabled: bool | None = None) -> bool:
                 get_resource,
                 name=GET_RESOURCE_TOOL_NAME,
                 description=(
-                    "Read a bundled `internal://` resource or an attached MCP resource by URI."
+                    "Read a bundled `internal://` resource or an attached MCP resource by URI. "
+                    "Image resources are returned as images."
                 ),
                 metadata=HARNESS_TOOL_METADATA,
             )

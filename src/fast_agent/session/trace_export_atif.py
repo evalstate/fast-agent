@@ -19,6 +19,7 @@ from fast_agent.constants import (
     FAST_AGENT_PENDING_MEDIA_ATTACHMENTS,
     FAST_AGENT_PROCESS_POLL_FOLD,
     FAST_AGENT_PROVIDER_ERROR,
+    FAST_AGENT_PTC_CALLS,
     FAST_AGENT_RETRY,
     FAST_AGENT_SHELL_PROCESS_METADATA,
     FAST_AGENT_SUBAGENT_RESULT_METADATA,
@@ -68,6 +69,7 @@ from fast_agent.session.atif_models import (
 )
 from fast_agent.session.snapshot import load_session_snapshot
 from fast_agent.session.trace_export_models import ExportResult
+from fast_agent.tools.invocation_context import outer_tool_call_id
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -343,6 +345,10 @@ def _tool_result_extra(
     metadata = (_json_channel_mapping(message, FAST_AGENT_TOOL_METADATA) or {}).get(call_id)
     if isinstance(metadata, dict):
         extra["tool_metadata"] = metadata
+    ptc_calls = (result.meta or {}).get(FAST_AGENT_PTC_CALLS)
+    if isinstance(ptc_calls, list):
+        extra["ptc_calls"] = ptc_calls
+        extra["ptc_calls_schema"] = "fast-agent.ptc-calls/v1"
     subagent_metadata = (result.meta or {}).get(FAST_AGENT_SUBAGENT_RESULT_METADATA)
     if isinstance(subagent_metadata, dict):
         label = subagent_metadata.get("label")
@@ -1224,6 +1230,10 @@ def _embed_subagent_trajectories(
         call.tool_call_id for step in root.steps for call in (step.tool_calls or ())
     }
 
+    def _is_exported(parent_call_id: str) -> bool:
+        # Children of calls made from PTC code hang off the exported execute_python call.
+        return outer_tool_call_id(parent_call_id) in exported_call_ids
+
     parent_session_dir = source.parent_session_dir
     if parent_session_dir is not None:
         children_dir = parent_session_dir / "children"
@@ -1235,17 +1245,17 @@ def _embed_subagent_trajectories(
                 if child.session_id in embedded_session_ids:
                     continue
                 parent_call_id = _child_parent_call_id(child)
-                if parent_call_id is not None and parent_call_id not in exported_call_ids:
+                if parent_call_id is not None and not _is_exported(parent_call_id):
                     continue
                 embedded.append(child)
                 embedded_session_ids.add(child.session_id)
                 if parent_call_id is not None:
                     embedded_call_ids.add(parent_call_id)
-                    _attach_subagent_ref(root, parent_call_id, child)
+                    _attach_subagent_ref(root, outer_tool_call_id(parent_call_id), child)
 
     for record in source.transient_child_trajectories:
         parent_call_id = record.parent_tool_call_id
-        if parent_call_id is not None and parent_call_id not in exported_call_ids:
+        if parent_call_id is not None and not _is_exported(parent_call_id):
             continue
         if parent_call_id is not None and parent_call_id in embedded_call_ids:
             continue
@@ -1253,7 +1263,7 @@ def _embed_subagent_trajectories(
         embedded.append(child)
         if parent_call_id is not None:
             embedded_call_ids.add(parent_call_id)
-            _attach_subagent_ref(root, parent_call_id, child)
+            _attach_subagent_ref(root, outer_tool_call_id(parent_call_id), child)
 
     directory = source.child_trajectory_dir
     if directory is None and parent_session_dir is not None:
@@ -1273,7 +1283,7 @@ def _embed_subagent_trajectories(
             continue
         parent_call_id = payload.get("parent_tool_call_id")
         child_session_id = payload.get("child_session_id")
-        if isinstance(parent_call_id, str) and parent_call_id not in exported_call_ids:
+        if isinstance(parent_call_id, str) and not _is_exported(parent_call_id):
             continue
         if (
             isinstance(child_session_id, str)
@@ -1289,7 +1299,7 @@ def _embed_subagent_trajectories(
         embedded.append(child)
         if isinstance(parent_call_id, str) and child.trajectory_id is not None:
             embedded_call_ids.add(parent_call_id)
-            _attach_subagent_ref(root, parent_call_id, child)
+            _attach_subagent_ref(root, outer_tool_call_id(parent_call_id), child)
     if embedded:
         root.subagent_trajectories = embedded
         _include_subagent_metrics(root, embedded)
@@ -1821,6 +1831,14 @@ def _sanitize_trajectory(
         for result in step.observation.results if step.observation else []:
             if result.content is not None:
                 result.content = _sanitize_content(result.content, sanitizer, redactions)
+            ptc_calls = (result.extra or {}).get("ptc_calls")
+            if result.extra is not None and isinstance(ptc_calls, list):
+                result.extra["ptc_calls"] = [
+                    {**call, "arguments": _sanitize_value(call["arguments"], sanitizer, redactions)}
+                    if isinstance(call, dict) and "arguments" in call
+                    else call
+                    for call in ptc_calls
+                ]
     for child in trajectory.subagent_trajectories or []:
         child_summary = _sanitize_trajectory(child, sanitizer)
         if child_summary is not None:

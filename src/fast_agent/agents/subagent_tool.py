@@ -34,6 +34,7 @@ from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.constants import (
     BUILTIN_SUBAGENT_TOOL_NAME,
+    FAST_AGENT_PTC_VALUE,
     FAST_AGENT_SUBAGENT_RESULT_METADATA,
 )
 from fast_agent.core.exceptions import AgentConfigError
@@ -53,7 +54,10 @@ from fast_agent.session import (
 from fast_agent.session.history_agent import HistoryAgent
 from fast_agent.session.subagent_runs import SUBAGENT_ALIAS_KEY, SUBAGENT_ORDINAL_KEY
 from fast_agent.tools.function_tool_loader import build_default_function_tool
-from fast_agent.tools.invocation_context import get_local_tool_invocation_context
+from fast_agent.tools.invocation_context import (
+    get_local_tool_invocation_context,
+    is_programmatic_tool_call,
+)
 from fast_agent.ui.display_suppression import suppress_interactive_display
 
 if TYPE_CHECKING:
@@ -67,7 +71,25 @@ if TYPE_CHECKING:
     from fast_agent.types import PromptMessageExtended
 
 SUBAGENT_TOOL_NAME = BUILTIN_SUBAGENT_TOOL_NAME
-SUBAGENT_TOOL_METADATA = {"fast_agent": {"builtin": SUBAGENT_TOOL_NAME}}
+# Value programmatic tool calling code receives: the answer and transcript path as fields,
+# rather than the model-facing text with the transcript notice appended.
+_PROGRAM_VALUE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "response": {"type": "string", "description": "The subagent's final answer."},
+        "label": {"type": "string"},
+        "transcript_path": {
+            "type": ["string", "null"],
+            "description": "Temporary file with the complete transcript.",
+        },
+        "session_id": {"type": ["string", "null"]},
+        "model": {"type": ["string", "null"]},
+    },
+    "required": ["response", "label", "transcript_path", "session_id", "model"],
+}
+SUBAGENT_TOOL_METADATA = {
+    "fast_agent": {"builtin": SUBAGENT_TOOL_NAME, "ptc": {"returns": _PROGRAM_VALUE_SCHEMA}}
+}
 logger = get_logger(__name__)
 _SHUTDOWN_TIMEOUT_SECONDS = 10.0
 _FINALIZATION_TIMEOUT_SECONDS = 15.0
@@ -595,24 +617,32 @@ def install_subagent_tool(
             raise cancellation
 
         transcript = finalization_result.transcript
+        result_metadata = _subagent_result_metadata(
+            child_session=child_session,
+            child_name=child_name,
+            child_alias=child_alias,
+            requested_label=label,
+            label=resolved_label,
+            clone=clone,
+            status=status,
+            parent_tool_call_id=parent_tool_call_id,
+            model_source=model_source,
+            transcript=transcript,
+        )
+        meta: dict[str, object] = {FAST_AGENT_SUBAGENT_RESULT_METADATA: result_metadata}
+        if is_programmatic_tool_call(parent_tool_call_id) and not is_error:
+            meta[FAST_AGENT_PTC_VALUE] = {
+                "response": response_text,
+                "label": resolved_label,
+                "transcript_path": result_metadata.get("transcript_path"),
+                "session_id": result_metadata.get("child_session_id"),
+                "model": result_metadata.get("model_spec"),
+            }
         if transcript is not None:
             response_text = f"{response_text}\n\n{transcript.notice}"
         return ToolResult(
             content=[text_content(response_text)],
-            meta={
-                FAST_AGENT_SUBAGENT_RESULT_METADATA: _subagent_result_metadata(
-                    child_session=child_session,
-                    child_name=child_name,
-                    child_alias=child_alias,
-                    requested_label=label,
-                    label=resolved_label,
-                    clone=clone,
-                    status=status,
-                    parent_tool_call_id=parent_tool_call_id,
-                    model_source=model_source,
-                    transcript=transcript,
-                )
-            },
+            meta=meta,
             is_error=is_error,
         )
 

@@ -24,6 +24,7 @@ from fast_agent.constants import (
     FAST_AGENT_RETRY,
 )
 from fast_agent.context import Context
+from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.events import EventFilter
 from fast_agent.core.logging.transport import AsyncEventBus, FileTransport
 from fast_agent.llm.provider.openai.codex_responses import (
@@ -3186,9 +3187,10 @@ async def test_nested_response_failure_persists_code_without_enabling_reconnect(
                 tools=None,
                 model_name="grok-4.3",
             )
-        assert raised.value.error_code is None
+        assert raised.value.error_code == code
         assert raised.value.diagnostic_error_code == code
-        assert str(raised.value) == "WebSocket Responses request failed."
+        assert raised.value.response_failed
+        assert str(raised.value) == "private-error-body"
         await asyncio.sleep(0)
         (failure,) = _persisted_websocket_failures(websocket_failure_log)
         assert failure["error_code"] == persisted_code
@@ -3412,5 +3414,270 @@ async def test_websocket_close_without_completion_persists_safe_v2_fields(
         persisted = websocket_failure_log.read_text()
         for private in ("private-", "abc123", "X-Request-Id", "Copilot"):
             assert private not in persisted
+    finally:
+        await llm.close()
+
+
+class _FailureFramesHarness(ResponsesLLM):
+    """Real Responses stream/retry path with an in-memory WebSocket peer."""
+
+    def __init__(self, frames: list[dict[str, Any]], *, transport: str = "websocket") -> None:
+        super().__init__(
+            context=Context(config=Settings()),
+            model="gpt-test",
+            transport=transport,
+        )
+        self.frames = frames
+        self.sockets: list[_FakeWebSocket] = []
+        self.retry_count = 3
+        self.retry_backoff_seconds = 0
+
+    def _responses_client(self) -> Any:
+        return _FakeResponsesClient()
+
+    def _build_websocket_headers(self) -> dict[str, str]:
+        return {}
+
+    async def _create_websocket_connection(
+        self,
+        url: str,
+        headers: dict[str, str],
+        timeout_seconds: float | None,
+    ) -> ManagedWebSocketConnection:
+        socket = _FakeWebSocket([_ws_event(frame) for frame in self.frames])
+        self.sockets.append(socket)
+        return ManagedWebSocketConnection(session=_FakeSession(), websocket=socket)
+
+
+def _failure_frame(code: str | None, message: str, *, nested: bool) -> dict[str, Any]:
+    error = {"code": code, "message": message}
+    if nested:
+        return {"type": "response.failed", "response": {"error": error}}
+    return {"type": "error", "error": error}
+
+
+def _channel_payload(message: PromptMessageExtended, name: str) -> dict[str, Any]:
+    block = (message.channels or {})[name][0]
+    assert isinstance(block, TextContent)
+    payload = json.loads(block.text)
+    assert isinstance(payload, dict)
+    return payload
+
+
+async def _generate_and_persist_failure(
+    llm: ResponsesLLM,
+    path: Path,
+    *,
+    attempts: int,
+    stop_reason: LlmStopReason,
+) -> PromptMessageExtended:
+    from fast_agent.agents.agent_types import AgentConfig
+    from fast_agent.agents.tool_agent import ToolAgent
+    from fast_agent.mcp.prompt_serialization import load_messages, save_messages
+    from fast_agent.session.trace_export_atif import AtifRunSource, build_atif_trajectory
+
+    agent = ToolAgent(AgentConfig("failure-regression"), [])
+    agent._llm = llm
+    result = await agent.generate("Synthetic request", RequestParams(max_iterations=1))
+    assert result.stop_reason == stop_reason
+    assert [message.role for message in agent.message_history] == ["user", "assistant"]
+    save_messages(agent.message_history, str(path))
+    history = load_messages(str(path))
+    response = history[-1]
+    assert response.stop_reason == stop_reason
+    assert FAST_AGENT_ERROR_CHANNEL in (response.channels or {})
+    if attempts > 1:
+        retry = _channel_payload(response, FAST_AGENT_RETRY)
+        assert retry["provider_attempts"] == attempts
+        assert len(retry["retries"]) == attempts - 1
+        assert [r["attempt"] for r in retry["retries"]] == list(range(1, attempts))
+        assert all(r["boundary"]["kind"] == "user_message" for r in retry["retries"])
+    else:
+        assert FAST_AGENT_RETRY not in (response.channels or {})
+
+    trajectory = build_atif_trajectory(
+        AtifRunSource(
+            session_id="synthetic",
+            agent_name=agent.name,
+            model_name="gpt-test",
+            provider="responses",
+            history=history,
+            message_timestamps=tuple(None for _ in history),
+        )
+    )
+    metrics = trajectory.final_metrics
+    assert metrics is not None
+    assert sum(step.llm_call_count or 0 for step in trajectory.steps) == attempts
+    assert metrics.extra is not None
+    assert metrics.extra["accounting"]["provider_usage_complete"] is False
+    return response
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("nested", [False, True])
+async def test_exhausted_websocket_failure_survives_history_and_export(
+    tmp_path: Path, nested: bool
+) -> None:
+    llm = _FailureFramesHarness(
+        [_failure_frame("server_error", "Synthetic provider unavailable", nested=nested)]
+    )
+    try:
+        response = await _generate_and_persist_failure(
+            llm, tmp_path / "history.json", attempts=4, stop_reason=LlmStopReason.ERROR
+        )
+        assert len(llm.sockets) == 4
+        assert all(len(socket.sent_payloads) == 1 for socket in llm.sockets)
+        assert all(socket.closed for socket in llm.sockets)
+        (detail,) = (response.channels or {})[FAST_AGENT_ERROR_CHANNEL]
+        assert isinstance(detail, TextContent)
+        assert "Synthetic provider unavailable" in detail.text
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [TimeoutError("Synthetic start timeout"), StreamIdleTimeoutError(0.1, events_received=2)],
+)
+async def test_exhausted_responses_timeout_survives_history_and_export(
+    tmp_path: Path, error: Exception
+) -> None:
+    llm = _TransportHarness(transport="sse", context=Context(config=Settings()))
+    llm.retry_count = 3
+    llm.retry_backoff_seconds = 0
+    llm.sse_errors = [error] * 4
+    try:
+        await _generate_and_persist_failure(
+            llm, tmp_path / "history.json", attempts=4, stop_reason=LlmStopReason.ERROR
+        )
+        assert llm.sse_calls == 4
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("code", ["cyber_policy", None])
+async def test_websocket_policy_refusal_is_not_reconnected_retried_or_fallen_back(
+    tmp_path: Path, nested: bool, code: str | None
+) -> None:
+    from fast_agent.constants import FAST_AGENT_PROVIDER_ERROR
+
+    detail = (
+        "Synthetic request denied by provider."
+        if code
+        else "This content was flagged for possible cybersecurity risk."
+    )
+    frame = _failure_frame(code, detail, nested=nested)
+    frame["status"] = 400
+    llm = _FailureFramesHarness([frame], transport="auto")
+    # Exercise the reused-socket recovery branch without sending a model request.
+    connection, reusable = await llm._ws_connections.acquire(
+        lambda: llm._create_websocket_connection("wss://example.invalid", {}, None),
+        reuse_key=websocket_reuse_key(resolve_responses_ws_url(llm._base_responses_url()), {}),
+    )
+    await llm._ws_connections.release(connection, reusable=reusable, keep=True)
+    try:
+        response = await _generate_and_persist_failure(
+            llm, tmp_path / "history.json", attempts=1, stop_reason=LlmStopReason.SAFETY
+        )
+        assert len(llm.sockets) == 1
+        assert len(llm.sockets[0].sent_payloads) == 1
+        (error_block,) = (response.channels or {})[FAST_AGENT_ERROR_CHANNEL]
+        assert isinstance(error_block, TextContent)
+        assert detail in error_block.text
+        metadata = _channel_payload(response, FAST_AGENT_PROVIDER_ERROR)
+        assert metadata["policy_code"] == "cyber_policy"
+        assert metadata["error_type"] == "ResponsesWebSocketError"
+        assert metadata["status"] == 400
+        if code:
+            assert metadata["code"] == code
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_request", [False, True])
+async def test_api_policy_refusal_precedes_fatal_bad_request_and_is_persisted(
+    tmp_path: Path, bad_request: bool
+) -> None:
+    import httpx2
+    from openai import APIError, BadRequestError
+
+    request = httpx2.Request("POST", "https://example.invalid/responses")
+    body = {"code": "cyber_policy"}
+    error = (
+        BadRequestError(
+            "Synthetic policy refusal", response=httpx2.Response(400, request=request), body=body
+        )
+        if bad_request
+        else APIError("Synthetic policy refusal", request, body=body)
+    )
+    llm = _TransportHarness(transport="sse", context=Context(config=Settings()))
+    llm.retry_count = 3
+    llm.retry_backoff_seconds = 0
+    llm.sse_errors = [error] * 4
+    try:
+        await _generate_and_persist_failure(
+            llm, tmp_path / "history.json", attempts=1, stop_reason=LlmStopReason.SAFETY
+        )
+        assert llm.sse_calls == 1
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [
+        ResponsesWebSocketError("Synthetic context overflow", error_code="context_length_exceeded"),
+        ResponsesWebSocketError("Synthetic invalid request", status=400),
+        ModelConfigError("Synthetic invalid configuration"),
+    ],
+)
+async def test_fatal_responses_errors_still_raise_without_retry(error: Exception) -> None:
+    llm = _TransportHarness(transport="sse", context=Context(config=Settings()))
+    llm.retry_count = 3
+    llm.sse_errors = [error] * 4
+    try:
+        with pytest.raises(type(error)):
+            await llm.generate([Prompt.user("Synthetic request")])
+        assert llm.sse_calls == 1
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+async def test_responses_does_not_convert_programming_errors_to_provider_responses() -> None:
+    llm = _TransportHarness(transport="sse", context=Context(config=Settings()))
+    llm.retry_count = 0
+    llm.sse_errors = [TypeError("Synthetic programming error")]
+    try:
+        with pytest.raises(TypeError, match="Synthetic programming error"):
+            await llm.generate([Prompt.user("Synthetic request")])
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("code", "message"),
+    [
+        ("server_error", "Cybersecurity content processing timed out."),
+        (None, "Unable to parse cybersecurity content."),
+        ("server_error", "This content was flagged for possible cybersecurity risk."),
+    ],
+)
+async def test_security_terms_do_not_turn_transport_or_content_errors_into_refusals(
+    tmp_path: Path, code: str | None, message: str
+) -> None:
+    llm = _FailureFramesHarness([_failure_frame(code, message, nested=True)])
+    llm.retry_count = 1
+    try:
+        await _generate_and_persist_failure(
+            llm, tmp_path / "history.json", attempts=2, stop_reason=LlmStopReason.ERROR
+        )
+        assert len(llm.sockets) == 2
     finally:
         await llm.close()

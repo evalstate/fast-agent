@@ -27,7 +27,54 @@ fast-agent --model hf.moonshotai/kimi-k2-instruct-0905:groq
 fast-agent --model "hf.moonshotai/Kimi-K2.6:novita?reasoning=on"
 ```
 
-Curated aliases such as `kimi`, `deepseek-hf`, `glm`, and `minimax` include provider choices and request defaults tested with fast-agent features such as structured outputs and tool use. Capability can still vary by backing provider.
+Curated aliases such as `kimi`, `deepseek-hf`, `glm`, and `minimax` include provider choices and request defaults. Capabilities and supported parameters vary by backing provider; see the route-specific notes below.
+
+## GLM-5.3 and GLM-5.3-Flash
+
+`glm` and `glm53` select `hf.zai-org/GLM-5.3:zai-org`; `glm53flash` selects
+`hf.zai-org/GLM-5.3-Flash:zai-org`. The HF picker offers both models through
+Together, Novita, and Z.ai, replacing its GLM-5.2 entries:
+
+| Picker alias | Route |
+| --- | --- |
+| `GLM 5.3 (together)` | `hf.zai-org/GLM-5.3:together` |
+| `GLM 5.3 (novita)` | `hf.zai-org/GLM-5.3:novita` |
+| `GLM 5.3 (zai-org)` | `hf.zai-org/GLM-5.3:zai-org` |
+| `GLM 5.3 Flash (together)` | `hf.zai-org/GLM-5.3-Flash:together` |
+| `GLM 5.3 Flash (novita)` | `hf.zai-org/GLM-5.3-Flash:novita` |
+| `GLM 5.3 Flash (zai-org)` | `hf.zai-org/GLM-5.3-Flash:zai-org` |
+
+The explicit `glm52` and `GLM 5.2 (zai-org)`, `GLM 5.2 (fireworks-ai)`, and
+`GLM 5.2 (deepinfra)` aliases remain available. For the native provider, see
+[Z.ai](zai.md).
+
+```bash
+fast-agent --model glm
+fast-agent --model "glm53flash?reasoning=low"
+fast-agent --model "hf.zai-org/GLM-5.3:together?reasoning=high"
+fast-agent --model "hf.zai-org/GLM-5.3-Flash:novita?reasoning=max"
+```
+
+Reasoning is always on, with `low`, `high`, and `max` effort levels (default
+`max`). `minimal` maps to `low` and `medium` to `high`; requests to disable
+reasoning are ignored with a warning. Each route sends top-level
+`reasoning_effort`, plus backend-specific preserved-thinking controls:
+
+| Backend | Additional request fields |
+| --- | --- |
+| Together | `chat_template_kwargs.clear_thinking: false` ([guide](https://docs.together.ai/docs/glm-5.3-quickstart)) |
+| Novita | None ([model page](https://novita.ai/models/model-detail/zai-org-glm-5.3)) |
+| Z.ai (`zai-org`) | `thinking: {type: enabled, clear_thinking: false}` ([thinking guide](https://docs.z.ai/guides/capabilities/thinking-mode)) |
+
+Streamed reasoning is preserved exactly and replayed as `reasoning_content` on
+later turns and tool-result continuations.
+
+Structured output uses JSON object mode with schema instructions and
+fast-agent validation, not strict `json_schema` mode.
+
+[GLM-5.3](https://huggingface.co/zai-org/GLM-5.3) is text-only.
+[GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash) accepts text and
+images through HF; native Z.ai PDF/MOV support is not available on HF routes.
 
 ## DeepSeek V4.1 Flash
 

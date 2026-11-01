@@ -2,6 +2,7 @@
 | --- | --- | --- |
 | `gpt-6-astra` | `responses.gpt-6-astra?reasoning=medium` | — |
 | `gpt-6.1-sol` | `responses.gpt-6.1-sol?reasoning=medium` | — |
+| `gpt-6.1-terra` | `responses.gpt-6.1-terra?reasoning=medium` | Fast |
 | `gpt-6-sol` | `responses.gpt-6-sol?reasoning=medium` | — |
 | `gpt-6-luna` | `responses.gpt-6-luna?reasoning=medium` | Fast |
 | `gpt-5.6-sol` | `responses.gpt-5.6-sol?reasoning=medium` | — |

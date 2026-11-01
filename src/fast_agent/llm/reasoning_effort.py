@@ -48,6 +48,7 @@ FALSE_VALUES: Final[frozenset[str]] = FALSE_ACTION_ALIASES
 _EFFORT_LEVEL_SET: Final[frozenset[str]] = frozenset(EFFORT_LEVELS)
 _EFFORT_NORMALIZATION_ALIASES: Final[dict[ReasoningEffortLevel, ReasoningEffortLevel]] = {
     "minimal": "low",
+    "medium": "high",
     "xhigh": "max",
     "max": "xhigh",
 }

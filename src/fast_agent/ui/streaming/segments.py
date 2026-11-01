@@ -479,6 +479,15 @@ class ToolStreamState:
         preview_spec = _tool_code_preview_spec(self.tool_metadata)
         if preview_spec is None:
             return None
+        if preview_spec.raw_input:
+            if not self.raw_text:
+                return None
+            return ToolCodePreview(
+                code=self.raw_text,
+                language=preview_spec.language,
+                complete=self.completed,
+                variant=preview_spec.variant,
+            )
         extracted = extract_partial_json_string_field(
             self.raw_text,
             field_name=preview_spec.field_name,
@@ -817,6 +826,8 @@ class ToolCodePreviewSpec:
     field_name: str
     language: str
     variant: Literal["code", "shell"]
+    raw_input: bool = False
+    """The streamed tool input is the code itself (a freeform tool), not JSON arguments."""
 
 
 def _tool_code_preview_spec(metadata: Mapping[str, Any] | None) -> ToolCodePreviewSpec | None:
@@ -841,7 +852,12 @@ def _tool_code_preview_spec(metadata: Mapping[str, Any] | None) -> ToolCodePrevi
         return None
     if not isinstance(language, str) or not language:
         return None
-    return ToolCodePreviewSpec(field_name=code_arg, language=language, variant=variant)
+    return ToolCodePreviewSpec(
+        field_name=code_arg,
+        language=language,
+        variant=variant,
+        raw_input=metadata.get("code_format") == "raw",
+    )
 
 
 def _decode_json_string_at(raw_text: str, start_index: int) -> tuple[str, int, bool]:

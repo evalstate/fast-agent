@@ -122,7 +122,8 @@ def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() ->
         "luna": "codexresponses.gpt-6-luna?reasoning=high",
         "sol56": "codexresponses.gpt-5.6-sol?reasoning=high",
         "luna56": "codexresponses.gpt-5.6-luna?reasoning=medium",
-        "terra": "codexresponses.gpt-5.6-terra?reasoning=high",
+        "terra": "codexresponses.gpt-6.1-terra?reasoning=high",
+        "terra56": "codexresponses.gpt-5.6-terra?reasoning=high",
         "codexplan": "codexresponses.gpt-6-astra?reasoning=high",
     }
     entries = {
@@ -145,6 +146,7 @@ def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() ->
     [
         ("astra", "gpt-6-astra", "high"),
         ("sol", "gpt-6.1-sol", "high"),
+        ("terra", "gpt-6.1-terra", "high"),
         ("sol6", "gpt-6-sol", "medium"),
         ("luna", "gpt-6-luna", "high"),
     ],

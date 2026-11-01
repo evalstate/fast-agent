@@ -18,6 +18,7 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import SessionManager
 from fast_agent.session import session_manager as session_manager_module
+from fast_agent.session.snapshot import SESSION_SNAPSHOT_SCHEMA_VERSION
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
@@ -109,7 +110,7 @@ async def test_acp_prompt_saves_session_history(
     session_meta_path = session_dir / "session.json"
     assert session_meta_path.exists()
     metadata = json.loads(session_meta_path.read_text())
-    assert metadata["schema_version"] == 5
+    assert metadata["schema_version"] == SESSION_SNAPSHOT_SCHEMA_VERSION
     active_agent = metadata["continuation"]["active_agent"]
     assert isinstance(active_agent, str)
     assert active_agent

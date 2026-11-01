@@ -60,6 +60,8 @@ Classify this record:
 {{row_json}}
 ```
 
+The `row_json` placeholder is reserved for the complete row, even when an input column has that name. The column's value remains present inside that JSON object.
+
 For CSV input, all values are strings because they come from CSV fields. JSONL preserves the JSON value types. Parquet scalar values are normalized for JSON output and templates; dates/times become ISO strings, decimals become strings, and bytes are decoded as UTF-8 with replacement for invalid bytes.
 
 ### Parquet SQL selection
@@ -156,8 +158,17 @@ Appending and de-duplicating result rows into a Hugging Face dataset is not impl
 
 ### Trackio monitoring
 
-Trackio is optional and explicit opt-in. Install `fast-agent-mcp[trackio]` or
-`fast-agent-mcp[gepa]`, then pass `--project` or `--trackio-project`.
+Install the optional Trackio dependency in the environment where fast-agent
+runs:
+
+```bash
+uv pip install 'fast-agent-mcp[trackio]'
+```
+
+The extra installs `trackio>=0.44.0`, also included in the `gepa` extra.
+Enable monitoring with `--project` or `--trackio-project`. Omit these options
+or use `--no-trackio` to use local monitoring only via `--telemetry-output`
+and `--summary-output`.
 
 | Option                         | Description                                                                                 |
 | ------------------------------ | ------------------------------------------------------------------------------------------- |

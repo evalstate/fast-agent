@@ -41,7 +41,8 @@
 | `sol56` | `codexresponses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `sol56?reasoning=high` | `low`, `medium`, `high`<br>Example: `sol56?verbosity=low` | — |
 | `sol6` | `codexresponses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `sol6?reasoning=medium` | `low`, `medium`, `high`<br>Example: `sol6?verbosity=low` | — |
 | `sol` | `codexresponses` | Text, Vision, Document | `json` (schema) | effort: `low`, `medium`, `high`, `xhigh`, `max`<br>Example: `sol?reasoning=medium` | `low`, `medium`, `high`<br>Example: `sol?verbosity=low` | — |
-| `terra` | `codexresponses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `terra?reasoning=high` | `low`, `medium`, `high`<br>Example: `terra?verbosity=low` | — |
+| `terra56` | `codexresponses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `terra56?reasoning=high` | `low`, `medium`, `high`<br>Example: `terra56?verbosity=low` | — |
+| `terra` | `codexresponses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `terra?reasoning=medium` | `low`, `medium`, `high`<br>Example: `terra?verbosity=low` | — |
 | `deepseek-v4-flash-vision-exp` | `deepseek` | Text, Vision | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseek-v4-flash-vision-exp?reasoning=max` | — | — |
 | `deepseek-v4-flash` | `deepseek` | Text, Vision | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseek-v4-flash?reasoning=max` | — | — |
 | `deepseek` | `deepseek` | Text, Vision | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseek?reasoning=max` | — | — |
@@ -75,8 +76,10 @@
 | `glimmer` | `hf` | Text, Vision | — | effort: `low`, `medium`, `high`, `xhigh`<br>Example: `glimmer?reasoning=high` | — | — |
 | `glm47` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm47?reasoning=off` | — | — |
 | `glm51` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm51?reasoning=off` | — | — |
+| `glm52` | `hf` | Text | `json` (object) | effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `glm52?reasoning=max` | — | — |
+| `glm53flash` | `hf` | Text, Vision | `json` (object) | effort: `low`, `high`, `max`<br>Example: `glm53flash?reasoning=max` | — | — |
 | `glm5` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm5?reasoning=off` | — | — |
-| `glm` | `hf` | Text | `json` (object) | effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `glm?reasoning=max` | — | — |
+| `glm` | `hf` | Text | `json` (object) | effort: `low`, `high`, `max`<br>Example: `glm?reasoning=max` | — | — |
 | `gpt-oss-20b` | `hf` | Text | `json` (schema) | — | — | — |
 | `gpt-oss` | `hf` | Text | `json` (schema) | — | — | — |
 | `hf.minimaxai/minimax-m2` | `hf` | Text | `json` (schema) | — | — | — |
@@ -92,8 +95,6 @@
 | `qwen/qwen3.8-27b` | `hf` | Text, Vision, Video | `json` (object) | effort: `low`, `medium`, `xhigh`, `off`<br>Example: `qwen/qwen3.8-27b?reasoning=medium` | — | — |
 | `qwen35` | `hf` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen35?reasoning=off` | — | — |
 | `qwen36` | `hf` | Text | — | toggle: `on`, `off`<br>Example: `qwen36?reasoning=off` | — | — |
-| `zai-org/glm-5.3-flash` | `hf` | Text, Vision, Document, Video | `json` (object) | effort: `low`, `high`, `max`<br>Example: `zai-org/glm-5.3-flash?reasoning=max` | — | — |
-| `zai-org/glm-5.3` | `hf` | Text | `json` (object) | effort: `low`, `high`, `max`<br>Example: `zai-org/glm-5.3?reasoning=max` | — | — |
 | `Muse Spark 1.1` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `Muse Spark 1.1?reasoning=medium` | — | — |
 | `Muse Spark 1.2 (Contributor)` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `Muse Spark 1.2 (Contributor)?reasoning=medium` | — | — |
 | `Muse Spark 1.2` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `Muse Spark 1.2?reasoning=medium` | — | — |
@@ -140,6 +141,6 @@
 | `grok46` | `xai` | Text, Vision | `json` (schema) | effort: `low`, `medium`, `high`, `xhigh`<br>Example: `grok46?reasoning=high` | — | — |
 | `grok` | `xai` | Text, Vision | `json` (schema) | effort: `low`, `medium`, `high`, `xhigh`<br>Example: `grok?reasoning=high` | — | — |
 | `grokfast` | `xai` | Text, Vision | `json` (schema) | effort: `low`, `medium`, `high`, `xhigh`<br>Example: `grokfast?reasoning=high` | — | — |
-| `zaiglm53` | `zai` | Text | `json` (object) | effort: `low`, `high`, `max`<br>Example: `zaiglm53?reasoning=max` | — | — |
+| `zaiglm52` | `zai` | Text | `json` (object) | effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `zaiglm52?reasoning=max` | — | — |
 | `zaiglm53flash` | `zai` | Text, Vision, Document, Video | `json` (object) | effort: `low`, `high`, `max`<br>Example: `zaiglm53flash?reasoning=max` | — | — |
-| `zaiglm` | `zai` | Text | `json` (object) | effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `zaiglm?reasoning=max` | — | — |
+| `zaiglm` | `zai` | Text | `json` (object) | effort: `low`, `high`, `max`<br>Example: `zaiglm?reasoning=max` | — | — |

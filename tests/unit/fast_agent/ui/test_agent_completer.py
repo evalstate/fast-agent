@@ -296,7 +296,7 @@ def test_model_verbosity_completion_values_use_capability_resolver() -> None:
     assert completer._resolve_verbosity_values() == ["low", "medium", "high"]
 
 
-def test_tools_completion_lists_summary_first_and_available_tools() -> None:
+def test_tools_completion_lists_all_flag_first_and_available_tools() -> None:
     completer = AgentCompleter(
         agents=["agent1"],
         current_agent="agent1",
@@ -311,11 +311,11 @@ def test_tools_completion_lists_summary_first_and_available_tools() -> None:
     )
 
     assert [completion.text for completion in completions] == [
-        "summary",
+        "--all",
         "search",
         "read_file",
     ]
-    assert "List available tools" in str(completions[0].display_meta)
+    assert "List every tool, including PTC function signatures" in str(completions[0].display_meta)
     assert "Search indexed documents" in str(completions[1].display_meta)
     assert "View complete JSON schema" in str(completions[2].display_meta)
 

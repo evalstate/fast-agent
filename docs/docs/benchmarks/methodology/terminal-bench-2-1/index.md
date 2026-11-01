@@ -10,8 +10,9 @@ has 89 tasks, repeated 5 times for a total of 445 trials.
 
 ## Scoring
 
-- A run's score is passed attempts ÷ 445. A missing or errored attempt counts as a
-  failure; nothing is dropped from the denominator.
+- A run's score is passed attempts ÷ 445. An attempt passes when the verifier rewards
+  it, even if the agent errored or timed out along the way; a missing or unrewarded
+  attempt counts as a failure. Nothing is dropped from the denominator.
 - **±** is one standard error of the mean, clustered by task: the spread of the 89
   per-task pass rates ÷ √89. That's about ±3 points for a single run, so differences
   of a point or two are noise.

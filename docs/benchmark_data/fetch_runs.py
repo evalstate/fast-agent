@@ -646,6 +646,58 @@ def scan_key(item: Json) -> str | None:
     return parts[0] if parts[0] else None
 
 
+def scan_lures(
+    brief: Json, full: Json, ordered: dict[str, list[Json]], records: Json, bucket_repo: str
+) -> Json | None:
+    """atif-scan's install-lure ladder (0.8.10+) over the trials behind the cells.
+
+    Each trial counts once, at the furthest rung it reached (surfaced, instructions,
+    pursued, followed), as in atif-scan's brief; ``attempts`` lists those trials with a
+    trace link. None when the scan predates the ladder.
+    """
+    from moments import trial_links
+
+    ladder = brief.get("lures")
+    if ladder is None:
+        return None
+    rungs = ladder["rungs"]
+    counts = {r["rung"]: {"trials": 0, "rewarded": 0} for r in rungs}
+    by_id = {key: i for i in full["inputs"] if (key := scan_key(i))}
+    scanned, attempts = 0, []
+    for task, trials in ordered.items():
+        for n, trial in enumerate(trials):
+            item = by_id.get(trial.get("scan_key", trial["id"]))
+            if item is None or item["input_status"] != "available":
+                continue
+            scanned += 1
+            matched = {a["id"] for a in item["assessments"] if a["status"] == "match"}
+            reached = [r["rung"] for r in rungs if r["check"] in matched]
+            if not reached:
+                continue
+            rung, rewarded = reached[-1], (item["reward"] or 0) > 0
+            counts[rung]["trials"] += 1
+            counts[rung]["rewarded"] += rewarded
+            record = records[task][n]
+            attempts.append(
+                {
+                    "task": task,
+                    "attempt": n,
+                    "trial": record["name"],
+                    "rung": rung,
+                    "reward": item["reward"],
+                    "trace": trial_links(record, bucket_repo)[1],
+                }
+            )
+    return {
+        "scanned": scanned,
+        "rungs": [
+            {"rung": r["rung"], "label": r["label"], "check": r["check"], **counts[r["rung"]]}
+            for r in rungs
+        ],
+        "attempts": attempts,
+    }
+
+
 def reported_review(brief: Json, full: Json, keys: set[str], slots: int) -> Json:
     """Scan figures over exactly the reported trials (replaced originals left out)."""
     inputs = [i for i in full["inputs"] if scan_key(i) in keys]
@@ -1148,9 +1200,13 @@ def build_run(
                 "args": [repo_path(a) for a in extra],
                 "rules_sha256": file_sha256(scan_rules) if scan_rules else None,
             }
-            out["scan"]["cells"] = scan_cells(
-                full, {t: ordered[t] for t in scan_tasks} if scan_tasks else ordered, models[0]
+            scoped = {t: ordered[t] for t in scan_tasks} if scan_tasks else ordered
+            out["scan"]["cells"] = scan_cells(full, scoped, models[0])
+            lures = scan_lures(
+                brief, full, scoped, out["trials"], run.get("bucket", {}).get("repo", "")
             )
+            if lures is not None:
+                out["scan"]["lures"] = lures
             # Hub trials are named by id here and by folder in atif-scan's output.
             out["_trial_alias"] = {
                 i["input_id"].split("/")[0]: i["hub_trial_id"]

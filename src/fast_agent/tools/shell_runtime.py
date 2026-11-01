@@ -38,6 +38,7 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.tool_result_metadata import (
     update_tool_result_display_metadata,
 )
+from fast_agent.tools.apply_patch_tool import APPLY_PATCH_INPUT_FIELD as FREEFORM_TOOL_INPUT_FIELD
 from fast_agent.tools.durable_processes import (
     DurableProcessError,
     DurableProcessOutput,
@@ -52,6 +53,7 @@ from fast_agent.tools.execution_environment import (
     ShellRuntimeInfo,
     execute_shell,
 )
+from fast_agent.tools.invocation_context import is_programmatic_tool_call
 from fast_agent.tools.local_shell_executor import LocalShellExecutor
 from fast_agent.tools.output_truncation import (
     format_output_truncation_notice,
@@ -85,6 +87,17 @@ from fast_agent.tools.shell_profiles import (
     ResolvedShellToolProfile,
     ShellToolProfile,
     resolve_shell_tool_profile,
+)
+from fast_agent.tools.shell_program_value import (
+    PTC_STREAM_CHAR_LIMIT,
+    ShellStreamCapture,
+    StreamText,
+    attach_process_program_value,
+    attach_stop_program_value,
+    pop_check_argument,
+    programmatic_process_tool,
+    programmatic_shell_tool,
+    with_program_value,
 )
 from fast_agent.tools.shell_progress import ShellProgressReporter
 from fast_agent.tools.shell_tool_definitions import (
@@ -209,10 +222,17 @@ class _ProcessListResult(TypedDict):
     processes: list[_ProcessListEntry]
 
 
+type _ProcessToolAction = Literal["list", "read_output", "stop", "poll"]
+
+
 def _coerce_output_byte_limit(output_byte_limit: int | None) -> int:
     if type(output_byte_limit) is not int or output_byte_limit <= 0:
         return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
     return min(output_byte_limit, MAX_TERMINAL_OUTPUT_BYTE_LIMIT)
+
+
+def _process_lifecycle_tool(tool: Tool) -> Tool:
+    return set_tool_source(programmatic_process_tool(tool), SHELL_TOOL_SOURCE)
 
 
 class ShellRuntime:
@@ -278,12 +298,14 @@ class ShellRuntime:
                 self._durable_process_store = DurableProcessStore(durable_process_root)
             except (DurableProcessError, OSError) as exc:
                 self._logger.warning(
-                    "Durable process storage is unavailable at %s: %s",
-                    durable_process_root,
-                    exc,
+                    f"Durable process storage is unavailable at {durable_process_root}: {exc}"
                 )
         self._attached_durable_processes: set[str] = set()
         self._durable_output_offsets: dict[str, int] = {}
+        # Per-stream spool offsets already returned to sandbox code, keyed by process id.
+        self._durable_sandbox_offsets: dict[str, dict[DurableProcessStream, int]] = {}
+        # Spool bytes dropped as of the sandbox's previous read, per durable process.
+        self._durable_sandbox_dropped: dict[str, int] = {}
         self._durable_output_total_offsets: dict[str, int] = {}
         self._durable_output_dropped_offsets: dict[str, int] = {}
         self._durable_observed_output_bytes: dict[str, int] = {}
@@ -390,12 +412,37 @@ class ShellRuntime:
             if tool is not None
         ]
 
-    def _parse_luna_family_arguments(
-        self, arguments: dict[str, Any] | None
-    ) -> ShellExecuteArguments:
-        if self._freeform_shell_profile:
-            return parse_freeform_shell_input(arguments, tool_name=self._luna_exec_tool_name)
-        return parse_luna_exec_arguments(arguments, tool_name=self._luna_exec_tool_name)
+    def _is_execute_tool(self, name: str) -> bool:
+        """Return whether ``name`` is the command-running shell tool of the active profile."""
+        if self._minimal_process_profile:
+            return self._tool is not None and name.casefold() == self._tool.name.casefold()
+        if self._grok_shell_profile:
+            return name == GROK_SHELL_TOOL_NAME
+        if self._luna_exec_profile:
+            return name == self._luna_exec_tool_name
+        return name == EXECUTE_TOOL_NAME
+
+    def _parse_execute_tool_arguments(
+        self, name: str, arguments: dict[str, Any] | None, *, programmatic: bool
+    ) -> ShellExecuteArguments | None:
+        """Parse arguments for the command-running tool; None for any other tool name."""
+        if not self._is_execute_tool(name):
+            return None
+        if self._minimal_process_profile:
+            return parse_minimal_bash_arguments(
+                arguments,
+                tool_name=self._minimal_shell_tool_name,
+                require_description=self._minimal_shell_tool_requires_description,
+            )
+        if self._grok_shell_profile:
+            return parse_grok_shell_arguments(arguments)
+        if self._luna_exec_profile:
+            # Sandbox code calls the freeform shell with the keyword arguments of its
+            # programmatic contract rather than raw command text.
+            if self._freeform_shell_profile and not programmatic:
+                return parse_freeform_shell_input(arguments, tool_name=self._luna_exec_tool_name)
+            return parse_luna_exec_arguments(arguments, tool_name=self._luna_exec_tool_name)
+        return parse_execute_arguments(arguments)
 
     def owns_tool(self, name: str) -> bool:
         """Return whether this runtime owns a model-facing tool name."""
@@ -428,18 +475,23 @@ class ShellRuntime:
             return
         shell_name = self.runtime_info().name
         if self._grok_shell_profile or self._luna_exec_profile:
+            luna_exec_tool = build_luna_exec_tool(
+                shell_name=shell_name, tool_name=self._luna_exec_tool_name
+            )
             shell_tool = (
                 (
-                    build_freeform_shell_tool(
-                        shell_name=shell_name, tool_name=self._luna_exec_tool_name
+                    # Sandbox code calls the freeform shell through the luna_exec contract.
+                    programmatic_shell_tool(
+                        build_freeform_shell_tool(
+                            shell_name=shell_name, tool_name=self._luna_exec_tool_name
+                        ),
+                        contract=luna_exec_tool,
                     )
                     if self._freeform_shell_profile
-                    else build_luna_exec_tool(
-                        shell_name=shell_name, tool_name=self._luna_exec_tool_name
-                    )
+                    else programmatic_shell_tool(luna_exec_tool)
                 )
                 if self._luna_exec_profile
-                else build_grok_shell_tool(shell_name=shell_name)
+                else programmatic_shell_tool(build_grok_shell_tool(shell_name=shell_name))
             )
             shell_tool_name = (
                 self._luna_exec_tool_name if self._luna_exec_profile else GROK_SHELL_TOOL_NAME
@@ -448,51 +500,49 @@ class ShellRuntime:
                 shell_tool,
                 SHELL_TOOL_SOURCE,
             )
-            self._poll_process_tool = set_tool_source(
+            self._poll_process_tool = _process_lifecycle_tool(
                 build_minimal_process_tool(
                     default_wait_seconds=self._minimal_process_wait_seconds(),
                     max_wait_seconds=self._max_process_poll_seconds,
                     shell_tool_name=shell_tool_name,
                     extended_guidance=False,
                 ),
-                SHELL_TOOL_SOURCE,
             )
             self._terminate_process_tool = None
         elif self._minimal_process_profile:
             self._tool = set_tool_source(
-                build_minimal_bash_tool(
-                    shell_name=shell_name,
-                    tool_name=self._minimal_shell_tool_name,
-                    require_description=self._minimal_shell_tool_requires_description,
-                    extended_guidance=self._extended_guidance,
+                programmatic_shell_tool(
+                    build_minimal_bash_tool(
+                        shell_name=shell_name,
+                        tool_name=self._minimal_shell_tool_name,
+                        require_description=self._minimal_shell_tool_requires_description,
+                        extended_guidance=self._extended_guidance,
+                    )
                 ),
                 SHELL_TOOL_SOURCE,
             )
-            self._poll_process_tool = set_tool_source(
+            self._poll_process_tool = _process_lifecycle_tool(
                 build_minimal_process_tool(
                     default_wait_seconds=self._minimal_process_wait_seconds(),
                     max_wait_seconds=self._max_process_poll_seconds,
                     shell_tool_name=self._minimal_shell_tool_name,
                     extended_guidance=self._extended_guidance,
                 ),
-                SHELL_TOOL_SOURCE,
             )
             self._terminate_process_tool = None
         else:
             self._tool = set_tool_source(
-                build_execute_tool(shell_name=shell_name),
+                programmatic_shell_tool(build_execute_tool(shell_name=shell_name)),
                 SHELL_TOOL_SOURCE,
             )
-            self._poll_process_tool = set_tool_source(
+            self._poll_process_tool = _process_lifecycle_tool(
                 build_poll_process_tool(
                     default_wait_seconds=self._process_poll_default_wait_seconds,
                     max_wait_seconds=self._max_process_poll_seconds,
                 ),
-                SHELL_TOOL_SOURCE,
             )
-            self._terminate_process_tool = set_tool_source(
+            self._terminate_process_tool = _process_lifecycle_tool(
                 build_terminate_process_tool(),
-                SHELL_TOOL_SOURCE,
             )
 
     @property
@@ -556,22 +606,23 @@ class ShellRuntime:
             return
         shell_name = self.runtime_info().name
         self._tool = set_tool_source(
-            build_minimal_bash_tool(
-                shell_name=shell_name,
-                tool_name=tool_name,
-                require_description=require_description,
-                extended_guidance=extended_guidance,
+            programmatic_shell_tool(
+                build_minimal_bash_tool(
+                    shell_name=shell_name,
+                    tool_name=tool_name,
+                    require_description=require_description,
+                    extended_guidance=extended_guidance,
+                )
             ),
             SHELL_TOOL_SOURCE,
         )
-        self._poll_process_tool = set_tool_source(
+        self._poll_process_tool = _process_lifecycle_tool(
             build_minimal_process_tool(
                 default_wait_seconds=self._minimal_process_wait_seconds(),
                 max_wait_seconds=self._max_process_poll_seconds,
                 shell_tool_name=tool_name,
                 extended_guidance=extended_guidance,
             ),
-            SHELL_TOOL_SOURCE,
         )
 
     async def process_snapshots(self) -> tuple[ManagedProcessSnapshot, ...]:
@@ -745,6 +796,10 @@ class ShellRuntime:
 
         return Path(self._working_directory or self._environment.cwd)
 
+    def command_working_directory(self) -> str:
+        """The absolute directory a command runs in when it names none, local or remote."""
+        return self._resolve_managed_working_directory(None)
+
     def set_working_directory(self, working_directory: Path | None) -> None:
         """Set the working directory used for shell execution."""
         self._working_directory = str(working_directory) if working_directory is not None else None
@@ -775,14 +830,16 @@ class ShellRuntime:
         """Build metadata for display when the shell tool is invoked."""
         info = self.runtime_info()
         try:
+            tool_arguments, _ = pop_check_argument(arguments)
             parsed = (
-                parse_minimal_bash_arguments(arguments)
+                parse_minimal_bash_arguments(tool_arguments)
                 if self._minimal_process_profile
-                else self._parse_luna_family_arguments(arguments)
-                if self._luna_exec_profile
-                else parse_grok_shell_arguments(arguments)
-                if self._grok_shell_profile
-                else parse_execute_arguments(arguments)
+                else self._parse_execute_tool_arguments(
+                    self._tool.name if self._tool is not None else EXECUTE_TOOL_NAME,
+                    tool_arguments,
+                    # Sandbox code calls even the freeform shell with keyword arguments.
+                    programmatic=FREEFORM_TOOL_INPUT_FIELD not in arguments,
+                )
             )
         except ValueError:
             parsed = None
@@ -963,11 +1020,15 @@ class ShellRuntime:
             ),
         )
 
-    async def list_processes(self) -> CallToolResult:
-        """Return retained managed-process handles in creation order."""
+    async def list_processes(self, *, program_value: bool = False) -> CallToolResult:
+        """Return retained managed-process handles in creation order.
+
+        ``program_value`` also attaches the process list for sandbox code.
+        """
         snapshots = await self.process_snapshots()
         if not snapshots:
-            return _text_result("No managed processes.", is_error=False)
+            result = _text_result("No managed processes.", is_error=False)
+            return with_program_value(result, []) if program_value else result
 
         payload: _ProcessListResult = {
             "processes": [
@@ -984,7 +1045,8 @@ class ShellRuntime:
                 for snapshot in snapshots
             ]
         }
-        return _text_result(json.dumps(payload, indent=2), is_error=False)
+        result = _text_result(json.dumps(payload, indent=2), is_error=False)
+        return with_program_value(result, payload["processes"]) if program_value else result
 
     async def _read_durable_output_delta(
         self,
@@ -1753,18 +1815,27 @@ class ShellRuntime:
         parsed: ShellExecuteArguments,
         *,
         defer_display_to_tool_result: bool,
+        streams: ShellStreamCapture | None = None,
     ) -> ManagedShellProcess:
+        """Start a managed process.
+
+        ``streams`` captures stdout/stderr for sandbox code that launched the command. Other
+        processes keep a capture bounded like model-facing output, so sandbox code polling them
+        later still receives separate streams.
+        """
+        output_byte_limit = (
+            self._output_byte_limit
+            if parsed.output_byte_limit is None
+            else parsed.output_byte_limit
+        )
         output_state = ShellOutputBuffer(
-            output_byte_limit=(
-                self._output_byte_limit
-                if parsed.output_byte_limit is None
-                else parsed.output_byte_limit
-            ),
+            output_byte_limit=output_byte_limit,
             output_byte_limit_requested=parsed.output_byte_limit is not None,
             retained_output_path=self._next_retained_output_path(),
             retained_output_max_bytes=self._retained_output_max_bytes,
             retained_output_via_process=self._retained_output_via_process,
             extended_guidance=self._extended_guidance,
+            streams=streams or ShellStreamCapture(limit=output_byte_limit),
         )
         display_state = self._build_display_state(
             defer_display_to_tool_result=defer_display_to_tool_result,
@@ -2024,7 +2095,9 @@ class ShellRuntime:
         if runtime_info.kind == "local":
             base_path = Path(base_cwd)
             if not base_path.is_absolute():
-                base_path = Path(self._environment.cwd) / base_path
+                # Relative to the process, as the local executor resolved it: the executor's
+                # cwd is already this directory, so joining onto it would double it.
+                base_path = Path.cwd() / base_path
             if requested_cwd is None:
                 candidate = str(base_path)
             else:
@@ -2653,26 +2726,86 @@ class ShellRuntime:
         show_tool_call_id: bool = False,
         defer_display_to_tool_result: bool = False,
     ) -> CallToolResult:
-        """Dispatch one model-facing shell lifecycle tool."""
-        if (
-            self._tool is not None
-            and name.casefold() == self._tool.name.casefold()
-            and self._minimal_process_profile
-        ):
-            try:
-                parsed = parse_minimal_bash_arguments(
-                    arguments,
-                    tool_name=self._minimal_shell_tool_name,
-                    require_description=self._minimal_shell_tool_requires_description,
-                )
-            except ValueError as exc:
-                return self._invalid_execute_result(str(exc))
-            return await self._execute_parsed(
+        """Dispatch one model-facing shell lifecycle tool.
+
+        Calls made from programmatic tool calling sandbox code also receive a structured
+        program value (see ``shell_program_value``).
+        """
+        programmatic = is_programmatic_tool_call(tool_use_id)
+        streams: ShellStreamCapture | None = None
+        check = False
+        try:
+            if programmatic and self._is_execute_tool(name):
+                arguments, check = pop_check_argument(arguments)
+                streams = ShellStreamCapture()
+            parsed = self._parse_execute_tool_arguments(name, arguments, programmatic=programmatic)
+        except ValueError as exc:
+            return self._invalid_execute_result(str(exc))
+        if parsed is not None:
+            result = await self._execute_parsed(
                 parsed,
                 tool_use_id,
                 show_tool_call_id=show_tool_call_id,
                 defer_display_to_tool_result=defer_display_to_tool_result,
+                streams=streams,
             )
+            if not programmatic:
+                return result
+            if check and not parsed.background:
+                result = await self._await_checked_process(result, tool_use_id)
+            output = await self._take_sandbox_output(result)
+            return attach_process_program_value(result, output, check=check)
+
+        process_call = await self._call_process_tool(
+            name, arguments, tool_use_id, programmatic=programmatic
+        )
+        if process_call is None:
+            return _text_result(f"Error: unknown shell runtime tool {name!r}", is_error=True)
+        action, result = process_call
+        if not programmatic:
+            return result
+        if action == "poll":
+            return attach_process_program_value(result, await self._take_sandbox_output(result))
+        if action == "stop":
+            return attach_stop_program_value(result)
+        return result
+
+    async def _await_checked_process(
+        self, result: CallToolResult, tool_use_id: str | None
+    ) -> CallToolResult:
+        """Wait out a ``check=True`` command that yielded, as ``subprocess.run`` would.
+
+        Sandbox code cannot act on a check until the command ends, so a foreground yield
+        would only hand it a command whose success is still unknown.
+        """
+        while (
+            (metadata := process_result_metadata(result)) is not None
+            and metadata.get("process_status") == "running"
+            and (process_id := metadata.get("process_id")) is not None
+        ):
+            try:
+                result = await self._call_process_lifecycle_tool(
+                    POLL_PROCESS_TOOL_NAME,
+                    {"process_id": process_id, "wait_sec": self._max_process_poll_seconds},
+                    tool_use_id=tool_use_id,
+                )
+            except asyncio.CancelledError:
+                # Still the foreground command of the cancelled call, as in _execute_parsed.
+                process = self._managed_processes.get(process_id)
+                if process is not None and process.lifecycle == "session":
+                    await self._terminate_managed_process_task(process)
+                raise
+        return result
+
+    async def _call_process_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None,
+        tool_use_id: str | None,
+        *,
+        programmatic: bool,
+    ) -> tuple[_ProcessToolAction | None, CallToolResult] | None:
+        """Run a process lifecycle tool; None when ``name`` is not one."""
         if name.casefold() == PROCESS_TOOL_NAME and (self._uses_unified_process_profile()):
             try:
                 parsed_process = parse_minimal_process_arguments(
@@ -2681,13 +2814,13 @@ class ShellRuntime:
                     max_wait_seconds=self._max_process_poll_seconds,
                 )
             except ValueError as exc:
-                return _text_result(str(exc), is_error=True)
+                return None, _text_result(str(exc), is_error=True)
             if parsed_process.action == "list":
-                return await self.list_processes()
+                return "list", await self.list_processes(program_value=programmatic)
             if isinstance(parsed_process, MinimalProcessReadOutputArguments):
-                return await self.read_process_output(parsed_process)
+                return "read_output", await self.read_process_output(parsed_process)
             if parsed_process.action == "stop":
-                return await self._call_process_lifecycle_tool(
+                return "stop", await self._call_process_lifecycle_tool(
                     TERMINATE_PROCESS_TOOL_NAME,
                     {"process_id": parsed_process.process_id},
                     tool_use_id=tool_use_id,
@@ -2701,7 +2834,7 @@ class ShellRuntime:
                     else self._minimal_process_wait_seconds()
                 )
             )
-            return await self._call_process_lifecycle_tool(
+            return "poll", await self._call_process_lifecycle_tool(
                 POLL_PROCESS_TOOL_NAME,
                 {
                     "process_id": parsed_process.process_id,
@@ -2710,48 +2843,103 @@ class ShellRuntime:
                 tool_use_id=tool_use_id,
                 output_preview_limit=parsed_process.limit,
             )
-        if name == GROK_SHELL_TOOL_NAME and self._grok_shell_profile:
-            try:
-                parsed = parse_grok_shell_arguments(arguments)
-            except ValueError as exc:
-                return self._invalid_execute_result(str(exc))
-            return await self._execute_parsed(
-                parsed,
-                tool_use_id,
-                show_tool_call_id=show_tool_call_id,
-                defer_display_to_tool_result=defer_display_to_tool_result,
-            )
-        if name == self._luna_exec_tool_name and self._luna_exec_profile:
-            try:
-                parsed = self._parse_luna_family_arguments(arguments)
-            except ValueError as exc:
-                return self._invalid_execute_result(str(exc))
-            return await self._execute_parsed(
-                parsed,
-                tool_use_id,
-                show_tool_call_id=show_tool_call_id,
-                defer_display_to_tool_result=defer_display_to_tool_result,
-            )
-        if name == EXECUTE_TOOL_NAME:
-            return await self.execute(
-                arguments,
-                tool_use_id,
-                show_tool_call_id=show_tool_call_id,
-                defer_display_to_tool_result=defer_display_to_tool_result,
-            )
         if name == POLL_PROCESS_TOOL_NAME:
-            return await self._call_process_lifecycle_tool(
+            return "poll", await self._call_process_lifecycle_tool(
                 name,
                 arguments,
                 tool_use_id=tool_use_id,
             )
         if name == TERMINATE_PROCESS_TOOL_NAME:
-            return await self._call_process_lifecycle_tool(
+            return "stop", await self._call_process_lifecycle_tool(
                 name,
                 arguments,
                 tool_use_id=tool_use_id,
             )
-        return _text_result(f"Error: unknown shell runtime tool {name!r}", is_error=True)
+        return None
+
+    async def _take_sandbox_output(self, result: CallToolResult) -> StreamText:
+        """Read the stdout/stderr sandbox code has not yet seen for the result's process."""
+        metadata = process_result_metadata(result)
+        process_id = metadata.get("process_id") if metadata is not None else None
+        if process_id is None:
+            return StreamText()
+        process = self._managed_processes.get(process_id)
+        if process is not None:
+            streams = process.output_state.streams
+            return streams.take() if streams is not None else StreamText()
+        if process_id in self._attached_durable_processes:
+            return await self._take_durable_sandbox_output(process_id)
+        return StreamText()
+
+    async def _take_durable_sandbox_output(self, process_id: str) -> StreamText:
+        store = self._durable_process_store
+        if store is None:
+            return StreamText()
+        try:
+            snapshot = await asyncio.to_thread(store.get, process_id)
+        except (DurableProcessRecordError, OSError):
+            return StreamText()
+        offsets = self._durable_sandbox_offsets.setdefault(process_id, {})
+        texts: dict[DurableProcessStream, str] = {}
+        truncated = False
+        for stream, retained in (
+            (DurableProcessStream.STDOUT, snapshot.stdout_bytes),
+            (DurableProcessStream.STDERR, snapshot.stderr_bytes),
+        ):
+            offset = offsets.get(stream, 0)
+            texts[stream], stream_truncated = await self._read_durable_stream(
+                store, process_id, stream, offset=offset, end=retained
+            )
+            truncated = truncated or stream_truncated
+            offsets[stream] = max(retained, offset)
+        # Output past the spool's retention limit is dropped and never reaches sandbox code.
+        dropped = snapshot.stdout_dropped_bytes + snapshot.stderr_dropped_bytes
+        if dropped > self._durable_sandbox_dropped.get(process_id, 0):
+            truncated = True
+        self._durable_sandbox_dropped[process_id] = dropped
+        return StreamText(
+            stdout=texts[DurableProcessStream.STDOUT],
+            stderr=texts[DurableProcessStream.STDERR],
+            truncated=truncated,
+        )
+
+    @staticmethod
+    async def _read_durable_stream(
+        store: DurableProcessStore,
+        process_id: str,
+        stream: DurableProcessStream,
+        *,
+        offset: int,
+        end: int,
+    ) -> tuple[str, bool]:
+        """Read ``[offset, end)`` of one spool stream, keeping head and tail when it is large."""
+        unread = end - offset
+        if unread <= 0:
+            return "", False
+        window = split_output_byte_limit(PTC_STREAM_CHAR_LIMIT)
+        if unread <= PTC_STREAM_CHAR_LIMIT:
+            output = await asyncio.to_thread(
+                store.read_output, process_id, stream=stream, offset=offset, limit=unread
+            )
+            return output.text, False
+        head, tail = await asyncio.gather(
+            asyncio.to_thread(
+                store.read_output,
+                process_id,
+                stream=stream,
+                offset=offset,
+                limit=window.head_bytes,
+            ),
+            asyncio.to_thread(
+                store.read_output,
+                process_id,
+                stream=stream,
+                offset=end - window.tail_bytes,
+                limit=window.tail_bytes,
+            ),
+        )
+        omitted = unread - window.head_bytes - window.tail_bytes
+        return f"{head.text}\n[... {omitted} bytes omitted ...]\n{tail.text}", True
 
     async def _call_process_lifecycle_tool(
         self,
@@ -3006,6 +3194,7 @@ class ShellRuntime:
         *,
         show_tool_call_id: bool,
         defer_display_to_tool_result: bool,
+        streams: ShellStreamCapture | None = None,
     ) -> CallToolResult:
         idle_yield_seconds = (
             self._idle_yield_seconds
@@ -3084,6 +3273,7 @@ class ShellRuntime:
                 process = await self._start_managed_process(
                     parsed,
                     defer_display_to_tool_result=defer_display_to_tool_result,
+                    streams=streams,
                 )
                 initial_yield_reason: Literal["idle", "foreground"] | None = None
                 yielded_reason: str | None

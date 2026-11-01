@@ -388,8 +388,8 @@ def load_codex_tokens(*, prefer_fast_agent_store: bool = False) -> CodexOAuthTok
     tokens, source = _load_codex_tokens_with_source(prefer_fast_agent_store=prefer_fast_agent_store)
     if tokens and source == "auth.json":
         logger.info(
-            "codex_cli_tokens",
             "Loaded Codex OAuth tokens from auth.json",
+            name="codex_cli_tokens",
             data={"path": str(_resolve_codex_cli_auth_path())},
         )
     return tokens

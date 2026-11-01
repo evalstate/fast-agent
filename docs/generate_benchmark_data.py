@@ -148,6 +148,7 @@ def _scan_summary(
             "scoreIfFlaggedFailed": review["accuracy_if_flagged_failed"],
         },
         "awareness": scan["awareness"],
+        "lures": scan.get("lures"),
         "evidence": scan["evidence"],
         "cost": scan["cost"],
         "walltimeHours": scan["walltime_hours"]["trial_sum"],

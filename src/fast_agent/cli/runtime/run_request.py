@@ -81,6 +81,7 @@ class AgentRunRequest:
     subagent_model: str | None = None
     model_base_url: str | None = None
     isolated: bool = False
+    ptc: bool = False
 
     def __post_init__(self) -> None:
         self._validate_environment_options()
@@ -216,4 +217,5 @@ class AgentRunRequest:
             "timeout_seconds": self.timeout_seconds,
             "missing_shell_cwd_policy": self.missing_shell_cwd_policy,
             "managed_mcp_agent_names": self.managed_mcp_agent_names,
+            "ptc": self.ptc,
         }

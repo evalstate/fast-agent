@@ -59,6 +59,7 @@ class ModelSelectionCatalog:
         Provider.RESPONSES: (
             _builtin_entry("gpt-6-astra"),
             _builtin_entry("gpt-6.1-sol"),
+            _builtin_entry("gpt-6.1-terra", fast=True),
             _builtin_entry("gpt-6-sol"),
             _builtin_entry("gpt-6-luna", fast=True),
             _builtin_entry("gpt-5.6-sol"),
@@ -166,7 +167,7 @@ class ModelSelectionCatalog:
         Provider.ZAI: (
             _builtin_entry("zaiglm53", display_label="GLM 5.3"),
             _builtin_entry("zaiglm53flash", display_label="GLM 5.3 Flash", fast=True),
-            _builtin_entry("zaiglm", display_label="GLM 5.2", current=True),
+            _builtin_entry("zaiglm52", display_label="GLM 5.2"),
         ),
         Provider.MOONSHOT: (_builtin_entry("kimik3", display_label="Kimi K3"),),
         Provider.OPENROUTER: (),
@@ -190,16 +191,31 @@ class ModelSelectionCatalog:
                 description="image-only HF route",
             ),
             _builtin_entry(
-                "GLM 5.2 (zai-org)",
-                display_label="GLM 5.2 (zai-org)",
+                "GLM 5.3 (together)",
+                display_label="GLM 5.3 (together)",
             ),
             _builtin_entry(
-                "GLM 5.2 (fireworks-ai)",
-                display_label="GLM 5.2 (fireworks-ai)",
+                "GLM 5.3 (novita)",
+                display_label="GLM 5.3 (novita)",
             ),
             _builtin_entry(
-                "GLM 5.2 (deepinfra)",
-                display_label="GLM 5.2 (deepinfra)",
+                "GLM 5.3 (zai-org)",
+                display_label="GLM 5.3 (zai-org)",
+            ),
+            _builtin_entry(
+                "GLM 5.3 Flash (together)",
+                display_label="GLM 5.3 Flash (together)",
+                fast=True,
+            ),
+            _builtin_entry(
+                "GLM 5.3 Flash (novita)",
+                display_label="GLM 5.3 Flash (novita)",
+                fast=True,
+            ),
+            _builtin_entry(
+                "GLM 5.3 Flash (zai-org)",
+                display_label="GLM 5.3 Flash (zai-org)",
+                fast=True,
             ),
             _builtin_entry(
                 "kimi27",
@@ -282,10 +298,11 @@ class ModelSelectionCatalog:
         Provider.CODEX_RESPONSES: (
             _builtin_entry("astra", display_label="GPT-6-Astra"),
             _builtin_entry("sol", display_label="GPT-6.1-Sol"),
+            _builtin_entry("terra", display_label="GPT-6.1-Terra", fast=True),
             _builtin_entry("sol6", display_label="GPT-6-Sol"),
             _builtin_entry("luna", display_label="GPT-6-Luna", fast=True),
             _builtin_entry("sol56"),
-            _builtin_entry("terra"),
+            _builtin_entry("terra56"),
             _builtin_entry("luna56"),
             _builtin_entry("codexplan"),
             _builtin_entry("codexplan55"),

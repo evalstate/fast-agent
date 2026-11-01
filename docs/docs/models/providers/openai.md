@@ -79,6 +79,19 @@ Examples:
 - `responses.gpt-5.4?service_tier=flex`
 - `responses.gpt-6-luna?service_tier=flex`
 - `responses.gpt-6.1-sol?reasoning=high`
+- `responses.gpt-6.1-terra?reasoning=medium`
+
+GPT-6.1 Terra is available through `responses.gpt-6.1-terra` (API key),
+`codexresponses.gpt-6.1-terra` / `terra` (Codex plan), and
+[`copilot.gpt-6.1-terra`](copilot.md) (GitHub Copilot). `gpt61terra` and the bare
+`gpt-6.1-terra` name select the API-key route. `terra56` retains the older
+GPT-5.6 Terra plan model.
+
+Like the other GPT-6 models, Terra defaults to a 272,000-token context budget;
+`?long_context=true` enables 1,050,000 tokens on Responses or 872,000 on Codex.
+Copilot keeps the standard context budget. Terra supports `none`, `low`,
+`medium`, `high`, `xhigh`, and `max` reasoning; the default is `medium` on
+Responses/Copilot and `high` on Codex.
 
 ### Codex Responses models
 
@@ -102,6 +115,8 @@ Examples:
 - `astra`
 - `codexresponses.gpt-6-astra?reasoning=max`
 - `sol`
+- `terra`
+- `codexresponses.gpt-6.1-terra?reasoning=none`
 - `sol6?reasoning=none`
 - `luna?reasoning=none`
 - `codexplan`

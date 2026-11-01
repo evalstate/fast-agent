@@ -563,7 +563,7 @@ a.fb-poster__row:hover { color: var(--petrol); background: var(--ivory-deep); }
 .fb-mcard--auto-cleared { border-left-color: var(--fb-empty-line); }
 .fb-mcard--panel { border-left-color: var(--fb-empty-line); }
 .fb-moments--explained .fb-mcard--panel { border-left-color: var(--teal); }
-.fb-moments--explained .fb-moments__list, .fb-moments--awareness .fb-moments__list { align-items: start; }
+.fb-moments--explained .fb-moments__list, .fb-moments--awareness .fb-moments__list, .fb-moments--lures .fb-moments__list { align-items: start; }
 .fb-mcard__ex { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; margin-bottom: 4px; }
 .fb-mcard:target { box-shadow: 0 0 0 3px color-mix(in srgb, var(--fb-hot) 45%, transparent); }
 .fb-mcard__head { display: flex; align-items: center; gap: 12px; }

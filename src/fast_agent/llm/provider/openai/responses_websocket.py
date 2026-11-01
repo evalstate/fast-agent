@@ -78,6 +78,7 @@ class ResponsesWebSocketError(RuntimeError):
         stream_started: bool = False,
         error_code: str | None = None,
         diagnostic_error_code: str | None = None,
+        response_failed: bool = False,
         status: int | None = None,
         error_param: str | None = None,
         headers: dict[str, str] | None = None,
@@ -87,6 +88,8 @@ class ResponsesWebSocketError(RuntimeError):
         self.stream_started = stream_started
         self.error_code = error_code
         self._diagnostic_error_code = diagnostic_error_code
+        # A terminal response failure is not a transport reconnect hint.
+        self.response_failed = response_failed
         self.status = status
         self.error_param = error_param
         self.headers = headers
@@ -1063,18 +1066,11 @@ class WebSocketResponsesStream:
             error_headers,
             stream_id,
         ) = self._extract_error_details(payload)
-        diagnostic_error_code: str | None = None
-        if payload.get("type") == "response.failed":
-            response = payload.get("response")
-            if isinstance(response, Mapping):
-                error = response.get("error")
-                if isinstance(error, Mapping):
-                    diagnostic_error_code = _non_empty_string(error.get("code"))
         raise ResponsesWebSocketError(
             error_message,
             stream_started=self._stream_started,
             error_code=error_code,
-            diagnostic_error_code=diagnostic_error_code,
+            response_failed=payload.get("type") == "response.failed",
             status=error_status,
             error_param=error_param,
             headers=error_headers,
@@ -1110,6 +1106,10 @@ class WebSocketResponsesStream:
         top_level_message = _non_empty_string(message)
 
         error = payload.get("error")
+        if error is None and payload.get("type") == "response.failed":
+            response = payload.get("response")
+            if isinstance(response, Mapping):
+                error = response.get("error")
         if (error_text := _non_empty_string(error)) is not None:
             return error_text, None, error_status, None, None, stream_id
         if isinstance(error, Mapping):

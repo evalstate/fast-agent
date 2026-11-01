@@ -45,10 +45,7 @@ from fast_agent.llm.provider.openai.codex_responses import (
     CODEX_ROUTING_HINT_HEADER,
     CodexResponsesLLM,
 )
-from fast_agent.llm.provider.openai.openresponses import (
-    OpenResponsesLLM,
-    _OpenResponsesRawStream,
-)
+from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 from fast_agent.llm.provider.openai.openresponses_streaming import (
     OpenResponsesStreamingMixin,
     _OpenResponsesStreamState,
@@ -60,6 +57,7 @@ from fast_agent.llm.provider.openai.responses import (
 from fast_agent.llm.provider.openai.responses_content import ResponsesContentMixin
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
 from fast_agent.llm.provider.openai.responses_output import ResponsesOutputMixin
+from fast_agent.llm.provider.openai.responses_raw_stream import RawResponsesStream
 from fast_agent.llm.provider.openai.responses_streaming import (
     ResponsesStreamingMixin,
     _tool_search_arguments_chunk,
@@ -1182,7 +1180,7 @@ async def test_openresponses_raw_stream_tracks_final_response() -> None:
             SimpleNamespace(type="response.completed", response=final_response),
         ]
     )
-    wrapped_stream = _OpenResponsesRawStream(raw_stream)
+    wrapped_stream = RawResponsesStream(raw_stream)
 
     seen_event_types = [event.type async for event in wrapped_stream]
 

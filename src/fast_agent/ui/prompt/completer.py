@@ -40,6 +40,7 @@ from fast_agent.commands.model_capabilities import (
     resolve_task_budget_supported,
     resolve_text_verbosity_spec,
 )
+from fast_agent.commands.renderers.tools_markdown import PTC_QUERY
 from fast_agent.config import get_settings
 from fast_agent.llm.reasoning_effort import available_reasoning_values
 from fast_agent.llm.text_verbosity import available_text_verbosity_values
@@ -48,6 +49,7 @@ from fast_agent.mcp.connect_targets import (
     connect_flag_requires_value_token,
 )
 from fast_agent.mcp.provider_management import provider_managed_base_url
+from fast_agent.tools.tool_surface import resolve_tool_surface
 from fast_agent.ui.prompt.attachment_tokens import (
     FILE_MENTION_SERVER,
     URL_MENTION_SERVER,
@@ -1496,10 +1498,14 @@ class AgentCompleter(Completer):
         agent = self._current_agent_object()
         if not isinstance(agent, CompleterToolAgent):
             return []
-        result = await agent.list_tools()
-        return [
-            (tool.name, tool.description or "View complete JSON schema") for tool in result.tools
+        surface = await resolve_tool_surface(agent)
+        entries = [
+            (surface_tool.tool.name, surface_tool.tool.description or "View complete JSON schema")
+            for surface_tool in surface.tools
         ]
+        if surface.programmatic is not None and surface.find(PTC_QUERY) is None:
+            entries.insert(0, (PTC_QUERY, "Full code tool description, as sent to the model"))
+        return entries
 
     @staticmethod
     def _feature_enabled(value: object | None) -> bool:

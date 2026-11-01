@@ -31,6 +31,7 @@ from fast_agent.session.locking import (
     SessionOwnerLease,
 )
 from fast_agent.session.snapshot import (
+    PtcStoreProvider,
     SessionChildLinkSnapshot,
     SessionExecutionStatus,
     SessionSnapshot,
@@ -55,6 +56,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.ptc.store import SandboxStore
     from fast_agent.session.hydrator import SessionHydrationResult, SessionHydrationWarning
     from fast_agent.session.identity import SessionSaveIdentity
     from fast_agent.types import PromptMessageExtended
@@ -138,6 +140,11 @@ def _sanitize_component(name: str, limit: int = 100) -> str:
     name = name.replace(" ", "_").replace("/", "_").replace("\\", "_")
     name = "".join(c for c in name if c.isalnum() or c in "_-.")
     return name[:limit] or "agent"
+
+
+def ptc_store_filename(agent_name: str) -> str:
+    """The session file holding the values an agent's PTC code kept with ``store()``."""
+    return f"ptc_store_{_sanitize_component(agent_name)}.json"
 
 
 def _extract_history_agent(filename: str) -> str:
@@ -348,6 +355,9 @@ class Session:
         # History file writes leave the event loop; serialize them per session
         # so temp-file/rotation steps from overlapping saves cannot interleave.
         self._history_save_lock = asyncio.Lock()
+        # The store object and revision last written per agent, so unchanged stores are skipped
+        # on the frequent mid-turn checkpoints.
+        self._saved_ptc_stores: dict[str, tuple[SandboxStore, int]] = {}
 
     @property
     def manager(self) -> SessionManager | None:
@@ -441,6 +451,8 @@ class Session:
             history_map[agent_name] = filename
             self.info.metadata["last_history_by_agent"] = history_map
 
+        await self._save_ptc_store(agent)
+
         if "first_user_preview" not in self.info.metadata:
             preview = _first_user_preview(agent.message_history)
             if preview:
@@ -503,6 +515,20 @@ class Session:
                     )
 
         return str(current_path)
+
+    async def _save_ptc_store(self, agent: AgentProtocol) -> None:
+        """Write the agent's PTC store beside its history when it changed since the last save."""
+        if not isinstance(agent, PtcStoreProvider) or (store := agent.ptc_store) is None:
+            return
+        saved = self._saved_ptc_stores.get(agent.name)
+        if saved is not None and saved[0] is store and saved[1] == store.revision:
+            return
+        path = self.directory / ptc_store_filename(agent.name)
+        if len(store) == 0:
+            path.unlink(missing_ok=True)
+        else:
+            await asyncio.to_thread(self._atomic_write_text, path, store.to_state())
+        self._saved_ptc_stores[agent.name] = (store, store.revision)
 
     def _save_metadata(self) -> None:
         """Save session metadata without replacing persisted runtime state."""
@@ -620,6 +646,9 @@ class Session:
         return manager.delete_owned_session(self)
 
     def _atomic_write_json(self, path: pathlib.Path, payload: dict[str, Any]) -> None:
+        self._atomic_write_text(path, json.dumps(payload, indent=2))
+
+    def _atomic_write_text(self, path: pathlib.Path, text: str) -> None:
         temp_path: pathlib.Path | None = None
         try:
             with tempfile.NamedTemporaryFile(
@@ -630,7 +659,7 @@ class Session:
                 prefix=f".{path.name}.",
                 suffix=".tmp",
             ) as handle:
-                json.dump(payload, handle, indent=2)
+                handle.write(text)
                 handle.flush()
                 os.fsync(handle.fileno())
                 temp_path = pathlib.Path(handle.name)
@@ -1353,6 +1382,9 @@ class SessionManager:
                 snapshot=source_snapshot,
                 dest_dir=staging_dir,
             )
+            self._copy_fork_ptc_store_files(
+                source=source, snapshot=source_snapshot, dest_dir=staging_dir
+            )
             forked_snapshot = clone_session_snapshot_for_fork(
                 source_snapshot,
                 new_session_id=session_id,
@@ -1512,6 +1544,16 @@ class SessionManager:
 
             copied_history_files[history_file] = self._copy_history_file(src_path, dest_dir)
         return copied_history_files
+
+    @staticmethod
+    def _copy_fork_ptc_store_files(
+        *, source: Session, snapshot: SessionSnapshot, dest_dir: pathlib.Path
+    ) -> None:
+        """Copy PTC store files under their own names, which the cloned snapshot keeps."""
+        for agent_snapshot in snapshot.continuation.agents.values():
+            filename = agent_snapshot.ptc_store_file
+            if filename is not None and (source.directory / filename).is_file():
+                shutil.copy2(source.directory / filename, dest_dir / filename)
 
     def _acquire_owner(self, session_id: str) -> SessionOwnerLease:
         existing = self._owner_leases.get(session_id)

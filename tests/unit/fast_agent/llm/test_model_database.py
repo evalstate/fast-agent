@@ -87,7 +87,7 @@ def test_gpt_6_astra_matches_codex_catalog_capabilities() -> None:
     assert ModelDatabase.get_default_provider("gpt-6-astra") == Provider.RESPONSES
 
 
-@pytest.mark.parametrize("model", ["gpt-6-sol", "gpt-6-luna"])
+@pytest.mark.parametrize("model", ["gpt-6-sol", "gpt-6-luna", "gpt-6.1-terra"])
 def test_gpt_6_sol_luna_match_astra_contract_with_none_effort(model: str) -> None:
     params = ModelDatabase.get_model_params(model)
     astra = ModelDatabase.get_model_params("gpt-6-astra")
@@ -118,7 +118,7 @@ def test_gpt_6_sol_luna_match_astra_contract_with_none_effort(model: str) -> Non
     assert params.model_dump(include=shared) == astra.model_dump(include=shared)
     assert params.shell_tool_profile == "freeform_shell"
     assert astra.shell_tool_profile == "freeform_shell"
-    assert params.fast is (model == "gpt-6-luna")
+    assert params.fast is (model in {"gpt-6-luna", "gpt-6.1-terra"})
     for provider, window in ((Provider.RESPONSES, 1_050_000), (Provider.CODEX_RESPONSES, 872_000)):
         routed = ModelDatabase.get_model_params(model, provider=provider)
         assert routed is not None
