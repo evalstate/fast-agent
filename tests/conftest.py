@@ -13,5 +13,6 @@ def isolate_parent_agent_runtime(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("HERDR_SOCKET_PATH", raising=False)
     monkeypatch.delenv("HERDR_PANE_ID", raising=False)
     monkeypatch.delenv("FAST_AGENT_SHELL_CHILD", raising=False)
+    monkeypatch.setenv("FAST_AGENT_DISABLE_PROGRAM_STATUS", "1")
     yield
     herdr_lifecycle._reset_for_tests()

@@ -1,11 +1,13 @@
-"""Publish fast-agent session presentation through the optional Herdr integration."""
+"""Publish session presentation to terminal status and the legacy Herdr integration."""
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
 
-from fast_agent.integrations.herdr_lifecycle import report_session_metadata
+from fast_agent.integrations.herdr_lifecycle import (
+    report_session_metadata,
+    session_reporting_enabled,
+)
 from fast_agent.llm.model_display_name import format_model_display_name
 from fast_agent.session import extract_session_title
 from fast_agent.ui.context_usage_display import format_compact_context_usage_percent
@@ -86,7 +88,7 @@ def report_session(
     *,
     agent: "AgentProtocol | None" = None,
 ) -> None:
-    if os.environ.get("HERDR_ENV") != "1":
+    if not session_reporting_enabled():
         return
     metadata = session.info.metadata if session is not None else {}
     configured_agent_name = metadata.get("agent_name")
@@ -120,7 +122,7 @@ def report_current_session(
     agent: "AgentProtocol | None" = None,
     agent_lookup: "Callable[[], AgentProtocol | None] | None" = None,
 ) -> None:
-    if os.environ.get("HERDR_ENV") != "1" or manager is None:
+    if not session_reporting_enabled() or manager is None:
         return
     if agent is None and agent_lookup is not None:
         agent = agent_lookup()

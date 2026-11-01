@@ -39,6 +39,47 @@ of the stdin interpreter. This includes direct interpreters such as
 TypeScript executed with `pnpm exec tsx -` (including `pnpm -C <dir> exec`).
 Highlighting is applied while the heredoc is still streaming.
 
+## Terminal program status (OSC 7501)
+
+Interactive fast-agent sessions emit the
+[Program Status Protocol (OSC 7501)](https://www.superlogical.com/rex/docs/build/program-status)
+by default. Supporting terminals and managers, including herdr-core and the new
+Herdr app, can show when fast-agent is idle, working, or waiting for human input.
+The report includes a session title and a compact context/model and cost summary
+(or token counts when pricing is unavailable). Metadata changes retain the current
+state; exiting clears the report.
+
+This is independent of OSC 133 scrollback markers and `logger.enable_prompt_marks`.
+No Herdr installation, environment detection, or capability query is required.
+Unsupported terminals normally ignore these sequences; multiplexers such as tmux
+may discard them rather than forward them.
+
+To disable OSC 7501 output, set this environment variable before starting fast-agent:
+
+```bash
+export FAST_AGENT_DISABLE_PROGRAM_STATUS=1
+```
+
+In PowerShell:
+
+```powershell
+$env:FAST_AGENT_DISABLE_PROGRAM_STATUS = "1"
+```
+
+Values `1`, `true`, `yes`, and `on` disable reporting (case-insensitive). There is
+no YAML setting. The opt-out does not disable OSC 133 or the legacy Herdr TUI's
+socket integration.
+
+Status output is restricted to interactive prompt sessions with terminal stdout;
+it is skipped for redirected output and `TERM=dumb`. ACP/MCP protocol sessions
+do not activate it. Raw terminal recordings may retain the reports, including
+session titles derived from prompts; base64 encoding is not encryption.
+
+The new Herdr app recognizes agents from their status reports. Displaying the
+usage summary in its agents panel requires a custom mod reading the terminal's
+`report.msg`; the old Herdr TUI's `$context`/`$cost` row configuration does not
+carry over.
+
 ## Terminal images
 
 Image rendering automatically uses reported terminal graphics support, including
