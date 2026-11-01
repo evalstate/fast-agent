@@ -261,7 +261,7 @@ def _handle_pty_output_ready(
         show_output=show_output,
         tty_out_fd=targets.tty_out_fd,
     )
-    output_capture.append(data.decode(errors="replace"))
+    output_capture.append(data.decode("utf-8", errors=UTF8_LOCALE_FALLBACK_ERRORS))
     return True
 
 
