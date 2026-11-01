@@ -279,9 +279,10 @@ The context contains:
 - `tools` — the tools offered to the model.
 - `history` — the conversation before the request, as stored.
 - `request` — the assistant message making the calls.
-- `tool_calls` — `PluginToolCall(id, name, arguments)` for each call, after
-  fast-agent resolved its tool name. Calls to unavailable tools are rejected
-  before review.
+- `tool_calls` — `PluginToolCall(id, name, arguments)` for each call, named by
+  the tool that will run: an unprefixed alias of an MCP tool (`delete_file`)
+  is reported by its advertised name (`docs__delete_file`). Calls to
+  unavailable tools are rejected before review.
 - `config` — the plugin's mapping from `plugins.config.<plugin-name>`.
 
 Reviewers run for every agent and subagent, in every mode (TUI, `--message`,

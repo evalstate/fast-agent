@@ -286,6 +286,20 @@ class MCPToolCatalog:
             local_name=name,
         )
 
+    def resolve_tool(self, name: str) -> NamespacedTool | None:
+        """Return the discovered tool that a call to ``name`` reaches, if any."""
+        resolution = self.resolve_tool_name(name)
+        if resolution.server_name is None:
+            return None
+        return next(
+            (
+                namespaced_tool
+                for namespaced_tool in self._by_server.get(resolution.server_name, ())
+                if namespaced_tool.tool.name == resolution.local_name
+            ),
+            None,
+        )
+
 
 @dataclass
 class ServerStats:

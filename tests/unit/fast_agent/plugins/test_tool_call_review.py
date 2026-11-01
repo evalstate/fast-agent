@@ -1,9 +1,16 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from mcp_types import CallToolRequest, CallToolRequestParams, TextContent
+from mcp_types import (
+    CallToolRequest,
+    CallToolRequestParams,
+    CallToolResult,
+    ListToolsResult,
+    TextContent,
+    Tool,
+)
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
@@ -13,6 +20,7 @@ from fast_agent.config import Settings
 from fast_agent.context import Context
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.mcp_aggregator import NamespacedTool
 from fast_agent.plugins.manifest import load_plugin_manifest
 from fast_agent.plugins.models import PluginToolCall, PluginToolCallReviewSpec
 from fast_agent.plugins.tool_call_review import (
@@ -248,3 +256,89 @@ async def test_agents_as_tools_reviews_child_and_local_calls_as_one_batch(
     assert result.tool_results["1"].is_error and result.tool_results["3"].is_error
     assert (safe.runs, danger.runs, ran) == (1, 0, ["ls"])
     await agent._aggregator.close()
+
+
+def _serve_docs_delete_file(agent: McpAgent) -> list[str]:
+    """Give ``agent`` one MCP tool, advertised as ``docs__delete_file``; return the calls made."""
+    called: list[str] = []
+    tool = Tool(name="delete_file", input_schema={"type": "object"})
+    namespaced = NamespacedTool(
+        tool=tool, server_name="docs", namespaced_tool_name="docs__delete_file"
+    )
+    agent._aggregator._namespaced_tool_map = {namespaced.namespaced_tool_name: namespaced}
+    agent._aggregator._server_to_tool_map = {namespaced.server_name: [namespaced]}
+
+    async def list_tools() -> ListToolsResult:
+        return ListToolsResult(tools=[tool.model_copy(update={"name": "docs__delete_file"})])
+
+    async def call_tool(name: str, *args: object, **kwargs: object) -> CallToolResult:
+        called.append(name)
+        return CallToolResult(content=[TextContent(type="text", text="deleted")])
+
+    async def get_app_integration_config(server_name: str) -> None:
+        return None
+
+    agent._aggregator.list_tools = cast("Any", list_tools)
+    agent._aggregator.call_tool = cast("Any", call_tool)
+    agent._aggregator.get_app_integration_config = cast("Any", get_app_integration_config)
+    return called
+
+
+def _deny_docs_delete_file(tmp_path: Path) -> Settings:
+    module = tmp_path / "review.py"
+    module.write_text(
+        "def review(ctx):\n"
+        "    return {c.id: c.name for c in ctx.tool_calls if c.name == 'docs__delete_file'}\n",
+        encoding="utf-8",
+    )
+    settings = Settings(ptc={"enabled": False})
+    settings._plugin_tool_call_review = (PluginToolCallReviewSpec("guard", f"{module}:review"),)
+    return settings
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["docs__delete_file", "delete_file"])
+async def test_reviewers_see_mcp_aliases_by_their_advertised_name(
+    tmp_path: Path, name: str
+) -> None:
+    agent = McpAgent(
+        config=AgentConfig(name="agent", servers=[]),
+        connection_persistence=False,
+        context=Context(config=_deny_docs_delete_file(tmp_path)),
+    )
+    called = _serve_docs_delete_file(agent)
+    request = PromptMessageExtended(
+        role="assistant", content=[], tool_calls={"1": _call(name, path="x")}
+    )
+
+    result = await agent.run_tools(request)
+
+    assert result.tool_results is not None
+    assert result.tool_results["1"].is_error
+    assert get_text(result.tool_results["1"].content[0]) == "docs__delete_file"
+    assert called == []
+
+
+@pytest.mark.asyncio
+async def test_agents_as_tools_reviews_mcp_aliases_by_their_advertised_name(
+    tmp_path: Path,
+) -> None:
+    child = _ChildAgent("child")
+    agent = AgentsAsToolsAgent(
+        AgentConfig(name="parent", servers=[]),
+        [child],
+        context=Context(config=_deny_docs_delete_file(tmp_path)),
+        connection_persistence=False,
+    )
+    called = _serve_docs_delete_file(agent)
+    request = PromptMessageExtended(
+        role="assistant",
+        content=[],
+        tool_calls={"1": _call("agent__child", message="hi"), "2": _call("delete_file", path="x")},
+    )
+
+    result = await agent.run_tools(request)
+
+    assert result.tool_results is not None
+    assert result.tool_results["2"].is_error
+    assert (child.runs, called) == (1, [])
