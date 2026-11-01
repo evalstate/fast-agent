@@ -290,7 +290,8 @@ ACP, serve), in enabled-plugin order; each sees only the calls earlier
 reviewers let through. Review fails closed: a reviewer that cannot be loaded,
 raises, or returns anything other than a mapping or `None` denies every call it
 was given. An enabled plugin whose manifest fails to load and mentions
-`tool_call_review` counts as a reviewer that cannot be loaded. With programmatic tool calling (`--ptc`), reviewers see the code
+`tool_call_review` counts as a reviewer that cannot be loaded, as does every
+enabled plugin when its plugins directory cannot be read at all. With programmatic tool calling (`--ptc`), reviewers see the code
 tool's call, not the tool calls made from inside the code. Reviewers are loaded
 at the first tool call; restart fast-agent after enabling or updating one.
 

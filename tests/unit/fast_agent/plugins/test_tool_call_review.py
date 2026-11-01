@@ -16,13 +16,17 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.workflow.agents_as_tools_agent import AgentsAsToolsAgent
-from fast_agent.config import Settings
+from fast_agent.config import Settings, _load_enabled_plugin_contributions_from_root
 from fast_agent.context import Context
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.mcp_aggregator import NamespacedTool
 from fast_agent.plugins.manifest import load_plugin_manifest
-from fast_agent.plugins.models import PluginToolCall, PluginToolCallReviewSpec
+from fast_agent.plugins.models import (
+    PluginContributions,
+    PluginToolCall,
+    PluginToolCallReviewSpec,
+)
 from fast_agent.plugins.operations import load_enabled_plugin_contributions
 from fast_agent.plugins.tool_call_review import (
     load_plugin_tool_call_reviewers,
@@ -90,7 +94,27 @@ async def test_enabled_review_plugin_with_broken_manifest_denies_calls(
     denials = await _review(reviewers, CALLS)
 
     assert set(denials) == {"a", "b"}
-    assert "review plugin 'guard' failed to load" in denials["a"]
+    assert "plugin 'guard' failed to load" in denials["a"]
+
+
+@pytest.mark.asyncio
+async def test_plugin_root_that_fails_to_load_denies_calls(tmp_path: Path) -> None:
+    def fail(**_: object) -> PluginContributions:
+        raise OSError("disk on fire")
+
+    with pytest.warns(UserWarning, match="disk on fire"):
+        contributions = _load_enabled_plugin_contributions_from_root(
+            destination_root=tmp_path,
+            enabled=["guard", "cmds"],
+            scope="project",
+            load_enabled_plugin_contributions=fail,
+        )
+    reviewers = load_plugin_tool_call_reviewers(tuple(contributions.tool_call_review.values()))
+
+    denials = await _review(reviewers, CALLS)
+
+    assert set(denials) == {"a", "b"}
+    assert "disk on fire" in denials["a"]
 
 
 def test_broken_manifest_without_review_hook_adds_no_reviewer(tmp_path: Path) -> None:

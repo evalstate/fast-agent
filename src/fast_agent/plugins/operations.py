@@ -33,6 +33,7 @@ from fast_agent.plugins.models import (
     PluginToolCallReviewSpec,
     PluginUpdateInfo,
     PluginUpdateStatus,
+    unloadable_tool_call_review,
 )
 from fast_agent.plugins.provenance import (
     build_installed_plugin_source,
@@ -233,9 +234,7 @@ def load_enabled_plugin_contributions(
             )
             if _mentions_tool_call_review(plugin_dir):
                 # Review fails closed: keep the guard so its calls are denied, not run unreviewed.
-                tool_call_review[name] = PluginToolCallReviewSpec(
-                    plugin_name=name, handler="", load_error=str(exc)
-                )
+                tool_call_review[name] = unloadable_tool_call_review(name, str(exc))
             continue
         commands.update(manifest.commands)
         if manifest.post_user_turn is not None:

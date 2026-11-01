@@ -49,6 +49,7 @@ from fast_agent.plugins.models import (
     PluginContributions,
     PluginPostUserTurnSpec,
     PluginToolCallReviewSpec,
+    unloadable_tool_call_review,
 )
 from fast_agent.tools.environment_config import EnvironmentSpec
 from fast_agent.tools.shell_profiles import ShellToolProfile
@@ -3011,7 +3012,13 @@ def _load_enabled_plugin_contributions_from_root(
             UserWarning,
             stacklevel=3,
         )
-        return PluginContributions(commands={}, post_user_turn={})
+        # Any of these plugins may be a reviewer, so review fails closed for all of them.
+        error = f"enabled plugins from {scope} failed to load: {exc}"
+        return PluginContributions(
+            commands={},
+            post_user_turn={},
+            tool_call_review={name: unloadable_tool_call_review(name, error) for name in enabled},
+        )
 
 
 @dataclass(frozen=True, slots=True)

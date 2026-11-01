@@ -59,7 +59,12 @@ class PluginToolCallReviewSpec:
     plugin_name: str
     handler: str
     load_error: str | None = None
-    """Set when an enabled review plugin's manifest failed to load; its calls are denied."""
+    """Set when an enabled plugin that may review tool calls failed to load; calls are denied."""
+
+
+def unloadable_tool_call_review(plugin_name: str, error: str) -> PluginToolCallReviewSpec:
+    """Stand in for an enabled plugin that may be a reviewer but could not be loaded."""
+    return PluginToolCallReviewSpec(plugin_name=plugin_name, handler="", load_error=error)
 
 
 @dataclass(frozen=True, slots=True)

@@ -110,7 +110,8 @@ async def review_plugin_tool_calls(
             denials.update(
                 _deny_all(
                     pending,
-                    f"Tool call blocked: review plugin '{name}' failed to load: {reviewer.load_error}",
+                    f"Tool call blocked: enabled plugin '{name}' failed to load, so it cannot "
+                    f"review tool calls: {reviewer.load_error}",
                 )
             )
             continue
