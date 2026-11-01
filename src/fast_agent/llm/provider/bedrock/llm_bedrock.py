@@ -45,6 +45,11 @@ BEDROCK_STOP_REASON_MAP: dict[str, LlmStopReason] = {
     "end_turn": LlmStopReason.END_TURN,
     "stop_sequence": LlmStopReason.STOP_SEQUENCE,
     "max_tokens": LlmStopReason.MAX_TOKENS,
+    "model_context_window_exceeded": LlmStopReason.MAX_TOKENS,
+    "guardrail_intervened": LlmStopReason.SAFETY,
+    "content_filtered": LlmStopReason.SAFETY,
+    "malformed_model_output": LlmStopReason.ERROR,
+    "malformed_tool_use": LlmStopReason.ERROR,
 }
 if TYPE_CHECKING:
     from mcp import ListToolsResult
