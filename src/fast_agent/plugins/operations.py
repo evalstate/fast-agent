@@ -30,8 +30,10 @@ from fast_agent.plugins.models import (
     PluginContributions,
     PluginPostUserTurnSpec,
     PluginSourceOrigin,
+    PluginToolCallReviewSpec,
     PluginUpdateInfo,
     PluginUpdateStatus,
+    unloadable_tool_call_review,
 )
 from fast_agent.plugins.provenance import (
     build_installed_plugin_source,
@@ -217,9 +219,15 @@ def load_enabled_plugin_contributions(
 ) -> PluginContributions:
     commands: dict[str, Any] = {}
     post_user_turn: dict[str, PluginPostUserTurnSpec] = {}
+    tool_call_review: dict[str, PluginToolCallReviewSpec] = {}
     for name in enabled:
         plugin_dir = _resolve_enabled_plugin_dir(destination_root=destination_root, name=name)
         if not (plugin_dir / PLUGIN_MANIFEST_FILENAME).is_file():
+            warnings.warn(
+                f"Enabled fast-agent plugin '{name}' is not installed in {destination_root}",
+                UserWarning,
+                stacklevel=2,
+            )
             continue
         try:
             manifest = load_plugin_manifest(plugin_dir)
@@ -229,11 +237,31 @@ def load_enabled_plugin_contributions(
                 UserWarning,
                 stacklevel=2,
             )
+            if _mentions_tool_call_review(plugin_dir):
+                # Review fails closed: keep the guard so its calls are denied, not run unreviewed.
+                tool_call_review[name] = unloadable_tool_call_review(name, str(exc))
             continue
         commands.update(manifest.commands)
         if manifest.post_user_turn is not None:
             post_user_turn[manifest.name] = manifest.post_user_turn
-    return PluginContributions(commands=commands, post_user_turn=post_user_turn)
+        if manifest.tool_call_review is not None:
+            tool_call_review[manifest.name] = manifest.tool_call_review
+    return PluginContributions(
+        commands=commands,
+        post_user_turn=post_user_turn,
+        tool_call_review=tool_call_review,
+    )
+
+
+def _mentions_tool_call_review(plugin_dir: Path) -> bool:
+    """Whether a manifest that failed to load may declare a review hook.
+
+    A text match also covers manifests that are not valid YAML.
+    """
+    manifest_text = (plugin_dir / PLUGIN_MANIFEST_FILENAME).read_text(
+        encoding="utf-8", errors="replace"
+    )
+    return "tool_call_review" in manifest_text
 
 
 def _resolve_enabled_plugin_dir(*, destination_root: Path, name: str) -> Path:

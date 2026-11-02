@@ -19,12 +19,13 @@ import typer
 import typer.main
 from typer._click.core import Command, Context
 from typer._click.formatting import HelpFormatter
-from typer.core import TyperCommand, TyperGroup
+from typer.core import TyperCommand
 
 from fast_agent.cli.command_support import ensure_context_object
 from fast_agent.cli.constants import normalize_convenience_flag_args, normalize_resume_flag_args
 from fast_agent.cli.display import print_section_header
 from fast_agent.cli.home_helpers import resolve_workspace_and_home_options
+from fast_agent.cli.prompt_argument_hint import PromptArgumentHintGroup
 from fast_agent.cli.terminal import Application
 from fast_agent.cli.update_check import (
     check_for_update_notice,
@@ -96,7 +97,7 @@ def _installed_package_version(package_name: str) -> str:
 
 
 # TyperGroup overrides require vendored base types, not standalone Click types.
-class LazyGroup(TyperGroup):
+class LazyGroup(PromptArgumentHintGroup):
     lazy_subcommands: ClassVar[dict[str, str]] = {}
     lazy_subcommand_help: ClassVar[dict[str, str]] = {}
 

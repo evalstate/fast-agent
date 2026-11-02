@@ -47,3 +47,19 @@ def test_header_shows_model_then_live_context_then_rate() -> None:
     handle.update_model("claude (2.50%)")
     header = handle._build_header().plain
     assert "claude (2.50%) ~" in header and "3.00%" not in header
+
+
+def test_header_shows_queued_messages_only_while_streaming(monkeypatch) -> None:
+    from fast_agent.ui.streaming import display as streaming_display
+
+    handle = StreamingMessageHandle(
+        display=ConsoleDisplay(Settings()),
+        header_right="[dim]claude[/dim]",
+    )
+    monkeypatch.setattr(streaming_display, "queued_input_count", lambda: 0)
+    assert "queued" not in handle._build_header().plain
+    monkeypatch.setattr(streaming_display, "queued_input_count", lambda: 2)
+    assert re.search(r"claude ⧗ 2 queued\s*$", handle._build_header().plain)
+    # The final frame can stay in scrollback: it must not carry the count.
+    handle._show_stream_cursor = False
+    assert "queued" not in handle._build_header().plain

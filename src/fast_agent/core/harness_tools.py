@@ -14,7 +14,6 @@ from mcp_types import (
 )
 
 from fast_agent.agents.tool_agent import ToolAgent
-from fast_agent.commands.harness import execute_harness_command
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.internal_resources import read_internal_resource
 from fast_agent.mcp.helpers.content_helpers import get_text, text_content
@@ -131,6 +130,9 @@ def set_harness_tools(agent: object, enabled: bool | None = None) -> bool:
     skill_source_overrides: dict[str, str] = {}
 
     async def slash_command(command: str) -> str:
+        # Load command handlers only when used, keeping them off the startup path.
+        from fast_agent.commands.harness import execute_harness_command
+
         return await execute_harness_command(
             agent,
             command,

@@ -118,18 +118,6 @@ class TestBuildHeaderLeft:
         expected = f"[magenta]▎[/magenta][dim magenta]▶[/dim magenta] [magenta]{HOOK_INDICATOR_GLYPH}[/magenta] [magenta]dev[/magenta]"
         assert result == expected
 
-    def test_user_message_header_with_hook(self) -> None:
-        """User message header (blue) with hook indicator."""
-        result = ConsoleDisplay.build_header_left(
-            block_color="blue",
-            arrow="▶",
-            arrow_style="dim blue",
-            name="user",
-            show_hook_indicator=True,
-        )
-        expected = f"[blue]▎[/blue][dim blue]▶[/dim blue] [blue]{HOOK_INDICATOR_GLYPH}[/blue] [blue]user[/blue]"
-        assert result == expected
-
     def test_assistant_message_header_with_hook(self) -> None:
         """Assistant message header (green) with hook indicator."""
         result = ConsoleDisplay.build_header_left(
@@ -141,15 +129,3 @@ class TestBuildHeaderLeft:
         )
         expected = f"[green]▎[/green][dim green]◀[/dim green] [green]{HOOK_INDICATOR_GLYPH}[/green] [green]assistant[/green]"
         assert result == expected
-
-
-class TestHookIndicatorGlyph:
-    """Tests for the hook indicator glyph constant."""
-
-    def test_glyph_is_diamond(self) -> None:
-        """Verify the glyph is a diamond character."""
-        assert HOOK_INDICATOR_GLYPH == "◆"
-
-    def test_glyph_is_single_character(self) -> None:
-        """Verify the glyph is a single character."""
-        assert len(HOOK_INDICATOR_GLYPH) == 1

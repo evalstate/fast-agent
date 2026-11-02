@@ -1,4 +1,8 @@
-"""Native Herdr lifecycle reporting for fast-agent sessions."""
+"""Shared interactive lifecycle reporting, with legacy Herdr compatibility.
+
+The historical module/API names are retained for existing callers. OSC 7501
+uses the same lifecycle state machine but does not depend on Herdr.
+"""
 
 from __future__ import annotations
 
@@ -15,8 +19,14 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Literal
 
-type HerdrAgentState = Literal["idle", "working", "blocked", "unknown"]
-type HerdrBaseState = Literal["idle", "working", "unknown"]
+from fast_agent.integrations.program_status import (
+    BlockedKind,
+    ProgramStatusReporter,
+    program_status_enabled,
+)
+
+type HerdrAgentState = Literal["idle", "working", "blocked", "error", "unknown"]
+type HerdrBaseState = Literal["idle", "working", "error", "unknown"]
 type _HerdrMethod = Literal[
     "pane.report_agent",
     "pane.report_metadata",
@@ -86,8 +96,9 @@ def _uses_windows_cli_transport() -> bool:
 
 
 class _HerdrLifecycleReporter:
-    def __init__(self, environment: _HerdrEnvironment) -> None:
+    def __init__(self, environment: _HerdrEnvironment | None) -> None:
         self._environment = environment
+        self._program_status = ProgramStatusReporter()
         self._creator_pid = os.getpid()
         self._request_nonce = uuid.uuid4().hex[:12]
         self._requests: queue.Queue[_HerdrRequest] = queue.Queue()
@@ -101,19 +112,23 @@ class _HerdrLifecycleReporter:
         self._pending_session_metadata: _SessionMetadata | None = None
         self._latest_metadata_request_id: str | None = None
         self._closing = False
-        self._worker = threading.Thread(
-            target=self._run_worker,
-            name="fast-agent-herdr",
-            daemon=True,
-        )
-        self._worker.start()
+        # Only the legacy transport needs a worker. OSC writes are synchronous
+        # under the lifecycle lock, so state and presentation cannot race.
+        self._worker: threading.Thread | None = None
+        if environment is not None:
+            self._worker = threading.Thread(
+                target=self._run_worker,
+                name="fast-agent-herdr",
+                daemon=True,
+            )
+            self._worker.start()
 
     @property
     def creator_pid(self) -> int:
         return self._creator_pid
 
     def report_state(self, state: HerdrBaseState) -> None:
-        if state not in ("idle", "working", "unknown"):
+        if state not in ("idle", "working", "error", "unknown"):
             return
         if os.getpid() != self._creator_pid:
             return
@@ -149,7 +164,6 @@ class _HerdrLifecycleReporter:
         with self._lock:
             if self._closing:
                 return
-            self._base_state = "idle"
             if self._working_scope_depth > 0:
                 self._working_scope_depth -= 1
             if (
@@ -157,30 +171,43 @@ class _HerdrLifecycleReporter:
                 and not self._prompt_working
                 and self._blocked_depth == 0
             ):
-                self._enqueue_locked("pane.report_agent", state="idle")
+                self._enqueue_locked("pane.report_agent", state=self._base_state)
 
-    def report_prompt_working(self, working: bool) -> None:
+    def report_prompt_working(
+        self, working: bool, *, prompt_start: bool = False, failed: bool = False
+    ) -> None:
         if os.getpid() != self._creator_pid:
             return
         with self._lock:
             if self._closing:
                 return
-            self._base_state = "idle"
+            self._program_status.activate()
+            # OSC 133 A may clear the terminal's record. Republish a retained
+            # failure rather than immediately erasing it when the prompt returns.
+            if not prompt_start or self._base_state != "error":
+                self._base_state = "error" if failed else "idle"
             self._prompt_working = working
             if self._blocked_depth > 0 or self._working_scope_depth > 0:
+                if prompt_start:
+                    self._program_status.refresh()
                 return
             self._enqueue_locked(
                 "pane.report_agent",
-                state="working" if working else "idle",
+                state="working" if working else self._base_state,
+                force_program_status=prompt_start,
             )
 
-    def enter_blocked(self) -> None:
+    def enter_blocked(self, *, kind: BlockedKind | None = None, activate: bool = False) -> None:
         if os.getpid() != self._creator_pid:
             return
         with self._lock:
             if self._closing:
                 return
-            self._enter_blocked_locked()
+            if activate:
+                # Before the first prompt (startup questions) nothing has
+                # activated status output yet; callers check for a TTY session.
+                self._program_status.activate()
+            self._enter_blocked_locked(kind)
 
     def exit_blocked(self) -> None:
         if os.getpid() != self._creator_pid:
@@ -190,14 +217,15 @@ class _HerdrLifecycleReporter:
                 return
             self._blocked_depth -= 1
             if self._blocked_depth == 0:
-                self._enqueue_locked(
-                    "pane.report_agent",
-                    state=(
-                        "working"
-                        if self._working_scope_depth > 0 or self._prompt_working
-                        else self._base_state
-                    ),
+                state: HerdrAgentState = (
+                    "working"
+                    if self._working_scope_depth > 0 or self._prompt_working
+                    else self._base_state
                 )
+                self._enqueue_locked("pane.report_agent", state=state)
+                if state == "unknown":
+                    # A startup question was answered before any prompt exists.
+                    self._program_status.clear_state()
 
     def report_session_metadata(
         self,
@@ -226,7 +254,16 @@ class _HerdrLifecycleReporter:
             prompt,
         )
         with self._lock:
-            if self._closing or metadata == self._pending_session_metadata:
+            if self._closing:
+                return
+            self._program_status.report_metadata(
+                session_id=session_id,
+                agent_name=agent_name,
+                title=title,
+                context_usage=context_usage,
+                token_usage=token_usage,
+            )
+            if self._environment is None or metadata == self._pending_session_metadata:
                 return
             if self._pending_session_metadata is None and metadata == self._session_metadata:
                 return
@@ -261,6 +298,7 @@ class _HerdrLifecycleReporter:
         with self._lock:
             if self._closing:
                 return
+            self._program_status.report_usage(usage)
             self._enqueue_locked(
                 "pane.report_metadata",
                 params={
@@ -268,6 +306,15 @@ class _HerdrLifecycleReporter:
                     "tokens": {"tokens": usage},
                 },
             )
+
+    def report_queued_input(self, count: int) -> None:
+        if os.getpid() != self._creator_pid:
+            return
+        with self._lock:
+            if self._closing:
+                return
+            # OSC 7501 only: the legacy Herdr socket has no field for this.
+            self._program_status.report_queued(count)
 
     def release(self) -> None:
         if os.getpid() != self._creator_pid:
@@ -278,6 +325,9 @@ class _HerdrLifecycleReporter:
             if self._closing:
                 return
             self._closing = True
+            self._program_status.release()
+            if self._environment is None:
+                return
             self._discard_queued_requests_locked()
             request = self._build_request(
                 "pane.release_agent",
@@ -287,10 +337,10 @@ class _HerdrLifecycleReporter:
             self._requests.put(request)
         completion.wait(_RELEASE_TIMEOUT_SECONDS)
 
-    def _enter_blocked_locked(self) -> None:
+    def _enter_blocked_locked(self, kind: BlockedKind | None = None) -> None:
         self._blocked_depth += 1
         if self._blocked_depth == 1:
-            self._enqueue_locked("pane.report_agent", state="blocked")
+            self._enqueue_locked("pane.report_agent", state="blocked", kind=kind)
 
     def _enqueue_locked(
         self,
@@ -298,8 +348,16 @@ class _HerdrLifecycleReporter:
         *,
         state: HerdrAgentState | None = None,
         params: dict[str, object] | None = None,
+        force_program_status: bool = False,
+        kind: BlockedKind | None = None,
     ) -> None:
-        self._requests.put(self._build_request(method, state=state, params=params))
+        if state in ("idle", "working", "blocked", "error"):
+            self._program_status.report_state(state, force=force_program_status, kind=kind)
+        if self._environment is not None:
+            # The legacy Herdr socket protocol has no error state. Keep its
+            # established idle semantics; modern OSC 7501 carries the failure.
+            legacy_state = "idle" if state == "error" else state
+            self._requests.put(self._build_request(method, state=legacy_state, params=params))
 
     def _build_request(
         self,
@@ -311,6 +369,7 @@ class _HerdrLifecycleReporter:
         stop_after: bool = False,
         session_metadata: _SessionMetadata | None = None,
     ) -> _HerdrRequest:
+        assert self._environment is not None
         self._sequence += 1
         request_params: dict[str, object] = {
             "pane_id": self._environment.pane_id,
@@ -391,6 +450,7 @@ class _HerdrLifecycleReporter:
         request: _HerdrRequest,
         timeout_seconds: float,
     ) -> bool:
+        assert self._environment is not None
         socket_path = self._environment.socket_path
         if socket_path is None:
             return False
@@ -451,6 +511,7 @@ class _HerdrLifecycleReporter:
         return result.returncode == 0
 
     def _cli_command(self, request: _HerdrRequest) -> list[str] | None:
+        assert self._environment is not None
         bin_path = self._environment.bin_path
         seq = request.params.get("seq")
         if bin_path is None or not isinstance(seq, int):
@@ -517,7 +578,7 @@ def _active_reporter() -> _HerdrLifecycleReporter | None:
     global _reporter
 
     environment = _herdr_environment()
-    if environment is None:
+    if environment is None and not program_status_enabled():
         return None
 
     current_pid = os.getpid()
@@ -529,9 +590,14 @@ def _active_reporter() -> _HerdrLifecycleReporter | None:
         return _reporter
 
 
+def session_reporting_enabled() -> bool:
+    """Whether session presentation has a potential consumer."""
+    return os.environ.get("HERDR_ENV") == "1" or program_status_enabled()
+
+
 def report_agent_state(state: HerdrBaseState) -> None:
     """Report the pane-level lifecycle state when running inside Herdr."""
-    if state not in ("idle", "working", "unknown"):
+    if state not in ("idle", "working", "error", "unknown"):
         return
     try:
         reporter = _active_reporter()
@@ -582,9 +648,19 @@ def report_session_usage(usage: str) -> None:
         pass
 
 
+def report_queued_input(count: int) -> None:
+    """Report how many messages are held for the next prompt."""
+    try:
+        reporter = _active_reporter()
+        if reporter is not None:
+            reporter.report_queued_input(count)
+    except Exception:
+        pass
+
+
 def report_prompt_mark(code: str) -> None:
     """Map OSC 133 semantic prompt marks to Herdr lifecycle states."""
-    command = code.partition(";")[0]
+    command, _, status = code.partition(";")
     if command not in ("A", "C", "D"):
         return
     try:
@@ -592,11 +668,17 @@ def report_prompt_mark(code: str) -> None:
         if reporter is None:
             return
         if command == "A":
-            reporter.report_prompt_working(False)
+            reporter.report_prompt_working(False, prompt_start=True)
         elif command == "C":
             reporter.report_prompt_working(True)
         elif command == "D":
-            reporter.report_prompt_working(False)
+            try:
+                exit_code = int(status)
+            except ValueError:
+                exit_code = 0  # Bare/unspecified completion is not evidence of failure.
+            # Conventional interrupt/termination statuses are cancellation, not failure.
+            failed = exit_code not in (0, 130, 143, -2, -15)
+            reporter.report_prompt_working(False, failed=failed)
     except Exception:
         pass
 
@@ -622,14 +704,19 @@ def herdr_working():
 
 
 @contextmanager
-def herdr_blocked():
-    """Report blocked while fast-agent is waiting for interactive human input."""
+def herdr_blocked(*, kind: BlockedKind | None = None, activate: bool = False):
+    """Report blocked while fast-agent is waiting for interactive human input.
+
+    ``kind`` says what is needed (``question``, ``permission`` or ``auth``).
+    ``activate`` enables status output before the first prompt, for startup
+    questions in an interactive terminal session.
+    """
     reporter: _HerdrLifecycleReporter | None = None
     try:
         try:
             reporter = _active_reporter()
             if reporter is not None:
-                reporter.enter_blocked()
+                reporter.enter_blocked(kind=kind, activate=activate)
         except Exception:
             reporter = None
         yield

@@ -17,6 +17,7 @@ from fast_agent.ui.elicitation_style import (
     ELICITATION_STYLE,
 )
 from fast_agent.ui.progress_display import progress_display
+from fast_agent.ui.prompt.turn_input import suspend_turn_input
 
 # Concurrent tool calls (parallel calls, PTC asyncio.gather, multi-request input rounds) can
 # elicit at once; the terminal can only show one form, so prompts take turns.
@@ -160,7 +161,7 @@ async def elicitation_input_callback(
             # Checked after waiting, so choosing "disable" in one form cancels queued ones.
             if elicitation_state.is_disabled(effective_server_name):
                 return _cancelled_response(request_id)
-            with herdr_blocked():
+            with herdr_blocked(kind="question"), suspend_turn_input():
                 response = await _prompt_for_elicitation(
                     request=request,
                     agent_name=effective_agent_name,

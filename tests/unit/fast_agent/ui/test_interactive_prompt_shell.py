@@ -214,4 +214,4 @@ async def test_environment_shell_failure_still_closes_prompt_mark(
             display=cast("ConsoleDisplay", display),
         )
 
-    assert marks == ["C", "D"]
+    assert marks == ["C", "D;1"]

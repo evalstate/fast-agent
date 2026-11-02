@@ -279,6 +279,38 @@ async def test_sanitized_names_map_back_and_unset_optionals_are_dropped(runtime)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("type_check", [True, False])
+async def test_every_generated_function_resolves_and_dispatches_to_its_tool(
+    type_check: bool,
+) -> None:
+    tool_names = [
+        "127_0_0_1_3317_mcp__hf_models_search",
+        "_private_search",
+        "tool_private_search",
+        "1-a",
+        "1_a",
+        "print",
+        "class",
+        "",
+    ]
+    schema = {"type": "object", "properties": {"_cursor": {"type": "string"}}}
+    runtime = ProgrammaticToolRuntime(
+        ProgrammaticToolCallingSettings(enabled=True, type_check=type_check)
+    )
+    runtime.model_tools([Tool(name=name, input_schema=schema) for name in tool_names])
+    dispatch = RecordingDispatcher()
+    code = "\n".join(f"await {name}(_cursor='c')" for name in runtime.functions)
+    try:
+        result = await runtime.execute({"code": code}, dispatch)
+    finally:
+        await runtime.close()
+
+    assert not result.is_error, _text(result)
+    assert sorted(name for name, _ in dispatch.calls) == sorted(tool_names)
+    assert all(arguments == {"_cursor": "c"} for _, arguments in dispatch.calls)
+
+
+@pytest.mark.asyncio
 async def test_type_errors_reject_code_before_any_tool_runs(runtime) -> None:
     dispatch = RecordingDispatcher()
 

@@ -14,18 +14,27 @@ async def test_elicitation_reports_blocked_only_while_waiting(monkeypatch) -> No
     events: list[str] = []
 
     @contextmanager
-    def blocked_scope():
-        events.append("blocked")
+    def blocked_scope(*, kind=None):
+        events.append(f"blocked:{kind}")
         try:
             yield
         finally:
             events.append("working")
+
+    @contextmanager
+    def suspend_scope():
+        events.append("suspend")
+        try:
+            yield
+        finally:
+            events.append("resume")
 
     async def prompt_for_elicitation(**_kwargs) -> str:
         events.append("waiting")
         return "answer"
 
     monkeypatch.setattr(elicitation_handler, "herdr_blocked", blocked_scope)
+    monkeypatch.setattr(elicitation_handler, "suspend_turn_input", suspend_scope)
     monkeypatch.setattr(
         elicitation_handler,
         "_prompt_for_elicitation",
@@ -37,7 +46,8 @@ async def test_elicitation_reports_blocked_only_while_waiting(monkeypatch) -> No
     )
 
     assert response.response == "answer"
-    assert events == ["blocked", "waiting", "working"]
+    # The form owns the terminal: queued turn input is suspended around it.
+    assert events == ["blocked:question", "suspend", "waiting", "resume", "working"]
 
 
 @pytest.mark.asyncio
@@ -45,7 +55,7 @@ async def test_disabled_elicitation_does_not_report_blocked(monkeypatch) -> None
     entered = False
 
     @contextmanager
-    def blocked_scope():
+    def blocked_scope(**_kwargs):
         nonlocal entered
         entered = True
         yield

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Literal, Protocol
 
@@ -12,6 +12,8 @@ from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Mapping
+
+    from mcp_types import Tool
 
     from fast_agent.command_actions.models import PluginCommandActionSpec
     from fast_agent.llm.usage_tracking import TurnUsage
@@ -43,12 +45,26 @@ class PluginManifest:
     commands: dict[str, PluginCommandActionSpec]
     post_user_turn: PluginPostUserTurnSpec | None
     path: Path
+    tool_call_review: PluginToolCallReviewSpec | None = None
 
 
 @dataclass(frozen=True)
 class PluginPostUserTurnSpec:
     plugin_name: str
     handler: str
+
+
+@dataclass(frozen=True)
+class PluginToolCallReviewSpec:
+    plugin_name: str
+    handler: str
+    load_error: str | None = None
+    """Set when an enabled plugin that may review tool calls failed to load; calls are denied."""
+
+
+def unloadable_tool_call_review(plugin_name: str, error: str) -> PluginToolCallReviewSpec:
+    """Stand in for an enabled plugin that may be a reviewer but could not be loaded."""
+    return PluginToolCallReviewSpec(plugin_name=plugin_name, handler="", load_error=error)
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,10 +99,52 @@ class PluginPostUserTurnFunction(Protocol):
     def __call__(self, ctx: PluginPostUserTurnContext) -> PluginPostUserTurnReturn: ...
 
 
+@dataclass(frozen=True, slots=True)
+class PluginToolCall:
+    """One tool call awaiting review, after fast-agent resolved its tool name."""
+
+    id: str
+    name: str
+    arguments: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class PluginToolCallReviewContext:
+    """What a reviewer sees: the conversation so far and the calls about to run."""
+
+    plugin_name: str
+    agent_name: str
+    model: str | None
+    instruction: str
+    """The agent's system prompt."""
+    tools: tuple[Tool, ...]
+    """Tools offered to the model for this request."""
+    history: tuple[PromptMessageExtended, ...]
+    """Conversation before ``request``."""
+    request: PromptMessageExtended
+    """The assistant message making the calls."""
+    tool_calls: tuple[PluginToolCall, ...]
+    config: Mapping[str, object]
+    """The plugin's mapping from ``plugins.config.<plugin-name>``."""
+
+
+type PluginToolCallReviewResult = Mapping[str, str] | None
+"""Denied call ids mapped to the error text returned to the model; ``None`` allows all."""
+
+
+class PluginToolCallReviewFunction(Protocol):
+    __name__: str
+
+    def __call__(
+        self, ctx: PluginToolCallReviewContext
+    ) -> PluginToolCallReviewResult | Awaitable[PluginToolCallReviewResult]: ...
+
+
 @dataclass(frozen=True)
 class PluginContributions:
     commands: dict[str, PluginCommandActionSpec]
     post_user_turn: dict[str, PluginPostUserTurnSpec]
+    tool_call_review: dict[str, PluginToolCallReviewSpec] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

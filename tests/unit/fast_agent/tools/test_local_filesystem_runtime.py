@@ -604,6 +604,18 @@ async def test_read_text_file_supports_line_and_limit(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_read_text_file_line_numbers_match_newlines_only(tmp_path: Path) -> None:
+    runtime = LocalFilesystemRuntime(logging.getLogger("local-filesystem-runtime-test"))
+    test_file = tmp_path / "sample.txt"
+    test_file.write_text("first\nsec\u2028ond\fstill second\nthird\n", encoding="utf-8")
+
+    result = await runtime.read_text_file({"path": str(test_file), "line": 2, "limit": 2})
+
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == "sec\u2028ond\fstill second\nthird"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("field", ["line", "limit"])
 async def test_read_text_file_rejects_boolean_line_or_limit(
     tmp_path: Path,

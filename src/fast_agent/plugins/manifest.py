@@ -10,12 +10,17 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from fast_agent.command_actions.config import parse_plugin_command_action_specs
 from fast_agent.core.exceptions import AgentConfigError
-from fast_agent.plugins.models import PLUGIN_MANIFEST_FILENAME, PluginManifest
+from fast_agent.plugins.models import (
+    PLUGIN_MANIFEST_FILENAME,
+    PluginManifest,
+    PluginToolCallReviewSpec,
+)
 from fast_agent.utils.text import strip_to_none
 
 
 class _PluginHooksModel(BaseModel):
     post_user_turn: str | None = None
+    tool_call_review: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -54,7 +59,7 @@ def load_plugin_manifest(plugin_dir: Path) -> PluginManifest:
         raise AgentConfigError(f"Plugin manifest must be a mapping: {manifest_path}")
 
     model = _PluginManifestModel.model_validate(data)
-    if model.schema_version not in (1, 2):
+    if model.schema_version not in (1, 2, 3):
         raise AgentConfigError(
             f"Unsupported plugin schema_version: {model.schema_version}",
             f"Manifest: {manifest_path}",
@@ -62,6 +67,11 @@ def load_plugin_manifest(plugin_dir: Path) -> PluginManifest:
     if model.schema_version == 1 and model.hooks.post_user_turn is not None:
         raise AgentConfigError(
             "Plugin hooks require schema_version: 2",
+            f"Manifest: {manifest_path}",
+        )
+    if model.schema_version < 3 and model.hooks.tool_call_review is not None:
+        raise AgentConfigError(
+            "The tool_call_review hook requires schema_version: 3",
             f"Manifest: {manifest_path}",
         )
 
@@ -86,6 +96,13 @@ def load_plugin_manifest(plugin_dir: Path) -> PluginManifest:
             handler=_resolve_handler(model.hooks.post_user_turn, plugin_dir),
         )
 
+    tool_call_review = None
+    if model.hooks.tool_call_review is not None:
+        tool_call_review = PluginToolCallReviewSpec(
+            plugin_name=model.name,
+            handler=_resolve_handler(model.hooks.tool_call_review, plugin_dir),
+        )
+
     return PluginManifest(
         schema_version=model.schema_version,
         name=model.name,
@@ -94,6 +111,7 @@ def load_plugin_manifest(plugin_dir: Path) -> PluginManifest:
         commands=commands,
         post_user_turn=post_user_turn,
         path=manifest_path,
+        tool_call_review=tool_call_review,
     )
 
 

@@ -348,7 +348,7 @@ def _save_stream_request(filename_base: Path | None, arguments: dict[str, Any]) 
             "captured_at": datetime.now().isoformat(),
             "arguments": payload,
         }
-        with request_file.open("w") as f:
+        with request_file.open("w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, sort_keys=True)
     except Exception as e:
         logger.debug(f"Failed to save stream request: {e}")
@@ -366,7 +366,7 @@ def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
             payload = chunk.model_dump()
         except Exception:
             payload = {"type": type(chunk).__name__, "str": str(chunk)}
-        with chunk_file.open("a") as f:
+        with chunk_file.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload) + "\n")
     except Exception as e:
         logger.debug(f"Failed to save stream chunk: {e}")

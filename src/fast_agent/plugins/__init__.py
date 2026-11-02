@@ -8,6 +8,10 @@ from fast_agent.plugins.models import (
     PluginPostUserTurnFunction,
     PluginPostUserTurnOutput,
     PluginPostUserTurnResult,
+    PluginToolCall,
+    PluginToolCallReviewContext,
+    PluginToolCallReviewFunction,
+    PluginToolCallReviewResult,
     PluginUpdateInfo,
 )
 
@@ -19,5 +23,9 @@ __all__ = [
     "PluginPostUserTurnFunction",
     "PluginPostUserTurnOutput",
     "PluginPostUserTurnResult",
+    "PluginToolCall",
+    "PluginToolCallReviewContext",
+    "PluginToolCallReviewFunction",
+    "PluginToolCallReviewResult",
     "PluginUpdateInfo",
 ]

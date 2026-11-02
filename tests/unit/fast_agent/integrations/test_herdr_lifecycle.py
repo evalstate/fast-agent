@@ -542,3 +542,70 @@ def test_session_metadata_retries_after_delivery_failure(
     time.sleep(0.05)
     assert attempts == [0.5, 1.5, 0.5]
     reporter.release()
+
+
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="Unix sockets are unavailable")
+@pytest.mark.parametrize("broken_output", [False, True])
+def test_legacy_transport_coexists_with_best_effort_program_status(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    broken_output: bool,
+) -> None:
+    import io
+    from types import SimpleNamespace
+
+    from fast_agent.integrations import program_status
+
+    class Terminal(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+        def write(self, value: str) -> int:
+            if broken_output:
+                raise OSError("terminal output unavailable")
+            return super().write(value)
+
+    output = Terminal()
+    monkeypatch.setattr(program_status, "sys", SimpleNamespace(stdout=output))
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.delenv("FAST_AGENT_DISABLE_PROGRAM_STATUS", raising=False)
+    socket_path = tmp_path / "herdr.sock"
+    requests, server = _capture_requests(socket_path, 3)
+    _configure_herdr(monkeypatch, socket_path)
+    herdr_lifecycle.report_prompt_mark("A")
+    herdr_lifecycle.report_prompt_mark("C")
+    _wait_for_requests(requests, 2)
+    herdr_lifecycle.release_agent()
+    server.join(1)
+    assert not server.is_alive()
+    assert [r["method"] for r in requests] == [
+        "pane.report_agent",
+        "pane.report_agent",
+        "pane.release_agent",
+    ]
+    if broken_output:
+        assert output.getvalue() == ""
+    else:
+        assert output.getvalue().count("\x1b]7501;") == 3
+        assert output.getvalue().endswith("\x1b]7501;state=clear\x1b\\")
+
+
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="Unix sockets are unavailable")
+def test_error_keeps_legacy_socket_state_compatible(monkeypatch, tmp_path) -> None:
+    socket_path = tmp_path / "legacy-error.sock"
+    requests, server = _capture_requests(socket_path, 5)
+    _configure_herdr(monkeypatch, socket_path)
+    herdr_lifecycle.report_prompt_mark("A")
+    herdr_lifecycle.report_prompt_mark("C")
+    herdr_lifecycle.report_prompt_mark("D;1")
+    herdr_lifecycle.report_prompt_mark("A")
+    _wait_for_requests(requests, 4)
+    herdr_lifecycle.release_agent()
+    server.join(1)
+    assert not server.is_alive()
+    states = []
+    for request in requests:
+        params = request["params"]
+        assert isinstance(params, dict)
+        states.append(params.get("state"))
+    assert states == ["idle", "working", "idle", "idle", None]

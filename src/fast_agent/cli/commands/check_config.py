@@ -2489,6 +2489,20 @@ def _run_structured_output_probe(
         raise typer.Exit(1)
 
 
+@app.command("terminal")
+def terminal(
+    ctx: typer.Context,
+    image: bool = typer.Option(False, "--image", help="Render a local resolution test chart."),
+    json_output: bool = typer.Option(
+        False, "--json", help="Print JSON without active terminal probes."
+    ),
+) -> None:
+    """Inspect terminal graphics, status eligibility and image-paste support."""
+    from fast_agent.cli.checks.terminal import run_terminal_check
+
+    run_terminal_check(home=_context_home(ctx), image=image, json_output=json_output)
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,

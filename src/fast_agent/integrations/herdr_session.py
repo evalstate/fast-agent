@@ -1,11 +1,14 @@
-"""Publish fast-agent session presentation through the optional Herdr integration."""
+"""Publish session presentation to terminal status and the legacy Herdr integration."""
 
 from __future__ import annotations
 
-import os
+import re
 from typing import TYPE_CHECKING
 
-from fast_agent.integrations.herdr_lifecycle import report_session_metadata
+from fast_agent.integrations.herdr_lifecycle import (
+    report_session_metadata,
+    session_reporting_enabled,
+)
 from fast_agent.llm.model_display_name import format_model_display_name
 from fast_agent.session import extract_session_title
 from fast_agent.ui.context_usage_display import format_compact_context_usage_percent
@@ -18,6 +21,15 @@ if TYPE_CHECKING:
     from fast_agent.session import Session, SessionManager
 
 _PROMPT_LIMIT = 200
+# herdr-core wraps messages typed by another terminal: <hc from="t7">...</hc>.
+# Truncated prompts may lose the closing tag, so remove each tag on its own.
+_HC_ENVELOPE_TAG = re.compile(r"</?hc\b[^>]*>")
+
+
+def _without_hc_envelope(text: str | None) -> str | None:
+    if text is None or "<hc" not in text and "</hc" not in text:
+        return text
+    return " ".join(_HC_ENVELOPE_TAG.sub(" ", text).split()) or None
 
 
 def _metadata_text(
@@ -35,7 +47,8 @@ def _metadata_text(
 def _session_presentation(metadata: dict[str, object]) -> tuple[str | None, str | None]:
     prompt = _metadata_text(metadata, "last_user_prompt", limit=_PROMPT_LIMIT)
     manual_title = _metadata_text(metadata, "title") or _metadata_text(metadata, "label")
-    display_title = manual_title or prompt or extract_session_title(metadata)
+    prompt = _without_hc_envelope(prompt)
+    display_title = manual_title or prompt or _without_hc_envelope(extract_session_title(metadata))
     return display_title, prompt
 
 
@@ -86,7 +99,7 @@ def report_session(
     *,
     agent: "AgentProtocol | None" = None,
 ) -> None:
-    if os.environ.get("HERDR_ENV") != "1":
+    if not session_reporting_enabled():
         return
     metadata = session.info.metadata if session is not None else {}
     configured_agent_name = metadata.get("agent_name")
@@ -120,7 +133,7 @@ def report_current_session(
     agent: "AgentProtocol | None" = None,
     agent_lookup: "Callable[[], AgentProtocol | None] | None" = None,
 ) -> None:
-    if os.environ.get("HERDR_ENV") != "1" or manager is None:
+    if not session_reporting_enabled() or manager is None:
         return
     if agent is None and agent_lookup is not None:
         agent = agent_lookup()

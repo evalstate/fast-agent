@@ -1123,6 +1123,8 @@ def _stage_publish_changes(
         ["git", "-C", str(workspace.repo_root), "add", "--all", "--", source.repo_path],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if add_result.returncode != 0:
@@ -1141,6 +1143,8 @@ def _stage_publish_changes(
         ["git", "-C", str(workspace.repo_root), "status", "--porcelain", "--", source.repo_path],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if status_result.returncode != 0:
@@ -1206,6 +1210,8 @@ def _commit_publish_changes(
         ["git", "-C", str(workspace.repo_root), "commit", "-m", message],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if commit_result.returncode != 0:
@@ -1255,6 +1261,8 @@ def _push_published_card_pack(
         ["git", "-C", str(workspace.repo_root), "push"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if push_result.returncode == 0:
@@ -2502,7 +2510,9 @@ def _clone_publish_repository(
         clone_args.extend(["--branch", source.repo_ref])
     clone_args.extend([source.repo_url, str(destination_dir)])
 
-    clone_result = subprocess.run(clone_args, capture_output=True, text=True, check=False)
+    clone_result = subprocess.run(
+        clone_args, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False
+    )
     if clone_result.returncode != 0:
         return marketplace_git_sources.subprocess_failure_detail(
             clone_result,
@@ -2513,6 +2523,8 @@ def _clone_publish_repository(
         ["git", "-C", str(destination_dir), "sparse-checkout", "set", source.repo_path],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if sparse_result.returncode != 0:
@@ -2526,6 +2538,8 @@ def _clone_publish_repository(
         ["git", "-C", str(destination_dir), "checkout", checkout_target],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if checkout_result.returncode != 0:
@@ -2542,12 +2556,16 @@ def _ensure_git_identity(repo_root: Path) -> None:
         ["git", "-C", str(repo_root), "config", "--get", "user.name"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     email_result = subprocess.run(
         ["git", "-C", str(repo_root), "config", "--get", "user.email"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
 
@@ -2556,6 +2574,8 @@ def _ensure_git_identity(repo_root: Path) -> None:
             ["git", "-C", str(repo_root), "config", "user.name", "fast-agent"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
 
@@ -2564,6 +2584,8 @@ def _ensure_git_identity(repo_root: Path) -> None:
             ["git", "-C", str(repo_root), "config", "user.email", "fast-agent@localhost"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
 
@@ -2572,10 +2594,10 @@ def _write_publish_patch(*, repo_root: Path, pack_dir: Path, commit: str | None)
     if not commit:
         return None
 
+    # Keep the patch as bytes: it may contain files that are not UTF-8.
     patch_result = subprocess.run(
         ["git", "-C", str(repo_root), "format-patch", "-1", commit, "--stdout"],
         capture_output=True,
-        text=True,
         check=False,
     )
     if patch_result.returncode != 0 or not patch_result.stdout:
@@ -2586,7 +2608,7 @@ def _write_publish_patch(*, repo_root: Path, pack_dir: Path, commit: str | None)
     timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     commit_short = commit[:7]
     patch_path = publish_dir / f"{timestamp}-{commit_short}.patch"
-    patch_path.write_text(patch_result.stdout, encoding="utf-8")
+    patch_path.write_bytes(patch_result.stdout)
     return patch_path
 
 

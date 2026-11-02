@@ -126,7 +126,8 @@ jobs:
           uv sync --locked --group dev
 
       - name: Run integration tests
-        run: uv run pytest -m integration -v --durations=20 ${{ matrix.path }} ${{ matrix.args }}
+        # Keep each file together so module-scoped ACP processes are reused.
+        run: uv run pytest -n 2 --dist loadfile -v --durations=20 ${{ matrix.path }} ${{ matrix.args }}
 
   test:
     name: test

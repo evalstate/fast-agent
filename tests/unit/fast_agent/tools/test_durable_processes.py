@@ -46,6 +46,12 @@ if TYPE_CHECKING:
 _SHELL = Path("/bin/sh")
 
 
+@pytest.fixture
+def immediate_background_launch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Poll tests synchronize on output themselves; launch settling has its own suite."""
+    monkeypatch.setattr(shell_runtime_module, "BACKGROUND_LAUNCH_SETTLE_SECONDS", 0)
+
+
 class _FailingWriter(io.BytesIO):
     def write(self, data: Buffer, /) -> int:
         del data
@@ -904,6 +910,7 @@ def test_supervisor_signal_stops_child_process_group(
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+@pytest.mark.usefixtures("immediate_background_launch")
 async def test_shell_runtime_can_attach_and_stop_process_after_replacement(
     tmp_path: Path,
 ) -> None:
@@ -1179,6 +1186,7 @@ async def test_durable_poll_waits_for_unread_output_to_settle(
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+@pytest.mark.usefixtures("immediate_background_launch")
 async def test_cancelled_durable_poll_preserves_output_debounce(
     tmp_path: Path,
     monkeypatch,
@@ -1193,9 +1201,7 @@ async def test_cancelled_durable_poll_preserves_output_debounce(
     )
     result = await runtime.execute(
         {
-            # Emit after the background launch settle window so the output is fresh
-            # (inside the debounce) when the poll below starts.
-            "command": "sleep 1.8; printf ready; sleep 30",
+            "command": "printf ready; sleep 30",
             "background": True,
         }
     )
@@ -1245,6 +1251,7 @@ async def test_cancelled_durable_poll_preserves_output_debounce(
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+@pytest.mark.usefixtures("immediate_background_launch")
 async def test_continuous_durable_output_waits_until_poll_deadline(tmp_path: Path) -> None:
     root = tmp_path / "processes"
     script = tmp_path / "continuous.py"
@@ -1298,8 +1305,10 @@ async def test_continuous_durable_output_waits_until_poll_deadline(tmp_path: Pat
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
-@pytest.mark.parametrize("action", ["wait", "status"])
-@pytest.mark.parametrize("limit", [1, 999, 1000])
+@pytest.mark.usefixtures("immediate_background_launch")
+# UTF-8 limit boundaries are covered by ShellOutputBuffer tests; these cases
+# exercise each process action and boundary through the durable store.
+@pytest.mark.parametrize(("action", "limit"), [("wait", 1), ("status", 999), ("wait", 1000)])
 async def test_unified_durable_preview_limit(tmp_path: Path, action: str, limit: int) -> None:
     root = tmp_path / "processes"
     gate = tmp_path / "finish"
@@ -1400,6 +1409,7 @@ async def test_unified_durable_preview_limit(tmp_path: Path, action: str, limit:
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+@pytest.mark.usefixtures("immediate_background_launch")
 async def test_durable_poll_preserves_per_command_output_limit(tmp_path: Path) -> None:
     root = tmp_path / "processes"
     script = tmp_path / "output_limit.py"
@@ -1451,6 +1461,7 @@ async def test_durable_poll_preserves_per_command_output_limit(tmp_path: Path) -
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+@pytest.mark.usefixtures("immediate_background_launch")
 async def test_durable_processes_use_independent_poll_locks(tmp_path: Path) -> None:
     root = tmp_path / "processes"
     runtime = ShellRuntime(

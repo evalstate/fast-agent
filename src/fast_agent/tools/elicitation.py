@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from fast_agent.constants import HUMAN_INPUT_TOOL_NAME
 from fast_agent.tools.function_tool_loader import build_default_function_tool
+from fast_agent.utils.text import split_lines
 
 if TYPE_CHECKING:
     from fastmcp.tools import FunctionTool
@@ -181,7 +182,7 @@ def get_elicitation_input_callback() -> ElicitationCallback | None:
 def _parse_schema_json_string(value: str) -> dict[str, Any] | None:
     stripped = value.strip()
     if stripped.startswith("```"):
-        lines = stripped.splitlines()
+        lines = split_lines(stripped)
         if lines:
             lines = lines[1:]
         if lines and lines[-1].strip().startswith("```"):

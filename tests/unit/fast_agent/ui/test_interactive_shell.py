@@ -39,6 +39,19 @@ def test_run_interactive_shell_command_captures_output() -> None:
     assert "hello from shell" in result.stdout
 
 
+def test_pipe_output_that_is_not_utf8_decodes_with_the_locale_encoding(monkeypatch) -> None:
+    # A child writing its locale code page (e.g. Python 3.12-3.14 on cp1252 Windows)
+    # must stay readable, alongside UTF-8 output from the same command.
+    monkeypatch.setattr("fast_agent.utils.text.locale.getencoding", lambda: "cp1252")
+    command = _python_shell_command(
+        "import sys; sys.stdout.buffer.write(b'caf\\xe9\\n' + 'café\\n'.encode())"
+    )
+
+    result = run_interactive_shell_command(command, show_output=False)
+
+    assert result.stdout.splitlines() == ["café", "café"]
+
+
 def test_run_interactive_shell_command_truncates_captured_output() -> None:
     command = _python_shell_command("print('x' * 32)")
 

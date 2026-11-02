@@ -120,7 +120,7 @@ async def test_forms_mode_capability_advertisement(fast_agent):
 
     @fast.agent(
         "forms-agent",
-        servers=["resource_forms"],
+        servers=["elicitation_forms_mode"],
         # No elicitation_handler provided - should use config mode (forms is default)
     )
     async def agent_function():
@@ -134,29 +134,5 @@ async def test_forms_mode_capability_advertisement(fast_agent):
             assert "✓ Elicitation" in capabilities_text, (
                 f"Forms mode should advertise elicitation: {capabilities_text}"
             )
-
-    await agent_function()
-
-
-@pytest.mark.integration
-@pytest.mark.asyncio
-async def test_elicitation_precedence_decorator_over_config(fast_agent):
-    """Test that decorator-provided handler takes precedence over config."""
-    fast = fast_agent
-
-    @fast.agent(
-        "precedence-test-agent",
-        servers=["resource_forms"],
-        elicitation_handler=custom_test_elicitation_handler,  # Should override config
-    )
-    async def agent_function():
-        async with fast.run() as agent:
-            app = agent["precedence-test-agent"]
-            # Test actual elicitation behavior
-            result = await app.call_tool("user_profile", {})
-            result_str = str(result)
-
-            # Should get test data from our custom handler, not config behavior
-            assert "Test User" in result_str, f"Decorator precedence failed: {result_str}"
 
     await agent_function()

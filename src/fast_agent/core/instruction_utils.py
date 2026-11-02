@@ -27,7 +27,15 @@ INTERNAL_AGENT_CARD_SENTINEL = "(internal)"
 
 @runtime_checkable
 class InstructionTemplateCapable(Protocol):
-    instruction_template: str
+    """Authoritative refresh source, before shared context rendering.
+
+    Agents that compose workflow instructions must include that generated content
+    here. Neither the raw config nor the last rendered instruction can reconstruct
+    it reliably during context refresh.
+    """
+
+    @property
+    def instruction_template(self) -> str: ...
 
 
 @runtime_checkable

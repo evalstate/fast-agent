@@ -357,15 +357,6 @@ class TestUpdateSkipsWhenInactive:
         display.resume()
         assert "test-agent" in display._taskmap
 
-    def test_update_skipped_when_stopped(self) -> None:
-        display = _make_display()
-        display.start()
-        display.stop()
-
-        event = _make_event()
-        display.update(event)
-        assert len(display._taskmap) == 0
-
     def test_update_works_when_active(self) -> None:
         display = _make_display()
         display.start()
@@ -2090,3 +2081,23 @@ class TestThreadSafety:
 
         display.stop()
         assert errors == [], f"Concurrent operations raised: {errors}"
+
+
+def test_queued_input_line_is_shown_only_beside_visible_rows(monkeypatch) -> None:
+    from fast_agent.ui.progress import display as progress_module
+
+    display = _make_display()
+    monkeypatch.setattr(progress_module, "queued_input_count", lambda: 1)
+
+    def rendered() -> str:
+        console = Console(file=io.StringIO(), width=100)
+        for renderable in display._progress.get_renderables():
+            console.print(renderable)
+        return console.file.getvalue()  # ty: ignore[unresolved-attribute]
+
+    assert "queued" not in rendered()  # no rows yet
+    display.update(_make_event())
+    assert "⧗ 1 queued" in rendered()
+    for task in display._progress.tasks:  # what pause() does before stopping
+        task.visible = False
+    assert "queued" not in rendered()

@@ -609,8 +609,12 @@ async def test_public_home_setting_enables_durable_process_store(tmp_path: Path)
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
-async def test_durable_process_provenance_uses_each_agent_acp_session(tmp_path: Path) -> None:
+async def test_durable_process_provenance_uses_each_agent_acp_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """ACP agents must not use another session's shared-manager current pointer."""
+    # Provenance is persisted at launch; startup grace is covered by the shell tests.
+    monkeypatch.setattr("fast_agent.tools.shell_runtime.BACKGROUND_LAUNCH_SETTLE_SECONDS", 0)
     shared_manager = SimpleNamespace(
         current_session=SimpleNamespace(info=SimpleNamespace(name="second-session"))
     )

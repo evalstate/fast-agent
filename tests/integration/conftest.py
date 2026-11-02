@@ -1,7 +1,7 @@
 import asyncio
 import os
 import sys
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -26,28 +26,16 @@ def isolate_fast_agent_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[
     from fast_agent import config as config_module
 
     config_module._settings = None
-    for key in ("FAST_AGENT_HOME", "FAST_AGENT_HOME", "FAST_AGENT_RUNTIME_HOME"):
+    for key in ("FAST_AGENT_HOME", "FAST_AGENT_RUNTIME_HOME"):
         monkeypatch.delenv(key, raising=False)
     yield
     config_module._settings = None
 
 
 @pytest.fixture(scope="session")
-def mcp_test_ports():
-    worker_id = os.getenv("PYTEST_XDIST_WORKER", "")
-    worker_index = 0
-    if worker_id.startswith("gw"):
-        suffix = worker_id[2:]
-        if suffix.isdigit():
-            worker_index = int(suffix)
-
-    stride = int(os.getenv("FAST_AGENT_TEST_PORT_STRIDE", "10"))
-    offset = worker_index * stride
-    ports = {
-        "sse": 8723 + offset,
-        "http": 8724 + offset,
-        "request_http": 8731 + offset,
-    }
+def mcp_test_ports(unused_tcp_port_factory: Callable[[], int]) -> Iterator[dict[str, int]]:
+    # Independent workers and simultaneous suite runs must not share fixed ports.
+    ports = {name: unused_tcp_port_factory() for name in ("sse", "http", "request_http")}
 
     env_updates = {
         "FAST_AGENT_TEST_SSE_PORT": str(ports["sse"]),
@@ -106,120 +94,38 @@ def project_root():
     return Path(__file__).parent.parent.parent
 
 
-# Add a fixture that uses the test file's directory
 @pytest.fixture
-def fast_agent(request, mcp_test_ports):
-    """
-    Creates a FastAgent with config from the test file's directory.
-    Automatically changes working directory to match the test file location.
-    """
-    # Get the directory where the test file is located
-    test_module = request.module.__file__
-    test_dir = os.path.dirname(test_module)
+def fast_agent_factory(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_test_ports,
+) -> Callable[[str], FastAgent]:
+    """Load test-local configs with exception-safe cwd and argv restoration."""
+    test_dir = request.path.parent
+    monkeypatch.chdir(test_dir)
 
-    # Save original directory
-    original_cwd = os.getcwd()
+    def create(config_name: str) -> FastAgent:
+        with monkeypatch.context() as arguments:
+            arguments.setattr(sys, "argv", [sys.argv[0]])
+            return FastAgent(
+                "Test Agent",
+                config_path=str(test_dir / config_name),
+                ignore_unknown_args=True,
+            )
 
-    # Change to the test file's directory
-    os.chdir(test_dir)
-
-    # Explicitly create absolute path to the config file in the test directory
-    config_file = os.path.join(test_dir, "fastagent.config.yaml")
-
-    # Avoid pytest args being parsed as FastAgent CLI args.
-    original_argv = sys.argv
-    sys.argv = [sys.argv[0]]
-    try:
-        # Create agent with local config using absolute path
-        agent = FastAgent(
-            "Test Agent",
-            config_path=config_file,  # Use absolute path to local config in test directory
-            ignore_unknown_args=True,
-        )
-    finally:
-        sys.argv = original_argv
-
-    # Provide the agent
-    yield agent
-
-    # Restore original directory
-    os.chdir(original_cwd)
+    return create
 
 
-# Add a fixture that uses the test file's directory
 @pytest.fixture
-def markup_fast_agent(request, mcp_test_ports):
-    """
-    Creates a FastAgent with config from the test file's directory.
-    Automatically changes working directory to match the test file location.
-    """
-    # Get the directory where the test file is located
-    test_module = request.module.__file__
-    test_dir = os.path.dirname(test_module)
-
-    # Save original directory
-    original_cwd = os.getcwd()
-
-    # Change to the test file's directory
-    os.chdir(test_dir)
-
-    # Explicitly create absolute path to the config file in the test directory
-    config_file = os.path.join(test_dir, "fastagent.config.markup.yaml")
-
-    # Avoid pytest args being parsed as FastAgent CLI args.
-    original_argv = sys.argv
-    sys.argv = [sys.argv[0]]
-    try:
-        # Create agent with local config using absolute path
-        agent = FastAgent(
-            "Test Agent",
-            config_path=config_file,  # Use absolute path to local config in test directory
-            ignore_unknown_args=True,
-        )
-    finally:
-        sys.argv = original_argv
-
-    # Provide the agent
-    yield agent
-
-    # Restore original directory
-    os.chdir(original_cwd)
+def fast_agent(fast_agent_factory: Callable[[str], FastAgent]) -> FastAgent:
+    return fast_agent_factory("fastagent.config.yaml")
 
 
-# Add a fixture for auto_sampling disabled tests
 @pytest.fixture
-def auto_sampling_off_fast_agent(request, mcp_test_ports):
-    """
-    Creates a FastAgent with auto_sampling disabled config from the test file's directory.
-    """
-    # Get the directory where the test file is located
-    test_module = request.module.__file__
-    test_dir = os.path.dirname(test_module)
+def markup_fast_agent(fast_agent_factory: Callable[[str], FastAgent]) -> FastAgent:
+    return fast_agent_factory("fastagent.config.markup.yaml")
 
-    # Save original directory
-    original_cwd = os.getcwd()
 
-    # Change to the test file's directory
-    os.chdir(test_dir)
-
-    # Explicitly create absolute path to the config file in the test directory
-    config_file = os.path.join(test_dir, "fastagent.config.auto_sampling_off.yaml")
-
-    # Avoid pytest args being parsed as FastAgent CLI args.
-    original_argv = sys.argv
-    sys.argv = [sys.argv[0]]
-    try:
-        # Create agent with local config using absolute path
-        agent = FastAgent(
-            "Test Agent",
-            config_path=config_file,
-            ignore_unknown_args=True,
-        )
-    finally:
-        sys.argv = original_argv
-
-    # Provide the agent
-    yield agent
-
-    # Restore original directory
-    os.chdir(original_cwd)
+@pytest.fixture
+def auto_sampling_off_fast_agent(fast_agent_factory: Callable[[str], FastAgent]) -> FastAgent:
+    return fast_agent_factory("fastagent.config.auto_sampling_off.yaml")

@@ -7,7 +7,12 @@ import os
 import platform
 from typing import TYPE_CHECKING
 
+import pytest
+
 from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.workflow.iterative_planner import IterativePlanner
+from fast_agent.agents.workflow.router_agent import RouterAgent
 from fast_agent.core.instruction_utils import (
     apply_instruction_context,
     build_agent_instruction_context,
@@ -19,6 +24,7 @@ from fast_agent.core.prompt_templates import (
     load_skills_for_context,
     refresh_execution_environment_context,
 )
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.tools.execution_environment import ShellRuntimeInfo
 
 if TYPE_CHECKING:
@@ -135,6 +141,52 @@ class _PromptEnvironment:
     async def execute(self, request, *, callbacks=None):
         del request, callbacks
         raise NotImplementedError
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("workflow_type", [RouterAgent, IterativePlanner])
+@pytest.mark.parametrize("with_context", [False, True])
+async def test_workflow_instructions_survive_context_refresh(
+    workflow_type: type[RouterAgent] | type[IterativePlanner], with_context: bool
+) -> None:
+    worker = LlmAgent(AgentConfig("research_worker", description="Finds primary research sources"))
+    context_template = "Workspace: {{workspaceRoot}}\n" if with_context else ""
+    if workflow_type is RouterAgent:
+        # Router routing_instruction uses str.format before context rendering.
+        workflow = RouterAgent(
+            AgentConfig("router"),
+            [worker],
+            routing_instruction=(
+                "Workspace: {{{{workspaceRoot}}}}\n{context}" if with_context else None
+            ),
+        )
+    else:
+        workflow = IterativePlanner(
+            AgentConfig("planner", instruction=context_template + "Workers:\n{{agents}}"),
+            [worker],
+        )
+    original_config_instruction = workflow.config.instruction
+
+    try:
+        await workflow.initialize()
+        initialized_instruction = workflow.instruction
+        await apply_instruction_context([workflow], {})
+        assert workflow.instruction == initialized_instruction
+
+        llm = await workflow.attach_llm(ModelFactory.create_factory("passthrough"))
+        for workspace in ("/first", "/second", "/second"):
+            await apply_instruction_context([workflow], {"workspaceRoot": workspace})
+            assert workflow.instruction.count("research_worker") == 1
+            assert "Finds primary research sources" in workflow.instruction
+            assert "{{agents}}" not in workflow.instruction
+            assert llm.default_request_params.system_prompt == workflow.instruction
+            assert workflow.config.instruction == original_config_instruction
+            if with_context:
+                assert llm.instruction == workflow.instruction
+                assert f"Workspace: {workspace}" in workflow.instruction
+                assert "{{workspaceRoot}}" not in workflow.instruction
+    finally:
+        await workflow.shutdown()
 
 
 def test_format_client_info_ignores_blank_title_and_trims_version() -> None:

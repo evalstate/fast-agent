@@ -55,7 +55,9 @@ class ShellOutputSpoolTailer:
         on_stderr_activity: SpoolOutputActivityHandler | None = None,
         chunk_size: int = 1024 * 1024,
         chunks_per_poll: int = 4,
+        errors: str = "replace",
     ) -> None:
+        """``errors`` is the UTF-8 decode error handler for the spooled output."""
         self._paths = paths
         self._read_chunk = read_chunk
         self._on_stdout = on_stdout
@@ -66,8 +68,8 @@ class ShellOutputSpoolTailer:
         self._chunks_per_poll = chunks_per_poll
         self._stdout_offset = 0
         self._stderr_offset = 0
-        self._stdout_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-        self._stderr_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self._stdout_decoder = codecs.getincrementaldecoder("utf-8")(errors=errors)
+        self._stderr_decoder = codecs.getincrementaldecoder("utf-8")(errors=errors)
         self._stdout_pending = ""
         self._stderr_pending = ""
         self._last_output_at: float | None = None

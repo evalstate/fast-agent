@@ -27,7 +27,7 @@ def llm() -> DeepSeekResponsesLLM:
     return DeepSeekResponsesLLM(context=Context(config=Settings()), model="deepseek-flash")
 
 
-@pytest.mark.parametrize("size", [(8268, 4092), (4092, 8268)])
+@pytest.mark.parametrize("size", [(16384, 256), (256, 16384)])
 def test_oversize_image_resizes_at_request_boundary(size: tuple[int, int]) -> None:
     provider = llm()
     image = image_content(size)

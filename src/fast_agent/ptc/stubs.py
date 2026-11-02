@@ -424,6 +424,10 @@ def _parameter_identifier(name: str) -> str:
 
 def _global_identifier(name: str) -> str:
     identifier = _parameter_identifier(name)
+    # Monty star-imports the type-check stubs, which skips private (``_``-prefixed) names,
+    # so a tool function must have a public name to resolve during type checking.
+    if identifier.startswith("_"):
+        identifier = f"tool{identifier}"
     return f"{identifier}_tool" if identifier in _RESERVED_GLOBALS else identifier
 
 

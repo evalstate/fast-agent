@@ -12,6 +12,7 @@ import typer
 from fast_agent.a2a.connect import normalize_a2a_transport, normalize_a2a_url
 from fast_agent.cli.command_support import ensure_context_object
 from fast_agent.cli.home_helpers import resolve_workspace_and_home_options
+from fast_agent.cli.prompt_argument_hint import PromptArgumentHintGroup
 from fast_agent.cli.runtime.request_builders import (
     DEFAULT_AGENT_CARDS_DIR as _DEFAULT_AGENT_CARDS_DIR,
 )
@@ -47,6 +48,7 @@ DEFAULT_TOOL_CARDS_DIR = _DEFAULT_TOOL_CARDS_DIR
 
 
 app = typer.Typer(
+    cls=PromptArgumentHintGroup,
     help="Run an interactive agent directly from the command line without creating an agent.py file",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
     add_completion=False,
@@ -244,9 +246,18 @@ def _maybe_offer_recommended_plugins(ctx: typer.Context, request: AgentRunReques
         plugin_roots=default_plugin_roots(request.home),
         marketplace_url=get_marketplace_url(settings),
         fetch_payload=partial(fetch_marketplace_payload, timeout_seconds=DEFAULT_TIMEOUT_SECONDS),
-        confirm=lambda prompt: typer.confirm(prompt, default=True),
+        confirm=_confirm_waiting_for_person,
         echo=typer.echo,
     )
+
+
+def _confirm_waiting_for_person(prompt: str) -> bool:
+    from fast_agent.integrations.herdr_lifecycle import herdr_blocked
+
+    # Shown before the first prompt; report it so herdr-core/Herdr show this
+    # agent as waiting for a person instead of reporting no status at all.
+    with herdr_blocked(kind="question", activate=True):
+        return typer.confirm(prompt, default=True)
 
 
 def _resolve_model_base_url_option(

@@ -134,7 +134,7 @@ from fast_agent.ui.shell_output_truncation import (
     split_shell_output_line_limit,
 )
 from fast_agent.utils.path_display import format_relative_path
-from fast_agent.utils.text import summarize_command
+from fast_agent.utils.text import split_lines, summarize_command
 from fast_agent.utils.tool_names import (
     BASH_TOOL_NAME,
     EXECUTE_TOOL_NAME,
@@ -1447,12 +1447,10 @@ class ShellRuntime:
         else:
             matching_lines = [
                 line
-                for line in retained_blob[offset:]
-                .decode(
-                    "utf-8",
-                    errors="replace",
+                for line in split_lines(
+                    retained_blob[offset:].decode("utf-8", errors="replace"),
+                    keepends=True,
                 )
-                .splitlines(keepends=True)
                 if query in line
             ]
             match_count = len(matching_lines)

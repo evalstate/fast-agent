@@ -1120,13 +1120,17 @@ async def _capture_pasted_oauth_callback(
     try:
         if context.emit_console_output:
             _safe_stderr_write("Paste the full callback URL after authorization:")
-        callback_url = (
-            await run_in_thread(
-                _read_callback_url_with_abort,
-                "Callback URL:",
-                context.abort_event,
-            )
-        ).strip()
+        from fast_agent.integrations.herdr_lifecycle import herdr_blocked
+        from fast_agent.ui.prompt.turn_input import suspend_turn_input
+
+        with herdr_blocked(kind="auth"), suspend_turn_input():
+            callback_url = (
+                await run_in_thread(
+                    _read_callback_url_with_abort,
+                    "Callback URL:",
+                    context.abort_event,
+                )
+            ).strip()
     except OAuthFlowCancelledError:
         await _emit_oauth_error(context, "OAuth authorization cancelled.")
         raise

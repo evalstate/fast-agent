@@ -17,6 +17,7 @@ from rich.console import Group, RenderableType
 from rich.text import Text
 
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.ui.terminal_images.probe import prepare_terminal_image_probe
 
 if TYPE_CHECKING:
     from fast_agent.command_actions.models import PluginCommandActionImage
@@ -346,6 +347,8 @@ def _resolve_textual_image_class(backend: str) -> Any | None:
     class_name = _TEXTUAL_IMAGE_CLASS_BY_BACKEND.get(backend)
     if class_name is None:
         return None
+
+    prepare_terminal_image_probe()
 
     if backend == "halfcell" and _herdr_active():
         try:

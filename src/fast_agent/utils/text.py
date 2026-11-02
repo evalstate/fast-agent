@@ -2,10 +2,48 @@
 
 from __future__ import annotations
 
+import codecs
+import locale
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+UTF8_LOCALE_FALLBACK_ERRORS = "fast_agent.utf8_locale_fallback"
+"""Decode ``errors=`` handler for UTF-8 text from arbitrary programs.
+
+Bytes that are not valid UTF-8 are decoded, to the end of their line, with the locale
+encoding instead: on Windows, programs often write pipes in the ANSI code page
+(cp1252, cp936, ...). A multi-byte character split across a pipe read may still
+decode as a replacement character.
+"""
+
+
+def _decode_rest_of_line_with_locale(error: UnicodeError) -> tuple[str, int]:
+    if not isinstance(error, UnicodeDecodeError):
+        raise error
+    data = bytes(error.object)
+    end = data.find(b"\n", error.start)
+    end = len(data) if end == -1 else end
+    return data[error.start : end].decode(locale.getencoding(), errors="replace"), end
+
+
+codecs.register_error(UTF8_LOCALE_FALLBACK_ERRORS, _decode_rest_of_line_with_locale)
+
+
+def split_lines(text: str, *, keepends: bool = False) -> list[str]:
+    """Split text into lines at ``\\n`` (and ``\\r\\n``) only, like files, JSONL and shells.
+
+    ``str.splitlines()`` also breaks at ``\\v``, ``\\f``, ``\\x1c``-``\\x1e``, ``\\x85``,
+    ``\\u2028`` and ``\\u2029``, which can legitimately appear inside a line.
+    """
+    *lines, last = text.split("\n")
+    split = (
+        [f"{line}\n" for line in lines] if keepends else [line.removesuffix("\r") for line in lines]
+    )
+    if last:
+        split.append(last)
+    return split
 
 
 def collapse_whitespace(value: str | None) -> str:
