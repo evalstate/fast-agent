@@ -540,7 +540,11 @@ def login_codex_browser_oauth(timeout_seconds: int = 300) -> CodexOAuthTokens:
             style="bold",
         )
         console.ensure_blocking_console()
-        pasted = console.console.input("Callback URL: ")
+        from fast_agent.integrations.herdr_lifecycle import herdr_blocked
+        from fast_agent.ui.prompt.turn_input import suspend_turn_input
+
+        with herdr_blocked(kind="auth"), suspend_turn_input():
+            pasted = console.console.input("Callback URL: ")
         parsed = urlparse(pasted)
         params = parse_qs(parsed.query)
         code = params.get("code", [None])[0]

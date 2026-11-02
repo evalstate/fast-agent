@@ -48,6 +48,7 @@ from fast_agent.commands.handlers import prompts as prompt_handlers
 from fast_agent.commands.protocols import HistoryEditableAgent
 from fast_agent.config import get_settings
 from fast_agent.core.exceptions import PromptExitError
+from fast_agent.integrations.herdr_lifecycle import herdr_blocked
 from fast_agent.interfaces import AgentProtocol, TurnCancellationStateCapable
 from fast_agent.tools.execution_environment import ShellExecutionResult
 from fast_agent.types import PromptMessageExtended
@@ -77,6 +78,7 @@ from fast_agent.ui.prompt.resource_mentions import (
     parse_mentions,
     resolve_mentions,
 )
+from fast_agent.ui.prompt.turn_input import hold_turn_input
 from fast_agent.ui.prompt_marks import emit_prompt_mark
 from fast_agent.utils.count_display import format_count
 from fast_agent.utils.text import strip_casefold
@@ -640,12 +642,13 @@ class InteractivePrompt:
 
     @staticmethod
     async def _confirm_shell_cwd_creation() -> bool:
-        selection = await get_selection_input(
-            "Create missing shell directories now? [Y/n] ",
-            default="y",
-            allow_cancel=False,
-            complete_options=False,
-        )
+        with herdr_blocked(kind="question", activate=True):
+            selection = await get_selection_input(
+                "Create missing shell directories now? [Y/n] ",
+                default="y",
+                allow_cancel=False,
+                complete_options=False,
+            )
         answer = strip_casefold(selection or "")
         return answer in {"", "y", "yes"}
 
@@ -1233,7 +1236,9 @@ class InteractivePrompt:
         progress_display.resume()
         exit_code = 1
         try:
-            result = await send_func(prompt_payload, agent_name)
+            # Typed-ahead or herdr-sent messages are queued for the next prompt.
+            with hold_turn_input():
+                result = await send_func(prompt_payload, agent_name)
             stop_reason = self._last_assistant_stop_reason(
                 prompt_provider=prompt_provider, agent_name=agent_name
             )

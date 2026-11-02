@@ -28,7 +28,10 @@ from fast_agent.ui.prompt.attachment_tokens import (
 from fast_agent.ui.prompt.clipboard_image import paste_clipboard_image_to_temp_png
 from fast_agent.ui.prompt.editor import get_text_from_editor
 from fast_agent.ui.prompt.parser import try_parse_hash_agent_command
-from fast_agent.ui.prompt.pasted_paths import pasted_image_tokens
+from fast_agent.ui.prompt.pasted_paths import (
+    pasted_image_tokens,
+    unsupported_image_paste_message,
+)
 from fast_agent.utils.async_utils import run_in_thread
 
 if TYPE_CHECKING:
@@ -73,6 +76,14 @@ logger = get_logger(__name__)
 
 def _print_styled(message: str, style: str) -> None:
     rich_print(Text(message, style=style))
+
+
+def _print_above_prompt(event: Any, message: str, style: str) -> None:
+    """Print from a key handler without drawing over the active prompt line."""
+    if getattr(event, "app", None) is None:
+        _print_styled(message, style)
+        return
+    run_in_terminal(lambda: _print_styled(message, style))
 
 
 async def paste_clipboard_image_attachment_into_buffer(
@@ -346,25 +357,25 @@ def _add_attachment_keybindings(
     def _(event) -> None:
         _clear_local_attachments(event, app)
 
-    if not enable_clipboard_image_paste:
-        return
-
     @kb.add(Keys.BracketedPaste)
     def _(event) -> None:
         """Attach terminal-uploaded images; retain normal paste behavior otherwise."""
         buffer = event.current_buffer
         data = event.data.replace("\r\n", "\n").replace("\r", "\n")
         # Slash commands and shell input expect literal paths, not attachment tokens.
-        tokens = (
-            pasted_image_tokens(data)
-            if not buffer.text.lstrip().startswith(("/", "!", "#"))
-            else []
-        )
-        if tokens:
-            before = buffer.document.text_before_cursor
-            prefix = " " if before and not before[-1].isspace() else ""
-            data = prefix + " ".join(tokens) + " "
+        literal_context = buffer.text.lstrip().startswith(("/", "!", "#"))
+        if enable_clipboard_image_paste:
+            tokens = pasted_image_tokens(data) if not literal_context else []
+            if tokens:
+                before = buffer.document.text_before_cursor
+                prefix = " " if before and not before[-1].isspace() else ""
+                data = prefix + " ".join(tokens) + " "
+        elif not literal_context and (message := unsupported_image_paste_message(data)):
+            _print_above_prompt(event, message, "yellow")
         buffer.insert_text(data)
+
+    if not enable_clipboard_image_paste:
+        return
 
     @kb.add("escape", "c-v")
     @kb.add("escape", "v")

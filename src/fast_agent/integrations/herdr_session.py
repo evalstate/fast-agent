@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from fast_agent.integrations.herdr_lifecycle import (
@@ -20,6 +21,15 @@ if TYPE_CHECKING:
     from fast_agent.session import Session, SessionManager
 
 _PROMPT_LIMIT = 200
+# herdr-core wraps messages typed by another terminal: <hc from="t7">...</hc>.
+# Truncated prompts may lose the closing tag, so remove each tag on its own.
+_HC_ENVELOPE_TAG = re.compile(r"</?hc\b[^>]*>")
+
+
+def _without_hc_envelope(text: str | None) -> str | None:
+    if text is None or "<hc" not in text and "</hc" not in text:
+        return text
+    return " ".join(_HC_ENVELOPE_TAG.sub(" ", text).split()) or None
 
 
 def _metadata_text(
@@ -37,7 +47,8 @@ def _metadata_text(
 def _session_presentation(metadata: dict[str, object]) -> tuple[str | None, str | None]:
     prompt = _metadata_text(metadata, "last_user_prompt", limit=_PROMPT_LIMIT)
     manual_title = _metadata_text(metadata, "title") or _metadata_text(metadata, "label")
-    display_title = manual_title or prompt or extract_session_title(metadata)
+    prompt = _without_hc_envelope(prompt)
+    display_title = manual_title or prompt or _without_hc_envelope(extract_session_title(metadata))
     return display_title, prompt
 
 

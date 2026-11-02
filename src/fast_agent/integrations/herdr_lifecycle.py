@@ -19,7 +19,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Literal
 
-from fast_agent.integrations.program_status import ProgramStatusReporter, program_status_enabled
+from fast_agent.integrations.program_status import (
+    BlockedKind,
+    ProgramStatusReporter,
+    program_status_enabled,
+)
 
 type HerdrAgentState = Literal["idle", "working", "blocked", "error", "unknown"]
 type HerdrBaseState = Literal["idle", "working", "error", "unknown"]
@@ -193,13 +197,17 @@ class _HerdrLifecycleReporter:
                 force_program_status=prompt_start,
             )
 
-    def enter_blocked(self) -> None:
+    def enter_blocked(self, *, kind: BlockedKind | None = None, activate: bool = False) -> None:
         if os.getpid() != self._creator_pid:
             return
         with self._lock:
             if self._closing:
                 return
-            self._enter_blocked_locked()
+            if activate:
+                # Before the first prompt (startup questions) nothing has
+                # activated status output yet; callers check for a TTY session.
+                self._program_status.activate()
+            self._enter_blocked_locked(kind)
 
     def exit_blocked(self) -> None:
         if os.getpid() != self._creator_pid:
@@ -209,14 +217,15 @@ class _HerdrLifecycleReporter:
                 return
             self._blocked_depth -= 1
             if self._blocked_depth == 0:
-                self._enqueue_locked(
-                    "pane.report_agent",
-                    state=(
-                        "working"
-                        if self._working_scope_depth > 0 or self._prompt_working
-                        else self._base_state
-                    ),
+                state: HerdrAgentState = (
+                    "working"
+                    if self._working_scope_depth > 0 or self._prompt_working
+                    else self._base_state
                 )
+                self._enqueue_locked("pane.report_agent", state=state)
+                if state == "unknown":
+                    # A startup question was answered before any prompt exists.
+                    self._program_status.clear_state()
 
     def report_session_metadata(
         self,
@@ -298,6 +307,15 @@ class _HerdrLifecycleReporter:
                 },
             )
 
+    def report_queued_input(self, count: int) -> None:
+        if os.getpid() != self._creator_pid:
+            return
+        with self._lock:
+            if self._closing:
+                return
+            # OSC 7501 only: the legacy Herdr socket has no field for this.
+            self._program_status.report_queued(count)
+
     def release(self) -> None:
         if os.getpid() != self._creator_pid:
             return
@@ -319,10 +337,10 @@ class _HerdrLifecycleReporter:
             self._requests.put(request)
         completion.wait(_RELEASE_TIMEOUT_SECONDS)
 
-    def _enter_blocked_locked(self) -> None:
+    def _enter_blocked_locked(self, kind: BlockedKind | None = None) -> None:
         self._blocked_depth += 1
         if self._blocked_depth == 1:
-            self._enqueue_locked("pane.report_agent", state="blocked")
+            self._enqueue_locked("pane.report_agent", state="blocked", kind=kind)
 
     def _enqueue_locked(
         self,
@@ -331,9 +349,10 @@ class _HerdrLifecycleReporter:
         state: HerdrAgentState | None = None,
         params: dict[str, object] | None = None,
         force_program_status: bool = False,
+        kind: BlockedKind | None = None,
     ) -> None:
         if state in ("idle", "working", "blocked", "error"):
-            self._program_status.report_state(state, force=force_program_status)
+            self._program_status.report_state(state, force=force_program_status, kind=kind)
         if self._environment is not None:
             # The legacy Herdr socket protocol has no error state. Keep its
             # established idle semantics; modern OSC 7501 carries the failure.
@@ -629,6 +648,16 @@ def report_session_usage(usage: str) -> None:
         pass
 
 
+def report_queued_input(count: int) -> None:
+    """Report how many messages are held for the next prompt."""
+    try:
+        reporter = _active_reporter()
+        if reporter is not None:
+            reporter.report_queued_input(count)
+    except Exception:
+        pass
+
+
 def report_prompt_mark(code: str) -> None:
     """Map OSC 133 semantic prompt marks to Herdr lifecycle states."""
     command, _, status = code.partition(";")
@@ -675,14 +704,19 @@ def herdr_working():
 
 
 @contextmanager
-def herdr_blocked():
-    """Report blocked while fast-agent is waiting for interactive human input."""
+def herdr_blocked(*, kind: BlockedKind | None = None, activate: bool = False):
+    """Report blocked while fast-agent is waiting for interactive human input.
+
+    ``kind`` says what is needed (``question``, ``permission`` or ``auth``).
+    ``activate`` enables status output before the first prompt, for startup
+    questions in an interactive terminal session.
+    """
     reporter: _HerdrLifecycleReporter | None = None
     try:
         try:
             reporter = _active_reporter()
             if reporter is not None:
-                reporter.enter_blocked()
+                reporter.enter_blocked(kind=kind, activate=activate)
         except Exception:
             reporter = None
         yield

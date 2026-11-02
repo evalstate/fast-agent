@@ -31,6 +31,7 @@ from fast_agent.ui.markdown.renderables import (
     close_incomplete_code_blocks,
 )
 from fast_agent.ui.markdown.truncation import MarkdownTruncator
+from fast_agent.ui.prompt.turn_input import queued_input_count
 from fast_agent.ui.streaming.plain_text import PlainTextTruncator
 from fast_agent.ui.streaming.segments import StreamSegmentAssembler
 from fast_agent.ui.streaming.viewport import StreamViewport
@@ -854,7 +855,7 @@ class StreamingMessageHandle:
         self._pre_scroll_throttle_started = False
         self._scroll_indicator_visible = False
         self._scroll_indicator_pending_since: float | None = None
-        self._header_cache: dict[tuple[int, bool, str], Text] = {}
+        self._header_cache: dict[tuple[int, bool, str, int], Text] = {}
         self._next_render_deadline: float | None = None
 
     def _setup_async_worker(self) -> None:
@@ -974,7 +975,9 @@ class StreamingMessageHandle:
     def _build_header(self) -> Text:
         width = console.console.size.width
         live = self._rendered_live = self._live_label()
-        cache_key = (width, self._scroll_indicator_visible, live)
+        # Like the live label, omitted from the final (possibly preserved) frame.
+        queued = queued_input_count() if self._show_stream_cursor else 0
+        cache_key = (width, self._scroll_indicator_visible, live, queued)
         cached = self._header_cache.get(cache_key)
         if cached is not None:
             return cached
@@ -982,6 +985,9 @@ class StreamingMessageHandle:
         right_content = self._header_right.strip()
         if live:
             right_content = f"{right_content} [dim]{live}[/dim]".strip()
+        if queued:
+            # Typed-ahead / hc-sent messages; transient, like the rest of the header.
+            right_content = f"{right_content} [yellow]⧗ {queued} queued[/yellow]".strip()
         if self._scroll_indicator_visible:
             indicator = "[black on blue]scrolling[/black on blue]"
             right_content = f"{right_content} {indicator}" if right_content else indicator

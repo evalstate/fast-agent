@@ -211,3 +211,20 @@ def test_report_current_session_does_not_resolve_agent_when_inactive(monkeypatch
         cast("SessionManager", SimpleNamespace(current_session=None)),
         agent_lookup=lambda: (_ for _ in ()).throw(AssertionError("unexpected lookup")),
     )
+
+
+def test_session_presentation_omits_hc_message_envelopes() -> None:
+    # herdr-core wraps messages typed by another terminal; truncation can drop the close.
+    prompt = '<hc from="t17" reach="hc send t17 when done">Review x.rs\nthen report</hc>'
+    assert herdr_session._session_presentation({"last_user_prompt": prompt}) == (
+        "Review x.rs then report",
+        "Review x.rs then report",
+    )
+    truncated = '<hc from="t17">' + "word " * 60
+    title, _ = herdr_session._session_presentation({"last_user_prompt": truncated})
+    assert title is not None and not title.startswith("<hc")
+    assert herdr_session._session_presentation({"last_user_prompt": "<hc></hc>"}) == (None, None)
+    assert herdr_session._session_presentation({"last_user_prompt": "use <html> tags"}) == (
+        "use <html> tags",
+        "use <html> tags",
+    )

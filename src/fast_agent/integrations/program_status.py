@@ -20,6 +20,8 @@ from fast_agent.ui.terminal_streams import TtyCapableStream, is_tty_stream
 from fast_agent.utils.env import is_truthy_env_value
 
 type ProgramState = Literal["idle", "working", "blocked", "done", "error"]
+# What a blocked program is waiting for (OSC 7501 ``kind``).
+type BlockedKind = Literal["permission", "question", "auth"]
 
 
 def program_status_enabled() -> bool:
@@ -55,9 +57,12 @@ class ProgramStatus:
     state: ProgramState
     title: str | None = None
     message: str | None = None
+    kind: BlockedKind | None = None
 
     def encode(self) -> str:
         fields = [f"state={self.state}", "app=fast-agent"]
+        if self.state == "blocked" and self.kind:
+            fields.append(f"kind={self.kind}")
         if self.title:
             fields.append(f"title={_encoded_text(self.title, 192)}")
         if self.message:
@@ -75,6 +80,8 @@ class ProgramStatusReporter:
     def __init__(self) -> None:
         self._active = False
         self._state: ProgramState = "idle"
+        self._kind: BlockedKind | None = None
+        self._queued = 0
         self._title: str | None = None
         self._context: str | None = None
         self._usage: str | None = None
@@ -91,9 +98,17 @@ class ProgramStatusReporter:
         """Restore the record after a prompt mark may have cleared it."""
         self._emit(force=True)
 
-    def report_state(self, state: ProgramState, *, force: bool = False) -> None:
+    def report_state(
+        self, state: ProgramState, *, force: bool = False, kind: BlockedKind | None = None
+    ) -> None:
         self._state = state
+        self._kind = kind if state == "blocked" else None
         self._emit(force=force)
+
+    def clear_state(self) -> None:
+        """Withdraw the record without deactivating, e.g. after a startup question."""
+        if self._last_sequence is not None and self._write("\x1b]7501;state=clear\x1b\\"):
+            self._last_sequence = None
 
     def report_metadata(
         self,
@@ -117,6 +132,11 @@ class ProgramStatusReporter:
         self._usage = token_usage
         self._emit()
 
+    def report_queued(self, count: int) -> None:
+        """Messages held for the next prompt (typed ahead or sent by hc)."""
+        self._queued = max(0, count)
+        self._emit()
+
     def report_usage(self, usage: str) -> None:
         self._plugin_usage = usage
         self._emit()
@@ -126,6 +146,7 @@ class ProgramStatusReporter:
             self._write("\x1b]7501;state=clear\x1b\\")
         self._active = False
         self._plugin_usage = None
+        self._queued = 0
         self._last_sequence = None
 
     def _emit(self, *, force: bool = False) -> None:
@@ -134,8 +155,9 @@ class ProgramStatusReporter:
         # A refreshed title/context/token count must not erase plugin pricing.
         # Keep the last completed-turn projection until replaced or the session changes.
         usage = self._plugin_usage or self._usage
-        message = " · ".join(part for part in (self._context, usage) if part) or None
-        sequence = ProgramStatus(self._state, self._title, message).encode()
+        queued = f"{self._queued} queued" if self._queued else None
+        message = " · ".join(part for part in (queued, self._context, usage) if part) or None
+        sequence = ProgramStatus(self._state, self._title, message, self._kind).encode()
         if (force or sequence != self._last_sequence) and self._write(sequence):
             self._last_sequence = sequence
 

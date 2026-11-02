@@ -620,6 +620,29 @@ async def _dispatch_local_ui_payload(
             return _dispatch_simple_local_ui_payload(payload)
 
 
+def _unknown_command_message(command: str) -> str:
+    """Explain an absolute path (often a pasted file) mistaken for a command."""
+    import shlex
+    from pathlib import Path
+
+    from fast_agent.ui.prompt.pasted_paths import pasted_image_paths
+
+    candidate = command.strip()
+    try:
+        is_file = Path(candidate).is_file()
+    except (OSError, ValueError):
+        is_file = False
+    if not is_file:
+        return f"Command not found: {command}"
+    attach = f"/attach {shlex.quote(candidate)}"
+    if pasted_image_paths(candidate):
+        return (
+            f"{candidate} is an image file, not a command. Use {attach} to attach it "
+            "(the model must support images; change it with /model)."
+        )
+    return f"{candidate} is a file, not a command. Use {attach} to attach it."
+
+
 def _dispatch_simple_local_ui_payload(payload: CommandPayload) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
@@ -634,7 +657,7 @@ def _dispatch_simple_local_ui_payload(payload: CommandPayload) -> DispatchResult
             result.shell_execute_interactive = interactive
             result.shell_output_to_prompt = output_to_prompt
         case UnknownCommand(command=command):
-            _print_styled(f"Command not found: {command}", "red")
+            _print_styled(_unknown_command_message(command), "red")
         case CommandError(message=message):
             _print_styled(message, "red")
         case _:

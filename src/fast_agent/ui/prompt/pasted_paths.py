@@ -28,6 +28,33 @@ def _image_path(value: str) -> Path | None:
     return None
 
 
+def is_herdr_upload(path: Path) -> bool:
+    """Whether herdr-core placed this file beside a terminal (``hc put``/Herdr paste).
+
+    herdr-core stores them under ``<state>/herdr-core/<session>/files/<terminal>/``.
+    """
+    parts = path.parts
+    try:
+        index = parts.index("herdr-core")
+    except ValueError:
+        return False
+    return "files" in parts[index + 1 :]
+
+
+def unsupported_image_paste_message(text: str) -> str | None:
+    """Explain a pasted image that the current model cannot receive, if it is one."""
+    paths = pasted_image_paths(text)
+    if not paths:
+        return None
+    noun = "image" if len(paths) == 1 else f"{len(paths)} images"
+    source = " from Herdr" if any(is_herdr_upload(path) for path in paths) else ""
+    return (
+        f"Pasted {noun}{source}, but the current model cannot read images, so the "
+        "path was inserted as text. Switch to a vision-capable model with /model "
+        "and paste again to attach it."
+    )
+
+
 def pasted_image_tokens(text: str) -> list[str]:
     """Convert only a whole paste consisting of existing image paths.
 
@@ -36,11 +63,16 @@ def pasted_image_tokens(text: str) -> list[str]:
     Support raw paths with spaces, shell quoting/escaping, and newline lists.
     No clipboard access, file upload, or shell execution happens here.
     """
+    return [build_local_attachment_token(path) for path in pasted_image_paths(text)]
+
+
+def pasted_image_paths(text: str) -> list[Path]:
+    """Existing image paths, when the whole paste consists of nothing else."""
     value = text.strip()
     if not value or "\x00" in value:
         return []
     if path := _image_path(value):
-        return [build_local_attachment_token(path)]
+        return [path]
     candidates = [value.splitlines()]
     try:
         candidates.append(shlex.split(value, posix=os.name != "nt"))
@@ -51,5 +83,5 @@ def pasted_image_tokens(text: str) -> list[str]:
             continue
         paths = [_image_path(part.strip()) for part in parts]
         if all(path is not None for path in paths):
-            return [build_local_attachment_token(path) for path in paths if path is not None]
+            return [path for path in paths if path is not None]
     return []

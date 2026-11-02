@@ -488,3 +488,43 @@ def test_failure_waits_for_nested_work_to_end(terminal) -> None:
     assert reports(terminal)[-1]["state"] == "error"
     herdr_lifecycle.report_prompt_mark("A")
     assert reports(terminal)[-1]["state"] == "error"
+
+
+def test_blocked_reports_kind_and_other_states_never_do(terminal: TtyStream) -> None:
+    herdr_lifecycle.report_prompt_mark("A")
+    with herdr_lifecycle.herdr_blocked(kind="question"):
+        pass
+    with herdr_lifecycle.herdr_blocked():
+        pass
+    records = reports(terminal)
+    assert [(r["state"], r.get("kind")) for r in records] == [
+        ("idle", None),
+        ("blocked", "question"),
+        ("idle", None),
+        ("blocked", None),
+        ("idle", None),
+    ]
+
+
+def test_startup_question_activates_reports_and_then_clears(terminal: TtyStream) -> None:
+    # Before the first prompt (plugin offer, model picker) nothing is active yet.
+    with herdr_lifecycle.herdr_blocked(kind="question", activate=True):
+        pass
+    # Answered before any prompt exists: withdraw the record rather than guess.
+    assert [(r["state"], r.get("kind")) for r in reports(terminal)] == [
+        ("blocked", "question"),
+        ("clear", None),
+    ]
+    herdr_lifecycle.report_prompt_mark("A")
+    assert reports(terminal)[-1]["state"] == "idle"
+
+
+def test_queued_input_count_leads_the_status_message(terminal: TtyStream) -> None:
+    herdr_lifecycle.report_prompt_mark("A")
+    metadata()
+    herdr_lifecycle.report_prompt_mark("C")
+    herdr_lifecycle.report_queued_input(2)
+    assert reports(terminal)[-1]["msg"] == "2 queued · 35% - test-model · $0.0123"
+    assert reports(terminal)[-1]["state"] == "working"
+    herdr_lifecycle.report_queued_input(0)
+    assert reports(terminal)[-1]["msg"] == "35% - test-model · $0.0123"

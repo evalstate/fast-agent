@@ -12,7 +12,11 @@ from prompt_toolkit.keys import Keys
 
 from fast_agent.ui.prompt.attachment_tokens import build_local_attachment_token
 from fast_agent.ui.prompt.keybindings import create_keybindings
-from fast_agent.ui.prompt.pasted_paths import pasted_image_tokens
+from fast_agent.ui.prompt.pasted_paths import (
+    is_herdr_upload,
+    pasted_image_tokens,
+    unsupported_image_paste_message,
+)
 
 
 @pytest.fixture
@@ -74,8 +78,8 @@ def test_mixed_text_or_non_image_file_stays_literal(image_path, tmp_path) -> Non
     assert pasted_image_tokens(f"{shlex.quote(str(image_path))} {text_file}") == []
 
 
-def paste(buffer: Buffer, data: str) -> None:
-    kb = create_keybindings(enable_clipboard_image_paste=True)
+def paste(buffer: Buffer, data: str, *, images: bool = True) -> None:
+    kb = create_keybindings(enable_clipboard_image_paste=images)
     binding = next(b for b in kb.bindings if b.keys == (Keys.BracketedPaste,))
     # Minimal event stub; the real prompt-toolkit path is exercised below.
     binding.handler(SimpleNamespace(current_buffer=buffer, data=data))  # ty: ignore[invalid-argument-type]
@@ -102,9 +106,57 @@ def test_normal_paste_preserves_prompt_toolkit_line_ending_behavior() -> None:
     assert buffer.text == "first\nsecond\nthird"
 
 
-def test_non_vision_models_keep_default_paste_binding() -> None:
-    kb = create_keybindings(enable_clipboard_image_paste=False)
-    assert not any(b.keys == (Keys.BracketedPaste,) for b in kb.bindings)
+def test_non_vision_models_keep_image_paths_literal_and_explain(image_path, monkeypatch) -> None:
+    from fast_agent.ui.prompt import keybindings
+
+    printed: list[str] = []
+    monkeypatch.setattr(
+        keybindings, "_print_styled", lambda message, _style: printed.append(message)
+    )
+    buffer = Buffer()
+    paste(buffer, str(image_path), images=False)
+    assert buffer.text == str(image_path)
+    assert len(printed) == 1
+    assert "cannot read images" in printed[0]
+    assert "/model" in printed[0]
+
+
+def test_non_vision_models_paste_ordinary_text_silently(monkeypatch) -> None:
+    from fast_agent.ui.prompt import keybindings
+
+    printed: list[str] = []
+    monkeypatch.setattr(
+        keybindings, "_print_styled", lambda message, _style: printed.append(message)
+    )
+    buffer = Buffer()
+    paste(buffer, "first\r\nsecond", images=False)
+    assert buffer.text == "first\nsecond"
+    assert printed == []
+
+
+def test_herdr_uploads_are_named_in_the_explanation(tmp_path) -> None:
+    upload = tmp_path / "state" / "herdr-core" / "default" / "files" / "t7" / "shot.png"
+    upload.parent.mkdir(parents=True)
+    Image.new("RGB", (1, 1)).save(upload)
+    assert is_herdr_upload(upload)
+    assert not is_herdr_upload(tmp_path / "shot.png")
+    message = unsupported_image_paste_message(str(upload))
+    assert message is not None and "from Herdr" in message
+    assert unsupported_image_paste_message("plain text") is None
+
+
+def test_unknown_command_that_is_a_file_explains_attach(image_path, tmp_path) -> None:
+    from fast_agent.ui.interactive.command_dispatch import _unknown_command_message
+
+    assert _unknown_command_message("/nope") == "Command not found: /nope"
+    image_message = _unknown_command_message(str(image_path))
+    assert "is an image file, not a command" in image_message
+    assert f"/attach {shlex.quote(str(image_path))}" in image_message
+    notes = tmp_path / "notes.txt"
+    notes.write_text("x")
+    assert _unknown_command_message(str(notes)) == (
+        f"{notes} is a file, not a command. Use /attach {shlex.quote(str(notes))} to attach it."
+    )
 
 
 @pytest.mark.asyncio

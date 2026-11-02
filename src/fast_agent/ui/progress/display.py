@@ -30,6 +30,7 @@ from fast_agent.ui.progress.process_poll import (
     render_process_monitor_stats,
 )
 from fast_agent.ui.progress.subagent_table import render_subagent_table
+from fast_agent.ui.prompt.turn_input import queued_input_count
 from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.utils.text import collapse_whitespace
 from fast_agent.utils.time import format_process_elapsed
@@ -138,6 +139,10 @@ class _MonitoringProgress(Progress):
                 yield self.make_tasks_table(tasks)
         elif not subagents:
             yield self.make_tasks_table(())
+        # Only beside visible rows: pausing hides every task first, so the
+        # final (stopped) frame never leaves this line in scrollback.
+        if (subagents or generic) and (queued := queued_input_count()):
+            yield Text(f"⧗ {queued} queued", style="yellow")
 
 
 def _ensure_spinners() -> None:

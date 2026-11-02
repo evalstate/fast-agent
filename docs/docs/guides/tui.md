@@ -247,9 +247,12 @@ You can attach images and documents using `/attach` or by using the `^<uri|file>
 
 You can paste images directly with ++alt+v++. In terminals that reserve that chord, ++ctrl+alt+v++ is also bound.
 
-In Herdr app, **Ctrl+V** uploads a clipboard image to the terminal's machine and
-pastes its path. fast-agent recognizes a paste containing only existing absolute
-image paths and adds attachments automatically when the model supports images.
+In Herdr app, **Ctrl+V** in a terminal on another machine uploads a clipboard image
+to that machine and pastes its path. fast-agent recognizes a paste containing only
+existing absolute image paths and adds attachments automatically when the model
+supports images. When it does not, the path is inserted as text with a hint to
+switch models with `/model`; submitting a file path on its own explains how to
+`/attach` it instead of reporting an unknown command.
 This also works in Herdr-managed remote terminals: run an updated fast-agent on
 the remote machine. Ordinary text pastes and paths inside slash/shell commands
 remain unchanged. Alt+V / Ctrl+Alt+V instead reads the clipboard on the machine
@@ -287,8 +290,15 @@ output and JSON mode, active graphics probing is skipped and unknown fields are 
 
 Interactive fast-agent reports OSC 7501 status to compatible terminals, including
 herdr-core. A turn or direct shell command starts as `working`. Human elicitation
-uses `blocked` and restores the previous state when it ends. Successful completion
-reports `idle`; Herdr decides whether to show its unseen-completion `done` indicator.
+uses `blocked` (`kind=question`; OAuth callback pastes use `kind=auth`) and restores
+the previous state when it ends. Successful completion reports `idle`; Herdr decides
+whether to show its unseen-completion `done` indicator.
+
+Questions asked before the first prompt (the one-time recommended-plugins offer,
+the startup model picker, and missing shell directory creation) also report
+`blocked`, so an agent started with `hc run` shows that it is waiting for a person
+instead of reporting no status. Once answered, the record is withdrawn until the
+prompt reports `idle`.
 
 Uncaught turn failures, exhausted-retry system errors, assistant `ERROR`/`TIMEOUT`
 stop reasons, and nonzero direct-shell exits report `error`. The error remains while
@@ -301,6 +311,55 @@ limits and safety stops are not automatically classified as execution errors.
 `hc wait` returns on either failure or completion; inspect its `status` rather than
 assuming a returned wait means success. The old Herdr socket protocol has no error
 state and retains its previous idle behavior; the richer status travels over OSC 7501.
+
+### Typing ahead and messages sent while working
+
+While a turn is running, fast-agent holds terminal input instead of echoing it into
+the output. Text followed by Enter, including messages sent with `hc send`, is
+queued and submitted in order when the turn ends, through the normal prompt (so
+slash commands, `!` shell commands and pasted image paths behave as if typed at the
+prompt). Text without Enter is left in the next prompt as a draft. Nothing is
+printed into the scrollback while input is held: the count (`⧗ 1 queued`) appears in
+the live streaming header or progress display, and leads the OSC 7501 status
+message, so Herdr shows it in its agents list.
+
+Press ++escape++ (or Ctrl+C) to cancel the current turn; `hc interrupt` sends
+Escape. Messages already queued are still sent after the cancellation. Forms such as
+elicitation receive input normally while they are open.
+
+This applies to interactive POSIX terminals. To keep the previous behavior, set:
+
+```bash
+export FAST_AGENT_DISABLE_TURN_INPUT=1
+```
+
+### Starting fast-agent with `hc`
+
+fast-agent does not take its first message as a positional argument
+(`hc run --bg fast-agent "task"` fails with an explanation). Either start it and
+send the task once it reports `idle`:
+
+```bash
+hc run --bg --name helper fast-agent
+hc wait helper
+hc send helper "Review src/x.py and report with hc send $HC_TERMINAL_ID"
+```
+
+or use an `hc` template (`~/.config/herdr-core/templates/<name>.md`) whose
+`command` starts fast-agent; `hc` waits for `idle` and sends the template body plus
+your task as the first message:
+
+```markdown
+---
+name: fa-reviewer
+description: fast-agent code reviewer
+command: fast-agent go --model sonnet
+---
+Review the requested files. Read-only.
+```
+
+`hc run` starts programs with herdr-core's environment, not your shell's: use an
+absolute path to run a development or virtual-environment build.
 
 ## Agent and Model Feature Toggles
 
