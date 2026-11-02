@@ -88,7 +88,7 @@ async def test_edit_file_creates_missing_file_without_writer_tool(tmp_path: Path
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_edit_file_replaces_unique_multiline_match_and_returns_structured_diff(
+async def test_edit_file_replaces_unique_multiline_match_and_returns_compact_result(
     tmp_path: Path,
 ) -> None:
     project_file = tmp_path / "src" / "utils.py"
@@ -118,9 +118,9 @@ async def test_edit_file_replaces_unique_multiline_match_and_returns_structured_
         assert payload["line_start"] == 1
         assert payload["line_end"] == 2
         assert payload["replacements"] == 1
-        assert isinstance(payload["diff"], str)
-        assert '-    print("world")' in payload["diff"]
-        assert '+    print("hello")' in payload["diff"]
+        # The model already sent old/new text; the result does not echo it back as a diff.
+        assert "diff" not in payload
+        assert 'print("world")' not in json.dumps(_result_text_payload(result))
         assert _result_text_payload(result) == payload
     finally:
         await agent._aggregator.close()
@@ -462,8 +462,6 @@ async def test_edit_file_preserves_crlf_when_matching_exact_windows_newlines(
         assert payload["success"] is True
         assert payload["line_start"] == 1
         assert payload["line_end"] == 2
-        assert isinstance(payload["diff"], str)
-        assert "\r\n" in payload["diff"]
     finally:
         await agent._aggregator.close()
 
