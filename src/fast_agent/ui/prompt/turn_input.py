@@ -33,6 +33,7 @@ from fast_agent.utils.env import is_truthy_env_value
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
+    from prompt_toolkit.input import Input
     from prompt_toolkit.key_binding import KeyPress
 
 _DISABLE_ENV = "FAST_AGENT_DISABLE_TURN_INPUT"
@@ -96,19 +97,19 @@ class TurnInputReader:
     def __init__(
         self,
         *,
-        fd: int,
+        input: Input,
         on_cancel: Callable[[], None] = _default_cancel,
         on_queued: Callable[[int], None] = _publish_queued_count,
         write: Callable[[str], None] = _write_stdout,
     ) -> None:
-        from prompt_toolkit.input.vt100_parser import Vt100Parser
-
-        self._fd = fd
+        # Share the prompt's input so its incremental decoder and VT100 parser
+        # keep partial characters, escape sequences and pastes across turns.
+        self._input = input
+        self._fd = input.fileno()
         self._on_cancel = on_cancel
         self._on_queued = on_queued
         self._queued = 0
         self._write = write
-        self._parser = Vt100Parser(self._on_key)
         self._keys: list[KeyPress] = []
         self._line = ""
         self._escape_pending = False
@@ -136,8 +137,7 @@ class TurnInputReader:
         """Stop reading, restore the terminal and return held key presses."""
         self._pause()
         self._cancel_escape_timer()
-        # The turn is over: a trailing Escape no longer means "cancel".
-        self._parser.flush()
+        # Leave unfinished input in the shared decoder/parser for the prompt.
         self._escape_pending = False
         self._saved_attrs = None
         if self._queued:
@@ -230,19 +230,17 @@ class TurnInputReader:
 
     def _readable(self) -> None:
         try:
-            data = os.read(self._fd, 4096)
+            key_presses = self._input.read_keys()
         except (BlockingIOError, InterruptedError):
             return
         except OSError:
             self._pause()
             return
-        if not data:
+        for key_press in key_presses:
+            self._on_key(key_press)
+        if self._input.closed:
             self._pause()
             return
-        self.feed(data.decode("utf-8", errors="replace"))
-
-    def feed(self, data: str) -> None:
-        self._parser.feed(data)
         self._cancel_escape_timer()
         if self._loop is not None:
             # The parser holds a lone Escape until no sequence can follow it.
@@ -250,7 +248,8 @@ class TurnInputReader:
 
     def flush(self) -> None:
         self._escape_timer = None
-        self._parser.flush()
+        for key_press in self._input.flush_keys():
+            self._on_key(key_press)
         if self._escape_pending:
             self._escape_pending = False
             self._on_cancel()
@@ -288,13 +287,12 @@ class TurnInputReader:
         # not replayed: they would act on a prompt nobody could see.
 
 
-def _store_typeahead(key_presses: list[KeyPress]) -> None:
+def _store_typeahead(input: Input, key_presses: list[KeyPress]) -> None:
     if not key_presses:
         return
-    from prompt_toolkit.input import create_input
     from prompt_toolkit.input.typeahead import store_typeahead
 
-    store_typeahead(create_input(), key_presses)
+    store_typeahead(input, key_presses)
 
 
 @contextmanager
@@ -304,7 +302,10 @@ def hold_turn_input() -> Generator[TurnInputReader | None]:
 
     reader: TurnInputReader | None = None
     if _active is None and turn_input_enabled():
-        candidate = TurnInputReader(fd=sys.stdin.fileno())
+        from prompt_toolkit.application.current import get_app_session
+
+        input = get_app_session().input
+        candidate = TurnInputReader(input=input)
         try:
             started = candidate.start()
         except Exception:
@@ -318,7 +319,7 @@ def hold_turn_input() -> Generator[TurnInputReader | None]:
         if reader is not None:
             _active = None
             try:
-                _store_typeahead(reader.stop())
+                _store_typeahead(input, reader.stop())
             except Exception:
                 pass
 
