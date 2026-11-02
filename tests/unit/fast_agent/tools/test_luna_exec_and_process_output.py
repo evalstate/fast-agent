@@ -593,3 +593,41 @@ async def test_process_read_output_validates_action_specific_arguments(
 
     assert result.is_error is True
     assert expected in _text(result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("profile", ["minimal_process", "luna_exec"])
+async def test_process_wait_sec_without_action_waits(
+    tmp_path: Path, profile: ShellToolProfile
+) -> None:
+    gate = tmp_path / "finish"
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("process-wait-default-test"),
+        config=Settings(shell_execution=ShellSettings(tool_profile=profile, show_bash=False)),
+    )
+    script = (
+        f"import pathlib,time; gate=pathlib.Path({str(gate)!r}); "
+        "exec('while not gate.exists(): time.sleep(0.01)'); print('finished')"
+    )
+    try:
+        started = await runtime.call_tool(
+            "exec" if profile == "luna_exec" else "bash",
+            {
+                "command": f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}",
+                "background" if profile == "luna_exec" else "run_in_background": True,
+            },
+        )
+        metadata = process_result_metadata(started)
+        assert metadata is not None
+        process_id = metadata["process_id"]
+
+        asyncio.get_running_loop().call_later(0.3, gate.touch)
+        waited = await runtime.call_tool("process", {"process_id": process_id, "wait_sec": 10})
+
+        waited_metadata = process_result_metadata(waited)
+        assert waited_metadata is not None
+        assert waited_metadata["exit_code"] == 0
+        assert "finished" in _text(waited)
+    finally:
+        await runtime.close()
