@@ -114,10 +114,33 @@ class ShellOutputBuffer:
             return "".join(self.output_segments)
 
         window = split_output_byte_limit(self.output_byte_limit)
-        head_blob = "".join(self.output_segments).encode("utf-8", errors="replace")[
-            : window.head_bytes
-        ]
-        tail_blob = bytes(self.output_tail_bytes)[-window.tail_bytes :]
+        return self._render_window(
+            head_bytes=window.head_bytes,
+            tail_bytes=window.tail_bytes,
+            guidance=self._truncation_guidance(),
+        )
+
+    def success_view(self, byte_limit: int) -> str:
+        """Short head and longer tail for a command that exited 0.
+
+        Successful commands rarely need their full log, so this view is smaller than the
+        normal preview. When retention is enabled the complete output stays retrievable.
+        """
+        if self.retained_output_path is not None and not self.retained_output_path.exists():
+            # Below the normal preview limit retention has not started; keep the full output.
+            self._start_retained(b"")
+        head_bytes = max(byte_limit // 4, 1)
+        return self._render_window(
+            head_bytes=head_bytes,
+            tail_bytes=byte_limit - head_bytes,
+            guidance=(
+                "The command exited 0, so a shorter view is shown. " + self._truncation_guidance()
+            ),
+        )
+
+    def _render_window(self, *, head_bytes: int, tail_bytes: int, guidance: str) -> str:
+        head_blob = "".join(self.output_segments).encode("utf-8", errors="replace")[:head_bytes]
+        tail_blob = bytes(self.output_tail_bytes)[-tail_bytes:]
 
         parts: list[str] = []
         if head_blob:
@@ -130,7 +153,7 @@ class ShellOutputBuffer:
                 total_bytes=self.total_output_bytes,
                 head_bytes=len(head_blob),
                 tail_bytes=len(tail_blob),
-                guidance=self._truncation_guidance(),
+                guidance=guidance,
             )
             + "\n"
         )
@@ -141,8 +164,15 @@ class ShellOutputBuffer:
 
         return "".join(parts)
 
-    def consume(self, limit: int | None = None) -> str:
-        if limit is None:
+    def consume(self, limit: int | None = None, *, success_byte_limit: int | None = None) -> str:
+        if (
+            limit is None
+            and success_byte_limit is not None
+            and success_byte_limit < self.output_byte_limit
+            and self.total_output_bytes > success_byte_limit
+        ):
+            combined_output = self.success_view(success_byte_limit)
+        elif limit is None:
             combined_output = self.combined()
         else:
             blob = "".join(self.output_segments).encode("utf-8")

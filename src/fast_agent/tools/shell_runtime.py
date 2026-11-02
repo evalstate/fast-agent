@@ -325,6 +325,7 @@ class ShellRuntime:
         self._durable_output_max_bytes = DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES
         self._retained_output_next_id = 1
         self._retained_output_via_process = False
+        self._success_output_byte_limit: int | None = None
         retain_truncated_output = False
         retained_output_parent: Path | None = None
         if config is not None:
@@ -340,6 +341,7 @@ class ShellRuntime:
             self._retained_output_max_bytes = shell_config.retained_output_max_bytes
             self._durable_output_max_bytes = shell_config.durable_output_max_bytes
             retain_truncated_output = shell_config.retain_truncated_output
+            self._success_output_byte_limit = shell_config.success_output_byte_limit
             retained_output_parent = shell_config.retained_output_temp_directory
         if foreground_auto_await_max_seconds is not None:
             auto_await_max_seconds = float(foreground_auto_await_max_seconds)
@@ -2341,6 +2343,7 @@ class ShellRuntime:
             ),
             io_drain_timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
             output_preview_limit=output_preview_limit,
+            success_output_byte_limit=self._success_output_byte_limit,
             background_option_hint=(
                 f'a first line `{FREEFORM_SHELL_PRAGMA} {{"background": true}}`'
                 if self._freeform_shell_profile
