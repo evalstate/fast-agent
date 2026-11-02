@@ -588,3 +588,24 @@ def test_legacy_transport_coexists_with_best_effort_program_status(
     else:
         assert output.getvalue().count("\x1b]7501;") == 3
         assert output.getvalue().endswith("\x1b]7501;state=clear\x1b\\")
+
+
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="Unix sockets are unavailable")
+def test_error_keeps_legacy_socket_state_compatible(monkeypatch, tmp_path) -> None:
+    socket_path = tmp_path / "legacy-error.sock"
+    requests, server = _capture_requests(socket_path, 5)
+    _configure_herdr(monkeypatch, socket_path)
+    herdr_lifecycle.report_prompt_mark("A")
+    herdr_lifecycle.report_prompt_mark("C")
+    herdr_lifecycle.report_prompt_mark("D;1")
+    herdr_lifecycle.report_prompt_mark("A")
+    _wait_for_requests(requests, 4)
+    herdr_lifecycle.release_agent()
+    server.join(1)
+    assert not server.is_alive()
+    states = []
+    for request in requests:
+        params = request["params"]
+        assert isinstance(params, dict)
+        states.append(params.get("state"))
+    assert states == ["idle", "working", "idle", "idle", None]

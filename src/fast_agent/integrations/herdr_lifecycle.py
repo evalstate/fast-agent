@@ -21,8 +21,8 @@ from typing import Literal
 
 from fast_agent.integrations.program_status import ProgramStatusReporter, program_status_enabled
 
-type HerdrAgentState = Literal["idle", "working", "blocked", "unknown"]
-type HerdrBaseState = Literal["idle", "working", "unknown"]
+type HerdrAgentState = Literal["idle", "working", "blocked", "error", "unknown"]
+type HerdrBaseState = Literal["idle", "working", "error", "unknown"]
 type _HerdrMethod = Literal[
     "pane.report_agent",
     "pane.report_metadata",
@@ -124,7 +124,7 @@ class _HerdrLifecycleReporter:
         return self._creator_pid
 
     def report_state(self, state: HerdrBaseState) -> None:
-        if state not in ("idle", "working", "unknown"):
+        if state not in ("idle", "working", "error", "unknown"):
             return
         if os.getpid() != self._creator_pid:
             return
@@ -160,7 +160,6 @@ class _HerdrLifecycleReporter:
         with self._lock:
             if self._closing:
                 return
-            self._base_state = "idle"
             if self._working_scope_depth > 0:
                 self._working_scope_depth -= 1
             if (
@@ -168,16 +167,21 @@ class _HerdrLifecycleReporter:
                 and not self._prompt_working
                 and self._blocked_depth == 0
             ):
-                self._enqueue_locked("pane.report_agent", state="idle")
+                self._enqueue_locked("pane.report_agent", state=self._base_state)
 
-    def report_prompt_working(self, working: bool, *, prompt_start: bool = False) -> None:
+    def report_prompt_working(
+        self, working: bool, *, prompt_start: bool = False, failed: bool = False
+    ) -> None:
         if os.getpid() != self._creator_pid:
             return
         with self._lock:
             if self._closing:
                 return
             self._program_status.activate()
-            self._base_state = "idle"
+            # OSC 133 A may clear the terminal's record. Republish a retained
+            # failure rather than immediately erasing it when the prompt returns.
+            if not prompt_start or self._base_state != "error":
+                self._base_state = "error" if failed else "idle"
             self._prompt_working = working
             if self._blocked_depth > 0 or self._working_scope_depth > 0:
                 if prompt_start:
@@ -185,7 +189,7 @@ class _HerdrLifecycleReporter:
                 return
             self._enqueue_locked(
                 "pane.report_agent",
-                state="working" if working else "idle",
+                state="working" if working else self._base_state,
                 force_program_status=prompt_start,
             )
 
@@ -245,6 +249,7 @@ class _HerdrLifecycleReporter:
                 return
             self._program_status.report_metadata(
                 session_id=session_id,
+                agent_name=agent_name,
                 title=title,
                 context_usage=context_usage,
                 token_usage=token_usage,
@@ -327,10 +332,13 @@ class _HerdrLifecycleReporter:
         params: dict[str, object] | None = None,
         force_program_status: bool = False,
     ) -> None:
-        if state in ("idle", "working", "blocked"):
+        if state in ("idle", "working", "blocked", "error"):
             self._program_status.report_state(state, force=force_program_status)
         if self._environment is not None:
-            self._requests.put(self._build_request(method, state=state, params=params))
+            # The legacy Herdr socket protocol has no error state. Keep its
+            # established idle semantics; modern OSC 7501 carries the failure.
+            legacy_state = "idle" if state == "error" else state
+            self._requests.put(self._build_request(method, state=legacy_state, params=params))
 
     def _build_request(
         self,
@@ -570,7 +578,7 @@ def session_reporting_enabled() -> bool:
 
 def report_agent_state(state: HerdrBaseState) -> None:
     """Report the pane-level lifecycle state when running inside Herdr."""
-    if state not in ("idle", "working", "unknown"):
+    if state not in ("idle", "working", "error", "unknown"):
         return
     try:
         reporter = _active_reporter()
@@ -623,7 +631,7 @@ def report_session_usage(usage: str) -> None:
 
 def report_prompt_mark(code: str) -> None:
     """Map OSC 133 semantic prompt marks to Herdr lifecycle states."""
-    command = code.partition(";")[0]
+    command, _, status = code.partition(";")
     if command not in ("A", "C", "D"):
         return
     try:
@@ -635,7 +643,13 @@ def report_prompt_mark(code: str) -> None:
         elif command == "C":
             reporter.report_prompt_working(True)
         elif command == "D":
-            reporter.report_prompt_working(False)
+            try:
+                exit_code = int(status)
+            except ValueError:
+                exit_code = 0  # Bare/unspecified completion is not evidence of failure.
+            # Conventional interrupt/termination statuses are cancellation, not failure.
+            failed = exit_code not in (0, 130, 143, -2, -15)
+            reporter.report_prompt_working(False, failed=failed)
     except Exception:
         pass
 

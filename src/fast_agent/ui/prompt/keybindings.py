@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.lexers import Lexer
 from rich.text import Text
 
@@ -27,6 +28,7 @@ from fast_agent.ui.prompt.attachment_tokens import (
 from fast_agent.ui.prompt.clipboard_image import paste_clipboard_image_to_temp_png
 from fast_agent.ui.prompt.editor import get_text_from_editor
 from fast_agent.ui.prompt.parser import try_parse_hash_agent_command
+from fast_agent.ui.prompt.pasted_paths import pasted_image_tokens
 from fast_agent.utils.async_utils import run_in_thread
 
 if TYPE_CHECKING:
@@ -346,6 +348,23 @@ def _add_attachment_keybindings(
 
     if not enable_clipboard_image_paste:
         return
+
+    @kb.add(Keys.BracketedPaste)
+    def _(event) -> None:
+        """Attach terminal-uploaded images; retain normal paste behavior otherwise."""
+        buffer = event.current_buffer
+        data = event.data.replace("\r\n", "\n").replace("\r", "\n")
+        # Slash commands and shell input expect literal paths, not attachment tokens.
+        tokens = (
+            pasted_image_tokens(data)
+            if not buffer.text.lstrip().startswith(("/", "!", "#"))
+            else []
+        )
+        if tokens:
+            before = buffer.document.text_before_cursor
+            prefix = " " if before and not before[-1].isspace() else ""
+            data = prefix + " ".join(tokens) + " "
+        buffer.insert_text(data)
 
     @kb.add("escape", "c-v")
     @kb.add("escape", "v")

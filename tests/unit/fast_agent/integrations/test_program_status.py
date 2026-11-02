@@ -127,7 +127,7 @@ def test_metadata_updates_do_not_end_a_turn_and_plugin_usage_survives_state_chan
     assert all(r["msg"].endswith("$0.0200 custom") for r in records[2:])
     metadata(title=None, usage=None)
     assert "title" not in reports(terminal)[-1]
-    assert reports(terminal)[-1]["msg"] == "35% - test-model"
+    assert reports(terminal)[-1]["msg"] == "35% - test-model · $0.0200 custom"
 
 
 def test_unchanged_snapshots_are_not_repeated_except_after_prompt_start(
@@ -292,7 +292,7 @@ def test_blocked_scope_restores_status_on_exception(terminal: TtyStream) -> None
     with pytest.raises(RuntimeError), herdr_lifecycle.herdr_blocked():
         raise RuntimeError("cancelled")
     herdr_lifecycle.report_prompt_mark("D;1")
-    assert [r["state"] for r in reports(terminal)] == ["working", "blocked", "working", "idle"]
+    assert [r["state"] for r in reports(terminal)] == ["working", "blocked", "working", "error"]
 
 
 def test_rich_streaming_proxy_receives_no_control_text(
@@ -393,3 +393,98 @@ report_prompt_mark("D")
         check=True,
     )
     assert piped.stdout == piped.stderr == b""
+
+
+def test_plugin_cost_survives_live_metadata_but_not_session_switch(terminal: TtyStream) -> None:
+    reporter = ProgramStatusReporter()
+    reporter.activate()
+    reporter.report_metadata(
+        session_id="one", title="First turn", context_usage="10% - model", token_usage="100 in"
+    )
+    reporter.report_usage("$0.02 ($0.10)")
+    reporter.report_metadata(
+        session_id="one", title="Next turn", context_usage="20% - model", token_usage="200 in"
+    )
+    reporter.report_state("working")
+    record = reports(terminal)[-1]
+    assert record["title"] == "Next turn"
+    assert record["msg"] == "20% - model · $0.02 ($0.10)"
+    reporter.report_usage("$0.03 ($0.13)")
+    assert reports(terminal)[-1]["msg"].endswith("$0.03 ($0.13)")
+    reporter.report_metadata(
+        session_id="two", title="Different session", context_usage="1% - model", token_usage="10 in"
+    )
+    assert reports(terminal)[-1]["msg"] == "1% - model · 10 in"
+
+
+def test_plugin_cost_does_not_survive_release(terminal: TtyStream) -> None:
+    reporter = ProgramStatusReporter()
+    reporter.activate()
+    reporter.report_usage("$0.10")
+    reporter.release()
+    reporter.activate()
+    reporter.report_state("idle")
+    assert "msg" not in reports(terminal)[-1]
+
+
+def test_plugin_cost_is_scoped_to_active_agent(terminal: TtyStream) -> None:
+    reporter = ProgramStatusReporter()
+    reporter.activate()
+    reporter.report_metadata(
+        session_id="one",
+        agent_name="planner",
+        title="Plan",
+        context_usage="10%",
+        token_usage="100 in",
+    )
+    reporter.report_usage("$0.10")
+    reporter.report_metadata(
+        session_id="one",
+        agent_name="reviewer",
+        title="Review",
+        context_usage="5%",
+        token_usage="50 in",
+    )
+    assert reports(terminal)[-1]["msg"] == "5% · 50 in"
+
+
+@pytest.mark.parametrize(
+    "code,expected",
+    [
+        ("D", "idle"),
+        ("D;0", "idle"),
+        ("D;1", "error"),
+        ("D;127", "error"),
+        ("D;130", "idle"),
+        ("D;143", "idle"),
+        ("D;-2", "idle"),
+        ("D;-15", "idle"),
+        ("D;unknown", "idle"),
+    ],
+)
+def test_completion_outcome_is_retained_at_prompt(terminal, code, expected) -> None:
+    metadata()
+    herdr_lifecycle.report_prompt_mark("C")
+    herdr_lifecycle.report_prompt_mark(code)
+    herdr_lifecycle.report_prompt_mark("A")
+    records = reports(terminal)
+    assert records[-2]["state"] == expected
+    assert records[-1]["state"] == expected
+    assert records[-1]["title"] == "Review auth"
+    assert records[-1]["msg"] == "35% - test-model · $0.0123"
+    herdr_lifecycle.report_prompt_mark("C")
+    assert reports(terminal)[-1]["state"] == "working"
+    herdr_lifecycle.report_prompt_mark("D;0")
+    assert reports(terminal)[-1]["state"] == "idle"
+
+
+def test_failure_waits_for_nested_work_to_end(terminal) -> None:
+    herdr_lifecycle.report_prompt_mark("C")
+    with herdr_lifecycle.herdr_working():
+        with herdr_lifecycle.herdr_blocked():
+            herdr_lifecycle.report_prompt_mark("D;1")
+            assert reports(terminal)[-1]["state"] == "blocked"
+        assert reports(terminal)[-1]["state"] == "working"
+    assert reports(terminal)[-1]["state"] == "error"
+    herdr_lifecycle.report_prompt_mark("A")
+    assert reports(terminal)[-1]["state"] == "error"

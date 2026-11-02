@@ -566,31 +566,35 @@ class InteractivePrompt:
         with suppress(Exception):
             progress_display.clear_agent_tasks(agent_name)
 
+    def _last_assistant_stop_reason(
+        self,
+        *,
+        prompt_provider: "AgentApp",
+        agent_name: str | None,
+    ) -> LlmStopReason | None:
+        if not agent_name:
+            return None
+        try:
+            agent_obj = prompt_provider._agent(agent_name)
+            history = agent_obj.message_history
+            last_message = history[-1] if history else None
+            if last_message is not None and last_message.role == "assistant":
+                return last_message.stop_reason
+        except Exception:
+            # Optional status must not interfere with prompt recovery.
+            pass
+        return None
+
     def _last_assistant_message_cancelled(
         self,
         *,
         prompt_provider: "AgentApp",
         agent_name: str | None,
     ) -> bool:
-        """Return True when an agent's latest history message is assistant CANCELLED."""
-        if not agent_name:
-            return False
-
-        try:
-            agent_obj = prompt_provider._agent(agent_name)
-        except Exception:
-            return False
-
-        try:
-            history = agent_obj.message_history
-            last_message = history[-1] if history else None
-            return bool(
-                last_message is not None
-                and last_message.role == "assistant"
-                and last_message.stop_reason == LlmStopReason.CANCELLED
-            )
-        except Exception:
-            return False
+        return (
+            self._last_assistant_stop_reason(prompt_provider=prompt_provider, agent_name=agent_name)
+            == LlmStopReason.CANCELLED
+        )
 
     def _emit_startup_warning_digest_once(
         self,
@@ -1027,6 +1031,12 @@ class InteractivePrompt:
                 handle_inflight_cancel=lambda: self._handle_inflight_cancel(
                     runtime_state=runtime_state
                 ),
+                last_assistant_message_failed=lambda agent_name: (
+                    self._last_assistant_stop_reason(
+                        prompt_provider=prompt_provider, agent_name=agent_name
+                    )
+                    in (LlmStopReason.ERROR, LlmStopReason.TIMEOUT)
+                ),
                 last_assistant_message_cancelled=lambda agent_name: (
                     self._last_assistant_message_cancelled(
                         prompt_provider=prompt_provider,
@@ -1105,10 +1115,14 @@ class InteractivePrompt:
         print(f"$ {command}", flush=True)
         emit_prompt_mark("C")
         result: ShellExecutionResult | None = None
+        exit_code = 1
         try:
             result = await shell_runtime.execute_direct_shell(command)
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            exit_code = 130
+            raise
         finally:
-            exit_code = result.exit_code if result is not None else None
+            exit_code = result.exit_code if result is not None else exit_code
             emit_prompt_mark(f"D;{exit_code}" if exit_code is not None else "D")
         assert result is not None
         self._record_shell_execution_result(result, display=display)
@@ -1124,14 +1138,18 @@ class InteractivePrompt:
         print(f"$ {command}", flush=True)
         emit_prompt_mark("C")
         result: ShellExecutionResult | None = None
+        exit_code = 1
         try:
             result = run_interactive_shell_command(
                 command,
                 echo_command=False,
                 restore_scroll_region=restore_scroll_region,
             )
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            exit_code = 130
+            raise
         finally:
-            exit_code = result.exit_code if result is not None else None
+            exit_code = result.exit_code if result is not None else exit_code
             emit_prompt_mark(f"D;{exit_code}" if exit_code is not None else "D")
         assert result is not None
         self._record_shell_execution_result(result, display=display)
@@ -1213,14 +1231,28 @@ class InteractivePrompt:
         write_interactive_trace("prompt.send.start", agent=agent_name)
         self._clear_progress_for_agent(agent_name)
         progress_display.resume()
+        exit_code = 1
         try:
             result = await send_func(prompt_payload, agent_name)
+            stop_reason = self._last_assistant_stop_reason(
+                prompt_provider=prompt_provider, agent_name=agent_name
+            )
+            if result and result.startswith("▲ **System Error:**"):
+                exit_code = 1
+            elif stop_reason == LlmStopReason.CANCELLED:
+                exit_code = 130
+            elif stop_reason in (LlmStopReason.ERROR, LlmStopReason.TIMEOUT):
+                exit_code = 1
+            else:
+                exit_code = 0
         except KeyboardInterrupt:
+            exit_code = 130
             write_interactive_trace("prompt.send.keyboard_interrupt", agent=agent_name)
             self._clear_progress_for_agent(agent_name)
             self._handle_inflight_cancel(runtime_state=runtime_state)
             return None
         except asyncio.CancelledError:
+            exit_code = 130
             write_interactive_trace("prompt.send.cancelled_error", agent=agent_name)
             self._clear_progress_for_agent(agent_name)
             task = asyncio.current_task()
@@ -1231,7 +1263,7 @@ class InteractivePrompt:
         finally:
             write_interactive_trace("prompt.send.finally_pause", agent=agent_name)
             progress_display.pause(cancel_deferred_on_noop=True)
-            emit_prompt_mark("D")
+            emit_prompt_mark(f"D;{exit_code}")
 
         if result and result.startswith("▲ **System Error:**"):
             print(result)
@@ -1444,10 +1476,12 @@ class InteractivePrompt:
         clear_ctrl_c_interrupt: Callable[[], None],
         handle_inflight_cancel: Callable[[], None],
         last_assistant_message_cancelled: Callable[[str | None], bool],
+        last_assistant_message_failed: Callable[[str | None], bool] | None = None,
     ) -> HashSendExecution:
         if not quiet:
             rich_print(_hash_send_status_text("Asking ", target_agent, "...", style="dim"))
 
+        exit_code = 1
         try:
             emit_prompt_mark("C")
             write_interactive_trace("prompt.hash_send.start", agent=target_agent, quiet=quiet)
@@ -1455,7 +1489,18 @@ class InteractivePrompt:
             display_context = suppress_interactive_display() if quiet else nullcontext()
             with display_context:
                 response_text = await send_func(message, target_agent)
+                if response_text and response_text.startswith("▲ **System Error:**"):
+                    exit_code = 1
+                elif last_assistant_message_cancelled(target_agent):
+                    exit_code = 130
+                elif last_assistant_message_failed is not None and last_assistant_message_failed(
+                    target_agent
+                ):
+                    exit_code = 1
+                else:
+                    exit_code = 0
         except KeyboardInterrupt:
+            exit_code = 130
             write_interactive_trace(
                 "prompt.hash_send.keyboard_interrupt",
                 agent=target_agent,
@@ -1465,6 +1510,7 @@ class InteractivePrompt:
             handle_inflight_cancel()
             return HashSendExecution(buffer_prefill=None)
         except asyncio.CancelledError:
+            exit_code = 130
             write_interactive_trace(
                 "prompt.hash_send.cancelled_error",
                 agent=target_agent,
@@ -1488,7 +1534,7 @@ class InteractivePrompt:
                 quiet=quiet,
             )
             progress_display.pause(cancel_deferred_on_noop=True)
-            emit_prompt_mark("D")
+            emit_prompt_mark(f"D;{exit_code}")
 
         if last_assistant_message_cancelled(target_agent):
             _clear_current_task_cancellation_requests()

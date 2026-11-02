@@ -78,7 +78,10 @@ class ProgramStatusReporter:
         self._title: str | None = None
         self._context: str | None = None
         self._usage: str | None = None
-        self._metadata: tuple[str | None, str | None, str | None, str | None] | None = None
+        self._plugin_usage: str | None = None
+        self._metadata: tuple[str | None, str | None, str | None, str | None, str | None] | None = (
+            None
+        )
         self._last_sequence: str | None = None
 
     def activate(self) -> None:
@@ -99,10 +102,15 @@ class ProgramStatusReporter:
         title: str | None,
         context_usage: str | None,
         token_usage: str | None,
+        agent_name: str | None = None,
     ) -> None:
-        metadata = (session_id, title, context_usage, token_usage)
+        metadata = (session_id, title, context_usage, token_usage, agent_name)
         if metadata == self._metadata:
             return
+        if self._metadata is not None and (
+            session_id != self._metadata[0] or agent_name != self._metadata[4]
+        ):
+            self._plugin_usage = None
         self._metadata = metadata
         self._title = title
         self._context = context_usage
@@ -110,19 +118,23 @@ class ProgramStatusReporter:
         self._emit()
 
     def report_usage(self, usage: str) -> None:
-        self._usage = usage
+        self._plugin_usage = usage
         self._emit()
 
     def release(self) -> None:
         if self._last_sequence is not None:
             self._write("\x1b]7501;state=clear\x1b\\")
         self._active = False
+        self._plugin_usage = None
         self._last_sequence = None
 
     def _emit(self, *, force: bool = False) -> None:
         if not self._active:
             return
-        message = " · ".join(part for part in (self._context, self._usage) if part) or None
+        # A refreshed title/context/token count must not erase plugin pricing.
+        # Keep the last completed-turn projection until replaced or the session changes.
+        usage = self._plugin_usage or self._usage
+        message = " · ".join(part for part in (self._context, usage) if part) or None
         sequence = ProgramStatus(self._state, self._title, message).encode()
         if (force or sequence != self._last_sequence) and self._write(sequence):
             self._last_sequence = sequence

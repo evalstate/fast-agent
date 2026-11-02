@@ -1198,7 +1198,7 @@ requires-dist = [
     { name = "tensorzero", marker = "extra == 'all-providers'", specifier = ">=2026.6.0" },
     { name = "tensorzero", marker = "extra == 'tensorzero'", specifier = ">=2026.6.0" },
     { name = "textual", marker = "extra == 'textual'", specifier = ">=6.2.1" },
-    { name = "textual-image", specifier = ">=0.14.1" },
+    { name = "textual-image", specifier = ">=0.14.2" },
     { name = "tiktoken", specifier = "==0.14.0" },
     { name = "tokenizers", marker = "extra == 'privacy'", specifier = ">=0.22" },
     { name = "tokenizers", marker = "extra == 'privacy-gpu'", specifier = ">=0.22" },

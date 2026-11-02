@@ -247,7 +247,60 @@ You can attach images and documents using `/attach` or by using the `^<uri|file>
 
 You can paste images directly with ++alt+v++. In terminals that reserve that chord, ++ctrl+alt+v++ is also bound.
 
+In Herdr app, **Ctrl+V** uploads a clipboard image to the terminal's machine and
+pastes its path. fast-agent recognizes a paste containing only existing absolute
+image paths and adds attachments automatically when the model supports images.
+This also works in Herdr-managed remote terminals: run an updated fast-agent on
+the remote machine. Ordinary text pastes and paths inside slash/shell commands
+remain unchanged. Alt+V / Ctrl+Alt+V instead reads the clipboard on the machine
+running fast-agent; it does not forward your desktop clipboard over SSH.
+
+Automatic image rendering supports Herdr's Kitty graphics, including terminals
+that return their graphics capability reply after their general terminal reply.
+`logger.terminal_images.backend: kitty` remains an explicit override; `halfcell`
+opts into lower-resolution character-cell graphics.
+
 Local image attachments, including pasted clipboard images, are displayed inline after your message when terminal image rendering is enabled. Remote image URLs remain as links.
+
+## Terminal integration diagnostics
+
+```bash
+fast-agent check terminal           # Probe capabilities on an interactive terminal
+fast-agent check terminal --image   # Also draw a portable resolution test chart
+fast-agent check terminal --json    # Scriptable report; no terminal probes or graphics
+```
+
+The check reports TTY availability, configured image backend, the actual selected
+renderer, reported Kitty/Sixel support, cell-pixel geometry, Herdr core terminal ID
+when supplied, and eligibility for OSC 7501 status reporting. `TERM_PROGRAM` is
+shown only as a hint, not treated as proof of capabilities. A cell size can be a
+library fallback if the terminal supplies none.
+
+`--image` uses the configured renderer and a viewport-fitted chart of small text,
+fine stripes and a gradient, without system font dependencies. It requires an
+interactive terminal and cannot be combined with `--json`. Images are not drawn
+by default. No model calls, clipboard access, uploads or lifecycle status writes
+are performed; model vision support is explicitly left unchecked. In redirected
+output and JSON mode, active graphics probing is skipped and unknown fields are null.
+
+### Agent lifecycle status
+
+Interactive fast-agent reports OSC 7501 status to compatible terminals, including
+herdr-core. A turn or direct shell command starts as `working`. Human elicitation
+uses `blocked` and restores the previous state when it ends. Successful completion
+reports `idle`; Herdr decides whether to show its unseen-completion `done` indicator.
+
+Uncaught turn failures, exhausted-retry system errors, assistant `ERROR`/`TIMEOUT`
+stop reasons, and nonzero direct-shell exits report `error`. The error remains while
+waiting at the next prompt, including metadata/cost refreshes, and the next operation
+clears it. Ctrl+C and task cancellation return to `idle`; conventional interrupt or
+termination statuses (130, 143, -2 and -15) are treated as cancellation. A failed
+individual tool call does not fail an agent turn that continues running. Token/iteration
+limits and safety stops are not automatically classified as execution errors.
+
+`hc wait` returns on either failure or completion; inspect its `status` rather than
+assuming a returned wait means success. The old Herdr socket protocol has no error
+state and retains its previous idle behavior; the richer status travels over OSC 7501.
 
 ## Agent and Model Feature Toggles
 
