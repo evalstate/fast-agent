@@ -145,3 +145,40 @@ async def test_result_within_budget_is_not_retained(tmp_path: Path) -> None:
     assert store._artifacts == []
 
     await agent.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_oversized_file_read_is_paged_at_a_line_boundary(tmp_path: Path) -> None:
+    (tmp_path / "data.txt").write_text(
+        "".join(f"line {index:03d}\n" for index in range(1, 101)), encoding="utf-8"
+    )
+    agent = _agent(tmp_path, shell=True, result=_structured_result())
+
+    async def read(arguments: dict[str, object]) -> str:
+        request = PromptMessageExtended(
+            role="assistant",
+            content=[],
+            tool_calls={
+                "call-1": CallToolRequest(
+                    params=CallToolRequestParams(name="read_text_file", arguments=arguments)
+                )
+            },
+        )
+        response = await agent.run_tools(request)
+        assert response.tool_results is not None
+        content = response.tool_results["call-1"].content
+        assert isinstance(content[0], TextContent)
+        return content[0].text
+
+    first = await read({"path": "data.txt"})
+    # 9-byte lines: 22 fit in the 200-byte budget.
+    assert first.startswith("line 001\n")
+    assert "line 022\n[File read truncated: showing lines 1-22 of 1-100" in first
+    assert "Continue with line=23" in first
+    assert "Tool result truncated" not in first
+
+    second = await read({"path": "data.txt", "line": 23, "limit": 30})
+    assert second.startswith("line 023\n")
+    assert "showing lines 23-44 of 23-52" in second
+
+    await agent.shutdown()

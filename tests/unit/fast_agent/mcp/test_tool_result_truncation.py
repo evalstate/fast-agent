@@ -8,7 +8,10 @@ from mcp_types import (
 )
 
 from fast_agent.mcp.helpers.content_helpers import canonicalize_tool_result_content_for_llm
-from fast_agent.mcp.tool_result_truncation import bound_tool_result_for_llm
+from fast_agent.mcp.tool_result_truncation import (
+    bound_tool_result_for_llm,
+    page_read_text_file_result,
+)
 
 
 async def _no_retained_copy() -> None:
@@ -100,3 +103,12 @@ async def test_retained_copy_guidance_replaces_default_advice() -> None:
     assert isinstance(content, TextContent)
     assert "The complete result is at /tmp/full.txt." in content.text
     assert "narrower query" not in content.text
+
+
+def test_file_read_paging_leaves_unpageable_results_to_generic_truncation() -> None:
+    long_line = CallToolResult(content=[TextContent(type="text", text="x" * 500)])
+    error = CallToolResult(content=[TextContent(type="text", text="a\n" * 500)], is_error=True)
+    small = CallToolResult(content=[TextContent(type="text", text="a\nb\n")])
+
+    for result in (long_line, error, small):
+        assert page_read_text_file_result(result, tool_args={}, byte_limit=100) is None

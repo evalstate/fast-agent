@@ -103,7 +103,10 @@ from fast_agent.mcp.tool_result_metadata import (
     tool_result_display_metadata,
 )
 from fast_agent.mcp.tool_result_spool import spool_tool_result
-from fast_agent.mcp.tool_result_truncation import bound_tool_result_for_llm
+from fast_agent.mcp.tool_result_truncation import (
+    bound_tool_result_for_llm,
+    page_read_text_file_result,
+)
 from fast_agent.paths import resolve_home_paths
 from fast_agent.ptc import PTC_BATCHING_INSTRUCTION, PTC_TOOL_NAME, ProgrammaticToolRuntime
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
@@ -2527,9 +2530,15 @@ class McpAgent(ABC, ToolAgent):
         result: CallToolResult,
     ) -> tuple[CallToolResult, ToolResultDisplayMetadata]:
         if not call.is_local_shell:
-            result = await bound_tool_result_for_llm(
+            byte_limit = self._model_tool_output_byte_limit()
+            paged = (
+                page_read_text_file_result(result, tool_args=call.tool_args, byte_limit=byte_limit)
+                if self._is_runtime_read_text_file_call(call)
+                else None
+            )
+            result = paged or await bound_tool_result_for_llm(
                 result,
-                byte_limit=self._model_tool_output_byte_limit(),
+                byte_limit=byte_limit,
                 retain=lambda: self._retain_full_tool_result(call, result),
             )
         attach_read_text_file_display_metadata(
@@ -2538,6 +2547,13 @@ class McpAgent(ABC, ToolAgent):
             tool_args=call.tool_args,
         )
         return result, tool_result_display_metadata(result)
+
+    def _is_runtime_read_text_file_call(self, call: PlannedMcpToolCall) -> bool:
+        return (
+            call.namespaced_tool is None
+            and is_read_text_file_tool_name(call.tool_name)
+            and self._is_filesystem_runtime_tool(call.tool_name)
+        )
 
     async def _retain_full_tool_result(
         self,
