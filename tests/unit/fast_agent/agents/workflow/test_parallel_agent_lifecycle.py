@@ -111,3 +111,70 @@ async def test_parallel_caller_cancellation_waits_for_fan_out_cleanup() -> None:
         if not task.done():
             task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("repeat_cancel", [False, True])
+@pytest.mark.parametrize("origin", ["caller", "branch_error", "branch_cancel"])
+async def test_parallel_preserves_slow_cleanup(origin: str, repeat_cancel: bool) -> None:
+    started = asyncio.Event()
+    trigger = asyncio.Event()
+    cleanup_started = asyncio.Event()
+    allow_cleanup = asyncio.Event()
+    finished = asyncio.Event()
+    failure = RuntimeError("branch failed")
+
+    async def slow_worker() -> str:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+            return "unreachable"
+        finally:
+            cleanup_started.set()
+            await allow_cleanup.wait()
+            finished.set()
+
+    async def fast_worker() -> str:
+        await trigger.wait()
+        if origin == "branch_error":
+            raise failure
+        if origin == "branch_cancel":
+            raise asyncio.CancelledError()
+        await asyncio.Event().wait()
+        return "unreachable"
+
+    async def aggregate() -> str:
+        return "combined"
+
+    fan_in = CallbackAgent("fan_in", aggregate)
+    parallel = ParallelAgent(
+        AgentConfig("parallel"),
+        fan_in,
+        [CallbackAgent("fast", fast_worker), CallbackAgent("slow", slow_worker)],
+    )
+    task = asyncio.create_task(parallel.generate("work"))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        if origin == "caller":
+            task.cancel()
+        else:
+            trigger.set()
+        await asyncio.wait_for(cleanup_started.wait(), timeout=2)
+        if repeat_cancel:
+            task.cancel()
+        # Give cancellation callbacks a turn while the finalizer remains gated.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        allow_cleanup.set()
+        expected = RuntimeError if origin == "branch_error" else asyncio.CancelledError
+        with pytest.raises(expected) as raised:
+            await asyncio.wait_for(task, timeout=2)
+        if origin == "branch_error":
+            assert raised.value is failure
+        assert finished.is_set()
+        assert fan_in.calls == 0
+    finally:
+        allow_cleanup.set()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
