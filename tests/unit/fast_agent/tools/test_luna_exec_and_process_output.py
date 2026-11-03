@@ -631,3 +631,68 @@ async def test_process_wait_sec_without_action_waits(
         assert "finished" in _text(waited)
     finally:
         await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_running_output_byte_limit_shows_mostly_latest_output(tmp_path: Path) -> None:
+    gate = tmp_path / "finish"
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("running-output-test"),
+        output_byte_limit=8000,
+        config=Settings(
+            shell_execution=ShellSettings(
+                tool_profile="minimal_process",
+                show_bash=False,
+                running_output_byte_limit=2000,
+                retained_output_temp_directory=tmp_path,
+            )
+        ),
+    )
+    # 50-byte lines: 200 lines (10,000 bytes) while running, then 200 more after the gate.
+    script = (
+        f"import pathlib,sys,time; gate=pathlib.Path({str(gate)!r})\n"
+        "for i in range(200): print(f'line {i:04d} ' + 'x' * 39)\n"
+        "sys.stdout.flush()\n"
+        "while not gate.exists(): time.sleep(0.01)\n"
+        "for i in range(200, 400): print(f'line {i:04d} ' + 'x' * 39)"
+    )
+    try:
+        started = await runtime.call_tool(
+            "bash",
+            {
+                "command": f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}",
+                "run_in_background": True,
+            },
+        )
+        metadata = process_result_metadata(started)
+        assert metadata is not None
+        process_id = metadata["process_id"]
+        process = await runtime._get_managed_process(process_id)
+        assert process is not None
+        for _ in range(500):
+            if process.output_state.total_output_bytes >= 10_000:
+                break
+            await asyncio.sleep(0.01)
+
+        running = _text(
+            await runtime.call_tool("process", {"process_id": process_id, "action": "status"})
+        )
+        assert "The command is still running, so mostly its latest output is shown." in running
+        assert "showing first 250 bytes and last 1750 bytes" in running
+        assert "line 0000" in running and "line 0199" in running
+        assert "line 0100" not in running
+
+        gate.touch()
+        done = _text(
+            await runtime.call_tool(
+                "process", {"process_id": process_id, "action": "wait", "wait_sec": 10}
+            )
+        )
+        assert "process exit code was 0" in done
+        assert "still running, so mostly" not in done
+        assert "showing first 4000 bytes and last 4000 bytes" in done
+        retained = next(tmp_path.glob("fast-agent-output-*/output-*.log"))
+        assert b"line 0100" in retained.read_bytes()
+    finally:
+        await runtime.close()

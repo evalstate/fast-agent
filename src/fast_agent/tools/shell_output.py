@@ -14,6 +14,8 @@ from fast_agent.tools.output_truncation import (
 )
 from fast_agent.tools.transient_artifacts import format_retained_artifact_notice
 
+# Head share of the still-running view: 1/8 head, 7/8 tail.
+RUNNING_VIEW_HEAD_DIVISOR = 8
 _OUTPUT_LIMIT_GUIDANCE = "Increase shell_execution.output_byte_limit to retain more."
 
 
@@ -114,10 +116,35 @@ class ShellOutputBuffer:
             return "".join(self.output_segments)
 
         window = split_output_byte_limit(self.output_byte_limit)
-        head_blob = "".join(self.output_segments).encode("utf-8", errors="replace")[
-            : window.head_bytes
-        ]
-        tail_blob = bytes(self.output_tail_bytes)[-window.tail_bytes :]
+        return self._render_window(
+            head_bytes=window.head_bytes,
+            tail_bytes=window.tail_bytes,
+            guidance=self._truncation_guidance(),
+        )
+
+    def running_view(self, byte_limit: int) -> str:
+        """A short head and long tail for a command that is still running.
+
+        While a command runs the model mostly waits on it, and what it acts on is the
+        latest output (progress, errors, prompts), so most of the budget goes to the
+        tail. When retention is enabled the complete output stays retrievable.
+        """
+        if self.retained_output_path is not None and not self.retained_output_path.exists():
+            # Below the normal preview limit retention has not started; keep the full output.
+            self._start_retained(b"")
+        head_bytes = max(byte_limit // RUNNING_VIEW_HEAD_DIVISOR, 1)
+        return self._render_window(
+            head_bytes=head_bytes,
+            tail_bytes=byte_limit - head_bytes,
+            guidance=(
+                "The command is still running, so mostly its latest output is shown. "
+                + self._truncation_guidance()
+            ),
+        )
+
+    def _render_window(self, *, head_bytes: int, tail_bytes: int, guidance: str) -> str:
+        head_blob = "".join(self.output_segments).encode("utf-8", errors="replace")[:head_bytes]
+        tail_blob = bytes(self.output_tail_bytes)[-tail_bytes:]
 
         parts: list[str] = []
         if head_blob:
@@ -130,7 +157,7 @@ class ShellOutputBuffer:
                 total_bytes=self.total_output_bytes,
                 head_bytes=len(head_blob),
                 tail_bytes=len(tail_blob),
-                guidance=self._truncation_guidance(),
+                guidance=guidance,
             )
             + "\n"
         )
@@ -141,8 +168,14 @@ class ShellOutputBuffer:
 
         return "".join(parts)
 
-    def consume(self, limit: int | None = None) -> str:
-        if limit is None:
+    def consume(self, limit: int | None = None, *, running_byte_limit: int | None = None) -> str:
+        if (
+            limit is None
+            and running_byte_limit is not None
+            and self.total_output_bytes > min(running_byte_limit, self.output_byte_limit)
+        ):
+            combined_output = self.running_view(min(running_byte_limit, self.output_byte_limit))
+        elif limit is None:
             combined_output = self.combined()
         else:
             blob = "".join(self.output_segments).encode("utf-8")
@@ -230,7 +263,8 @@ class ShellOutputBuffer:
             self.retained_output_complete = False
 
     def _append_tail(self, output_blob: bytes) -> None:
-        tail_limit = split_output_byte_limit(self.output_byte_limit).tail_bytes
+        # Keep a full preview's worth: the running view gives most of its budget to the tail.
+        tail_limit = self.output_byte_limit
         if len(output_blob) >= tail_limit:
             self.output_tail_bytes = bytearray(output_blob[-tail_limit:])
             return
