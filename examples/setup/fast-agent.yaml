@@ -138,6 +138,8 @@ anthropic:
 # model-facing shell output preview bytes; omitted uses a catalog override or
 # the 16000 global default; null uses automatic model sizing
 #  output_byte_limit: 16000
+# smaller preview bytes for commands that exit 0 (short head, longer tail); null = off
+#  success_output_byte_limit: null
 # preview bytes for still-running commands (1/8 head, 7/8 tail); null = normal preview
 #  running_output_byte_limit: null
 # retain complete truncated output in private session-scoped temporary files

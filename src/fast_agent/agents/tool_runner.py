@@ -18,6 +18,7 @@ from fast_agent.constants import (
     FAST_AGENT_PENDING_MEDIA_ATTACHMENTS,
     FAST_AGENT_SYNTHETIC_FINAL_CHANNEL,
     FAST_AGENT_TIMING,
+    FAST_AGENT_TOOL_LOOP_MESSAGE,
     FAST_AGENT_TOOL_MEDIA_MESSAGE,
     FAST_AGENT_USAGE,
 )
@@ -81,6 +82,14 @@ _HOOK_STATUS_BUCKET_AFTER_LLM_CALL = "after_llm_call"
 _HOOK_STATUS_BUCKET_BEFORE_TOOL_CALL = "before_tool_call"
 _HOOK_STATUS_BUCKET_AFTER_TOOL_RESULTS = "after_tool_results"
 _HOOK_STATUS_BUCKET_AFTER_TURN_COMPLETE = "after_turn_complete"
+
+
+def _tool_loop_message(message: PromptMessageExtended) -> PromptMessageExtended:
+    """Mark a message added inside the tool loop so history never reads it as a new turn."""
+    marker = [TextContent(type="text", text="Tool loop message")]
+    return message.model_copy(
+        update={"channels": {**(message.channels or {}), FAST_AGENT_TOOL_LOOP_MESSAGE: marker}}
+    )
 
 
 HistoryRollbackStatus = Literal[
@@ -670,14 +679,10 @@ class ToolRunner:
     def append_messages(self, *messages: str | PromptMessageExtended) -> None:
         for message in messages:
             if isinstance(message, str):
-                self._delta_messages.append(
-                    PromptMessageExtended(
-                        role="user",
-                        content=[TextContent(type="text", text=message)],
-                    )
+                message = PromptMessageExtended(
+                    role="user", content=[TextContent(type="text", text=message)]
                 )
-            else:
-                self._delta_messages.append(message)
+            self._delta_messages.append(_tool_loop_message(message))
 
     @property
     def delta_messages(self) -> list[PromptMessageExtended]:
@@ -747,17 +752,19 @@ class ToolRunner:
         assistant_message: PromptMessageExtended,
     ) -> None:
         self._deferred_structured_finalization_started = True
-        finalizer = PromptMessageExtended(
-            role="user",
-            content=[
-                TextContent(
-                    type="text",
-                    text=(
-                        "Now produce the final answer as structured JSON matching the "
-                        "requested schema. Do not call any tools."
-                    ),
-                )
-            ],
+        finalizer = _tool_loop_message(
+            PromptMessageExtended(
+                role="user",
+                content=[
+                    TextContent(
+                        type="text",
+                        text=(
+                            "Now produce the final answer as structured JSON matching the "
+                            "requested schema. Do not call any tools."
+                        ),
+                    )
+                ],
+            )
         )
         if self._use_history_enabled():
             self._delta_messages = [finalizer]

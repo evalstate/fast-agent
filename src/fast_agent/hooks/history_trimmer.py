@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from fast_agent.history.turns import user_turn_starts
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 if TYPE_CHECKING:
@@ -18,24 +19,9 @@ if TYPE_CHECKING:
 
 
 def _find_turn_start(history: list[PromptMessageExtended]) -> int:
-    """
-    Find the index where the current turn started.
-
-    A turn starts with a user message that does NOT contain tool results.
-    We search backwards from the end to find this boundary.
-
-    Returns:
-        Index of the turn start, or 0 if not found.
-    """
-    for i in range(len(history) - 1, -1, -1):
-        msg = history[i]
-        if msg.role == "user":
-            # Check if this is a tool result message
-            if msg.tool_results:
-                continue  # This is a tool result, keep searching
-            # This is a user message without tool results - turn boundary
-            return i
-    return 0
+    """Index where the current turn started, or 0 if there is no user prompt."""
+    starts = user_turn_starts(history)
+    return starts[-1] if starts else 0
 
 
 def _trim_turn_messages(

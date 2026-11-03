@@ -285,6 +285,16 @@ def _process_stream_metadata(process: ManagedShellProcess) -> ProcessResultMetad
     return metadata
 
 
+def _completed_successfully(process: ManagedShellProcess) -> bool:
+    task = process.task
+    return (
+        task.done()
+        and not task.cancelled()
+        and task.exception() is None
+        and task.result().result.exit_code == 0
+    )
+
+
 def build_managed_process_result(
     process: ManagedShellProcess,
     *,
@@ -293,12 +303,16 @@ def build_managed_process_result(
     aligned_shell_tool_name: str | None,
     io_drain_timeout_seconds: float,
     output_preview_limit: int | None = None,
+    success_output_byte_limit: int | None = None,
     running_output_byte_limit: int | None = None,
     background_option_hint: str | None = None,
 ) -> CallToolResult:
     unread_output_line_count = process.output_state.unread_output_line_count
     output = process.output_state.consume(
         output_preview_limit,
+        success_byte_limit=(
+            success_output_byte_limit if _completed_successfully(process) else None
+        ),
         running_byte_limit=None if process.task.done() else running_output_byte_limit,
     )
     sections: list[str] = []

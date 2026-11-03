@@ -108,7 +108,7 @@ async def handle_compact_preview(
     tokens_now = usage.current_context_tokens if usage else None
     window = usage.context_window_size if usage else None
     estimated_after = (
-        estimate_tokens(plan.templates + plan.retained_tail) + _PREVIEW_SUMMARY_TOKEN_ALLOWANCE
+        estimate_tokens(plan.templates + plan.retained) + _PREVIEW_SUMMARY_TOKEN_ALLOWANCE
     )
 
     lines: list[Text] = []
@@ -130,7 +130,7 @@ async def handle_compact_preview(
     if plan.templates:
         detail.append(f"  •  {len(plan.templates)} template messages kept", style="dim")
     detail.append(
-        f"  •  last {settings.keep_turns} turns kept verbatim ({len(plan.retained_tail)} messages)",
+        f"  •  last {settings.keep_turns} turns kept verbatim ({len(plan.retained)} messages)",
         style="dim",
     )
     lines.append(detail)
