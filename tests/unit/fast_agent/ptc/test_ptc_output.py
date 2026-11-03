@@ -235,7 +235,10 @@ async def helpers(tmp_path: Path) -> AsyncIterator[ProgrammaticToolRuntime]:
                 "show({'stdout': 'a\\nb\\nc\\n', 'stderr': 'warn\\nbad\\n', "
                 "'exit_code': 1, 'status': 'failed', 'process_id': 'p1'}, n=1)"
             ),
-            "exit_code=1 status=failed process_id=p1\n--- stderr\nbad\n--- stdout\nc",
+            (
+                "exit_code=1 status=failed process_id=p1\n--- stderr\nwarn\nbad\n--- stdout\n"
+                "a\n[... 1 of 3 lines omitted; print the stream or use head()/grep() to see them ...]\nc"
+            ),
         ),
         (
             (
@@ -402,12 +405,37 @@ async def test_show_preserves_capture_loss_and_searches_both_streams(
     assert "truncated=True" in rendered
     assert "exit_code=1 status=failed process_id=p1" in rendered
     if pattern is None:
+        # Long streams keep their first line and tail around an explicit omission marker.
         assert "out noise" in rendered and "err noise" in rendered
-        assert "detail" not in rendered
+        assert "--- stdout\nERROR stdout detail\n[... 48 of 51 lines omitted" in rendered
+        assert "--- stderr\nTraceback stderr detail\n[... 48 of 51 lines omitted" in rendered
     else:
         assert "--- stderr\n1: Traceback stderr detail" in rendered
         assert "--- stdout\n1: ERROR stdout detail" in rendered
         assert "noise" not in rendered
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("lines", "omitted"),
+    [(80, None), (81, "[... 31 of 81 lines omitted"), (500, "[... 450 of 500")],
+)
+async def test_show_prints_short_output_in_full_and_marks_omissions(
+    helpers: ProgrammaticToolRuntime, lines: int, omitted: str | None
+) -> None:
+    result = await helpers.execute(
+        {"code": f"print(show({{'stdout': '\\n'.join(str(i) for i in range(1, {lines} + 1))}}))"},
+        _no_tools,
+    )
+    rendered = _text(result)
+    assert not result.is_error, rendered
+    shown = [line for line in rendered.split("--- stdout\n", 1)[1].splitlines() if line.isdigit()]
+    if omitted is None:
+        assert shown == [str(i) for i in range(1, lines + 1)]
+        assert "omitted" not in rendered
+    else:
+        assert omitted in rendered
+        assert shown == [str(i) for i in [*range(1, 11), *range(lines - 39, lines + 1)]]
 
 
 @pytest.mark.asyncio
@@ -424,7 +452,7 @@ async def test_store_recovers_short_output_that_show_omits(tmp_path: Path) -> No
         summary = await runtime.execute(
             {
                 "code": (
-                    f"r = await {function.python_name}(command='echo earlier-detail; seq 1 100')\n"
+                    f"r = await {function.python_name}(command='seq 1 20; echo earlier-detail; seq 1 100')\n"
                     "await store('result', r)\nprint(show(r))"
                 )
             },
@@ -444,10 +472,10 @@ async def test_store_recovers_short_output_that_show_omits(tmp_path: Path) -> No
         assert unavailable.is_error
         assert "retained_output: unavailable" in _text(unavailable)
         recovered = await runtime.execute(
-            {"code": "r = await load('result')\nprint(head(r['stdout'], 1))"}, dispatch
+            {"code": "r = await load('result')\nprint(grep(r['stdout'], 'earlier'))"}, dispatch
         )
         assert not recovered.is_error, _text(recovered)
-        assert _text(recovered).endswith("earlier-detail")
+        assert _text(recovered).endswith("21: earlier-detail")
     finally:
         await runtime.close()
         await shell.close()

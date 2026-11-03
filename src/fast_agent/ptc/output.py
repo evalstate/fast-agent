@@ -49,6 +49,19 @@ def grep(text: str, pattern: str, context: int = 0, limit: int = 50) -> str:
     return "\\n".join(result)
 
 
+def _view(text: str, n: int) -> str:
+    lines = text.splitlines()
+    if len(lines) <= 2 * n:
+        return "\\n".join(lines)
+    k = max(1, n // 4)
+    omitted = len(lines) - k - n
+    marker = (
+        "[... " + str(omitted) + " of " + str(len(lines)) + " lines omitted; "
+        + "print the stream or use head()/grep() to see them ...]"
+    )
+    return "\\n".join(lines[:k] + [marker] + lines[-n:])
+
+
 def show(r: dict[str, Any], n: int = 40, pattern: str | None = None) -> str:
     fields = []
     for key in ["exit_code", "status", "process_id"]:
@@ -60,9 +73,9 @@ def show(r: dict[str, Any], n: int = 40, pattern: str | None = None) -> str:
     result = [" ".join(fields)]
     stderr = r.get("stderr") or ""
     if stderr:
-        result.extend(["--- stderr", grep(stderr, pattern) if pattern is not None else tail(stderr, n)])
+        result.extend(["--- stderr", grep(stderr, pattern) if pattern is not None else _view(stderr, n)])
     stdout = r.get("stdout") or ""
-    result.extend(["--- stdout", grep(stdout, pattern) if pattern is not None else tail(stdout, n)])
+    result.extend(["--- stdout", grep(stdout, pattern) if pattern is not None else _view(stdout, n)])
     return "\\n".join(result)
 """
 
@@ -73,7 +86,8 @@ _PRINT_NOTE = (
     "or `r['status']` and only the part you need: the end of build, install and test logs "
     "(`r['stdout'][-3000:]`), or the lines you pick out. Check stderr and `r['truncated']` "
     "for capture loss.{running}{stored}{retained} Shortcuts: "
-    "`show(r)` gives exit_code, status, process_id, any capture truncation and the stderr/stdout tails, "
+    "`show(r)` gives exit_code, status, process_id, any capture truncation and stderr/stdout "
+    "(in full up to 80 lines, else the first 10 and last 40 around an omitted-lines marker), "
     "`show(r, pattern='error|fail')` matching lines from both streams; `tail(text, n)`, `head(text, n)` and "
     "`grep(text, pattern, context=0, limit=50)` work on any text.\n"
 )
@@ -93,8 +107,10 @@ _HELPERS_NOTE = (
     "- Shell output: `r = {call}` gives your code bounded stdout and stderr since the previous read; you see "
     "what you print, cut to about {limit} (a longer print loses its middle). Never `print(r)` "
     "or return `r`: it shows everything on one escaped line. Print `show(r)` instead: "
-    "exit_code, status, process_id, `truncated=True` if capture lost output, and the last 40 "
-    "lines of stderr and stdout; "
+    "exit_code, status, process_id, `truncated=True` if capture lost output, and stderr and "
+    "stdout: in full up to 80 lines, else the first 10 and last 40 around an omitted-lines "
+    "marker. show() is for command results: print the full text of files you need to read, "
+    "not show() of a `cat`. "
     "`show(r, pattern='error|fail|Traceback')` searches both streams for numbered matching lines. "
     "`tail(text, n=40)`, `head(text, n=40)` and `grep(text, pattern, context=0, limit=50)` "
     "work on any text.{running}{stored}{retained}\n"
