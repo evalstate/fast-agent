@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import errno
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -35,7 +37,7 @@ from fast_agent.plugins.tool_call_review import (
 from fast_agent.types import PromptMessageExtended
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    from os import stat_result
 
     from fast_agent.plugins.tool_call_review import LoadedPluginToolCallReview
 
@@ -70,20 +72,31 @@ def test_manifest_v2_rejects_tool_call_review(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("install_name", ["guard", "installed"])
 @pytest.mark.parametrize(
     "manifest",
     [
         "schema_version: 3\nname: guard\nhooks:\n  tool_call_review: /abs/guard.py:review\n",
         "schema_version: 2\nname: guard\nhooks:\n  tool_call_review: ./guard.py:review\n",
+        "schema_version: 99\nname: guard\nhooks:\n  tool_call_review: ./guard.py:review\n",
         "schema_version: 3\nname: guard\nhooks: [tool_call_review\n",
     ],
-    ids=["absolute-handler", "schema-too-old", "invalid-yaml"],
+    ids=["absolute-handler", "schema-too-old", "unsupported-schema", "invalid-yaml"],
 )
 async def test_enabled_review_plugin_with_broken_manifest_denies_calls(
-    tmp_path: Path, manifest: str
+    tmp_path: Path, manifest: str, install_name: str
 ) -> None:
-    (tmp_path / "guard").mkdir()
-    (tmp_path / "guard" / "plugin.yaml").write_text(manifest, encoding="utf-8")
+    plugin_dir = tmp_path / install_name
+    _manifest(plugin_dir, 3)
+    (plugin_dir / "guard.py").write_text(
+        "def review(ctx):\n    return {call.id: 'guard active' for call in ctx.tool_calls}\n",
+        encoding="utf-8",
+    )
+    healthy = load_enabled_plugin_contributions(destination_root=tmp_path, enabled=["guard"])
+    healthy_reviewers = load_plugin_tool_call_reviewers(tuple(healthy.tool_call_review.values()))
+    assert set(await _review(healthy_reviewers, CALLS)) == {"a", "b"}
+
+    (plugin_dir / "plugin.yaml").write_text(manifest, encoding="utf-8")
 
     with pytest.warns(UserWarning, match="Failed to load enabled fast-agent plugin 'guard'"):
         contributions = load_enabled_plugin_contributions(
@@ -95,6 +108,26 @@ async def test_enabled_review_plugin_with_broken_manifest_denies_calls(
 
     assert set(denials) == {"a", "b"}
     assert "plugin 'guard' failed to load" in denials["a"]
+
+
+@pytest.mark.parametrize(
+    "broken_manifest",
+    [
+        "schema_version: 99\nname: other\nhooks:\n  tool_call_review: ./guard.py:review\n",
+        "name: other\nhooks: [tool_call_review\n",
+    ],
+)
+def test_broken_reviewer_does_not_shadow_resolvable_plugin(
+    tmp_path: Path, broken_manifest: str
+) -> None:
+    (tmp_path / "a-broken").mkdir()
+    (tmp_path / "a-broken" / "plugin.yaml").write_text(broken_manifest, encoding="utf-8")
+    _manifest(tmp_path / "z-installed", 3)
+
+    contributions = load_enabled_plugin_contributions(destination_root=tmp_path, enabled=["guard"])
+
+    assert set(contributions.tool_call_review) == {"guard"}
+    assert contributions.tool_call_review["guard"].load_error is None
 
 
 @pytest.mark.asyncio
@@ -117,9 +150,59 @@ async def test_plugin_root_that_fails_to_load_denies_calls(tmp_path: Path) -> No
     assert "disk on fire" in denials["a"]
 
 
-def test_broken_manifest_without_review_hook_adds_no_reviewer(tmp_path: Path) -> None:
-    (tmp_path / "cmds").mkdir()
-    (tmp_path / "cmds" / "plugin.yaml").write_text(
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_number", [errno.EACCES, errno.EIO])
+@pytest.mark.parametrize(
+    "failed_path", ["guard/plugin.yaml", ".", "installed", "installed/plugin.yaml"]
+)
+async def test_plugin_discovery_filesystem_errors_deny_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error_number: int, failed_path: str
+) -> None:
+    # The manifest name may differ from its installation directory.
+    _manifest(tmp_path / "installed", 3)
+    original_stat = Path.stat
+    inaccessible = tmp_path / failed_path
+
+    def failing_stat(path: Path, *, follow_symlinks: bool = True) -> stat_result:
+        if path == inaccessible:
+            raise OSError(error_number, "plugin storage unavailable", str(path))
+        return original_stat(path, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(Path, "stat", failing_stat)
+
+    with pytest.warns(UserWarning, match="plugin storage unavailable"):
+        contributions = _load_enabled_plugin_contributions_from_root(
+            destination_root=tmp_path,
+            enabled=["guard"],
+            scope="project",
+            load_enabled_plugin_contributions=load_enabled_plugin_contributions,
+        )
+    reviewers = load_plugin_tool_call_reviewers(tuple(contributions.tool_call_review.values()))
+
+    denials = await _review(reviewers, CALLS)
+
+    assert set(denials) == {"a", "b"}
+    assert "plugin storage unavailable" in denials["a"]
+
+
+def test_missing_enabled_plugin_adds_no_reviewer(tmp_path: Path) -> None:
+    with pytest.warns(UserWarning, match="is not installed"):
+        contributions = _load_enabled_plugin_contributions_from_root(
+            destination_root=tmp_path / "missing",
+            enabled=["guard"],
+            scope="project",
+            load_enabled_plugin_contributions=load_enabled_plugin_contributions,
+        )
+
+    assert contributions.tool_call_review == {}
+
+
+@pytest.mark.parametrize("install_name", ["cmds", "installed"])
+def test_broken_manifest_without_review_hook_adds_no_reviewer(
+    tmp_path: Path, install_name: str
+) -> None:
+    (tmp_path / install_name).mkdir()
+    (tmp_path / install_name / "plugin.yaml").write_text(
         "schema_version: 9\nname: cmds\n", encoding="utf-8"
     )
 
