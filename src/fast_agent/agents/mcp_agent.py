@@ -2949,6 +2949,10 @@ class McpAgent(ABC, ToolAgent):
                 tool_format=ptc_runtime.resolve_tool_format(
                     model_params.ptc_tool_format if model_params is not None else None
                 ),
+                output_guidance=ptc_runtime.resolve_output_guidance(
+                    model_params.ptc_output_guidance if model_params is not None else None
+                ),
+                result_byte_limit=self._model_tool_output_byte_limit(),
             )
         return ListToolsResult(tools=merged_tools)
 

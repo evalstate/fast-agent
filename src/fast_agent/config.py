@@ -1960,6 +1960,13 @@ class ProgrammaticToolCallingSettings(BaseModel):
     type_check: bool = True
     """Type-check code against generated tool stubs before running it."""
 
+    output_guidance: Literal["auto", "off", "print", "helpers"] = "auto"
+    """How the code tool tells the model to read shell results, which code receives in full
+    but the model sees only when printed. `print` says to print the exit code and only the
+    part needed, with `show`/`tail`/`head`/`grep` sandbox helpers as shortcuts; `helpers` leads
+    with printing `show(r)`; `off` adds neither the guidance nor the helpers. `auto` uses the
+    model's default (helpers for GPT-6, print otherwise)."""
+
     max_duration_seconds: float = Field(default=30.0, gt=0)
     """Sandbox compute time limit per execution (time awaiting tools is not counted)."""
 

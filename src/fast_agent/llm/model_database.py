@@ -88,6 +88,10 @@ class ModelParameters(BaseModel):
     """Default input format of the programmatic tool calling code tool when
     ``ptc.tool_format`` is auto. ``None`` means JSON."""
 
+    ptc_output_guidance: Literal["off", "print", "helpers"] | None = None
+    """Default shell output guidance of the programmatic tool calling code tool when
+    ``ptc.output_guidance`` is auto. ``None`` means print."""
+
     tool_input_stream_delta_limit: int | None = Field(default=None, ge=1)
     """Abort and retry a Responses stream attempt when one tool call's streamed input
     exceeds this many delta events (about one token each); guards against runaway
@@ -692,6 +696,8 @@ class ModelDatabase:
         shell_edit_tool="write_text_file",
         # Like the shell, PTC code is sent as raw Python through a custom-grammar tool.
         ptc_tool_format="freeform",
+        # GPT-6 printed less with guidance that leads with the show(r) helper.
+        ptc_output_guidance="helpers",
         text_verbosity_spec=TextVerbositySpec(default="low"),
         response_transports=("sse", "websocket"),
         response_websocket_providers=(Provider.RESPONSES, Provider.CODEX_RESPONSES),
