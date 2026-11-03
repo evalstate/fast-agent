@@ -140,12 +140,17 @@ def test_guidance_only_adds_its_note(
     assert (HELPERS_MARKER in note) is (guidance == "helpers")
     assert f"`r = {shell.example_call()}`" in note
     assert "about 33 KB" in note
+    assert "bounded stdout and stderr since the previous read" in note
+    assert 'await store("result", r)' in note
+    assert 'await load("result")' in note
+    assert "both streams" in note
     if profile == "native":
         assert "poll_process(process_id=r['process_id'])" in note
         assert "read_output" not in note
     else:
         assert "process(action='wait', process_id=r['process_id'])" in note
         assert "process(action='read_output', process_id=..., query='error')" in note
+        assert "Short output may not be retained" in note
 
 
 def test_guidance_needs_a_local_shell_in_code(tmp_path: Path) -> None:
@@ -336,8 +341,8 @@ async def test_described_calls_run(tmp_path: Path, profile: ShellToolProfile) ->
 
 
 @pytest.mark.asyncio
-async def test_unprinted_output_can_be_read_back(tmp_path: Path) -> None:
-    """Output that a long print lost in the middle is still retrievable, as the note says."""
+async def test_retained_output_can_be_read_back(tmp_path: Path) -> None:
+    """Shell preview truncation retains output independently of the outer print limit."""
     shell = _shell(tmp_path, "luna_exec", output_byte_limit=1024)
     runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings())
     runtime.model_tools(shell.tools, output_guidance="print")
@@ -371,6 +376,78 @@ async def test_unprinted_output_can_be_read_back(tmp_path: Path) -> None:
         assert not readback.is_error, _text(readback)
         assert "error-middle" in _text(readback)
         assert len(_text(readback)) < 200
+    finally:
+        await runtime.close()
+        await shell.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pattern", [None, "error|Traceback"])
+async def test_show_preserves_capture_loss_and_searches_both_streams(
+    helpers: ProgrammaticToolRuntime, pattern: str | None
+) -> None:
+    result = await helpers.execute(
+        {
+            "code": (
+                "r = {'stdout': 'ERROR stdout detail\\n' + 'out noise\\n' * 50, "
+                "'stderr': 'Traceback stderr detail\\n' + 'err noise\\n' * 50, "
+                "'exit_code': 1, 'status': 'failed', 'process_id': 'p1', 'truncated': True}\n"
+                f"print(show(r, n=2, pattern={pattern!r}))"
+            )
+        },
+        _no_tools,
+    )
+    rendered = _text(result)
+    assert not result.is_error, rendered
+    assert "truncated=True" in rendered
+    assert "exit_code=1 status=failed process_id=p1" in rendered
+    if pattern is None:
+        assert "out noise" in rendered and "err noise" in rendered
+        assert "detail" not in rendered
+    else:
+        assert "--- stderr\n1: Traceback stderr detail" in rendered
+        assert "--- stdout\n1: ERROR stdout detail" in rendered
+        assert "noise" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_store_recovers_short_output_that_show_omits(tmp_path: Path) -> None:
+    shell = _shell(tmp_path)
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings())
+    runtime.model_tools(shell.tools, output_guidance="helpers")
+    function = _shell_function(runtime)
+
+    async def dispatch(name: str, arguments: dict[str, Any], call_id: str) -> CallToolResult:
+        return await shell.call_tool(name, arguments, call_id)
+
+    try:
+        summary = await runtime.execute(
+            {
+                "code": (
+                    f"r = await {function.python_name}(command='echo earlier-detail; seq 1 100')\n"
+                    "await store('result', r)\nprint(show(r))"
+                )
+            },
+            dispatch,
+        )
+        assert not summary.is_error, _text(summary)
+        assert "earlier-detail" not in _text(summary)
+        unavailable = await runtime.execute(
+            {
+                "code": (
+                    "r = await load('result')\n"
+                    "await process(action='read_output', process_id=r['process_id'])"
+                )
+            },
+            dispatch,
+        )
+        assert unavailable.is_error
+        assert "retained_output: unavailable" in _text(unavailable)
+        recovered = await runtime.execute(
+            {"code": "r = await load('result')\nprint(head(r['stdout'], 1))"}, dispatch
+        )
+        assert not recovered.is_error, _text(recovered)
+        assert _text(recovered).endswith("earlier-detail")
     finally:
         await runtime.close()
         await shell.close()

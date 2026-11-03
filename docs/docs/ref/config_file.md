@@ -872,8 +872,21 @@ output-token metadata.
 `running_output_byte_limit` changes the preview of a command that is still running
 (it outlasted the foreground wait, or a `process` wait/status returned it running):
 an eighth of the budget from the start of the unread output and the rest from the end,
-at most `output_byte_limit`. Completed commands keep the normal preview. With
-`retain_truncated_output` enabled the complete output is still retained.
+at most `output_byte_limit`. This applies to both session-managed and persistent
+processes. An explicit `process` preview `limit` takes precedence; `null` disables
+the running-specific policy. Completed commands keep the normal preview for their
+new, unread output; completion does not replay earlier omitted output.
+Session-managed output is retained when `retain_truncated_output` is enabled and a
+preview is shortened, subject to `retained_output_max_bytes`. Persistent processes
+retain logs subject to `durable_output_max_bytes`.
+
+In PTC, `show(r)` prints a summary of the bounded capture, including capture loss
+(`truncated=True`), and `show(r, pattern="error|fail")` searches both stderr and stdout.
+Summarising with `show()` does not itself retain output: short command output may
+have no `process(action="read_output")` backing log. If further inspection may be
+needed, use `await store("result", r)` and recover it in a later call with
+`r = await load("result")`. This preserves the returned capture, not bytes already
+dropped by capture or retention limits.
 
 When `retain_truncated_output` is enabled, fast-agent creates a private
 session-scoped directory and lazily writes a `0600` file only when a shell

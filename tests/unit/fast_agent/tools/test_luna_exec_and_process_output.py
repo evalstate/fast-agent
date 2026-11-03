@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import shlex
 import sys
 from typing import TYPE_CHECKING
@@ -13,6 +14,7 @@ from mcp_types import CallToolResult, TextContent
 if TYPE_CHECKING:
     from pathlib import Path
 
+import fast_agent.tools.shell_runtime as shell_runtime_module
 from fast_agent.config import Settings, ShellSettings, ShellToolProfile
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.tools.execution_environment import (
@@ -634,65 +636,179 @@ async def test_process_wait_sec_without_action_waits(
 
 
 @pytest.mark.asyncio
-async def test_running_output_byte_limit_shows_mostly_latest_output(tmp_path: Path) -> None:
-    gate = tmp_path / "finish"
+@pytest.mark.parametrize("lifecycle", ["session", "persistent"])
+@pytest.mark.parametrize("exit_code", [0, 7])
+@pytest.mark.parametrize(
+    ("running_limit", "preview_limit", "output_limit"),
+    [
+        (6000, None, 16_000),
+        (None, None, 16_000),
+        (6000, 8000, 16_000),
+        (6000, 1000, 16_000),
+        (6000, None, 4000),
+        (None, None, 4000),
+    ],
+)
+async def test_running_output_policy_and_completion_readback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    lifecycle: str,
+    exit_code: int,
+    running_limit: int | None,
+    preview_limit: int | None,
+    output_limit: int,
+) -> None:
+    if lifecycle == "persistent" and os.name != "posix":
+        pytest.skip("durable local processes require POSIX")
+    monkeypatch.setattr(shell_runtime_module, "BACKGROUND_LAUNCH_SETTLE_SECONDS", 0)
+    start_gate = tmp_path / "start"
+    finish_gate = tmp_path / "finish"
     runtime = ShellRuntime(
         activation_reason="test",
         logger=logging.getLogger("running-output-test"),
-        output_byte_limit=8000,
+        output_byte_limit=output_limit,
+        durable_process_root=tmp_path / "processes" if lifecycle == "persistent" else None,
         config=Settings(
             shell_execution=ShellSettings(
                 tool_profile="minimal_process",
                 show_bash=False,
-                running_output_byte_limit=2000,
+                running_output_byte_limit=running_limit,
                 retained_output_temp_directory=tmp_path,
             )
         ),
     )
-    # 50-byte lines: 200 lines (10,000 bytes) while running, then 200 more after the gate.
+    # Gate output until launch acknowledgement so neither lifecycle consumes it early.
+    # 50-byte lines: 10,000 bytes while running, then 20,000 bytes before exiting.
     script = (
-        f"import pathlib,sys,time; gate=pathlib.Path({str(gate)!r})\n"
+        "import pathlib,sys,time\n"
+        f"while not pathlib.Path({str(start_gate)!r}).exists(): time.sleep(0.01)\n"
         "for i in range(200): print(f'line {i:04d} ' + 'x' * 39)\n"
         "sys.stdout.flush()\n"
-        "while not gate.exists(): time.sleep(0.01)\n"
-        "for i in range(200, 400): print(f'line {i:04d} ' + 'x' * 39)"
+        f"while not pathlib.Path({str(finish_gate)!r}).exists(): time.sleep(0.01)\n"
+        "for i in range(200, 600): print(f'line {i:04d} ' + 'x' * 39)\n"
+        f"sys.exit({exit_code})"
     )
+    process_id: str | None = None
     try:
-        started = await runtime.call_tool(
-            "bash",
+        started = await runtime.execute(
             {
                 "command": f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}",
-                "run_in_background": True,
+                "background": True,
+                "lifecycle": lifecycle,
             },
         )
         metadata = process_result_metadata(started)
         assert metadata is not None
         process_id = metadata["process_id"]
+        assert metadata["lifecycle"] == lifecycle
+        start_gate.touch()
+        store = runtime._durable_process_store
         process = await runtime._get_managed_process(process_id)
-        assert process is not None
-        for _ in range(500):
-            if process.output_state.total_output_bytes >= 10_000:
-                break
-            await asyncio.sleep(0.01)
+        async with asyncio.timeout(10):
+            if lifecycle == "persistent":
+                assert store is not None
+                while (await asyncio.to_thread(store.get, process_id)).output_bytes < 10_000:
+                    await asyncio.sleep(0.01)
+            else:
+                assert process is not None
+                while process.output_state.total_output_bytes < 10_000:
+                    await asyncio.sleep(0.01)
 
-        running = _text(
+        running_result = await runtime.call_tool(
+            "process",
+            {"process_id": process_id, "action": "status", "limit": preview_limit},
+        )
+        running_metadata = process_result_metadata(running_result)
+        assert running_metadata is not None
+        assert running_metadata["process_status"] == "running"
+        running = _text(running_result)
+        first_output = "".join(f"line {i:04d} " + "x" * 39 + "\n" for i in range(200))
+        if preview_limit is not None:
+            assert first_output[:preview_limit].rstrip("\n") in running
+            assert f"showing {preview_limit} of 10000 bytes" in running
+            assert "mostly its latest output" not in running
+            assert "line 0199" not in running
+        elif running_limit is None and output_limit >= 10_000:
+            assert first_output.rstrip("\n") in running
+            assert "[Output truncated:" not in running
+        else:
+            budget = min(running_limit, output_limit) if running_limit else output_limit
+            head_bytes = budget // (8 if running_limit else 2)
+            tail_bytes = budget - head_bytes
+            assert f"showing first {head_bytes} bytes and last {tail_bytes} bytes" in running
+            assert first_output[:head_bytes].rstrip("\n") in running
+            assert first_output[-tail_bytes:].rstrip("\n") in running
+            assert ("mostly its latest output" in running) == (running_limit is not None)
+            assert "line 0050" not in running
+
+        # Status consumes the delta, but read_output must not lose the omitted middle.
+        assert "line 0000" not in _text(
             await runtime.call_tool("process", {"process_id": process_id, "action": "status"})
         )
-        assert "The command is still running, so mostly its latest output is shown." in running
-        assert "showing first 250 bytes and last 1750 bytes" in running
-        assert "line 0000" in running and "line 0199" in running
-        assert "line 0100" not in running
-
-        gate.touch()
-        done = _text(
-            await runtime.call_tool(
-                "process", {"process_id": process_id, "action": "wait", "wait_sec": 10}
-            )
+        finish_gate.touch()
+        if lifecycle == "persistent":
+            assert store is not None
+            await asyncio.to_thread(store.wait, process_id, timeout_seconds=10)
+        else:
+            assert process is not None
+            await asyncio.wait_for(asyncio.shield(process.task), timeout=10)
+        done_result = await runtime.call_tool(
+            "process", {"process_id": process_id, "action": "status"}
         )
-        assert "process exit code was 0" in done
+        done_metadata = process_result_metadata(done_result)
+        assert done_metadata is not None
+        assert done_metadata["exit_code"] == exit_code
+        assert done_metadata["process_status"] == ("failed" if exit_code else "completed")
+        assert done_result.is_error == (exit_code != 0)
+        done = _text(done_result)
         assert "still running, so mostly" not in done
-        assert "showing first 4000 bytes and last 4000 bytes" in done
-        retained = next(tmp_path.glob("fast-agent-output-*/output-*.log"))
-        assert b"line 0100" in retained.read_bytes()
+        assert (
+            f"showing first {output_limit // 2} bytes and last {output_limit // 2} bytes"
+        ) in done
+        assert "line 0200" in done and "line 0599" in done
+        assert "line 0000" not in done
+
+        readback = await runtime.call_tool(
+            "process", {"process_id": process_id, "action": "read_output", "limit": 33_000}
+        )
+        retained = json.loads(_text(readback))["content"]
+        final_output = "".join(f"line {i:04d} " + "x" * 39 + "\n" for i in range(200, 600))
+        if lifecycle == "session" and running_limit is None and output_limit >= 10_000:
+            # Session retention starts only when a preview is actually shortened.
+            assert retained == final_output
+        else:
+            assert retained == first_output + final_output
     finally:
+        start_gate.touch()
+        finish_gate.touch()
+        if process_id is not None:
+            await runtime.terminate_process({"process_id": process_id})
         await runtime.close()
+
+
+@pytest.mark.parametrize("output_limit", [1, 4000, 16_000])
+def test_running_output_without_retention_explains_running_cap(output_limit: int) -> None:
+    output = ShellOutputBuffer(output_byte_limit=output_limit)
+    output.append("x" * 10_000)
+
+    preview = output.consume(running_byte_limit=6000)
+
+    budget = min(output_limit, 6000)
+    head_bytes = max(budget // 8, 1)
+    assert f"showing first {head_bytes} bytes and last {budget - head_bytes} bytes" in preview
+    assert "shell_execution.running_output_byte_limit" in preview
+    assert "set it to null" in preview
+    assert "shell_execution.output_byte_limit still applies" in preview
+    assert "Increase shell_execution.output_byte_limit to retain more." not in preview
+    assert "read_output" not in preview
+    assert output.consume() == ""
+
+
+def test_shell_running_output_default_comes_from_settings() -> None:
+    settings = ShellSettings()
+    assert settings.running_output_byte_limit == 6000
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("running-output-test"),
+    )
+    assert runtime._running_output_byte_limit == settings.running_output_byte_limit

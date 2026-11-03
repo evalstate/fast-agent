@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from fast_agent.tools.shell_program_value import ShellStreamCapture
 
 from fast_agent.tools.output_truncation import (
+    OutputByteWindow,
     format_output_truncation_notice,
     split_output_byte_limit,
 )
@@ -16,7 +17,25 @@ from fast_agent.tools.transient_artifacts import format_retained_artifact_notice
 
 # Head share of the still-running view: 1/8 head, 7/8 tail.
 RUNNING_VIEW_HEAD_DIVISOR = 8
+RUNNING_OUTPUT_GUIDANCE = "The command is still running, so mostly its latest output is shown. "
 _OUTPUT_LIMIT_GUIDANCE = "Increase shell_execution.output_byte_limit to retain more."
+
+
+def running_output_window(
+    *,
+    total_bytes: int,
+    output_byte_limit: int,
+    running_byte_limit: int | None,
+    preview_limit: int | None,
+) -> OutputByteWindow | None:
+    """Select the running head/tail policy only when no explicit preview overrides it."""
+    if preview_limit is not None or running_byte_limit is None:
+        return None
+    byte_limit = min(running_byte_limit, output_byte_limit)
+    if total_bytes <= byte_limit:
+        return None
+    head_bytes = max(byte_limit // RUNNING_VIEW_HEAD_DIVISOR, 1)
+    return OutputByteWindow(head_bytes=head_bytes, tail_bytes=byte_limit - head_bytes)
 
 
 def process_output_preview(
@@ -122,7 +141,7 @@ class ShellOutputBuffer:
             guidance=self._truncation_guidance(),
         )
 
-    def running_view(self, byte_limit: int) -> str:
+    def _running_view(self, window: OutputByteWindow) -> str:
         """A short head and long tail for a command that is still running.
 
         While a command runs the model mostly waits on it, and what it acts on is the
@@ -132,19 +151,15 @@ class ShellOutputBuffer:
         if self.retained_output_path is not None and not self.retained_output_path.exists():
             # Below the normal preview limit retention has not started; keep the full output.
             self._start_retained(b"")
-        head_bytes = max(byte_limit // RUNNING_VIEW_HEAD_DIVISOR, 1)
         return self._render_window(
-            head_bytes=head_bytes,
-            tail_bytes=byte_limit - head_bytes,
-            guidance=(
-                "The command is still running, so mostly its latest output is shown. "
-                + self._truncation_guidance()
-            ),
+            head_bytes=window.head_bytes,
+            tail_bytes=window.tail_bytes,
+            guidance=RUNNING_OUTPUT_GUIDANCE + self._truncation_guidance(running=True),
         )
 
     def _render_window(self, *, head_bytes: int, tail_bytes: int, guidance: str) -> str:
         head_blob = "".join(self.output_segments).encode("utf-8", errors="replace")[:head_bytes]
-        tail_blob = bytes(self.output_tail_bytes)[-tail_bytes:]
+        tail_blob = bytes(self.output_tail_bytes)[-tail_bytes:] if tail_bytes else b""
 
         parts: list[str] = []
         if head_blob:
@@ -174,12 +189,14 @@ class ShellOutputBuffer:
         *,
         running_byte_limit: int | None = None,
     ) -> str:
-        if (
-            limit is None
-            and running_byte_limit is not None
-            and self.total_output_bytes > min(running_byte_limit, self.output_byte_limit)
-        ):
-            combined_output = self.running_view(min(running_byte_limit, self.output_byte_limit))
+        window = running_output_window(
+            total_bytes=self.total_output_bytes,
+            output_byte_limit=self.output_byte_limit,
+            running_byte_limit=running_byte_limit,
+            preview_limit=limit,
+        )
+        if window is not None:
+            combined_output = self._running_view(window)
         elif limit is None:
             combined_output = self.combined()
         else:
@@ -208,8 +225,13 @@ class ShellOutputBuffer:
         self.unread_output_line_count = 0
         return combined_output
 
-    def _truncation_guidance(self) -> str:
+    def _truncation_guidance(self, *, running: bool = False) -> str:
         if self.retained_output_path is None or not self.retained_output_path.exists():
+            if running:
+                return (
+                    "Increase shell_execution.running_output_byte_limit (or set it to null) "
+                    "to relax the running cap; shell_execution.output_byte_limit still applies."
+                )
             return _OUTPUT_LIMIT_GUIDANCE
         if self.retained_output_via_process:
             completeness = (

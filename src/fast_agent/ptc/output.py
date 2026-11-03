@@ -1,6 +1,6 @@
 """Shell output guidance for the code tool, and the sandbox helpers it describes.
 
-Sandbox code receives a shell command's complete stdout and stderr, but the model sees only what
+Sandbox code receives bounded stdout and stderr captured since the previous read; the model sees what
 the code prints, and models tend to print whole results. The guidance says what to print instead;
 ``tail``, ``head``, ``grep`` and ``show`` are plain Python defined in each sandbox session (not
 host functions), so they cost no tool calls.
@@ -55,41 +55,51 @@ def show(r: dict[str, Any], n: int = 40, pattern: str | None = None) -> str:
         value = r.get(key)
         if value is not None:
             fields.append(key + "=" + str(value))
+    if r.get("truncated"):
+        fields.append("truncated=True")
     result = [" ".join(fields)]
     stderr = r.get("stderr") or ""
     if stderr:
-        result.extend(["--- stderr", tail(stderr, n)])
+        result.extend(["--- stderr", grep(stderr, pattern) if pattern is not None else tail(stderr, n)])
     stdout = r.get("stdout") or ""
     result.extend(["--- stdout", grep(stdout, pattern) if pattern is not None else tail(stdout, n)])
     return "\\n".join(result)
 """
 
 _PRINT_NOTE = (
-    "- Shell results: `r = {call}` gives your code the complete stdout and stderr, but you "
+    "- Shell results: `r = {call}` gives your code bounded stdout and stderr since the previous read; you "
     "only see what you print, cut to about {limit} (a longer print loses its middle). Don't "
     "`print(r)` or return `r`: it shows everything on one escaped line. Print `r['exit_code']` "
     "or `r['status']` and only the part you need: the end of build, install and test logs "
-    "(`r['stdout'][-3000:]`), or the lines you pick out.{running}{retained} Shortcuts: "
-    "`show(r)` gives exit_code, status and the stderr/stdout tails, "
-    "`show(r, pattern='error|fail')` the matching lines; `tail(text, n)`, `head(text, n)` and "
+    "(`r['stdout'][-3000:]`), or the lines you pick out. Check stderr and `r['truncated']` "
+    "for capture loss.{running}{stored}{retained} Shortcuts: "
+    "`show(r)` gives exit_code, status, process_id, any capture truncation and the stderr/stdout tails, "
+    "`show(r, pattern='error|fail')` matching lines from both streams; `tail(text, n)`, `head(text, n)` and "
     "`grep(text, pattern, context=0, limit=50)` work on any text.\n"
 )
 _PRINT_RUNNING = (
     " If `status` is `'running'`, wait with `{wait}`, then print the end of its output."
 )
-_PRINT_RETAINED = " Output you didn't print can still be retrieved later: `{read}`."
+_STORE_NOTE = (
+    ' If you may need more later, `await store("result", r)` before ending this call; '
+    '`r = await load("result")` recovers that capture, not output already dropped.'
+)
+_RETAINED_NOTE = (
+    " `{read}` searches available bounded retained output, not all unprinted output. "
+    "Short output may not be retained; use store/load for it."
+)
 
 _HELPERS_NOTE = (
-    "- Shell output: `r = {call}` gives your code the full stdout and stderr, but you only see "
+    "- Shell output: `r = {call}` gives your code bounded stdout and stderr since the previous read; you see "
     "what you print, cut to about {limit} (a longer print loses its middle). Never `print(r)` "
     "or return `r`: it shows everything on one escaped line. Print `show(r)` instead: "
-    "exit_code, status, process_id and the last 40 lines of stderr and stdout; "
-    "`show(r, pattern='error|fail|Traceback')` shows numbered matching lines instead. "
+    "exit_code, status, process_id, `truncated=True` if capture lost output, and the last 40 "
+    "lines of stderr and stdout; "
+    "`show(r, pattern='error|fail|Traceback')` searches both streams for numbered matching lines. "
     "`tail(text, n=40)`, `head(text, n=40)` and `grep(text, pattern, context=0, limit=50)` "
-    "work on any text.{running}{retained}\n"
+    "work on any text.{running}{stored}{retained}\n"
 )
 _HELPERS_RUNNING = " If status is 'running', `print(show({wait}))`."
-_HELPERS_RETAINED = " Output you didn't print can be retrieved later: `{read}`."
 
 
 def shell_output_note(
@@ -105,10 +115,11 @@ def shell_output_note(
         return ""
     helpers = guidance == "helpers"
     running = (_HELPERS_RUNNING if helpers else _PRINT_RUNNING).format(wait=wait) if wait else ""
-    retained = (_HELPERS_RETAINED if helpers else _PRINT_RETAINED).format(read=read) if read else ""
+    retained = _RETAINED_NOTE.format(read=read) if read else ""
     return (_HELPERS_NOTE if helpers else _PRINT_NOTE).format(
         call=call,
         limit=f"{max(1, round(result_byte_limit / 1000))} KB",
         running=running,
+        stored=_STORE_NOTE,
         retained=retained,
     )
