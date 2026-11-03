@@ -1965,7 +1965,7 @@ class ProgrammaticToolCallingSettings(BaseModel):
     but the model sees only when printed. `print` says to print the exit code and only the
     part needed, with `show`/`tail`/`head`/`grep` sandbox helpers as shortcuts; `helpers` leads
     with printing `show(r)`; `off` adds neither the guidance nor the helpers. `auto` uses the
-    model's default (helpers for GPT-6, print otherwise)."""
+    model's default, which is helpers unless the model sets another."""
 
     max_duration_seconds: float = Field(default=30.0, gt=0)
     """Sandbox compute time limit per execution (time awaiting tools is not counted)."""

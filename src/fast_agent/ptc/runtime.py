@@ -366,7 +366,7 @@ class ProgrammaticToolRuntime:
         """Apply ``ptc.output_guidance``, using the model's default when it is ``auto``."""
         if self._settings.output_guidance != "auto":
             return self._settings.output_guidance
-        return model_default or "print"
+        return model_default or "helpers"
 
     def model_tools(
         self,

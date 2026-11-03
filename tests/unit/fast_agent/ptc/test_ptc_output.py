@@ -101,7 +101,8 @@ def test_output_guidance_setting(guidance: str) -> None:
 @pytest.mark.parametrize(
     ("setting", "model_default", "expected"),
     [
-        ("auto", None, "print"),
+        ("auto", None, "helpers"),
+        ("auto", "print", "print"),
         ("auto", "helpers", "helpers"),
         ("off", "helpers", "off"),
         ("helpers", None, "helpers"),
@@ -167,7 +168,8 @@ def test_guidance_needs_a_local_shell_in_code(tmp_path: Path) -> None:
     ("model", "settings", "marker"),
     [
         ("gpt-6-astra", {}, HELPERS_MARKER),
-        ("gpt-5.6", {}, PRINT_MARKER),
+        ("gpt-5.6", {}, HELPERS_MARKER),
+        ("claude-sonnet-4-6", {}, HELPERS_MARKER),
         ("gpt-6-astra", {"output_guidance": "print"}, PRINT_MARKER),
         ("gpt-5.6", {"output_guidance": "off"}, None),
     ],
