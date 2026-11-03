@@ -139,7 +139,7 @@ anthropic:
 # the 16000 global default; null uses automatic model sizing
 #  output_byte_limit: 16000
 # preview bytes for still-running commands (1/8 head, 7/8 tail); null = normal preview
-#  running_output_byte_limit: null
+#  running_output_byte_limit: 6000
 # retain complete truncated output in private session-scoped temporary files
 #  retain_truncated_output: true
 # maximum retained bytes per shell process

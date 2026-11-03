@@ -841,7 +841,7 @@ shell_execution:
   warning_interval_seconds: 30
   interactive_use_pty: true  # Use PTY for interactive prompt shell commands
   output_byte_limit: 16000  # Explicit value; omit for catalog/default selection, null for auto
-  running_output_byte_limit: null  # Preview for still-running commands (1/8 head, 7/8 tail); null = off
+  running_output_byte_limit: 6000  # Preview for still-running commands (1/8 head, 7/8 tail); null = normal preview
   retain_truncated_output: true
   retained_output_max_bytes: 2097152  # Per shell process
   durable_output_max_bytes: 2097152  # Per persistent stdout/stderr/combined log

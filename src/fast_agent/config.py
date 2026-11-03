@@ -353,14 +353,15 @@ class ShellSettings(BaseModel):
         description="Model-facing shell output preview bytes (None = model-based auto)",
     )
     running_output_byte_limit: int | None = Field(
-        default=None,
+        default=6000,
         ge=256,
         description=(
             "Preview bytes for a command that is still running (when it outlasts the "
             "foreground wait, or a process wait/status returns it running): an eighth from "
             "the start of the unread output, the rest from the end; at most "
             "output_byte_limit. Complete output is retained when retain_truncated_output "
-            "is on (None = the normal head/tail preview)"
+            "is on (None = the normal head/tail preview). Default 6000 (750 + 5250 bytes): "
+            "in A/B runs the model's next step was unchanged, almost always a process wait"
         ),
     )
     output_byte_limit_selection: Literal["default", "explicit", "auto"] = Field(
