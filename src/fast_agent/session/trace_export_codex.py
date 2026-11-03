@@ -29,6 +29,7 @@ from fast_agent.constants import (
     OPENAI_ASSISTANT_MESSAGE_ITEMS,
     REASONING,
 )
+from fast_agent.history.turns import is_user_prompt
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator, UsageReport, UsageSummary
 from fast_agent.mcp.helpers.content_helpers import (
@@ -1120,10 +1121,6 @@ def _response_items(
     return items
 
 
-def _is_turn_start(message: PromptMessageExtended) -> bool:
-    return message.role == "user" and not message.tool_results
-
-
 def _elapsed_ms(started_at: datetime | None, completed_at: datetime | None) -> int | None:
     if started_at is None or completed_at is None:
         return None
@@ -1366,7 +1363,7 @@ def _turn_timestamps(resolved: ResolvedSessionExport) -> list[datetime | None]:
     for message, message_timestamp in zip(
         resolved.history, resolved.message_timestamps, strict=True
     ):
-        if _is_turn_start(message) or not turn_timestamps:
+        if is_user_prompt(message) or not turn_timestamps:
             turn_timestamps.append(message_timestamp)
             continue
         if turn_timestamps[-1] is None and message_timestamp is not None:
@@ -1459,7 +1456,7 @@ class CodexTraceWriter:
         for message, message_timestamp in zip(
             resolved.history, resolved.message_timestamps, strict=True
         ):
-            if _is_turn_start(message):
+            if is_user_prompt(message):
                 finish_turn()
                 start_turn(message)
             elif current_turn is None:

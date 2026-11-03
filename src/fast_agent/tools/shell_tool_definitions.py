@@ -373,7 +373,8 @@ def build_minimal_process_tool(
                     "type": "integer",
                     "description": (
                         "Optional wait in seconds for action='wait', from 0 through "
-                        f"{max_wait_seconds}. Values below 10 are clamped to 10."
+                        f"{max_wait_seconds}. Values below 10 are clamped to 10. "
+                        "Giving wait_sec without action means wait."
                     ),
                     "minimum": 0,
                     "maximum": max_wait_seconds,
@@ -883,7 +884,8 @@ def parse_minimal_process_arguments(
         _MINIMAL_PROCESS_ARGUMENTS,
         tool_name="process",
     )
-    action = payload.get("action", "status")
+    # A wait_sec without an action is a request to wait, not an immediate status poll.
+    action = payload.get("action", "wait" if "wait_sec" in payload else "status")
     valid_actions = {"list", "status", "wait", "stop", "read_output"}
     if action not in valid_actions:
         raise ValueError(

@@ -7,6 +7,7 @@ and extracting useful statistics like tool call counts, error rates, etc.
 
 import json
 from collections import Counter
+from itertools import pairwise
 
 from pydantic import BaseModel, computed_field
 
@@ -15,6 +16,7 @@ from fast_agent.history.tool_activities import (
     message_tool_call_count,
     tool_activities_for_message,
 )
+from fast_agent.history.turns import user_turn_starts
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
@@ -79,14 +81,9 @@ def split_into_turns(
     """
     Split a conversation into turns.
 
-    A turn starts with a user message that does NOT contain tool_results
-    (i.e., a fresh user input, not a tool response).
-
-    Args:
-        messages: List of PromptMessageExtended messages to split.
-
-    Returns:
-        List of turns, where each turn is a list of messages.
+    A turn starts at a user prompt (see ``fast_agent.history.turns``): tool results,
+    tool-media continuations and compaction checkpoints do not start turns. Messages
+    before the first prompt form a leading turn of their own.
 
     Example:
         Input: [user, assistant, user(tool_result), assistant, user, assistant]
@@ -94,24 +91,11 @@ def split_into_turns(
     """
     if not messages:
         return []
-
-    turns: list[list[PromptMessageExtended]] = []
-    current_turn: list[PromptMessageExtended] = []
-
-    for msg in messages:
-        # Check if this is a turn boundary (user message without tool_results)
-        if msg.role == "user" and not msg.tool_results:
-            if current_turn:
-                turns.append(current_turn)
-            current_turn = [msg]
-        else:
-            current_turn.append(msg)
-
-    # Don't forget the last turn
-    if current_turn:
-        turns.append(current_turn)
-
-    return turns
+    starts = user_turn_starts(messages)
+    if not starts or starts[0] != 0:
+        starts = [0, *starts]
+    bounds = [*starts, len(messages)]
+    return [messages[start:end] for start, end in pairwise(bounds)]
 
 
 class ConversationSummary(BaseModel):

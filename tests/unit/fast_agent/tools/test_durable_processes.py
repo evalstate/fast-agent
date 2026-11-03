@@ -1448,7 +1448,7 @@ async def test_durable_poll_preserves_per_command_output_limit(tmp_path: Path) -
         assert first_metadata is not None
         assert first_metadata["output_bytes_since_last_poll"] == 1000
         assert isinstance(first.content[0], TextContent)
-        assert "showing first 40 bytes and last 40 bytes" in first.content[0].text
+        assert "showing first 10 bytes and last 70 bytes" in first.content[0].text
 
         second = await runtime.poll_process({"process_id": process_id, "wait_sec": 0})
         assert isinstance(second.content[0], TextContent)

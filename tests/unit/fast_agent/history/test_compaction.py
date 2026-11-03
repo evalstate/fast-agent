@@ -43,6 +43,7 @@ from fast_agent.history.compaction import (
     resolve_compaction_prompt,
     should_auto_compact,
 )
+from fast_agent.history.turns import total_user_turns, user_turn_starts
 from fast_agent.llm.compaction_support import (
     CompactAt,
     CompactionStrategy,
@@ -135,13 +136,21 @@ class TestPlanCompaction:
         assert [m.first_text() for m in plan.compact_region] == ["one", "1"]
         assert len(plan.retained_tail) == 2
 
-    def test_keep_zero_turns_compacts_everything(self):
-        history = _turn("one", "1") + _turn("two", "2")
+    def test_keep_zero_turns_keeps_last_prompt_and_final_reply(self):
+        history = _turn("one", "1") + _tool_turn("two")
 
         plan = plan_compaction(history, keep_turns=0)
 
+        assert [m.first_text() for m in plan.retained] == ["two", "done"]
+        assert plan.compact_region == history[:-1]
+
+    def test_keep_zero_turns_without_last_exchange_compacts_everything(self):
+        history = _turn("one", "1") + _turn("two", "2")
+
+        plan = plan_compaction(history, keep_turns=0, keep_last_exchange=False)
+
         assert len(plan.compact_region) == 4
-        assert plan.retained_tail == []
+        assert plan.retained == []
 
     def test_mid_turn_planner_keeps_three_complete_exchanges_and_pending_call(self):
         history = [_user("one")]
@@ -175,6 +184,8 @@ class TestPlanCompaction:
             "<no text>",
             "pending",
         ]
+        assert [m.first_text() for m in plan.retained_prompt] == ["one"]
+        assert plan.retained_prompt_index == 0
 
     def test_mid_turn_budget_reduces_recent_exchanges(self):
         history = [
@@ -222,6 +233,10 @@ class TestPlanCompaction:
         plan = plan_compaction(_turn("one", "1"), keep_turns=2)
         assert len(plan.compact_region) == 2
         assert plan.retained_tail == []
+
+    def test_single_tool_turn_keeps_its_prompt_and_final_reply(self):
+        plan = plan_compaction(_tool_turn("one"), keep_turns=2)
+        assert [m.first_text() for m in plan.retained] == ["one", "done"]
 
     def test_prior_summary_is_not_counted_as_a_turn(self):
         # Regression: a leading compaction summary used to be counted as a user
@@ -848,6 +863,64 @@ class TestCompactConversation:
             )
 
             restored = reconstruct_history(agent.message_history, archive_path.parent, agent.name)
+            assert [m for m in restored if not is_export_marker(m)] == history
+        finally:
+            reset_session_manager()
+
+    async def test_turn_count_survives_repeated_compaction(self):
+        agent = _FakeAgent(_turn("one", "1") + _turn("two", "2") + _tool_turn("three"))
+        settings = CompactionSettings(keep_turns=1)
+
+        await compact_conversation(agent, settings=settings)
+        agent.load_message_history(agent.message_history + _turn("four", "4"))
+        await compact_conversation(agent, settings=settings)
+
+        assert len(user_turn_starts(agent.message_history)) == 1
+        assert total_user_turns(agent.message_history) == 4
+
+    async def test_mid_turn_compaction_keeps_prompt_and_reconstructs(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        monkeypatch.chdir(workspace)
+        reset_session_manager()
+        try:
+            history = [
+                *_turn("one", "1"),
+                _user("two"),
+                _assistant("old", tool_call=True),
+                _tool_result("old output"),
+                _assistant("recent", tool_call=True),
+                _tool_result("recent output"),
+                _assistant("pending", tool_call=True),
+            ]
+            agent = _FakeAgent(history)
+            manager = SessionManager(
+                cwd=workspace,
+                home_override=workspace / ".fast-agent",
+                respect_env_override=False,
+            )
+            agent.context = Context(config=Settings(session_history=True), session_manager=manager)
+
+            result = await compact_conversation(
+                agent, settings=CompactionSettings(), recent_tool_exchanges=1
+            )
+
+            assert [m.first_text() for m in agent.message_history[1:]] == [
+                "two",
+                "recent",
+                "<no text>",
+                "pending",
+            ]
+            from fast_agent.history.atif_reconstruction import (
+                is_export_marker,
+                reconstruct_history,
+            )
+
+            assert result.archive_file is not None
+            restored = reconstruct_history(
+                agent.message_history, Path(result.archive_file).parent, agent.name
+            )
             assert [m for m in restored if not is_export_marker(m)] == history
         finally:
             reset_session_manager()

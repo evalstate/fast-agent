@@ -352,6 +352,20 @@ class ShellSettings(BaseModel):
         default=16_000,
         description="Model-facing shell output preview bytes (None = model-based auto)",
     )
+    running_output_byte_limit: int | None = Field(
+        default=6000,
+        ge=256,
+        description=(
+            "Preview bytes for a command that is still running (when it outlasts the "
+            "foreground wait, or a process wait/status returns it running): an eighth from "
+            "the start of the unread output, the rest from the end; at most "
+            "output_byte_limit. Applies to session-managed and persistent processes; explicit "
+            "process preview limits override it. Retention is bounded by the applicable "
+            "session/durable quota (None = the normal head/tail preview). Default 6000 "
+            "(750 + 5250 bytes): "
+            "in A/B runs the model's next step was unchanged, almost always a process wait"
+        ),
+    )
     output_byte_limit_selection: Literal["default", "explicit", "auto"] = Field(
         default="default",
         repr=False,
@@ -1947,6 +1961,13 @@ class ProgrammaticToolCallingSettings(BaseModel):
 
     type_check: bool = True
     """Type-check code against generated tool stubs before running it."""
+
+    output_guidance: Literal["auto", "off", "print", "helpers"] = "auto"
+    """How the code tool tells the model to read bounded shell captures, which the model
+    sees only when printed or returned. `print` says to print the exit code and only the
+    part needed, with `show`/`tail`/`head`/`grep` sandbox helpers as shortcuts; `helpers` leads
+    with printing `show(r)`; `off` adds neither the guidance nor the helpers. `auto` uses the
+    model's default, which is helpers unless the model sets another."""
 
     max_duration_seconds: float = Field(default=30.0, gt=0)
     """Sandbox compute time limit per execution (time awaiting tools is not counted)."""

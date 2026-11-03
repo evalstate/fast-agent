@@ -293,10 +293,14 @@ def build_managed_process_result(
     aligned_shell_tool_name: str | None,
     io_drain_timeout_seconds: float,
     output_preview_limit: int | None = None,
+    running_output_byte_limit: int | None = None,
     background_option_hint: str | None = None,
 ) -> CallToolResult:
     unread_output_line_count = process.output_state.unread_output_line_count
-    output = process.output_state.consume(output_preview_limit)
+    output = process.output_state.consume(
+        output_preview_limit,
+        running_byte_limit=None if process.task.done() else running_output_byte_limit,
+    )
     sections: list[str] = []
     if output:
         sections.append(output.rstrip("\n"))

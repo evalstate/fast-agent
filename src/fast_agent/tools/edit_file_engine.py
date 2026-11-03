@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import difflib
 import os
 import tempfile
 from contextlib import suppress
@@ -11,7 +10,6 @@ from fast_agent.tools.filesystem_tool_args import (
     is_permission_error,
     permission_denied_message,
 )
-from fast_agent.utils.text import split_lines
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -40,7 +38,6 @@ class EditFileSuccess(TypedDict):
     line_start: int
     line_end: int
     replacements: int
-    diff: str
 
 
 class EditFileError(TypedDict, total=False):
@@ -78,7 +75,6 @@ def _serialize_edit_file_success(result: EditFileSuccess) -> dict[str, Any]:
         "line_start": result["line_start"],
         "line_end": result["line_end"],
         "replacements": result["replacements"],
-        "diff": result["diff"],
     }
 
 
@@ -143,8 +139,6 @@ def edit_file(
         selected_matches,
         new_string=new_string,
     )
-    diff = _unified_diff(display_path, original_contents, new_contents)
-
     write_error = _write_text_file_atomic(path, new_contents)
     if write_error is not None:
         return _error(display_path, write_error, permission_denied_message(display_path))
@@ -161,7 +155,6 @@ def edit_file(
         "line_start": line_start,
         "line_end": line_end,
         "replacements": len(selected_matches),
-        "diff": diff,
     }
 
 
@@ -245,7 +238,6 @@ def _create_file(
         "line_start": line_start,
         "line_end": line_end,
         "replacements": 0,
-        "diff": _unified_diff(display_path, "", new_string),
     }
 
 
@@ -378,17 +370,6 @@ def _line_range_for_span(contents: str, start: int, end: int) -> tuple[int, int]
 
     line_end_offset = end - 1
     return line_start, _line_number_for_offset(contents, line_end_offset)
-
-
-def _unified_diff(display_path: str, original_contents: str, new_contents: str) -> str:
-    return "".join(
-        difflib.unified_diff(
-            split_lines(original_contents, keepends=True),
-            split_lines(new_contents, keepends=True),
-            fromfile=f"a/{display_path}",
-            tofile=f"b/{display_path}",
-        )
-    )
 
 
 def _error(path: str, code: EditFileErrorCode, message: str) -> EditFileError:

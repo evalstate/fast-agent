@@ -30,7 +30,11 @@ A compaction does three things:
 1. **Plans retention.** Leading template messages (system-prompt-like content)
    are always kept. The most recent `keep_turns` turns are kept verbatim. The
    turns in between are the *compact region*. The boundary always falls on a user
-   turn, so an assistant tool call is never separated from its tool result.
+   turn, so an assistant tool call is never separated from its tool result. When
+   no whole turn is kept (the context budget is tight, or there is only one turn),
+   the latest prompt and its final reply are still kept; mid-turn compaction keeps
+   the current prompt in front of its recent tool exchanges. A kept prompt is also
+   summarized, so the summary still knows what the work is for.
 2. **Summarizes.** The compact region is sent to the agent's model with a
    summarization prompt asking for a handoff summary for "another LLM that will
    resume the work." This is a side-channel call — it does not add the request to
@@ -296,9 +300,12 @@ for the threshold check.
 | Leading template / system messages | ✅ | | |
 | Older turns (the compact region) | | ✅ | ✅ |
 | Most recent `keep_turns` turns | ✅ | | |
+| Latest prompt (and final reply), when no whole turn is kept | ✅ | ✅ | ✅ |
 | Full pre-compaction history | | | ✅ |
 
 The summary itself is retained in the live history as the checkpoint. Tool calls
 and their results are summarized together (never split). A single very large turn
 is always eligible for compaction, even when `keep_turns` would otherwise retain
-it, so a runaway tool loop can still be brought back under the limit.
+it, so a runaway tool loop can still be brought back under the limit; only its
+prompt and final reply are kept, and those too are dropped if they alone exceed
+the budget.

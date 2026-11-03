@@ -70,7 +70,12 @@ from fast_agent.tools.shell_command import (
 from fast_agent.tools.shell_command import (
     classify_shell_detachment as classify_shell_detachment,
 )
-from fast_agent.tools.shell_output import ShellOutputBuffer, process_output_preview
+from fast_agent.tools.shell_output import (
+    RUNNING_OUTPUT_GUIDANCE,
+    ShellOutputBuffer,
+    process_output_preview,
+    running_output_window,
+)
 from fast_agent.tools.shell_process import (
     ActiveProcessPoll,
     ForegroundAutoAwaitMetadata,
@@ -163,6 +168,12 @@ def _default_foreground_auto_await_max_seconds() -> int:
     from fast_agent.config import ShellSettings
 
     return ShellSettings().foreground_auto_await_max_seconds
+
+
+def _default_running_output_byte_limit() -> int | None:
+    from fast_agent.config import ShellSettings
+
+    return ShellSettings().running_output_byte_limit
 
 
 _RESOURCE_OBSERVATION_TIMEOUT_SECONDS = 0.075
@@ -325,6 +336,7 @@ class ShellRuntime:
         self._durable_output_max_bytes = DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES
         self._retained_output_next_id = 1
         self._retained_output_via_process = False
+        self._running_output_byte_limit = _default_running_output_byte_limit()
         retain_truncated_output = False
         retained_output_parent: Path | None = None
         if config is not None:
@@ -340,6 +352,7 @@ class ShellRuntime:
             self._retained_output_max_bytes = shell_config.retained_output_max_bytes
             self._durable_output_max_bytes = shell_config.durable_output_max_bytes
             retain_truncated_output = shell_config.retain_truncated_output
+            self._running_output_byte_limit = shell_config.running_output_byte_limit
             retained_output_parent = shell_config.retained_output_temp_directory
         if foreground_auto_await_max_seconds is not None:
             auto_await_max_seconds = float(foreground_auto_await_max_seconds)
@@ -1067,6 +1080,16 @@ class ShellRuntime:
             snapshot.spec.output_byte_limit,
             MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
         )
+        running_window = running_output_window(
+            total_bytes=unread_bytes,
+            output_byte_limit=output_limit,
+            running_byte_limit=(
+                self._running_output_byte_limit
+                if self._durable_status(snapshot) == "running"
+                else None
+            ),
+            preview_limit=output_preview_limit,
+        )
         if output_preview_limit is not None:
             output = await asyncio.to_thread(
                 store.read_output,
@@ -1081,7 +1104,7 @@ class ShellRuntime:
                 limit=min(output_preview_limit, output_limit),
                 total_bytes=unread_bytes,
             )
-        elif unread_bytes <= output_limit:
+        elif running_window is None and unread_bytes <= output_limit:
             output = await asyncio.to_thread(
                 store.read_output,
                 process_id,
@@ -1091,7 +1114,7 @@ class ShellRuntime:
             )
             text = output.text
         else:
-            window = split_output_byte_limit(output_limit)
+            window = running_window or split_output_byte_limit(output_limit)
             head, tail = await asyncio.gather(
                 asyncio.to_thread(
                     store.read_output,
@@ -1116,7 +1139,8 @@ class ShellRuntime:
                     head_bytes=window.head_bytes,
                     tail_bytes=window.tail_bytes,
                     guidance=(
-                        "Use the process tool with action='read_output' to inspect "
+                        (RUNNING_OUTPUT_GUIDANCE if running_window is not None else "")
+                        + "Use the process tool with action='read_output' to inspect "
                         "the durable output spool."
                     ),
                 )
@@ -2341,6 +2365,7 @@ class ShellRuntime:
             ),
             io_drain_timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
             output_preview_limit=output_preview_limit,
+            running_output_byte_limit=self._running_output_byte_limit,
             background_option_hint=(
                 f'a first line `{FREEFORM_SHELL_PRAGMA} {{"background": true}}`'
                 if self._freeform_shell_profile

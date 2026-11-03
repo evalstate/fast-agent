@@ -30,6 +30,7 @@ from fast_agent.core.agent_capabilities import (
     agent_capability_mode_supported,
     resolve_agent_capability_mode,
 )
+from fast_agent.history.turns import total_user_turns
 from fast_agent.llm.model_display_name import resolve_model_display_name
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
@@ -505,7 +506,7 @@ def _active_process_count_for_agent(agent: object) -> int:
 
 
 def _turn_count_for_agent(agent: AgentProtocol) -> int:
-    return sum(1 for message in agent.message_history if message.role == "user")
+    return total_user_turns(agent.message_history)
 
 
 def _usage_context_for_agent(agent: AgentProtocol) -> AgentUsageContext:

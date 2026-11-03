@@ -169,11 +169,16 @@ def tool_ptc_options(tool: Tool) -> Mapping[str, Any]:
     return options if isinstance(options, Mapping) else {}
 
 
-def build_functions(tools: Sequence[Tool]) -> dict[str, PtcFunction]:
-    """Build sandbox functions keyed by Python name, resolving name collisions."""
+def build_functions(
+    tools: Sequence[Tool], *, reserved_names: frozenset[str] = frozenset()
+) -> dict[str, PtcFunction]:
+    """Build sandbox functions keyed by Python name, resolving name collisions.
+
+    ``reserved_names`` are other sandbox globals that tool functions must not shadow.
+    """
     functions: dict[str, PtcFunction] = {}
     for tool in tools:
-        python_name = _unique(_global_identifier(tool.name), functions)
+        python_name = _unique(_global_identifier(tool.name, reserved_names), functions)
         functions[python_name] = _build_function(tool, python_name)
     return functions
 
@@ -422,13 +427,14 @@ def _parameter_identifier(name: str) -> str:
     return f"{identifier}_" if keyword.iskeyword(identifier) else identifier
 
 
-def _global_identifier(name: str) -> str:
+def _global_identifier(name: str, reserved_names: frozenset[str] = frozenset()) -> str:
     identifier = _parameter_identifier(name)
     # Monty star-imports the type-check stubs, which skips private (``_``-prefixed) names,
     # so a tool function must have a public name to resolve during type checking.
     if identifier.startswith("_"):
         identifier = f"tool{identifier}"
-    return f"{identifier}_tool" if identifier in _RESERVED_GLOBALS else identifier
+    reserved = identifier in _RESERVED_GLOBALS or identifier in reserved_names
+    return f"{identifier}_tool" if reserved else identifier
 
 
 def _unique(name: str, existing: Mapping[str, object]) -> str:

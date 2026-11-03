@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 class _StubMessage:
     role: str
     channels: dict = field(default_factory=dict)
+    tool_results: dict | None = None
 
 
 @dataclass

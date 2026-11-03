@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from mcp_types import CallToolResult, ContentBlock, TextContent, Tool
 
 from fast_agent.constants import (
+    DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     FAST_AGENT_PTC_CALLS,
     FAST_AGENT_PTC_VALUE,
     FAST_AGENT_SUBAGENT_RESULT_METADATA,
@@ -32,6 +33,13 @@ from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.mcp.tool_result_metadata import (
     add_url_elicitation_required_payloads,
     url_elicitation_required_payloads,
+)
+from fast_agent.ptc.output import (
+    OUTPUT_HELPER_NAMES,
+    OUTPUT_PRELUDE,
+    OUTPUT_STUBS,
+    PtcOutputGuidance,
+    shell_output_note,
 )
 from fast_agent.ptc.store import STORE_STUBS, SandboxStore
 from fast_agent.ptc.stubs import PtcFunction, build_functions, render_stubs, tool_ptc_options
@@ -108,6 +116,7 @@ filter and aggregate large results in code.
 `await asyncio.gather(*[settle(f(x=x)) for x in xs])` returns every result \
 (`return_exceptions=` is unsupported).
 {shell_batch_note}\
+{shell_output_note}\
 {functions_note}\
 {io_note}\
 - Sandbox: a subset of Python 3.14 with no environment or packages. \
@@ -330,6 +339,9 @@ class ProgrammaticToolRuntime:
         self._shell_function: PtcFunction | None = None
         self._direct_shell_tool: str | None = None
         self._tool_format: PtcToolFormat = "json"
+        # Shell output guidance in effect: "off" unless sandbox code can run local shell commands.
+        self._output_guidance: PtcOutputGuidance = "off"
+        self._result_byte_limit = DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
         self._stubs = render_stubs({})
         self._pool: AsyncMonty | None = None
         self._pool_stack = AsyncExitStack()
@@ -350,19 +362,38 @@ class ProgrammaticToolRuntime:
             return self._settings.tool_format
         return model_default or "json"
 
+    def resolve_output_guidance(self, model_default: PtcOutputGuidance | None) -> PtcOutputGuidance:
+        """Apply ``ptc.output_guidance``, using the model's default when it is ``auto``."""
+        if self._settings.output_guidance != "auto":
+            return self._settings.output_guidance
+        return model_default or "helpers"
+
     def model_tools(
         self,
         tools: Sequence[Tool],
         *,
         tool_format: PtcToolFormat = "json",
+        output_guidance: PtcOutputGuidance = "off",
+        result_byte_limit: int = DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
         file_read: bool = False,
         file_write: bool = False,
     ) -> list[Tool]:
-        """Replace the agent's tools with the code tool, keeping configured direct tools."""
+        """Replace the agent's tools with the code tool, keeping configured direct tools.
+
+        ``result_byte_limit`` is how much of a code tool result the model sees, for the
+        shell output guidance.
+        """
         self._tool_format = tool_format
         direct = [tool for tool in tools if self._direct_reason(tool) is not None]
         nested = [tool for tool in tools if self._is_nested(tool)]
-        self._functions = build_functions(nested)
+        self._output_guidance = (
+            output_guidance if any(_returns_shell_output(tool) for tool in nested) else "off"
+        )
+        self._result_byte_limit = result_byte_limit
+        self._functions = build_functions(
+            nested,
+            reserved_names=OUTPUT_HELPER_NAMES if self._output_guidance != "off" else frozenset(),
+        )
         self._shell_function = next(
             (
                 function
@@ -383,7 +414,9 @@ class ProgrammaticToolRuntime:
             for function in self._functions.values()
             if function.tool_name in direct_names
         )
-        self._stubs = render_stubs(self._functions)
+        self._stubs = render_stubs(self._functions) + (
+            OUTPUT_STUBS if self._output_guidance != "off" else ""
+        )
         return [self.tool(), *direct]
 
     def surface(self, model_tools: Sequence[Tool]) -> ToolSurface:
@@ -427,6 +460,7 @@ class ProgrammaticToolRuntime:
             functions_note=self._functions_note(),
             io_note=self._io_note(),
             shell_python_note=self._shell_python_note(),
+            shell_output_note=self._shell_output_note(),
             shell_batch_note=_SHELL_BATCH_NOTE.format(function=self._shell_function.python_name)
             if self._shell_function
             else "",
@@ -444,6 +478,40 @@ class ProgrammaticToolRuntime:
             only_code="" if self._shared_functions else ", and code is the only way to call them",
             tool=example.tool_name,
             call=f"{example.example_call()}",
+        )
+
+    def _shell_output_note(self) -> str:
+        if self._output_guidance == "off":
+            return ""
+        shell = next(
+            (
+                function
+                for function in self._functions.values()
+                if _returns_shell_output(self._nested_tools[function.tool_name])
+            ),
+            None,
+        )
+        if shell is None:
+            return ""
+        wait, read = None, None
+        for function in self._functions.values():
+            name = function.tool_name.casefold()
+            if name == PROCESS_TOOL_NAME:
+                wait = f"await {function.python_name}(action='wait', process_id=r['process_id'])"
+                read = (
+                    f"await {function.python_name}(action='read_output', process_id=..., "
+                    "query='error')"
+                )
+                break
+            if name == POLL_PROCESS_TOOL_NAME:
+                wait = f"await {function.python_name}(process_id=r['process_id'])"
+                break
+        return shell_output_note(
+            self._output_guidance,
+            call=shell.example_call(),
+            result_byte_limit=self._result_byte_limit,
+            wait=wait,
+            read=read,
         )
 
     def _shell_python_note(self) -> str:
@@ -611,7 +679,9 @@ class ProgrammaticToolRuntime:
             started = time.perf_counter()
             try:
                 async with await self._checkout() as session:
-                    await session.feed_run(_PRELUDE)
+                    await session.feed_run(
+                        _PRELUDE if self._output_guidance == "off" else _PRELUDE + OUTPUT_PRELUDE
+                    )
                     try:
                         value = await self._feed(session, code, lookup, output, files, cwd)
                     except Exception:
@@ -826,6 +896,13 @@ class ProgrammaticToolRuntime:
         result = _error_result("\n".join(sections))
         _add_nested_metadata(result, stats)
         return result
+
+
+def _returns_shell_output(tool: Tool) -> bool:
+    """Whether sandbox code gets a shell command's stdout and stderr from ``tool``."""
+    returns = tool_ptc_options(tool).get("returns")
+    properties = returns.get("properties") if isinstance(returns, Mapping) else None
+    return isinstance(properties, Mapping) and {"stdout", "stderr"} <= properties.keys()
 
 
 def _only_stub_gaps(diagnostics: str) -> bool:

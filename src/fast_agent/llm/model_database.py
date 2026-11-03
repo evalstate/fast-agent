@@ -88,6 +88,10 @@ class ModelParameters(BaseModel):
     """Default input format of the programmatic tool calling code tool when
     ``ptc.tool_format`` is auto. ``None`` means JSON."""
 
+    ptc_output_guidance: Literal["off", "print", "helpers"] | None = None
+    """Default shell output guidance of the programmatic tool calling code tool when
+    ``ptc.output_guidance`` is auto. ``None`` means helpers."""
+
     tool_input_stream_delta_limit: int | None = Field(default=None, ge=1)
     """Abort and retry a Responses stream attempt when one tool call's streamed input
     exceeds this many delta events (about one token each); guards against runaway

@@ -6,6 +6,7 @@ from rich.text import Text
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.agents.tool_runner import ToolRunnerHooks
+from fast_agent.commands.history_summaries import collect_user_turns
 from fast_agent.constants import FAST_AGENT_PENDING_MEDIA_ATTACHMENTS, FAST_AGENT_TOOL_MEDIA_MESSAGE
 from fast_agent.hooks import show_hook_message
 from fast_agent.llm.internal.passthrough import PassthroughLLM
@@ -180,6 +181,28 @@ async def test_tool_runner_hooks_fire_and_can_inject_messages():
         "before_llm_call:1",
         f"after_llm_call:{LlmStopReason.END_TURN}",
     ]
+
+
+class LoopNudgeAgent(ToolAgent):
+    def _tool_runner_hooks(self) -> ToolRunnerHooks | None:
+        async def before_llm_call(runner, messages):
+            if runner.iteration == 1:
+                runner.append_messages("nudge from hook")
+
+        return ToolRunnerHooks(before_llm_call=before_llm_call)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_hook_messages_inside_tool_loop_stay_in_the_turn():
+    agent = LoopNudgeAgent(AgentConfig("nudged"), [tool_one, tool_two])
+    agent._llm = TwoStepToolUseLlm()
+
+    await agent.generate("hi")
+
+    history = agent.message_history
+    assert any(message.first_text() == "nudge from hook" for message in history)
+    assert [turn.prompt.first_text() for turn in collect_user_turns(history)] == ["hi"]
 
 
 @pytest.mark.unit
