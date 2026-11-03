@@ -634,55 +634,6 @@ async def test_process_wait_sec_without_action_waits(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("exit_code", "total_lines"), [(0, 200), (0, 80), (3, 200)])
-async def test_success_output_byte_limit_shortens_only_successful_output(
-    tmp_path: Path, exit_code: int, total_lines: int
-) -> None:
-    runtime = ShellRuntime(
-        activation_reason="test",
-        logger=logging.getLogger("success-output-test"),
-        output_byte_limit=8000,
-        config=Settings(
-            shell_execution=ShellSettings(
-                tool_profile="minimal_process",
-                show_bash=False,
-                success_output_byte_limit=1000,
-                retained_output_temp_directory=tmp_path,
-            )
-        ),
-    )
-    # 50-byte lines: 200 lines exceed the normal preview, 80 lines only the success view.
-    script = (
-        f"for i in range({total_lines}): print(f'line {{i:04d}} ' + 'x' * 39)\n"
-        f"raise SystemExit({exit_code})"
-    )
-    try:
-        result = await runtime.call_tool(
-            "bash", {"command": f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"}
-        )
-        text = _text(result)
-        preview = text.split("\nprocess_id:", 1)[0]
-        total_bytes = total_lines * 50
-        if exit_code == 0:
-            assert "The command exited 0, so a shorter view is shown." in text
-            body = preview.replace(
-                preview[preview.index("[Output truncated") :].split("]\n", 1)[0], ""
-            )
-            assert len(body.encode()) < 1100
-            assert "line 0000" in preview
-            assert f"line {total_lines - 1:04d}" in preview
-            retained = next(tmp_path.glob("fast-agent-output-*/output-*.log"))
-            assert len(retained.read_bytes()) == total_bytes
-            assert str(retained) in text
-        else:
-            assert "shorter view" not in text
-            assert "[Output truncated" in text
-            assert len(preview.encode()) > 7000
-    finally:
-        await runtime.close()
-
-
-@pytest.mark.asyncio
 async def test_running_output_byte_limit_shows_mostly_latest_output(tmp_path: Path) -> None:
     gate = tmp_path / "finish"
     runtime = ShellRuntime(

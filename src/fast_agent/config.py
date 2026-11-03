@@ -352,15 +352,6 @@ class ShellSettings(BaseModel):
         default=16_000,
         description="Model-facing shell output preview bytes (None = model-based auto)",
     )
-    success_output_byte_limit: int | None = Field(
-        default=None,
-        ge=256,
-        description=(
-            "Smaller model-facing preview bytes for a command that exits 0 when its output "
-            "exceeds this: a short head and a longer tail, with the complete output retained "
-            "when retain_truncated_output is on (None = same as output_byte_limit)"
-        ),
-    )
     running_output_byte_limit: int | None = Field(
         default=None,
         ge=256,

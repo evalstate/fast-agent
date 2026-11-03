@@ -841,7 +841,6 @@ shell_execution:
   warning_interval_seconds: 30
   interactive_use_pty: true  # Use PTY for interactive prompt shell commands
   output_byte_limit: 16000  # Explicit value; omit for catalog/default selection, null for auto
-  success_output_byte_limit: null  # Smaller preview for commands that exit 0; null = off
   running_output_byte_limit: null  # Preview for still-running commands (1/8 head, 7/8 tail); null = off
   retain_truncated_output: true
   retained_output_max_bytes: 2097152  # Per shell process
@@ -869,11 +868,6 @@ When `output_byte_limit` is omitted, a model-catalog override is used when
 available, followed by the global 16,000-byte default. An explicit positive
 value always wins. Set the field to `null` to use automatic sizing from model
 output-token metadata.
-
-`success_output_byte_limit` gives commands that exit 0 a smaller preview: a
-quarter from the start of the output and the rest from the end. Failing,
-running and cancelled commands keep the normal preview. With
-`retain_truncated_output` enabled the complete output is still retained.
 
 `running_output_byte_limit` changes the preview of a command that is still running
 (it outlasted the foreground wait, or a `process` wait/status returned it running):

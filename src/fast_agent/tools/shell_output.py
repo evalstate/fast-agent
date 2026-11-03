@@ -122,24 +122,6 @@ class ShellOutputBuffer:
             guidance=self._truncation_guidance(),
         )
 
-    def success_view(self, byte_limit: int) -> str:
-        """Short head and longer tail for a command that exited 0.
-
-        Successful commands rarely need their full log, so this view is smaller than the
-        normal preview. When retention is enabled the complete output stays retrievable.
-        """
-        if self.retained_output_path is not None and not self.retained_output_path.exists():
-            # Below the normal preview limit retention has not started; keep the full output.
-            self._start_retained(b"")
-        head_bytes = max(byte_limit // 4, 1)
-        return self._render_window(
-            head_bytes=head_bytes,
-            tail_bytes=byte_limit - head_bytes,
-            guidance=(
-                "The command exited 0, so a shorter view is shown. " + self._truncation_guidance()
-            ),
-        )
-
     def running_view(self, byte_limit: int) -> str:
         """A short head and long tail for a command that is still running.
 
@@ -190,17 +172,9 @@ class ShellOutputBuffer:
         self,
         limit: int | None = None,
         *,
-        success_byte_limit: int | None = None,
         running_byte_limit: int | None = None,
     ) -> str:
         if (
-            limit is None
-            and success_byte_limit is not None
-            and success_byte_limit < self.output_byte_limit
-            and self.total_output_bytes > success_byte_limit
-        ):
-            combined_output = self.success_view(success_byte_limit)
-        elif (
             limit is None
             and running_byte_limit is not None
             and self.total_output_bytes > min(running_byte_limit, self.output_byte_limit)
