@@ -59,6 +59,8 @@ FAST_AGENT_PENDING_MEDIA_ATTACHMENTS = "fast-agent-pending-media-attachments"
 """Content blocks staged by attach_media for injection as user input on the next LLM call."""
 # Persisted provenance for user-role media staged from tool results, not a new turn.
 FAST_AGENT_TOOL_MEDIA_MESSAGE = "fast-agent-tool-media-message"
+# Persisted provenance for user-role messages added inside a tool loop, not a new turn.
+FAST_AGENT_TOOL_LOOP_MESSAGE = "fast-agent-tool-loop-message"
 FAST_AGENT_COMPACTION_CHANNEL = "fast-agent-compaction"
 # Marks a model response that carries a provider compaction checkpoint in-band
 # (e.g. an Anthropic compaction block or an OpenAI compaction item). History

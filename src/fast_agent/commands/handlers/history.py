@@ -254,16 +254,7 @@ def _history_rewind_target(
         return None
 
     selected_turn = selected.turn
-    user_message = selected_turn.first_user_message
-    if user_message is None:
-        outcome.add_message(
-            "Selected turn has no user message to rewind.",
-            channel="error",
-            agent_name=agent_name,
-        )
-        return None
-
-    content = user_message.content
+    content = selected_turn.prompt.content
     user_text = None
     if content:
         from fast_agent.mcp.helpers.content_helpers import get_text

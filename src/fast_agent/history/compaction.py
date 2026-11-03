@@ -18,7 +18,7 @@ import os
 import tempfile
 import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Protocol, cast
@@ -28,6 +28,7 @@ from mcp_types import ContentBlock, EmbeddedResource, ImageContent, ResourceLink
 from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
+from fast_agent.history.turns import is_user_prompt, total_user_turns, user_turn_starts
 from fast_agent.llm.compaction_support import (
     CompactionStrategy,
     CompactionSupport,
@@ -130,6 +131,15 @@ class CompactionPlan:
     templates: list[PromptMessageExtended]
     compact_region: list[PromptMessageExtended]
     retained_tail: list[PromptMessageExtended]
+    retained_prompt: list[PromptMessageExtended] = field(default_factory=list)
+    """Prompt of the turn the tail continues: summarised, and also kept verbatim."""
+    retained_prompt_index: int = 0
+    """Index of ``retained_prompt`` in the planned history."""
+
+    @property
+    def retained(self) -> list[PromptMessageExtended]:
+        """Messages kept after the summary, in order."""
+        return self.retained_prompt + self.retained_tail
 
     @property
     def messages_before(self) -> int:
@@ -200,23 +210,6 @@ def should_auto_compact(
     if trigger is None or current is None or current <= 0:
         return False
     return current >= trigger
-
-
-def _turn_start_indices(messages: list[PromptMessageExtended]) -> list[int]:
-    """Indices where real user turns start.
-
-    A turn start is a user message that is neither a tool result nor a prior
-    compaction summary. Summaries from earlier compactions look like user
-    messages but must not be counted as turns, otherwise ``keep_turns`` protects
-    them and the recent real turns, leaving nothing to compact.
-    """
-    return [
-        index
-        for index, message in enumerate(messages)
-        if message.role == "user"
-        and not message.tool_results
-        and not is_compaction_message(message)
-    ]
 
 
 def _is_image(content: ContentBlock) -> bool:
@@ -315,8 +308,7 @@ def _plan_compaction_with_budget(
             except CompactionSkipped:
                 continue
             projected = (
-                estimate_tokens(candidate.templates + candidate.retained_tail)
-                + _SUMMARY_TOKEN_ALLOWANCE
+                estimate_tokens(candidate.templates + candidate.retained) + _SUMMARY_TOKEN_ALLOWANCE
             )
             if projected <= max_tokens_after:
                 return candidate
@@ -329,16 +321,17 @@ def _plan_compaction_with_budget(
     if max_tokens_after is None or max_tokens_after <= 0:
         return plan
 
-    for candidate_keep in range(max(keep_turns, 0), -1, -1):
-        candidate = plan_compaction(history, keep_turns=candidate_keep)
-        projected = (
-            estimate_tokens(candidate.templates + candidate.retained_tail)
-            + _SUMMARY_TOKEN_ALLOWANCE
+    candidates = [
+        *(plan_compaction(history, keep_turns=keep) for keep in range(max(keep_turns, 0), -1, -1)),
+        plan_compaction(history, keep_turns=0, keep_last_exchange=False),
+    ]
+    for candidate in candidates:
+        projected = estimate_tokens(candidate.templates + candidate.retained) + (
+            _SUMMARY_TOKEN_ALLOWANCE
         )
         if projected <= max_tokens_after:
             return candidate
-        plan = candidate
-    return plan
+    return candidates[-1]
 
 
 def _plan_mid_turn_compaction(
@@ -391,10 +384,33 @@ def _plan_mid_turn_compaction(
     if len(compact_region) < _MIN_COMPACTABLE_MESSAGES:
         raise CompactionSkipped("No older tool-loop history to compact.")
 
+    return _plan(templates, body, tail_start)
+
+
+def _is_final_reply(message: PromptMessageExtended) -> bool:
+    return message.role == "assistant" and message.stop_reason != LlmStopReason.TOOL_USE
+
+
+def _plan(
+    templates: list[PromptMessageExtended], body: list[PromptMessageExtended], tail_start: int
+) -> CompactionPlan:
+    """Compact ``body[:tail_start]``; a tail that starts mid-turn also keeps that turn's prompt.
+
+    The tail always starts at a user prompt or at an assistant message, so a mid-turn
+    tail never begins with a tool result or another prompt.
+    """
+    starts = [start for start in user_turn_starts(body) if start <= tail_start]
+    prompt_start = starts[-1] if starts else tail_start
+    prompt_end = prompt_start
+    if tail_start < len(body):
+        while prompt_end < tail_start and is_user_prompt(body[prompt_end]):
+            prompt_end += 1
     return CompactionPlan(
         templates=templates,
-        compact_region=compact_region,
+        compact_region=body[:tail_start],
         retained_tail=body[tail_start:],
+        retained_prompt=body[prompt_start:prompt_end],
+        retained_prompt_index=len(templates) + prompt_start,
     )
 
 
@@ -402,13 +418,15 @@ def plan_compaction(
     history: list[PromptMessageExtended],
     *,
     keep_turns: int,
+    keep_last_exchange: bool = True,
 ) -> CompactionPlan:
     """
     Split history into (templates, compact region, retained tail).
 
     Leading template messages are always preserved. The retained tail starts at a
     user-turn boundary so assistant tool calls stay paired with their results.
-    At least the first turn is always eligible for compaction.
+    At least the first turn is always eligible for compaction. When no whole turn
+    is kept, ``keep_last_exchange`` keeps the last prompt and its final reply.
     """
     template_count = 0
     for message in history:
@@ -423,24 +441,28 @@ def plan_compaction(
     if len(body) < _MIN_COMPACTABLE_MESSAGES:
         raise CompactionSkipped("Not enough conversation history to compact.")
 
-    turn_starts = _turn_start_indices(body)
+    turn_starts = user_turn_starts(body)
     if not turn_starts:
         raise CompactionSkipped("No completed user turns to compact.")
 
     effective_keep = min(max(keep_turns, 0), len(turn_starts) - 1)
-    tail_start = turn_starts[-effective_keep] if effective_keep > 0 else len(body)
+    if effective_keep > 0:
+        tail_start = turn_starts[-effective_keep]
+    elif (
+        keep_last_exchange
+        and _is_final_reply(body[-1])
+        and len(body) - 1 >= _MIN_COMPACTABLE_MESSAGES
+    ):
+        tail_start = len(body) - 1
+    else:
+        tail_start = len(body)
 
-    compact_region = body[:tail_start]
-    if len(compact_region) < _MIN_COMPACTABLE_MESSAGES:
+    if tail_start < _MIN_COMPACTABLE_MESSAGES:
         raise CompactionSkipped(
             "Recent turns already cover the whole conversation; nothing older to compact."
         )
 
-    return CompactionPlan(
-        templates=templates,
-        compact_region=compact_region,
-        retained_tail=body[tail_start:],
-    )
+    return _plan(templates, body, tail_start)
 
 
 def build_summary_message(
@@ -776,7 +798,12 @@ async def compact_conversation(
                 else None
             ),
             "template_messages": len(plan.templates),
-            "retained_messages": len(plan.retained_tail),
+            "retained_messages": len(plan.retained),
+            "retained_prompt_index": plan.retained_prompt_index,
+            "retained_prompt_messages": len(plan.retained_prompt),
+            # Keeps the conversation's turn count stable across compaction.
+            "turns_compacted": total_user_turns(history)
+            - total_user_turns(plan.templates + plan.retained),
             "checkpoint_bytes": checkpoint.checkpoint_bytes,
             # The summarization call is a real model call: keep its request and
             # response (with usage/timing channels) so exports can account for it.
@@ -785,14 +812,14 @@ async def compact_conversation(
         },
     )
 
-    new_history = plan.templates + [summary_message] + plan.retained_tail
+    new_history = plan.templates + [summary_message] + plan.retained
     agent.load_message_history(new_history)
 
     # Opaque checkpoint payloads are far smaller in tokens than their encrypted text.
     estimate_history = (
         plan.templates
         + [_without_channels(summary_message, checkpoint.provider_channels)]
-        + plan.retained_tail
+        + plan.retained
     )
     tokens_after_estimate = estimate_tokens(estimate_history) + pending_context_tokens
     if usage is not None:

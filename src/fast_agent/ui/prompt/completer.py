@@ -35,6 +35,7 @@ from fast_agent.command_actions.models import (
 from fast_agent.commands.command_catalog import get_command_spec
 from fast_agent.commands.handlers import history as history_handlers
 from fast_agent.commands.handlers import model as model_handlers
+from fast_agent.commands.history_summaries import collect_user_turns
 from fast_agent.commands.model_capabilities import (
     resolve_reasoning_effort_spec,
     resolve_task_budget_supported,
@@ -608,55 +609,11 @@ class AgentCompleter(Completer):
             return normalized
         return normalized[: limit - 1] + "…"
 
-    @staticmethod
-    def _starts_user_turn(message: PromptMessageExtended) -> bool:
-        return message.role == "user" and not message.tool_results
-
-    @staticmethod
-    def _first_user_prompt(turn: Sequence[PromptMessageExtended]) -> PromptMessageExtended | None:
-        if not turn:
-            return None
-        first = turn[0]
-        return first if AgentCompleter._starts_user_turn(first) else None
-
-    @staticmethod
-    def _append_message_to_turns(
-        turns: list[list[PromptMessageExtended]],
-        current: list[PromptMessageExtended],
-        message: PromptMessageExtended,
-        *,
-        saw_assistant: bool,
-    ) -> tuple[list[PromptMessageExtended], bool]:
-        if not AgentCompleter._starts_user_turn(message):
-            current.append(message)
-            return current, saw_assistant or message.role == "assistant"
-        if not current or not saw_assistant:
-            current.append(message)
-            return current, False
-        turns.append(current)
-        return [message], False
-
-    def _iter_user_turns(self):
+    def _iter_user_turns(self) -> list[PromptMessageExtended]:
         agent_obj = self._current_history_agent()
         if agent_obj is None:
             return []
-        turns: list[list[PromptMessageExtended]] = []
-        current: list[PromptMessageExtended] = []
-        saw_assistant = False
-
-        for message in agent_obj.message_history:
-            if current or self._starts_user_turn(message):
-                current, saw_assistant = self._append_message_to_turns(
-                    turns,
-                    current,
-                    message,
-                    saw_assistant=saw_assistant,
-                )
-
-        if current:
-            turns.append(current)
-
-        return [first for turn in turns if (first := self._first_user_prompt(turn)) is not None]
+        return [turn.prompt for turn in collect_user_turns(list(agent_obj.message_history))]
 
     def _current_history_agent(self) -> CompleterHistoryAgent | None:
         if not self.agent_provider or not self.current_agent:

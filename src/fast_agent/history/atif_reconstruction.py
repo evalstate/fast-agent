@@ -105,6 +105,14 @@ def reconstruct_history(
         safe_agent = "".join(c if c.isalnum() or c in "-_" else "_" for c in agent_name)
         candidates = sorted(session_dir.glob(f"compacted_*_{safe_agent}.json"))
 
+    # A mid-turn tail also keeps that turn's prompt, which stays in the compacted region too.
+    prompt_count = (
+        _count(metadata, "retained_prompt_messages")
+        if "retained_prompt_messages" in metadata
+        else 0
+    )
+    prompt_index = _count(metadata, "retained_prompt_index") if prompt_count else 0
+
     matches: list[tuple[Path, list[PromptMessageExtended], int]] = []
     for path in candidates:
         if path.is_symlink() or path.resolve().parent != session_dir.resolve():
@@ -119,12 +127,13 @@ def reconstruct_history(
         tail_count = len(archived) - index - compacted
         if tail_count < 0:
             continue
-        if linked and _count(metadata, "retained_messages") != tail_count:
+        tail = archived[len(archived) - tail_count :] if tail_count else []
+        retained = archived[prompt_index : prompt_index + prompt_count] + tail
+        if linked and _count(metadata, "retained_messages") != len(retained):
             raise HistoryReconstructionError("Compaction retained boundary mismatch")
         if archived[:index] != history[:index]:
             continue
-        tail = archived[len(archived) - tail_count :] if tail_count else []
-        if tail != history[index + 1 : index + 1 + tail_count]:
+        if retained != history[index + 1 : index + 1 + len(retained)]:
             continue
         if not linked:
             # Legacy archives have no identity. Require positive sequence evidence,
@@ -149,10 +158,10 @@ def reconstruct_history(
                 for message in archived
             ):
                 continue
-        matches.append((path, archived, tail_count))
+        matches.append((path, archived, len(retained)))
     if len(matches) != 1:
         raise HistoryReconstructionError("Missing, conflicting, or ambiguous compaction archive")
-    path, archived, tail_count = matches[0]
+    path, archived, retained_count = matches[0]
     resolved_path = path.resolve()
     if resolved_path in _lineage:
         raise HistoryReconstructionError("Cyclic compaction archive lineage")
@@ -184,7 +193,7 @@ def reconstruct_history(
                         "scope": "previous_model_context",
                         "template_messages": index,
                         "compacted_messages": compacted,
-                        "retained_messages": tail_count,
+                        "retained_messages": retained_count,
                         "replacement_order": [
                             "system_prompt",
                             "templates",
@@ -199,14 +208,14 @@ def reconstruct_history(
             )
         ]
     }
-    tail = history[index + 1 : index + 1 + tail_count]
+    retained = history[index + 1 : index + 1 + retained_count]
     # Under an ATIF "replace" boundary only later steps are model-visible, so the
     # context that survives compaction is re-emitted as copied context.
     copies = [
         *(_copied_context(message, "template", compacted_at) for message in history[:index]),
-        *(_copied_context(message, "retained_tail", compacted_at) for message in tail),
+        *(_copied_context(message, "retained_tail", compacted_at) for message in retained),
     ]
-    return original + [boundary, *copies] + history[index + 1 + tail_count :]
+    return original + [boundary, *copies] + history[index + 1 + retained_count :]
 
 
 def _copied_context(

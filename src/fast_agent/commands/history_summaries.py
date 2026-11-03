@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import TYPE_CHECKING
 
 from fast_agent.commands.summary_utils import json_object
 from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_TOOL_TIMING, FAST_AGENT_USAGE
 from fast_agent.history.tool_activities import message_tool_call_count, message_tool_error_count
+from fast_agent.history.turns import is_user_prompt, user_turn_starts
 from fast_agent.llm.usage_tracking import UsageReport
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types.conversation_summary import ConversationSummary
@@ -90,19 +92,8 @@ class HistoryTurn:
     messages: list["PromptMessageExtended"]
 
     @property
-    def first_message(self) -> "PromptMessageExtended | None":
-        return self.messages[0] if self.messages else None
-
-    @property
-    def first_user_message(self) -> "PromptMessageExtended | None":
-        first = self.first_message
-        if first is None or first.role != "user" or first.tool_results:
-            return None
-        return first
-
-    @property
-    def is_user_turn(self) -> bool:
-        return self.first_user_message is not None
+    def prompt(self) -> "PromptMessageExtended":
+        return self.messages[0]
 
 
 @dataclass(slots=True)
@@ -292,45 +283,15 @@ def extract_message_response_ms(message: "PromptMessageExtended") -> float | Non
     )
 
 
-def _is_user_turn_start(message: "PromptMessageExtended") -> bool:
-    return message.role == "user" and not message.tool_results
-
-
-def group_history_turns(
-    messages: list["PromptMessageExtended"],
-) -> list[HistoryTurn]:
-    turns: list[HistoryTurn] = []
-    current: list[PromptMessageExtended] = []
-    current_start = 0
-    saw_assistant = False
-
-    for idx, message in enumerate(messages):
-        if _is_user_turn_start(message):
-            if saw_assistant:
-                turns.append(HistoryTurn(start_index=current_start, messages=current))
-                current = []
-
-            if not current:
-                current_start = idx
-                saw_assistant = False
-            current.append(message)
-            continue
-
-        if not current:
-            continue
-
-        current.append(message)
-        saw_assistant = saw_assistant or message.role == "assistant"
-
-    if current:
-        turns.append(HistoryTurn(start_index=current_start, messages=current))
-    return turns
-
-
 def collect_user_turns(
     messages: list["PromptMessageExtended"],
 ) -> list[HistoryTurn]:
-    return [turn for turn in group_history_turns(messages) if turn.is_user_turn]
+    """Group history into user turns; messages before the first prompt are not a turn."""
+    bounds = [*user_turn_starts(messages), len(messages)]
+    return [
+        HistoryTurn(start_index=start, messages=messages[start:end])
+        for start, end in pairwise(bounds)
+    ]
 
 
 def _summarize_turn_messages(
@@ -341,7 +302,7 @@ def _summarize_turn_messages(
 
     for message in turn:
         text = message.all_text()
-        if message.role == "user" and not message.tool_results:
+        if is_user_prompt(message):
             normalized = collapse_whitespace(text)
             if normalized:
                 user_parts.append(normalized)
