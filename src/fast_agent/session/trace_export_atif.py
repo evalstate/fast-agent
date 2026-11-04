@@ -1231,7 +1231,7 @@ def _embed_subagent_trajectories(
     }
 
     def _is_exported(parent_call_id: str) -> bool:
-        # Children of calls made from PTC code hang off the exported execute_python call.
+        # Children of calls made from PTC code hang off the exported exec_sandbox call.
         return outer_tool_call_id(parent_call_id) in exported_call_ids
 
     parent_session_dir = source.parent_session_dir

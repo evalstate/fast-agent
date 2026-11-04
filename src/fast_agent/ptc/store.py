@@ -1,4 +1,4 @@
-"""Values sandbox code keeps between ``execute_python`` runs.
+"""Values sandbox code keeps between ``exec_sandbox`` runs.
 
 Every run starts in a fresh Monty sandbox, so ``store``/``load`` are how a run hands values to
 later ones. Values live host-side as tagged JSON: that bounds their size exactly, isolates them

@@ -2,7 +2,7 @@
 
 The model reads shell results as display text: interleaved output, ``[stderr]`` markers and a
 process trailer, with a non-zero exit reported as an error. Sandbox code needs data instead, so a
-shell call made from ``execute_python`` returns separate stdout/stderr, the exit code and the
+shell call made from ``exec_sandbox`` returns separate stdout/stderr, the exit code and the
 process status, and a non-zero exit is a value rather than an exception unless ``check=True``.
 """
 

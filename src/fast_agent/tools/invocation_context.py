@@ -41,7 +41,7 @@ _local_tool_invocation_context: ContextVar[LocalToolInvocationContext | None] = 
 )
 
 
-# Nested PTC call ids embed the provider's execute_python call id so traces, ACP clients and
+# Nested PTC call ids embed the provider's exec_sandbox call id so traces, ACP clients and
 # child sessions can attribute nested work (such as subagent runs) to the call the model made.
 NESTED_PTC_CALL_SEPARATOR = "::ptc-"
 

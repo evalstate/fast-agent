@@ -155,7 +155,7 @@ def tool_ptc_options(tool: Tool) -> Mapping[str, Any]:
     """Return the ``meta["fast_agent"]["ptc"]`` options a tool declares for PTC.
 
     Supported keys: ``expose`` (``"nested"`` default; ``"direct"`` to keep the tool next to
-    ``execute_python`` instead; ``"both"`` for a sandbox function that is also directly
+    ``exec_sandbox`` instead; ``"both"`` for a sandbox function that is also directly
     callable); ``returns`` (JSON schema of the value sandbox code receives, for
     tools whose program-facing value differs from their model-facing text); and
     ``input_schema``/``description`` (the keyword arguments and documentation sandbox code

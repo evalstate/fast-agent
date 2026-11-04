@@ -130,7 +130,7 @@ fast-agent export latest --privacy-filter --download-privacy-filter
 
 ## PTC tool-call metadata in ATIF
 
-For programmatic tool calling (PTC), the parent `execute_python` call still contains
+For programmatic tool calling (PTC), the parent `exec_sandbox` call still contains
 the source program. Its observation's `extra` also carries the intercepted nested
 tool calls from result metadata (`fast-agent-ptc-calls`):
 
