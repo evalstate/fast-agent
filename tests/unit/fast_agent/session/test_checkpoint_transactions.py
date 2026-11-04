@@ -211,11 +211,14 @@ async def test_store_revision_is_captured_with_staged_contents(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("phase", ["history", "prepare"])
+@pytest.mark.parametrize("cancellation", ["asyncio", "anyio"])
 async def test_cancelled_checkpoint_waits_for_writer_before_unlocking(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, phase: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, phase: str, cancellation: str
 ) -> None:
     import asyncio
     import threading
+
+    import anyio
 
     import fast_agent.history.history_exporter as exporter
     from fast_agent.session.checkpoint import CheckpointTransaction
@@ -248,10 +251,23 @@ async def test_cancelled_checkpoint_waits_for_writer_before_unlocking(
             assert release.wait(3)
 
         monkeypatch.setattr(CheckpointTransaction, "prepare", prepare)
-    save = asyncio.create_task(session.save_history(agent))
+    scopes: list[anyio.CancelScope] = []
+
+    async def scoped_save() -> None:
+        with anyio.CancelScope() as scope:
+            scopes.append(scope)
+            await session.save_history(agent)
+        assert scope.cancelled_caught
+
+    save = asyncio.create_task(
+        scoped_save() if cancellation == "anyio" else session.save_history(agent)
+    )
     assert await asyncio.to_thread(entered.wait, 3)
-    save.cancel()
-    save.cancel()
+    if cancellation == "anyio":
+        scopes[0].cancel()
+    else:
+        save.cancel()
+        save.cancel()
     # A fork must not observe files while a cancelled writer can still modify
     # them. The nonblocking checkpoint lock provides the public busy result.
     other = _manager(tmp_path)
@@ -260,8 +276,11 @@ async def test_cancelled_checkpoint_waits_for_writer_before_unlocking(
             other.fork_session(session.info.name)
     finally:
         release.set()
-    with pytest.raises(asyncio.CancelledError):
+    if cancellation == "anyio":
         await save
+    else:
+        with pytest.raises(asyncio.CancelledError):
+            await save
 
     assert (session.directory / "session.json").read_bytes() == metadata
     path = session.latest_history_path("main")
@@ -392,4 +411,197 @@ async def test_checkpoint_files_keep_private_permissions(tmp_path: Path) -> None
 
     for filename in ("history_main.json", "ptc_store_main.json", "session.json"):
         assert stat.S_IMODE((session.directory / filename).stat().st_mode) == 0o600
+    manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("read_file", ["history", "store"])
+async def test_hydration_reads_one_committed_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, read_file: str
+) -> None:
+    import asyncio
+    import threading
+
+    import fast_agent.session.hydrator as hydration_module
+    from fast_agent.session.hydrator import SessionHydrator
+    from fast_agent.session.locking import SessionCheckpointBusyError
+
+    manager = _manager(tmp_path)
+    session = manager.create_session()
+    saved = _StoredAgent("committed")
+    saved.set_instruction("committed prompt")
+    await saved.store.functions()["store"]("answer", "committed value")
+    await session.save_history(saved)
+    committed_metadata = (session.directory / "session.json").read_bytes()
+    started, release = threading.Event(), threading.Event()
+    original_prompt, original_text = hydration_module.load_prompt, Path.read_text
+
+    def pause() -> None:
+        started.set()
+        assert release.wait(5)
+
+    def read_history(path: Path) -> list[PromptMessageExtended]:
+        if read_file == "history":
+            pause()
+        return original_prompt(path)
+
+    def read_text(path: Path, encoding: str | None = None, errors: str | None = None) -> str:
+        if read_file == "store" and path == session.directory / "ptc_store_main.json":
+            pause()
+        return original_text(path, encoding=encoding, errors=errors)
+
+    monkeypatch.setattr(hydration_module, "load_prompt", read_history)
+    monkeypatch.setattr(Path, "read_text", read_text)
+    restored = _StoredAgent("empty")
+    reader = asyncio.create_task(
+        SessionHydrator().hydrate_session(
+            session=session, agents={"main": restored}, fallback_agent_name="main"
+        )
+    )
+    try:
+        assert await asyncio.to_thread(started.wait, 5)
+        _history(saved, "uncommitted")
+        saved.set_instruction("uncommitted prompt")
+        await saved.store.functions()["store"]("answer", "uncommitted value")
+        with pytest.raises(SessionCheckpointBusyError):
+            await session.save_history(saved)
+    finally:
+        release.set()
+        result = await reader
+
+    _fail_metadata_once(monkeypatch, session.directory)
+    with pytest.raises(OSError, match="injected metadata"):
+        await session.save_history(saved)
+    assert [message.all_text() for message in restored.message_history] == ["committed"]
+    assert restored.instruction == "committed prompt"
+    assert "committed value" in restored.store.to_state()
+    assert "uncommitted" not in restored.store.to_state()
+    assert result.snapshot.continuation.agents["main"].resolved_prompt == "committed prompt"
+    assert (session.directory / "session.json").read_bytes() == committed_metadata
+    manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancellation", ["asyncio", "anyio"])
+@pytest.mark.parametrize("read_file", ["history", "store"])
+async def test_cancelled_hydration_joins_file_reader_before_unlocking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cancellation: str, read_file: str
+) -> None:
+    import asyncio
+    import threading
+
+    import anyio
+
+    import fast_agent.session.hydrator as hydration_module
+    from fast_agent.session.hydrator import SessionHydrator
+    from fast_agent.session.locking import SessionCheckpointBusyError
+
+    manager = _manager(tmp_path)
+    session = manager.create_session()
+    saved = _StoredAgent("committed")
+    await saved.store.functions()["store"]("answer", "committed value")
+    await session.save_history(saved)
+    started, release = threading.Event(), threading.Event()
+    original, original_text = hydration_module.load_prompt, Path.read_text
+
+    def pause() -> None:
+        started.set()
+        assert release.wait(5)
+
+    def read(path: Path) -> list[PromptMessageExtended]:
+        if read_file == "history":
+            pause()
+        return original(path)
+
+    def read_text(path: Path, encoding: str | None = None, errors: str | None = None) -> str:
+        if read_file == "store" and path == session.directory / "ptc_store_main.json":
+            pause()
+        return original_text(path, encoding=encoding, errors=errors)
+
+    monkeypatch.setattr(hydration_module, "load_prompt", read)
+    monkeypatch.setattr(Path, "read_text", read_text)
+    restored = _agent("untouched")
+    scope = anyio.CancelScope()
+
+    async def hydrate() -> None:
+        with scope:
+            await SessionHydrator().hydrate_session(
+                session=session, agents={"main": restored}, fallback_agent_name="main"
+            )
+
+    reader = asyncio.create_task(hydrate())
+    try:
+        assert await asyncio.to_thread(started.wait, 5)
+        if cancellation == "anyio":
+            scope.cancel()
+        else:
+            reader.cancel()
+        await asyncio.sleep(0)
+        if cancellation == "asyncio":
+            reader.cancel()
+        await asyncio.sleep(0)
+        assert not reader.done()
+        with pytest.raises(SessionCheckpointBusyError):
+            await session.save_history(_agent("uncommitted"))
+    finally:
+        release.set()
+        if cancellation == "asyncio":
+            with pytest.raises(asyncio.CancelledError):
+                await reader
+        else:
+            await reader
+    assert cancellation == "asyncio" or scope.cancelled_caught
+    assert [message.all_text() for message in restored.message_history] == ["untouched"]
+    await session.save_history(_agent("next checkpoint"))
+    manager.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_restoration_uses_captured_checkpoint_after_concurrent_save(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    from fast_agent.session.hydrator import SessionHydrator
+
+    manager = _manager(tmp_path)
+    session = manager.create_session()
+    saved = _StoredAgent("committed")
+    saved.set_instruction("committed prompt")
+    await saved.store.functions()["store"]("answer", "committed value")
+    await session.save_history(saved)
+    started, release = asyncio.Event(), asyncio.Event()
+    original = LlmAgent.set_model
+
+    async def set_model(agent: LlmAgent, model: str | None) -> None:
+        started.set()
+        await release.wait()
+        await original(agent, model)
+
+    monkeypatch.setattr(LlmAgent, "set_model", set_model)
+    restored = _StoredAgent("empty")
+    reader = asyncio.create_task(
+        SessionHydrator().hydrate_session(
+            session=session, agents={"main": restored}, fallback_agent_name="main"
+        )
+    )
+    try:
+        await asyncio.wait_for(started.wait(), 5)
+        _history(saved, "next checkpoint")
+        saved.set_instruction("next prompt")
+        await saved.store.functions()["store"]("answer", "next value")
+        # Runtime restoration may perform arbitrary async work; it must no
+        # longer hold the file lock, nor read files after this successful save.
+        await session.save_history(saved)
+    finally:
+        release.set()
+        result = await reader
+    assert [message.all_text() for message in restored.message_history] == ["committed"]
+    assert restored.instruction == "committed prompt"
+    assert "committed value" in restored.store.to_state()
+    assert result.snapshot.continuation.agents["main"].resolved_prompt == "committed prompt"
+    path = session.latest_history_path("main")
+    assert path is not None
+    assert _texts(path) == ["next checkpoint"]
+    assert "next value" in (session.directory / "ptc_store_main.json").read_text()
     manager.close()

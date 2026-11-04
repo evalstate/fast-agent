@@ -61,7 +61,7 @@ def _write_bytes(path: Path, content: bytes) -> None:
 
 
 async def finish_checkpoint_io(awaitable: Awaitable[_T]) -> _T:
-    """Do not release the checkpoint lock while its worker can still write."""
+    """Do not release the checkpoint lock while its worker still accesses files."""
     task = asyncio.ensure_future(awaitable)
     cancelled = False
     with anyio.CancelScope(shield=True):
@@ -73,6 +73,9 @@ async def finish_checkpoint_io(awaitable: Awaitable[_T]) -> _T:
     result = task.result()
     if cancelled:
         raise asyncio.CancelledError
+    # A surrounding AnyIO scope cannot deliver cancellation inside the shield.
+    # Observe it after the worker has joined, before the caller can continue.
+    await anyio.lowlevel.checkpoint_if_cancelled()
     return result
 
 
