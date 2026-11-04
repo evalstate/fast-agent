@@ -48,6 +48,7 @@ from fast_agent.commands.handlers import prompts as prompt_handlers
 from fast_agent.commands.protocols import HistoryEditableAgent
 from fast_agent.config import get_settings
 from fast_agent.core.exceptions import PromptExitError
+from fast_agent.core.queued_input import queued_input_source
 from fast_agent.integrations.herdr_lifecycle import herdr_blocked
 from fast_agent.interfaces import AgentProtocol, TurnCancellationStateCapable
 from fast_agent.tools.execution_environment import ShellExecutionResult
@@ -1236,9 +1237,26 @@ class InteractivePrompt:
         progress_display.resume()
         exit_code = 1
         try:
-            # Typed-ahead or herdr-sent messages are queued for the next prompt.
-            with hold_turn_input():
-                result = await send_func(prompt_payload, agent_name)
+            with hold_turn_input() as input_reader:
+                # Keep terminal parsing here; the runtime only sees submitted text.
+                # Scope to the addressed instance, not any delegated tool agents.
+                def take_messages() -> list[str]:
+                    if input_reader is None:
+                        return []
+                    from fast_agent.ui.prompt.input import agent_histories
+
+                    messages = input_reader.take_messages()
+                    for message in messages:
+                        agent_histories[agent_name].append_string(message)
+                    return messages
+
+                input_source = (
+                    queued_input_source(prompt_provider._agent(agent_name), take_messages)
+                    if input_reader is not None
+                    else nullcontext()
+                )
+                with input_source:
+                    result = await send_func(prompt_payload, agent_name)
             stop_reason = self._last_assistant_stop_reason(
                 prompt_provider=prompt_provider, agent_name=agent_name
             )

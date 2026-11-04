@@ -150,6 +150,7 @@ DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
 {{agentSkills}}
 {{file_silent:AGENTS.md}}
 {{env}}
+{{herdrInstructions}}
 
 Mermaid diagrams between code fences are supported.
 

@@ -8,10 +8,11 @@ unsubmitted in the next prompt.
 
 While a turn runs this reader keeps the terminal in a non-echoing, untranslated
 mode (signals stay enabled, so Ctrl+C is unchanged) and drains input as key
-presses. Text followed by Enter is queued and replayed into the next prompt as
-prompt_toolkit typeahead, so queued messages are submitted in order through the
-normal prompt path (commands, attachments, history). A lone Escape cancels the
-turn exactly like Ctrl+C, which is also what ``hc interrupt`` sends.
+presses. Plain submitted text can be consumed at tool-loop continuation boundaries.
+Commands, attachments, late messages and drafts are replayed into the next prompt
+as prompt_toolkit typeahead. Submission order is preserved across both paths.
+A lone Escape cancels the turn exactly like Ctrl+C, which is also what
+``hc interrupt`` sends.
 
 Nothing is printed while input is held: the queued count is shown in the live
 streaming header and progress overlay (transient, never scrollback) and in the
@@ -25,7 +26,9 @@ import os
 import signal
 import sys
 import threading
+from collections import deque
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from fast_agent.utils.env import is_truthy_env_value
@@ -44,6 +47,26 @@ _PREVIEW_CHARS = 72
 
 _active: TurnInputReader | None = None
 _queued_count = 0
+_replayed_submissions: deque[bool] = deque()
+
+
+@dataclass(frozen=True)
+class _Submission:
+    end: int
+    text: str
+
+
+def acknowledge_replayed_input() -> None:
+    """A prompt accepted the next replayed submission (including empty Enter)."""
+    if _replayed_submissions:
+        _replayed_submissions.popleft()
+        _publish_queued_count(0)
+
+
+def clear_replayed_input() -> None:
+    """Reset replay accounting when discarding an input runtime."""
+    _replayed_submissions.clear()
+    _publish_queued_count(0)
 
 
 def turn_input_enabled() -> bool:
@@ -65,14 +88,14 @@ def _publish_queued_count(count: int) -> None:
     """Expose the count to live overlays and terminal status; never print it."""
     global _queued_count
 
-    _queued_count = count
+    _queued_count = count + sum(_replayed_submissions)
     from fast_agent.integrations.herdr_lifecycle import report_queued_input
 
-    report_queued_input(count)
+    report_queued_input(_queued_count)
 
 
 def queued_input_count() -> int:
-    """Messages waiting to be submitted when the current turn ends."""
+    """Submitted messages awaiting a continuation boundary or the next prompt."""
     return _queued_count
 
 
@@ -111,6 +134,7 @@ class TurnInputReader:
         self._queued = 0
         self._write = write
         self._keys: list[KeyPress] = []
+        self._submissions: list[_Submission] = []
         self._line = ""
         self._escape_pending = False
         self._escape_timer: asyncio.TimerHandle | None = None
@@ -123,6 +147,52 @@ class TurnInputReader:
     def held_keys(self) -> list[KeyPress]:
         return list(self._keys)
 
+    def take_messages(self) -> list[str]:
+        """Take a FIFO prefix of plain submitted text at a tool-loop boundary.
+
+        Leave commands, attachments and unfinished drafts to the prompt. Stop
+        at the first deferred submission so later messages cannot overtake it.
+        """
+        from prompt_toolkit.keys import Keys
+
+        from fast_agent.ui.prompt.pasted_paths import pasted_image_paths
+
+        if self._suspended or _replayed_submissions:
+            # An earlier turn may still have submissions in prompt typeahead.
+            # New terminal input must not overtake that backlog.
+            return []
+        # A tool may finish before the fd callback runs. Drain bytes already
+        # available without waiting for a message that has not arrived.
+        self._readable()
+        messages: list[str] = []
+        consumed_keys = 0
+        consumed_submissions = 0
+        for submission in self._submissions:
+            end, text = submission.end, submission.text
+            stripped = text.lstrip()
+            if stripped.startswith(("/", "!", "@", "#")) or any(
+                word.startswith("^") for word in text.split()
+            ):
+                break
+            if any(
+                key.key == Keys.BracketedPaste and pasted_image_paths(key.data)
+                for key in self._keys[consumed_keys:end]
+            ):
+                break
+            if stripped:
+                messages.append(text)
+            consumed_keys = end
+            consumed_submissions += 1
+        if consumed_submissions:
+            self._keys = self._keys[consumed_keys:]
+            self._submissions = [
+                _Submission(submission.end - consumed_keys, submission.text)
+                for submission in self._submissions[consumed_submissions:]
+            ]
+            self._queued -= len(messages)
+            self._on_queued(self._queued)
+        return messages
+
     def start(self) -> bool:
         import termios
 
@@ -131,17 +201,31 @@ class TurnInputReader:
         except (termios.error, OSError, ValueError):
             return False
         self._loop = asyncio.get_running_loop()
-        return self._resume()
+        if not self._resume():
+            return False
 
-    def stop(self) -> list[KeyPress]:
+        from prompt_toolkit.input.typeahead import get_typeahead
+
+        # The prompt may already have read more than one submission. Take its
+        # remaining keys before fresh stdin so they cannot be overtaken.
+        typeahead = get_typeahead(self._input)
+        _replayed_submissions.clear()
+        for key_press in typeahead:
+            self._on_key(key_press)
+        return True
+
+    def stop(self, *, replay: bool = False) -> list[KeyPress]:
         """Stop reading, restore the terminal and return held key presses."""
         self._pause()
         self._cancel_escape_timer()
         # Leave unfinished input in the shared decoder/parser for the prompt.
         self._escape_pending = False
         self._saved_attrs = None
+        if replay:
+            # Ownership changes, but the messages are still outstanding until
+            # the prompt accepts them. Do not advertise an empty queue here.
+            _replayed_submissions.extend(bool(item.text.strip()) for item in self._submissions)
         if self._queued:
-            # Held messages now belong to the next prompt, which shows them.
             self._queued = 0
             self._on_queued(0)
         return self.held_keys
@@ -267,9 +351,10 @@ class TurnInputReader:
             self._escape_pending = True
         elif key == Keys.BracketedPaste:
             self._keys.append(key_press)
-            self._line += key_press.data
+            self._line += key_press.data.replace("\r\n", "\n").replace("\r", "\n")
         elif key == Keys.ControlM:
             self._keys.append(key_press)
+            self._submissions.append(_Submission(len(self._keys), self._line))
             if self._line.strip():
                 self._queued += 1
                 self._on_queued(self._queued)
@@ -319,7 +404,7 @@ def hold_turn_input() -> Generator[TurnInputReader | None]:
         if reader is not None:
             _active = None
             try:
-                _store_typeahead(input, reader.stop())
+                _store_typeahead(input, reader.stop(replay=True))
             except Exception:
                 pass
 

@@ -35,6 +35,7 @@ The following variables are available in System Prompt templates:
 | <nobr>`{{hostPlatform}}`</nobr> | Host platform information |  |
 | <nobr>`{{pythonVer}}`</nobr> | Python version |  |
 | <nobr>`{{env}}`</nobr> | Formatted environment block with all environment details |  |
+| <nobr>`{{herdrInstructions}}`</nobr> | Concise fast-agent/herdr-core coordination guidance | Empty unless hc terminal identity is present, the active execution environment is local, and the agent has shell access |
 | <nobr>`{{currentDate}}`</nobr> | Current date in long format |  |
 
 **Example `{{env}}` output:**
@@ -59,10 +60,19 @@ You are a helpful AI Agent.
 {{agentSkills}}
 {{file_silent:AGENTS.md}}
 {{env}}
+{{herdrInstructions}}
 {{model_specific}}
 
 The current date is {{currentDate}}.
 ```
+
+`{{herdrInstructions}}` is included in the default prompt; custom AgentCards can include or
+omit it explicitly. It points agents to `hc --skill` for the installed version's manual
+without running hc during prompt construction. Detection uses non-empty
+`HC_TERMINAL_ID` and `HC_TERMINAL_SOCKET`, not `TERM_PROGRAM`. The guidance is omitted
+when the execution environment is unknown, remote, or container-based, or shell access
+is disabled. Environment refreshes recalculate it, so host identity is not carried into
+another execution environment. The bundled wording lives in `resources/shared/herdr.md`.
 
 You can also include only the AgentCard guidance section inside your own instruction template:
 

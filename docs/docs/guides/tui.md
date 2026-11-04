@@ -316,12 +316,22 @@ state and retains its previous idle behavior; the richer status travels over OSC
 
 While a turn is running, fast-agent holds terminal input instead of echoing it into
 the output. Text followed by Enter, including messages sent with `hc send`, is
-queued and submitted in order when the turn ends, through the normal prompt (so
-slash commands, `!` shell commands and pasted image paths behave as if typed at the
-prompt). Text without Enter is left in the next prompt as a draft. Nothing is
-printed into the scrollback while input is held: the count (`⧗ 1 queued`) appears in
-the live streaming header or progress display, and leads the OSC 7501 status
-message, so Herdr shows it in its agents list.
+queued in arrival order. Plain messages are consumed at the next tool-loop
+continuation, after the complete tool batch and before the next model call.
+This lets the agent read a worker report after `hc wait` returns, without first
+finishing its answer. Consumed messages remain part of the current conversation
+turn and are not replayed into the next prompt.
+
+Commands (`/`, `!`, `@`, `#`), resource/attachment mentions and pasted image paths
+stay on the normal prompt path after the turn ends. Later messages cannot overtake
+these deferred inputs. Text without Enter remains a draft. Messages arriving after
+the last continuation boundary become the next turn; `hc wait` returning
+`reason: message` does not guarantee that all message bytes have arrived yet.
+
+While input is held, only the count (`⧗ 1 queued`) appears in the live streaming
+header or progress display and the OSC 7501 status message. Submitted input
+remaining at turn completion keeps the status working through the prompt handoff;
+an unfinished draft does not. Consumed messages appear before the next model response.
 
 Press ++escape++ (or Ctrl+C) to cancel the current turn; `hc interrupt` sends
 Escape. Messages already queued are still sent after the cancellation. Forms such as
@@ -331,6 +341,20 @@ This applies to interactive POSIX terminals. To keep the previous behavior, set:
 
 ```bash
 export FAST_AGENT_DISABLE_TURN_INPUT=1
+```
+
+During a terminal's first 10 seconds, `hc 0.1.17` requires 800 ms of quiet output
+before sending, waiting at most 5 seconds per attempt. Continuous progress redraws
+can therefore cause “still starting: its output has not settled” even after the
+agent has accepted an earlier turn. This startup check happens before input reaches
+fast-agent and is bypassed once the terminal is 10 seconds old; it is not a
+restriction on established sessions. `--quiet` avoids this startup interaction.
+See [hc's startup check](https://github.com/herdrdev/herdr-core/blob/v0.1.17/crates/herdr-core/src/input.rs#L215-L246).
+
+The opt-in real-terminal regression suite covers this separately from input queueing:
+
+```bash
+FAST_AGENT_TEST_HC=1 uv run pytest tests/integration/ui/test_hc_queued_input.py -v -rx
 ```
 
 ### Starting fast-agent with `hc`

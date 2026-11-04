@@ -114,3 +114,11 @@ def test_execution_environment_internal_resource_matches_generator() -> None:
     )
 
     assert checked_in == generated
+
+
+def test_herdr_internal_resource_points_to_live_manual() -> None:
+    content = read_internal_resource("internal://fast-agent/herdr")
+
+    assert "hc --skill" in content
+    assert "hc --core" not in content
+    assert len(content.split()) < 130

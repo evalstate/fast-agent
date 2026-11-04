@@ -23,6 +23,7 @@ from fast_agent.constants import (
     FAST_AGENT_USAGE,
 )
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.queued_input import take_queued_messages
 from fast_agent.interfaces import MessageHistoryAgentProtocol, TurnCancellationStateCapable
 from fast_agent.llm.request_params import tool_result_mode_is_passthrough
 from fast_agent.mcp.helpers.content_helpers import text_content
@@ -170,6 +171,7 @@ class ToolRunner:
         self._pending_tool_request: PromptMessageExtended | None = None
         self._pending_tool_response: PromptMessageExtended | None = None
         self._staged_terminal_response: PromptMessageExtended | None = None
+        self._pending_input_messages: list[PromptMessageExtended] = []
         self._deferred_structured_finalization_started = False
 
     def _defer_hook_status_messages(self, bucket: str) -> AbstractContextManager[None]:
@@ -205,6 +207,15 @@ class ToolRunner:
         self._maybe_fold_managed_process_poll_history()
         await self._maybe_auto_compact_before_followup_llm()
         await self._ensure_tools_ready()
+        # Only consume input on a continuation, after all tool results have been
+        # staged. Never insert user messages between tool calls and their results.
+        if self._iteration > 0:
+            for text in take_queued_messages(self._agent):
+                self.append_messages(text)
+                message = self._delta_messages[-1]
+                self._turn_messages.append(message)
+                self._pending_input_messages.append(message)
+
         await self._run_before_llm_hook()
         assistant_message = await self._call_llm()
         await self._run_after_llm_hook(assistant_message)
@@ -254,6 +265,7 @@ class ToolRunner:
             request_params=self._request_params,
             tools=self._tools_for_next_llm_call(),
         )
+        self._pending_input_messages.clear()
         self._last_message = assistant_message
         self._turn_messages.append(assistant_message)
         return assistant_message
@@ -828,13 +840,18 @@ class ToolRunner:
 
         pending_request = self._pending_tool_request_at_history_end(history)
         if (
-            pending_request is None
-            or self._pending_tool_response is None
-            or self._pending_tool_request is not None
+            pending_request is not None
+            and self._pending_tool_response is not None
+            and self._pending_tool_request is None
         ):
-            return history
+            history.append(self._pending_tool_response.model_copy(deep=True))
 
-        return [*history, self._pending_tool_response.model_copy(deep=True)]
+        # Input taken from the surface is no longer available for prompt replay.
+        # Retain it if the continuation is cancelled before the LLM persists it.
+        return [
+            *history,
+            *(message.model_copy(deep=True) for message in self._pending_input_messages),
+        ]
 
     def _synthesize_passthrough_assistant(
         self,

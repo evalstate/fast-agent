@@ -101,7 +101,10 @@ class ProgramStatusReporter:
     def report_state(
         self, state: ProgramState, *, force: bool = False, kind: BlockedKind | None = None
     ) -> None:
-        self._state = state
+        # Completing one turn is not quiescence while accepted input is still
+        # awaiting the next prompt. Retain working through that handoff; the
+        # next completion/prompt mark will settle the state when the queue drains.
+        self._state = "working" if state == "idle" and self._queued else state
         self._kind = kind if state == "blocked" else None
         self._emit(force=force)
 

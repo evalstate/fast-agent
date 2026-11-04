@@ -231,6 +231,8 @@ async def build_instruction(
         The fully resolved instruction string
     """
     builder = InstructionBuilder(template, source=source)
+    # No terminal guidance until the harness supplies a compatible environment.
+    builder.set("herdrInstructions", "")
 
     # Set up server instructions resolver
     if aggregator is not None:
