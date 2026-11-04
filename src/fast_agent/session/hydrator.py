@@ -16,6 +16,7 @@ from fast_agent.mcp.prompts.prompt_load import (
     load_transcript_into_agent,
     rehydrate_usage_from_history,
 )
+from fast_agent.session.checkpoint import CheckpointTransaction
 
 from .snapshot import (
     PtcStoreProvider,
@@ -829,6 +830,8 @@ class SessionHydrator:
         warnings: list[SessionHydrationWarning],
     ) -> SessionSnapshot:
         snapshot_path = session.directory / "session.json"
+        if CheckpointTransaction.pending(session.directory):
+            return session.load_snapshot()
         try:
             with snapshot_path.open(encoding="utf-8") as handle:
                 return load_session_snapshot(json.load(handle))

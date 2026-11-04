@@ -328,6 +328,7 @@ async def test_explicit_history_saves_are_serialized(tmp_path, monkeypatch) -> N
     first_save_entered = asyncio.Event()
     release_first_save = asyncio.Event()
     save_calls = 0
+    original_save = HistoryExporter.save
 
     async def save_history(
         _agent: AgentProtocol,
@@ -336,12 +337,11 @@ async def test_explicit_history_saves_are_serialized(tmp_path, monkeypatch) -> N
         compact: bool = False,
     ) -> str:
         nonlocal save_calls
-        del compact
         save_calls += 1
         if save_calls == 1:
             first_save_entered.set()
             await release_first_save.wait()
-        return filename or str(session.directory / "shared.json")
+        return await original_save(_agent, filename, compact=compact)
 
     monkeypatch.setattr(HistoryExporter, "save", save_history)
 
