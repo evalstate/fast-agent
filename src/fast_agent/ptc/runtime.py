@@ -169,7 +169,8 @@ _FUNCTIONS_NOTE = (
 )
 _SHELL_BATCH_NOTE = (
     "- Run independent shell commands as separate gathered `{function}` calls rather than "
-    "chained with `;` or `&&`, so each keeps its own stdout, stderr and exit_code.\n"
+    "chained with `;` or `&&`, so each keeps its own stdout, stderr and exit_code: "
+    "`cmds = [...]` then `rs = await asyncio.gather(*[{function}(command=c) for c in cmds])`.\n"
 )
 _SHELL_EXIT_NOTE = (
     "; a shell command that exits non-zero does not raise: check `r['exit_code']`, or pass "
@@ -215,6 +216,22 @@ _DIRECT_IO_ERROR = re.compile(
 _UNSUPPORTED_IO_ERROR = re.compile(
     r"Module `os` has no member"
     r"|Cannot resolve imported module `(?:subprocess|shutil|glob|io|socket|urllib|http|requests)"
+)
+# Built-in methods and standard-library modules the sandbox lacks. Models otherwise work around
+# them in sandbox code (e.g. a hand-rolled str.maketrans) instead of using the system Python.
+_BUILTIN_TYPES = (
+    r"(?:str|bytes|bytearray|int|float|complex|list|dict|set|frozenset|tuple|bool|range)"
+)
+_MISSING_BUILTIN = re.compile(
+    rf"AttributeError: (?:type object '{_BUILTIN_TYPES}'|'{_BUILTIN_TYPES}' object) "
+    r"has no attribute"
+)
+_MISSING_MODULE = re.compile(r"Cannot resolve imported module `|No module named '")
+# A literal list inside `gather(*[... for x in [...]])` whose comprehension `]` was dropped.
+_GATHER_BRACKETS = re.compile(r"closing parenthesis '\)' does not match opening parenthesis '\['")
+_GATHER_HINT = (
+    "\nHint: in `asyncio.gather(*[f(x) for x in [...]])` the comprehension needs its own `]` "
+    "before `)`. Binding the list first (`items = [...]`) avoids this."
 )
 # pydantic-monty (1.3, 1.4) runs os.walk, os.scandir and map, but its type-checker stubs omit them.
 _STUB_GAP = re.compile(
@@ -713,13 +730,13 @@ class ProgrammaticToolRuntime:
                 return _error_result(
                     "Type check failed; the code was NOT executed. Fix it and retry.\n"
                     + detail
-                    + self._direct_io_hint(detail)
+                    + self._error_hints(detail)
                 )
             except MontySyntaxError as exc:
                 return _syntax_error_result(self._describe_syntax_error(code) or exc.display())
             except MontyRuntimeError as exc:
                 detail = exc.display()
-                return self._failure(detail + self._direct_io_hint(detail), output, stats, started)
+                return self._failure(detail + self._error_hints(detail), output, stats, started)
             except MontyCrashedError as exc:
                 return self._failure(f"{exc}\nThe sandbox crashed.", output, stats, started)
             except MontyError as exc:
@@ -730,7 +747,28 @@ class ProgrammaticToolRuntime:
             return self._success(value, output, stats, started)
 
     def _describe_syntax_error(self, code: str) -> str | None:
-        return describe_syntax_error(code, direct_functions=self._shared_functions)
+        report = describe_syntax_error(code, direct_functions=self._shared_functions)
+        if report is not None and _GATHER_BRACKETS.search(report) and "gather(*[" in code:
+            report += _GATHER_HINT
+        return report
+
+    def _error_hints(self, detail: str) -> str:
+        return self._direct_io_hint(detail) or self._sandbox_gap_hint(detail)
+
+    def _sandbox_gap_hint(self, detail: str) -> str:
+        """Point code that hit a missing built-in method or module at the system Python."""
+        if not (_MISSING_BUILTIN.search(detail) or _MISSING_MODULE.search(detail)):
+            return ""
+        hint = (
+            "\nHint: the sandbox's Python lacks this; it has a reduced standard library and "
+            "built-in methods, and no packages."
+        )
+        if self._shell_function is not None:
+            hint += (
+                " Run code that needs it with the system Python: write it to a file and run "
+                f'`await {self._shell_function.python_name}(command="python3 script.py")`.'
+            )
+        return hint
 
     @property
     def store(self) -> SandboxStore:
