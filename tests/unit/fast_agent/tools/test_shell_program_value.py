@@ -1,4 +1,4 @@
-"""Contract for the value sandbox code receives from shell calls made in execute_python."""
+"""Contract for the value sandbox code receives from shell calls made in exec_sandbox."""
 
 from __future__ import annotations
 

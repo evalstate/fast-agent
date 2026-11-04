@@ -38,8 +38,8 @@ if TYPE_CHECKING:
 
 pytest.importorskip("pydantic_monty")
 
-PRINT_MARKER = "Don't `print(r)` or return `r`"
-HELPERS_MARKER = "Print `show(r)` instead"
+PRINT_MARKER = "Print only what you need, not `r`"
+HELPERS_MARKER = "Print `show(r)`, not `r`"
 
 
 def _text(result: CallToolResult) -> str:
@@ -132,25 +132,23 @@ def test_guidance_only_adds_its_note(
         runtime, tools, tool_format=tool_format, output_guidance=guidance, result_byte_limit=33_000
     )
     shell = _shell_function(runtime)
-    note = next(line for line in on.splitlines() if line.startswith("- Shell"))
-    # Turning guidance off restores the description byte for byte.
+    note = next(line for line in on.splitlines() if line.startswith("- Shell:"))
+    # Turning guidance off removes only its note.
     assert on.replace(note + "\n", "", 1) == off
-    assert "- Shell res" not in off and "- Shell output" not in off
+    assert "- Shell:" not in off
     assert (PRINT_MARKER in note) is (guidance == "print")
     assert (HELPERS_MARKER in note) is (guidance == "helpers")
     assert f"`r = {shell.example_call()}`" in note
     assert "about 33 KB" in note
-    assert "bounded stdout and stderr since the previous read" in note
-    assert 'await store("result", r)' in note
-    assert 'await load("result")' in note
-    assert "both streams" in note
+    assert "returns a dict of stdout, stderr, exit_code" in note
+    assert 'await store("r", r)' in note
     if profile == "native":
         assert "poll_process(process_id=r['process_id'])" in note
         assert "read_output" not in note
     else:
         assert "process(action='wait', process_id=r['process_id'])" in note
         assert "process(action='read_output', process_id=..., query='error')" in note
-        assert "Short output may not be retained" in note
+        assert "long-running or long-output command" in note
 
 
 def test_guidance_needs_a_local_shell_in_code(tmp_path: Path) -> None:

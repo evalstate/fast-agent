@@ -108,7 +108,7 @@ from fast_agent.mcp.tool_result_truncation import (
     page_read_text_file_result,
 )
 from fast_agent.paths import resolve_home_paths
-from fast_agent.ptc import PTC_BATCHING_INSTRUCTION, PTC_TOOL_NAME, ProgrammaticToolRuntime
+from fast_agent.ptc import ProgrammaticToolRuntime
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_TOOL_NAME
@@ -647,11 +647,9 @@ class McpAgent(ABC, ToolAgent):
             directive.subagent_instruction if self.config.subagent_child else directive.instruction
         )
         # Subagent installation can process an already-rendered instruction again.
-        if (
-            self._programmatic_tool_runtime() is not None
-            and PTC_BATCHING_INSTRUCTION not in instruction
-        ):
-            instruction = "\n\n".join(filter(None, (instruction, PTC_BATCHING_INSTRUCTION)))
+        ptc_runtime = self._programmatic_tool_runtime()
+        if ptc_runtime is not None and ptc_runtime.batching_instruction not in instruction:
+            instruction = "\n\n".join(filter(None, (instruction, ptc_runtime.batching_instruction)))
         return instruction
 
     def _clone_config(self) -> AgentConfig:
@@ -1665,7 +1663,7 @@ class McpAgent(ABC, ToolAgent):
             Result of the tool call
         """
         ptc_runtime = self._programmatic_tool_runtime()
-        if ptc_runtime is not None and name == PTC_TOOL_NAME:
+        if ptc_runtime is not None and name == ptc_runtime.tool_name:
             return await self._call_ptc_tool(
                 ptc_runtime, arguments or {}, tool_use_id, request_params=request_params
             )
@@ -1789,7 +1787,7 @@ class McpAgent(ABC, ToolAgent):
         *,
         request_params: RequestParams | None,
     ) -> CallToolResult:
-        """Run execute_python, reporting it to ACP as the parent of its nested calls."""
+        """Run the code tool, reporting it to ACP as the parent of its nested calls."""
         # Local import: the fast_agent.acp package is only needed on this path.
         from fast_agent.acp.tool_call_context import acp_tool_call_context
 
@@ -1798,7 +1796,7 @@ class McpAgent(ABC, ToolAgent):
         if tool_handler is not None:
             with suppress(Exception):
                 acp_call_id = await tool_handler.on_tool_start(
-                    PTC_TOOL_NAME, "local", arguments, tool_use_id
+                    runtime.tool_name, "local", arguments, tool_use_id
                 )
 
         async def dispatch(
@@ -2326,7 +2324,7 @@ class McpAgent(ABC, ToolAgent):
         Mirrors the dispatch order in ``call_tool`` and ``_call_local_tool``.
         """
         return (
-            (self._ptc_runtime is not None and name == PTC_TOOL_NAME)
+            (self._ptc_runtime is not None and name == self._ptc_runtime.tool_name)
             or self._is_external_runtime_tool(name)
             or self._is_filesystem_runtime_tool(name)
             or (self._skill_reader is not None and name == READ_SKILL_TOOL_NAME)
@@ -2715,7 +2713,7 @@ class McpAgent(ABC, ToolAgent):
         is_filesystem_runtime_tool: bool,
         route_to_namespaced_candidate: bool,
     ) -> dict[str, Any] | None:
-        if tool_name == PTC_TOOL_NAME and self._ptc_runtime is not None:
+        if self._ptc_runtime is not None and tool_name == self._ptc_runtime.tool_name:
             return self._ptc_runtime.tool_meta()
         if self._shell_runtime_enabled and self._shell_runtime:
             if self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name:
@@ -2765,7 +2763,7 @@ class McpAgent(ABC, ToolAgent):
         lookup_name = tool_name.strip()
         if not lookup_name:
             return None
-        if lookup_name == PTC_TOOL_NAME and self._ptc_runtime is not None:
+        if self._ptc_runtime is not None and lookup_name == self._ptc_runtime.tool_name:
             return self._ptc_runtime.tool_meta()
         if (
             self._shell_runtime_enabled

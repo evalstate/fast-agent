@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import shutil
+import stat
 import tempfile
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import yaml
 
 from fast_agent.marketplace import fetch as marketplace_fetch
 from fast_agent.marketplace import git_sources as marketplace_git_sources
@@ -75,13 +78,21 @@ def fetch_marketplace_plugins_with_source_sync(url: str) -> tuple[list[Marketpla
     return run_coroutine(fetch_marketplace_plugins_with_source(url))
 
 
+def _path_mode(path: Path) -> int:
+    """Treat missing paths as absent, but preserve discovery permission and I/O errors."""
+    try:
+        return path.stat().st_mode
+    except (FileNotFoundError, NotADirectoryError):
+        return 0
+
+
 def list_local_plugins(*, destination_root: Path) -> list[LocalPlugin]:
     destination_root = destination_root.resolve()
-    if not destination_root.is_dir():
+    if not stat.S_ISDIR(_path_mode(destination_root)):
         return []
     plugins: list[LocalPlugin] = []
     for index, plugin_dir in enumerate(
-        [entry for entry in sorted(destination_root.iterdir()) if entry.is_dir()],
+        [entry for entry in sorted(destination_root.iterdir()) if stat.S_ISDIR(_path_mode(entry))],
         start=1,
     ):
         manifest = None
@@ -221,8 +232,17 @@ def load_enabled_plugin_contributions(
     post_user_turn: dict[str, PluginPostUserTurnSpec] = {}
     tool_call_review: dict[str, PluginToolCallReviewSpec] = {}
     for name in enabled:
-        plugin_dir = _resolve_enabled_plugin_dir(destination_root=destination_root, name=name)
-        if not (plugin_dir / PLUGIN_MANIFEST_FILENAME).is_file():
+        try:
+            plugin_dir = _resolve_enabled_plugin_dir(destination_root=destination_root, name=name)
+        except Exception as exc:
+            warnings.warn(
+                f"Failed to load enabled fast-agent plugin '{name}': {exc}",
+                UserWarning,
+                stacklevel=2,
+            )
+            tool_call_review[name] = unloadable_tool_call_review(name, str(exc))
+            continue
+        if not stat.S_ISREG(_path_mode(plugin_dir / PLUGIN_MANIFEST_FILENAME)):
             warnings.warn(
                 f"Enabled fast-agent plugin '{name}' is not installed in {destination_root}",
                 UserWarning,
@@ -266,12 +286,38 @@ def _mentions_tool_call_review(plugin_dir: Path) -> bool:
 
 def _resolve_enabled_plugin_dir(*, destination_root: Path, name: str) -> Path:
     direct_dir = destination_root / name
-    if (direct_dir / PLUGIN_MANIFEST_FILENAME).is_file():
+    if stat.S_ISREG(_path_mode(direct_dir / PLUGIN_MANIFEST_FILENAME)):
         return direct_dir
 
+    unidentified_reviewers: list[str] = []
     for entry in list_local_plugins(destination_root=destination_root):
         if entry.manifest is not None and entry.manifest.name == name:
             return entry.plugin_dir
+        if entry.manifest_error is None:
+            continue
+        manifest_path = entry.plugin_dir / PLUGIN_MANIFEST_FILENAME
+        if not stat.S_ISREG(_path_mode(manifest_path)):
+            continue
+        # Recover identity independently of schema and handler validation.
+        manifest_text = manifest_path.read_text(encoding="utf-8", errors="replace")
+        try:
+            data = yaml.safe_load(manifest_text)
+        except yaml.YAMLError:
+            data = None
+        declared_name = data.get("name") if isinstance(data, dict) else None
+        if isinstance(declared_name, str) and declared_name.strip():
+            if declared_name.strip() == name:
+                return entry.plugin_dir
+        elif "tool_call_review" in manifest_text:
+            unidentified_reviewers.append(f"{manifest_path}: {entry.manifest_error}")
+
+    if unidentified_reviewers:
+        # An unreadable identity may belong to this enabled name. Do not silently
+        # discard its guard just because its installation directory is different.
+        raise ValueError(
+            f"Cannot resolve enabled plugin '{name}' with unidentified failed reviewers: "
+            + "; ".join(unidentified_reviewers)
+        )
 
     return direct_dir
 

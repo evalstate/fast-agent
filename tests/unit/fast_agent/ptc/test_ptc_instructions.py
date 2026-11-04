@@ -40,10 +40,10 @@ async def test_batching_guidance_is_only_added_with_ptc(enabled: bool, template:
 
         tools = (await agent.list_tools()).tools
         code_tool = next(tool for tool in tools if tool.name == PTC_TOOL_NAME)
+        # The system prompt carries the batching guidance; the description does not repeat it.
         assert code_tool.description is not None
-        assert code_tool.description.index(PTC_BATCHING_INSTRUCTION) < code_tool.description.index(
-            "Sandbox:"
-        )
+        assert PTC_BATCHING_INSTRUCTION not in code_tool.description
+        assert "asyncio.gather" in code_tool.description
     finally:
         await agent.shutdown()
 

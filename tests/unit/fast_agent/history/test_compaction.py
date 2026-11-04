@@ -25,6 +25,7 @@ from fast_agent.context import Context
 from fast_agent.event_progress import ProgressAction
 from fast_agent.history.compaction import (
     _CHARS_PER_TOKEN,
+    _SUMMARY_TOKEN_ALLOWANCE,
     DEFAULT_COMPACTION_PROMPT,
     FAST_AGENT_COMPACTION_CHANNEL,
     LEGACY_SUMMARY_NOTICE,
@@ -205,6 +206,34 @@ class TestPlanCompaction:
         )
 
         assert [m.first_text() for m in plan.retained_tail] == ["pending"]
+        assert plan.retained_prompt == [history[0]]
+
+    @pytest.mark.parametrize("recent_tool_exchanges", [0, 3])
+    def test_mid_turn_budget_summarizes_oversized_prompt(self, recent_tool_exchanges):
+        template = _user("template", template=True)
+        prompt = _user("x" * 12000)
+        pending = _assistant("pending", tool_call=True)
+        history = [
+            template,
+            prompt,
+            _assistant("completed", tool_call=True),
+            _tool_result("result"),
+            pending,
+        ]
+        budget = 2500
+
+        plan = _plan_compaction_with_budget(
+            history,
+            keep_turns=0,
+            max_tokens_after=budget,
+            recent_tool_exchanges=recent_tool_exchanges,
+        )
+
+        assert plan.templates == [template]
+        assert plan.compact_region == history[1:-1]
+        assert plan.retained == [pending]
+        assert plan.messages_before == len(history)
+        assert estimate_tokens(plan.templates + plan.retained) + _SUMMARY_TOKEN_ALLOWANCE <= budget
 
     def test_mid_turn_planner_compacts_single_long_tool_turn(self):
         history = [
@@ -878,7 +907,10 @@ class TestCompactConversation:
         assert len(user_turn_starts(agent.message_history)) == 1
         assert total_user_turns(agent.message_history) == 4
 
-    async def test_mid_turn_compaction_keeps_prompt_and_reconstructs(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize("oversized_prompt", [False, True])
+    async def test_mid_turn_compaction_keeps_prompt_and_reconstructs(
+        self, tmp_path, monkeypatch, oversized_prompt
+    ):
         monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -887,7 +919,7 @@ class TestCompactConversation:
         try:
             history = [
                 *_turn("one", "1"),
-                _user("two"),
+                _user("x" * 12000 if oversized_prompt else "two"),
                 _assistant("old", tool_call=True),
                 _tool_result("old output"),
                 _assistant("recent", tool_call=True),
@@ -903,15 +935,17 @@ class TestCompactConversation:
             agent.context = Context(config=Settings(session_history=True), session_manager=manager)
 
             result = await compact_conversation(
-                agent, settings=CompactionSettings(), recent_tool_exchanges=1
+                agent,
+                # 2500 of the fake model's 100k tokens.
+                settings=CompactionSettings(threshold=0.025),
+                recent_tool_exchanges=1,
             )
 
-            assert [m.first_text() for m in agent.message_history[1:]] == [
-                "two",
-                "recent",
-                "<no text>",
-                "pending",
-            ]
+            expected_tail = (
+                ["pending"] if oversized_prompt else ["two", "recent", "<no text>", "pending"]
+            )
+            assert [m.first_text() for m in agent.message_history[1:]] == expected_tail
+            assert result.tokens_after_estimate <= 2500
             from fast_agent.history.atif_reconstruction import (
                 is_export_marker,
                 reconstruct_history,

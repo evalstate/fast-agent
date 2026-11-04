@@ -164,7 +164,7 @@ def test_cpython_guidance_requires_a_shell_command_tool(
     assert surface.programmatic is not None
     for instructions in [tools[0].description or "", surface.programmatic.instructions]:
         hints = [
-            line for line in instructions.splitlines() if line.startswith("- For full CPython")
+            line for line in instructions.splitlines() if line.startswith("- For other modules")
         ]
         assert len(hints) == (1 if expect_hint else 0)
         assert ("- Run independent shell commands" in instructions) is (
@@ -479,7 +479,7 @@ def test_instructions_call_sandbox_callables_functions_not_tools() -> None:
     assert len(mentions) == 1
     assert "use a tool of the same name" in mentions[0]
     assert "gathered `bash` calls" in instructions
-    assert "run it with `python3` via `await bash(command=...)`" in instructions
+    assert 'run it with `await bash(command="python3 script.py")`' in instructions
 
 
 def test_instructions_show_a_concrete_tool_call_for_io() -> None:
@@ -526,11 +526,11 @@ def test_instructions_state_that_sandbox_reads_load_whole_files() -> None:
     line = next(
         line
         for line in (code_tool.description or "").splitlines()
-        if line.startswith("- File reads load the whole file")
+        if line.startswith("- A read loads the whole file")
     )
 
-    assert "even for `read(n)` or `seek()`: at most 512 KB binary or 4 MB text" in line
-    assert "`head -c`, `xxd` or `python3` with `bash` instead" in line
+    assert "(at most 512 KB binary or 4 MB text), even for `read(n)` or `seek()`" in line
+    assert "`head -c` or `xxd` via `bash`" in line
 
 
 @pytest.mark.asyncio
@@ -1377,10 +1377,10 @@ async def test_syntax_errors_are_explained_with_a_nested_quote_hint(type_check) 
     assert unsupported.is_error and "SyntaxError:" not in _text(unsupported)
 
 
-def _listed_modules(instructions: str, label: str) -> list[str]:
+def _listed_modules(instructions: str, start: str, end: str) -> list[str]:
     text = " ".join(instructions.split())
-    listed = text.split(f"{label}: ", 1)[1].split(". ", 1)[0]
-    return [name.strip() for name in listed.replace(" and anything else not listed", "").split(",")]
+    listed = text.split(start, 1)[1].split(end, 1)[0]
+    return [name.strip() for name in listed.replace(" and ", ", ").split(",") if name.strip()]
 
 
 @pytest.mark.asyncio
@@ -1392,8 +1392,8 @@ async def test_documented_sandbox_modules_match_the_installed_monty() -> None:
 
     runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
     instructions = runtime.model_tools([])[0].description or ""
-    available = _listed_modules(instructions, "Importable modules")
-    unavailable = [name for name in _listed_modules(instructions, "Not available") if name]
+    available = _listed_modules(instructions, "the only importable modules are ", ". No other")
+    unavailable = _listed_modules(instructions, "No other standard library (", ", ...)")
 
     async def imports(pool: AsyncMonty, module: str) -> bool:
         async with pool.checkout(script_name="probe.py") as session:

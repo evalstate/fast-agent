@@ -155,7 +155,11 @@ def _refresh_env_summary(context: MutableMapping[str, str]) -> None:
         env_lines.append(f"Client: {client}")
     python_version = context.get("pythonVer")
     if python_version:
-        env_lines.append(f"Fast-agent runtime: {platform.python_implementation()} {python_version}")
+        # The agent's own interpreter, not one the model can run code in (e.g. the PTC sandbox).
+        env_lines.append(
+            f"Fast-agent runtime: {platform.python_implementation()} {python_version} "
+            "(host process)"
+        )
     host_platform = context.get("hostPlatform")
     environment_kind = context.get("executionEnvironmentKind")
     if host_platform and (environment_kind is None or environment_kind == "local"):

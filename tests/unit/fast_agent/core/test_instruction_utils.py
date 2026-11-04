@@ -262,8 +262,8 @@ def test_enrich_environment_context_describes_active_execution_environment() -> 
         in context["env"]
     )
     assert (
-        f"Fast-agent runtime: {platform.python_implementation()} {platform.python_version()}"
-        in context["env"]
+        f"Fast-agent runtime: {platform.python_implementation()} {platform.python_version()} "
+        "(host process)" in context["env"]
     )
     assert "Client host platform:" not in context["env"]
     assert "Host platform:" not in context["env"]

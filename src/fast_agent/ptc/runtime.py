@@ -1,6 +1,6 @@
 """Programmatic tool calling runtime backed by a pydantic-monty sandbox.
 
-The model sees one tool, ``execute_python``. Each run's code executes in a fresh Monty sandbox
+The model sees one tool, ``exec_sandbox``. Each run's code executes in a fresh Monty sandbox
 where each agent tool is an async function; values a run keeps with ``store()`` are what later
 runs can ``load()``. Nested calls are dispatched back through the agent's
 normal tool path, so MCP routing, permissions and local runtimes still apply; only printed
@@ -72,7 +72,7 @@ if TYPE_CHECKING:
     from fast_agent.mcp.url_elicitation_required import URLElicitationRequiredDisplayPayload
     from fast_agent.ptc.files import SandboxFilesystem
 
-PTC_TOOL_NAME = "execute_python"
+PTC_TOOL_NAME = "exec_sandbox"
 PTC_TOOL_META = {"variant": "code", "code_arg": "code", "language": "python"}
 PtcToolFormat = Literal["json", "freeform"]
 # Responses custom tool calls carry their raw input under this argument name.
@@ -92,49 +92,51 @@ _MAX_SUSPENSIONS = 100_000
 # do not tune this value for context size.
 _MAX_PRINT_CHARS = 1_000_000
 
-# Nested result metadata copied onto the execute_python result, which is what history keeps.
+# Nested result metadata copied onto the exec_sandbox result, which is what history keeps.
 _CARRIED_RESULT_META = (FAST_AGENT_SUBAGENT_RESULT_METADATA,)
 
 ToolDispatcher = Callable[[str, dict[str, Any], str], Awaitable[CallToolResult]]
 """Dispatch a nested call: (tool name, arguments, nested call id) -> result."""
 
-PTC_BATCHING_INSTRUCTION = (
+PTC_BATCHING_INSTRUCTION_TEMPLATE = (
     "Batch independent searches, file reads, and other read-only calls in a single "
-    "`execute_python` invocation using `asyncio.gather`. Prefer this over separate invocations "
+    "`{tool}` invocation using `asyncio.gather`. Prefer this over separate invocations "
     "or sequential awaits when no result depends on another. Inspect every result; use "
     "`settle()` when each result must be collected despite individual failures. Keep dependent "
     "steps, approvals, and potentially conflicting mutations sequential."
 )
+PTC_BATCHING_INSTRUCTION = PTC_BATCHING_INSTRUCTION_TEMPLATE.format(tool=PTC_TOOL_NAME)
 
+# The system prompt carries the batching guidance (PTC_BATCHING_INSTRUCTION); the description
+# says what the sandbox is, how to call functions and what comes back. Keep every claim here
+# checked against Monty: models act on it literally.
 _INSTRUCTIONS = """\
-Run Python code. Only `print()` output and the final expression value are returned to you: \
+Run a Python script in a sandbox: a restricted Python 3.14 interpreter (Monty), separate from \
+the machine's Python. Only `print()` output and the final expression value come back to you: \
 filter and aggregate large results in code.
 {input_note}\
-- {batching_instruction}
-- asyncio is pre-imported: `a, b = await asyncio.gather(f(x=1), g(y=2))`. \
-`settle(aw)` returns an exception instead of raising, so \
-`await asyncio.gather(*[settle(f(x=x)) for x in xs])` returns every result \
+- Sandbox Python: the only importable modules are asyncio, base64, binascii, bisect, \
+collections, copy, csv, dataclasses, datetime, decimal, functools, hashlib, itertools, json, \
+math, os, os.path, pathlib, random, re, sys, time, tomllib, typing and unicodedata. No other \
+standard library (difflib, heapq, io, string, struct, subprocess, ...), no packages, no \
+environment variables. Unsupported syntax: class inheritance, `@staticmethod`/`@classmethod`/\
+`@property`, `yield`, `del`, `async with`/`async for`, `except*`, `import *`.
+{shell_python_note}\
+{functions_note}\
+- Independent calls can run concurrently: `a, b = await asyncio.gather(f(x=1), g(y=2))` \
+(asyncio is pre-imported). `settle(aw)` returns an exception instead of raising, so \
+`await asyncio.gather(*[settle(f(x=x)) for x in xs])` collects every result \
 (`return_exceptions=` is unsupported).
 {shell_batch_note}\
 {shell_output_note}\
-{functions_note}\
 {io_note}\
-- Sandbox: a subset of Python 3.14 with no environment or packages. \
-Importable modules: asyncio, base64, binascii, bisect, collections, copy, csv, dataclasses, \
-datetime, decimal, functools, hashlib, itertools, json, math, os.path, random, re, sys, time, \
-tomllib, typing, unicodedata. Some are partial (functools has only reduce and partial). Not \
-available: enum, contextlib, io, string, struct, operator, heapq, subprocess.
-{shell_python_note}\
 {shared_note}\
-- Results are Python values: structured content as a dict, JSON text parsed, other text as \
-str. A failing call raises RuntimeError.
-- Images, audio and binary resources arrive as `{{"media_id": ...}}` handles. To see them, \
-return the handles in the final expression; printed handles are not attached. A structured \
-result with such blocks is `{{"structured_content": ..., "content": [...]}}`.
+- Function results: structured content as a dict, JSON text parsed, other text as a str. A \
+failing call raises RuntimeError{shell_exit_note}.
+- Images, audio and binary resources arrive as `{{"media_id": ...}}` handles: return them in \
+the final expression to see them; printed handles are not attached. A structured result with \
+such blocks is `{{"structured_content": ..., "content": [...]}}`.
 - {store_note}{type_check_note}
-- Top-level `await` works. Unsupported: class inheritance, method decorators (`@staticmethod`, \
-`@classmethod`, `@property`), `yield`, `del`, \
-`async with`/`async for`, `except*`, `import *`.
 """
 # Helpers defined in every sandbox session before model code runs. asyncio is pre-imported
 # because models routinely call asyncio.gather without importing it.
@@ -157,26 +159,31 @@ _FREEFORM_INPUT_NOTE = (
     "This is a FREEFORM tool: send the Python source itself, not JSON, quotes or markdown fences.\n"
 )
 # The sandbox callables are always "functions"; "tool" means only something the model can call
-# directly (execute_python, or a function also exposed as a direct tool). Models act on "tool"
+# directly (the code tool, or a function also exposed as a direct tool). Models act on "tool"
 # by emitting a direct tool call, so the wording must not blur the two.
 _FUNCTIONS_NOTE = (
-    "- The functions listed below are already defined in this Python{only_code}. Where other "
-    'instructions say to use a tool of the same name (e.g. "use the `{tool}` tool"), call '
-    "`{call}` here.\n"
-    '- Call them as `r = await name(arg="value")`: async, keyword arguments only, no import '
-    "needed. `= ...` marks an optional parameter; pass `None` only where the type allows it.\n"
+    "- The functions below are defined in the sandbox{only_code}. Call them as "
+    '`r = await name(arg="value")` (async, keyword arguments only, no import). `= ...` marks an '
+    "optional parameter; pass `None` only where the type allows it. Where other instructions "
+    'say to use a tool of the same name (e.g. "use the `{tool}` tool"), call `{call}` here.\n'
 )
 _SHELL_BATCH_NOTE = (
-    "- Run independent shell commands as separate gathered `{function}` calls, not chained with "
-    "separators; each result keeps its own stdout, stderr and exit_code.\n"
+    "- Run independent shell commands as separate gathered `{function}` calls rather than "
+    "chained with `;` or `&&`, so each keeps its own stdout, stderr and exit_code: "
+    "`cmds = [...]` then `rs = await asyncio.gather(*[{function}(command=c) for c in cmds])`.\n"
 )
+_SHELL_EXIT_NOTE = (
+    "; a shell command that exits non-zero does not raise: check `r['exit_code']`, or pass "
+    "`check=True`"
+)
+# Running the machine's Python from a file avoids a heredoc inside a string inside a shell call.
 _SHELL_PYTHON_NOTE = (
-    "- For full CPython or packages, write a script and run it with `python3` via `{call}`, "
-    "outside this sandbox.\n"
+    "- For other modules, packages or heavy computation, use the machine's Python: write the "
+    "script to a file, then run it with `{call_python}` (install `python3` if it is missing).\n"
 )
 _DIRECT_SHELL_PYTHON_NOTE = (
-    "- For full CPython or packages, run a script (e.g. `python3 x.py`) with the `{tool}` tool, "
-    "outside this sandbox.\n"
+    "- For other modules, packages or heavy computation, run a script with the machine's "
+    "`python3` using the `{tool}` tool (install `python3` if it is missing).\n"
 )
 _SHARED_NOTE = (
     "- {functions} can also be called directly as tools: directly for a one-off step, "
@@ -185,27 +192,21 @@ _SHARED_NOTE = (
 )
 _IO_NOTE = (
     "- The functions are your only access to files, commands and the network, e.g. "
-    "`r = {example}`. Python's own `open()`, `os`, `pathlib` and `subprocess` cannot reach "
-    "files or processes here.\n"
+    "`r = {example}`; `open()`, `os`, `pathlib` and `subprocess` cannot reach them here.\n"
 )
 _FILES_NOTE = (
-    "- `open()`, `pathlib.Path` and the `os` file functions (`os.listdir`, `os.walk`, "
-    "`os.path.exists`, `os.makedirs`, ...) work on the real files; relative paths start in the "
-    "working directory. File access is experimental local Python pass-through, not a "
-    "filesystem sandbox; it does not invoke tools or tool permission prompts.{commands}\n"
+    "- Files are the machine's real files: `open()`, `pathlib.Path` and the `os` file functions "
+    "(`os.listdir`, `os.walk`, `os.path.exists`, `os.makedirs`, ...) read and write them, "
+    "relative to the working directory.{commands}\n"
 )
 _READ_LIMITS_NOTE = (
-    "- File reads load the whole file, even for `read(n)` or `seek()`: at most {binary} binary "
-    "or {text} text. `struct` and `int.from_bytes` are unavailable.{advice}\n"
+    "- A read loads the whole file (at most {binary} binary or {text} text), even for `read(n)` "
+    "or `seek()`.{advice}\n"
 )
 _READ_LIMITS_ADVICE = (
-    " For large or binary files, run commands such as `head -c`, `xxd` or `python3` with "
-    "`{shell}` instead."
+    " For larger or binary files, use commands such as `head -c` or `xxd` via `{shell}`."
 )
-_COMMANDS_NOTE = (
-    " Commands and the network need the functions, e.g. `r = {example}`; "
-    "`subprocess` is unavailable."
-)
+_COMMANDS_NOTE = " Commands and the network go through the functions, e.g. `r = {example}`."
 # Sandbox errors from trying to do I/O directly instead of through tool functions.
 _DIRECT_IO_ERROR = re.compile(
     r"PermissionError|`open` used when not defined|Module `os` has no member"
@@ -215,6 +216,22 @@ _DIRECT_IO_ERROR = re.compile(
 _UNSUPPORTED_IO_ERROR = re.compile(
     r"Module `os` has no member"
     r"|Cannot resolve imported module `(?:subprocess|shutil|glob|io|socket|urllib|http|requests)"
+)
+# Built-in methods and standard-library modules the sandbox lacks. Models otherwise work around
+# them in sandbox code (e.g. a hand-rolled str.maketrans) instead of using the system Python.
+_BUILTIN_TYPES = (
+    r"(?:str|bytes|bytearray|int|float|complex|list|dict|set|frozenset|tuple|bool|range)"
+)
+_MISSING_BUILTIN = re.compile(
+    rf"AttributeError: (?:type object '{_BUILTIN_TYPES}'|'{_BUILTIN_TYPES}' object) "
+    r"has no attribute"
+)
+_MISSING_MODULE = re.compile(r"Cannot resolve imported module `|No module named '")
+# A literal list inside `gather(*[... for x in [...]])` whose comprehension `]` was dropped.
+_GATHER_BRACKETS = re.compile(r"closing parenthesis '\)' does not match opening parenthesis '\['")
+_GATHER_HINT = (
+    "\nHint: in `asyncio.gather(*[f(x) for x in [...]])` the comprehension needs its own `]` "
+    "before `)`. Binding the list first (`items = [...]`) avoids this."
 )
 # pydantic-monty (1.3, 1.4) runs os.walk, os.scandir and map, but its type-checker stubs omit them.
 _STUB_GAP = re.compile(
@@ -239,7 +256,7 @@ class _ExecutionStats:
     started: int = 0
     calls: list[dict[str, Any]] = field(default_factory=list)
     # Nested results are consumed in the sandbox, so URL elicitations must be carried to the
-    # execute_python result for the user to see them.
+    # exec_sandbox result for the user to see them.
     url_elicitations: list[URLElicitationRequiredDisplayPayload] = field(default_factory=list)
     # Commands the shell returned while still running, by process id, with their command
     # text; a later wait or stop that sees them end removes them.
@@ -332,6 +349,8 @@ class ProgrammaticToolRuntime:
                 "Install it with: uv pip install 'fast-agent-mcp[ptc]'",
             )
         self._settings = settings
+        # The name avoids "python": models treat a Python-named tool as the machine's Python.
+        self.tool_name = PTC_TOOL_NAME
         self._functions: dict[str, PtcFunction] = {}
         self._nested_tools: dict[str, Tool] = {}
         # Functions whose tools the model can also call directly.
@@ -355,6 +374,11 @@ class ProgrammaticToolRuntime:
     @property
     def functions(self) -> Mapping[str, PtcFunction]:
         return self._functions
+
+    @property
+    def batching_instruction(self) -> str:
+        """System-prompt guidance on batching calls in the code tool."""
+        return PTC_BATCHING_INSTRUCTION_TEMPLATE.format(tool=self.tool_name)
 
     def resolve_tool_format(self, model_default: PtcToolFormat | None) -> PtcToolFormat:
         """Apply ``ptc.tool_format``, using the model's default when it is ``auto``."""
@@ -386,9 +410,8 @@ class ProgrammaticToolRuntime:
         self._tool_format = tool_format
         direct = [tool for tool in tools if self._direct_reason(tool) is not None]
         nested = [tool for tool in tools if self._is_nested(tool)]
-        self._output_guidance = (
-            output_guidance if any(_returns_shell_output(tool) for tool in nested) else "off"
-        )
+        local_shell = any(_returns_shell_output(tool) for tool in nested)
+        self._output_guidance = output_guidance if local_shell else "off"
         self._result_byte_limit = result_byte_limit
         self._functions = build_functions(
             nested,
@@ -419,6 +442,9 @@ class ProgrammaticToolRuntime:
         )
         return [self.tool(), *direct]
 
+    def _prelude(self) -> str:
+        return _PRELUDE + (OUTPUT_PRELUDE if self._output_guidance != "off" else "")
+
     def surface(self, model_tools: Sequence[Tool]) -> ToolSurface:
         """Describe ``model_tools`` (as returned by ``model_tools()``) and the sandbox functions."""
         exposed = [
@@ -444,7 +470,7 @@ class ProgrammaticToolRuntime:
         return ToolSurface(
             tools=(*exposed, *nested),
             programmatic=ProgrammaticSurface(
-                tool_name=PTC_TOOL_NAME,
+                tool_name=self.tool_name,
                 tool_format=self._tool_format,
                 instructions=self._instructions(),
                 type_check=self._settings.type_check,
@@ -456,7 +482,7 @@ class ProgrammaticToolRuntime:
     def _instructions(self) -> str:
         shared = ", ".join(f"`{name}`" for name in self._shared_functions)
         return _INSTRUCTIONS.format(
-            batching_instruction=PTC_BATCHING_INSTRUCTION,
+            shell_exit_note=_SHELL_EXIT_NOTE if self._shell_function else "",
             functions_note=self._functions_note(),
             io_note=self._io_note(),
             shell_python_note=self._shell_python_note(),
@@ -516,7 +542,9 @@ class ProgrammaticToolRuntime:
 
     def _shell_python_note(self) -> str:
         if self._shell_function is not None:
-            return _SHELL_PYTHON_NOTE.format(call=self._shell_function.example_call())
+            return _SHELL_PYTHON_NOTE.format(
+                call_python=f'await {self._shell_function.python_name}(command="python3 script.py")'
+            )
         if self._direct_shell_tool is not None:
             return _DIRECT_SHELL_PYTHON_NOTE.format(tool=self._direct_shell_tool)
         return ""
@@ -589,8 +617,8 @@ class ProgrammaticToolRuntime:
         if function is None:
             return None
         return (
-            f"`{name}` is not a direct tool; it is a function inside `{PTC_TOOL_NAME}`. "
-            f"Call `{PTC_TOOL_NAME}` with code such as `r = {function.example_call()}` "
+            f"`{name}` is not a direct tool; it is a function inside `{self.tool_name}`. "
+            f"Call `{self.tool_name}` with code such as `r = {function.example_call()}` "
             "then `print(r)`."
         )
 
@@ -612,7 +640,7 @@ class ProgrammaticToolRuntime:
                 "format": {"type": "grammar", "syntax": "lark", "definition": _FREEFORM_GRAMMAR},
             }
         return Tool(
-            name=PTC_TOOL_NAME,
+            name=self.tool_name,
             description=self._instructions() + _FUNCTIONS_BLOCK.format(stubs=f"{stubs}\n"),
             input_schema={
                 "type": "object",
@@ -679,9 +707,7 @@ class ProgrammaticToolRuntime:
             started = time.perf_counter()
             try:
                 async with await self._checkout() as session:
-                    await session.feed_run(
-                        _PRELUDE if self._output_guidance == "off" else _PRELUDE + OUTPUT_PRELUDE
-                    )
+                    await session.feed_run(self._prelude())
                     try:
                         value = await self._feed(session, code, lookup, output, files, cwd)
                     except Exception:
@@ -704,13 +730,13 @@ class ProgrammaticToolRuntime:
                 return _error_result(
                     "Type check failed; the code was NOT executed. Fix it and retry.\n"
                     + detail
-                    + self._direct_io_hint(detail)
+                    + self._error_hints(detail)
                 )
             except MontySyntaxError as exc:
                 return _syntax_error_result(self._describe_syntax_error(code) or exc.display())
             except MontyRuntimeError as exc:
                 detail = exc.display()
-                return self._failure(detail + self._direct_io_hint(detail), output, stats, started)
+                return self._failure(detail + self._error_hints(detail), output, stats, started)
             except MontyCrashedError as exc:
                 return self._failure(f"{exc}\nThe sandbox crashed.", output, stats, started)
             except MontyError as exc:
@@ -721,7 +747,28 @@ class ProgrammaticToolRuntime:
             return self._success(value, output, stats, started)
 
     def _describe_syntax_error(self, code: str) -> str | None:
-        return describe_syntax_error(code, direct_functions=self._shared_functions)
+        report = describe_syntax_error(code, direct_functions=self._shared_functions)
+        if report is not None and _GATHER_BRACKETS.search(report) and "gather(*[" in code:
+            report += _GATHER_HINT
+        return report
+
+    def _error_hints(self, detail: str) -> str:
+        return self._direct_io_hint(detail) or self._sandbox_gap_hint(detail)
+
+    def _sandbox_gap_hint(self, detail: str) -> str:
+        """Point code that hit a missing built-in method or module at the system Python."""
+        if not (_MISSING_BUILTIN.search(detail) or _MISSING_MODULE.search(detail)):
+            return ""
+        hint = (
+            "\nHint: the sandbox's Python lacks this; it has a reduced standard library and "
+            "built-in methods, and no packages."
+        )
+        if self._shell_function is not None:
+            hint += (
+                " Run code that needs it with the system Python: write it to a file and run "
+                f'`await {self._shell_function.python_name}(command="python3 script.py")`.'
+            )
+        return hint
 
     @property
     def store(self) -> SandboxStore:
@@ -739,7 +786,7 @@ class ProgrammaticToolRuntime:
 
     def _direct_reason(self, tool: Tool) -> str | None:
         """Return why ``tool`` stays directly callable, or None when only code can call it."""
-        if tool.name == PTC_TOOL_NAME:
+        if tool.name == self.tool_name:
             return None
         pattern = _matching_pattern(tool, self._settings.direct_tools)
         if pattern is not None:
@@ -755,7 +802,7 @@ class ProgrammaticToolRuntime:
 
     def _is_nested(self, tool: Tool) -> bool:
         """Return whether sandbox code can call ``tool``; ``ptc.direct_tools`` excludes it."""
-        if tool.name == PTC_TOOL_NAME:
+        if tool.name == self.tool_name:
             return False
         if _matching_pattern(tool, self._settings.direct_tools) is not None:
             return False

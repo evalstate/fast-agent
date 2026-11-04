@@ -17,8 +17,8 @@ def test_enrich_with_environment_context_populates_env_block():
     assert "Workspace root: /workspace/app" in env_text
     assert "Client: Zed 1.2.3" in env_text
     assert (
-        f"Fast-agent runtime: {platform.python_implementation()} {platform.python_version()}"
-        in env_text
+        f"Fast-agent runtime: {platform.python_implementation()} {platform.python_version()} "
+        "(host process)" in env_text
     )
     assert "Host platform:" in env_text
     assert context["modelReferences"] == ""

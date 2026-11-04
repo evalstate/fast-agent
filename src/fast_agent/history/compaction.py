@@ -18,7 +18,7 @@ import os
 import tempfile
 import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Protocol, cast
@@ -314,7 +314,9 @@ def _plan_compaction_with_budget(
                 return candidate
             plan = candidate
         if plan is not None:
-            return plan
+            # The zero-exchange candidate still retains the current prompt. If it
+            # exceeds the budget, summarize that prompt and keep only the pending call.
+            return replace(plan, retained_prompt=[], retained_prompt_index=0)
         raise CompactionSkipped("No older tool-loop history to compact.")
 
     plan = plan_compaction(history, keep_turns=keep_turns)

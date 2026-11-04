@@ -79,43 +79,34 @@ def show(r: dict[str, Any], n: int = 40, pattern: str | None = None) -> str:
     return "\\n".join(result)
 """
 
+_RESULT_SHAPE = (
+    "returns a dict of stdout, stderr, exit_code, status ('completed', 'failed', 'running', "
+    "...), process_id and truncated (True if a stream over a million characters lost its "
+    "middle)"
+)
 _PRINT_NOTE = (
-    "- Shell results: `r = {call}` gives your code bounded stdout and stderr since the previous read; you "
-    "only see what you print, cut to about {limit} (a longer print loses its middle). Don't "
-    "`print(r)` or return `r`: it shows everything on one escaped line. Print `r['exit_code']` "
-    "or `r['status']` and only the part you need: the end of build, install and test logs "
-    "(`r['stdout'][-3000:]`), or the lines you pick out. Check stderr and `r['truncated']` "
-    "for capture loss.{running}{stored}{retained} Shortcuts: "
-    "`show(r)` gives exit_code, status, process_id, any capture truncation and stderr/stdout "
-    "(in full up to 80 lines, else the first 10 and last 40 around an omitted-lines marker), "
-    "`show(r, pattern='error|fail')` matching lines from both streams; `tail(text, n)`, `head(text, n)` and "
-    "`grep(text, pattern, context=0, limit=50)` work on any text.\n"
+    "- Shell: `r = {call}` " + _RESULT_SHAPE + ". Print only what you need, not `r` (a dict "
+    "prints as one escaped line): `r['exit_code']`, the end of build and test logs "
+    "(`r['stdout'][-3000:]`), or lines you pick out. `show(r)` prints exit_code, status and both "
+    "streams (long ones as their first 10 and last 40 lines); `tail(text, n)`, `head(text, n)` "
+    "and `grep(text, pattern, context=0, limit=50)` work on any text. You see at most about "
+    "{limit} of printed output; a longer print loses its middle.{running}{stored}{retained}\n"
 )
-_PRINT_RUNNING = (
-    " If `status` is `'running'`, wait with `{wait}`, then print the end of its output."
-)
-_STORE_NOTE = (
-    ' If you may need more later, `await store("result", r)` before ending this call; '
-    '`r = await load("result")` recovers that capture, not output already dropped.'
-)
-_RETAINED_NOTE = (
-    " `{read}` searches available bounded retained output, not all unprinted output. "
-    "Short output may not be retained; use store/load for it."
-)
-
+_PRINT_RUNNING = " If `status` is 'running', wait with `{wait}`, then print the end of its output."
 _HELPERS_NOTE = (
-    "- Shell output: `r = {call}` gives your code bounded stdout and stderr since the previous read; you see "
-    "what you print, cut to about {limit} (a longer print loses its middle). Never `print(r)` "
-    "or return `r`: it shows everything on one escaped line. Print `show(r)` instead: "
-    "exit_code, status, process_id, `truncated=True` if capture lost output, and stderr and "
-    "stdout: in full up to 80 lines, else the first 10 and last 40 around an omitted-lines "
-    "marker. show() is for command results: print the full text of files you need to read, "
-    "not show() of a `cat`. "
-    "`show(r, pattern='error|fail|Traceback')` searches both streams for numbered matching lines. "
-    "`tail(text, n=40)`, `head(text, n=40)` and `grep(text, pattern, context=0, limit=50)` "
-    "work on any text.{running}{stored}{retained}\n"
+    "- Shell: `r = {call}` " + _RESULT_SHAPE + ". Print `show(r)`, not `r` (a dict prints as "
+    "one escaped line): it gives exit_code and status, then stderr and stdout, each in full up "
+    "to 80 lines, otherwise the first 10 and last 40 lines around an omitted-lines marker; "
+    "`show(r, pattern='error|fail')` gives numbered matching lines instead. `tail(text, n)`, "
+    "`head(text, n)` and `grep(text, pattern, context=0, limit=50)` work on any text. You see "
+    "at most about {limit} of printed output; a longer print loses its middle."
+    "{running}{stored}{retained}\n"
 )
-_HELPERS_RUNNING = " If status is 'running', `print(show({wait}))`."
+_HELPERS_RUNNING = " If `status` is 'running', `print(show({wait}))` waits for it."
+_STORE_NOTE = ' To use `r` in a later run, `await store("r", r)`.'
+_RETAINED_NOTE = (
+    " `{read}` searches the output the process tool kept for a long-running or long-output command."
+)
 
 
 def shell_output_note(

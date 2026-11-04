@@ -1,4 +1,4 @@
-"""Contract tests for the freeform (Responses custom tool) input format of execute_python."""
+"""Contract tests for the freeform (Responses custom tool) input format of exec_sandbox."""
 
 from __future__ import annotations
 
