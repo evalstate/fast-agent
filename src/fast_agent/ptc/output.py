@@ -79,6 +79,26 @@ def show(r: dict[str, Any], n: int = 40, pattern: str | None = None) -> str:
     return "\\n".join(result)
 """
 
+PY_HELPER_NAME = "py"
+PY_STUB = """\
+async def py(code: str, check: bool = False) -> dict[str, Any]: ...
+"""
+# Runs ``code`` with the machine's CPython through the local shell function ({shell}), so
+# sandbox code never has to embed a heredoc in a shell command string.
+PY_PRELUDE = """\
+from typing import Any
+
+
+async def py(code: str, check: bool = False) -> dict[str, Any]:
+    command = (
+        "FAST_AGENT_PY=$(command -v python3 || command -v python) && "
+        + '"$FAST_AGENT_PY" - <<' + "'FAST_AGENT_PY_EOF'\\n"
+        + code
+        + "\\nFAST_AGENT_PY_EOF"
+    )
+    return await {shell}(command=command, check=check)
+"""
+
 _PRINT_NOTE = (
     "- Shell results: `r = {call}` gives your code bounded stdout and stderr since the previous read; you "
     "only see what you print, cut to about {limit} (a longer print loses its middle). Don't "

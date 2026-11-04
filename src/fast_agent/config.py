@@ -1962,6 +1962,10 @@ class ProgrammaticToolCallingSettings(BaseModel):
     type_check: bool = True
     """Type-check code against generated tool stubs before running it."""
 
+    tool_name: str = Field(default="execute_python", pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+    """Name of the code tool the model calls (e.g. `exec_sandbox`, a name that does not
+    suggest the machine's full Python)."""
+
     output_guidance: Literal["auto", "off", "print", "helpers"] = "auto"
     """How the code tool tells the model to read bounded shell captures, which the model
     sees only when printed or returned. `print` says to print the exit code and only the

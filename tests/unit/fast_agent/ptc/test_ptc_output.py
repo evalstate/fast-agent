@@ -133,8 +133,13 @@ def test_guidance_only_adds_its_note(
     )
     shell = _shell_function(runtime)
     note = next(line for line in on.splitlines() if line.startswith("- Shell"))
-    # Turning guidance off restores the description byte for byte.
-    assert on.replace(note + "\n", "", 1) == off
+
+    def without_compute(text: str) -> str:
+        # The py() note names the printing helper, which only guidance defines.
+        return "\n".join(line for line in text.splitlines() if not line.startswith("- Compute"))
+
+    # Turning guidance off removes only its note (and the helper named in the py() note).
+    assert without_compute(on.replace(note + "\n", "", 1)) == without_compute(off)
     assert "- Shell res" not in off and "- Shell output" not in off
     assert (PRINT_MARKER in note) is (guidance == "print")
     assert (HELPERS_MARKER in note) is (guidance == "helpers")

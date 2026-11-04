@@ -38,6 +38,9 @@ from fast_agent.ptc.output import (
     OUTPUT_HELPER_NAMES,
     OUTPUT_PRELUDE,
     OUTPUT_STUBS,
+    PY_HELPER_NAME,
+    PY_PRELUDE,
+    PY_STUB,
     PtcOutputGuidance,
     shell_output_note,
 )
@@ -98,18 +101,21 @@ _CARRIED_RESULT_META = (FAST_AGENT_SUBAGENT_RESULT_METADATA,)
 ToolDispatcher = Callable[[str, dict[str, Any], str], Awaitable[CallToolResult]]
 """Dispatch a nested call: (tool name, arguments, nested call id) -> result."""
 
-PTC_BATCHING_INSTRUCTION = (
+PTC_BATCHING_INSTRUCTION_TEMPLATE = (
     "Batch independent searches, file reads, and other read-only calls in a single "
-    "`execute_python` invocation using `asyncio.gather`. Prefer this over separate invocations "
+    "`{tool}` invocation using `asyncio.gather`. Prefer this over separate invocations "
     "or sequential awaits when no result depends on another. Inspect every result; use "
     "`settle()` when each result must be collected despite individual failures. Keep dependent "
     "steps, approvals, and potentially conflicting mutations sequential."
 )
+PTC_BATCHING_INSTRUCTION = PTC_BATCHING_INSTRUCTION_TEMPLATE.format(tool=PTC_TOOL_NAME)
 
 _INSTRUCTIONS = """\
-Run Python code. Only `print()` output and the final expression value are returned to you: \
-filter and aggregate large results in code.
+Run a short script in a restricted Python sandbox. It is not the machine's Python: use it to \
+call the functions below and combine their results. Only `print()` output and the final \
+expression value are returned to you: filter and aggregate large results in code.
 {input_note}\
+{compute_note}\
 - {batching_instruction}
 - asyncio is pre-imported: `a, b = await asyncio.gather(f(x=1), g(y=2))`. \
 `settle(aw)` returns an exception instead of raising, so \
@@ -160,7 +166,7 @@ _FREEFORM_INPUT_NOTE = (
 # directly (execute_python, or a function also exposed as a direct tool). Models act on "tool"
 # by emitting a direct tool call, so the wording must not blur the two.
 _FUNCTIONS_NOTE = (
-    "- The functions listed below are already defined in this Python{only_code}. Where other "
+    "- The functions listed below are already defined in this sandbox{only_code}. Where other "
     'instructions say to use a tool of the same name (e.g. "use the `{tool}` tool"), call '
     "`{call}` here.\n"
     '- Call them as `r = await name(arg="value")`: async, keyword arguments only, no import '
@@ -169,6 +175,16 @@ _FUNCTIONS_NOTE = (
 _SHELL_BATCH_NOTE = (
     "- Run independent shell commands as separate gathered `{function}` calls, not chained with "
     "separators; each result keeps its own stdout, stderr and exit_code.\n"
+)
+# The machine's Python, one call away: sandbox code otherwise needs a heredoc inside a string
+# inside a shell call to run CPython, so models hand-roll library code in the sandbox instead.
+_COMPUTE_NOTE = (
+    "- Compute in the machine's Python, not here: this sandbox is a Python 3.14 subset with a "
+    "partial standard library and no packages (no difflib, numpy, subprocess, ...). For "
+    "calculations, data analysis, quick experiments or anything needing a library, "
+    '`r = await py("""...""")` runs the code with the machine\'s `python3` (full standard '
+    "library and installed packages) and returns the same result as `{shell}`; print {view}. "
+    "If an import fails here, use `py()` rather than reimplementing library code.\n"
 )
 _SHELL_PYTHON_NOTE = (
     "- For full CPython or packages, write a script and run it with `python3` via `{call}`, "
@@ -332,6 +348,7 @@ class ProgrammaticToolRuntime:
                 "Install it with: uv pip install 'fast-agent-mcp[ptc]'",
             )
         self._settings = settings
+        self.tool_name = settings.tool_name
         self._functions: dict[str, PtcFunction] = {}
         self._nested_tools: dict[str, Tool] = {}
         # Functions whose tools the model can also call directly.
@@ -342,6 +359,8 @@ class ProgrammaticToolRuntime:
         # Shell output guidance in effect: "off" unless sandbox code can run local shell commands.
         self._output_guidance: PtcOutputGuidance = "off"
         self._result_byte_limit = DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+        # The local shell function behind `py()`, when sandbox code can run local commands.
+        self._py_shell: PtcFunction | None = None
         self._stubs = render_stubs({})
         self._pool: AsyncMonty | None = None
         self._pool_stack = AsyncExitStack()
@@ -355,6 +374,11 @@ class ProgrammaticToolRuntime:
     @property
     def functions(self) -> Mapping[str, PtcFunction]:
         return self._functions
+
+    @property
+    def batching_instruction(self) -> str:
+        """System-prompt guidance on batching calls in the code tool."""
+        return PTC_BATCHING_INSTRUCTION_TEMPLATE.format(tool=self.tool_name)
 
     def resolve_tool_format(self, model_default: PtcToolFormat | None) -> PtcToolFormat:
         """Apply ``ptc.tool_format``, using the model's default when it is ``auto``."""
@@ -386,13 +410,20 @@ class ProgrammaticToolRuntime:
         self._tool_format = tool_format
         direct = [tool for tool in tools if self._direct_reason(tool) is not None]
         nested = [tool for tool in tools if self._is_nested(tool)]
-        self._output_guidance = (
-            output_guidance if any(_returns_shell_output(tool) for tool in nested) else "off"
-        )
+        local_shell = any(_returns_shell_output(tool) for tool in nested)
+        self._output_guidance = output_guidance if local_shell else "off"
         self._result_byte_limit = result_byte_limit
-        self._functions = build_functions(
-            nested,
-            reserved_names=OUTPUT_HELPER_NAMES if self._output_guidance != "off" else frozenset(),
+        reserved = frozenset({PY_HELPER_NAME}) if local_shell else frozenset()
+        if self._output_guidance != "off":
+            reserved |= OUTPUT_HELPER_NAMES
+        self._functions = build_functions(nested, reserved_names=reserved)
+        self._py_shell = next(
+            (
+                function
+                for function in self._functions.values()
+                if _returns_shell_output(self._tool_by_name(nested, function.tool_name))
+            ),
+            None,
         )
         self._shell_function = next(
             (
@@ -414,10 +445,24 @@ class ProgrammaticToolRuntime:
             for function in self._functions.values()
             if function.tool_name in direct_names
         )
-        self._stubs = render_stubs(self._functions) + (
-            OUTPUT_STUBS if self._output_guidance != "off" else ""
+        self._stubs = (
+            render_stubs(self._functions)
+            + (OUTPUT_STUBS if self._output_guidance != "off" else "")
+            + (PY_STUB if self._py_shell is not None else "")
         )
         return [self.tool(), *direct]
+
+    @staticmethod
+    def _tool_by_name(tools: Sequence[Tool], name: str) -> Tool:
+        return next(tool for tool in tools if tool.name == name)
+
+    def _prelude(self) -> str:
+        prelude = _PRELUDE
+        if self._output_guidance != "off":
+            prelude += OUTPUT_PRELUDE
+        if self._py_shell is not None:
+            prelude += PY_PRELUDE.format(shell=self._py_shell.python_name)
+        return prelude
 
     def surface(self, model_tools: Sequence[Tool]) -> ToolSurface:
         """Describe ``model_tools`` (as returned by ``model_tools()``) and the sandbox functions."""
@@ -444,7 +489,7 @@ class ProgrammaticToolRuntime:
         return ToolSurface(
             tools=(*exposed, *nested),
             programmatic=ProgrammaticSurface(
-                tool_name=PTC_TOOL_NAME,
+                tool_name=self.tool_name,
                 tool_format=self._tool_format,
                 instructions=self._instructions(),
                 type_check=self._settings.type_check,
@@ -456,7 +501,8 @@ class ProgrammaticToolRuntime:
     def _instructions(self) -> str:
         shared = ", ".join(f"`{name}`" for name in self._shared_functions)
         return _INSTRUCTIONS.format(
-            batching_instruction=PTC_BATCHING_INSTRUCTION,
+            batching_instruction=self.batching_instruction,
+            compute_note=self._compute_note(),
             functions_note=self._functions_note(),
             io_note=self._io_note(),
             shell_python_note=self._shell_python_note(),
@@ -514,7 +560,15 @@ class ProgrammaticToolRuntime:
             read=read,
         )
 
+    def _compute_note(self) -> str:
+        if self._py_shell is None:
+            return ""
+        view = "`show(r)`" if self._output_guidance != "off" else "`r['stdout']` and `r['stderr']`"
+        return _COMPUTE_NOTE.format(shell=self._py_shell.python_name, view=view)
+
     def _shell_python_note(self) -> str:
+        if self._py_shell is not None:
+            return ""
         if self._shell_function is not None:
             return _SHELL_PYTHON_NOTE.format(call=self._shell_function.example_call())
         if self._direct_shell_tool is not None:
@@ -589,8 +643,8 @@ class ProgrammaticToolRuntime:
         if function is None:
             return None
         return (
-            f"`{name}` is not a direct tool; it is a function inside `{PTC_TOOL_NAME}`. "
-            f"Call `{PTC_TOOL_NAME}` with code such as `r = {function.example_call()}` "
+            f"`{name}` is not a direct tool; it is a function inside `{self.tool_name}`. "
+            f"Call `{self.tool_name}` with code such as `r = {function.example_call()}` "
             "then `print(r)`."
         )
 
@@ -612,7 +666,7 @@ class ProgrammaticToolRuntime:
                 "format": {"type": "grammar", "syntax": "lark", "definition": _FREEFORM_GRAMMAR},
             }
         return Tool(
-            name=PTC_TOOL_NAME,
+            name=self.tool_name,
             description=self._instructions() + _FUNCTIONS_BLOCK.format(stubs=f"{stubs}\n"),
             input_schema={
                 "type": "object",
@@ -679,9 +733,7 @@ class ProgrammaticToolRuntime:
             started = time.perf_counter()
             try:
                 async with await self._checkout() as session:
-                    await session.feed_run(
-                        _PRELUDE if self._output_guidance == "off" else _PRELUDE + OUTPUT_PRELUDE
-                    )
+                    await session.feed_run(self._prelude())
                     try:
                         value = await self._feed(session, code, lookup, output, files, cwd)
                     except Exception:
@@ -739,7 +791,7 @@ class ProgrammaticToolRuntime:
 
     def _direct_reason(self, tool: Tool) -> str | None:
         """Return why ``tool`` stays directly callable, or None when only code can call it."""
-        if tool.name == PTC_TOOL_NAME:
+        if tool.name == self.tool_name:
             return None
         pattern = _matching_pattern(tool, self._settings.direct_tools)
         if pattern is not None:
@@ -755,7 +807,7 @@ class ProgrammaticToolRuntime:
 
     def _is_nested(self, tool: Tool) -> bool:
         """Return whether sandbox code can call ``tool``; ``ptc.direct_tools`` excludes it."""
-        if tool.name == PTC_TOOL_NAME:
+        if tool.name == self.tool_name:
             return False
         if _matching_pattern(tool, self._settings.direct_tools) is not None:
             return False
