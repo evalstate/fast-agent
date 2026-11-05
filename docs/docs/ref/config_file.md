@@ -63,8 +63,8 @@ Enablement precedence (highest first):
 1. CLI `--ptc` or `--no-ptc`.
 2. Model query `ptc=on|true|off|false`, for example `glm53flash?ptc=off`.
 3. YAML `ptc.enabled: true` or `false`.
-4. Model database default. **GLM-5.3-Flash, GPT-6 Astra, GPT-6.1 Sol, GPT-6.1 Terra
-   and GPT-6 Luna default to on** (including their provider aliases); other models
+4. Model database default. **GLM-5.3-Flash, GPT-6 Astra, GPT-6.1 Sol, GPT-6.1 Terra,
+   GPT-6 Luna and Kimi K3.1 Pro default to on** (including their provider aliases); other models
    default to off.
 
 Omit `ptc.enabled` or set it to `null` to use model defaults. Limits and tool

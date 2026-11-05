@@ -559,10 +559,15 @@ async def test_externally_cancelled_turn_is_persisted_to_session_history(tmp_pat
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failing_round", [1, 2])
+@pytest.mark.parametrize(("failing_round", "reuse_call_id"), [(1, False), (2, False), (2, True)])
 async def test_unhandled_after_llm_hook_error_persists_tool_loop_history(
-    tmp_path, monkeypatch, failing_round: int
+    tmp_path, monkeypatch, failing_round: int, reuse_call_id: bool
 ) -> None:
+    # Some providers reuse call IDs across rounds; a completed result must never
+    # be attached to a later request just because the IDs match.
+    def call_id(round_number: int) -> str:
+        return "call" if reuse_call_id else f"call{round_number}"
+
     old_settings = get_settings()
     override = old_settings.model_copy(update={"home": str(tmp_path / "env")})
     update_global_settings(override)
@@ -577,7 +582,7 @@ async def test_unhandled_after_llm_hook_error_persists_tool_loop_history(
                 "use tool",
                 stop_reason=LlmStopReason.TOOL_USE,
                 tool_calls={
-                    f"call{round_number}": CallToolRequest(
+                    call_id(round_number): CallToolRequest(
                         method="tools/call",
                         params=CallToolRequestParams(name="ok_tool", arguments={}),
                     )
@@ -611,14 +616,14 @@ async def test_unhandled_after_llm_hook_error_persists_tool_loop_history(
         for history in (saved_messages, agent.message_history):
             assert history[-1].role == "assistant"
             assert history[-1].stop_reason == LlmStopReason.TOOL_USE
-            assert set(history[-1].tool_calls or {}) == {f"call{failing_round}"}
+            assert set(history[-1].tool_calls or {}) == {call_id(failing_round)}
             assert sum(bool(message.tool_results) for message in history) == failing_round - 1
 
         rollback = ToolRunner.reconcile_interrupted_history(agent, use_history=True)
         assert rollback.status == "appended_interrupted_tool_result"
         results = agent.message_history[-1].tool_results
         assert results is not None
-        assert set(results) == {f"call{failing_round}"}
+        assert set(results) == {call_id(failing_round)}
         assert all(result.is_error for result in results.values())
     finally:
         update_global_settings(old_settings)

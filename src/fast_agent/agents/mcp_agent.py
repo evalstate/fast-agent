@@ -1211,6 +1211,8 @@ class McpAgent(ABC, ToolAgent):
 
     def _validate_llm_attachment(self, llm: FastAgentLLMProtocol) -> None:
         super()._validate_llm_attachment(llm)
+        # Reject an unservable PTC selection before the LLM replaces the active one.
+        self._ptc_enabled_for(llm)
         resolved_model = resolve_resolved_model(llm)
         if not isinstance(resolved_model, ResolvedModelSpec):
             return
@@ -1710,13 +1712,13 @@ class McpAgent(ABC, ToolAgent):
             request_tool_handler=request_tool_handler,
         )
 
-    def _ptc_selection(self) -> _PtcSelection:
+    def _ptc_selection(self, llm: FastAgentLLMProtocol | None) -> _PtcSelection:
         """Resolve the PTC policy and whether a user setting, not a model default, chose it."""
         assert self._context is not None and self._context.config is not None
         if self._context.ptc_enabled is not None:
             return _PtcSelection(self._context.ptc_enabled, explicit=True)
         configured = self._context.config.ptc.enabled
-        resolved = resolve_resolved_model(self._llm) if self._llm is not None else None
+        resolved = resolve_resolved_model(llm) if llm is not None else None
         if not isinstance(resolved, ResolvedModelSpec):
             # Initialization can build instructions/tools before an LLM is attached.
             from fast_agent.core.model_resolution import (
@@ -1738,23 +1740,30 @@ class McpAgent(ABC, ToolAgent):
             explicit=configured is not None or resolved.model_config.ptc is not None,
         )
 
+    def _ptc_enabled_for(self, llm: FastAgentLLMProtocol | None) -> bool:
+        """Whether PTC is enabled for ``llm``; raises if explicitly selected but unservable."""
+        if not self._context or not self._context.config:
+            return False
+        selection = self._ptc_selection(llm)
+        if not selection.enabled:
+            return False
+        if self._ptc_environment_supported():
+            return True
+        if not selection.explicit:
+            # A model default must not break environments PTC cannot serve yet.
+            return False
+        raise AgentConfigError(
+            "PTC currently supports local POSIX execution only",
+            "Use --no-ptc, ptc=off or ptc.enabled: false for ACP-owned, remote, Docker or "
+            "custom environments until filesystem adapters are available. "
+            "Host-local file access was not enabled.",
+        )
+
     def _programmatic_tool_runtime(self) -> ProgrammaticToolRuntime | None:
         """Return the PTC runtime when programmatic tool calling is enabled."""
-        if not self._context or not self._context.config:
+        if not self._ptc_enabled_for(self._llm):
             return None
-        selection = self._ptc_selection()
-        if not selection.enabled:
-            return None
-        if not self._ptc_environment_supported():
-            if not selection.explicit:
-                # A model default must not break environments PTC cannot serve yet.
-                return None
-            raise AgentConfigError(
-                "PTC currently supports local POSIX execution only",
-                "Use --no-ptc, ptc=off or ptc.enabled: false for ACP-owned, remote, Docker or "
-                "custom environments until filesystem adapters are available. "
-                "Host-local file access was not enabled.",
-            )
+        assert self._context is not None and self._context.config is not None
         if self._ptc_runtime is None:
             self._ptc_runtime = ProgrammaticToolRuntime(self._context.config.ptc)
         return self._ptc_runtime

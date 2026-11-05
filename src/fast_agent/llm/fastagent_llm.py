@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from contextlib import nullcontext
 from contextvars import ContextVar
 from copy import deepcopy
+from dataclasses import replace
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -303,11 +304,22 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         return self._merge_request_params(default_params, self._init_request_params)
 
     def _ensure_resolved_model_spec(self, provider: Provider) -> None:
-        if self._resolved_model_spec is not None:
-            return
-
         from fast_agent.llm.model_factory import ModelConfig
         from fast_agent.llm.resolved_model import ResolvedModelSpec, resolve_base_model_params
+
+        spec = self._resolved_model_spec
+        if spec is not None:
+            if not spec.wire_model_name and self._model_name:
+                # Provider-only selections ("moonshot", "hf") pick their model here;
+                # hydrate its catalog metadata while keeping the selection's overrides.
+                self._resolved_model_spec = replace(
+                    spec,
+                    wire_model_name=self._model_name,
+                    model_params=resolve_base_model_params(
+                        provider=provider, model_name=self._model_name
+                    ),
+                )
+            return
 
         fallback_model_name = self._model_name or ""
         fallback_model_config = ModelConfig(

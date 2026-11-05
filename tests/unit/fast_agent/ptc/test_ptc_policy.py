@@ -70,6 +70,27 @@ def test_model_catalog_ptc_defaults(model: str, enabled: bool) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model", "enabled"),
+    [("moonshot", True), ("hf", True), ("moonshot?ptc=off", False)],
+)
+async def test_provider_only_selection_uses_default_model_ptc(model: str, enabled: bool) -> None:
+    # Provider-only selections resolve their model inside the LLM (Kimi K3.1 Pro here).
+    agent = McpAgent(
+        AgentConfig("ptc-provider-default", model=model, skills=[]),
+        context=Context(config=Settings(), server_registry=ServerRegistry()),
+    )
+    try:
+        await agent.initialize()
+        await agent.attach_llm(ModelFactory.create_factory(model))
+        tools = {tool.name for tool in (await agent.list_tools()).tools}
+        assert (PTC_TOOL_NAME in tools) is enabled
+        assert (PTC_BATCHING_INSTRUCTION in agent.instruction) is enabled
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("cli", [None, False, True])
 @pytest.mark.parametrize("query", [None, False, True])
 @pytest.mark.parametrize("configured", [None, False, True])
@@ -175,6 +196,35 @@ async def test_model_default_falls_back_in_unsupported_environments(
             tools = {tool.name for tool in (await agent.list_tools()).tools}
             assert PTC_TOOL_NAME not in tools
             assert PTC_BATCHING_INSTRUCTION not in agent.instruction
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_rejected_ptc_model_switch_keeps_previous_model() -> None:
+    from unittest.mock import Mock
+
+    from acp import AgentSideConnection
+
+    from fast_agent.acp.acp_context import ACPContext
+    from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+    from fast_agent.core.exceptions import AgentConfigError
+
+    connection = Mock(spec=AgentSideConnection)
+    acp = ACPContext(connection=connection, session_id="ptc")
+    acp.set_terminal_runtime(ACPTerminalRuntime(connection, "ptc", "test"))
+    agent = McpAgent(
+        AgentConfig("ptc-acp-switch", model="passthrough?ptc=off", servers=[], skills=[]),
+        context=Context(config=Settings(), acp=acp, server_registry=ServerRegistry()),
+    )
+    try:
+        await agent.attach_llm(ModelFactory.create_factory("passthrough?ptc=off"))
+        previous_llm = agent.llm
+        with pytest.raises(AgentConfigError, match="local POSIX"):
+            await agent.set_model("glm53flash?ptc=on")
+        assert agent.llm is previous_llm
+        assert agent.config.model == "passthrough?ptc=off"
+        assert PTC_TOOL_NAME not in {tool.name for tool in (await agent.list_tools()).tools}
     finally:
         await agent.shutdown()
 

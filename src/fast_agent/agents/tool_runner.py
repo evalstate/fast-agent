@@ -270,9 +270,11 @@ class ToolRunner:
             )
         finally:
             # Rendering can fail or be cancelled after the LLM step commits history.
-            # Those inputs already belong to history, even if the step never returns.
+            # Those inputs (including any tool response) already belong to history,
+            # even if the step never returns.
             if self._agent._history_commit_count != commit_count:
                 self._pending_input_messages.clear()
+                self._pending_tool_response = None
         self._pending_input_messages.clear()
         self._last_message = assistant_message
         self._turn_messages.append(assistant_message)
@@ -859,10 +861,6 @@ class ToolRunner:
             pending_request is not None
             and self._pending_tool_response is not None
             and self._pending_tool_request is None
-            # A follow-up after_llm_call hook can fail before runner state is
-            # updated, leaving the previous batch's completed response here.
-            and set(self._pending_tool_response.tool_results or {})
-            == set(pending_request.tool_calls or {})
         ):
             history.append(self._pending_tool_response.model_copy(deep=True))
 
