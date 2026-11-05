@@ -44,6 +44,7 @@ class _AgentConfig(Protocol):
 
 class _ToolLoopAgent(MessageHistoryAgentProtocol, Protocol):
     config: _AgentConfig
+    _history_commit_count: int
 
     async def _tool_runner_llm_step(
         self,
@@ -260,11 +261,18 @@ class ToolRunner:
         return self._tools
 
     async def _call_llm(self) -> PromptMessageExtended:
-        assistant_message = await self._agent._tool_runner_llm_step(
-            self._delta_messages,
-            request_params=self._request_params,
-            tools=self._tools_for_next_llm_call(),
-        )
+        commit_count = self._agent._history_commit_count
+        try:
+            assistant_message = await self._agent._tool_runner_llm_step(
+                self._delta_messages,
+                request_params=self._request_params,
+                tools=self._tools_for_next_llm_call(),
+            )
+        finally:
+            # Rendering can fail or be cancelled after the LLM step commits history.
+            # Those inputs already belong to history, even if the step never returns.
+            if self._agent._history_commit_count != commit_count:
+                self._pending_input_messages.clear()
         self._pending_input_messages.clear()
         self._last_message = assistant_message
         self._turn_messages.append(assistant_message)
@@ -466,8 +474,15 @@ class ToolRunner:
         )
 
     async def _persist_exception_turn_state(self) -> None:
-        """Persist the last resumable tool-loop checkpoint on unhandled exceptions."""
+        """Restore and persist the last resumable checkpoint on unhandled exceptions."""
         history_override = self._history_for_resumable_persistence()
+        if history_override is not None and len(history_override) > len(
+            self._agent.message_history
+        ):
+            # The terminal has consumed these inputs. Keep the live agent in sync with
+            # its checkpoint so another prompt/save cannot silently discard them.
+            self._agent.load_message_history(history_override)
+            self._pending_input_messages.clear()
         await self._persist_session_history_best_effort(
             hook_type="after_turn_error",
             history_override=history_override,
@@ -576,6 +591,7 @@ class ToolRunner:
         resumable_history = self._history_for_resumable_persistence()
         if resumable_history is not None and len(resumable_history) > len(history):
             self._agent.load_message_history(resumable_history)
+            self._pending_input_messages.clear()
             return HistoryRollbackState(
                 status="appended_completed_tool_result",
                 history_before=len(history),
@@ -847,7 +863,7 @@ class ToolRunner:
             history.append(self._pending_tool_response.model_copy(deep=True))
 
         # Input taken from the surface is no longer available for prompt replay.
-        # Retain it if the continuation is cancelled before the LLM persists it.
+        # Retain it if the continuation fails before the LLM commits it.
         return [
             *history,
             *(message.model_copy(deep=True) for message in self._pending_input_messages),

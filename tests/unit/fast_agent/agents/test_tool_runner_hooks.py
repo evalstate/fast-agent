@@ -787,3 +787,66 @@ async def test_cancelled_continuation_retains_consumed_input():
     assert history[-2].tool_results
     assert history[-1].first_text() == "important report"
     assert [turn.prompt.first_text() for turn in collect_user_turns(history)] == ["hi"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["cancel", "error"])
+async def test_consumed_input_is_not_repeated_after_history_commit(monkeypatch, failure):
+    import asyncio
+    from contextlib import contextmanager
+
+    from fast_agent.core.queued_input import queued_input_source
+    from fast_agent.ui.streaming.display import NullStreamingHandle
+
+    draining = asyncio.Event()
+    release = asyncio.Event()
+    drains = 0
+
+    class BlockingDrainHandle(NullStreamingHandle):
+        async def wait_for_drain(self) -> None:
+            nonlocal drains
+            drains += 1
+            if drains == 2:
+                draining.set()
+                await release.wait()
+                raise RuntimeError("render failed")
+
+    @contextmanager
+    def stream(**kwargs):
+        yield BlockingDrainHandle()
+
+    agent = ToolAgent(AgentConfig("queued-drain"), [tool_one, tool_two])
+    agent._llm = TwoStepToolUseLlm()
+    monkeypatch.setattr(agent, "_should_stream", lambda: True)
+    monkeypatch.setattr(agent.display, "streaming_assistant_message", stream)
+    # Repeated submissions are distinct inputs, even when identical to the original prompt.
+    pending = ["hi", "hi"]
+
+    def take_messages():
+        result = list(pending)
+        pending.clear()
+        return result
+
+    with queued_input_source(agent, take_messages):
+        task = asyncio.create_task(agent.generate("hi"))
+        try:
+            await asyncio.wait_for(draining.wait(), timeout=5)
+            if failure == "cancel":
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            else:
+                release.set()
+                with pytest.raises(RuntimeError, match="render failed"):
+                    await task
+        finally:
+            if not task.done():
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+
+    assert not pending
+    history = agent.message_history
+    assert history[-4].tool_results
+    assert [message.first_text() for message in history[-3:]] == ["hi", "hi", "done"]
+    assert sum(message.first_text() == "hi" for message in history) == 3

@@ -191,6 +191,8 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         # Agent-owned conversation state (PromptMessageExtended only)
         self._message_history: list[PromptMessageExtended] = []
+        # Advances at the synchronous commit boundary, before response rendering can await.
+        self._history_commit_count = 0
 
         # Optional registry for cross-agent lookups (populated by AgentApp)
         self._agent_registry: Mapping[str, AgentProtocol] | None = None
@@ -1076,6 +1078,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         assistant_message.ensure_timestamp()
         self._message_history.extend(history_messages)
         self._message_history.append(assistant_message)
+        self._history_commit_count += 1
 
     @staticmethod
     def _timestamp_messages(messages: list[PromptMessageExtended]) -> None:
