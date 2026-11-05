@@ -33,6 +33,12 @@
       "mark": "deepseek.svg"
     },
     {
+      "id": "kimi",
+      "name": "Kimi K3",
+      "maker": "Moonshot AI",
+      "mark": "moonshot.svg"
+    },
+    {
       "id": "anthropic",
       "name": "Claude",
       "maker": "Anthropic",
@@ -259,6 +265,11 @@
       "benchmark": "terminal-bench-4.0-subset",
       "family": "gpt-6",
       "status": "PTC"
+    },
+    "tb4-kimik31pro-max": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "kimi",
+      "status": "PTC"
     }
   },
   "claims": [
@@ -469,6 +480,7 @@
     "Sonnet": "anthropic",
     "Gemini": "gemini",
     "Qwen": "qwen",
-    "Muse": "muse"
+    "Muse": "muse",
+    "Kimi": "kimi"
   }
 }
