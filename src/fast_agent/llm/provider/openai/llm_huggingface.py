@@ -137,6 +137,9 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
     async def _run_openai_completion_request(
         self, request: _OpenAICompletionRequest
     ) -> _OpenAICompletionResponse:
+        if not self._uses_huggingface_router():
+            # The size limit is the router's; custom endpoints get requests unchanged.
+            return await super()._run_openai_completion_request(request)
         budget = self._image_budget()
         fitted, report = self._fit_request_images(request, budget)
         try:

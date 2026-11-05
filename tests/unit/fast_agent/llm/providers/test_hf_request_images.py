@@ -220,3 +220,16 @@ async def test_413_without_images_is_not_resent(monkeypatch: pytest.MonkeyPatch)
     with pytest.raises(APIStatusError):
         await llm._run_openai_completion_request(request)
     assert len(sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_custom_endpoint_requests_are_sent_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    llm = _llm(HuggingFaceSettings(base_url="https://my-endpoint.example/v1"))
+    sent: list[dict[str, Any]] = []
+    monkeypatch.setattr(OpenAILLM, "_run_openai_completion_request", _fake_router(10, sent))
+    request = _request(llm, _image((5000, 5000)))
+    with pytest.raises(APIStatusError):
+        await llm._run_openai_completion_request(request)
+    assert sent == [request.arguments], "no fitting and no 413 resend"

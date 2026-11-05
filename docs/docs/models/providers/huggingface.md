@@ -282,6 +282,9 @@ it builds each request; the conversation history is never changed:
 3. If the router still answers 413, the request is resent once with the images trimmed
    to half its size.
 
+This applies to the Hugging Face router only; requests to a custom `hf.base_url`
+endpoint are sent unchanged.
+
 ```yaml
 hf:
   # image_max_dimension: 2048       # null disables downscaling
