@@ -161,7 +161,7 @@ def build(
     runs name trials by id). ``allowance_titles`` names the allowances by id."""
     alias = alias or {}
     if run is None:
-        run = json.loads((HERE / "runs" / f"{run_id}.json").read_text())
+        run = json.loads(_run_file(f"{run_id}.json").read_text())
     if "trials" not in run:
         raise SystemExit(f"{run_id}: run file has no trial names; rerun fetch_runs.py")
     rows = {r["key"]: r for g in highlights["groups"] for r in g["rows"]}
@@ -313,12 +313,15 @@ def check_clean(doc: Json) -> None:
         )
 
 
+def _run_file(name: str) -> Path:
+    return next(p / name for p in (HERE / "runs", HERE / "tb4" / "runs") if (p / name).exists())
+
+
 def relink(run_id: str, bucket_repo: str) -> int:
     """Refresh an existing moments file's links from the run file; returns cards linked."""
     path = HERE / "moments" / f"{run_id}.json"
     doc = json.loads(path.read_text())
-    run_file = next(p for p in (HERE / "runs", HERE / "tb4" / "runs") if (p / path.name).exists())
-    run = json.loads((run_file / path.name).read_text())
+    run = json.loads(_run_file(path.name).read_text())
     for card in doc["cards"]:
         record = run["trials"][card["task"]][card["attempt"]]
         card["folder"], card["trace"] = trial_links(record, bucket_repo)

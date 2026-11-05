@@ -255,9 +255,10 @@
       "family": "gpt-6",
       "status": "6h timeout"
     },
-    "tb4-terra61-medium": {
+    "tb4-terra61-medium-ptc": {
       "benchmark": "terminal-bench-4.0-subset",
-      "family": "gpt-6"
+      "family": "gpt-6",
+      "status": "PTC"
     }
   },
   "claims": [

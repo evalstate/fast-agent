@@ -1,0 +1,744 @@
+{
+  "id": "tb4-terra61-medium-ptc",
+  "benchmark": "terminal-bench-4.0-subset",
+  "harness": "fast-agent",
+  "harness_version": "0.10.53",
+  "model": "GPT-6.1 Terra",
+  "effort": "medium",
+  "model_string": "responses.gpt-6.1-terra?reasoning=medium&service_tier=flex&ptc=on",
+  "date": "2026-11-05",
+  "timeout": "standard",
+  "jobs": [
+    {
+      "id": "tb4-terra61-medium-flex-fa053-ptc-001-hf-basic",
+      "name": "tb4-terra61-medium-flex-fa053-ptc-001-hf-basic (85 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic"
+    },
+    {
+      "id": "tb4-terra61-medium-flex-fa053-ptc-001-hf-upgrade",
+      "name": "tb4-terra61-medium-flex-fa053-ptc-001-hf-upgrade (10 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-upgrade",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-upgrade"
+    },
+    {
+      "id": "tb4-terra61-medium-flex-fa053-ptc-001-rep-001",
+      "name": "tb4-terra61-medium-flex-fa053-ptc-001-rep-001 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-rep-001",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-rep-001"
+    },
+    {
+      "id": "tb4-terra61-medium-flex-fa053-ptc-001-rep-002",
+      "name": "tb4-terra61-medium-flex-fa053-ptc-001-rep-002 (1 trial)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-rep-002",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-rep-002"
+    }
+  ],
+  "excluded_trials": [
+    {
+      "id": "cf13b6dc-8fa3-431d-8063-e3d9d367b7b9",
+      "task": "gsea-proteomics",
+      "error_type": "ConnectError",
+      "cost_usd": null,
+      "reason": "ConnectError (infrastructure); replaced by tb4-terra61-medium-flex-fa053-ptc-001-rep-001 (itself later replaced). Not scored; its cost is still counted."
+    },
+    {
+      "id": "820dc743-118c-4d94-83f9-7257522cbc2e",
+      "task": "gsea-proteomics",
+      "error_type": "ApiUsageLimitError",
+      "cost_usd": null,
+      "reason": "ApiUsageLimitError (infrastructure); replaced by tb4-terra61-medium-flex-fa053-ptc-001-rep-002. Not scored; its cost is still counted."
+    }
+  ],
+  "disqualified_trials": [],
+  "slots": 95,
+  "passes": 40,
+  "score": 42.11,
+  "tasks": {
+    "atrx-vep-crispr": "00000",
+    "cad-model": "00000",
+    "cargo-flight-dispatch": "00000",
+    "fin-saccr-rwa": "10111",
+    "gsea-proteomics": "00000",
+    "hof-topology-interpenetration": "11111",
+    "html-js-filter": "00100",
+    "mvcc-lsm-compaction": "11111",
+    "photonic-waveguide-routing": "01111",
+    "production-planning": "00000",
+    "react-lead-form": "00000",
+    "satb-audio-transcription": "11001",
+    "session-window-debug": "10011",
+    "sound-change-cascade": "11010",
+    "telecom-entity-resolution": "11111",
+    "vba-userform-port": "00000",
+    "vllm-deepseek-streaming": "00000",
+    "vpp-loss-divergence": "11111",
+    "wal-recovery-ordering": "01010"
+  },
+  "trials": {
+    "atrx-vep-crispr": [
+      {
+        "name": "atrx-vep-crispr__jXRAgi3",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/atrx-vep-crispr__jXRAgi3"
+      },
+      {
+        "name": "atrx-vep-crispr__HW8vJ2b",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/atrx-vep-crispr__HW8vJ2b"
+      },
+      {
+        "name": "atrx-vep-crispr__y55GMBH",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/atrx-vep-crispr__y55GMBH"
+      },
+      {
+        "name": "atrx-vep-crispr__R4rrbz4",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/atrx-vep-crispr__R4rrbz4"
+      },
+      {
+        "name": "atrx-vep-crispr__R5Azzss",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/atrx-vep-crispr__R5Azzss"
+      }
+    ],
+    "cad-model": [
+      {
+        "name": "cad-model__bfrBsBr",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/cad-model__bfrBsBr"
+      },
+      {
+        "name": "cad-model__xEU3Fnt",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/cad-model__xEU3Fnt"
+      },
+      {
+        "name": "cad-model__UTDTiUd",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/cad-model__UTDTiUd"
+      },
+      {
+        "name": "cad-model__GWcBHBY",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/cad-model__GWcBHBY"
+      },
+      {
+        "name": "cad-model__xMLRNDd",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/cad-model__xMLRNDd"
+      }
+    ],
+    "cargo-flight-dispatch": [
+      {
+        "name": "cargo-flight-dispatch__e2BcYKZ",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/cargo-flight-dispatch__e2BcYKZ"
+      },
+      {
+        "name": "cargo-flight-dispatch__Kj98haj",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/cargo-flight-dispatch__Kj98haj"
+      },
+      {
+        "name": "cargo-flight-dispatch__wh76S4V",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/cargo-flight-dispatch__wh76S4V"
+      },
+      {
+        "name": "cargo-flight-dispatch__8CS5ZHF",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/cargo-flight-dispatch__8CS5ZHF"
+      },
+      {
+        "name": "cargo-flight-dispatch__Bk4dSF5",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/cargo-flight-dispatch__Bk4dSF5"
+      }
+    ],
+    "fin-saccr-rwa": [
+      {
+        "name": "fin-saccr-rwa__Wq8ZgZf",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/fin-saccr-rwa__Wq8ZgZf"
+      },
+      {
+        "name": "fin-saccr-rwa__jDDSRE3",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/fin-saccr-rwa__jDDSRE3"
+      },
+      {
+        "name": "fin-saccr-rwa__uVXtrTY",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/fin-saccr-rwa__uVXtrTY"
+      },
+      {
+        "name": "fin-saccr-rwa__YHX4oRc",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/fin-saccr-rwa__YHX4oRc"
+      },
+      {
+        "name": "fin-saccr-rwa__QvcUefw",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/fin-saccr-rwa__QvcUefw"
+      }
+    ],
+    "gsea-proteomics": [
+      {
+        "name": "gsea-proteomics__Rbg3Er8",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-upgrade/gsea-proteomics__Rbg3Er8"
+      },
+      {
+        "name": "gsea-proteomics__nszEnm8",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-upgrade/gsea-proteomics__nszEnm8"
+      },
+      {
+        "name": "gsea-proteomics__x79tZLT",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-upgrade/gsea-proteomics__x79tZLT"
+      },
+      {
+        "name": "gsea-proteomics__osqFqyc",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-upgrade/gsea-proteomics__osqFqyc"
+      },
+      {
+        "name": "gsea-proteomics__DnfEHFD",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-rep-002/gsea-proteomics__DnfEHFD"
+      }
+    ],
+    "hof-topology-interpenetration": [
+      {
+        "name": "hof-topology-interpenetration__6usqXTr",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/hof-topology-interpenetration__6usqXTr"
+      },
+      {
+        "name": "hof-topology-interpenetration__N75nJBc",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/hof-topology-interpenetration__N75nJBc"
+      },
+      {
+        "name": "hof-topology-interpenetration__iXDKVz7",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/hof-topology-interpenetration__iXDKVz7"
+      },
+      {
+        "name": "hof-topology-interpenetration__nAGSZpe",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/hof-topology-interpenetration__nAGSZpe"
+      },
+      {
+        "name": "hof-topology-interpenetration__FUoXAiQ",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/hof-topology-interpenetration__FUoXAiQ"
+      }
+    ],
+    "html-js-filter": [
+      {
+        "name": "html-js-filter__MejbNrG",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/html-js-filter__MejbNrG"
+      },
+      {
+        "name": "html-js-filter__iDDnF4F",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/html-js-filter__iDDnF4F"
+      },
+      {
+        "name": "html-js-filter__ESmxdUh",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/html-js-filter__ESmxdUh"
+      },
+      {
+        "name": "html-js-filter__VbWUSbp",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/html-js-filter__VbWUSbp"
+      },
+      {
+        "name": "html-js-filter__PHXoHJ4",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/html-js-filter__PHXoHJ4"
+      }
+    ],
+    "mvcc-lsm-compaction": [
+      {
+        "name": "mvcc-lsm-compaction__a33dSAL",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/mvcc-lsm-compaction__a33dSAL"
+      },
+      {
+        "name": "mvcc-lsm-compaction__BQQXneD",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/mvcc-lsm-compaction__BQQXneD"
+      },
+      {
+        "name": "mvcc-lsm-compaction__MVFPsFb",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/mvcc-lsm-compaction__MVFPsFb"
+      },
+      {
+        "name": "mvcc-lsm-compaction__wfyH7AA",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/mvcc-lsm-compaction__wfyH7AA"
+      },
+      {
+        "name": "mvcc-lsm-compaction__rUHM8GF",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/mvcc-lsm-compaction__rUHM8GF"
+      }
+    ],
+    "photonic-waveguide-routing": [
+      {
+        "name": "photonic-waveguide-routing__ggSfdZU",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/photonic-waveguide-routing__ggSfdZU"
+      },
+      {
+        "name": "photonic-waveguide-routing__hi8FJe2",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/photonic-waveguide-routing__hi8FJe2"
+      },
+      {
+        "name": "photonic-waveguide-routing__ZJyCRXT",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/photonic-waveguide-routing__ZJyCRXT"
+      },
+      {
+        "name": "photonic-waveguide-routing__pUToxPi",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/photonic-waveguide-routing__pUToxPi"
+      },
+      {
+        "name": "photonic-waveguide-routing__JBjPBas",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/photonic-waveguide-routing__JBjPBas"
+      }
+    ],
+    "production-planning": [
+      {
+        "name": "production-planning__DyjfWAq",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/production-planning__DyjfWAq"
+      },
+      {
+        "name": "production-planning__Vf95bAo",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/production-planning__Vf95bAo"
+      },
+      {
+        "name": "production-planning__uCsSRtf",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/production-planning__uCsSRtf"
+      },
+      {
+        "name": "production-planning__yFrtZks",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/production-planning__yFrtZks"
+      },
+      {
+        "name": "production-planning__bVDoJ7c",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/production-planning__bVDoJ7c"
+      }
+    ],
+    "react-lead-form": [
+      {
+        "name": "react-lead-form__XWhyMY5",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/react-lead-form__XWhyMY5"
+      },
+      {
+        "name": "react-lead-form__fpX2hp8",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/react-lead-form__fpX2hp8"
+      },
+      {
+        "name": "react-lead-form__SKE8Rii",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/react-lead-form__SKE8Rii"
+      },
+      {
+        "name": "react-lead-form__HVRdcxS",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/react-lead-form__HVRdcxS"
+      },
+      {
+        "name": "react-lead-form__6YMzbMY",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/react-lead-form__6YMzbMY"
+      }
+    ],
+    "satb-audio-transcription": [
+      {
+        "name": "satb-audio-transcription__2Tth5r7",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-upgrade/satb-audio-transcription__2Tth5r7"
+      },
+      {
+        "name": "satb-audio-transcription__oh3wS7G",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-upgrade/satb-audio-transcription__oh3wS7G"
+      },
+      {
+        "name": "satb-audio-transcription__HxEwswa",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-upgrade/satb-audio-transcription__HxEwswa"
+      },
+      {
+        "name": "satb-audio-transcription__oAAVtvQ",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-upgrade/satb-audio-transcription__oAAVtvQ"
+      },
+      {
+        "name": "satb-audio-transcription__u2hVNU6",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-upgrade/satb-audio-transcription__u2hVNU6"
+      }
+    ],
+    "session-window-debug": [
+      {
+        "name": "session-window-debug__XKyLSw9",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/session-window-debug__XKyLSw9"
+      },
+      {
+        "name": "session-window-debug__ffbJwha",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/session-window-debug__ffbJwha"
+      },
+      {
+        "name": "session-window-debug__vieUoDi",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/session-window-debug__vieUoDi"
+      },
+      {
+        "name": "session-window-debug__YRBsRkH",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/session-window-debug__YRBsRkH"
+      },
+      {
+        "name": "session-window-debug__6NuHaRN",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/session-window-debug__6NuHaRN"
+      }
+    ],
+    "sound-change-cascade": [
+      {
+        "name": "sound-change-cascade__69sLT7U",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/sound-change-cascade__69sLT7U"
+      },
+      {
+        "name": "sound-change-cascade__B4UHz63",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/sound-change-cascade__B4UHz63"
+      },
+      {
+        "name": "sound-change-cascade__3BYuQfq",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/sound-change-cascade__3BYuQfq"
+      },
+      {
+        "name": "sound-change-cascade__yw6VCwi",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/sound-change-cascade__yw6VCwi"
+      },
+      {
+        "name": "sound-change-cascade__puoSDWF",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/sound-change-cascade__puoSDWF"
+      }
+    ],
+    "telecom-entity-resolution": [
+      {
+        "name": "telecom-entity-resolution__4DCZjAt",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/telecom-entity-resolution__4DCZjAt"
+      },
+      {
+        "name": "telecom-entity-resolution__LzYxUWi",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/telecom-entity-resolution__LzYxUWi"
+      },
+      {
+        "name": "telecom-entity-resolution__CYfBi4i",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/telecom-entity-resolution__CYfBi4i"
+      },
+      {
+        "name": "telecom-entity-resolution__Ts8VqUB",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/telecom-entity-resolution__Ts8VqUB"
+      },
+      {
+        "name": "telecom-entity-resolution__qEQxciH",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/telecom-entity-resolution__qEQxciH"
+      }
+    ],
+    "vba-userform-port": [
+      {
+        "name": "vba-userform-port__jSnqEeq",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/vba-userform-port__jSnqEeq"
+      },
+      {
+        "name": "vba-userform-port__Mvwbh5x",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/vba-userform-port__Mvwbh5x"
+      },
+      {
+        "name": "vba-userform-port__FSxTU8s",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/vba-userform-port__FSxTU8s"
+      },
+      {
+        "name": "vba-userform-port__4aixx24",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/vba-userform-port__4aixx24"
+      },
+      {
+        "name": "vba-userform-port__euQC2K6",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/vba-userform-port__euQC2K6"
+      }
+    ],
+    "vllm-deepseek-streaming": [
+      {
+        "name": "vllm-deepseek-streaming__jxybNve",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/vllm-deepseek-streaming__jxybNve"
+      },
+      {
+        "name": "vllm-deepseek-streaming__BTQCKgN",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/vllm-deepseek-streaming__BTQCKgN"
+      },
+      {
+        "name": "vllm-deepseek-streaming__V3ckG3n",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/vllm-deepseek-streaming__V3ckG3n"
+      },
+      {
+        "name": "vllm-deepseek-streaming__QE7Cg9y",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/vllm-deepseek-streaming__QE7Cg9y"
+      },
+      {
+        "name": "vllm-deepseek-streaming__8G3eL8n",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/vllm-deepseek-streaming__8G3eL8n"
+      }
+    ],
+    "vpp-loss-divergence": [
+      {
+        "name": "vpp-loss-divergence__L7Pffd7",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/vpp-loss-divergence__L7Pffd7"
+      },
+      {
+        "name": "vpp-loss-divergence__aLsXci4",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/vpp-loss-divergence__aLsXci4"
+      },
+      {
+        "name": "vpp-loss-divergence__x9eo3mv",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/vpp-loss-divergence__x9eo3mv"
+      },
+      {
+        "name": "vpp-loss-divergence__enSifMm",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/vpp-loss-divergence__enSifMm"
+      },
+      {
+        "name": "vpp-loss-divergence__36RuuxN",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/vpp-loss-divergence__36RuuxN"
+      }
+    ],
+    "wal-recovery-ordering": [
+      {
+        "name": "wal-recovery-ordering__LH8RQgG",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/wal-recovery-ordering__LH8RQgG"
+      },
+      {
+        "name": "wal-recovery-ordering__Dwv8tjp",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/wal-recovery-ordering__Dwv8tjp"
+      },
+      {
+        "name": "wal-recovery-ordering__HXxA4Bj",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/wal-recovery-ordering__HXxA4Bj"
+      },
+      {
+        "name": "wal-recovery-ordering__Cm6zmTq",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/wal-recovery-ordering__Cm6zmTq"
+      },
+      {
+        "name": "wal-recovery-ordering__kYvqmSr",
+        "path": "tb4/19-task-v1/tb4-terra61-medium-ptc/jobs/tb4-terra61-medium-flex-fa053-ptc-001-hf-basic/wal-recovery-ordering__kYvqmSr"
+      }
+    ]
+  },
+  "safety_cells": {},
+  "task_costs": {
+    "atrx-vep-crispr": 0.247347,
+    "cad-model": 0.128915,
+    "cargo-flight-dispatch": 0.216943,
+    "fin-saccr-rwa": 0.420618,
+    "gsea-proteomics": 0.199326,
+    "hof-topology-interpenetration": 0.486983,
+    "html-js-filter": 0.192939,
+    "mvcc-lsm-compaction": 0.127454,
+    "photonic-waveguide-routing": 0.377309,
+    "production-planning": 0.139854,
+    "react-lead-form": 0.39475,
+    "satb-audio-transcription": 0.695777,
+    "session-window-debug": 0.197597,
+    "sound-change-cascade": 0.465369,
+    "telecom-entity-resolution": 0.84495,
+    "vba-userform-port": 0.848298,
+    "vllm-deepseek-streaming": 0.902634,
+    "vpp-loss-divergence": 0.426083,
+    "wal-recovery-ordering": 0.224393
+  },
+  "errors": {},
+  "cost": {
+    "total_usd": 7.54,
+    "total_usd_exact": 7.537538,
+    "trials_with_cost": 95,
+    "trials": 95,
+    "excluded_trials_with_cost": 0,
+    "basis": "sum of Harbor recorded cost_usd over selected trials plus excluded (replaced) trials",
+    "matches_published": null,
+    "lower_bound": true
+  },
+  "tokens": {
+    "input": 74269764,
+    "cached": 70202538,
+    "output": 1296521,
+    "basis": "Harbor per-trial input_tokens (includes cached), cache_tokens, output_tokens"
+  },
+  "per_trial_cost": {
+    "median": 0.0651,
+    "p90": 0.1637,
+    "max": 0.2229
+  },
+  "published": null,
+  "reconciled": true,
+  "notes": [
+    "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+    "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor 271f0a31, with the published fast-agent-mcp[ptc] 0.10.53 wheel, programmatic tool calling on (ptc=on in the model string): every tool call went through the exec_sandbox Python code tool. GPT-6.1 Terra (medium reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply.",
+    "Replaces the site's earlier GPT-6.1 Terra medium run (fast-agent 0.10.48, PTC code-only, 39/95; still in the bucket at tb4/19-task-v1/tb4-terra61-medium), replaced because fast-agent 0.10.53's PTC tool surface is cleaner.",
+    "One gsea-proteomics trial failed on a connection error before the agent ran and was replaced; its first replacement hit an OpenAI usage limit and was replaced again (scored 0). Originals are kept as evidence.",
+    "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-11-05.1, rules gpt-6.1-terra-flex-short / -long: $0.50 / $0.025 / $0.625 / $2.50 per million input / cached / cache-write / output tokens; $1 / $0.05 / $1.25 / $3.75 above 272k context). Flex is an optional OpenAI service tier at exactly half the standard rates on every band, so the same usage at standard rates costs twice as much. Five trials have model calls that reported no usage, so the total is a lower bound."
+  ],
+  "scan": {
+    "version": "0.8.16",
+    "scope": "95 reported trials (findings also include 2 replaced originals, kept as evidence)",
+    "trials": 95,
+    "rewarded": 40,
+    "accuracy": 41.24,
+    "accuracy_se": 3.16,
+    "findings_medium_plus": {
+      "trials": 1,
+      "rewarded": 0,
+      "by_highest_priority": {
+        "high": 1,
+        "info": 80,
+        "none": 15,
+        "unavailable": 1
+      },
+      "top": [
+        {
+          "check": "tb4.vllm_deepseek_streaming.upstream_source_fetched",
+          "title": "Upstream vLLM fetched (vllm-deepseek-streaming)",
+          "priority": "high",
+          "trials": 1,
+          "rewarded": 0
+        }
+      ]
+    },
+    "review": {
+      "dq_threshold": "high",
+      "high_or_critical_rewarded": 0,
+      "other_model_trials": 0,
+      "incomplete_evidence_rewarded": 40,
+      "accuracy_if_flagged_failed": 42.11
+    },
+    "awareness": {
+      "trials": 0,
+      "stages": {
+        "noticed": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "named": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "familiar": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "probed": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "watched": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "cluster": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "searched": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "obtained": {
+          "trials": 0,
+          "rewarded": 0
+        }
+      },
+      "verifier_talk": {
+        "trials": 8,
+        "rewarded": 2
+      }
+    },
+    "evidence": {
+      "planned": 95,
+      "errored": 0,
+      "error_types": {},
+      "compacted_history": 0,
+      "without_trajectory": 0,
+      "incomplete_scans": 95,
+      "unmetered_trials": 0
+    },
+    "cost": {
+      "recorded": 0,
+      "trials_missing_cost": 97,
+      "estimated_unpriced": null,
+      "estimated_unmetered": null,
+      "estimated_total": 0
+    },
+    "tokens": {
+      "uncached_input": 4067226,
+      "cached_input": 70202538,
+      "output": 1296521
+    },
+    "walltime_hours": {
+      "trial_sum": 10.4,
+      "agent_sum": 7.1
+    },
+    "overrides": [],
+    "flagged_tasks": {
+      "vllm-deepseek-streaming": {
+        "trials": 1,
+        "rewarded": 0,
+        "max_priority": "high"
+      }
+    },
+    "scanner": {
+      "commit": "5aad01d702838323f794274deff9be83106156b5",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--min-trials",
+        "5",
+        "--rules",
+        "docs/benchmark_data/tb4/atif-rules.json",
+        "--image-model",
+        "codexresponses.gpt-6-luna?reasoning=medium"
+      ],
+      "rules_sha256": "5f9f76ce20cc70e4a98c95e03f4fc7b491db7a2bb9a904fb2565366fb9448fd6"
+    },
+    "cells": {
+      "atrx-vep-crispr": "lllll",
+      "cad-model": "lllll",
+      "cargo-flight-dispatch": "lllll",
+      "fin-saccr-rwa": "lllll",
+      "gsea-proteomics": "lllll",
+      "hof-topology-interpenetration": "lllll",
+      "html-js-filter": "lllll",
+      "mvcc-lsm-compaction": "lllll",
+      "photonic-waveguide-routing": "lllll",
+      "production-planning": "lllll",
+      "react-lead-form": "lllll",
+      "satb-audio-transcription": "lllll",
+      "session-window-debug": "lllll",
+      "sound-change-cascade": "lllll",
+      "telecom-entity-resolution": "lllll",
+      "vba-userform-port": "lllll",
+      "vllm-deepseek-streaming": "llllh",
+      "vpp-loss-divergence": "lllll",
+      "wal-recovery-ordering": "lllll"
+    },
+    "lures": {
+      "scanned": 95,
+      "rungs": [
+        {
+          "rung": "surfaced",
+          "label": "saw only a lure's name or link",
+          "check": "observation.lure_surfaced",
+          "trials": 0,
+          "rewarded": 0
+        },
+        {
+          "rung": "instructions",
+          "label": "saw a lure's instructions",
+          "check": "observation.install_lure",
+          "trials": 0,
+          "rewarded": 0
+        },
+        {
+          "rung": "pursued",
+          "label": "opened a lure page",
+          "check": "side_channel.lure_pursued",
+          "trials": 0,
+          "rewarded": 0
+        },
+        {
+          "rung": "followed",
+          "label": "requested a lure's payload",
+          "check": "side_channel.install_lure_followed",
+          "trials": 0,
+          "rewarded": 0
+        }
+      ],
+      "attempts": []
+    }
+  },
+  "as_run": {
+    "passes": 40,
+    "slots": 95
+  },
+  "review": {
+    "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+    "coverage": "atif-scan 0.8.16 (5aad01d), with images sent for transcription (none blocked a check), flagged no rewarded trial at high or above; its one high finding (vllm-deepseek-streaming upstream source fetched) is on an unrewarded trial. With PTC every tool call is Python in the exec_sandbox code tool, which the scanner cannot fully analyse, so every pass keeps some checks undecided (counted under Review); a keyword pass over those trajectories for benchmark sources (terminal-bench, harbor-framework, laude-institute, solution and test files) and a review of every external host they reached found nothing beyond public libraries, tools and regulatory texts.",
+    "recorded_passes": 40,
+    "recorded_score": 42.11,
+    "disqualified": [],
+    "cleared": []
+  }
+}
