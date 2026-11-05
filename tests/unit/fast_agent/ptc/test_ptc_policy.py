@@ -55,6 +55,13 @@ def test_explicit_false_overrides_preset_ptc_default() -> None:
         ("zai.glm-5.3-flash", True),
         ("hf.zai-org/GLM-5.3-Flash:zai-org", True),
         ("glm53", False),
+        ("astra", True),
+        ("sol", True),
+        ("terra", True),
+        ("luna", True),
+        ("responses.gpt-6.1-sol?context=1m", True),
+        ("gpt6sol", False),
+        ("luna56", False),
         ("generic.unknown", False),
     ],
 )

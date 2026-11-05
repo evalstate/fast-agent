@@ -685,6 +685,8 @@ class ModelDatabase:
     )
 
     OPENAI_GPT_6_ASTRA = ModelParameters(
+        # PTC is on by default for the current Astra/Sol/Terra/Luna generation.
+        ptc_enabled=True,
         json_mode="schema",
         structured_tool_policy="always",
         context_window=272_000,
@@ -713,6 +715,9 @@ class ModelDatabase:
     OPENAI_GPT_6_SOL_LUNA = OPENAI_GPT_6_ASTRA.model_copy(
         update={"reasoning_effort_spec": OPENAI_GPT_6_SOL_LUNA_REASONING}
     )
+
+    # Superseded by GPT-6.1 Sol, so it keeps PTC opt-in.
+    OPENAI_GPT_6_SOL = OPENAI_GPT_6_SOL_LUNA.model_copy(update={"ptc_enabled": False})
 
     # GPT-6.1 Sol keeps the GPT-6 Sol tool/transport layout but, like Astra, rejects
     # `none`/`minimal` effort (verified on Codex OAuth and Copilot Responses).
@@ -1458,7 +1463,7 @@ class ModelDatabase:
         "gpt-6-astra": OPENAI_GPT_6_ASTRA,
         "gpt-6.1-sol": OPENAI_GPT_61_SOL,
         "gpt-6.1-terra": OPENAI_GPT_61_TERRA,
-        "gpt-6-sol": OPENAI_GPT_6_SOL_LUNA,
+        "gpt-6-sol": OPENAI_GPT_6_SOL,
         "gpt-6-luna": _with_fast(OPENAI_GPT_6_LUNA),
         "gpt-5.4-mini": OPENAI_GPT_54_SMALL.model_copy(
             update={"model_specific": GPT_53_PLUS_MODEL_SPECIFIC}
@@ -1610,7 +1615,7 @@ class ModelDatabase:
                 ("gpt-6-astra", OPENAI_GPT_6_ASTRA),
                 ("gpt-6.1-sol", OPENAI_GPT_61_SOL),
                 ("gpt-6.1-terra", OPENAI_GPT_61_TERRA),
-                ("gpt-6-sol", OPENAI_GPT_6_SOL_LUNA),
+                ("gpt-6-sol", OPENAI_GPT_6_SOL),
                 ("gpt-6-luna", _with_fast(OPENAI_GPT_6_LUNA)),
             )
             for provider, window in (
