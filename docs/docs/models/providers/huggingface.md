@@ -255,3 +255,26 @@ explicit overrides. Other routes retain the model-wide output budget.
 
 These limits apply to raw model strings, picker aliases, and routes selected with
 `hf.default_provider`; no `?max_tokens=...` workaround is needed for Baseten.
+
+## Inline images and the request size limit
+
+The router rejects request bodies larger than about 5 MB with HTTP 413. Image-heavy
+turns (document scans, video frames) can reach that quickly, because every image in
+the history is resent on each turn. Fast-agent fits inline images to the limit when
+it builds each request; the conversation history is never changed:
+
+1. Images whose longest side exceeds `image_max_dimension` (default 2048 px) are
+   downscaled. Images larger than `image_reencode_min_bytes` (default 300 KB) are
+   re-encoded as the smaller of their own format and JPEG; images with transparency
+   stay PNG. The result is deterministic, so repeated turns keep a stable prompt prefix.
+2. If the request is still larger than `max_request_bytes` (default 4.5 MiB), the oldest
+   images are replaced with a short text placeholder until it fits.
+3. If the router still answers 413, the request is resent once with the images trimmed
+   to half its size.
+
+```yaml
+hf:
+  # image_max_dimension: 2048       # null disables downscaling
+  # image_reencode_min_bytes: 300000 # null disables re-encoding
+  # max_request_bytes: 4718592      # null disables the budget
+```

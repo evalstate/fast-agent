@@ -1857,6 +1857,28 @@ class HuggingFaceSettings(BaseModel):
         default=None,
         description="Custom headers for all API requests",
     )
+    max_request_bytes: int | None = Field(
+        default=4_718_592,
+        ge=1,
+        description=(
+            "Request body budget (bytes). The router rejects bodies above about 5 MB with "
+            "HTTP 413; if inline images exceed this budget, the oldest are replaced with a "
+            "placeholder. Null disables the budget."
+        ),
+    )
+    image_max_dimension: int | None = Field(
+        default=2048,
+        ge=1,
+        description="Downscale inline images to this longest side (pixels). Null disables.",
+    )
+    image_reencode_min_bytes: int | None = Field(
+        default=300_000,
+        ge=1,
+        description=(
+            "Re-encode inline images larger than this (bytes) when JPEG or their own format "
+            "is smaller. Null disables."
+        ),
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
