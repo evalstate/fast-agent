@@ -1066,7 +1066,7 @@ async def _apply_runtime_context_overrides(fast: Any, request: AgentRunRequest) 
         or request.shell_runtime
         or request.no_shell
         or request.prefer_local_shell
-        or request.ptc
+        or request.ptc is not None
     ):
         return
 
@@ -1081,8 +1081,8 @@ async def _apply_runtime_context_overrides(fast: Any, request: AgentRunRequest) 
         context.no_shell = True
     if request.prefer_local_shell and config is not None:
         config.shell_execution.prefer_local_shell = True
-    if request.ptc and config is not None:
-        config.ptc.enabled = True
+    if request.ptc is not None:
+        context.ptc_enabled = request.ptc
 
 
 async def _add_cli_servers(fast: Any, request: AgentRunRequest) -> None:

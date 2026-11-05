@@ -51,6 +51,43 @@ session_history_window: 20
 git_aware: false
 ```
 
+### Programmatic tool calling (PTC)
+
+PTC is included in the core install from **0.10.53**, using the bundled
+`python-monty` engine (`pydantic-monty`). It exposes tools as async Python functions
+behind `exec_sandbox`, allowing the model to filter and aggregate results in code
+rather than sending every result back into its context.
+
+Enablement precedence (highest first):
+
+1. CLI `--ptc` or `--no-ptc`.
+2. Model query `ptc=on|true|off|false`, for example `glm53flash?ptc=off`.
+3. YAML `ptc.enabled: true` or `false`.
+4. Model database default. **GLM-5.3-Flash defaults to on** (including the HF and
+   Z.AI aliases); other models default to off.
+
+Omit `ptc.enabled` or set it to `null` to use model defaults. Limits and tool
+exposure settings are independent of enablement:
+
+--8<-- "_generated/ptc_config_snippet.md"
+
+`direct_tools` keeps matching tools callable directly; `nested_tools` makes
+matching tools code-only, with `direct_tools` taking precedence. The engine
+is not configurable.
+
+!!! warning "Local POSIX only"
+    PTC does not yet support Docker, remote, ACP-owned terminal/filesystem, custom
+    execution environments or non-POSIX hosts. A model default (such as GLM-5.3-Flash)
+    falls back to direct tools there; an explicit `--ptc`, `ptc=on` or
+    `ptc.enabled: true` is rejected. With local shell/filesystem access
+    enabled, sandbox file operations access the host working directory directly,
+    without tool permission prompts; this is not a filesystem sandbox.
+
+See the [PTC example](https://github.com/evalstate/fast-agent/tree/main/examples/ptc)
+for a runnable demonstration.
+
+### History compaction defaults
+
 History compaction defaults are generated from `fast_agent.config.CompactionSettings`:
 
 --8<-- "_generated/compaction_config_snippet.md"

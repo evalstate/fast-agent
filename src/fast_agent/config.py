@@ -1965,8 +1965,9 @@ class ProgrammaticToolCallingSettings(BaseModel):
     function; only printed output and the final expression value return to the context.
     """
 
-    enabled: bool = False
-    """Expose tools through the Python code tool (`--ptc`); experimental, local POSIX only."""
+    enabled: bool | None = None
+    """Expose tools through the Python code tool; null uses the model default.
+    Override with `--ptc` / `--no-ptc` or the `ptc` model query. Local POSIX only."""
 
     direct_tools: list[str] = Field(default_factory=list)
     """Tool names (fnmatch patterns) that stay directly callable alongside the code tool."""

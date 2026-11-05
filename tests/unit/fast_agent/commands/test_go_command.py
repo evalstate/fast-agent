@@ -268,14 +268,17 @@ def test_go_accepts_timeout_flag(monkeypatch) -> None:
     assert captured_requests[0].timeout_seconds == 120
 
 
-def test_go_ptc_flag_requests_programmatic_tool_calling(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("flags", "expected"), [([], None), (["--ptc"], True), (["--no-ptc"], False)]
+)
+def test_go_ptc_flag_requests_programmatic_tool_calling(monkeypatch, flags, expected) -> None:
     captured_requests = []
     monkeypatch.setattr(go_command, "run_request", captured_requests.append)
 
-    result = CliRunner().invoke(go_command.app, ["--message", "hi", "--ptc"])
+    result = CliRunner().invoke(go_command.app, ["--message", "hi", *flags])
 
     assert result.exit_code == 0, result.output
-    assert [request.ptc for request in captured_requests] == [True]
+    assert [request.ptc for request in captured_requests] == [expected]
 
 
 @pytest.mark.parametrize(

@@ -191,6 +191,13 @@ class _ManagedMcpSetup:
     provider_managed_servers: list[str]
 
 
+@dataclass(frozen=True, slots=True)
+class _PtcSelection:
+    enabled: bool
+    explicit: bool
+    """Chosen by CLI, model query or config rather than the model database default."""
+
+
 if TYPE_CHECKING:
     from a2a.types import AgentCard, AgentSkill
     from rich.text import Text
@@ -1703,19 +1710,56 @@ class McpAgent(ABC, ToolAgent):
             request_tool_handler=request_tool_handler,
         )
 
+    def _ptc_selection(self) -> _PtcSelection:
+        """Resolve the PTC policy and whether a user setting, not a model default, chose it."""
+        assert self._context is not None and self._context.config is not None
+        if self._context.ptc_enabled is not None:
+            return _PtcSelection(self._context.ptc_enabled, explicit=True)
+        configured = self._context.config.ptc.enabled
+        resolved = resolve_resolved_model(self._llm) if self._llm is not None else None
+        if not isinstance(resolved, ResolvedModelSpec):
+            # Initialization can build instructions/tools before an LLM is attached.
+            from fast_agent.core.model_resolution import (
+                get_context_cli_model_override,
+                resolve_model_spec,
+            )
+            from fast_agent.llm.model_factory import ModelFactory
+
+            model = resolve_model_spec(
+                self._context,
+                model=self.config.model,
+                cli_model=get_context_cli_model_override(self._context),
+            ).model
+            if not model:
+                return _PtcSelection(bool(configured), explicit=configured is not None)
+            resolved = ModelFactory.resolve_model_spec(model)
+        return _PtcSelection(
+            resolved.resolve_ptc_enabled(configured),
+            explicit=configured is not None or resolved.model_config.ptc is not None,
+        )
+
     def _programmatic_tool_runtime(self) -> ProgrammaticToolRuntime | None:
         """Return the PTC runtime when programmatic tool calling is enabled."""
         if not self._context or not self._context.config:
             return None
-        settings = self._context.config.ptc
-        if not settings.enabled:
+        selection = self._ptc_selection()
+        if not selection.enabled:
             return None
-        self._validate_ptc_environment()
+        if not self._ptc_environment_supported():
+            if not selection.explicit:
+                # A model default must not break environments PTC cannot serve yet.
+                return None
+            raise AgentConfigError(
+                "PTC currently supports local POSIX execution only",
+                "Use --no-ptc, ptc=off or ptc.enabled: false for ACP-owned, remote, Docker or "
+                "custom environments until filesystem adapters are available. "
+                "Host-local file access was not enabled.",
+            )
         if self._ptc_runtime is None:
-            self._ptc_runtime = ProgrammaticToolRuntime(settings)
+            self._ptc_runtime = ProgrammaticToolRuntime(self._context.config.ptc)
         return self._ptc_runtime
 
-    def _validate_ptc_environment(self) -> None:
+    def _ptc_environment_supported(self) -> bool:
         """Do not route another environment's paths into the local PTC pass-through."""
         from fast_agent.tools.composite_filesystem_runtime import CompositeFilesystemRuntime
         from fast_agent.tools.environment_filesystem_runtime import EnvironmentFilesystemRuntime
@@ -1734,7 +1778,7 @@ class McpAgent(ABC, ToolAgent):
             )
 
         acp = self._context.acp if self._context is not None else None
-        if (
+        return not (
             os.name != "posix"
             or (
                 self._shell_environment is not None
@@ -1746,12 +1790,7 @@ class McpAgent(ABC, ToolAgent):
                 acp is not None
                 and (acp.terminal_runtime is not None or acp.filesystem_runtime is not None)
             )
-        ):
-            raise AgentConfigError(
-                "PTC currently supports local POSIX execution only",
-                "Disable --ptc/ptc.enabled for ACP-owned, remote, Docker or custom environments "
-                "until filesystem adapters are available. Host-local file access was not enabled.",
-            )
+        )
 
     @property
     def ptc_store(self) -> SandboxStore | None:
@@ -1775,9 +1814,8 @@ class McpAgent(ABC, ToolAgent):
         return cwd
 
     def _unavailable_tool_hint(self, name: str) -> str | None:
-        if self._ptc_runtime is None:
-            return None
-        return self._ptc_runtime.unavailable_tool_hint(name)
+        runtime = self._programmatic_tool_runtime()
+        return runtime.unavailable_tool_hint(name) if runtime is not None else None
 
     async def _call_ptc_tool(
         self,
@@ -2323,8 +2361,9 @@ class McpAgent(ABC, ToolAgent):
 
         Mirrors the dispatch order in ``call_tool`` and ``_call_local_tool``.
         """
+        ptc_runtime = self._programmatic_tool_runtime()
         return (
-            (self._ptc_runtime is not None and name == self._ptc_runtime.tool_name)
+            (ptc_runtime is not None and name == ptc_runtime.tool_name)
             or self._is_external_runtime_tool(name)
             or self._is_filesystem_runtime_tool(name)
             or (self._skill_reader is not None and name == READ_SKILL_TOOL_NAME)
@@ -2713,8 +2752,9 @@ class McpAgent(ABC, ToolAgent):
         is_filesystem_runtime_tool: bool,
         route_to_namespaced_candidate: bool,
     ) -> dict[str, Any] | None:
-        if self._ptc_runtime is not None and tool_name == self._ptc_runtime.tool_name:
-            return self._ptc_runtime.tool_meta()
+        ptc_runtime = self._programmatic_tool_runtime()
+        if ptc_runtime is not None and tool_name == ptc_runtime.tool_name:
+            return ptc_runtime.tool_meta()
         if self._shell_runtime_enabled and self._shell_runtime:
             if self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name:
                 return self._shell_runtime.metadata(tool_args)
@@ -2763,8 +2803,9 @@ class McpAgent(ABC, ToolAgent):
         lookup_name = tool_name.strip()
         if not lookup_name:
             return None
-        if self._ptc_runtime is not None and lookup_name == self._ptc_runtime.tool_name:
-            return self._ptc_runtime.tool_meta()
+        ptc_runtime = self._programmatic_tool_runtime()
+        if ptc_runtime is not None and lookup_name == ptc_runtime.tool_name:
+            return ptc_runtime.tool_meta()
         if (
             self._shell_runtime_enabled
             and self._shell_runtime

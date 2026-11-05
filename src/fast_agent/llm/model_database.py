@@ -84,6 +84,9 @@ class ModelParameters(BaseModel):
     shell_tool_profile: ResolvedShellToolProfile | None = None
     """Optional model-specific shell contract selected when shell tool profile is auto."""
 
+    ptc_enabled: bool = False
+    """Default programmatic tool calling policy; explicit CLI/model/config settings win."""
+
     ptc_tool_format: Literal["json", "freeform"] | None = None
     """Default input format of the programmatic tool calling code tool when
     ``ptc.tool_format`` is auto. ``None`` means JSON."""
@@ -1228,6 +1231,7 @@ class ModelDatabase:
     )
 
     GLM_5_3_FLASH = ModelParameters(
+        ptc_enabled=True,
         context_window=1_000_000,
         max_output_tokens=131072,
         tokenizes=ZAI_GLM_53_FLASH_MULTIMODAL,

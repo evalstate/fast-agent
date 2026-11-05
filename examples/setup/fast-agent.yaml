@@ -119,6 +119,13 @@ anthropic:
 #   image_upload_mode: inline
 #   image_upload_ttl_seconds: 86400 # 1 hour to 30 days
 
+# Programmatic tool calling: null follows the model default (GLM-5.3-Flash on;
+# other models off). CLI --ptc/--no-ptc and model query ?ptc=on|off override this.
+# Local POSIX only (model defaults fall back to direct tools elsewhere);
+# pydantic-monty is included in the core install.
+#ptc:
+#  enabled: null
+
 #shell_execution:
 # model-facing shell tools: auto (Grok shell/Process; others Bash/Process),
 # minimal_process, grok_shell, or native

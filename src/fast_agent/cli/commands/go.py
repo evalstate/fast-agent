@@ -395,7 +395,7 @@ def go(
     no_shell: bool = CommonAgentOptions.no_shell(),
     subagents: bool | None = CommonAgentOptions.subagents(),
     subagent_model: str | None = CommonAgentOptions.subagent_model(),
-    ptc: bool = CommonAgentOptions.ptc(),
+    ptc: bool | None = CommonAgentOptions.ptc(),
     reload: bool = typer.Option(
         False,
         "--reload",

@@ -532,7 +532,7 @@ def build_agent_run_request(
     subagents: bool | None = None,
     subagent_model: str | None = None,
     model_base_url: str | None = None,
-    ptc: bool = False,
+    ptc: bool | None = None,
 ) -> AgentRunRequest:
     """Build a normalized runtime request from legacy CLI kwargs."""
     validate_no_home_conflicts(
@@ -709,7 +709,7 @@ def build_command_run_request(
     subagents: bool | None = None,
     subagent_model: str | None = None,
     model_base_url: str | None = None,
-    ptc: bool = False,
+    ptc: bool | None = None,
 ) -> AgentRunRequest:
     """Build a normalized request directly from command option values."""
     validate_no_home_conflicts(

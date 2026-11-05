@@ -59,6 +59,8 @@ class Context(BaseModel):
     skill_registry: SkillRegistry | None = None
     runtime_mcp_server_names: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     no_shell: bool = False
+    ptc_enabled: bool | None = None
+    """CLI override for PTC, ahead of model-string and configuration settings."""
 
     tracer: trace.Tracer | None = None
     _connection_manager: "MCPConnectionManager | None" = None
