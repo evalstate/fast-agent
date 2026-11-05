@@ -859,6 +859,10 @@ class ToolRunner:
             pending_request is not None
             and self._pending_tool_response is not None
             and self._pending_tool_request is None
+            # A follow-up after_llm_call hook can fail before runner state is
+            # updated, leaving the previous batch's completed response here.
+            and set(self._pending_tool_response.tool_results or {})
+            == set(pending_request.tool_calls or {})
         ):
             history.append(self._pending_tool_response.model_copy(deep=True))
 

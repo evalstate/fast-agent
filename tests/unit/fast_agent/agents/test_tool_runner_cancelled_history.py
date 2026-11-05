@@ -1,5 +1,6 @@
 import asyncio
 import os
+from unittest.mock import AsyncMock
 
 import pytest
 from mcp import CallToolRequest
@@ -558,7 +559,10 @@ async def test_externally_cancelled_turn_is_persisted_to_session_history(tmp_pat
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_unhandled_after_llm_hook_error_persists_tool_loop_history(tmp_path) -> None:
+@pytest.mark.parametrize("failing_round", [1, 2])
+async def test_unhandled_after_llm_hook_error_persists_tool_loop_history(
+    tmp_path, monkeypatch, failing_round: int
+) -> None:
     old_settings = get_settings()
     override = old_settings.model_copy(update={"home": str(tmp_path / "env")})
     update_global_settings(override)
@@ -566,12 +570,30 @@ async def test_unhandled_after_llm_hook_error_persists_tool_loop_history(tmp_pat
 
     try:
         manager = _register_session_manager(tmp_path / "env")
+        manager.create_session(metadata={"agent_name": "after-llm-hook-persist"})
         llm = CancelledStopReasonLlm()
+        responses = [
+            Prompt.assistant(
+                "use tool",
+                stop_reason=LlmStopReason.TOOL_USE,
+                tool_calls={
+                    f"call{round_number}": CallToolRequest(
+                        method="tools/call",
+                        params=CallToolRequestParams(name="ok_tool", arguments={}),
+                    )
+                },
+            )
+            for round_number in range(1, failing_round + 1)
+        ]
+        monkeypatch.setattr(
+            llm, "_apply_prompt_provider_specific", AsyncMock(side_effect=responses)
+        )
         agent = ToolAgent(AgentConfig("after-llm-hook-persist"), [ok_tool])
         agent._llm = llm
 
-        async def after_llm_call(_runner, _message) -> None:
-            raise RuntimeError("after llm boom")
+        async def after_llm_call(runner, _message) -> None:
+            if runner.iteration == failing_round - 1:
+                raise RuntimeError("after llm boom")
 
         agent.tool_runner_hooks = ToolRunnerHooks(after_llm_call=after_llm_call)
 
@@ -586,9 +608,18 @@ async def test_unhandled_after_llm_hook_error_persists_tool_loop_history(tmp_pat
         assert history_path.exists()
 
         saved_messages = load_prompt(history_path)
-        assert saved_messages
-        assert saved_messages[-1].role == "assistant"
-        assert saved_messages[-1].stop_reason == LlmStopReason.TOOL_USE
+        for history in (saved_messages, agent.message_history):
+            assert history[-1].role == "assistant"
+            assert history[-1].stop_reason == LlmStopReason.TOOL_USE
+            assert set(history[-1].tool_calls or {}) == {f"call{failing_round}"}
+            assert sum(bool(message.tool_results) for message in history) == failing_round - 1
+
+        rollback = ToolRunner.reconcile_interrupted_history(agent, use_history=True)
+        assert rollback.status == "appended_interrupted_tool_result"
+        results = agent.message_history[-1].tool_results
+        assert results is not None
+        assert set(results) == {f"call{failing_round}"}
+        assert all(result.is_error for result in results.values())
     finally:
         update_global_settings(old_settings)
         reset_session_manager()

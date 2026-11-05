@@ -160,6 +160,7 @@ class TurnInputReader:
         from prompt_toolkit.keys import Keys
 
         from fast_agent.ui.prompt.pasted_paths import pasted_image_paths
+        from fast_agent.ui.prompt.special_commands import is_bare_prompt_command
 
         if self._suspended or _replayed_submissions:
             # An earlier turn may still have submissions in prompt typeahead.
@@ -174,8 +175,10 @@ class TurnInputReader:
         for submission in self._submissions:
             end, text = submission.end, submission.text
             stripped = text.lstrip()
-            if stripped.startswith(("/", "!", "@", "#")) or any(
-                word.startswith("^") for word in text.split()
+            if (
+                stripped.startswith(("/", "!", "@", "#"))
+                or is_bare_prompt_command(text)
+                or any(word.startswith("^") for word in text.split())
             ):
                 break
             if any(

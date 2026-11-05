@@ -79,6 +79,7 @@ from fast_agent.ui.prompt.resource_mentions import (
     parse_mentions,
     resolve_mentions,
 )
+from fast_agent.ui.prompt.special_commands import is_stop_command
 from fast_agent.ui.prompt.turn_input import hold_turn_input
 from fast_agent.ui.prompt_marks import emit_prompt_mark
 from fast_agent.utils.count_display import format_count
@@ -965,7 +966,7 @@ class InteractivePrompt:
         if (
             not pending.has_pending_execution()
             and isinstance(user_input, str)
-            and user_input.strip().upper() == "STOP"
+            and is_stop_command(user_input)
         ):
             return PromptCommandPhase(
                 agent_state=agent_state,

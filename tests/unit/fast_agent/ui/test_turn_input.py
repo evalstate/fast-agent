@@ -295,7 +295,22 @@ async def test_unfinished_multiline_draft_replays_intact(
 
 @pytest.mark.parametrize(
     "deferred",
-    ["/help", "!echo hi", "@other", "#other hello", "look ^file:photo.png"],
+    [
+        "/help",
+        "!echo hi",
+        "@other",
+        "#other hello",
+        "look ^file:photo.png",
+        "STOP",
+        " stop ",
+        "exit",
+        "ExIt",
+        "HELP",
+        "HELP:STATUS",
+        "SHOW_USAGE",
+        "SELECT_PROMPT:example",
+        "SWITCH:other",
+    ],
 )
 @pytest.mark.asyncio
 async def test_command_barrier_preserves_order_and_replays_once(
@@ -317,6 +332,14 @@ async def test_command_barrier_preserves_order_and_replays_once(
     prompt = PromptSession(input=pipe, output=DummyOutput(), key_bindings=create_keybindings())
     assert await prompt.prompt_async() == deferred
     assert await prompt.prompt_async() == "later"
+
+
+@pytest.mark.parametrize("text", ["STOP after this tool", "exit criteria", "HELP me debug", "help"])
+def test_command_like_plain_text_is_consumed(pipe: PipeInput, text: str) -> None:
+    reader = Recorder().reader(pipe)
+    pipe.send_text(f"{text}\r")
+    assert reader.take_messages() == [text]
+    assert reader.held_keys == []
 
 
 def test_pasted_image_stays_on_attachment_path(pipe: PipeInput, tmp_path) -> None:
