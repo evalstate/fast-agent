@@ -121,7 +121,9 @@ def agent_for(url: str, domains: list[str] | None = None) -> McpAgent:
                 base_url=url,
                 web_search=OpenAIWebSearchSettings(enabled=True, allowed_domains=domains),
             )
-        )
+        ),
+        # The simulator asserts the direct web_run contract, not the PTC surface.
+        ptc_enabled=False,
     )
     agent = McpAgent(AgentConfig(name="search", servers=[]), context=context)
     agent._llm = GenerateSimulator(model="gpt-6-astra", lite=True, context=context)

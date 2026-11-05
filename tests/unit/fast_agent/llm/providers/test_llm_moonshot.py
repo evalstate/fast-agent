@@ -77,10 +77,10 @@ def test_moonshot_model_routes_are_native_without_changing_hf_kimi_aliases() -> 
     assert ModelFactory._load_provider_class(Provider.MOONSHOT) is MoonshotLLM
 
 
-def test_moonshot_defaults_to_kimi_k3_and_official_endpoint() -> None:
+def test_moonshot_defaults_to_kimi_k31_and_official_endpoint() -> None:
     llm = MoonshotLLM(context=Context(config=Settings()), model="")
 
-    assert llm.default_request_params.model == "kimi-k3"
+    assert llm.default_request_params.model == "kimi-k3.1-pro"
     assert llm._base_url() == MOONSHOT_BASE_URL
 
 

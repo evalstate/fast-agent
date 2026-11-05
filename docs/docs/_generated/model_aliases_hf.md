@@ -36,9 +36,10 @@
 | `google/gemma-4-31b-it` | `google/gemma-4-31b-it` |
 | `gpt-oss` | `hf.openai/gpt-oss-120b:cerebras` |
 | `gpt-oss-20b` | `hf.openai/gpt-oss-20b` |
-| `kimi` | `hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on` |
+| `kimi` | `hf.moonshotai/Kimi-K3.1-Pro:together` |
 | `Kimi K3 (fireworks-ai)` | `hf.moonshotai/Kimi-K3:fireworks-ai` |
 | `Kimi K3 (together)` | `hf.moonshotai/Kimi-K3:together` |
+| `Kimi K3.1 Pro (together)` | `hf.moonshotai/Kimi-K3.1-Pro:together` |
 | `kimi-2.5` | `hf.moonshotai/Kimi-K2.5:novita?temperature=1.0&top_p=0.95&reasoning=on` |
 | `kimi-2.6` | `hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on` |
 | `kimi25` | `hf.moonshotai/Kimi-K2.5:novita?temperature=1.0&top_p=0.95&reasoning=on` |
@@ -47,7 +48,7 @@
 | `kimi26instant` | `hf.moonshotai/Kimi-K2.6:novita?temperature=0.6&top_p=0.95&reasoning=off` |
 | `kimi27` | `hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on` |
 | `kimi27code` | `hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on` |
-| `kimithink` | `hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on` |
+| `kimithink` | `hf.moonshotai/Kimi-K3.1-Pro:together` |
 | `meta-models/muse-glimmer-30b` | `meta-models/muse-glimmer-30b` |
 | `minimax` | `hf.MiniMaxAI/MiniMax-M3:together?temperature=1.0&top_p=0.95&top_k=40` |
 | `minimax2.5` | `hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40` |
@@ -62,6 +63,7 @@
 | `moonshotai/kimi-k2.6` | `moonshotai/kimi-k2.6` |
 | `moonshotai/kimi-k2.7-code` | `moonshotai/kimi-k2.7-code` |
 | `moonshotai/kimi-k3` | `moonshotai/kimi-k3` |
+| `moonshotai/kimi-k3.1-pro` | `moonshotai/kimi-k3.1-pro` |
 | `qwen/qwen3.5-397b-a17b` | `qwen/qwen3.5-397b-a17b` |
 | `qwen/qwen3.6-35b-a3b` | `qwen/qwen3.6-35b-a3b` |
 | `qwen/qwen3.8-27b` | `qwen/qwen3.8-27b` |

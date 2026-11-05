@@ -105,6 +105,7 @@ _SINGLE_VALUE_MODEL_QUERY_KEYS = (
     "service_tier",
     "streaming_timeout",
     "lite",
+    "ptc",
     "compaction",
     "compact_at",
 )
@@ -199,6 +200,7 @@ class ModelConfig(BaseModel):
     structured_tool_policy: StructuredToolPolicy | None = None
     long_context: bool = False
     lite: bool | None = None
+    ptc: bool | None = None
     compaction: CompactionMode | None = None
     compact_at: CompactAt | None = None
     transport: TransportSetting | None = None
@@ -231,6 +233,7 @@ class ModelQueryOverrides:
     structured_tool_policy: StructuredToolPolicy | None = None
     long_context: bool | None = None
     lite: bool | None = None
+    ptc: bool | None = None
     compaction: CompactionMode | None = None
     compact_at: CompactAt | None = None
     transport: TransportSetting | None = None
@@ -269,6 +272,7 @@ class ModelQueryOverrides:
             ),
             long_context=coalesce(self.long_context, defaults.long_context),
             lite=coalesce(self.lite, defaults.lite),
+            ptc=coalesce(self.ptc, defaults.ptc),
             compaction=coalesce(self.compaction, defaults.compaction),
             compact_at=coalesce(self.compact_at, defaults.compact_at),
             transport=coalesce(self.transport, defaults.transport),
@@ -326,6 +330,7 @@ class ParsedModelSpec:
             structured_tool_policy=self.query_overrides.structured_tool_policy,
             long_context=self.query_overrides.long_context or False,
             lite=self.query_overrides.lite,
+            ptc=self.query_overrides.ptc,
             compaction=self.query_overrides.compaction,
             compact_at=self.query_overrides.compact_at,
             transport=self.query_overrides.transport,
@@ -598,6 +603,13 @@ def _parse_context_query(query_params: ModelQueryPairs, model_spec: str) -> bool
     return None
 
 
+def _parse_ptc_query(query_params: ModelQueryPairs, model_spec: str) -> bool | None:
+    if _has_query_key(query_params, "ptc"):
+        raw_value = _collect_query_values(query_params, ("ptc",))[-1]
+        return _parse_bool_query(raw_value, "ptc", model_spec)
+    return None
+
+
 def _parse_lite_query(query_params: ModelQueryPairs, model_spec: str) -> bool | None:
     if _has_query_key(query_params, "lite"):
         raw_value = _collect_query_values(query_params, ("lite",))[-1]
@@ -694,6 +706,7 @@ def _parse_query_overrides(
         structured_tool_policy=_parse_structured_tool_query(query_params, model_spec),
         long_context=_parse_context_query(query_params, model_spec),
         lite=_parse_lite_query(query_params, model_spec),
+        ptc=_parse_ptc_query(query_params, model_spec),
         compaction=_parse_compaction_query(query_params, model_spec),
         compact_at=_parse_compact_at_query(query_params, model_spec),
         transport=_parse_transport_query(query_params, model_spec),

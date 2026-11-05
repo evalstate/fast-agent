@@ -4,6 +4,7 @@ Helpers for applying template variables to system prompts after initial bootstra
 
 from __future__ import annotations
 
+import os
 import platform
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -11,6 +12,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from fast_agent.core.internal_resources import (
     format_internal_resources_for_prompt,
     list_internal_resources,
+    read_internal_resource,
 )
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.utils.text import strip_to_none
@@ -107,12 +109,21 @@ def refresh_execution_environment_context(
     shell_environment: "ShellEnvironment | None",
 ) -> None:
     """Populate active execution-environment prompt placeholders."""
+    # Host hc identity does not establish access from a remote/client shell.
+    # Reset on every refresh so switching environments cannot retain guidance.
+    context["herdrInstructions"] = ""
     if shell_environment is None:
         return
 
     from fast_agent.tools.environment_registry import environment_name
 
     info = shell_environment.runtime_info()
+    if (
+        info.kind == "local"
+        and os.environ.get("HC_TERMINAL_ID", "").strip()
+        and os.environ.get("HC_TERMINAL_SOCKET", "").strip()
+    ):
+        context["herdrInstructions"] = read_internal_resource("internal://fast-agent/herdr").strip()
     resolved_name = info.environment_name or environment_name(shell_environment)
     environment_cwd = (
         shell_environment.cwd if isinstance(shell_environment, _EnvironmentCwdProvider) else None

@@ -18,6 +18,7 @@ from fast_agent.ui.agent_identity import is_default_agent_name
 from fast_agent.ui.command_payloads import CommandPayload, EOFCommand, InterruptCommand
 from fast_agent.ui.console import rich_print
 from fast_agent.ui.prompt.keybindings import PromptInputInterrupt
+from fast_agent.ui.prompt.turn_input import acknowledge_replayed_input
 from fast_agent.ui.prompt_marks import emit_prompt_mark, prompt_mark_sequence
 from fast_agent.ui.terminal_streams import is_tty_stream
 
@@ -159,6 +160,7 @@ async def _prompt_async_result(
                 set_exception_handler=False,
                 reserve_space_for_menu=_completion_menu_reserved_lines(),
             )
+        acknowledge_replayed_input()
         return result, time.perf_counter()
     except (KeyboardInterrupt, PromptInputInterrupt):
         _emit_prompt_end_mark_if_needed(emitted=prompt_end_state["emitted"])

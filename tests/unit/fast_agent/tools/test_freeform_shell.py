@@ -125,7 +125,8 @@ async def test_gpt6_luna_agent_exposes_freeform_shell_when_selected() -> None:
             model="codexresponses.gpt-6-luna?reasoning=low",
         ),
         context=Context(
-            config=Settings(shell_execution=ShellSettings(tool_profile="freeform_shell"))
+            config=Settings(shell_execution=ShellSettings(tool_profile="freeform_shell")),
+            ptc_enabled=False,
         ),
     )
     try:

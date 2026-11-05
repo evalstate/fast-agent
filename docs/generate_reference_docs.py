@@ -723,6 +723,20 @@ def generate_compaction_config_snippet() -> str:
     return "".join(lines)
 
 
+def generate_ptc_config_snippet() -> str:
+    """Generate bundled PTC defaults from the settings model."""
+    from fast_agent.config import ProgrammaticToolCallingSettings
+
+    lines = [
+        "<!-- GENERATED FILE — DO NOT EDIT. Source: ProgrammaticToolCallingSettings -->\n\n",
+        "```yaml\nptc:\n",
+    ]
+    for name, value in ProgrammaticToolCallingSettings().model_dump().items():
+        lines.append(f"  {name}: {_yaml_scalar(value)}\n")
+    lines.append("```\n")
+    return "".join(lines)
+
+
 def generate_copilot_config_snippet() -> str:
     """Generate Copilot defaults from the settings model."""
     from fast_agent.config import CopilotSettings
@@ -1595,6 +1609,7 @@ def main() -> int:
         _write(GENERATED_DIR / "tui_runtime_reference.md", generate_tui_runtime_reference())
         _write(GENERATED_DIR / "compaction_config_snippet.md", generate_compaction_config_snippet())
         _write(GENERATED_DIR / "copilot_config_snippet.md", generate_copilot_config_snippet())
+        _write(GENERATED_DIR / "ptc_config_snippet.md", generate_ptc_config_snippet())
         _write(
             GENERATED_DIR / "compaction_settings_reference.md",
             generate_compaction_settings_reference(),

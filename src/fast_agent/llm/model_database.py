@@ -84,6 +84,9 @@ class ModelParameters(BaseModel):
     shell_tool_profile: ResolvedShellToolProfile | None = None
     """Optional model-specific shell contract selected when shell tool profile is auto."""
 
+    ptc_enabled: bool = False
+    """Default programmatic tool calling policy; explicit CLI/model/config settings win."""
+
     ptc_tool_format: Literal["json", "freeform"] | None = None
     """Default input format of the programmatic tool calling code tool when
     ``ptc.tool_format`` is auto. ``None`` means JSON."""
@@ -682,6 +685,8 @@ class ModelDatabase:
     )
 
     OPENAI_GPT_6_ASTRA = ModelParameters(
+        # PTC is on by default for the current Astra/Sol/Terra/Luna generation.
+        ptc_enabled=True,
         json_mode="schema",
         structured_tool_policy="always",
         context_window=272_000,
@@ -710,6 +715,9 @@ class ModelDatabase:
     OPENAI_GPT_6_SOL_LUNA = OPENAI_GPT_6_ASTRA.model_copy(
         update={"reasoning_effort_spec": OPENAI_GPT_6_SOL_LUNA_REASONING}
     )
+
+    # Superseded by GPT-6.1 Sol, so it keeps PTC opt-in.
+    OPENAI_GPT_6_SOL = OPENAI_GPT_6_SOL_LUNA.model_copy(update={"ptc_enabled": False})
 
     # GPT-6.1 Sol keeps the GPT-6 Sol tool/transport layout but, like Astra, rejects
     # `none`/`minimal` effort (verified on Codex OAuth and Copilot Responses).
@@ -1108,6 +1116,10 @@ class ModelDatabase:
         }
     )
 
+    # K3.1 keeps K3's API limits and reasoning contract; PTC is validated on both routes.
+    KIMI_K31 = KIMI_K3.model_copy(update={"ptc_enabled": True})
+    KIMI_K31_HF = KIMI_K3_HF.model_copy(update={"ptc_enabled": True})
+
     MUSE_GLIMMER_HF = ModelParameters(
         context_window=131_072,
         max_output_tokens=128_000,
@@ -1228,6 +1240,7 @@ class ModelDatabase:
     )
 
     GLM_5_3_FLASH = ModelParameters(
+        ptc_enabled=True,
         context_window=1_000_000,
         max_output_tokens=131072,
         tokenizes=ZAI_GLM_53_FLASH_MULTIMODAL,
@@ -1454,7 +1467,7 @@ class ModelDatabase:
         "gpt-6-astra": OPENAI_GPT_6_ASTRA,
         "gpt-6.1-sol": OPENAI_GPT_61_SOL,
         "gpt-6.1-terra": OPENAI_GPT_61_TERRA,
-        "gpt-6-sol": OPENAI_GPT_6_SOL_LUNA,
+        "gpt-6-sol": OPENAI_GPT_6_SOL,
         "gpt-6-luna": _with_fast(OPENAI_GPT_6_LUNA),
         "gpt-5.4-mini": OPENAI_GPT_54_SMALL.model_copy(
             update={"model_specific": GPT_53_PLUS_MODEL_SPECIFIC}
@@ -1550,8 +1563,10 @@ class ModelDatabase:
         "moonshotai/kimi-k2.6": KIMI_MOONSHOT_26,
         "moonshotai/kimi-k2.7-code": KIMI_MOONSHOT_27_CODE,
         "moonshotai/kimi-k3": KIMI_K3_HF,
+        "moonshotai/kimi-k3.1-pro": KIMI_K31_HF,
         "meta-models/muse-glimmer-30b": MUSE_GLIMMER_HF,
         "kimi-k3": KIMI_K3,
+        "kimi-k3.1-pro": KIMI_K31,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony
         "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,  # tool/reasoning interleave guidance
@@ -1606,7 +1621,7 @@ class ModelDatabase:
                 ("gpt-6-astra", OPENAI_GPT_6_ASTRA),
                 ("gpt-6.1-sol", OPENAI_GPT_61_SOL),
                 ("gpt-6.1-terra", OPENAI_GPT_61_TERRA),
-                ("gpt-6-sol", OPENAI_GPT_6_SOL_LUNA),
+                ("gpt-6-sol", OPENAI_GPT_6_SOL),
                 ("gpt-6-luna", _with_fast(OPENAI_GPT_6_LUNA)),
             )
             for provider, window in (

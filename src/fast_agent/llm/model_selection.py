@@ -169,7 +169,10 @@ class ModelSelectionCatalog:
             _builtin_entry("zaiglm53flash", display_label="GLM 5.3 Flash", fast=True),
             _builtin_entry("zaiglm52", display_label="GLM 5.2"),
         ),
-        Provider.MOONSHOT: (_builtin_entry("kimik3", display_label="Kimi K3"),),
+        Provider.MOONSHOT: (
+            _builtin_entry("kimik31", display_label="Kimi K3.1 Pro"),
+            _builtin_entry("kimik3", display_label="Kimi K3", current=False),
+        ),
         Provider.OPENROUTER: (),
         Provider.ALIYUN: (
             _builtin_entry("qwen-turbo", fast=True),
@@ -181,14 +184,21 @@ class ModelSelectionCatalog:
                 display_label="Muse Glimmer 30B (together)",
             ),
             _builtin_entry(
+                "Kimi K3.1 Pro (together)",
+                display_label="Kimi K3.1 Pro (together)",
+                description="image-only HF route",
+            ),
+            _builtin_entry(
                 "Kimi K3 (fireworks-ai)",
                 display_label="Kimi K3 (fireworks-ai)",
                 description="image-only HF route",
+                current=False,
             ),
             _builtin_entry(
                 "Kimi K3 (together)",
                 display_label="Kimi K3 (together)",
                 description="image-only HF route",
+                current=False,
             ),
             _builtin_entry(
                 "GLM 5.3 (together)",

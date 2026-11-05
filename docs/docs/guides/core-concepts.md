@@ -132,6 +132,7 @@ trade-offs clearly.
 {{agentSkills}}
 {{file_silent:AGENTS.md}}
 {{env}}
+{{herdrInstructions}}
 ```
 
 ```md title=".fast-agent/agent-cards/planner.md"

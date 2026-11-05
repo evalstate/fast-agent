@@ -99,12 +99,13 @@ BUILTIN_MODEL_ALIASES: Final[dict[str, str]] = {
     "minimax3": "hf.MiniMaxAI/MiniMax-M3:together?temperature=1.0&top_p=0.95&top_k=40",
     "minimax2.5": "hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
     "minimax21": "hf.MiniMaxAI/MiniMax-M2.1:novita",
-    "kimi": ("hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"),
+    "kimi": "hf.moonshotai/Kimi-K3.1-Pro:together",
     "kimi27code": (
         "hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
     ),
     "kimik3": "moonshot.kimi-k3",
-    "kimithink": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
+    "kimik31": "moonshot.kimi-k3.1-pro",
+    "kimithink": "hf.moonshotai/Kimi-K3.1-Pro:together",
     "gpt-oss": "hf.openai/gpt-oss-120b:cerebras",
     "gpt-oss-20b": "hf.openai/gpt-oss-20b",
     "glm47": "hf.zai-org/GLM-4.7:cerebras",
@@ -193,6 +194,7 @@ BUILTIN_MODEL_ALIASES: Final[dict[str, str]] = {
     "qwen3-max": "aliyun.qwen3-max",
     "Kimi K3 (fireworks-ai)": "hf.moonshotai/Kimi-K3:fireworks-ai",
     "Kimi K3 (together)": "hf.moonshotai/Kimi-K3:together",
+    "Kimi K3.1 Pro (together)": "hf.moonshotai/Kimi-K3.1-Pro:together",
     "GLM 5.3 (together)": "hf.zai-org/GLM-5.3:together",
     "GLM 5.3 (novita)": "hf.zai-org/GLM-5.3:novita",
     "GLM 5.3 (zai-org)": "hf.zai-org/GLM-5.3:zai-org",

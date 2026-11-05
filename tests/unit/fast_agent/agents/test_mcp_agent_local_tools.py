@@ -1158,7 +1158,7 @@ async def test_gpt6_luna_selected_luna_exec_contract_is_named_shell(model_name: 
         config=AgentConfig(
             name="test", instruction="Instruction", servers=[], shell=True, model=model_name
         ),
-        context=Context(),
+        context=Context(ptc_enabled=False),
     )
     try:
         default_tools = {tool.name: tool for tool in (await default_agent.list_tools()).tools}
@@ -1173,7 +1173,10 @@ async def test_gpt6_luna_selected_luna_exec_contract_is_named_shell(model_name: 
         config=AgentConfig(
             name="test", instruction="Instruction", servers=[], shell=True, model=model_name
         ),
-        context=Context(config=Settings(shell_execution=ShellSettings(tool_profile="luna_exec"))),
+        context=Context(
+            config=Settings(shell_execution=ShellSettings(tool_profile="luna_exec")),
+            ptc_enabled=False,
+        ),
     )
     try:
         tools = {tool.name: tool for tool in (await agent.list_tools()).tools}
@@ -1200,7 +1203,7 @@ async def test_astra_explicit_apply_patch_overrides_writer_editor_default(model_
     config = AgentConfig(
         name="test", instruction="Instruction", servers=[], shell=True, model=model_name
     )
-    agent = McpAgent(config=config, context=Context(config=settings))
+    agent = McpAgent(config=config, context=Context(config=settings, ptc_enabled=False))
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "apply_patch" in tool_names
@@ -1443,7 +1446,7 @@ async def test_write_text_file_auto_mode_uses_context_default_model_when_agent_m
 ):
     settings = Settings(default_model="codexplan")
     config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=True)
-    agent = McpAgent(config=config, context=Context(config=settings))
+    agent = McpAgent(config=config, context=Context(config=settings, ptc_enabled=False))
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "write_text_file" in tool_names
@@ -1483,7 +1486,7 @@ async def test_write_text_file_mode_on_enables_tool_for_codex_models() -> None:
         shell=True,
         model="codexplan",
     )
-    agent = McpAgent(config=config, context=Context(config=settings))
+    agent = McpAgent(config=config, context=Context(config=settings, ptc_enabled=False))
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "write_text_file" in tool_names

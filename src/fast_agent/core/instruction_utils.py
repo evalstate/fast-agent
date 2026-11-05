@@ -63,6 +63,14 @@ class InstructionContextAgent(Protocol):
 
 
 @runtime_checkable
+class ShellRuntimeInstructionAgent(Protocol):
+    """The effective runtime includes CLI/skills activation and --no-shell overrides."""
+
+    @property
+    def shell_runtime_enabled(self) -> bool: ...
+
+
+@runtime_checkable
 class LlmInstructionContextAgent(InstructionContextAgent, Protocol):
     @property
     def llm(self) -> "FastAgentLLMProtocol | None": ...
@@ -132,6 +140,8 @@ def build_agent_instruction_context(
         context["modelName"] = agent.llm.model_name or ""
         context["modelProvider"] = agent.llm.provider.config_name
     context["model_specific"] = _resolve_model_specific(agent)
+    shell_enabled = isinstance(agent, ShellRuntimeInstructionAgent) and agent.shell_runtime_enabled
+    context["herdrInstructions"] = context.get("herdrInstructions", "") if shell_enabled else ""
     return context
 
 

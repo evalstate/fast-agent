@@ -1,5 +1,6 @@
 import asyncio
 import os
+from unittest.mock import AsyncMock
 
 import pytest
 from mcp import CallToolRequest
@@ -10,6 +11,7 @@ from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks
 from fast_agent.config import get_settings, update_global_settings
 from fast_agent.constants import FAST_AGENT_RUNTIME_HOME
+from fast_agent.core.queued_input import queued_input_source
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.helpers.content_helpers import get_text, text_content
@@ -557,7 +559,15 @@ async def test_externally_cancelled_turn_is_persisted_to_session_history(tmp_pat
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_unhandled_after_llm_hook_error_persists_tool_loop_history(tmp_path) -> None:
+@pytest.mark.parametrize(("failing_round", "reuse_call_id"), [(1, False), (2, False), (2, True)])
+async def test_unhandled_after_llm_hook_error_persists_tool_loop_history(
+    tmp_path, monkeypatch, failing_round: int, reuse_call_id: bool
+) -> None:
+    # Some providers reuse call IDs across rounds; a completed result must never
+    # be attached to a later request just because the IDs match.
+    def call_id(round_number: int) -> str:
+        return "call" if reuse_call_id else f"call{round_number}"
+
     old_settings = get_settings()
     override = old_settings.model_copy(update={"home": str(tmp_path / "env")})
     update_global_settings(override)
@@ -565,12 +575,30 @@ async def test_unhandled_after_llm_hook_error_persists_tool_loop_history(tmp_pat
 
     try:
         manager = _register_session_manager(tmp_path / "env")
+        manager.create_session(metadata={"agent_name": "after-llm-hook-persist"})
         llm = CancelledStopReasonLlm()
+        responses = [
+            Prompt.assistant(
+                "use tool",
+                stop_reason=LlmStopReason.TOOL_USE,
+                tool_calls={
+                    call_id(round_number): CallToolRequest(
+                        method="tools/call",
+                        params=CallToolRequestParams(name="ok_tool", arguments={}),
+                    )
+                },
+            )
+            for round_number in range(1, failing_round + 1)
+        ]
+        monkeypatch.setattr(
+            llm, "_apply_prompt_provider_specific", AsyncMock(side_effect=responses)
+        )
         agent = ToolAgent(AgentConfig("after-llm-hook-persist"), [ok_tool])
         agent._llm = llm
 
-        async def after_llm_call(_runner, _message) -> None:
-            raise RuntimeError("after llm boom")
+        async def after_llm_call(runner, _message) -> None:
+            if runner.iteration == failing_round - 1:
+                raise RuntimeError("after llm boom")
 
         agent.tool_runner_hooks = ToolRunnerHooks(after_llm_call=after_llm_call)
 
@@ -585,9 +613,18 @@ async def test_unhandled_after_llm_hook_error_persists_tool_loop_history(tmp_pat
         assert history_path.exists()
 
         saved_messages = load_prompt(history_path)
-        assert saved_messages
-        assert saved_messages[-1].role == "assistant"
-        assert saved_messages[-1].stop_reason == LlmStopReason.TOOL_USE
+        for history in (saved_messages, agent.message_history):
+            assert history[-1].role == "assistant"
+            assert history[-1].stop_reason == LlmStopReason.TOOL_USE
+            assert set(history[-1].tool_calls or {}) == {call_id(failing_round)}
+            assert sum(bool(message.tool_results) for message in history) == failing_round - 1
+
+        rollback = ToolRunner.reconcile_interrupted_history(agent, use_history=True)
+        assert rollback.status == "appended_interrupted_tool_result"
+        results = agent.message_history[-1].tool_results
+        assert results is not None
+        assert set(results) == {call_id(failing_round)}
+        assert all(result.is_error for result in results.values())
     finally:
         update_global_settings(old_settings)
         reset_session_manager()
@@ -679,6 +716,68 @@ async def test_resumed_tool_result_history_does_not_rerun_completed_tool(tmp_pat
         assert resumed_llm.seen_last_message.tool_results is not None
         assert "explode_call" in resumed_llm.seen_last_message.tool_results
         assert resumed_llm.seen_last_message.all_text() == "after resume"
+    finally:
+        update_global_settings(old_settings)
+        reset_session_manager()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_phase", ["before_llm_hook", "llm"])
+async def test_failed_continuation_preserves_consumed_input_in_live_and_saved_history(
+    tmp_path, failure_phase
+) -> None:
+    old_settings = get_settings()
+    update_global_settings(old_settings.model_copy(update={"home": str(tmp_path / "env")}))
+    reset_session_manager()
+
+    try:
+        manager = _register_session_manager(tmp_path / "env")
+        manager.create_session(metadata={"agent_name": "queued-failure"})
+        agent = ToolAgent(AgentConfig("queued-failure"), [ok_tool])
+        agent._llm = ExplodingSecondTurnLlm()
+
+        async def before_llm(runner, messages):
+            if runner.iteration > 0:
+                raise RuntimeError("hook boom")
+
+        if failure_phase == "before_llm_hook":
+            agent.tool_runner_hooks = ToolRunnerHooks(before_llm_call=before_llm)
+
+        pending = ["important report", "important report"]
+
+        def take_messages():
+            result = list(pending)
+            pending.clear()
+            return result
+
+        with queued_input_source(agent, take_messages):
+            with pytest.raises(RuntimeError, match="boom"):
+                await agent.generate("trigger")
+        assert not pending
+
+        session = manager.current_session
+        assert session is not None
+        path = session.latest_history_path(agent.name)
+        assert path is not None
+        saved = load_prompt(path)
+        for history in (saved, agent.message_history):
+            assert history[-3].tool_results
+            assert [message.first_text() for message in history[-2:]] == [
+                "important report",
+                "important report",
+            ]
+
+        # Continuing in this same agent must retain the input, without replaying tools
+        # or overwriting the checkpoint with the pre-failure history.
+        agent.tool_runner_hooks = None
+        agent._llm = PassthroughLLM()
+        await agent.generate("continue")
+        await manager.save_current_session(agent)
+        path = session.latest_history_path(agent.name)
+        assert path is not None
+        for history in (agent.message_history, load_prompt(path)):
+            assert sum(message.first_text() == "important report" for message in history) == 2
+            assert sum(bool(message.tool_results) for message in history) == 1
     finally:
         update_global_settings(old_settings)
         reset_session_manager()

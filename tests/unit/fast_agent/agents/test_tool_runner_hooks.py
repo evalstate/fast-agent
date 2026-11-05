@@ -710,3 +710,143 @@ async def test_tool_use_hook_messages_flush_after_tool_results() -> None:
         "tool_result:tool_one",
         "status:▎ extension llm_time — 42ms",
     ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_history", [True, False])
+async def test_queued_input_follows_complete_tool_batch_once(use_history: bool):
+    from fast_agent.core.queued_input import queued_input_source, take_queued_messages
+
+    pending: list[str] = []
+
+    def tool_one() -> int:
+        pending.extend(["first report", "second report"])
+        return 1
+
+    def take_messages() -> list[str]:
+        result = list(pending)
+        pending.clear()
+        return result
+
+    llm = TwoStepToolUseLlm()
+    agent = ToolAgent(AgentConfig("queued", use_history=use_history), [tool_one, tool_two])
+    agent._llm = llm
+    unrelated = ToolAgent(AgentConfig("delegated"), [])
+    with queued_input_source(agent, take_messages):
+        assert take_queued_messages(unrelated) == []
+        result = await agent.generate("hi")
+
+    assert result.last_text() == "done"
+    assert "first report" not in llm.calls[0]
+    assert llm.calls[1][-2:] == ["first report", "second report"]
+    messages = agent.last_turn_messages
+    tool_index = next(i for i, msg in enumerate(messages) if msg.tool_results)
+    assert set(messages[tool_index].tool_results or {}) == {"id_one", "id_two"}
+    assert [msg.first_text() for msg in messages[tool_index + 1 :]] == [
+        "first report",
+        "second report",
+        "done",
+    ]
+    assert not pending
+    assert take_queued_messages(agent) == []
+    if use_history:
+        assert [turn.prompt.first_text() for turn in collect_user_turns(agent.message_history)] == [
+            "hi"
+        ]
+        assert sum(msg.first_text() == "first report" for msg in agent.message_history) == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_cancelled_continuation_retains_consumed_input():
+    import asyncio
+
+    from fast_agent.core.queued_input import queued_input_source
+
+    class CancelledFollowupLlm(TwoStepToolUseLlm):
+        async def _apply_prompt_provider_specific(
+            self,
+            multipart_messages: list[PromptMessageExtended],
+            request_params: RequestParams | None = None,
+            tools: list[Tool] | None = None,
+            is_template: bool = False,
+        ) -> PromptMessageExtended:
+            if self._turn == 1:
+                raise asyncio.CancelledError()
+            return await super()._apply_prompt_provider_specific(
+                multipart_messages, request_params, tools, is_template
+            )
+
+    agent = ToolAgent(AgentConfig("cancel-input"), [tool_one, tool_two])
+    agent._llm = CancelledFollowupLlm()
+    with queued_input_source(agent, lambda: ["important report"]):
+        with pytest.raises(asyncio.CancelledError):
+            await agent.generate("hi")
+    history = agent.message_history
+    assert history[-2].tool_results
+    assert history[-1].first_text() == "important report"
+    assert [turn.prompt.first_text() for turn in collect_user_turns(history)] == ["hi"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["cancel", "error"])
+async def test_consumed_input_is_not_repeated_after_history_commit(monkeypatch, failure):
+    import asyncio
+    from contextlib import contextmanager
+
+    from fast_agent.core.queued_input import queued_input_source
+    from fast_agent.ui.streaming.display import NullStreamingHandle
+
+    draining = asyncio.Event()
+    release = asyncio.Event()
+    drains = 0
+
+    class BlockingDrainHandle(NullStreamingHandle):
+        async def wait_for_drain(self) -> None:
+            nonlocal drains
+            drains += 1
+            if drains == 2:
+                draining.set()
+                await release.wait()
+                raise RuntimeError("render failed")
+
+    @contextmanager
+    def stream(**kwargs):
+        yield BlockingDrainHandle()
+
+    agent = ToolAgent(AgentConfig("queued-drain"), [tool_one, tool_two])
+    agent._llm = TwoStepToolUseLlm()
+    monkeypatch.setattr(agent, "_should_stream", lambda: True)
+    monkeypatch.setattr(agent.display, "streaming_assistant_message", stream)
+    # Repeated submissions are distinct inputs, even when identical to the original prompt.
+    pending = ["hi", "hi"]
+
+    def take_messages():
+        result = list(pending)
+        pending.clear()
+        return result
+
+    with queued_input_source(agent, take_messages):
+        task = asyncio.create_task(agent.generate("hi"))
+        try:
+            await asyncio.wait_for(draining.wait(), timeout=5)
+            if failure == "cancel":
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            else:
+                release.set()
+                with pytest.raises(RuntimeError, match="render failed"):
+                    await task
+        finally:
+            if not task.done():
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+
+    assert not pending
+    history = agent.message_history
+    assert history[-4].tool_results
+    assert [message.first_text() for message in history[-3:]] == ["hi", "hi", "done"]
+    assert sum(message.first_text() == "hi" for message in history) == 3

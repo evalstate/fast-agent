@@ -65,6 +65,10 @@ from fast_agent.utils.numeric import int_or_none
 from fast_agent.utils.text import strip_casefold, strip_str_to_none
 from fast_agent.utils.transports import McpClientTransport
 
+MOONSHOT_DEFAULT_MODEL = "kimi-k3.1-pro"
+HUGGINGFACE_DEFAULT_MODEL = "moonshotai/Kimi-K3.1-Pro:together"
+
+
 type TerminalImageSize = int | Literal["auto"] | str | None
 type ShellWriteTextFileMode = Literal["auto", "on", "off", "apply_patch", "edit_file"]
 
@@ -1559,7 +1563,7 @@ class MoonshotSettings(BaseModel):
     api_key: str | None = Field(default=None, description="Moonshot API key")
     base_url: str | None = Field(default=None, description="Override API endpoint")
     default_model: str | None = Field(
-        default=None,
+        default=MOONSHOT_DEFAULT_MODEL,
         description="Default model when Moonshot provider is selected without an explicit model",
     )
     default_headers: dict[str, str] | None = Field(
@@ -1844,7 +1848,7 @@ class HuggingFaceSettings(BaseModel):
         description="Override router endpoint (default: https://router.huggingface.co/v1)",
     )
     default_model: str | None = Field(
-        default=None,
+        default=HUGGINGFACE_DEFAULT_MODEL,
         description=(
             "Default model when HuggingFace provider is selected without an explicit model"
         ),
@@ -1856,6 +1860,28 @@ class HuggingFaceSettings(BaseModel):
     default_headers: dict[str, str] | None = Field(
         default=None,
         description="Custom headers for all API requests",
+    )
+    max_request_bytes: int | None = Field(
+        default=4_718_592,
+        ge=1,
+        description=(
+            "Request body budget (bytes). The router rejects bodies above about 5 MB with "
+            "HTTP 413; if inline images exceed this budget, the oldest are replaced with a "
+            "placeholder. Null disables the budget."
+        ),
+    )
+    image_max_dimension: int | None = Field(
+        default=2048,
+        ge=1,
+        description="Downscale inline images to this longest side (pixels). Null disables.",
+    )
+    image_reencode_min_bytes: int | None = Field(
+        default=300_000,
+        ge=1,
+        description=(
+            "Re-encode inline images larger than this (bytes) when JPEG or their own format "
+            "is smaller. Null disables."
+        ),
     )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
@@ -1943,8 +1969,9 @@ class ProgrammaticToolCallingSettings(BaseModel):
     function; only printed output and the final expression value return to the context.
     """
 
-    enabled: bool = False
-    """Expose tools through the Python code tool (`--ptc`); experimental, local POSIX only."""
+    enabled: bool | None = None
+    """Expose tools through the Python code tool; null uses the model default.
+    Override with `--ptc` / `--no-ptc` or the `ptc` model query. Local POSIX only."""
 
     direct_tools: list[str] = Field(default_factory=list)
     """Tool names (fnmatch patterns) that stay directly callable alongside the code tool."""

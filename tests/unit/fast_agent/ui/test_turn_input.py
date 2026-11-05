@@ -30,9 +30,10 @@ class Recorder:
         self.queued: list[int] = []
         self.written: list[str] = []
 
-    def reader(self, input: Input) -> TurnInputReader:
+    def reader(self, input: Input, *, multiline: bool = False) -> TurnInputReader:
         return TurnInputReader(
             input=input,
+            multiline=multiline,
             on_cancel=self.cancel,
             on_queued=self.queued.append,
             write=self.written.append,
@@ -235,3 +236,202 @@ def test_default_publisher_feeds_overlays_and_status(monkeypatch, pipe: PipeInpu
     reader.stop()
     assert turn_input.queued_input_count() == 0
     assert reported == [1, 0]
+
+
+def test_take_messages_drains_ready_bytes_and_preserves_draft(pipe: PipeInput) -> None:
+    recorder = Recorder()
+    reader = recorder.reader(pipe)
+    pipe.send_text("firsx\x7ft\r\x1b[200~second\r\nline café\x1b[201~\rdraft")
+    assert reader.take_messages() == ["first", "second\nline café"]
+    assert reader.take_messages() == []
+    assert "".join(key.data for key in reader.held_keys) == "draft"
+    assert recorder.queued[-1] == 0
+    pipe.send_text("\r")
+    assert reader.take_messages() == ["draft"]
+    assert reader.stop() == []
+
+
+@pytest.mark.parametrize("multiline", [False, True])
+def test_take_messages_waits_for_active_submit_key(pipe: PipeInput, multiline: bool) -> None:
+    recorder = Recorder()
+    reader = recorder.reader(pipe, multiline=multiline)
+    newline, submit = ("\r", "\n") if multiline else ("\n", "\r")
+    draft = f"first line{newline}second line"
+    pipe.send_text(draft)
+    assert reader.take_messages() == []
+    assert recorder.queued == []
+    assert "".join(key.data for key in reader.held_keys) == draft
+
+    pipe.send_text(submit + "next draft")
+    assert reader.take_messages() == ["first line\nsecond line"]
+    assert recorder.queued == [1, 0]
+    assert "".join(key.data for key in reader.stop()) == "next draft"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("multiline", [False, True])
+async def test_unfinished_multiline_draft_replays_intact(
+    monkeypatch, pipe: PipeInput, multiline: bool
+) -> None:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.input.typeahead import store_typeahead
+    from prompt_toolkit.output import DummyOutput
+
+    from fast_agent.ui.prompt import input as prompt_input
+    from fast_agent.ui.prompt.keybindings import create_keybindings
+
+    monkeypatch.setattr(prompt_input, "in_multiline_mode", multiline)
+    reader = Recorder().reader(pipe, multiline=multiline)
+    newline, submit = ("\r", "\n") if multiline else ("\n", "\r")
+    pipe.send_text(f"first line{newline}second line")
+    assert reader.take_messages() == []
+    store_typeahead(pipe, reader.stop())
+    prompt = PromptSession(input=pipe, output=DummyOutput(), key_bindings=create_keybindings())
+    result = await asyncio.wait_for(
+        prompt.prompt_async(pre_run=lambda: pipe.send_text(submit)), timeout=1
+    )
+    assert result == "first line\nsecond line"
+
+
+@pytest.mark.parametrize(
+    "deferred",
+    [
+        "/help",
+        "!echo hi",
+        "@other",
+        "#other hello",
+        "look ^file:photo.png",
+        "STOP",
+        " stop ",
+        "exit",
+        "ExIt",
+        "HELP",
+        "HELP:STATUS",
+        "SHOW_USAGE",
+        "SELECT_PROMPT:example",
+        "SWITCH:other",
+    ],
+)
+@pytest.mark.asyncio
+async def test_command_barrier_preserves_order_and_replays_once(
+    pipe: PipeInput, deferred: str
+) -> None:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.input.typeahead import store_typeahead
+    from prompt_toolkit.output import DummyOutput
+
+    from fast_agent.ui.prompt.keybindings import create_keybindings
+
+    recorder = Recorder()
+    reader = recorder.reader(pipe)
+    pipe.send_text(f"report\r{deferred}\rlater\r")
+    assert reader.take_messages() == ["report"]
+    assert recorder.queued[-1] == 2
+    assert reader.take_messages() == []
+    store_typeahead(pipe, reader.stop())
+    prompt = PromptSession(input=pipe, output=DummyOutput(), key_bindings=create_keybindings())
+    assert await prompt.prompt_async() == deferred
+    assert await prompt.prompt_async() == "later"
+
+
+@pytest.mark.parametrize("text", ["STOP after this tool", "exit criteria", "HELP me debug", "help"])
+def test_command_like_plain_text_is_consumed(pipe: PipeInput, text: str) -> None:
+    reader = Recorder().reader(pipe)
+    pipe.send_text(f"{text}\r")
+    assert reader.take_messages() == [text]
+    assert reader.held_keys == []
+
+
+def test_pasted_image_stays_on_attachment_path(pipe: PipeInput, tmp_path) -> None:
+    image = tmp_path / "photo.png"
+    image.write_bytes(b"image")
+    reader = Recorder().reader(pipe)
+    pipe.send_text(f"look \x1b[200~{image}\x1b[201~\rlater\r")
+    assert reader.take_messages() == []
+    assert image.as_posix() in "".join(key.data for key in reader.stop())
+
+
+def test_suspended_reader_does_not_consume_form_input(pipe: PipeInput) -> None:
+    reader = Recorder().reader(pipe)
+    pipe.send_text("report\r")
+    with reader.suspended():
+        assert reader.take_messages() == []
+    assert reader.take_messages() == ["report"]
+
+
+@pytest.mark.asyncio
+async def test_replayed_count_survives_handoff_until_prompt_accepts(pipe: PipeInput) -> None:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.input.typeahead import store_typeahead
+    from prompt_toolkit.output import DummyOutput
+
+    from fast_agent.ui.prompt.input_runtime import run_prompt_once
+    from fast_agent.ui.prompt.keybindings import create_keybindings
+
+    reader = TurnInputReader(input=pipe, write=lambda _s: None)
+    pipe.send_text("/help\r\rlater\r")
+    assert reader.take_messages() == []
+    store_typeahead(pipe, reader.stop(replay=True))
+    assert turn_input.queued_input_count() == 2
+    prompt = PromptSession(input=pipe, output=DummyOutput(), key_bindings=create_keybindings())
+    try:
+        for expected, count in [("/help", 1), ("", 1), ("later", 0)]:
+            result = await run_prompt_once(
+                session=prompt,
+                agent_name="test",
+                default_agent_name="test",
+                default_buffer="",
+                resolve_prompt_text=lambda: "> ",
+                parse_special_input=lambda text: text,
+            )
+            assert result == expected
+            assert turn_input.queued_input_count() == count
+    finally:
+        turn_input.clear_replayed_input()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("multiline", [False, True])
+async def test_new_turn_adopts_prompt_typeahead_before_fresh_input(
+    monkeypatch, multiline: bool
+) -> None:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input.typeahead import store_typeahead
+    from prompt_toolkit.key_binding import KeyPress
+    from prompt_toolkit.output import DummyOutput
+
+    from fast_agent.ui.prompt import input as prompt_input
+    from fast_agent.ui.prompt.keybindings import create_keybindings
+
+    monkeypatch.setattr(prompt_input, "in_multiline_mode", multiline)
+    submit_key, submit = (Keys.ControlJ, "\n") if multiline else (Keys.ControlM, "\r")
+
+    master, slave = os.openpty()
+    try:
+        with os.fdopen(os.dup(slave), "r") as stdin:
+            input = create_input(stdin=stdin)
+            monkeypatch.setattr(turn_input, "turn_input_enabled", lambda: True)
+            monkeypatch.setattr(turn_input, "_write_stdout", lambda _s: None)
+            with create_app_session(input=input, output=DummyOutput()):
+                store_typeahead(
+                    input,
+                    [
+                        KeyPress(Keys.BracketedPaste, "older"),
+                        KeyPress(submit_key, submit),
+                    ],
+                )
+                with turn_input.hold_turn_input() as reader:
+                    assert reader is not None
+                    os.write(master, f"newer{submit}/help{submit}".encode())
+                    assert reader.take_messages() == ["older", "newer"]
+                    assert turn_input.queued_input_count() == 1
+                assert turn_input.queued_input_count() == 1
+                prompt = PromptSession(key_bindings=create_keybindings())
+                assert await prompt.prompt_async() == "/help"
+                turn_input.acknowledge_replayed_input()
+                assert turn_input.queued_input_count() == 0
+    finally:
+        turn_input.clear_replayed_input()
+        os.close(master)
+        os.close(slave)

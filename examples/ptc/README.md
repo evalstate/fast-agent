@@ -1,6 +1,6 @@
 # Programmatic tool calling (PTC) demo
 
-`--ptc` replaces an agent's tools with a single `execute_python` tool. The model writes Python
+`--ptc` replaces an agent's tools with a single `exec_sandbox` tool. The model writes Python
 that runs in a [pydantic-monty](https://github.com/pydantic/monty) sandbox. Each tool is an
 async function in that sandbox, and only printed output and the final expression value come
 back into context. When PTC is enabled, agent instructions encourage batching independent
@@ -8,11 +8,11 @@ read-only calls with `asyncio.gather`, inspecting every result, and keeping depe
 approvals, and potentially conflicting mutations sequential.
 
 ```bash
-uv pip install 'fast-agent-mcp[ptc]'   # already included in the dev environment
+uv pip install fast-agent-mcp   # PTC is included in the core install (0.10.53+)
 cd examples/ptc
 
 # Direct tool calling: every order list passes through the model's context
-uv run fast-agent go --servers orders \
+uv run fast-agent go --no-ptc --servers orders \
   -m "Which EMEA customer has the highest total revenue from delivered orders? Include the runner-up."
 
 # Programmatic tool calling: one script that fans out concurrent calls and aggregates in code
@@ -20,8 +20,18 @@ uv run fast-agent go --ptc --servers orders \
   -m "Which EMEA customer has the highest total revenue from delivered orders? Include the runner-up."
 ```
 
-PTC is experimental and currently supports local POSIX environments only. Docker, remote,
-ACP-owned terminal/filesystem and custom environments are rejected until adapters are available.
+PTC is included as a standard feature from 0.10.53. GLM-5.3-Flash, GPT-6 Astra,
+GPT-6.1 Sol, GPT-6.1 Terra, GPT-6 Luna and Kimi K3.1 Pro default to on; other models default to off.
+Use `--ptc` / `--no-ptc` or a model string such as
+`--model 'glm53flash?ptc=off'` (`on`, `true`, `off`, `false` are accepted).
+Precedence is CLI flag, model query, `ptc.enabled` config, then model default.
+Omit `ptc.enabled` or set it to `null` to follow the model default.
+The bundled engine is `python-monty`; there is no user-facing engine selection.
+
+PTC currently supports local POSIX environments only. When PTC is on only because of the
+model default, Docker, remote, ACP-owned terminal/filesystem, custom environments and non-POSIX
+hosts fall back to direct tools. An explicit `--ptc`, `ptc=on` or `ptc.enabled: true` is rejected
+there until adapters are available.
 For example, `--ptc --shell` exposes the local shell as `await shell(...)`. Configure limits
 and directly exposed tools under `ptc:` in `fast-agent.yaml`.
 
@@ -35,7 +45,7 @@ The expected answer is Stark (C006) with $9,703.40, and the runner-up is Apertur
 ## Inspecting nested calls
 
 ATIF exports keep the parent program and include a `ptc_calls` ledger in the
-`execute_python` observation's `extra` (`ptc_calls_schema: fast-agent.ptc-calls/v1`).
+`exec_sandbox` observation's `extra` (`ptc_calls_schema: fast-agent.ptc-calls/v1`).
 It records dispatched tool names, IDs, resolved argument snapshots, and outcomes
 in invocation order, without adding them to model-visible text or dumping filtered
 nested results. Arguments may contain sensitive file contents or secrets.
@@ -47,16 +57,18 @@ for the schema, legacy/capture limitations, and privacy filtering.
 ## Evals
 
 `evals.py` runs a handful of quick end-to-end checks through the real CLI. Each one checks the
-answer and *how* the model got there (from the saved history):
+answer and *how* the model got there (from the saved history). The checker imports
+`PTC_TOOL_NAME` from the public `fast_agent.ptc` API to identify sandbox calls (`exec_sandbox`
+in the current runtime), rather than relying on the legacy `execute_python` name:
 
 | Case | Checks |
 | --- | --- |
-| `orders` | unprompted batching: awaited `gather` plus ≥2 `orders__get_orders` dispatches in one `execute_python` invocation |
+| `orders` | unprompted batching: awaited `gather` plus ≥2 `orders__get_orders` dispatches in one `exec_sandbox` invocation |
 | `tool-image` | an MCP tool image reaches the model when the script returns its handle |
 | `tool-image-select` | several images fetched; exactly one returned and shown |
 | `resource-image` | `get_resource` on an image resource (`swatch://west`) |
 | `attach-media` | `attach_media` from a script stages `assets/swatch-attach.png` |
-| `subagents` | explicitly requested batching: awaited `gather` plus ≥2 `subagent` dispatches in one `execute_python` invocation |
+| `subagents` | explicitly requested batching: awaited `gather` plus ≥2 `subagent` dispatches in one `exec_sandbox` invocation |
 | `slash-direct` | `slash_command` stays a direct tool rather than a sandbox function |
 
 The orders prompt asks only for the revenue ranking, not parallelism. The batching checks parse

@@ -18,6 +18,7 @@ Built-in placeholders (automatically resolved):
 Context placeholders (set by caller):
     {{workspaceRoot}} - Working directory
     {{env}} - Environment description
+    {{herdrInstructions}} - Conditional herdr-core coordination guidance
     {{agentName}} - Current agent name
     {{agentType}} - Current agent type
     {{agentCardPath}} - Source AgentCard path (if available)

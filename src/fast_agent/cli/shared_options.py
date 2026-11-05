@@ -222,11 +222,11 @@ class CommonAgentOptions:
     @staticmethod
     def ptc():
         return typer.Option(
-            False,
-            "--ptc",
+            None,
+            "--ptc/--no-ptc",
             help=(
-                "Programmatic tool calling: expose tools as async Python functions behind a "
-                "single code tool (experimental; local POSIX only; requires pydantic-monty)."
+                "Enable or disable programmatic tool calling through a Python code tool "
+                "(local POSIX only). When omitted, use the model/configuration default."
             ),
         )
 

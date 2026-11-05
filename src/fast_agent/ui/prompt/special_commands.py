@@ -132,6 +132,18 @@ def _handle_switch_agent(
     return True
 
 
+def is_stop_command(command: str) -> bool:
+    """Recognize the workflow stop command consistently across input paths."""
+    return command.strip().upper() == "STOP"
+
+
+def is_bare_prompt_command(command: str) -> bool:
+    """Whether submitted text belongs to prompt handling, not model input."""
+    return is_stop_command(command) or (
+        _parse_special_command(command).kind != _SpecialCommandKind.UNKNOWN
+    )
+
+
 def _parse_special_command(command: str) -> _ParsedSpecialCommand:
     if command in _SIMPLE_COMMANDS:
         return _ParsedSpecialCommand(_SpecialCommandKind.SIMPLE, command)

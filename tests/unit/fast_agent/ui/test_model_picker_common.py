@@ -560,8 +560,11 @@ def test_build_snapshot_includes_native_moonshot_provider() -> None:
     )
 
     assert option.provider is Provider.MOONSHOT
-    assert [entry.alias for entry in option.curated_entries] == ["kimik3"]
-    assert [entry.model for entry in option.curated_entries] == ["moonshot.kimi-k3"]
+    assert [entry.alias for entry in option.curated_entries] == ["kimik31", "kimik3"]
+    assert [entry.model for entry in option.curated_entries] == [
+        "moonshot.kimi-k3.1-pro",
+        "moonshot.kimi-k3",
+    ]
 
 
 def test_build_snapshot_uses_xai_brand_casing() -> None:

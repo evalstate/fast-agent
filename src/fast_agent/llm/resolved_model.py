@@ -82,6 +82,14 @@ class ResolvedModelSpec:
         model_params = self.model_params
         return model_params.structured_tool_policy if model_params is not None else None
 
+    def resolve_ptc_enabled(self, configured: bool | None = None) -> bool:
+        """Apply a model-string override, then config, then the catalog default."""
+        if self.model_config.ptc is not None:
+            return self.model_config.ptc
+        if configured is not None:
+            return configured
+        return self.model_params.ptc_enabled if self.model_params is not None else False
+
     @property
     def reasoning_mode(self) -> str | None:
         model_params = self.model_params

@@ -1,7 +1,12 @@
 import os
+from dataclasses import replace
 from typing import Any
 from urllib.parse import urlsplit
 
+from openai import APIStatusError
+
+from fast_agent.config import HUGGINGFACE_DEFAULT_MODEL as DEFAULT_HUGGINGFACE_MODEL
+from fast_agent.config import HuggingFaceSettings
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.huggingface_router_profiles import (
     GENERIC_REASONING_TOGGLE,
@@ -9,14 +14,23 @@ from fast_agent.llm.provider.openai.huggingface_router_profiles import (
     HUGGINGFACE_ROUTE_PROFILES,
     HuggingFaceRouteProfile,
 )
+from fast_agent.llm.provider.openai.llm_openai import (
+    _OpenAICompletionRequest,
+    _OpenAICompletionResponse,
+)
 from fast_agent.llm.provider.openai.llm_openai_compatible import OpenAICompatibleLLM
+from fast_agent.llm.provider.openai.request_images import (
+    ChatRequestImageFitter,
+    ImageBudget,
+    ImageFitReport,
+    request_bytes,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.llm.router_profiles import RouterRoute
 from fast_agent.types import RequestParams
 
 HUGGINGFACE_BASE_URL = "https://router.huggingface.co/v1"
-DEFAULT_HUGGINGFACE_MODEL = "moonshotai/Kimi-K2-Instruct-0905"
 
 
 class HuggingFaceLLM(OpenAICompatibleLLM):
@@ -29,6 +43,7 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
     def __init__(self, **kwargs) -> None:
         explicit_reasoning_effort = "reasoning_effort" in kwargs
         self._hf_provider_suffix: str | None = None
+        self._image_fitter = ChatRequestImageFitter()
         kwargs.pop("provider", None)
         super().__init__(provider=Provider.HUGGINGFACE, **kwargs)
         self._apply_prompt_context_window()
@@ -86,6 +101,70 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
         return base_params
 
+    def _hf_settings(self) -> HuggingFaceSettings:
+        config = self.context.config
+        return config.hf if config and config.hf else HuggingFaceSettings()
+
+    def _image_budget(self) -> ImageBudget:
+        settings = self._hf_settings()
+        return ImageBudget(
+            max_dimension=settings.image_max_dimension,
+            reencode_min_bytes=settings.image_reencode_min_bytes,
+            max_request_bytes=settings.max_request_bytes,
+        )
+
+    def _fit_request_images(
+        self, request: _OpenAICompletionRequest, budget: ImageBudget
+    ) -> tuple[_OpenAICompletionRequest, ImageFitReport]:
+        arguments, report = self._image_fitter.fit(request.arguments, budget)
+        if report.changed:
+            self.logger.info(
+                "Fitted inline images to the HuggingFace request limits",
+                data={
+                    "model": request.model_name,
+                    "images": report.images,
+                    "resized": report.resized,
+                    "reencoded": report.reencoded,
+                    "omitted": report.omitted,
+                    "request_bytes_before": report.request_bytes_before,
+                    "request_bytes_after": report.request_bytes_after,
+                    "max_request_bytes": budget.max_request_bytes,
+                    "dimensions": report.dimensions,
+                },
+            )
+        return replace(request, arguments=arguments), report
+
+    async def _run_openai_completion_request(
+        self, request: _OpenAICompletionRequest
+    ) -> _OpenAICompletionResponse:
+        if not self._uses_huggingface_router():
+            # The size limit is the router's; custom endpoints get requests unchanged.
+            return await super()._run_openai_completion_request(request)
+        budget = self._image_budget()
+        fitted, report = self._fit_request_images(request, budget)
+        try:
+            return await super()._run_openai_completion_request(fitted)
+        except APIStatusError as error:
+            if error.status_code != 413 or not report.images:
+                raise
+            # The router's limit is on the body (~5 MB): shrink the image share and resend once.
+            sent = request_bytes(fitted.arguments)
+            retry_budget = replace(budget, max_request_bytes=sent // 2)
+            retry, retry_report = self._fit_request_images(fitted, retry_budget)
+            if not retry_report.changed:
+                raise
+            self.logger.warning(
+                "HuggingFace rejected the request as too large (413); resending with fewer "
+                "or smaller images",
+                data={
+                    "model": request.model_name,
+                    "request_bytes": sent,
+                    "retry_request_bytes": retry_report.request_bytes_after,
+                    "omitted": retry_report.omitted,
+                },
+            )
+            return await super()._run_openai_completion_request(retry)
+
     def _provider_base_url(self) -> str:
         base_url = None
         if self.context.config and self.context.config.hf:
@@ -101,6 +180,8 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         self._move_hf_sampling_fields_to_extra_body(arguments)
         self._apply_reasoning_toggle(arguments)
         profile = self._route_profile(arguments.get("model"))
+        if profile and profile.use_legacy_json_schema and self._uses_huggingface_router():
+            self._use_legacy_json_schema(arguments)
         if profile and profile.max_output_tokens is not None:
             max_tokens = arguments.get("max_tokens")
             if isinstance(max_tokens, int):
@@ -135,6 +216,19 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
             arguments.pop("tools")
             if arguments.get("tool_choice") == "none":
                 arguments.pop("tool_choice")
+
+    @staticmethod
+    def _use_legacy_json_schema(arguments: dict[str, Any]) -> None:
+        response_format = arguments.get("response_format")
+        if not isinstance(response_format, dict) or response_format.get("type") != "json_schema":
+            return
+        json_schema = response_format.get("json_schema")
+        if not isinstance(json_schema, dict) or "schema" not in json_schema:
+            return
+        # HF's Together adapter flattens json_schema to {type: json_schema, schema: ...},
+        # which this route rejects. Together's legacy json_object + schema envelope
+        # avoids that translation. Retain the schema; this is NOT bare JSON-object mode.
+        arguments["response_format"] = {"type": "json_object", "schema": json_schema["schema"]}
 
     def _move_hf_sampling_fields_to_extra_body(self, arguments: dict[str, Any]) -> None:
         extra_body_raw = arguments.get("extra_body", {})

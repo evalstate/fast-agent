@@ -528,3 +528,31 @@ def test_queued_input_count_leads_the_status_message(terminal: TtyStream) -> Non
     assert reports(terminal)[-1]["state"] == "working"
     herdr_lifecycle.report_queued_input(0)
     assert reports(terminal)[-1]["msg"] == "35% - test-model · $0.0123"
+
+
+def test_queued_handoff_does_not_report_idle_between_turns(terminal: TtyStream) -> None:
+    herdr_lifecycle.report_prompt_mark("A")
+    herdr_lifecycle.report_prompt_mark("C")
+    herdr_lifecycle.report_queued_input(1)
+    herdr_lifecycle.report_prompt_mark("D;0")
+    herdr_lifecycle.report_prompt_mark("A")
+    assert reports(terminal)[-1]["state"] == "working"
+    assert reports(terminal)[-1]["msg"] == "1 queued"
+    # Accepting the last queued input must not itself announce completion.
+    herdr_lifecycle.report_queued_input(0)
+    assert reports(terminal)[-1]["state"] == "working"
+    herdr_lifecycle.report_prompt_mark("C")
+    herdr_lifecycle.report_prompt_mark("D;0")
+    assert reports(terminal)[-1]["state"] == "idle"
+
+
+def test_deferred_command_can_settle_at_next_prompt(terminal: TtyStream) -> None:
+    herdr_lifecycle.report_prompt_mark("A")
+    herdr_lifecycle.report_prompt_mark("C")
+    herdr_lifecycle.report_queued_input(1)
+    herdr_lifecycle.report_prompt_mark("D;0")
+    herdr_lifecycle.report_prompt_mark("A")
+    herdr_lifecycle.report_queued_input(0)
+    # Commands that do not call the model do not emit C/D.
+    herdr_lifecycle.report_prompt_mark("A")
+    assert reports(terminal)[-1]["state"] == "idle"

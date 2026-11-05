@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.10.52"
+version = "0.10.53"
 description = "Code, Build and Evaluate agents - excellent Model and Skills/MCP/ACP/A2A Support"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -19,6 +19,7 @@ dependencies = [
     "mcp-types==2.3.0",
     "pydantic-settings==2.16.1",
     "pydantic==2.14.1",
+    "pydantic-monty==1.4.0",
     "pyyaml==6.0.3",
     "rich==15.0.0",
     "typer==0.27.3",
@@ -93,10 +94,8 @@ all-providers = [
     "boto3>=1.43.119",
     "tensorzero>=2026.6.0"
 ]
-# Programmatic tool calling (--ptc) sandbox, install with: uv pip install fast-agent-mcp[ptc]
-ptc = [
-    "pydantic-monty>=1.4.0",
-]
+# Compatibility alias: PTC is included in the core install as of 0.10.53.
+ptc = []
 
 [build-system]
 requires = ["hatchling"]
@@ -157,7 +156,6 @@ dev = [
     "ipdb>=0.13.13",
     "zensical==0.0.71",
     "pytest-xdist>=3.8",
-    "pydantic-monty>=1.4.0",
 ]
 
 [project.scripts]

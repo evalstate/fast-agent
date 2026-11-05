@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
-import importlib.util
 import json
 import re
 import time
@@ -29,7 +28,6 @@ from fast_agent.constants import (
     FAST_AGENT_PTC_VALUE,
     FAST_AGENT_SUBAGENT_RESULT_METADATA,
 )
-from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.mcp.tool_result_metadata import (
     add_url_elicitation_required_payloads,
     url_elicitation_required_payloads,
@@ -343,11 +341,6 @@ class ProgrammaticToolRuntime:
     """Owns the Monty pool, a fresh sandbox per run, and the store that runs share."""
 
     def __init__(self, settings: ProgrammaticToolCallingSettings) -> None:
-        if importlib.util.find_spec("pydantic_monty") is None:
-            raise AgentConfigError(
-                "Programmatic tool calling requires pydantic-monty",
-                "Install it with: uv pip install 'fast-agent-mcp[ptc]'",
-            )
         self._settings = settings
         # The name avoids "python": models treat a Python-named tool as the machine's Python.
         self.tool_name = PTC_TOOL_NAME

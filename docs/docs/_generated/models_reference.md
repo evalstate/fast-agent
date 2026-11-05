@@ -87,7 +87,8 @@
 | `hf.zai-org/glm-4.6` | `hf` | Text | `json` (schema) | — | — | — |
 | `kimi25` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `kimi25?reasoning=off` | — | — |
 | `kimi26` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `kimi26?reasoning=off` | — | — |
-| `kimi` | `hf` | Text, Vision | `json` (schema) | — | — | — |
+| `kimi27` | `hf` | Text, Vision | `json` (schema) | — | — | — |
+| `kimi` | `hf` | Text, Vision | `json` (schema) | effort: `low`, `high`, `max`<br>Example: `kimi?reasoning=max` | — | — |
 | `minimax21` | `hf` | Text | `json` (schema) | — | — | — |
 | `minimax25` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `minimax25?reasoning=off` | — | — |
 | `minimax27` | `hf` | Text | `json` (schema) | — | — | — |
@@ -100,6 +101,7 @@
 | `Muse Spark 1.2` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `Muse Spark 1.2?reasoning=medium` | — | — |
 | `muse` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `muse?reasoning=medium` | — | — |
 | `musecontrib` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `musecontrib?reasoning=medium` | — | — |
+| `kimik31` | `moonshot` | Text, Vision, Video | `json` (schema) | effort: `low`, `high`, `max`<br>Example: `kimik31?reasoning=max` | — | — |
 | `kimik3` | `moonshot` | Text, Vision, Video | `json` (schema) | effort: `low`, `high`, `max`<br>Example: `kimik3?reasoning=max` | — | — |
 | `gpt-4.1-2025-04-14` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-4.1-mini-2025-04-14` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |

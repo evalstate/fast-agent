@@ -81,7 +81,7 @@ class AgentRunRequest:
     subagent_model: str | None = None
     model_base_url: str | None = None
     isolated: bool = False
-    ptc: bool = False
+    ptc: bool | None = None
 
     def __post_init__(self) -> None:
         self._validate_environment_options()

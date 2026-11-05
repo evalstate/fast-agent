@@ -108,7 +108,7 @@ anthropic:
 # moonshot:
 #   api_key: "${MOONSHOT_API_KEY}"
 #   # base_url: "https://api.moonshot.ai/v1"
-#   # default_model: "kimi-k3"
+#   # default_model: "kimi-k3.1-pro"
 
 # Experimental Grok 4.5/4.6 Responses streaming:
 # xai:
@@ -118,6 +118,13 @@ anthropic:
 #   # Set to inline to disable uploads and send base64 data in every request.
 #   image_upload_mode: inline
 #   image_upload_ttl_seconds: 86400 # 1 hour to 30 days
+
+# Programmatic tool calling: null follows the model default (GLM-5.3-Flash on;
+# other models off). CLI --ptc/--no-ptc and model query ?ptc=on|off override this.
+# Local POSIX only (model defaults fall back to direct tools elsewhere);
+# pydantic-monty is included in the core install.
+#ptc:
+#  enabled: null
 
 #shell_execution:
 # model-facing shell tools: auto (Grok shell/Process; others Bash/Process),

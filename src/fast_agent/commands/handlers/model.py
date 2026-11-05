@@ -49,7 +49,11 @@ from fast_agent.commands.model_details import (
 )
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.constants import REASONING_LABEL
-from fast_agent.core.exceptions import ModelConfigError, format_fast_agent_error
+from fast_agent.core.exceptions import (
+    AgentConfigError,
+    ModelConfigError,
+    format_fast_agent_error,
+)
 from fast_agent.llm.reasoning_effort import (
     ReasoningEffortLevel,
     ReasoningEffortSetting,
@@ -495,7 +499,7 @@ async def _set_agent_model_for_switch(
 ) -> bool:
     try:
         await agent.set_model(selected_model)
-    except ModelConfigError as exc:
+    except (AgentConfigError, ModelConfigError) as exc:
         outcome.add_message(
             format_fast_agent_error(exc),
             channel="error",

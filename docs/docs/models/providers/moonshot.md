@@ -2,13 +2,13 @@
 title: Moonshot
 social:
   title: Moonshot
-  tagline: Run Kimi K3 with native reasoning, streaming, tools, structured output, and vision.
-  description: Configure Moonshot's native Kimi K3 Chat Completions provider in fast-agent.
+  tagline: Run Kimi K3.1 Pro and K3 with native reasoning, streaming, tools, structured output, and vision.
+  description: Configure Moonshot's native Kimi K3-series Chat Completions provider in fast-agent.
 ---
 
 # Moonshot
 
-fast-agent provides a native Moonshot Chat Completions route for Kimi K3.
+fast-agent provides a native Moonshot Chat Completions route for Kimi K3.1 Pro and K3.
 
 ## Setup
 
@@ -21,25 +21,39 @@ export MOONSHOT_API_KEY="..."
 Run the native alias:
 
 ```bash
-fast-agent go --model kimik3 \
+fast-agent go --model kimik31 \
   --message "Explain why 37 × 41 equals 1517."
 ```
 
 Equivalent model strings are:
 
 ```text
-kimik3
-kimi-k3
-moonshot.kimi-k3
+kimik31
+kimi-k3.1-pro
+moonshot.kimi-k3.1-pro
 ```
 
-The existing `kimi`, `kimi27code`, `kimi26`, and other Kimi aliases continue
-to use their Hugging Face Inference Providers routes. Existing
-`moonshotai/Kimi-K2.*` repository identifiers also remain Hugging Face routes.
+The previous `kimik3` alias and `moonshot.kimi-k3` route remain unchanged.
+K3.1 Pro access requires a successful Moonshot top-up (minimum $1).
+
+The unversioned `kimi` and `kimithink` aliases now select K3.1 Pro through
+HF/Together. Versioned aliases (`kimik3`, `kimi27code`, `kimi26`, etc.) retain
+their original models; K3 is marked legacy in the picker.
 
 ### Hugging Face Inference Providers
 
-Kimi K3 is also available through Hugging Face Inference Providers:
+Kimi K3.1 Pro is available through Together on Hugging Face Inference Providers.
+Set `HF_TOKEN` and use:
+
+```bash
+fast-agent go --model "hf.moonshotai/Kimi-K3.1-Pro:together"
+```
+
+The HF route suffix is `together`, **not** `togetherai`. The model picker also
+includes **Kimi K3.1 Pro (together)**. This route supports image input, but
+fast-agent does not advertise video input through HF.
+
+The previous Kimi K3 routes remain available:
 
 ```text
 hf.moonshotai/Kimi-K3:fireworks-ai
@@ -58,7 +72,7 @@ The built-in endpoint and model are:
 moonshot:
   api_key: "${MOONSHOT_API_KEY}"
   base_url: "https://api.moonshot.ai/v1"
-  default_model: "kimi-k3"
+  default_model: "kimi-k3.1-pro"
 ```
 
 Only `api_key` is required. `base_url`, `default_model`, and `default_headers`
@@ -66,8 +80,8 @@ can be overridden for a compatible gateway.
 
 ## Model limits and parameters
 
-Kimi K3 has a 1,048,576-token context window shared by input and output. The API
-defaults `max_completion_tokens` to 131,072 when the field is omitted and
+Kimi K3.1 Pro and K3 have a 1,048,576-token context window shared by input and
+output. The API defaults `max_completion_tokens` to 131,072 when omitted and
 allows it up to 1,048,576, provided the prompt plus requested completion still
 fits the context window.
 
@@ -79,7 +93,7 @@ sampling fields, the Moonshot adapter warns and omits them.
 
 ## Reasoning
 
-Kimi K3 always reasons. The supported reasoning efforts are:
+Kimi K3.1 Pro and K3 always reason. The supported reasoning efforts are:
 
 ```text
 low
@@ -96,8 +110,8 @@ fast-agent go --model "kimik3?reasoning=max" --message "Solve this problem."
 ```
 
 Moonshot returns hidden reasoning separately in `reasoning_content`; fast-agent
-keeps it in the reasoning channel rather than merging it into visible assistant
-content.
+keeps it verbatim in the reasoning channel rather than merging it into visible
+assistant content, and replays it with assistant tool calls on subsequent turns.
 
 During onboarding on July 29, 2026, two identical modular-arithmetic probes per
 effort returned these reasoning-token counts:
@@ -147,9 +161,41 @@ Moonshot automatically caches reusable prompt prefixes. Usage can report
 The integration relies on provider-reported usage and does not configure or
 claim a fixed cache TTL.
 
+## K3.1 Pro PTC and structured output
+
+PTC is enabled by default on both K3.1 Pro routes (local POSIX execution);
+disable it with `?ptc=off`, `--no-ptc`, or `ptc.enabled: false`.
+The default reasoning effort remains `max`; the default output budget is
+131,072 tokens. Both routes passed the live `examples/ptc/` orders/batching
+and image-return cases.
+
+Both routes also passed live typed `structured()` and `structured_schema()`
+tests with nested objects, enums, arrays, integers, and tools attached.
+Structured turns suppress tools. The HF/Together route uses Together's legacy
+schema-bearing `json_object` envelope to avoid the HF router's incompatible
+translation of modern `json_schema` requests; it still sends the complete
+schema. Treat this as schema-guided output with local validation, not a guarantee
+of provider-enforced constrained decoding.
+
+## K3.1 Pro pricing
+
+As verified on November 5, 2026, Moonshot direct and HF via Together both list
+$2.00 input, $0.20 cached input, and $10.00 output per million tokens.
+Moonshot cache writes cost $2.00 (5m TTL) or $4.00 (1h TTL) per million tokens;
+the price-calculator plugin assumes 5m when usage does not identify the TTL.
+Together charges no cache-write fee: uncached tokens cost the ordinary input
+rate. Its caching is automatic, typically lasts about an hour on a best-effort
+basis, and exposes no selectable expiry or TTL tiers. See
+[Together prompt caching](https://docs.together.ai/docs/inference/chat/prompt-caching.md).
+
+These prices are maintained in the card-packs price-calculator plugin, not in
+the model capability database. See [Moonshot pricing](https://platform.kimi.ai/docs/pricing/chat)
+and [Together pricing](https://www.together.ai/pricing).
+
 ## Official documentation
 
 - [Kimi API overview](https://platform.kimi.ai/docs/overview.md)
+- [Kimi K3.1 Pro](https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart.md)
 - [Kimi K3](https://platform.kimi.ai/docs/guide/kimi-k3-quickstart.md)
 - [Models](https://platform.kimi.ai/docs/models.md)
 - [Model parameter reference](https://platform.kimi.ai/docs/api/models-overview.md)

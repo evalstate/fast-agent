@@ -5,6 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
+from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.instruction_refresh import (
     McpInstructionCapable,
     build_instruction,
@@ -13,7 +15,6 @@ from fast_agent.core.instruction_refresh import (
     resolve_instruction_skill_manifests,
 )
 from fast_agent.core.instruction_utils import (
-    InstructionContextAgent,
     build_agent_instruction_context,
 )
 from fast_agent.skills import SKILLS_DEFAULT
@@ -222,18 +223,8 @@ def test_build_instruction_falls_back_for_agent_directory_in_cwd(
 
 
 def test_build_instruction_with_model_specific_context() -> None:
-    agent = SimpleNamespace(
-        name="gpt-agent",
-        instruction="",
-        agent_type="basic",
-        config=SimpleNamespace(
-            name="gpt-agent",
-            agent_type="basic",
-            source_path=None,
-            model="gpt-5.4",
-        ),
-    )
-    context = build_agent_instruction_context(cast("InstructionContextAgent", agent))
+    agent = LlmAgent(AgentConfig(name="gpt-agent", model="gpt-5.4"))
+    context = build_agent_instruction_context(agent)
 
     result = asyncio.run(build_instruction("Base\n{{model_specific}}", context=context))
 
