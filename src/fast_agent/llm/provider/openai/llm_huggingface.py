@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 
 from openai import APIStatusError
 
+from fast_agent.config import HUGGINGFACE_DEFAULT_MODEL as DEFAULT_HUGGINGFACE_MODEL
 from fast_agent.config import HuggingFaceSettings
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.huggingface_router_profiles import (
@@ -30,7 +31,6 @@ from fast_agent.llm.router_profiles import RouterRoute
 from fast_agent.types import RequestParams
 
 HUGGINGFACE_BASE_URL = "https://router.huggingface.co/v1"
-DEFAULT_HUGGINGFACE_MODEL = "moonshotai/Kimi-K2-Instruct-0905"
 
 
 class HuggingFaceLLM(OpenAICompatibleLLM):
@@ -177,6 +177,8 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         self._move_hf_sampling_fields_to_extra_body(arguments)
         self._apply_reasoning_toggle(arguments)
         profile = self._route_profile(arguments.get("model"))
+        if profile and profile.use_legacy_json_schema and self._uses_huggingface_router():
+            self._use_legacy_json_schema(arguments)
         if profile and profile.max_output_tokens is not None:
             max_tokens = arguments.get("max_tokens")
             if isinstance(max_tokens, int):
@@ -211,6 +213,19 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
             arguments.pop("tools")
             if arguments.get("tool_choice") == "none":
                 arguments.pop("tool_choice")
+
+    @staticmethod
+    def _use_legacy_json_schema(arguments: dict[str, Any]) -> None:
+        response_format = arguments.get("response_format")
+        if not isinstance(response_format, dict) or response_format.get("type") != "json_schema":
+            return
+        json_schema = response_format.get("json_schema")
+        if not isinstance(json_schema, dict) or "schema" not in json_schema:
+            return
+        # HF's Together adapter flattens json_schema to {type: json_schema, schema: ...},
+        # which this route rejects. Together's legacy json_object + schema envelope
+        # avoids that translation. Retain the schema; this is NOT bare JSON-object mode.
+        arguments["response_format"] = {"type": "json_object", "schema": json_schema["schema"]}
 
     def _move_hf_sampling_fields_to_extra_body(self, arguments: dict[str, Any]) -> None:
         extra_body_raw = arguments.get("extra_body", {})

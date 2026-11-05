@@ -28,11 +28,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from fast_agent.ptc import PTC_TOOL_NAME
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 HERE = Path(__file__).parent
-PTC_TOOL = "execute_python"
 PTC_CALLS_META = "fast-agent-ptc-calls"
 TOOL_MEDIA_CHANNEL = "fast-agent-tool-media-message"
 
@@ -68,11 +69,11 @@ def tool_results(history: History) -> dict[str, dict[str, Any]]:
 
 def code_results(history: History) -> list[dict[str, Any]]:
     results = tool_results(history)
-    return [results[call_id] for call_id, name, _ in tool_calls(history) if name == PTC_TOOL]
+    return [results[call_id] for call_id, name, _ in tool_calls(history) if name == PTC_TOOL_NAME]
 
 
 def nested_tools(history: History) -> list[str]:
-    """Tool names called from sandbox code, recorded on the execute_python results."""
+    """Tool names called from sandbox code, recorded on the sandbox results."""
     return [
         call["tool"]
         for result in code_results(history)
@@ -106,7 +107,7 @@ def requested_batch(history: History, tool: str) -> str | None:
     """Require gather syntax and relevant dispatches in the same invocation."""
     results = tool_results(history)
     for call_id, name, arguments in tool_calls(history):
-        if name != PTC_TOOL:
+        if name != PTC_TOOL_NAME:
             continue
         code = arguments.get("code", arguments.get("input"))
         if not isinstance(code, str) or not requests_gather(code):
@@ -115,7 +116,7 @@ def requested_batch(history: History, tool: str) -> str | None:
         calls = (result.get("_meta") or {}).get(PTC_CALLS_META, [])
         if sum(call["tool"] == tool for call in calls) >= 2:
             return None
-    return f"expected awaited gather and >= 2 {tool} dispatches in one execute_python invocation"
+    return f"expected awaited gather and >= 2 {tool} dispatches in one {PTC_TOOL_NAME} invocation"
 
 
 def batched_orders(history: History) -> str | None:
@@ -125,7 +126,7 @@ def batched_orders(history: History) -> str | None:
 def image_in_code_result(history: History) -> str | None:
     if any(block["type"] == "image" for r in code_results(history) for block in r["content"]):
         return None
-    return "no execute_python result carried an image back to the model"
+    return f"no {PTC_TOOL_NAME} result carried an image back to the model"
 
 
 def one_selected_image(history: History) -> str | None:
@@ -158,7 +159,7 @@ def batched_subagents(history: History) -> str | None:
 def direct_slash_command(history: History) -> str | None:
     if any(name == "slash_command" for _, name, _ in tool_calls(history)):
         return None
-    return "slash_command was not called directly (it should not be inside execute_python)"
+    return f"slash_command was not called directly (it should not be inside {PTC_TOOL_NAME})"
 
 
 CASES = (

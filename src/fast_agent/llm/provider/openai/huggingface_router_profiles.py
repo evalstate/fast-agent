@@ -233,6 +233,8 @@ class HuggingFaceRouteProfile:
     # Replay streamed reasoning chunks verbatim in history instead of normalizing them.
     preserve_raw_reasoning: bool = False
     structured_json_mode: Literal["schema", "object"] | None = None
+    # Together's legacy schema envelope avoids HF's incompatible json_schema flattening.
+    use_legacy_json_schema: bool = False
     omit_default_max_tokens: bool = False
     max_output_tokens: int | None = None
     default_max_tokens: int | None = None
@@ -388,6 +390,21 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
                 ),
             )
             for model in ("zai-org/glm-5.3", "zai-org/glm-5.3-flash")
+        ),
+        RouterProfileRule(
+            model="moonshotai/kimi-k3.1-pro",
+            backends=frozenset({"together"}),
+            profile=HuggingFaceRouteProfile(
+                reasoning=_KIMI_K3_REASONING,
+                preserve_raw_reasoning=True,
+                use_legacy_json_schema=True,
+            ),
+        ),
+        RouterProfileRule(
+            model="moonshotai/kimi-k3.1-pro",
+            profile=HuggingFaceRouteProfile(
+                reasoning=_KIMI_K3_REASONING, preserve_raw_reasoning=True
+            ),
         ),
         RouterProfileRule(
             model=_KIMI_K3,

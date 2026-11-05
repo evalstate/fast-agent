@@ -65,6 +65,10 @@ from fast_agent.utils.numeric import int_or_none
 from fast_agent.utils.text import strip_casefold, strip_str_to_none
 from fast_agent.utils.transports import McpClientTransport
 
+MOONSHOT_DEFAULT_MODEL = "kimi-k3.1-pro"
+HUGGINGFACE_DEFAULT_MODEL = "moonshotai/Kimi-K3.1-Pro:together"
+
+
 type TerminalImageSize = int | Literal["auto"] | str | None
 type ShellWriteTextFileMode = Literal["auto", "on", "off", "apply_patch", "edit_file"]
 
@@ -1559,7 +1563,7 @@ class MoonshotSettings(BaseModel):
     api_key: str | None = Field(default=None, description="Moonshot API key")
     base_url: str | None = Field(default=None, description="Override API endpoint")
     default_model: str | None = Field(
-        default=None,
+        default=MOONSHOT_DEFAULT_MODEL,
         description="Default model when Moonshot provider is selected without an explicit model",
     )
     default_headers: dict[str, str] | None = Field(
@@ -1844,7 +1848,7 @@ class HuggingFaceSettings(BaseModel):
         description="Override router endpoint (default: https://router.huggingface.co/v1)",
     )
     default_model: str | None = Field(
-        default=None,
+        default=HUGGINGFACE_DEFAULT_MODEL,
         description=(
             "Default model when HuggingFace provider is selected without an explicit model"
         ),

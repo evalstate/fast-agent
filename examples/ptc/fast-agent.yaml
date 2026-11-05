@@ -14,7 +14,7 @@ mcp:
 # Programmatic tool calling. `--ptc` on the command line sets `enabled: true`.
 ptc:
   enabled: false
-  # Tools (fnmatch patterns) that stay directly callable next to execute_python.
+  # Tools (fnmatch patterns) that stay directly callable next to exec_sandbox.
   direct_tools: []
   # Tools (fnmatch patterns) callable only from code, overriding tools that declare direct
   # access (shell/process use expose "both"). ["*"] gives a code-only run.

@@ -57,7 +57,9 @@ for the schema, legacy/capture limitations, and privacy filtering.
 ## Evals
 
 `evals.py` runs a handful of quick end-to-end checks through the real CLI. Each one checks the
-answer and *how* the model got there (from the saved history):
+answer and *how* the model got there (from the saved history). The checker imports
+`PTC_TOOL_NAME` from the public `fast_agent.ptc` API to identify sandbox calls (`exec_sandbox`
+in the current runtime), rather than relying on the legacy `execute_python` name:
 
 | Case | Checks |
 | --- | --- |

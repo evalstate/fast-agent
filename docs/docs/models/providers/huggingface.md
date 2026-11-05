@@ -27,6 +27,16 @@ fast-agent --model hf.moonshotai/kimi-k2-instruct-0905:groq
 fast-agent --model "hf.moonshotai/Kimi-K2.6:novita?reasoning=on"
 ```
 
+Kimi K3.1 Pro is available via Together using
+`hf.moonshotai/Kimi-K3.1-Pro:together` (`HF_TOKEN` required). The suffix is
+`together`, not `togetherai`. This route supports images and top-level
+`reasoning_effort` (`low`, `high`, `max`; default `max`), with preserved reasoning
+history. It is also the default HF model and the target of `kimi`/`kimithink`.
+PTC is enabled by default for K3.1 Pro; `--no-ptc` or `?ptc=off` disables it.
+Its structured-output requests use Together's legacy schema-bearing envelope
+to work around HF router translation; output is validated locally.
+See [Moonshot](moonshot.md) for the native route and model details.
+
 Curated aliases such as `kimi`, `deepseek-hf`, `glm`, and `minimax` include provider choices and request defaults. Capabilities and supported parameters vary by backing provider; see the route-specific notes below.
 
 ## GLM-5.3 and GLM-5.3-Flash

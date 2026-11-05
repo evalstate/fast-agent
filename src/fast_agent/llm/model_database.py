@@ -1116,6 +1116,10 @@ class ModelDatabase:
         }
     )
 
+    # K3.1 keeps K3's API limits and reasoning contract; PTC is validated on both routes.
+    KIMI_K31 = KIMI_K3.model_copy(update={"ptc_enabled": True})
+    KIMI_K31_HF = KIMI_K3_HF.model_copy(update={"ptc_enabled": True})
+
     MUSE_GLIMMER_HF = ModelParameters(
         context_window=131_072,
         max_output_tokens=128_000,
@@ -1559,8 +1563,10 @@ class ModelDatabase:
         "moonshotai/kimi-k2.6": KIMI_MOONSHOT_26,
         "moonshotai/kimi-k2.7-code": KIMI_MOONSHOT_27_CODE,
         "moonshotai/kimi-k3": KIMI_K3_HF,
+        "moonshotai/kimi-k3.1-pro": KIMI_K31_HF,
         "meta-models/muse-glimmer-30b": MUSE_GLIMMER_HF,
         "kimi-k3": KIMI_K3,
+        "kimi-k3.1-pro": KIMI_K31,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony
         "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,  # tool/reasoning interleave guidance

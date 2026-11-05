@@ -5,6 +5,7 @@ from typing import Any, cast
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
 
+from fast_agent.config import MOONSHOT_DEFAULT_MODEL as DEFAULT_MOONSHOT_MODEL
 from fast_agent.llm.provider.openai.llm_openai import EmptyStreamError
 from fast_agent.llm.provider.openai.llm_openai_compatible import OpenAICompatibleLLM
 from fast_agent.llm.provider.openai.multipart_converter_openai import (
@@ -14,7 +15,6 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
 
 MOONSHOT_BASE_URL = "https://api.moonshot.ai/v1"
-DEFAULT_MOONSHOT_MODEL = "kimi-k3"
 MOONSHOT_REASONING_EFFORTS = frozenset(("low", "high", "max"))
 MOONSHOT_IMAGE_MIME_TYPES = frozenset(
     (
@@ -57,6 +57,10 @@ class MoonshotLLM(OpenAICompatibleLLM):
         if self.context.config and self.context.config.moonshot:
             base_url = self.context.config.moonshot.base_url
         return base_url if base_url else MOONSHOT_BASE_URL
+
+    def _preserves_raw_reasoning_history(self, model: str) -> bool:
+        # K3 requires complete reasoning_content to be replayed verbatim.
+        return model.casefold() in {"kimi-k3", "kimi-k3.1-pro"}
 
     def _resolve_reasoning_effort(self) -> str:
         setting = self.reasoning_effort

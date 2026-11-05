@@ -397,7 +397,9 @@ def test_kimi25instant_alias_sets_instant_sampling_defaults() -> None:
 
 
 def test_kimi_alias_matches_current_promoted_kimi_defaults() -> None:
-    assert ModelFactory.parse_model_string("kimi") == ModelFactory.parse_model_string("kimi27code")
+    assert ModelFactory.parse_model_string("kimi") == ModelFactory.parse_model_string(
+        "hf.moonshotai/Kimi-K3.1-Pro:together"
+    )
 
 
 def test_kimi27code_alias_sets_thinking_sampling_defaults() -> None:
@@ -411,7 +413,7 @@ def test_kimi27code_alias_sets_thinking_sampling_defaults() -> None:
 
 
 def test_kimithink_alias_maps_to_current_kimi_defaults() -> None:
-    assert ModelFactory.parse_model_string("kimithink") == ModelFactory.parse_model_string("kimi26")
+    assert ModelFactory.parse_model_string("kimithink") == ModelFactory.parse_model_string("kimi")
 
 
 def test_direct_kimi_model_routes_to_huggingface() -> None:

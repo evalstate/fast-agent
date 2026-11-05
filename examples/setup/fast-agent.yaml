@@ -108,7 +108,7 @@ anthropic:
 # moonshot:
 #   api_key: "${MOONSHOT_API_KEY}"
 #   # base_url: "https://api.moonshot.ai/v1"
-#   # default_model: "kimi-k3"
+#   # default_model: "kimi-k3.1-pro"
 
 # Experimental Grok 4.5/4.6 Responses streaming:
 # xai:
