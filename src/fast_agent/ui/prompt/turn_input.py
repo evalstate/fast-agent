@@ -121,13 +121,17 @@ class TurnInputReader:
         self,
         *,
         input: Input,
+        multiline: bool = False,
         on_cancel: Callable[[], None] = _default_cancel,
         on_queued: Callable[[int], None] = _publish_queued_count,
         write: Callable[[str], None] = _write_stdout,
     ) -> None:
+        from prompt_toolkit.keys import Keys
+
         # Share the prompt's input so its incremental decoder and VT100 parser
         # keep partial characters, escape sequences and pastes across turns.
         self._input = input
+        self._submit_key = Keys.ControlJ if multiline else Keys.ControlM
         self._fd = input.fileno()
         self._on_cancel = on_cancel
         self._on_queued = on_queued
@@ -352,14 +356,14 @@ class TurnInputReader:
         elif key == Keys.BracketedPaste:
             self._keys.append(key_press)
             self._line += key_press.data.replace("\r\n", "\n").replace("\r", "\n")
-        elif key == Keys.ControlM:
+        elif key == self._submit_key:
             self._keys.append(key_press)
             self._submissions.append(_Submission(len(self._keys), self._line))
             if self._line.strip():
                 self._queued += 1
                 self._on_queued(self._queued)
             self._line = ""
-        elif key == Keys.ControlJ:
+        elif key in (Keys.ControlM, Keys.ControlJ):
             self._keys.append(key_press)
             self._line += "\n"
         elif key == Keys.ControlH:
@@ -389,8 +393,10 @@ def hold_turn_input() -> Generator[TurnInputReader | None]:
     if _active is None and turn_input_enabled():
         from prompt_toolkit.application.current import get_app_session
 
+        from fast_agent.ui.prompt.input import in_multiline_mode
+
         input = get_app_session().input
-        candidate = TurnInputReader(input=input)
+        candidate = TurnInputReader(input=input, multiline=in_multiline_mode)
         try:
             started = candidate.start()
         except Exception:

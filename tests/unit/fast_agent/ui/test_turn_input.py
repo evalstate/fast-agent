@@ -30,9 +30,10 @@ class Recorder:
         self.queued: list[int] = []
         self.written: list[str] = []
 
-    def reader(self, input: Input) -> TurnInputReader:
+    def reader(self, input: Input, *, multiline: bool = False) -> TurnInputReader:
         return TurnInputReader(
             input=input,
+            multiline=multiline,
             on_cancel=self.cancel,
             on_queued=self.queued.append,
             write=self.written.append,
@@ -250,6 +251,48 @@ def test_take_messages_drains_ready_bytes_and_preserves_draft(pipe: PipeInput) -
     assert reader.stop() == []
 
 
+@pytest.mark.parametrize("multiline", [False, True])
+def test_take_messages_waits_for_active_submit_key(pipe: PipeInput, multiline: bool) -> None:
+    recorder = Recorder()
+    reader = recorder.reader(pipe, multiline=multiline)
+    newline, submit = ("\r", "\n") if multiline else ("\n", "\r")
+    draft = f"first line{newline}second line"
+    pipe.send_text(draft)
+    assert reader.take_messages() == []
+    assert recorder.queued == []
+    assert "".join(key.data for key in reader.held_keys) == draft
+
+    pipe.send_text(submit + "next draft")
+    assert reader.take_messages() == ["first line\nsecond line"]
+    assert recorder.queued == [1, 0]
+    assert "".join(key.data for key in reader.stop()) == "next draft"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("multiline", [False, True])
+async def test_unfinished_multiline_draft_replays_intact(
+    monkeypatch, pipe: PipeInput, multiline: bool
+) -> None:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.input.typeahead import store_typeahead
+    from prompt_toolkit.output import DummyOutput
+
+    from fast_agent.ui.prompt import input as prompt_input
+    from fast_agent.ui.prompt.keybindings import create_keybindings
+
+    monkeypatch.setattr(prompt_input, "in_multiline_mode", multiline)
+    reader = Recorder().reader(pipe, multiline=multiline)
+    newline, submit = ("\r", "\n") if multiline else ("\n", "\r")
+    pipe.send_text(f"first line{newline}second line")
+    assert reader.take_messages() == []
+    store_typeahead(pipe, reader.stop())
+    prompt = PromptSession(input=pipe, output=DummyOutput(), key_bindings=create_keybindings())
+    result = await asyncio.wait_for(
+        prompt.prompt_async(pre_run=lambda: pipe.send_text(submit)), timeout=1
+    )
+    assert result == "first line\nsecond line"
+
+
 @pytest.mark.parametrize(
     "deferred",
     ["/help", "!echo hi", "@other", "#other hello", "look ^file:photo.png"],
@@ -325,14 +368,21 @@ async def test_replayed_count_survives_handoff_until_prompt_accepts(pipe: PipeIn
 
 
 @pytest.mark.asyncio
-async def test_new_turn_adopts_prompt_typeahead_before_fresh_input(monkeypatch) -> None:
+@pytest.mark.parametrize("multiline", [False, True])
+async def test_new_turn_adopts_prompt_typeahead_before_fresh_input(
+    monkeypatch, multiline: bool
+) -> None:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.application import create_app_session
     from prompt_toolkit.input.typeahead import store_typeahead
     from prompt_toolkit.key_binding import KeyPress
     from prompt_toolkit.output import DummyOutput
 
+    from fast_agent.ui.prompt import input as prompt_input
     from fast_agent.ui.prompt.keybindings import create_keybindings
+
+    monkeypatch.setattr(prompt_input, "in_multiline_mode", multiline)
+    submit_key, submit = (Keys.ControlJ, "\n") if multiline else (Keys.ControlM, "\r")
 
     master, slave = os.openpty()
     try:
@@ -345,12 +395,12 @@ async def test_new_turn_adopts_prompt_typeahead_before_fresh_input(monkeypatch) 
                     input,
                     [
                         KeyPress(Keys.BracketedPaste, "older"),
-                        KeyPress(Keys.ControlM, "\r"),
+                        KeyPress(submit_key, submit),
                     ],
                 )
                 with turn_input.hold_turn_input() as reader:
                     assert reader is not None
-                    os.write(master, b"newer\r/help\r")
+                    os.write(master, f"newer{submit}/help{submit}".encode())
                     assert reader.take_messages() == ["older", "newer"]
                     assert turn_input.queued_input_count() == 1
                 assert turn_input.queued_input_count() == 1

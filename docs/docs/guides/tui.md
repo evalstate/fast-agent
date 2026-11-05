@@ -315,8 +315,9 @@ state and retains its previous idle behavior; the richer status travels over OSC
 ### Typing ahead and messages sent while working
 
 While a turn is running, fast-agent holds terminal input instead of echoing it into
-the output. Text followed by Enter, including messages sent with `hc send`, is
-queued in arrival order. Plain messages are consumed at the next tool-loop
+the output. Submitted text is queued in arrival order, using the active prompt mode:
+Enter submits in normal mode; in multiline mode (Ctrl+T), Enter inserts a newline
+and Ctrl+J submits. Plain messages are consumed at the next tool-loop
 continuation, after the complete tool batch and before the next model call.
 This lets the agent read a worker report after `hc wait` returns, without first
 finishing its answer. Consumed messages remain part of the current conversation
@@ -324,9 +325,13 @@ turn and are not replayed into the next prompt.
 
 Commands (`/`, `!`, `@`, `#`), resource/attachment mentions and pasted image paths
 stay on the normal prompt path after the turn ends. Later messages cannot overtake
-these deferred inputs. Text without Enter remains a draft. Messages arriving after
-the last continuation boundary become the next turn; `hc wait` returning
+these deferred inputs. Text without the active submit key remains a draft. Messages
+arriving after the last continuation boundary become the next turn; `hc wait` returning
 `reason: message` does not guarantee that all message bytes have arrived yet.
+
+`hc send` pastes text and presses Enter, so it assumes normal input mode. With
+multiline mode enabled, its message remains a draft. Multiline message content
+still works in normal mode through paste or Ctrl+J newlines followed by Enter.
 
 While input is held, only the count (`⧗ 1 queued`) appears in the live streaming
 header or progress display and the OSC 7501 status message. Submitted input
