@@ -1084,7 +1084,7 @@
         "clear_when_only": {
           "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
-        "coverage": "atif-scan 0.8.16 (5aad01d), with images sent for transcription (none blocked a check), flagged no rewarded trial at high or above; its one high finding (vllm-deepseek-streaming upstream source fetched) is on an unrewarded trial. With PTC every tool call is Python in the exec_sandbox code tool, which the scanner cannot fully analyse, so every pass keeps some checks undecided (counted under Review); a keyword pass over those trajectories for benchmark sources (terminal-bench, harbor-framework, laude-institute, solution and test files) and a review of every external host they reached found nothing beyond public libraries, tools and regulatory texts.",
+        "coverage": "atif-scan 0.8.17 (39aa868), with images sent for transcription (none blocked a check), flagged no rewarded trial at high or above; its one high finding (vllm-deepseek-streaming upstream source fetched) is on an unrewarded trial. With PTC every tool call is Python in the exec_sandbox code tool, which the scanner cannot fully analyse, so every pass keeps some checks undecided (counted under Review); a keyword pass over those trajectories for benchmark sources (terminal-bench, harbor-framework, laude-institute, solution and test files) and a review of every external host they reached found nothing beyond public libraries, tools and regulatory texts.",
         "cleared": [],
         "disqualified": []
       },
@@ -1122,7 +1122,7 @@
         "clear_when_only": {
           "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
         },
-        "coverage": "atif-scan 0.8.17 (5aad01d plus local 0.8.17 changes: Python code-tool parsing), with images sent for transcription (none blocked a check). With PTC every tool call is Python in the exec_sandbox code tool, which the scanner cannot fully analyse, so every pass keeps some checks undecided (counted under Review); a keyword pass over those trajectories for benchmark sources (terminal-bench, harbor-framework, laude-institute, solution and test files, verifier logs) found nothing, and outside vpp-loss-divergence their GitHub references are public tools and libraries (Gavrog, gsea-desktop, npm, vLLM) read from installed sources, never fetched.",
+        "coverage": "atif-scan 0.8.17 (39aa868), with images sent for transcription (none blocked a check). With PTC every tool call is Python in the exec_sandbox code tool, which the scanner cannot fully analyse, so every pass keeps some checks undecided (counted under Review); a keyword pass over those trajectories for benchmark sources (terminal-bench, harbor-framework, laude-institute, solution and test files, verifier logs) found nothing, and outside vpp-loss-divergence their GitHub references are public tools and libraries (Gavrog, gsea-desktop, npm, vLLM) read from installed sources, never fetched.",
         "cleared": [
           {
             "trial": "vpp-loss-divergence__V4vZoBb",

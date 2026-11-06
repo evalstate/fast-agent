@@ -653,9 +653,9 @@
       }
     },
     "scanner": {
-      "commit": "5aad01d702838323f794274deff9be83106156b5",
-      "dirty": true,
-      "diff_sha1": "08a18c513a18",
+      "commit": "39aa868800e31a09b0b06c2f73c7a5430fc77ff9",
+      "dirty": false,
+      "diff_sha1": null,
       "args": [
         "--min-trials",
         "5",
@@ -728,7 +728,7 @@
   },
   "review": {
     "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-    "coverage": "atif-scan 0.8.17 (5aad01d plus local 0.8.17 changes: Python code-tool parsing), with images sent for transcription (none blocked a check). With PTC every tool call is Python in the exec_sandbox code tool, which the scanner cannot fully analyse, so every pass keeps some checks undecided (counted under Review); a keyword pass over those trajectories for benchmark sources (terminal-bench, harbor-framework, laude-institute, solution and test files, verifier logs) found nothing, and outside vpp-loss-divergence their GitHub references are public tools and libraries (Gavrog, gsea-desktop, npm, vLLM) read from installed sources, never fetched.",
+    "coverage": "atif-scan 0.8.17 (39aa868), with images sent for transcription (none blocked a check). With PTC every tool call is Python in the exec_sandbox code tool, which the scanner cannot fully analyse, so every pass keeps some checks undecided (counted under Review); a keyword pass over those trajectories for benchmark sources (terminal-bench, harbor-framework, laude-institute, solution and test files, verifier logs) found nothing, and outside vpp-loss-divergence their GitHub references are public tools and libraries (Gavrog, gsea-desktop, npm, vLLM) read from installed sources, never fetched.",
     "recorded_passes": 85,
     "recorded_score": 89.47,
     "disqualified": [],

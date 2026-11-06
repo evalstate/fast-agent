@@ -549,7 +549,7 @@
     "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-11-05.1, rules gpt-6.1-terra-flex-short / -long: $0.50 / $0.025 / $0.625 / $2.50 per million input / cached / cache-write / output tokens; $1 / $0.05 / $1.25 / $3.75 above 272k context). Flex is an optional OpenAI service tier at exactly half the standard rates on every band, so the same usage at standard rates costs twice as much. Five trials have model calls that reported no usage, so the total is a lower bound."
   ],
   "scan": {
-    "version": "0.8.16",
+    "version": "0.8.17",
     "scope": "95 reported trials (findings also include 2 replaced originals, kept as evidence)",
     "trials": 95,
     "rewarded": 40,
@@ -660,7 +660,7 @@
       }
     },
     "scanner": {
-      "commit": "5aad01d702838323f794274deff9be83106156b5",
+      "commit": "39aa868800e31a09b0b06c2f73c7a5430fc77ff9",
       "dirty": false,
       "diff_sha1": null,
       "args": [
@@ -735,7 +735,7 @@
   },
   "review": {
     "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
-    "coverage": "atif-scan 0.8.16 (5aad01d), with images sent for transcription (none blocked a check), flagged no rewarded trial at high or above; its one high finding (vllm-deepseek-streaming upstream source fetched) is on an unrewarded trial. With PTC every tool call is Python in the exec_sandbox code tool, which the scanner cannot fully analyse, so every pass keeps some checks undecided (counted under Review); a keyword pass over those trajectories for benchmark sources (terminal-bench, harbor-framework, laude-institute, solution and test files) and a review of every external host they reached found nothing beyond public libraries, tools and regulatory texts.",
+    "coverage": "atif-scan 0.8.17 (39aa868), with images sent for transcription (none blocked a check), flagged no rewarded trial at high or above; its one high finding (vllm-deepseek-streaming upstream source fetched) is on an unrewarded trial. With PTC every tool call is Python in the exec_sandbox code tool, which the scanner cannot fully analyse, so every pass keeps some checks undecided (counted under Review); a keyword pass over those trajectories for benchmark sources (terminal-bench, harbor-framework, laude-institute, solution and test files) and a review of every external host they reached found nothing beyond public libraries, tools and regulatory texts.",
     "recorded_passes": 40,
     "recorded_score": 42.11,
     "disqualified": [],
