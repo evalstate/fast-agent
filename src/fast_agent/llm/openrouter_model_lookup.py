@@ -300,9 +300,31 @@ def list_openrouter_model_specs_sync(
     if not result.has_models:
         return []
 
+    models = result.models
+    if _normalize_base_url(base_url) == DEFAULT_OPENROUTER_BASE_URL:
+        # Curate suggestions only; discovery still registers every model's metadata
+        # so explicit legacy requests retain their gateway limits and capabilities.
+        current_minimax = ("minimax/minimax-m3.1-flash:free", "minimax/minimax-m3")
+        minimax_text = [
+            entry
+            for entry in models
+            if entry.id.startswith("minimax/")
+            and (
+                entry.architecture.output_modalities == ["text"]
+                or (
+                    not entry.architecture.output_modalities
+                    and entry.id.startswith("minimax/minimax-")
+                )
+            )
+        ]
+        current = [
+            entry for model_id in current_minimax for entry in minimax_text if entry.id == model_id
+        ]
+        models = [*current, *(entry for entry in models if entry not in minimax_text)]
+
     return unique_preserve_order(
         f"openrouter.{model_id}"
-        for entry in result.models
+        for entry in models
         if (model_id := _model_id_text(entry.id)) is not None
     )
 
