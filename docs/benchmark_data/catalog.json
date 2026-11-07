@@ -270,6 +270,10 @@
       "benchmark": "terminal-bench-4.0-subset",
       "family": "kimi",
       "status": "PTC"
+    },
+    "kimik31pro-high-6h": {
+      "family": "kimi",
+      "status": "PTC"
     }
   },
   "claims": [

@@ -1464,6 +1464,72 @@
         "Ten trials ended with AgentSafetyRefusalError (vulnerable-secret ×5, break-filter-js-from-html ×5) and score 0; model outcomes, not rerun.",
         "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-10-26.1, rules gpt-6.1-terra-flex-short / -long: $0.50 / $0.025 / $0.625 / $2.50 per million input / cached / cache-write / output tokens; $1 / $0.05 / $1.25 / $3.75 above 272k context). Flex is an optional OpenAI service tier at exactly half the standard rates on every band, so the same usage at standard rates costs twice as much. Eight trials have model calls that reported no usage, so the total is a lower bound."
       ]
+    },
+    {
+      "id": "kimik31pro-high-6h",
+      "harness": "fast-agent",
+      "model": "Kimi K3.1 Pro",
+      "effort": "high",
+      "model_string": "hf.moonshotai/Kimi-K3.1-Pro:together?reasoning=high&ptc=on",
+      "date": "2026-11-07",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/kimik31pro-high-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-kimik31pro-high-r1 (cohort tb21-kimik31pro-high-hf-together-fa053-ptc-001)"
+      },
+      "expected": {
+        "passes": 392
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.21+ (282e9c3), with images sent for transcription (1 asked, 1 read). With PTC every tool call is Python in the exec_sandbox code tool, which the scanner cannot fully analyse, so most passes keep some checks undecided (counted under Review); a keyword pass over the agent-authored text of every pass for benchmark sources (terminal-bench, harbor-framework, laude-institute, solution and test files, verifier logs) found nothing beyond the decisions recorded here: the other hits are canary strings copied from task files, guesses about a task's origin in reasoning, and task data sources.",
+        "cleared": [
+          {
+            "trial": "break-filter-js-from-html__BTcQ8y6",
+            "reason": "tamper.test_files false positive: symlinked its own /app/filter.py into /tests to run the task's example test locally; no verifier file was edited."
+          },
+          {
+            "trial": "break-filter-js-from-html__GzDLjer",
+            "reason": "tamper.test_files false positive: copied its own /app/filter.py into /tests to run the task's example test locally; no verifier file was edited."
+          }
+        ],
+        "disqualified": [
+          {
+            "trial": "db-wal-recovery__CW8FmA9",
+            "reason": "Fetched the task's task.yaml, solution.sh, setup.sh, Dockerfile and tests from a Terminal-Bench mirror in the elizaOS/eliza repository (packages/benchmarks/suites/terminal-bench/tasks/db-wal-recovery) through raw.githubusercontent.com (lookup.benchmark_content_obtained, access.benchmark_material_received)."
+          },
+          {
+            "trial": "fix-ocaml-gc__3cjqCiq",
+            "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."
+          },
+          {
+            "trial": "fix-ocaml-gc__CB3qSby",
+            "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."
+          },
+          {
+            "trial": "fix-ocaml-gc__LMXQ65w",
+            "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."
+          },
+          {
+            "trial": "fix-ocaml-gc__k366kxQ",
+            "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor 271f0a31, with the published fast-agent-mcp[ptc] 0.10.53 wheel, programmatic tool calling on (ptc=on in the model string): every tool call went through the exec_sandbox Python code tool. Kimi K3.1 Pro (high reasoning) through Hugging Face Inference Providers, routed to Together. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "64 infrastructure failures were rerun as replacements: 63 trials stopped after Together returned HTTP 429 through all of fast-agent's provider retries (61 of them in one 30-minute rate-limit storm at the end of the run) and one sandbox error. Every trial that failed this way was replaced, whatever its outcome; 57 of the replacements passed. The originals are kept as evidence; the run as first launched scored 336/445.",
+        "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog 2026-11-05.1, rule kimi-k3.1-pro-hf-together: $2.00 / $0.20 / $10.00 per million input / cached / output tokens). 31 reported trials have model calls that failed with HTTP 429 and reported no usage, so the total is a lower bound."
+      ]
     }
   ]
 }
