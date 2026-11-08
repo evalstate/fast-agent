@@ -1142,6 +1142,43 @@
         "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog 2026-11-05.1, rule kimi-k3.1-pro-hf-together: $2.00 / $0.20 / $10.00 per million input / cached / output tokens). Five trials have model calls that reported no usage, so the total is a lower bound."
       ],
       "scan": true
+    },
+    {
+      "id": "tb4-glm53flash-max-ptc",
+      "harness": "fast-agent",
+      "model": "GLM-5.3-Flash",
+      "effort": "max",
+      "model_string": "hf.zai-org/GLM-5.3-Flash:zai-org?reasoning=max&compact_at=190k&ptc=on",
+      "date": "2026-11-07",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-glm53flash-max-ptc",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-glm53flash-max-fa053-ptc-r1 (cohort tb4-glm53flash-max-hf-zai-c190k-fa053-ptc-001)"
+      },
+      "expected": {
+        "passes": 45
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.21+ (282e9c3), with images sent for transcription (none blocked a check), flagged no rewarded trial at high or above; its two high findings (vllm-deepseek-streaming upstream fix shown / upstream source fetched) are on unrewarded trials. Three vpp-loss-divergence passes searched the filesystem for reference or verifier files (medium) and found only an empty /logs/verifier and their own outputs. With PTC every tool call is Python in the exec_sandbox code tool, which the scanner cannot fully analyse, so every pass keeps some checks undecided (counted under Review); a keyword pass over those trajectories for benchmark sources (terminal-bench, harbor-framework, laude-institute, solution and test files) and a review of the external hosts they reached found nothing beyond public libraries and tools (Gavrog, PyPI copies of the installed megatron-core and nemo-toolkit).",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+        "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor 271f0a31, with the published fast-agent-mcp[ptc] 0.10.53 wheel, programmatic tool calling on (ptc=on in the model string): every tool call went through the exec_sandbox Python code tool. GLM-5.3-Flash (max reasoning) through Hugging Face Inference Providers, routed to zai-org, with fast-agent context compaction at 190k tokens. Zero whole-trial retries; fast-agent's own provider retries apply. No replacements.",
+        "Re-graded verifier timeout: one mvcc-lsm-compaction trial ended in VerifierTimeoutError (900 s) on a slow HF verifier sandbox. Its recorded outputs were verified again in the parent environment (bench-run regrade tb4-glm53flash-max-hf-zai-c190k-fa053-ptc-001-rg-001; no agent rerun) and passed, 15/15 tests in 499 s. The regrade verdict is scored; the timed-out original is kept as evidence. The run as first graded scored 44/95.",
+        "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog 2026-11-05.1, rule glm-53-flash-hf: $0.15 / $0.03 / $0.50 per million input / cached / output tokens). Fifteen trials have model calls that reported no usage, so the total is a lower bound."
+      ],
+      "scan": true
     }
   ]
 }
