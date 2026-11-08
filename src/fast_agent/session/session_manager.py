@@ -16,7 +16,8 @@ import secrets
 import shutil
 import string
 import tempfile
-from dataclasses import dataclass, field
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -24,8 +25,10 @@ from fast_agent.constants import DEFAULT_HOME_DIR
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.paths import resolve_home_paths
+from fast_agent.session.checkpoint import CheckpointTransaction, finish_checkpoint_io
 from fast_agent.session.locking import (
     SessionBusyError,
+    SessionCheckpointBusyError,
     SessionLockStore,
     SessionOwner,
     SessionOwnerLease,
@@ -49,7 +52,7 @@ from fast_agent.session.subagent_runs import (
     format_subagent_alias,
 )
 from fast_agent.session.trajectory import TRAJECTORIES_DIR
-from fast_agent.utils.async_utils import run_coroutine
+from fast_agent.utils.async_utils import run_coroutine, run_in_thread
 from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
@@ -338,6 +341,13 @@ class SessionPruneResult:
     busy: tuple[SessionDeleteResult, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class _StagedStore:
+    store: SandboxStore
+    revision: int
+    filename: str | None
+
+
 class Session:
     """Represents a single conversation session."""
 
@@ -402,133 +412,112 @@ class Session:
         checkpoint: bool,
     ) -> str:
         """Write one complete committed checkpoint while exclusively locked."""
-        from fast_agent.history.history_exporter import HistoryExporter
-
-        self.info.last_activity = datetime.now()
-
-        rotating = filename is None
-        current_filename: str | None = None
-        previous_filename: str | None = None
-
-        # Generate filename if not provided
-        if filename is None:
-            agent_name = getattr(agent, "name", None)
-            agent_label = _sanitize_component(agent_name or "agent")
-            current_filename = f"history_{agent_label}.json"
-            previous_filename = f"history_{agent_label}_previous.json"
-            result = await self._save_rotating_history(
-                agent,
-                current_filename=current_filename,
-                previous_filename=previous_filename,
-                compact=checkpoint,
+        transaction = CheckpointTransaction(self.directory)
+        published = False
+        try:
+            saved_filename = await self._stage_history_checkpoint(
+                transaction, agent, filename=filename, compact=checkpoint
             )
-            filename = current_filename
-        else:
-            filepath = self.directory / filename
-            result = await HistoryExporter.save(agent, str(filepath), compact=checkpoint)
+            store_revision = await self._stage_ptc_checkpoint(transaction, agent)
+            proposed = replace(
+                self.info,
+                history_files=list(self.info.history_files),
+                metadata=dict(self.info.metadata),
+            )
+            proposed.last_activity = datetime.now()
+            self._update_checkpoint_info(proposed, agent, saved_filename, rotating=filename is None)
+            view = Session(proposed, self.directory, manager=self._manager)
+            snapshot = capture_session_snapshot(
+                session=view,
+                active_agent=agent,
+                agent_registry=agent_registry,
+                identity=identity or self._default_save_identity(),
+                resolved_prompts=resolved_prompts,
+                refresh_git=not checkpoint,
+            )
+            if store_revision is not None:
+                snapshot.continuation.agents[agent.name].ptc_store_file = store_revision.filename
+            payload = json.dumps(snapshot.model_dump(mode="json"), indent=2).encode("utf-8")
+            await finish_checkpoint_io(run_in_thread(transaction.prepare, payload))
+            transaction.publish()
+            published = True
+            self.info = proposed
+            if store_revision is not None:
+                self._saved_ptc_stores[agent.name] = (store_revision.store, store_revision.revision)
+            return str(self.directory / saved_filename)
+        finally:
+            if not published:
+                transaction.abort()
 
-        # Update session info
-        if rotating and current_filename:
-            history_files = [
-                name
-                for name in self.info.history_files
-                if name not in {current_filename, previous_filename}
-            ]
-            if previous_filename:
-                previous_path = self.directory / previous_filename
-                if previous_path.exists():
-                    history_files.append(previous_filename)
-            history_files.append(current_filename)
-            self.info.history_files = history_files
-        elif filename not in self.info.history_files:
-            self.info.history_files.append(filename)
-
-        agent_name = getattr(agent, "name", None)
-        if agent_name:
-            history_map = self.info.metadata.get("last_history_by_agent")
-            if not isinstance(history_map, dict):
-                history_map = {}
-            history_map[agent_name] = filename
-            self.info.metadata["last_history_by_agent"] = history_map
-
-        await self._save_ptc_store(agent)
-
-        if "first_user_preview" not in self.info.metadata:
-            preview = _first_user_preview(agent.message_history)
-            if preview:
-                self.info.metadata["first_user_preview"] = preview
-        last_user_prompt = _last_user_prompt(agent.message_history)
-        if last_user_prompt:
-            self.info.metadata["last_user_prompt"] = last_user_prompt
-
-        snapshot = capture_session_snapshot(
-            session=self,
-            active_agent=agent,
-            agent_registry=agent_registry,
-            identity=identity or self._default_save_identity(),
-            resolved_prompts=resolved_prompts,
-            refresh_git=not checkpoint,
-        )
-        self._write_snapshot(snapshot)
-        return result
-
-    async def _save_rotating_history(
+    async def _stage_history_checkpoint(
         self,
+        transaction: CheckpointTransaction,
         agent: AgentProtocol,
         *,
-        current_filename: str,
-        previous_filename: str,
-        compact: bool = False,
+        filename: str | None,
+        compact: bool,
     ) -> str:
-        """Save history using a current/previous rotation scheme."""
         from fast_agent.history.history_exporter import HistoryExporter
 
-        current_path = self.directory / current_filename
-        previous_path = self.directory / previous_filename
-        temp_path: pathlib.Path | None = None
+        if filename is None:
+            label = _sanitize_component(agent.name)
+            filename = f"history_{label}.json"
+            current = self.directory / filename
+            if current.exists():
 
-        try:
-            suffix = current_path.suffix or ".json"
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                delete=False,
-                dir=self.directory,
-                prefix=f".{current_filename}.tmp.",
-                suffix=suffix,
-            ) as handle:
-                temp_path = pathlib.Path(handle.name)
+                def stage_previous() -> None:
+                    transaction.stage_bytes(f"history_{label}_previous.json", current.read_bytes())
 
-            await HistoryExporter.save(agent, str(temp_path), compact=compact)
+                await finish_checkpoint_io(run_in_thread(stage_previous))
+        staged = transaction.staged_path(filename)
+        await finish_checkpoint_io(HistoryExporter.save(agent, str(staged), compact=compact))
+        return filename
 
-            if current_path.exists():
-                current_path.replace(previous_path)
-            temp_path.replace(current_path)
-        finally:
-            if temp_path and temp_path.exists():
-                try:
-                    temp_path.unlink()
-                except Exception:
-                    logger.warning(
-                        "Failed to clean up history temp file",
-                        data={"path": str(temp_path)},
-                    )
-
-        return str(current_path)
-
-    async def _save_ptc_store(self, agent: AgentProtocol) -> None:
-        """Write the agent's PTC store beside its history when it changed since the last save."""
+    async def _stage_ptc_checkpoint(
+        self, transaction: CheckpointTransaction, agent: AgentProtocol
+    ) -> _StagedStore | None:
         if not isinstance(agent, PtcStoreProvider) or (store := agent.ptc_store) is None:
-            return
+            return None
         saved = self._saved_ptc_stores.get(agent.name)
         if saved is not None and saved[0] is store and saved[1] == store.revision:
-            return
-        path = self.directory / ptc_store_filename(agent.name)
-        if len(store) == 0:
-            path.unlink(missing_ok=True)
+            return None
+        revision = store.revision
+        filename = ptc_store_filename(agent.name)
+        has_contents = len(store) > 0
+        if not has_contents:
+            transaction.stage_delete(filename)
         else:
-            await asyncio.to_thread(self._atomic_write_text, path, store.to_state())
-        self._saved_ptc_stores[agent.name] = (store, store.revision)
+            state = store.to_state().encode("utf-8")
+            await finish_checkpoint_io(run_in_thread(transaction.stage_bytes, filename, state))
+        return _StagedStore(store, revision, filename if has_contents else None)
+
+    def _update_checkpoint_info(
+        self,
+        proposed: SessionInfo,
+        agent: AgentProtocol,
+        filename: str,
+        *,
+        rotating: bool,
+    ) -> None:
+        if rotating:
+            previous = filename.removesuffix(".json") + "_previous.json"
+            files = [name for name in proposed.history_files if name not in {filename, previous}]
+            if (self.directory / filename).exists():
+                files.append(previous)
+            files.append(filename)
+            proposed.history_files = files
+        elif filename not in proposed.history_files:
+            proposed.history_files.append(filename)
+        history_map = proposed.metadata.get("last_history_by_agent")
+        history_map = dict(history_map) if isinstance(history_map, dict) else {}
+        history_map[agent.name] = filename
+        proposed.metadata["last_history_by_agent"] = history_map
+        if "first_user_preview" not in proposed.metadata:
+            preview = _first_user_preview(agent.message_history)
+            if preview:
+                proposed.metadata["first_user_preview"] = preview
+        if last_user_prompt := _last_user_prompt(agent.message_history):
+            proposed.metadata["last_user_prompt"] = last_user_prompt
 
     def _save_metadata(self) -> None:
         """Save session metadata without replacing persisted runtime state."""
@@ -674,18 +663,22 @@ class Session:
                         data={"path": str(temp_path)},
                     )
 
+    @contextmanager
     def _checkpoint_lock(self):
         manager = self._manager
         if manager is None:
             raise RuntimeError("Persisted session operations require an owning SessionManager.")
-        return manager._locks.checkpoint(self.info.name)
+        with manager._locks.checkpoint(self.info.name):
+            if CheckpointTransaction.recover(self.directory):
+                self.info = session_info_from_snapshot(self._load_snapshot_or_compatibility())
+            yield
 
     def _mutation_lock(self):
         manager = self._manager
         if manager is None:
             raise RuntimeError("Persisted session operations require an owning SessionManager.")
         manager._acquire_owner(self.info.name)
-        return manager._locks.checkpoint(self.info.name)
+        return self._checkpoint_lock()
 
     def delete(self) -> None:
         """Delete this session."""
@@ -714,6 +707,9 @@ class Session:
 
     def latest_history_path(self, agent_name: str | None = None) -> pathlib.Path | None:
         """Return the most recent history file for this session, if any."""
+        if CheckpointTransaction.pending(self.directory):
+            with self._checkpoint_lock():
+                pass
         if agent_name:
             history_map = self.info.metadata.get("last_history_by_agent")
             if isinstance(history_map, dict):
@@ -1098,6 +1094,8 @@ class SessionManager:
         acquired_here = session_id not in self._owner_leases
         self._acquire_owner(session_id)
         try:
+            with self._locks.checkpoint(session_id):
+                CheckpointTransaction.recover(session_dir)
             with metadata_file.open(encoding="utf-8") as f:
                 data = json.load(f)
                 snapshot = load_session_snapshot(data)
@@ -1351,6 +1349,7 @@ class SessionManager:
             return None
 
         with self._locks.checkpoint(source.info.name):
+            CheckpointTransaction.recover(source.directory)
             source_snapshot = self._load_authoritative_snapshot(source)
             new_session = self._publish_fork(
                 source=source,
@@ -1422,10 +1421,15 @@ class SessionManager:
             return None
 
         try:
+            if CheckpointTransaction.pending(session_dir):
+                with self._locks.checkpoint(session_id):
+                    CheckpointTransaction.recover(session_dir)
             with metadata_file.open(encoding="utf-8") as f:
                 data = json.load(f)
                 info = SessionInfo.from_dict(data)
             return Session(info, session_dir, manager=self)
+        except SessionCheckpointBusyError:
+            raise
         except Exception as e:
             logger.error(f"Failed to get session {session_id}: {e}")
             return None

@@ -16,6 +16,7 @@ from fast_agent.mcp.prompts.prompt_load import (
     load_transcript_into_agent,
     rehydrate_usage_from_history,
 )
+from fast_agent.session.checkpoint import finish_checkpoint_io
 
 from .snapshot import (
     PtcStoreProvider,
@@ -29,6 +30,7 @@ from .snapshot import (
 
 if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.session.git_metadata import GitMetadata
     from fast_agent.session.snapshot import SessionGitSnapshot
 
@@ -88,6 +90,15 @@ class _HydrationState:
     missing_history_files: list[str] = field(default_factory=list)
     warnings: list[SessionHydrationWarning] = field(default_factory=list)
     usage_notices: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class _AgentCheckpointInputs:
+    messages: list[PromptMessageExtended] | None = None
+    missing_history: bool = False
+    history_error: Exception | None = None
+    store_state: str | None = None
+    store_error: OSError | ValueError | None = None
 
 
 @runtime_checkable
@@ -162,17 +173,29 @@ class SessionHydrator:
         policy: SessionHydrationPolicy | None = None,
     ) -> SessionHydrationResult:
         warnings: list[SessionHydrationWarning] = []
-        snapshot = self._load_snapshot(session=session, warnings=warnings)
-        if not snapshot.execution.resumable:
-            raise NonResumableSessionError(snapshot.session_id)
-        warnings.extend(self._git_state_warnings(snapshot))
-        agent_snapshots = self._select_agent_snapshots(
-            session=session,
-            snapshot=snapshot,
-            agents=agents,
-            fallback_agent_name=fallback_agent_name,
-        )
         effective_policy = policy or SessionHydrationPolicy()
+        # Metadata and every referenced file belong to the same checkpoint.
+        # Capture before runtime restoration, whose awaits can allow saves.
+        with session._checkpoint_lock():
+            snapshot = self._load_snapshot(session=session, warnings=warnings)
+            if not snapshot.execution.resumable:
+                raise NonResumableSessionError(snapshot.session_id)
+            agent_snapshots = self._select_agent_snapshots(
+                session=session,
+                snapshot=snapshot,
+                agents=agents,
+                fallback_agent_name=fallback_agent_name,
+            )
+            inputs = await finish_checkpoint_io(
+                asyncio.to_thread(
+                    self._capture_checkpoint_inputs,
+                    session.directory,
+                    agent_snapshots,
+                    agents,
+                    effective_policy,
+                )
+            )
+        warnings.extend(self._git_state_warnings(snapshot))
         state = _HydrationState(warnings=warnings)
 
         for agent_name, agent_snapshot in agent_snapshots.items():
@@ -184,6 +207,7 @@ class SessionHydrator:
                 agents=agents,
                 policy=effective_policy,
                 state=state,
+                inputs=inputs[agent_name],
             )
 
         active_agent = self._resolve_active_agent(
@@ -204,6 +228,36 @@ class SessionHydrator:
             usage_notices=state.usage_notices,
             active_agent=active_agent,
         )
+
+    @staticmethod
+    def _capture_checkpoint_inputs(
+        directory: Path,
+        snapshots: Mapping[str, SessionAgentSnapshot],
+        agents: Mapping[str, AgentProtocol],
+        policy: SessionHydrationPolicy,
+    ) -> dict[str, _AgentCheckpointInputs]:
+        captured: dict[str, _AgentCheckpointInputs] = {}
+        for name, snapshot in snapshots.items():
+            inputs = captured[name] = _AgentCheckpointInputs()
+            if name not in agents:
+                continue
+            if policy.restore_transcript and snapshot.history_file is not None:
+                path = directory / snapshot.history_file
+                try:
+                    if path.exists():
+                        inputs.messages = load_prompt(path)
+                    else:
+                        inputs.missing_history = True
+                except Exception as exc:
+                    inputs.history_error = exc
+            if policy.restore_runtime_state and snapshot.ptc_store_file is not None:
+                try:
+                    inputs.store_state = (directory / snapshot.ptc_store_file).read_text(
+                        encoding="utf-8"
+                    )
+                except (OSError, ValueError) as exc:
+                    inputs.store_error = exc
+        return captured
 
     @staticmethod
     def _git_state_warnings(snapshot: SessionSnapshot) -> list[SessionHydrationWarning]:
@@ -243,6 +297,7 @@ class SessionHydrator:
         agents: Mapping[str, AgentProtocol],
         policy: SessionHydrationPolicy,
         state: _HydrationState,
+        inputs: _AgentCheckpointInputs,
     ) -> None:
         agent = agents.get(agent_name)
         if agent is None:
@@ -262,13 +317,11 @@ class SessionHydrator:
             )
         if policy.restore_transcript:
             await self._restore_agent_transcript(
-                session, agent_name, agent, agent_snapshot, policy, state
+                session, agent_name, agent, agent_snapshot, policy, state, inputs
             )
         if policy.restore_runtime_state:
             # After the transcript: loading history as a new conversation clears the store.
-            self._restore_agent_ptc_store(
-                session, agent, agent_name, agent_snapshot, state.warnings
-            )
+            self._restore_agent_ptc_store(agent, agent_name, agent_snapshot, state.warnings, inputs)
         if policy.restore_prompt:
             self._restore_agent_prompt(agent_name, agent, agent_snapshot, state)
 
@@ -330,11 +383,11 @@ class SessionHydrator:
 
     @staticmethod
     def _restore_agent_ptc_store(
-        session: Session,
         agent: AgentProtocol,
         agent_name: str,
         agent_snapshot: SessionAgentSnapshot,
         warnings: list[SessionHydrationWarning],
+        inputs: _AgentCheckpointInputs,
     ) -> None:
         filename = agent_snapshot.ptc_store_file
         if filename is None:
@@ -343,7 +396,10 @@ class SessionHydrator:
             reason = "programmatic tool calling is not enabled"
         else:
             try:
-                store.restore((session.directory / filename).read_text(encoding="utf-8"))
+                if inputs.store_error is not None:
+                    raise inputs.store_error
+                if inputs.store_state is not None:
+                    store.restore(inputs.store_state)
             except (OSError, ValueError) as exc:
                 reason = f"{filename} could not be read ({exc})"
             else:
@@ -364,13 +420,14 @@ class SessionHydrator:
         agent_snapshot: SessionAgentSnapshot,
         policy: SessionHydrationPolicy,
         state: _HydrationState,
+        inputs: _AgentCheckpointInputs,
     ) -> None:
         history_file = agent_snapshot.history_file
         if history_file is None:
             return
 
         history_path = session.directory / history_file
-        if not history_path.exists():
+        if inputs.missing_history:
             state.missing_history_files.append(history_file)
             state.warnings.append(
                 SessionHydrationWarning(
@@ -386,7 +443,11 @@ class SessionHydrator:
             return
 
         try:
-            notice = await self._load_agent_transcript(agent, history_path, policy)
+            if inputs.history_error is not None:
+                raise inputs.history_error
+            if inputs.messages is None:
+                return
+            notice = self._apply_agent_transcript(agent, inputs.messages, policy)
         except Exception as exc:
             state.warnings.append(
                 SessionHydrationWarning(
@@ -403,12 +464,11 @@ class SessionHydrator:
             state.usage_notices.append(notice)
 
     @staticmethod
-    async def _load_agent_transcript(
+    def _apply_agent_transcript(
         agent: AgentProtocol,
-        history_path: Path,
+        messages: list[PromptMessageExtended],
         policy: SessionHydrationPolicy,
     ) -> str | None:
-        messages = await asyncio.to_thread(load_prompt, history_path)
         load_transcript_into_agent(agent, messages)
         if policy.restore_usage and agent.usage_accumulator is not None:
             agent.usage_accumulator.reset()
