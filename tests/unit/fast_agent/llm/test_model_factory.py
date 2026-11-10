@@ -1788,10 +1788,11 @@ def test_anthropic_does_not_advertise_astra_long_context() -> None:
     assert "gpt-6-astra" not in llm._list_supported_long_context_models()
 
 
-def test_fable_51_resolves_to_anthropic():
-    config = ModelFactory.parse_model_string("claude-fable-5-1?reasoning=max")
+@pytest.mark.parametrize("model", ["claude-fable-5-1", "claude-fable-5-2"])
+def test_fable_51_resolves_to_anthropic(model: str):
+    config = ModelFactory.parse_model_string(f"{model}?reasoning=max")
     assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == "claude-fable-5-1"
+    assert config.model_name == model
 
 
 @pytest.mark.parametrize(

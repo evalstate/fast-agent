@@ -161,6 +161,14 @@ class ModelParameters(BaseModel):
     These models default to "omitted", which streams thinking blocks with empty text.
     """
 
+    anthropic_thinking_prefix_binding: bool = False
+    """Whether thinking blocks are bound to the conversation prefix (system, tools, history).
+
+    fast-agent requests ``prefix_mismatch_behavior: "drop_block"`` for these models so
+    mid-conversation tool or system prompt changes (e.g. ``/connect``) drop stale
+    thinking instead of failing every later request.
+    """
+
     google_search_supported: bool = False
     """Whether Grounding with Google Search is supported for this model."""
 
@@ -821,6 +829,7 @@ class ModelDatabase:
             ),
             "anthropic_thinking_disable_supported": False,
             "anthropic_task_budget_supported": False,
+            "anthropic_thinking_prefix_binding": True,
         }
     )
 
@@ -840,8 +849,12 @@ class ModelDatabase:
                 allow_auto=True,
                 default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
             ),
+            "anthropic_thinking_prefix_binding": True,
         }
     )
+    # https://platform.claude.com/docs/en/models/fable-5-2/migration-guide
+    # Same API surface as Fable 5.1; pricing and thinking-binding differences only.
+    ANTHROPIC_FABLE_52 = ANTHROPIC_FABLE_51
 
     ANTHROPIC_OPUS_4_LEGACY = ModelParameters(
         context_window=200000,
@@ -901,7 +914,10 @@ class ModelDatabase:
 
     # https://platform.claude.com/docs/en/models/haiku-5-5/overview
     ANTHROPIC_HAIKU_55 = ANTHROPIC_SONNET_5.model_copy(
-        update={"anthropic_task_budget_supported": True}
+        update={
+            "anthropic_task_budget_supported": True,
+            "anthropic_thinking_prefix_binding": True,
+        }
     )
 
     ANTHROPIC_SONNET_55 = ANTHROPIC_SONNET_5.model_copy(
@@ -910,6 +926,7 @@ class ModelDatabase:
             "structured_tool_policy": "always",
             # reasoning=off uses between_tools, not the unsupported disabled mode.
             "anthropic_thinking_disable_supported": False,
+            "anthropic_thinking_prefix_binding": True,
             "reasoning_effort_spec": ReasoningEffortSpec(
                 kind="effort",
                 allowed_efforts=["low", "medium", "high", "xhigh", "max"],
@@ -1518,6 +1535,7 @@ class ModelDatabase:
         "claude-opus-5-5": ANTHROPIC_OPUS_55,
         "claude-fable-5": ANTHROPIC_FABLE_5,
         "claude-fable-5-1": ANTHROPIC_FABLE_51,
+        "claude-fable-5-2": ANTHROPIC_FABLE_52,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),
@@ -2343,6 +2361,7 @@ for _copilot_spec in COPILOT_MODELS.values():
     _base_name = {
         "claude-haiku-4.5": "claude-haiku-4-5",
         "claude-fable-5.1": "claude-fable-5-1",
+        "claude-fable-5.2": "claude-fable-5-2",
         "claude-opus-5.5": "claude-opus-5-5",
         "claude-sonnet-5.5": "claude-sonnet-5-5",
         "claude-haiku-5.5": "claude-haiku-5-5",

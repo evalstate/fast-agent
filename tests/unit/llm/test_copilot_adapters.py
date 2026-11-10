@@ -350,7 +350,7 @@ def test_opus_55_effort_controls(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model", ["claude-fable-5.1", "claude-opus-5.5"])
+@pytest.mark.parametrize("model", ["claude-fable-5.1", "claude-fable-5.2", "claude-opus-5.5"])
 async def test_always_on_policy_and_thinking_preservation(
     broker: FakeBroker, context: Context, model: str
 ) -> None:
@@ -390,6 +390,8 @@ async def test_always_on_policy_and_thinking_preservation(
     ):
         with pytest.raises(ValueError, match="tool"):
             llm.prepare_provider_arguments(base, RequestParams(metadata=metadata))
+    # Forced-tool structured output is unavailable, so the default must be native JSON.
+    assert llm._resolve_structured_output_mode(model, None, {"type": "object"}) == "json"
     llm._structured_output_mode_override = "tool_use"
     with pytest.raises(ValueError, match="tool"):
         await llm._anthropic_completion(
@@ -987,6 +989,7 @@ async def test_verified_web_search_toggle_and_websocket_payload(
         "claude-opus-5",
         "claude-fable-5",
         "claude-fable-5.1",
+        "claude-fable-5.2",
         "gpt-5.6-terra",
     ],
 )

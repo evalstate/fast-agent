@@ -28,6 +28,7 @@ PUBLIC_IDS = {
     "claude-opus-5.5",
     "claude-fable-5",
     "claude-fable-5.1",
+    "claude-fable-5.2",
     "gpt-5.6-luna",
     "gpt-5.6-terra",
     "gpt-5.6-sol",
@@ -46,6 +47,7 @@ def test_public_registry_contract():
     assert Provider.COPILOT.value == "copilot"
     assert Provider.COPILOT.display_name == "GitHub Copilot"
     assert not get_copilot_model("claude-fable-5.1").supports_named_tool_choice
+    assert not get_copilot_model("claude-fable-5.2").supports_named_tool_choice
     spec = get_copilot_model("claude-haiku-4.5")
     with pytest.raises(FrozenInstanceError):
         spec.model_id = "changed"  # ty: ignore[invalid-assignment]
@@ -121,7 +123,7 @@ def test_copilot_route_inherits_base_catalog_entry(public_id: str, base_id: str)
 
 @pytest.mark.parametrize(
     "model_id",
-    ["claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-fable-5.1"],
+    ["claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-fable-5.1", "claude-fable-5.2"],
 )
 def test_copilot_claude5_has_no_file_creation_advisory(model_id: str) -> None:
     assert ModelDatabase.get_model_specific(f"copilot.{model_id}") == ""

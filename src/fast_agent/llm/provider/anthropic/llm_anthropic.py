@@ -139,6 +139,7 @@ STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
 STRUCTURED_OUTPUT_BETA = "structured-outputs-2025-11-13"
 INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
 TASK_BUDGETS_BETA = "task-budgets-2026-03-13"
+THINKING_BINDING_BETA = "thinking-binding-controls-2026-08-01"
 CACHE_DIAGNOSIS_BETA = "cache-diagnosis-2026-04-07"
 COMPACTION_THRESHOLD_BETA = "compact-2026-01-12"
 TEST_REFUSAL_TRIGGER_ENV = "FAST_AGENT_TEST_REFUSAL_TRIGGERS"
@@ -869,6 +870,13 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         """Return True when summarized thinking should be requested explicitly."""
         return self._get_model_anthropic_thinking_display_supported(model)
 
+    def _drops_mismatched_thinking(self, model: str) -> bool:
+        # Stopgap until tools are frozen per conversation and changes are appended
+        # (tool_addition); drop_block costs the stale reasoning, not the session.
+        return self._get_model_anthropic_thinking_prefix_binding(
+            model
+        ) and self.supports_direct_anthropic_beta("thinking_binding")
+
     def _requires_explicit_thinking_field(self, model: str) -> bool:
         return self._get_model_anthropic_thinking_field_required(model)
 
@@ -956,10 +964,17 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
         if adaptive_supported:
             summarized_display = self._uses_summarized_thinking_display(model)
-            if self._requires_explicit_thinking_field(model) or summarized_display:
-                thinking: dict[str, str] = {"type": "adaptive"}
+            drop_mismatched = self._drops_mismatched_thinking(model)
+            if (
+                self._requires_explicit_thinking_field(model)
+                or summarized_display
+                or drop_mismatched
+            ):
+                thinking: dict[str, Any] = {"type": "adaptive"}
                 if summarized_display:
                     thinking["display"] = "summarized"
+                if drop_mismatched:
+                    thinking["block_binding"] = {"prefix_mismatch_behavior": "drop_block"}
                 args["thinking"] = thinking
             effort = self._resolve_adaptive_effort(model)
             if effort:
@@ -2060,6 +2075,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         model = self._normalize_model_name(str(arguments.get("model", "")))
         if model in {
             "claude-fable-5-1",
+            "claude-fable-5-2",
             "claude-opus-5-5",
             "claude-opus-5.5",
             "claude-sonnet-5-5",
@@ -2119,6 +2135,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             "claude-opus-5.5",
             "claude-fable-5",
             "claude-fable-5-1",
+            "claude-fable-5-2",
             "claude-sonnet-5",
             "claude-sonnet-5-5",
             "claude-sonnet-5.5",
@@ -2203,6 +2220,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             beta_flags.append(TASK_BUDGETS_BETA)
         if cache_diagnostics_enabled:
             beta_flags.append(CACHE_DIAGNOSIS_BETA)
+        if thinking_enabled and adaptive_thinking and self._drops_mismatched_thinking(model):
+            beta_flags.append(THINKING_BINDING_BETA)
         return dedupe_preserve_order(beta_flags)
 
     def _apply_anthropic_cache_plan(
