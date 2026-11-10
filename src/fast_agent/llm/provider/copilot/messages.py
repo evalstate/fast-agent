@@ -141,7 +141,13 @@ class CopilotMessagesLLM(AnthropicLLM):
     def _supports_native_json_schema(self, model: str) -> bool:
         # These models cannot use the legacy forced-tool structured-output fallback.
         # Native output_config.format does not require direct Anthropic beta headers.
-        return model in {"claude-opus-5.5", "claude-sonnet-5.5", "claude-haiku-5.5"}
+        return model in {
+            "claude-fable-5.1",
+            "claude-fable-5.2",
+            "claude-opus-5.5",
+            "claude-sonnet-5.5",
+            "claude-haiku-5.5",
+        }
 
     def _get_cache_mode(self) -> str:
         return copilot_settings(self.context).cache_mode

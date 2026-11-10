@@ -26,6 +26,7 @@ class ArithmeticResult(BaseModel):
         "responses.gpt-6-luna",
         "opus55",
         "sonnet55",
+        "claude-fable-5-2",
         "copilot.gpt-6-astra",
         "copilot.gpt-6.1-sol",
         "copilot.gpt-6-sol",
@@ -33,6 +34,8 @@ class ArithmeticResult(BaseModel):
         "copilot.opus55",
         "copilot.sonnet55",
         "copilot.sonnet55?reasoning=off",
+        "copilot.claude-fable-5.1",
+        "copilot.claude-fable-5.2",
     ],
 )
 @pytest.mark.parametrize("with_tools", [False, True], ids=["schema-only", "with-tools"])

@@ -104,6 +104,7 @@ not canonical and has no alias; use `copilot.claude-opus-5`.
 | `copilot.claude-opus-5` (pinned older version) | Messages |
 | `copilot.claude-fable-5` | Messages |
 | `copilot.claude-fable-5.1` | Messages |
+| `copilot.claude-fable-5.2` (`copilot.fable`, `copilot.fable52`, `cp.fable`) | Messages |
 | `copilot.gpt-5.6-luna` | Responses |
 | `copilot.gpt-5.6-terra` | Responses |
 | `copilot.gpt-5.6-sol` | Responses |
@@ -124,6 +125,9 @@ Opus 5.5 and Sonnet 5.5 select Messages JSON schema (`output_config.format`)
 automatically, without direct Anthropic beta headers. Regular tools can coexist
 with the schema; explicit `structured_tool_policy` overrides remain supported.
 Legacy forced-tool output mode is rejected for Claude 5.5.
+Fable 5.1 and 5.2 also select Messages JSON schema, since Copilot rejects forced
+tool choice for them; both passed schema-only and tool-call-to-schema live smoke
+tests on November 10, 2026.
 
 Live schema-only and tool-call-to-schema smoke tests passed for all five models
 on September 28, 2026, including the Sonnet 5.5 wire ID `claude-sonnet-5.5` and
@@ -211,7 +215,7 @@ contract, poll settings, structured-output policy and tokenizer support as
   server-side web tools, and forwards only the beta headers fast-agent has
   verified (see [Compaction](#compaction)).
 
-Claude Opus 5, Sonnet 5, and Fable 5/5.1 have no default file-creation advisory;
+Claude Opus 5, Sonnet 5, and Fable 5/5.1/5.2 have no default file-creation advisory;
 older Claude models retain the heredoc guidance. This does not change tool availability.
 
 ## Prompt caching

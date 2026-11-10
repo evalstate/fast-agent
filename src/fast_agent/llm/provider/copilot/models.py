@@ -55,6 +55,7 @@ COPILOT_MODELS: Final[Mapping[str, CopilotModelSpec]] = MappingProxyType(
     {
         spec.model_id: spec
         for spec in (
+            _messages_model("claude-fable-5.2", False),
             _messages_model("claude-fable-5.1", False),
             _messages_model("claude-opus-5.5", False),
             _messages_model("claude-sonnet-5.5", False),

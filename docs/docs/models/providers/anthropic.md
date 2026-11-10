@@ -130,10 +130,44 @@ Released September 22, 2026. `opus` and `opus55` select `claude-opus-5-5`;
   cache writes **$5**, 1-hour cache writes **$8**, cache reads **$0.20**.
   Cache reads are **5%** of input price, not 10%. These are not Copilot charges.
 
+## Claude Fable 5.2
+
+Released November 2026. Use `claude-fable-5-2` (for example,
+`fast-agent go --model "claude-fable-5-2?reasoning=xhigh"`); Copilot uses
+`copilot.claude-fable-5.2`. `fable` and `fable52` select Fable 5.2; `fable51` and `fable5`
+pin the older versions. On Copilot, `copilot.fable` and the short form `cp.fable` select
+Fable 5.2.
+
+The request contract matches Fable 5.1: 1M-token context, up to 128K output tokens
+(including thinking), always-on adaptive thinking with `auto` leaving effort at the
+API default (`high`), sampling controls removed before sending, `auto`/`none` tool
+choice only, and native JSON structured output on both direct and Copilot routes.
+
+What differs from Fable 5.1:
+
+- The thinking prefix check applies to **every** account, not only accounts created
+  after August 31, 2026. A thinking block is only valid against the exact system
+  prompt, tools, and history that preceded it, so changing any of those mid-conversation
+  (for example, `/connect` adding MCP tools, or editing the system prompt) would
+  otherwise fail every later request. On the direct API, fast-agent sends
+  `thinking.block_binding.prefix_mismatch_behavior: "drop_block"` (beta
+  `thinking-binding-controls-2026-08-01`) for models that run this check (Fable 5.1/5.2,
+  Opus/Sonnet/Haiku 5.5), so the API drops the stale thinking and the conversation
+  continues; the next turn may use more output tokens. Copilot does not need this.
+- Fable 5.1 and earlier models cannot read Fable 5.2 thinking blocks; switching models
+  mid-conversation drops them (the request still succeeds).
+- No Priority Tier. Requires 30-day data retention, as for Fable 5.1.
+- Anthropic pricing per million tokens: input **$8**, output **$40**, 5-minute cache
+  writes **$10**, 1-hour cache writes **$16**, cache reads **$0.20** (2.5% of input).
+  Batch is $4/$20. Fast mode ($16/$80) is not enabled by fast-agent.
+
+See the official [migration guide](https://platform.claude.com/docs/en/models/fable-5-2/migration-guide)
+and [preserved thinking](https://platform.claude.com/docs/en/build-with-claude/preserved-thinking).
+
 ## Claude Fable 5.1
 
 Use `claude-fable-5-1` (for example, `fast-agent go --model "claude-fable-5-1?reasoning=max"`).
-Existing `fable` and `fable5` aliases still select Fable 5.
+`fable51` selects Fable 5.1; `fable` now selects Fable 5.2.
 
 - 1M-token context; up to 128K output tokens, including thinking.
 - Adaptive thinking is always on. `auto` leaves effort at the API default (`high`);
