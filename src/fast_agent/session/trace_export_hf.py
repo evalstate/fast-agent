@@ -6,6 +6,8 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Protocol
 from urllib.parse import quote, urlparse
 
+from huggingface_hub.utils import parse_hf_uri
+
 from fast_agent.session.trace_export_errors import SessionExportUploadError
 from fast_agent.session.trace_export_models import DatasetUploadResult
 
@@ -13,9 +15,14 @@ if TYPE_CHECKING:
     from pathlib import Path
     from typing import BinaryIO
 
+    from huggingface_hub.utils import HfUri
 
-def _build_dataset_file_url(repo_id: str, path_in_repo: str) -> str:
-    return f"https://huggingface.co/datasets/{repo_id}/blob/main/{quote(path_in_repo, safe='/')}"
+
+def _build_dataset_file_url(repo_id: str, path_in_repo: str, *, revision: str | None = None) -> str:
+    return (
+        f"https://huggingface.co/datasets/{repo_id}/blob/"
+        f"{quote(revision or 'main', safe='')}/{quote(path_in_repo, safe='/')}"
+    )
 
 
 def _resolve_path_in_repo(trace_path: Path, dataset_path: str | None) -> str:
@@ -48,27 +55,24 @@ def _is_hf_storage_root(hf_url: str) -> bool:
     parsed = urlparse(hf_url)
     if parsed.scheme != "hf" or parsed.netloc not in {"buckets", "datasets"}:
         return False
-    parts = [part for part in parsed.path.split("/") if part]
-    return len(parts) == 2
+    return not parse_hf_uri(hf_url).path_in_repo
 
 
-def _parse_dataset_hf_url(hf_url: str) -> tuple[str, str] | None:
+def _parse_dataset_hf_url(hf_url: str) -> HfUri | None:
     parsed = urlparse(hf_url)
     if parsed.scheme != "hf" or parsed.netloc != "datasets":
         return None
-    parts = [part for part in parsed.path.split("/") if part]
-    if len(parts) < 3:
-        return None
-    return f"{parts[0]}/{parts[1]}", "/".join(parts[2:])
+    return parse_hf_uri(hf_url)
 
 
 def _parse_hf_url_parts(hf_url: str) -> tuple[str, str]:
+    dataset_target = _parse_dataset_hf_url(hf_url)
+    if dataset_target is not None:
+        return dataset_target.id, dataset_target.path_in_repo
     parsed = urlparse(hf_url)
     parts = [part for part in parsed.path.split("/") if part]
     if parsed.scheme != "hf" or not parsed.netloc or not parts:
         return hf_url, ""
-    if parsed.netloc == "datasets" and len(parts) >= 3:
-        return f"{parts[0]}/{parts[1]}", "/".join(parts[2:])
     return f"hf://{parsed.netloc}/{parts[0]}", "/".join(parts[1:])
 
 
@@ -100,12 +104,13 @@ class HuggingFaceDatasetTraceUploader:
                 trace_path=trace_path,
                 dataset_path=dataset_path,
             )
-        resolved_url = resolve_hf_upload_url(hf_url=hf_url, trace_path=trace_path)
-        dataset_target = _parse_dataset_hf_url(resolved_url)
+        resolved_url = hf_url
         try:
+            resolved_url = resolve_hf_upload_url(hf_url=hf_url, trace_path=trace_path)
+            dataset_target = _parse_dataset_hf_url(resolved_url)
             if dataset_target is not None:
                 self._api.create_repo(
-                    repo_id=dataset_target[0],
+                    repo_id=dataset_target.id,
                     repo_type="dataset",
                     exist_ok=True,
                 )
@@ -119,7 +124,11 @@ class HuggingFaceDatasetTraceUploader:
         repo_id, path_in_repo = _parse_hf_url_parts(resolved_url)
         file_url = resolved_url
         if dataset_target is not None:
-            file_url = _build_dataset_file_url(*dataset_target)
+            file_url = _build_dataset_file_url(
+                dataset_target.id,
+                dataset_target.path_in_repo,
+                revision=dataset_target.revision,
+            )
         return DatasetUploadResult(
             repo_id=repo_id,
             path_in_repo=path_in_repo,
