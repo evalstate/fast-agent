@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -65,6 +67,12 @@ def _parse_args() -> argparse.Namespace:
         "--stop-kind",
         default="game_over",
         help="Stop after the turn that sees an event whose data.kind is this. Empty to run on.",
+    )
+    parser.add_argument(
+        "--export",
+        default="",
+        help="Write the session trace here when the loop stops, with `fast-agent export`. "
+        "A .json path gets ATIF, anything else Codex JSONL.",
     )
     parser.add_argument("--max-turns", type=int, default=0, help="Stop after this many wake-ups.")
     args = parser.parse_args()
@@ -118,6 +126,9 @@ async def main() -> None:
         async def turn(prompt: str) -> None:
             reply = await agent.send(f"{skill}\n\n{prompt}" if skill and args.fresh else prompt)
             _log(f"turn ended: {reply.strip()[:300]}")
+            usage = agent.usage_accumulator
+            if usage is not None:
+                _log(f"usage: context {usage.current_context_tokens}, total {usage.summary.total}")
 
         if args.start:
             await turn(f"{skill}\n\n{args.start}" if skill and not args.fresh else args.start)
@@ -131,6 +142,11 @@ async def main() -> None:
             turns += 1
         _log(f"stopped after {turns} wake-ups")
         await manager.aclose()
+
+    if args.export:
+        trace_format = "atif" if args.export.endswith(".json") else "codex"
+        command = [sys.executable, "-m", "fast_agent.cli", "export", "latest", "--agent", "seat"]
+        subprocess.run([*command, "--format", trace_format, "--output", args.export], check=False)
 
 
 if __name__ == "__main__":
