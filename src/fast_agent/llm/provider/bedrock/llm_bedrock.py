@@ -340,12 +340,15 @@ def _json_tool_calls_from_pattern(
 
 
 def _single_json_tool_call(text_content: str) -> list[dict[str, Any]] | None:
-    pattern = r'\{[^}]*"name"[^}]*"arguments"[^}]*\}'
+    # The regex only finds where the tool call object starts; the JSON decoder finds where
+    # it ends, so object arguments (nested braces, braces in strings) are parsed whole.
+    pattern = r'\{[^{}]*"name"[^{}]*"arguments"'
     match = re.search(pattern, text_content, re.DOTALL)
     if match is None:
         return None
 
-    tool_call_payload = _extract_tool_call_payload(json.loads(match.group(0)))
+    tool_call, _ = json.JSONDecoder().raw_decode(text_content, match.start())
+    tool_call_payload = _extract_tool_call_payload(tool_call)
     if tool_call_payload is None:
         return None
 
