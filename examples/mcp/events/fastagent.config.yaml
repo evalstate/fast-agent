@@ -1,0 +1,13 @@
+default_model: passthrough
+
+logger:
+  level: error
+  type: console
+
+mcp:
+  servers:
+    # forge-mcp-server over Streamable HTTP. Events need the 2026-07-28 protocol.
+    forge:
+      url: http://127.0.0.1:3085/mcp
+      transport: http
+      protocol_mode: modern
