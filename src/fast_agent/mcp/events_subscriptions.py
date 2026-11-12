@@ -117,6 +117,8 @@ class EventSubscription:
     status: Literal["active", "terminated"] = "active"
     last_error: str | None = None
     delivered: int = 0
+    wake: bool = False
+    """Whether an arrival should start a turn in an idle agent. Off unless the user opts in."""
 
     @property
     def key(self) -> str:
@@ -128,6 +130,7 @@ class EventSubscription:
             "name": self.name,
             "arguments": self.arguments,
             "cursor": self.cursor,
+            "wake": self.wake,
         }
 
 
@@ -206,6 +209,7 @@ class EventSubscriptionManager:
         self._terminated: dict[str, EventSubscription] = {}
         self._inbox: list[EventInboxItem] = []
         self._listeners: list[Callable[[EventInboxItem], None]] = []
+        self._wake = asyncio.Event()
 
     def subscriptions(self) -> list[EventSubscription]:
         active = [state.subscription for state in self._running.values()]
@@ -218,6 +222,14 @@ class EventSubscriptionManager:
     def add_listener(self, listener: Callable[[EventInboxItem], None]) -> None:
         """Call ``listener`` with each item that reaches the inbox."""
         self._listeners.append(listener)
+
+    async def wait_for_wake(self) -> None:
+        """Return once the inbox holds an item from a subscription with ``wake`` set.
+
+        The host decides what to do next, normally a turn that drains the inbox.
+        Returns at once while such an item is still waiting.
+        """
+        await self._wake.wait()
 
     async def list_event_types(self, server_name: str) -> list[EventDescriptor]:
         descriptors: list[EventDescriptor] = []
@@ -235,16 +247,24 @@ class EventSubscriptionManager:
         server_name: str,
         name: str,
         arguments: dict[str, Any] | None = None,
+        *,
+        wake: bool = False,
     ) -> EventSubscription:
         """Start a poll subscription from now.
+
+        ``wake`` marks its arrivals for ``wait_for_wake``. Subscribing again
+        with the same arguments updates the flag.
 
         Raises ``ValueError`` when the server does not offer the event type by
         poll, and ``MCPError`` when the server rejects the arguments.
         """
-        subscription = EventSubscription(server_name, name, dict(arguments or {}))
+        subscription = EventSubscription(server_name, name, dict(arguments or {}), wake=wake)
         key = subscription.key
         existing = self._running.get(key)
         if existing is not None:
+            if existing.subscription.wake != wake:
+                existing.subscription.wake = wake
+                self._save()
             return existing.subscription
 
         descriptor = await self._find_event_type(server_name, name)
@@ -294,6 +314,7 @@ class EventSubscriptionManager:
                 name,
                 arguments if isinstance(arguments, dict) else {},
                 cursor if isinstance(cursor, str) else None,
+                wake=record.get("wake") is True,
             )
             if subscription.key in self._running:
                 continue
@@ -306,6 +327,7 @@ class EventSubscriptionManager:
     def take(self) -> list[EventInboxItem]:
         """Hand over everything in the inbox and record the cursors as consumed."""
         items, self._inbox = self._inbox, []
+        self._wake.clear()
         changed = False
         for state in self._running.values():
             if state.subscription.cursor != state.polled_cursor:
@@ -455,6 +477,8 @@ class EventSubscriptionManager:
             detail=detail,
         )
         self._inbox.append(item)
+        if subscription.wake:
+            self._wake.set()
         for listener in self._listeners:
             try:
                 listener(item)
