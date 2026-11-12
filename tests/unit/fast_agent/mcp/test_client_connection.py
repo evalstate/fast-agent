@@ -24,6 +24,12 @@ from fast_agent.config import MCPServerSettings
 from fast_agent.core.exceptions import ServerSessionTerminatedError
 from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
 from fast_agent.mcp.client_connection import MCPClientConnection
+from fast_agent.mcp.events_extension import (
+    EVENTS_EXTENSION,
+    EVENTS_NOT_FOUND,
+    ListEventsResult,
+    PollEventsResult,
+)
 from fast_agent.mcp.skills_extension import (
     GetSkillResult,
     ListSkillsResult,
@@ -654,6 +660,167 @@ async def test_skills_extension_requests_and_parses_results(
             assert meta["io.modelcontextprotocol/protocolVersion"] == LATEST_PROTOCOL_VERSION
             assert isinstance(meta["io.modelcontextprotocol/clientInfo"], dict)
             assert isinstance(meta["io.modelcontextprotocol/clientCapabilities"], dict)
+
+
+class EventsResponseStreamableHTTPSimulator(StatefulStreamableHTTPSimulator):
+    def __init__(self) -> None:
+        super().__init__()
+        self.requests: list[tuple[str, dict[str, object], str | None]] = []
+        self.initialize_capabilities: dict[str, object] | None = None
+
+    async def __call__(self, request: httpx2.Request) -> httpx2.Response:
+        if request.method != "POST":
+            return await super().__call__(request)
+
+        payload = json.loads(request.content)
+        assert isinstance(payload, dict)
+        method = payload["method"]
+        if method == "initialize":
+            self.initialize_capabilities = payload["params"]["capabilities"]
+        if method in {"initialize", "notifications/initialized", "server/discover"}:
+            return await super().__call__(request)
+
+        params = payload["params"]
+        assert isinstance(params, dict)
+        self.requests.append((method, params, request.headers.get("mcp-name")))
+        if method == "events/list":
+            result: dict[str, object] = {
+                "resultType": "complete",
+                "events": [
+                    {
+                        "name": "job.status_changed",
+                        "description": "Fires when a job changes stage",
+                        "delivery": ["poll"],
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {"job_id": {"type": "string"}},
+                        },
+                        "payloadSchema": {"type": "object"},
+                        "_meta": {"example.com/owner": "jobs"},
+                    }
+                ],
+                "nextCursor": "page-2",
+            }
+        elif params["name"] == "missing":
+            return httpx2.Response(
+                200,
+                headers={"content-type": "application/json"},
+                json={
+                    "jsonrpc": "2.0",
+                    "id": payload["id"],
+                    "error": {
+                        "code": EVENTS_NOT_FOUND,
+                        "message": "NotFound",
+                        "data": {"kind": "event"},
+                    },
+                },
+            )
+        elif "cursor" not in params:
+            result = {
+                "resultType": "complete",
+                "events": [],
+                "cursor": "stage:RUNNING",
+                "truncated": False,
+                "hasMore": False,
+                "nextPollMs": 30_000,
+            }
+        else:
+            assert params["cursor"] == "stage:RUNNING"
+            assert params["maxEvents"] == 10
+            result = {
+                "resultType": "complete",
+                "events": [
+                    {
+                        "eventId": "job-1:COMPLETED",
+                        "name": "job.status_changed",
+                        "timestamp": "2026-11-12T10:00:00Z",
+                        "data": {"job_id": "job-1", "stage": "COMPLETED"},
+                    }
+                ],
+                "cursor": "stage:COMPLETED",
+                "truncated": True,
+                "hasMore": True,
+                "nextPollMs": 60_000,
+            }
+        return httpx2.Response(
+            200,
+            headers={"content-type": "application/json"},
+            json={"jsonrpc": "2.0", "id": payload["id"], "result": result},
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("protocol_mode", ["legacy", "modern"])
+async def test_events_extension_requests_and_parses_results(
+    protocol_mode: Literal["legacy", "modern"],
+) -> None:
+    simulator = EventsResponseStreamableHTTPSimulator()
+    http_client = httpx2.AsyncClient(transport=httpx2.MockTransport(simulator))
+    transport = streamable_http_client("https://example.test/mcp", http_client=http_client)
+    callbacks = MCPClientCallbackRuntime(server_name="test-server", server_config=None)
+
+    async with MCPClientConnection(
+        transport,
+        callbacks,
+        cache=False,
+        protocol_mode=protocol_mode,
+    ) as connection:
+        listed = await connection.list_events(cursor="page-1")
+        first = await connection.poll_events("job.status_changed", {"job_id": "job-1"})
+        second = await connection.poll_events(
+            "job.status_changed",
+            {"job_id": "job-1"},
+            cursor=first.cursor,
+            max_events=10,
+        )
+        with pytest.raises(MCPError) as missing:
+            await connection.poll_events("missing")
+
+    await http_client.aclose()
+
+    assert isinstance(listed, ListEventsResult)
+    assert listed.next_cursor == "page-2"
+    descriptor = listed.events[0]
+    assert descriptor.name == "job.status_changed"
+    assert descriptor.supports("poll")
+    assert not descriptor.supports("push")
+    assert descriptor.input_schema is not None
+    assert descriptor.meta == {"example.com/owner": "jobs"}
+
+    assert isinstance(first, PollEventsResult)
+    assert first.events == []
+    assert first.cursor == "stage:RUNNING"
+    assert first.next_poll_ms == 30_000
+    assert not first.has_more
+
+    assert second.cursor == "stage:COMPLETED"
+    assert second.truncated
+    assert second.has_more
+    assert second.events[0].event_id == "job-1:COMPLETED"
+    assert second.events[0].data["stage"] == "COMPLETED"
+    assert second.events[0].cursor is None
+
+    assert missing.value.code == EVENTS_NOT_FOUND
+
+    assert [(method, name) for method, _, name in simulator.requests] == [
+        ("events/list", None),
+        ("events/poll", "job.status_changed"),
+        ("events/poll", "job.status_changed"),
+        ("events/poll", "missing"),
+    ]
+    first_poll_params = simulator.requests[1][1]
+    assert first_poll_params["arguments"] == {"job_id": "job-1"}
+    assert "cursor" not in first_poll_params
+
+    if protocol_mode == "modern":
+        for _, params, _ in simulator.requests:
+            meta = params["_meta"]
+            assert isinstance(meta, dict)
+            capabilities = meta["io.modelcontextprotocol/clientCapabilities"]
+            assert capabilities["extensions"] == {EVENTS_EXTENSION: {}}
+    else:
+        assert simulator.initialize_capabilities is not None
+        assert simulator.initialize_capabilities["extensions"] == {EVENTS_EXTENSION: {}}
 
 
 @pytest.mark.asyncio
