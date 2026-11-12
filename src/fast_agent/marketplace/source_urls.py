@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
+from urllib.parse import quote, unquote, urlparse
 
 from fast_agent.io.path_uri import file_uri_to_path
 from fast_agent.marketplace.source_models import MarketplaceRepoFields, ParsedGitHubUrl
@@ -101,7 +101,7 @@ def github_raw_file_url(
         return None
     org, repo = repo_parts
     ref = repo_ref or "main"
-    return f"https://{GITHUB_RAW_HOST}/{org}/{repo}/{ref}/{repo_path}"
+    return f"https://{GITHUB_RAW_HOST}/{org}/{repo}/{ref}/{quote(repo_path, safe='/')}"
 
 
 def _github_raw_content_url(parsed_source: ParsedGitHubUrl | None) -> str | None:
@@ -182,11 +182,14 @@ def candidate_marketplace_urls(url: str) -> list[str]:
 
 def _github_marketplace_candidates(org: str, repo: str, ref: str, base_path: str) -> list[str]:
     suffixes = _marketplace_path_candidates(base_path)
-    return [f"https://{GITHUB_RAW_HOST}/{org}/{repo}/{ref}/{suffix}" for suffix in suffixes]
+    return [
+        f"https://{GITHUB_RAW_HOST}/{org}/{repo}/{ref}/{quote(suffix, safe='/')}"
+        for suffix in suffixes
+    ]
 
 
 def _marketplace_path_candidates(base_path: str) -> list[str]:
-    cleaned = base_path.strip().strip("/")
+    cleaned = base_path.strip("/")
     if not cleaned:
         return [".claude-plugin/marketplace.json", "marketplace.json"]
 
@@ -283,10 +286,17 @@ def _parsed_github_source(
         return None
     org, repo = repo_parts[:2]
     ref, repo_path = split_ref
+    try:
+        decoded_path = unquote(repo_path, errors="strict")
+    except UnicodeDecodeError:
+        return None
+    if decoded_path != decoded_path.strip() or "\\" in decoded_path:
+        # Repository path normalization would select a different path.
+        return None
     return ParsedGitHubUrl(
         repo_url=f"https://github.com/{org}/{repo}",
         repo_ref=ref,
-        repo_path=repo_path,
+        repo_path=decoded_path,
     )
 
 
