@@ -46,6 +46,12 @@ class ProcessCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class EventsCommand(CommandBase):
+    argument: str | None = None
+    kind: Literal["events"] = "events"
+
+
+@dataclass(frozen=True, slots=True)
 class A2ACommand(CommandBase):
     action: str
     argument: str | None
@@ -498,6 +504,7 @@ CommandPayload = (
     | ShowMcpStatusCommand
     | EnvironmentCommand
     | ProcessCommand
+    | EventsCommand
     | A2ACommand
     | CheckCommand
     | CommandsCommand
