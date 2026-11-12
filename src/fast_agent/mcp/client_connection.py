@@ -7,6 +7,7 @@ from contextlib import AsyncExitStack, suppress
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from mcp.client import CacheConfig, CacheMode, Client, Transport
+from mcp.client.extension import advertise
 from mcp.shared.exceptions import MCPError
 from mcp_types import (
     INVALID_REQUEST,
@@ -30,6 +31,15 @@ from mcp_types import (
 from mcp_types.version import LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS
 
 from fast_agent.core.exceptions import ServerSessionTerminatedError
+from fast_agent.mcp.events_extension import (
+    EVENTS_EXTENSION,
+    ListEventsRequest,
+    ListEventsRequestParams,
+    ListEventsResult,
+    PollEventsRequest,
+    PollEventsRequestParams,
+    PollEventsResult,
+)
 from fast_agent.mcp.skills_extension import (
     GetSkillRequest,
     GetSkillRequestParams,
@@ -119,6 +129,7 @@ class MCPClientConnection:
             message_handler=callbacks.message_handler,
             client_info=callbacks.client_info,
             cache=CacheConfig() if cache else None,
+            extensions=[advertise(EVENTS_EXTENSION)],
         )
 
     async def __aenter__(self) -> MCPClientConnection:
@@ -308,6 +319,32 @@ class MCPClientConnection:
         return await self._request(
             self.client.session.send_request(request, ReadResourceDirectoryResult)
         )
+
+    async def list_events(self, *, cursor: str | None = None) -> ListEventsResult:
+        """List event types published under the MCP Events extension."""
+        request = ListEventsRequest(params=ListEventsRequestParams(cursor=cursor))
+        return await self._request(self.client.session.send_request(request, ListEventsResult))
+
+    async def poll_events(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        cursor: str | None = None,
+        max_age_ms: int | None = None,
+        max_events: int | None = None,
+    ) -> PollEventsResult:
+        """Poll one subscription under the MCP Events extension."""
+        request = PollEventsRequest(
+            params=PollEventsRequestParams(
+                name=name,
+                arguments=arguments or {},
+                cursor=cursor,
+                max_age_ms=max_age_ms,
+                max_events=max_events,
+            )
+        )
+        return await self._request(self.client.session.send_request(request, PollEventsResult))
 
     async def _request(self, operation: Awaitable[T]) -> T:
         try:
