@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from a2a.types import AgentCard, AgentInterface, AgentSkill
+from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill
 
-from fast_agent.agents.llm_agent import DEFAULT_CAPABILITIES
+DEFAULT_CAPABILITIES = AgentCapabilities(streaming=False, push_notifications=False)
 
 
 def build_fast_agent_card(

@@ -459,15 +459,19 @@ async def _export_live_atif_trajectory(
     from fast_agent.session.trace_export_atif import (
         AtifRunSource,
         build_atif_trajectory,
+        live_export_history,
         write_atif_trajectory,
     )
 
     agent_obj = agent_app._agent(request.target_agent_name)
-    messages = (
+    messages = live_export_history(
+        list(agent_obj.message_history),
         transient_messages_by_agent.get(agent_obj.name)
         if transient_messages_by_agent is not None
-        else None
-    ) or [message.model_copy(deep=True) for message in agent_obj.message_history]
+        else None,
+        _live_atif_session_dir(session_manager, harness_session),
+        agent_obj.name,
+    )
     if not messages:
         return
     model_name, provider = _live_atif_model_metadata(agent_obj, request)
@@ -524,6 +528,7 @@ async def _export_parallel_atif_trajectory(
     from fast_agent.session.trace_export_atif import (
         AtifRunSource,
         build_atif_fanout_trajectory,
+        live_export_history,
         write_atif_trajectory,
     )
 
@@ -531,11 +536,14 @@ async def _export_parallel_atif_trajectory(
     sources: list[AtifRunSource] = []
     for agent_name in fan_out_agent_names:
         agent_obj = agent_app._agent(agent_name)
-        messages = (
+        messages = live_export_history(
+            list(agent_obj.message_history),
             transient_messages_by_agent.get(agent_name)
             if transient_messages_by_agent is not None
-            else None
-        ) or [message.model_copy(deep=True) for message in agent_obj.message_history]
+            else None,
+            _live_atif_session_dir(session_manager, harness_session),
+            agent_name,
+        )
         if not messages:
             continue
         model_name, provider = _live_atif_model_metadata(agent_obj, request)
@@ -580,13 +588,23 @@ async def _export_failed_one_shot_atif(
     if isinstance(agent_obj, ToolAgent) and agent_obj.last_turn_messages:
         messages = [message.model_copy(deep=True) for message in agent_obj.last_turn_messages]
     else:
-        messages = [
-            *(
-                message.model_copy(deep=True)
-                for message in normalize_to_extended_list(prompt_payload)
-            ),
-            *(message.model_copy(deep=True) for message in new_history),
-        ]
+        from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL
+
+        if any(
+            FAST_AGENT_COMPACTION_CHANNEL in (message.channels or {})
+            for message in agent_obj.message_history
+        ):
+            # History length is not monotonic across compaction. Do not slice by
+            # the pre-turn length or fabricate a duplicate prompt on cancellation.
+            messages = []
+        else:
+            messages = [
+                *(
+                    message.model_copy(deep=True)
+                    for message in normalize_to_extended_list(prompt_payload)
+                ),
+                *(message.model_copy(deep=True) for message in new_history),
+            ]
     await _export_live_atif_trajectory(
         agent_app,
         request,
@@ -631,7 +649,7 @@ async def _run_one_shot_with_failed_atif(
         except Exception as export_exc:
             logger.warning(
                 "Failed-run ATIF export failed",
-                data={"error_type": type(export_exc).__name__},
+                data={"error_type": type(export_exc).__name__, "error": str(export_exc)},
             )
         raise
 
@@ -685,6 +703,7 @@ async def _export_requested_outputs(
                 data={
                     "artifact": artifact,
                     "error_type": type(exc).__name__,
+                    "error": str(exc),
                 },
             )
         else:
@@ -1014,6 +1033,7 @@ def _build_fast_agent(request: AgentRunRequest):
         home=request.home,
         workspace=request.workspace,
         no_home=request.no_home,
+        isolated=request.isolated,
     )
 
 
@@ -1042,7 +1062,11 @@ def _apply_fast_args(
 
 async def _apply_runtime_context_overrides(fast: Any, request: AgentRunRequest) -> None:
     if not (
-        request.no_home or request.shell_runtime or request.no_shell or request.prefer_local_shell
+        request.no_home
+        or request.shell_runtime
+        or request.no_shell
+        or request.prefer_local_shell
+        or request.ptc is not None
     ):
         return
 
@@ -1057,6 +1081,8 @@ async def _apply_runtime_context_overrides(fast: Any, request: AgentRunRequest) 
         context.no_shell = True
     if request.prefer_local_shell and config is not None:
         config.shell_execution.prefer_local_shell = True
+    if request.ptc is not None:
+        context.ptc_enabled = request.ptc
 
 
 async def _add_cli_servers(fast: Any, request: AgentRunRequest) -> None:

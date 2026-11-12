@@ -204,7 +204,23 @@ class ParallelAgent(LlmAgent):
                 await step.finish(True, text=f"{agent.name} completed fan-out work")
                 return result
 
-        return await asyncio.gather(*[_run_agent(agent) for agent in self.fan_out_agents])
+        tasks = [asyncio.create_task(_run_agent(agent)) for agent in self.fan_out_agents]
+        group = asyncio.gather(*tasks)
+        try:
+            # Own cancellation here so gather cannot cancel a slow finalizer first.
+            return await asyncio.shield(group)
+        except BaseException:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            cleanup = asyncio.gather(group, *tasks, return_exceptions=True)
+            while not cleanup.done():
+                try:
+                    await asyncio.shield(cleanup)
+                except asyncio.CancelledError:
+                    # Repeated caller cancellation must not interrupt branch cleanup.
+                    continue
+            raise
 
     async def _build_fan_in_prompt(
         self,

@@ -1,24 +1,28 @@
 import asyncio
 import base64
 import hashlib
-import inspect
 import json
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 from pathlib import Path
-from typing import Any, ClassVar, Literal, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, cast, runtime_checkable
 
 from anthropic import (
     APIError,
     AsyncAnthropic,
     AuthenticationError,
+    Timeout,
     transform_schema,
 )
-from anthropic.lib.streaming import BetaAsyncMessageStream
+from anthropic.lib.streaming import BetaMessageStreamEvent
 from anthropic.types.beta import (
+    BetaCompact20260112EditParam,
+    BetaCompactionBlock,
     BetaContentBlockParam,
+    BetaContextManagementConfigParam,
     BetaInputJSONDelta,
     BetaMCPToolResultBlock,
     BetaMCPToolUseBlock,
@@ -50,20 +54,16 @@ from mcp_types import (
     EmbeddedResource,
     TextContent,
 )
-from opentelemetry import trace
-from opentelemetry.semconv._incubating.attributes import (
-    gen_ai_attributes as GenAIAttributes,
-)
-from opentelemetry.semconv_ai import LLMRequestTypeValues, SpanAttributes
-from opentelemetry.trace import Span, Status, StatusCode
 from pydantic import BaseModel
 
+from fast_agent.config import AnthropicSettings
 from fast_agent.constants import (
     ANTHROPIC_ASSISTANT_RAW_CONTENT,
     ANTHROPIC_CITATIONS_CHANNEL,
     ANTHROPIC_CONTAINER_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
     ANTHROPIC_THINKING_BLOCKS,
+    FAST_AGENT_PROVIDER_CHECKPOINT,
     FAST_AGENT_SAFETY_DETAILS,
     REASONING,
 )
@@ -71,6 +71,10 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import ModelT
+from fast_agent.llm.compaction_support import (
+    in_request_compaction_trigger,
+    provider_checkpoint_marker,
+)
 from fast_agent.llm.fastagent_llm import (
     FastAgentLLM,
     RequestParams,
@@ -91,6 +95,7 @@ from fast_agent.llm.provider.anthropic.web_tools import (
 )
 from fast_agent.llm.provider.error_utils import build_stream_failure_response
 from fast_agent.llm.provider.streaming_timeouts import (
+    _IdleTimeoutAsyncStream,
     await_stream_start,
     enter_stream_with_timeout,
     with_stream_idle_timeout,
@@ -111,6 +116,7 @@ from fast_agent.llm.task_budget import (
 )
 from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
 from fast_agent.llm.tool_tracking import ToolCallTracker
+from fast_agent.llm.upload_progress import plan_upload, run_with_upload_progress
 from fast_agent.llm.usage_tracking import usage_from_anthropic
 from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES, guess_mime_type, normalize_mime_type
 from fast_agent.mcp.prompt import Prompt
@@ -125,12 +131,17 @@ from fast_agent.utils.reasoning_chunk_join import ReasoningTextAccumulator
 from fast_agent.utils.text import casefold_text, strip_casefold
 from fast_agent.utils.type_narrowing import is_str_object_dict
 
+if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
+
 DEFAULT_ANTHROPIC_MODEL = "sonnet"
 STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
 STRUCTURED_OUTPUT_BETA = "structured-outputs-2025-11-13"
 INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
 TASK_BUDGETS_BETA = "task-budgets-2026-03-13"
+THINKING_BINDING_BETA = "thinking-binding-controls-2026-08-01"
 CACHE_DIAGNOSIS_BETA = "cache-diagnosis-2026-04-07"
+COMPACTION_THRESHOLD_BETA = "compact-2026-01-12"
 TEST_REFUSAL_TRIGGER_ENV = "FAST_AGENT_TEST_REFUSAL_TRIGGERS"
 ANTHROPIC_CACHE_DIAGNOSTICS_CHANNEL = "fast-agent-provider-diagnostics"
 
@@ -153,7 +164,6 @@ CacheTTL = Literal["5m", "1h"]
 
 logger = get_logger(__name__)
 
-_OTEL_STREAM_WRAPPER_WARNED = False
 _UNSET_TASK_BUDGET = object()
 
 
@@ -201,6 +211,7 @@ class _AnthropicProviderPayloads:
     raw_assistant: list[TextContent] = field(default_factory=list)
     server_tools: list[TextContent] = field(default_factory=list)
     citations: list[TextContent] = field(default_factory=list)
+    has_compaction: bool = False
 
 
 @dataclass(slots=True)
@@ -299,7 +310,7 @@ def _stream_capture_filename(turn: int) -> Path | None:
     if not STREAM_CAPTURE_ENABLED:
         return None
     STREAM_CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     return STREAM_CAPTURE_DIR / f"anthropic_{timestamp}_turn{turn}"
 
 
@@ -338,108 +349,10 @@ def _save_stream_request(filename_base: Path | None, arguments: dict[str, Any]) 
             "captured_at": datetime.now().isoformat(),
             "arguments": payload,
         }
-        with request_file.open("w") as f:
+        with request_file.open("w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, sort_keys=True)
     except Exception as e:
         logger.debug(f"Failed to save stream request: {e}")
-
-
-def _start_fallback_stream_span(model: str) -> Span:
-    tracer = trace.get_tracer(__name__)
-    span = tracer.start_span("anthropic.chat")
-    if span.is_recording():
-        span.set_attribute(GenAIAttributes.GEN_AI_SYSTEM, "Anthropic")
-        span.set_attribute(GenAIAttributes.GEN_AI_REQUEST_MODEL, model)
-        span.set_attribute(
-            SpanAttributes.LLM_REQUEST_TYPE,
-            LLMRequestTypeValues.COMPLETION.value,
-        )
-    return span
-
-
-def _finalize_fallback_stream_span(
-    span: Span,
-    response: BetaMessage | None,
-    had_error: bool,
-) -> None:
-    if not span.is_recording():
-        span.end()
-        return
-    if response is not None:
-        span.set_attribute(GenAIAttributes.GEN_AI_RESPONSE_ID, response.id)
-        span.set_attribute(GenAIAttributes.GEN_AI_RESPONSE_MODEL, response.model)
-        if response.usage:
-            usage = usage_from_anthropic(
-                response.usage,
-                provider=Provider.ANTHROPIC,
-                model=response.model,
-            )
-            if usage.prompt.total is not None:
-                span.set_attribute(
-                    GenAIAttributes.GEN_AI_USAGE_INPUT_TOKENS,
-                    usage.prompt.total,
-                )
-            if usage.completion.total is not None:
-                span.set_attribute(
-                    GenAIAttributes.GEN_AI_USAGE_OUTPUT_TOKENS,
-                    usage.completion.total,
-                )
-            if usage.total is not None:
-                span.set_attribute(SpanAttributes.LLM_USAGE_TOTAL_TOKENS, usage.total)
-    if not had_error:
-        span.set_status(Status(StatusCode.OK))
-    span.end()
-
-
-def _otel_stream_wrapper_uses_awrap(wrapper: Any) -> bool:
-    closure = getattr(wrapper, "__closure__", None)
-    if not isinstance(closure, tuple):
-        return False
-    for cell in closure:
-        candidate = cell.cell_contents
-        module_name = getattr(candidate, "__module__", None)
-        if (
-            getattr(candidate, "__name__", None) == "_awrap"
-            and isinstance(module_name, str)
-            and module_name.startswith("opentelemetry.instrumentation.anthropic")
-        ):
-            return True
-    return False
-
-
-def _maybe_unwrap_otel_beta_stream(stream_method: Any) -> Any:
-    """Bypass a broken OTel anthropic wrapper for beta async streaming.
-
-    The opentelemetry-instrumentation-anthropic wrapper uses an async wrapper
-    that awaits the sync beta stream method, which raises
-    `TypeError: object BetaAsyncMessageStreamManager can't be used in 'await' expression`.
-    If detected, fall back to the original stream method to avoid the error.
-    """
-
-    wrapper = getattr(stream_method, "_self_wrapper", None)
-    if wrapper is None:
-        return stream_method
-    wrapper_module = getattr(wrapper, "__module__", None)
-    if not isinstance(wrapper_module, str):
-        return stream_method
-    if wrapper_module != "opentelemetry.instrumentation.anthropic":
-        return stream_method
-
-    wrapped = getattr(stream_method, "__wrapped__", None)
-    if wrapped is None or inspect.iscoroutinefunction(wrapped):
-        return stream_method
-    if not _otel_stream_wrapper_uses_awrap(wrapper):
-        return stream_method
-
-    global _OTEL_STREAM_WRAPPER_WARNED
-    if not _OTEL_STREAM_WRAPPER_WARNED:
-        logger.warning(
-            "Detected OpenTelemetry anthropic beta stream wrapper that awaits a sync "
-            "method. Falling back to the unwrapped stream call to avoid runtime errors."
-        )
-        _OTEL_STREAM_WRAPPER_WARNED = True
-
-    return wrapped
 
 
 def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
@@ -454,7 +367,7 @@ def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
             payload = chunk.model_dump()
         except Exception:
             payload = {"type": type(chunk).__name__, "str": str(chunk)}
-        with chunk_file.open("a") as f:
+        with chunk_file.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload) + "\n")
     except Exception as e:
         logger.debug(f"Failed to save stream chunk: {e}")
@@ -468,6 +381,14 @@ def _transform_anthropic_schema(schema: type[BaseModel] | dict[str, Any]) -> dic
     model and raw-schema routes match Anthropic SDK behavior exactly.
     """
     return transform_schema(schema)
+
+
+class _AnthropicMessageStream(Protocol):
+    """Capabilities shared by SDK streams and the idle-timeout wrapper."""
+
+    def __aiter__(self) -> AsyncIterator[BetaMessageStreamEvent]: ...
+
+    async def get_final_message(self) -> BetaMessage: ...
 
 
 class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
@@ -508,7 +429,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         self._cache_diagnostics_previous_message_id: str | None = None
 
         raw_setting = kwargs.get("reasoning_effort")
-        config = self.context.config.anthropic if self.context and self.context.config else None
+        config = self._anthropic_settings()
         model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
         reasoning_source = self._configure_anthropic_reasoning(
             raw_setting,
@@ -704,6 +625,12 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
         return ModelDatabase.list_long_context_models()
 
+    def _anthropic_settings(self) -> AnthropicSettings | None:
+        return self.context.config.anthropic if self.context.config else None
+
+    async def _prepare_anthropic_client(self, model: str) -> None:
+        """Resolve request-scoped provider routing before constructing a client."""
+
     def _provider_base_url(self) -> str | None:
         assert self.context.config
         return self.context.config.anthropic.base_url if self.context.config.anthropic else None
@@ -739,8 +666,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         base_url = self._base_url()
         default_headers = self._default_headers()
 
-        if base_url and base_url.endswith("/v1"):
-            base_url = base_url.rstrip("/v1")
+        if base_url:
+            base_url = base_url.removesuffix("/v1")
         client_args: dict[str, Any] = {
             "base_url": base_url,
             "default_headers": default_headers,
@@ -783,7 +710,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         return cache_mode
 
     def _cache_diagnostics_enabled(self) -> bool:
-        config = self.context.config.anthropic if self.context and self.context.config else None
+        config = self._anthropic_settings()
         return bool(
             config
             and config.cache_diagnostics
@@ -807,6 +734,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         cached = self._file_id_cache.get(cache_key)
         if cached:
             return cached
+        if plan_upload(cache_key):
+            return None  # Planning pass; no file ID is recorded.
 
         file_metadata = await anthropic.files.upload(file=(filename, data, mime_type))
         if not file_metadata.id:
@@ -884,16 +813,21 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if not self.supports_document_uploads():
             return
 
-        for message in messages:
-            for content in message.content:
-                if not isinstance(content, EmbeddedResource):
-                    continue
+        async def walk() -> None:
+            for message in messages:
+                for content in message.content:
+                    if not isinstance(content, EmbeddedResource):
+                        continue
 
-                resource = content.resource
-                if not isinstance(resource, BlobResourceContents):
-                    continue
+                    resource = content.resource
+                    if not isinstance(resource, BlobResourceContents):
+                        continue
 
-                await self._prepare_anthropic_document_resource(anthropic, resource)
+                    await self._prepare_anthropic_document_resource(anthropic, resource)
+
+        await run_with_upload_progress(
+            walk, partial(self._log_upload_progress, model=self.default_request_params.model)
+        )
 
     def _get_cache_ttl(self) -> CacheTTL:
         """Get the cache TTL configuration ('5m' or '1h')."""
@@ -934,7 +868,14 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
     def _uses_summarized_thinking_display(self, model: str) -> bool:
         """Return True when summarized thinking should be requested explicitly."""
-        return self._normalize_model_name(model) == "claude-opus-4-7"
+        return self._get_model_anthropic_thinking_display_supported(model)
+
+    def _drops_mismatched_thinking(self, model: str) -> bool:
+        # Stopgap until tools are frozen per conversation and changes are appended
+        # (tool_addition); drop_block costs the stale reasoning, not the session.
+        return self._get_model_anthropic_thinking_prefix_binding(
+            model
+        ) and self.supports_direct_anthropic_beta("thinking_binding")
 
     def _requires_explicit_thinking_field(self, model: str) -> bool:
         return self._get_model_anthropic_thinking_field_required(model)
@@ -1011,19 +952,29 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             return args, False
 
         if not thinking_enabled:
-            if self._supports_thinking_disable(model):
-                setting = self.reasoning_effort
-                if setting and setting.kind == "toggle" and setting.value is False:
+            setting = self.reasoning_effort
+            if setting and setting.kind == "toggle" and setting.value is False:
+                if self._normalize_model_name(model) in {"claude-sonnet-5-5", "claude-sonnet-5.5"}:
+                    args["thinking"] = {"type": "between_tools"}
+                elif self._supports_thinking_disable(model):
                     args["thinking"] = {"type": "disabled"}
             if max_tokens is not None:
                 args["max_tokens"] = max_tokens
             return args, False
 
         if adaptive_supported:
-            if self._requires_explicit_thinking_field(model):
-                thinking: dict[str, str] = {"type": "adaptive"}
-                if self._uses_summarized_thinking_display(model):
+            summarized_display = self._uses_summarized_thinking_display(model)
+            drop_mismatched = self._drops_mismatched_thinking(model)
+            if (
+                self._requires_explicit_thinking_field(model)
+                or summarized_display
+                or drop_mismatched
+            ):
+                thinking: dict[str, Any] = {"type": "adaptive"}
+                if summarized_display:
                     thinking["display"] = "summarized"
+                if drop_mismatched:
+                    thinking["block_binding"] = {"prefix_mismatch_behavior": "drop_block"}
                 args["thinking"] = thinking
             effort = self._resolve_adaptive_effort(model)
             if effort:
@@ -1043,6 +994,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             args["max_tokens"] = current_max
         return args, True
 
+    def _supports_native_json_schema(self, model: str) -> bool:
+        return self.supports_direct_anthropic_beta("structured_output")
+
     def _resolve_structured_output_mode(
         self,
         model: str,
@@ -1053,13 +1007,13 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             return None
         if self._structured_output_mode_override is not None:
             return self._structured_output_mode_override
-        config = self.context.config.anthropic if self.context and self.context.config else None
+        config = self._anthropic_settings()
         if config and config.structured_output_mode != "auto":
             return config.structured_output_mode
 
         json_mode = self._get_model_json_mode(model)
         if json_mode == "schema":
-            if self.supports_direct_anthropic_beta("structured_output"):
+            if self._supports_native_json_schema(model):
                 return "json"
             return "tool_use"
         return "tool_use"
@@ -1096,7 +1050,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             return False
         if self._structured_output_mode_override is not None:
             return False
-        config = self.context.config.anthropic if self.context and self.context.config else None
+        config = self._anthropic_settings()
         if config and config.structured_output_mode != "auto":
             return False
         return self._get_model_json_mode(model) != "schema"
@@ -1132,6 +1086,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             )
             for tool in tools or []
         ]
+        if self._eager_tool_input_streaming():
+            for tool_param in regular_tools:
+                tool_param["eager_input_streaming"] = True
         if (structured_model or structured_schema) and structured_mode == "tool_use":
             if auto_tool_use_fallback and regular_tools:
                 logger.warning(
@@ -1162,6 +1119,13 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if structured_model or structured_schema:
             return regular_tools
         return regular_tools
+
+    def _eager_tool_input_streaming(self) -> bool:
+        """Stream client tool inputs as generated via the per-tool ``eager_input_streaming``.
+
+        Routes that cannot accept the field fall back to the fine-grained streaming beta.
+        """
+        return True
 
     def _prepare_web_tools(self, model: str) -> tuple[list[BetaToolParam], tuple[str, ...]]:
         if not self.supports_web_tools():
@@ -1550,6 +1514,17 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         content_block = event.content_block
         if isinstance(content_block, (BetaThinkingBlock, BetaRedactedThinkingBlock)):
             state.thinking_indices.add(event.index)
+        elif isinstance(content_block, BetaCompactionBlock):
+            # The summary arrives as one late delta; show progress instead of a stall.
+            logger.info(
+                "Server-side compaction in progress",
+                data={
+                    "progress_action": ProgressAction.COMPACTING_IN_REQUEST,
+                    "model": model,
+                    "agent_name": self.name,
+                    "chat_turn": self.chat_turn(),
+                },
+            )
         elif isinstance(content_block, BetaToolUseBlock):
             self._start_client_tool_stream(content_block, event, model, state)
         elif isinstance(content_block, BetaServerToolUseBlock):
@@ -1838,7 +1813,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
     async def _final_anthropic_stream_message(
         self,
-        stream: BetaAsyncMessageStream,
+        stream: _AnthropicMessageStream,
         model: str,
         state: _AnthropicStreamState,
     ) -> BetaMessage:
@@ -1875,7 +1850,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
     async def _process_stream(
         self,
-        stream: BetaAsyncMessageStream,
+        stream: _AnthropicMessageStream,
         model: str,
         capture_filename: Path | None = None,
     ) -> tuple[BetaMessage, list[str], list[str]]:
@@ -2097,6 +2072,54 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         exclude_fields: set | None = None,
     ) -> dict:
         arguments = super().prepare_provider_arguments(base_args, request_params, exclude_fields)
+        model = self._normalize_model_name(str(arguments.get("model", "")))
+        if model in {
+            "claude-fable-5-1",
+            "claude-fable-5-2",
+            "claude-opus-5-5",
+            "claude-opus-5.5",
+            "claude-sonnet-5-5",
+            "claude-sonnet-5.5",
+        }:
+            extra_body = arguments.get("extra_body") or {}
+            tool_choice = extra_body.get("tool_choice", arguments.get("tool_choice"))
+            if isinstance(tool_choice, dict) and tool_choice.get("type") in {"any", "tool"}:
+                raise ValueError(
+                    f"{model} does not support forced tool use; use auto or none, "
+                    "and JSON mode for structured output."
+                )
+        if model in {"claude-opus-5-5", "claude-opus-5.5"}:
+            extra_body = arguments.get("extra_body") or {}
+            thinking = extra_body.get("thinking", arguments.get("thinking"))
+            if thinking is not None and (
+                not isinstance(thinking, dict)
+                or thinking.get("type") != "adaptive"
+                or "budget_tokens" in thinking
+            ):
+                raise ValueError("Opus 5.5 requires always-on adaptive thinking.")
+        if model in {"claude-sonnet-5-5", "claude-sonnet-5.5"}:
+            extra_body = arguments.get("extra_body") or {}
+            thinking = extra_body.get("thinking", arguments.get("thinking"))
+            if thinking is not None and (
+                not isinstance(thinking, dict)
+                or thinking.get("type") not in {"adaptive", "between_tools"}
+                or "budget_tokens" in thinking
+                or (thinking.get("type") == "between_tools" and len(thinking) != 1)
+            ):
+                raise ValueError(
+                    "Sonnet 5.5 requires adaptive thinking or thinking={'type': 'between_tools'}."
+                )
+            output_config = extra_body.get("output_config", arguments.get("output_config")) or {}
+            effort = output_config.get("effort")
+            if (
+                isinstance(thinking, dict)
+                and thinking.get("type") == "between_tools"
+                and effort is not None
+                and effort not in {"low", "medium", "high"}
+            ):
+                raise ValueError(
+                    "Sonnet 5.5 between_tools supports only low, medium, or high effort."
+                )
         sampling_keys = ("temperature", "top_p", "top_k")
         sampling = {
             key: arguments.pop(key) for key in sampling_keys if arguments.get(key) is not None
@@ -2108,8 +2131,16 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             "claude-opus-4-7",
             "claude-opus-4-8",
             "claude-opus-5",
+            "claude-opus-5-5",
+            "claude-opus-5.5",
             "claude-fable-5",
+            "claude-fable-5-1",
+            "claude-fable-5-2",
             "claude-sonnet-5",
+            "claude-sonnet-5-5",
+            "claude-sonnet-5.5",
+            "claude-haiku-5-5",
+            "claude-haiku-5.5",
         }:
             removed = list(sampling)
             for key in sampling_keys:
@@ -2132,6 +2163,24 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             sampling.update(extra_body)
             arguments["extra_body"] = sampling
         return arguments
+
+    def _in_request_compaction_edit(self) -> BetaCompact20260112EditParam | None:
+        """Threshold compaction edit when this LLM compacts within normal requests."""
+        config = self.context.config
+        if config is None:
+            return None
+        trigger = in_request_compaction_trigger(self, config.compaction)
+        if trigger is None:
+            return None
+        # No custom instructions: the server's default summarizer reads earlier
+        # thinking, which custom instructions would exclude on 5.1+ models.
+        return {
+            "type": "compact_20260112",
+            "trigger": {
+                "type": "input_tokens",
+                "value": trigger,
+            },
+        }
 
     def _resolve_anthropic_beta_flags(
         self,
@@ -2157,7 +2206,11 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             beta_flags.append(INTERLEAVED_THINKING_BETA)
         if self._long_context and self.supports_direct_anthropic_beta("long_context"):
             beta_flags.append(LONG_CONTEXT_BETA)
-        if request_tools and self.supports_direct_anthropic_beta("fine_grained_tool_streaming"):
+        if (
+            request_tools
+            and not self._eager_tool_input_streaming()
+            and self.supports_direct_anthropic_beta("fine_grained_tool_streaming")
+        ):
             beta_flags.append(FINE_GRAINED_TOOL_STREAMING_BETA)
         if self.supports_direct_anthropic_beta("web_tools"):
             beta_flags.extend(web_tool_betas)
@@ -2167,6 +2220,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             beta_flags.append(TASK_BUDGETS_BETA)
         if cache_diagnostics_enabled:
             beta_flags.append(CACHE_DIAGNOSIS_BETA)
+        if thinking_enabled and adaptive_thinking and self._drops_mismatched_thinking(model):
+            beta_flags.append(THINKING_BINDING_BETA)
         return dedupe_preserve_order(beta_flags)
 
     def _apply_anthropic_cache_plan(
@@ -2258,16 +2313,17 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         capture_filename: Path | None,
         timeout_seconds: float | None,
     ) -> tuple[BetaMessage, list[str], list[str]]:
-        otel_span: Span | None = None
-        otel_span_error = False
         response: BetaMessage | None = None
+        timed_stream: _IdleTimeoutAsyncStream[Any] | None = None
 
         try:
-            stream_method = _maybe_unwrap_otel_beta_stream(anthropic.beta.messages.stream)
-            if stream_method is not anthropic.beta.messages.stream:
-                otel_span = _start_fallback_stream_span(model)
-
-            stream_call = stream_method(**arguments)
+            # The SDK filters SSE pings before yielding parsed events. Enforce
+            # idleness on HTTP reads instead, preserving the other client limits.
+            request_timeout = Timeout(anthropic.timeout)
+            request_timeout.read = timeout_seconds
+            stream_call = anthropic.beta.messages.stream(
+                **{**arguments, "timeout": request_timeout}
+            )
             stream_manager = (
                 await await_stream_start(
                     stream_call,
@@ -2277,66 +2333,42 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 if asyncio.iscoroutine(stream_call)
                 else stream_call
             )
-            stream_manager = cast("BetaAsyncMessageStream", stream_manager)
-
-            if otel_span is not None:
-                with trace.use_span(otel_span, end_on_exit=False):
-                    async with enter_stream_with_timeout(
-                        stream_manager,
-                        timeout_seconds=timeout_seconds,
-                        timeout_message=(
-                            f"Anthropic stream did not start within {timeout_seconds} seconds."
-                        ),
-                    ) as raw_stream:
-                        stream = cast(
-                            "BetaAsyncMessageStream",
-                            with_stream_idle_timeout(
-                                raw_stream,
-                                idle_timeout_seconds=timeout_seconds,
-                            ),
-                        )
-                        (
-                            response,
-                            thinking_segments,
-                            streamed_text_segments,
-                        ) = await self._process_stream(stream, model, capture_filename)
-            else:
-                async with enter_stream_with_timeout(
-                    stream_manager,
-                    timeout_seconds=timeout_seconds,
-                    timeout_message=f"Anthropic stream did not start within {timeout_seconds} seconds.",
-                ) as raw_stream:
-                    stream = cast(
-                        "BetaAsyncMessageStream",
-                        with_stream_idle_timeout(
-                            raw_stream,
-                            idle_timeout_seconds=timeout_seconds,
-                        ),
-                    )
-                    (
-                        response,
-                        thinking_segments,
-                        streamed_text_segments,
-                    ) = await self._process_stream(stream, model, capture_filename)
-        except APIError as error:
-            if otel_span is not None and otel_span.is_recording():
-                otel_span.record_exception(error)
-                otel_span.set_status(Status(StatusCode.ERROR))
-                otel_span_error = True
-            logger.error("Streaming APIError during Anthropic completion", exc_info=error)
-            raise
+            stream_manager = cast(
+                "AbstractAsyncContextManager[_AnthropicMessageStream]", stream_manager
+            )
+            async with enter_stream_with_timeout(
+                stream_manager,
+                timeout_seconds=timeout_seconds,
+                timeout_message=f"Anthropic stream did not start within {timeout_seconds} seconds.",
+            ) as raw_stream:
+                timed_stream = with_stream_idle_timeout(
+                    raw_stream,
+                    idle_timeout_seconds=None,
+                )
+                # Keep parsed-event timing and forward get_final_message, but
+                # do not terminate healthy streams between parsed events.
+                stream = cast("_AnthropicMessageStream", timed_stream)
+                (
+                    response,
+                    thinking_segments,
+                    streamed_text_segments,
+                ) = await self._process_stream(stream, model, capture_filename)
         except Exception as error:
-            if otel_span is not None and otel_span.is_recording():
-                otel_span.record_exception(error)
-                otel_span.set_status(Status(StatusCode.ERROR))
-                otel_span_error = True
+            if isinstance(error, APIError):
+                logger.error("Streaming APIError during Anthropic completion", exc_info=error)
+            self._record_stream_outcome(
+                timed_stream.timing if timed_stream is not None else None,
+                error=error,
+                model=model,
+                timeout_seconds=timeout_seconds,
+            )
             raise
-        finally:
-            if otel_span is not None:
-                _finalize_fallback_stream_span(otel_span, response, otel_span_error)
 
-        if response is None:
+        if response is None or timed_stream is None:
             raise RuntimeError("Anthropic stream completed without a final message.")
+        self._record_stream_outcome(
+            timed_stream.timing, error=None, model=model, timeout_seconds=timeout_seconds
+        )
         return response, thinking_segments, streamed_text_segments
 
     def _anthropic_response_text_blocks(
@@ -2400,12 +2432,15 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         match response.stop_reason:
             case "stop_sequence":
                 return _AnthropicStopResult(LlmStopReason.STOP_SEQUENCE)
-            case "max_tokens":
+            case "max_tokens" | "model_context_window_exceeded":
                 return _AnthropicStopResult(LlmStopReason.MAX_TOKENS)
             case "refusal":
                 return _AnthropicStopResult(LlmStopReason.SAFETY)
             case "pause" | "pause_turn":
                 return _AnthropicStopResult(LlmStopReason.PAUSE)
+            case "compaction":
+                # Paused after server-side compaction; the turn continues from the block.
+                return _AnthropicStopResult(LlmStopReason.CONTINUE)
             case "tool_use":
                 return await self._anthropic_tool_stop_result(
                     response,
@@ -2569,6 +2604,12 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
     def _anthropic_provider_payloads(response: BetaMessage) -> _AnthropicProviderPayloads:
         payloads = _AnthropicProviderPayloads()
         for block in response.content or []:
+            if isinstance(block, BetaCompactionBlock):
+                payloads.has_compaction = True
+                if block.content is None:
+                    # Documented failure mode when tools are defined; the server treats
+                    # the block as a no-op and compaction is retried on a later request.
+                    logger.warning("Server-side compaction returned no summary")
             payload = serialize_anthropic_block_payload(block)
             if payload is not None:
                 try:
@@ -2627,10 +2668,17 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 channels, ANTHROPIC_SERVER_TOOLS_CHANNEL, payloads.server_tools
             )
         if payloads.raw_assistant and (
-            raw_thinking_blocks or payloads.server_tools or tool_calls is not None
+            raw_thinking_blocks
+            or payloads.server_tools
+            or payloads.has_compaction
+            or tool_calls is not None
         ):
             channels = self._add_anthropic_channel(
                 channels, ANTHROPIC_ASSISTANT_RAW_CONTENT, payloads.raw_assistant
+            )
+        if payloads.has_compaction:
+            channels = self._add_anthropic_channel(
+                channels, FAST_AGENT_PROVIDER_CHECKPOINT, provider_checkpoint_marker("anthropic")
             )
         if payloads.citations:
             channels = self._add_anthropic_channel(
@@ -2648,8 +2696,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 ANTHROPIC_CONTAINER_CHANNEL,
                 [TextContent(type="text", text=json.dumps({"id": response.container.id}))],
             )
+        diagnostics: dict[str, Any] = {}
         if cache_diagnostics_enabled or response.diagnostics is not None:
-            diagnostics: dict[str, Any] = (
+            diagnostics = (
                 response.diagnostics.model_dump(mode="json", exclude_none=False)
                 if response.diagnostics is not None
                 else {"cache_miss_reason": None}
@@ -2663,6 +2712,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                     ),
                 }
             )
+        if self._last_stream_timing is not None:
+            diagnostics["stream_timing"] = self._last_stream_timing
+        if diagnostics:
             channels = self._add_anthropic_channel(
                 channels,
                 ANTHROPIC_CACHE_DIAGNOSTICS_CHANNEL,
@@ -2843,6 +2895,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         """
 
         try:
+            await self._prepare_anthropic_client(
+                self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
+            )
             anthropic = self._initialize_anthropic_client()
             request = await self._prepare_anthropic_completion_request(
                 anthropic,
@@ -2901,6 +2956,11 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             provider_mcp_enabled=bool(provider_mcp_payload.servers),
             cache_diagnostics_enabled=cache_diagnostics_enabled,
         )
+        compaction_edit = self._in_request_compaction_edit()
+        if compaction_edit is not None:
+            beta_flags.append(COMPACTION_THRESHOLD_BETA)
+            context_management: BetaContextManagementConfigParam = {"edits": [compaction_edit]}
+            base_args["context_management"] = context_management
         if beta_flags:
             base_args["betas"] = beta_flags
         if cache_diagnostics_enabled:
@@ -3022,8 +3082,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         # Check the last message role
         last_message = multipart_messages[-1]
 
-        if last_message.role == "user":
-            logger.debug("Last message in prompt is from user, generating assistant response")
+        if last_message.role == "user" or last_message.stop_reason == LlmStopReason.CONTINUE:
+            logger.debug("Generating assistant response")
             message_param = AnthropicConverter.convert_to_anthropic(last_message)
             # No need to pass pre_messages - conversion happens in _anthropic_completion
             # via _convert_to_provider_format()
@@ -3120,7 +3180,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
         for content_block in message.content:
             if isinstance(content_block, BetaTextBlock):
-                text_value = getattr(content_block, "text", None)
+                text_value = content_block.text
                 if not isinstance(text_value, str):
                     logger.warning(
                         "Skipping Anthropic text block with non-string text while converting message",
@@ -3137,13 +3197,12 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                         id=content_block.id,
                     )
                 )
-            elif isinstance(content_block, BetaServerToolUseBlock):
-                payload = serialize_anthropic_block_payload(content_block)
-                if payload is not None and is_server_tool_trace_payload(payload):
-                    content.append(cast("BetaContentBlockParam", payload))
             else:
                 payload = serialize_anthropic_block_payload(content_block)
-                if payload is not None and is_server_tool_trace_payload(payload):
+                if payload is not None and (
+                    isinstance(content_block, BetaCompactionBlock)
+                    or is_server_tool_trace_payload(payload)
+                ):
                     content.append(cast("BetaContentBlockParam", payload))
 
         return BetaMessageParam(role="assistant", content=content, **kwargs)

@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from anthropic import Timeout
+from httpx2 import ReadTimeout
 
 from fast_agent.config import AnthropicSettings, Settings
 from fast_agent.context import Context
@@ -60,8 +62,8 @@ class _IdleAnthropicStream:
         return self
 
     async def __anext__(self) -> Any:
-        await asyncio.sleep(1)
-        raise StopAsyncIteration
+        await asyncio.sleep(0.03)
+        raise ReadTimeout("HTTP stream stalled")
 
 
 class _AnthropicStreamManager:
@@ -121,7 +123,7 @@ async def test_stream_timing_records_timeout_after_events() -> None:
 
 
 @pytest.mark.asyncio
-async def test_anthropic_stream_enforces_between_event_idle_timeout() -> None:
+async def test_anthropic_stream_uses_transport_timeout_and_closes_stream() -> None:
     context = Context()
     context.config = Settings(
         anthropic=AnthropicSettings(api_key="test-key"),
@@ -130,15 +132,14 @@ async def test_anthropic_stream_enforces_between_event_idle_timeout() -> None:
     stream = _IdleAnthropicStream()
     manager = _AnthropicStreamManager(stream)
     anthropic = SimpleNamespace(
+        timeout=Timeout(600),
         beta=SimpleNamespace(
             messages=SimpleNamespace(stream=_AnthropicStreamMethod(manager)),
-        )
+        ),
     )
 
-    with pytest.raises(
-        StreamIdleTimeoutError,
-        match="No stream events were received for 0.01 seconds",
-    ):
+    # Parsed-event inactivity must not preempt the transport's timeout.
+    with pytest.raises(ReadTimeout, match="HTTP stream stalled"):
         await llm._execute_anthropic_stream(
             anthropic=cast("Any", anthropic),
             arguments={},

@@ -1,5 +1,13 @@
 """Main CLI entry point for MCP Agent."""
 
+# PEP 810: deferred until first use on Python 3.15+, ignored on earlier versions.
+# Keep this to modules whose names are only used inside functions.
+__lazy_modules__ = [
+    "fast_agent.cli.display",
+    "fast_agent.cli.update_check",
+    "importlib.metadata",
+]
+
 import importlib
 import os
 from importlib.metadata import PackageNotFoundError
@@ -7,17 +15,23 @@ from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import ClassVar
 
-import click
 import typer
 import typer.main
-from typer.core import TyperGroup
+from typer._click.core import Command, Context
+from typer._click.formatting import HelpFormatter
+from typer.core import TyperCommand
 
 from fast_agent.cli.command_support import ensure_context_object
 from fast_agent.cli.constants import normalize_convenience_flag_args, normalize_resume_flag_args
 from fast_agent.cli.display import print_section_header
 from fast_agent.cli.home_helpers import resolve_workspace_and_home_options
+from fast_agent.cli.prompt_argument_hint import PromptArgumentHintGroup
 from fast_agent.cli.terminal import Application
-from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
+from fast_agent.cli.update_check import (
+    check_for_update_notice,
+    default_plugin_roots,
+    should_run_update_check,
+)
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.ui.console import console as shared_console
 
@@ -82,24 +96,25 @@ def _installed_package_version(package_name: str) -> str:
         return "unknown"
 
 
-class LazyGroup(TyperGroup):
+# TyperGroup overrides require vendored base types, not standalone Click types.
+class LazyGroup(PromptArgumentHintGroup):
     lazy_subcommands: ClassVar[dict[str, str]] = {}
     lazy_subcommand_help: ClassVar[dict[str, str]] = {}
 
-    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+    def parse_args(self, ctx: Context, args: list[str]) -> list[str]:
         normalize_convenience_flag_args(args)
         if _first_root_command(args) == "go":
             normalize_resume_flag_args(args)
         return super().parse_args(ctx, args)
 
-    def list_commands(self, ctx: click.Context) -> list[str]:
+    def list_commands(self, ctx: Context) -> list[str]:
         del ctx
         return sorted(self.lazy_subcommands)
 
-    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+    def get_command(self, ctx: Context, cmd_name: str) -> Command | None:
         if ctx.meta.get(_ROOT_HELP_CONTEXT_KEY) is True:
             short_help = self.lazy_subcommand_help.get(cmd_name)
-            return click.Command(name=cmd_name, help=short_help) if short_help is not None else None
+            return TyperCommand(name=cmd_name, help=short_help) if short_help is not None else None
         target = self.lazy_subcommands.get(cmd_name)
         if not target:
             return None
@@ -110,7 +125,7 @@ class LazyGroup(TyperGroup):
         command.name = cmd_name
         return command
 
-    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+    def format_commands(self, ctx: Context, formatter: HelpFormatter) -> None:
         rows = [
             (command_name, self.lazy_subcommand_help[command_name])
             for command_name in self.list_commands(ctx)
@@ -119,7 +134,7 @@ class LazyGroup(TyperGroup):
             with formatter.section("Commands"):
                 formatter.write_dl(rows)
 
-    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+    def format_help(self, ctx: Context, formatter: HelpFormatter) -> None:
         ctx.meta[_ROOT_HELP_CONTEXT_KEY] = True
         try:
             super().format_help(ctx, formatter)
@@ -213,7 +228,7 @@ def main(
     no_update_check: bool = typer.Option(
         False,
         "--no-update-check",
-        help="Skip checking PyPI for newer fast-agent releases",
+        help="Skip startup network checks (fast-agent/plugin updates, recommended plugins)",
     ),
     workspace: Path | None = typer.Option(
         None,
@@ -266,7 +281,9 @@ def main(
             disabled=no_update_check,
         )
     ):
-        update_notice = check_for_update_notice(home=resolved_home)
+        update_notice = check_for_update_notice(
+            home=resolved_home, plugin_roots=default_plugin_roots(resolved_home)
+        )
 
     # Handle version flag
     if version:

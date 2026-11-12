@@ -14,7 +14,7 @@ EDIT_FILE_TOOL_NAME: Final = "edit_file"
 EDIT_FILE_TOOL_DESCRIPTION: Final = (
     "Create a missing text file or edit an existing one by replacing an exact string "
     "match with new text. Omit old_string or use an empty string only when creating. "
-    "Returns a structured result with match details and a unified diff."
+    "Returns the changed line range and replacement count, or an error with match locations."
 )
 
 

@@ -97,7 +97,7 @@ def test_llamacpp_picker_details_include_start_now_and_generate_overlay_hints() 
         )
     )
 
-    rendered = "".join(fragment for _, fragment in picker._render_details())
+    rendered = "".join(fragment[1] for fragment in picker._render_details())
 
     assert "selected action: Start now" in rendered
     assert "context: training: 262144 / runtime: not loaded" in rendered
@@ -117,8 +117,8 @@ def test_llamacpp_picker_hides_model_cursor_when_actions_are_focused() -> None:
     )
     picker.state.focus = "actions"
 
-    rendered_models = "".join(fragment for _, fragment in picker._render_models())
-    rendered_actions = "".join(fragment for _, fragment in picker._render_actions())
+    rendered_models = "".join(fragment[1] for fragment in picker._render_models())
+    rendered_actions = "".join(fragment[1] for fragment in picker._render_actions())
 
     assert "❯" not in rendered_models
     assert "❯ Start now" in rendered_actions
@@ -158,7 +158,7 @@ async def test_llamacpp_picker_lazy_loads_runtime_context() -> None:
     picker._ensure_runtime_context_loading()
     await asyncio.sleep(0)
 
-    rendered = "".join(fragment for _, fragment in picker._render_details())
+    rendered = "".join(fragment[1] for fragment in picker._render_details())
 
     assert "context: training: 262144 / runtime: 75264" in rendered
 
@@ -186,6 +186,6 @@ async def test_llamacpp_picker_lazy_load_can_upgrade_training_context() -> None:
     picker._ensure_runtime_context_loading()
     await asyncio.sleep(0)
 
-    rendered = "".join(fragment for _, fragment in picker._render_details())
+    rendered = "".join(fragment[1] for fragment in picker._render_details())
 
     assert "context: training: 262144 / runtime: 75264" in rendered

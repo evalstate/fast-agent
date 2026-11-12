@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Self, TypeVar
@@ -53,6 +53,33 @@ class StreamIdleTimeoutError(TimeoutError):
         super().__init__(f"No stream events were received for {timeout_seconds} seconds.")
         self.timeout_seconds = timeout_seconds
         self.events_received = events_received
+
+
+class ToolInputRunawayError(RuntimeError):
+    """Raised when one streamed tool call's input exceeds the model's delta limit.
+
+    The attempt is abandoned and retried like other provider stream failures.
+    """
+
+    def __init__(
+        self,
+        *,
+        tool_name: str | None,
+        limit: int,
+        deltas: int,
+        chars: int,
+        whitespace_only_deltas: int,
+    ) -> None:
+        super().__init__(
+            f"Streamed input for tool {tool_name or '<unknown>'!r} exceeded {limit} deltas "
+            f"({chars} characters, {whitespace_only_deltas} whitespace-only deltas); "
+            "abandoning the runaway attempt."
+        )
+        self.tool_name = tool_name
+        self.limit = limit
+        self.deltas = deltas
+        self.chars = chars
+        self.whitespace_only_deltas = whitespace_only_deltas
 
 
 class _IdleTimeoutAsyncStream(AsyncIterator[T]):
@@ -160,7 +187,7 @@ async def enter_stream_with_timeout(
     *,
     timeout_seconds: float | None,
     timeout_message: str,
-) -> "AsyncIterator[Any]":
+) -> "AsyncGenerator[Any]":
     """Enter an async stream context with a startup timeout."""
 
     stream = await await_stream_start(

@@ -190,6 +190,7 @@ class TestTrimToolLoopHistory:
         class MockAgent:
             name = "mock"
             usage_accumulator = None
+            llm = None
             context = None
             config = AgentConfig(name=name, tool_only=False, model=None)
             agent_registry = None
@@ -246,6 +247,7 @@ class TestTrimToolLoopHistory:
         class MockAgent:
             name = "mock"
             usage_accumulator = None
+            llm = None
             context = None
             config = AgentConfig(name=name, tool_only=False, model=None)
             agent_registry = None
@@ -295,6 +297,7 @@ class TestTrimToolLoopHistory:
         class MockAgent:
             name = "mock"
             usage_accumulator = None
+            llm = None
             context = None
             config = AgentConfig(name=name, tool_only=False, model=None)
             agent_registry = None

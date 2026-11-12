@@ -801,6 +801,20 @@ def test_load_agent_card_warns_when_required_property_description_missing(tmp_pa
         load_agent_cards(card_path)
 
 
+@pytest.mark.parametrize("timeout", [None, 45.0, 150.0])
+def test_dump_agent_card_preserves_explicit_timeout(tmp_path: Path, timeout: float | None) -> None:
+    card_path = tmp_path / "timeout.yaml"
+    card_path.write_text(
+        yaml.safe_dump({"name": "timeout", "request_params": {"streaming_timeout": timeout}})
+    )
+    loaded = load_agent_cards(card_path)[0]
+    card_path.write_text(dump_agent_to_string("timeout", loaded.agent_data, as_yaml=True))
+    restored = load_agent_cards(card_path)[0].agent_data["config"].default_request_params
+    assert restored is not None
+    assert restored.streaming_timeout == timeout
+    assert "streaming_timeout" in restored.model_fields_set
+
+
 def test_dump_agent_card_preserves_tool_input_schema(tmp_path: Path) -> None:
     card_path = tmp_path / "schema_agent.yaml"
     card_path.write_text(

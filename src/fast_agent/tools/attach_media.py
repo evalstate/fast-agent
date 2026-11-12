@@ -11,14 +11,17 @@ from urllib.parse import unquote, urlparse
 
 from mcp_types import (
     BlobResourceContents,
+    CallToolResult,
     ContentBlock,
     EmbeddedResource,
     ImageContent,
     ResourceLink,
+    TextContent,
 )
 from PIL import Image
 from pydantic import ByteSize
 
+from fast_agent.constants import FAST_AGENT_PTC_VALUE
 from fast_agent.io.path_uri import file_uri_to_path
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.mime_utils import (
@@ -27,11 +30,13 @@ from fast_agent.mcp.mime_utils import (
     is_text_mime_type,
     normalize_mime_type,
 )
+from fast_agent.mcp.tool_result_metadata import set_tool_result_media_preview
 from fast_agent.tools.filesystem_tool_args import (
     coerce_optional_string_argument,
     coerce_required_string_argument,
     coerce_tool_arguments,
 )
+from fast_agent.tools.invocation_context import is_programmatic_tool_call
 from fast_agent.utils.numeric import positive_int_or_none
 from fast_agent.utils.text import strip_casefold
 
@@ -542,6 +547,32 @@ def _image_target_mime(
         if model_info is None or model_info.supports_mime(candidate, resource_source="embedded"):
             return candidate
     return actual_mime
+
+
+def attach_media_tool_result(
+    attached: AttachMediaResult, *, tool_use_id: str | None
+) -> CallToolResult:
+    """Build the attach_media result: staging text, image preview and the PTC program value."""
+    result = CallToolResult(
+        content=[TextContent(type="text", text=attach_media_staging_message(attached))],
+        is_error=False,
+    )
+    if is_image_mime_type(attached.mime_type):
+        set_tool_result_media_preview(result, [attached.block])
+    if is_programmatic_tool_call(tool_use_id):
+        # Staged media already reaches the next model call, so the value carries no media
+        # handle: returning it from sandbox code must not attach the same media twice.
+        result.meta = {
+            **(result.meta or {}),
+            FAST_AGENT_PTC_VALUE: {
+                "staged": True,
+                "name": attached.display_name,
+                "mime_type": attached.mime_type,
+                "source": attached.source,
+                "linked": attached.linked,
+            },
+        }
+    return result
 
 
 def attach_media_staging_message(attached: AttachMediaResult) -> str:

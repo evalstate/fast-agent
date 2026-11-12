@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 
 from openai import BaseModel
 
+from fast_agent.llm.upload_progress import plan_upload
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -96,6 +98,8 @@ class XAIImageUploadManager:
         cached = self._cache.get(cache_key)
         if cached is not None:
             return cached.url
+        if plan_upload(cache_key):
+            return None  # Planning pass; callers keep the inline image.
 
         expires_after: ExpiresAfter = {
             "anchor": "created_at",

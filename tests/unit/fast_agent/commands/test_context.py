@@ -9,6 +9,7 @@ from fast_agent.commands.context import (
     NonInteractiveCommandIOBase,
     StaticAgentProvider,
 )
+from fast_agent.commands.results import CommandMessage
 
 
 @dataclass
@@ -94,3 +95,14 @@ def test_skill_source_override_persists_for_acp_session() -> None:
         ).active_skill_source("main")
         is None
     )
+
+
+@pytest.mark.asyncio
+async def test_noninteractive_io_emit_is_silent(capsys: pytest.CaptureFixture[str]) -> None:
+    io = NonInteractiveCommandIOBase()
+
+    await io.emit(CommandMessage(text="not displayed"))
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""

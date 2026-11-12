@@ -112,12 +112,14 @@ def test_acp_request_param_merge_allows_explicit_max_tokens_override() -> None:
 )
 @pytest.mark.asyncio
 async def test_attach_llm_paths_preserve_model_aware_max_tokens(model_spec: str) -> None:
+    expected = ModelFactory.resolve_model_spec(model_spec).max_output_tokens
+    assert expected is not None
     agent = LlmAgent(AgentConfig(name="Test Agent"))
 
     llm = await agent.attach_llm(ModelFactory.create_factory(model_spec))
     assert _is_fastagent_llm(llm)
 
-    assert llm.default_request_params.max_tokens == EXPECTED_KIMI_MAX_TOKENS
+    assert llm.default_request_params.max_tokens == expected
 
 
 @pytest.mark.asyncio
@@ -136,8 +138,10 @@ async def test_apply_model_flow_recomputes_model_aware_max_tokens_after_dump_rec
     )
     assert _is_fastagent_llm(llm)
 
+    expected = ModelFactory.resolve_model_spec("kimi").max_output_tokens
+    assert expected is not None
     assert llm.default_request_params.system_prompt == "original prompt"
-    assert llm.default_request_params.max_tokens == EXPECTED_KIMI_MAX_TOKENS
+    assert llm.default_request_params.max_tokens == expected
 
 
 @pytest.mark.asyncio

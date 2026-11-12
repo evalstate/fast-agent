@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from click.utils import strip_ansi
+from typer._click.utils import strip_ansi
 from typer.testing import CliRunner
 
 from fast_agent.cli.commands import go as go_command
@@ -269,6 +269,19 @@ def test_go_accepts_timeout_flag(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize(
+    ("flags", "expected"), [([], None), (["--ptc"], True), (["--no-ptc"], False)]
+)
+def test_go_ptc_flag_requests_programmatic_tool_calling(monkeypatch, flags, expected) -> None:
+    captured_requests = []
+    monkeypatch.setattr(go_command, "run_request", captured_requests.append)
+
+    result = CliRunner().invoke(go_command.app, ["--message", "hi", *flags])
+
+    assert result.exit_code == 0, result.output
+    assert [request.ptc for request in captured_requests] == [expected]
+
+
+@pytest.mark.parametrize(
     ("arguments", "message"),
     (
         (
@@ -461,6 +474,8 @@ def test_go_workspace_rejects_missing_directory(tmp_path: Path) -> None:
             "--message",
             "summarize",
         ],
+        # Keep long tmp paths (e.g. xdist's popen-gwN) on one line in the error panel.
+        env={"COLUMNS": "400"},
     )
 
     assert result.exit_code == 2
@@ -473,6 +488,25 @@ def test_go_attach_requires_one_shot_mode() -> None:
 
     assert result.exit_code == 2
     assert "--attach requires --message or --prompt-file" in strip_ansi(result.output)
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        (["--isolated"], "--isolated requires --message or --prompt-file"),
+        (
+            ["--isolated", "-m", "hi", "--shell", "--skills-dir", "skills", "--card", "a.md"],
+            "Cannot combine --isolated with --shell, --card, --skills-dir.",
+        ),
+    ],
+)
+def test_go_isolated_rejects_extensions_and_interactive_mode(
+    arguments: list[str], expected: str
+) -> None:
+    result = CliRunner().invoke(go_command.app, arguments, env={"COLUMNS": "400"})
+
+    assert result.exit_code == 2
+    assert expected in " ".join(strip_ansi(result.output).split())
 
 
 def test_go_pack_installs_then_runs(tmp_path: Path, monkeypatch) -> None:

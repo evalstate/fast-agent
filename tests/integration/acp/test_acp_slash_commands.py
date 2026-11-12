@@ -31,6 +31,7 @@ from fast_agent.constants import (
     FAST_AGENT_USAGE,
 )
 from fast_agent.core.agent_app import AgentCardLoadResult
+from fast_agent.llm.compaction_support import CompactionSupport
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import save_json
@@ -393,12 +394,8 @@ async def test_slash_command_status_reports_error_channel_entries() -> None:
 async def test_slash_command_status_system() -> None:
     """Test the /status system command to show system prompt."""
 
-    @dataclass
-    class AgentWithInstruction(StubAgent):
-        name: str = "test-agent"
-        instruction: str = "You are a helpful assistant that provides excellent support."
-
-    stub_agent = AgentWithInstruction(message_history=[], llm=None)
+    instruction = "You are a helpful assistant that provides excellent support."
+    stub_agent = StubAgent(instruction=instruction)
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
 
     handler = _handler(instance)
@@ -411,13 +408,18 @@ async def test_slash_command_status_system() -> None:
     # Should contain the agent name
     assert "test-agent" in response.lower()
     # Should contain the instruction/system prompt
-    assert stub_agent.instruction in response
+    assert instruction in response
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_slash_command_model_web_search() -> None:
     class _LlmStub:
+        compaction_support = CompactionSupport.CLIENT
+        compact_at_override = None
+        default_compact_at = None
+        usage_accumulator = None
+
         def __init__(self) -> None:
             self.model_name = "gpt-5"
             self.provider = Provider.RESPONSES
@@ -463,6 +465,11 @@ async def test_slash_command_model_web_search() -> None:
 @pytest.mark.asyncio
 async def test_slash_command_model_web_fetch_unsupported() -> None:
     class _LlmStub:
+        compaction_support = CompactionSupport.CLIENT
+        compact_at_override = None
+        default_compact_at = None
+        usage_accumulator = None
+
         def __init__(self) -> None:
             self.model_name = "gpt-5"
             self.provider = Provider.RESPONSES
@@ -562,12 +569,8 @@ async def test_slash_command_session_resume_switches_current_mode(tmp_path: Path
 async def test_slash_command_status_system_prefers_session_instruction() -> None:
     """Test /status system prefers session-resolved instructions when available."""
 
-    @dataclass
-    class AgentWithInstruction(StubAgent):
-        name: str = "test-agent"
-        instruction: str = "Template instruction with {{env}}."
-
-    stub_agent = AgentWithInstruction(message_history=[], llm=None)
+    instruction = "Template instruction with {{env}}."
+    stub_agent = StubAgent(instruction=instruction)
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
 
     resolved_instruction = "Resolved instruction with env."
@@ -576,7 +579,7 @@ async def test_slash_command_status_system_prefers_session_instruction() -> None
     response = await handler.execute_command("status", "system")
 
     assert resolved_instruction in response
-    assert stub_agent.instruction not in response
+    assert instruction not in response
 
 
 @pytest.mark.integration

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, TypeGuard
 from fast_agent.batch import BatchRunner, BatchRunResult
 from fast_agent.eval import ArtifactRun, CandidateRun
 from fast_agent.utils.async_utils import run_coroutine
+from fast_agent.utils.env import utf8_python_child_env
 
 if TYPE_CHECKING:
     from fast_agent.batch.runner import BatchBackend
@@ -27,10 +28,8 @@ NumericMetric: TypeAlias = int | float
 
 GEPA_EXTRA_REQUIREMENTS = {"gepa": "gepa"}
 GEPA_EXTRA_INSTALL_MESSAGE = (
-    'Install fast-agent with the GEPA extra, "fast-agent-mcp[gepa]", '
-    "in the environment where fast-agent runs. Trackio-specific GEPA helpers require "
-    "a GEPA release with Trackio support; until that is released, install GEPA from "
-    "the Trackio integration branch in your application environment."
+    "Install fast-agent with the GEPA extra using uv pip install 'fast-agent-mcp[gepa]' "
+    "in the environment where fast-agent runs."
 )
 
 
@@ -79,6 +78,7 @@ def gepa_trackio_init_kwargs(
         "project": project,
         "embed": embed,
         "auto_log_gpu": auto_log_gpu,
+        "auto_log_cpu": False,
     }
     if name is not None:
         init_kwargs["name"] = name
@@ -1463,5 +1463,8 @@ def _run_command(
         timeout=timeout_seconds,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=utf8_python_child_env(),
         check=False,
     )

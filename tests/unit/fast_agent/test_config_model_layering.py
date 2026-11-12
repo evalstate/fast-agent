@@ -447,3 +447,43 @@ def test_get_settings_pairs_secrets_with_selected_config_directory(tmp_path: Pat
             os.environ.pop("FAST_AGENT_HOME", None)
         else:
             os.environ["FAST_AGENT_HOME"] = previous_home
+
+
+@pytest.mark.parametrize("source", ["config", "environment"])
+def test_terminal_image_halfcell_selection(tmp_path: Path, monkeypatch, source: str) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(config_module, "_settings", None)
+    monkeypatch.delenv("LOGGER__TERMINAL_IMAGES__BACKEND", raising=False)
+    config_path = tmp_path / "fast-agent.yaml"
+    if source == "config":
+        config_path.write_text("logger:\n  terminal_images:\n    backend: halfcell\n")
+    else:
+        config_path.write_text("logger:\n  terminal_images:\n    width: 40\n")
+        monkeypatch.setenv("LOGGER__TERMINAL_IMAGES__BACKEND", "halfcell")
+
+    settings = get_settings(config_path, no_home=True)
+
+    assert settings.logger.terminal_images.backend == "halfcell"
+    assert settings.logger.terminal_images.enabled
+    if source == "environment":
+        assert settings.logger.terminal_images.width == 40
+
+
+def test_terminal_image_config_takes_precedence_over_environment(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(config_module, "_settings", None)
+    monkeypatch.setenv("LOGGER__TERMINAL_IMAGES__BACKEND", "halfcell")
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text("logger:\n  terminal_images:\n    backend: kitty\n")
+
+    assert get_settings(config_path, no_home=True).logger.terminal_images.backend == "kitty"
+
+
+def test_terminal_image_environment_rejects_invalid_backend(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LOGGER__TERMINAL_IMAGES__BACKEND", "invalid")
+
+    with pytest.raises(ValueError, match="logger.terminal_images.backend"):
+        Settings()

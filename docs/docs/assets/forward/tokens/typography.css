@@ -1,0 +1,23 @@
+:root {
+  --font-voice: "Fraunces", Georgia, serif;           /* wordmark, headlines */
+  --font-shout: "Ultra", "Fraunces", serif;           /* campaigns only */
+  --font-read: "Figtree", system-ui, sans-serif;      /* body, UI, data */
+  --font-code: "DM Mono", ui-monospace, monospace;    /* code, CLI */
+  --voice-settings: "SOFT" 100, "WONK" 0; /* @kind font */
+
+  --text-12: 12px;  /* floor: disclaimers */
+  --text-14: 14px;
+  --text-16: 16px;  /* body */
+  --text-20: 20px;
+  --text-24: 24px;
+  --text-34: 34px;
+  --text-48: 48px;
+  --text-64: 64px;
+  --text-96: 96px;
+
+  --lh-tight: 0.98; /* @kind font */
+  --lh-snug: 1.2; /* @kind font */
+  --lh-body: 1.6; /* @kind font */
+  --track-voice: -0.035em;
+  --track-label: 0.14em;   /* uppercase labels */
+}

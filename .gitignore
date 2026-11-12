@@ -232,3 +232,6 @@ examples/experimental/mcp_sessions/demo/sessions/
 examples/experimental/mcp_sessions/demo/mcp-cookie.json
 .cdx/
 .fast-agent-old/
+
+# Local social card design previews (absolute file:// paths)
+docs/social_cards/previews/

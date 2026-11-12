@@ -15,13 +15,19 @@ from typing import (
     runtime_checkable,
 )
 
-from a2a.types import AgentCard
-from mcp import Tool
-from mcp_types import GetPromptResult, ListToolsResult, Prompt, PromptMessage, ReadResourceResult
+from mcp_types import (
+    GetPromptResult,
+    ListToolsResult,
+    Prompt,
+    PromptMessage,
+    ReadResourceResult,
+    Tool,
+)
 from pydantic import BaseModel
 from rich.text import Text
 
 from fast_agent.event_progress import ProgressAction
+from fast_agent.llm.compaction_support import CompactAt, CompactionSupport, NativeCompaction
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
 from fast_agent.llm.stream_types import StreamChunk
@@ -30,6 +36,8 @@ from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
+    from a2a.types import AgentCard
+
     from fast_agent.acp.acp_aware_mixin import ACPCommand, ACPModeInfo
     from fast_agent.acp.acp_context import ACPContext
     from fast_agent.agents.agent_types import AgentConfig, AgentType
@@ -234,6 +242,19 @@ class FastAgentLLMProtocol(Protocol):
     def service_tier(self) -> Literal["fast", "flex"] | None: ...
 
     @property
+    def compaction_support(self) -> CompactionSupport: ...
+
+    @property
+    def compact_at_override(self) -> CompactAt | None: ...
+
+    @property
+    def default_compact_at(self) -> CompactAt | None: ...
+
+    async def native_compaction(
+        self, messages: list[PromptMessageExtended]
+    ) -> NativeCompaction: ...
+
+    @property
     def provider_managed_mcp_state(self) -> "ProviderManagedMCPState": ...
 
     def set_provider_managed_mcp_state(self, state: "ProviderManagedMCPState") -> None: ...
@@ -358,7 +379,7 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
         namespace: str | None = None,
     ) -> str: ...
 
-    async def agent_card(self) -> AgentCard: ...
+    async def agent_card(self) -> "AgentCard": ...
 
     async def initialize(self) -> None: ...
 
@@ -396,9 +417,13 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
     @property
     def initialized(self) -> bool: ...
 
-    instruction: str
+    @property
+    def instruction(self) -> str: ...
+
     config: "AgentConfig"
-    context: "Context | None"
+
+    @property
+    def context(self) -> "Context | None": ...
 
     def set_instruction(self, instruction: str) -> None: ...
 

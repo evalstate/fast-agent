@@ -1,41 +1,58 @@
-"""ATIF v1.7 writer for persisted Fast-Agent sessions."""
+"""ATIF v1.8 writer for persisted Fast-Agent sessions."""
 
 from __future__ import annotations
 
 import json
 import tempfile
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, TypedDict
 from urllib.parse import parse_qs, urlparse
 
-from mcp_types import CallToolResult, ImageContent, TextContent
+from mcp_types import AudioContent, CallToolResult, ContentBlock, ImageContent, TextContent
 
 from fast_agent.constants import (
+    FAST_AGENT_COMPACTION_CHANNEL,
+    FAST_AGENT_PENDING_MEDIA_ATTACHMENTS,
     FAST_AGENT_PROCESS_POLL_FOLD,
+    FAST_AGENT_PROVIDER_ERROR,
+    FAST_AGENT_PTC_CALLS,
     FAST_AGENT_RETRY,
     FAST_AGENT_SHELL_PROCESS_METADATA,
     FAST_AGENT_SUBAGENT_RESULT_METADATA,
     FAST_AGENT_TIMING,
+    FAST_AGENT_TOOL_MEDIA_MESSAGE,
     FAST_AGENT_TOOL_METADATA,
     FAST_AGENT_TOOL_TIMING,
     FAST_AGENT_USAGE,
     REASONING,
 )
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.history.atif_reconstruction import (
+    COMPACTION_BOUNDARY,
+    COPIED_CONTEXT,
+    is_export_marker,
+    reconcile_transient,
+    reconstruct_history,
+)
 from fast_agent.history.process_poll_fold_audit import (
     ArchivedContextRewrite,
+    HistoryMessage,
     ProcessPollFoldAudit,
+    expand_process_poll_folds,
 )
+from fast_agent.llm.compaction_support import CompactionStrategy
 from fast_agent.llm.usage_tracking import UsageReport, UsageSummary
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import load_messages
 from fast_agent.privacy.sanitizer import RedactionAccumulator
 from fast_agent.session.atif_models import (
     AtifAgent,
+    AtifAudioSource,
     AtifContent,
     AtifContentPart,
     AtifFinalMetrics,
@@ -47,14 +64,17 @@ from fast_agent.session.atif_models import (
     AtifSubagentTrajectoryRef,
     AtifToolCall,
     AtifTrajectory,
+    atif_audio_media_type,
+    atif_image_media_type,
 )
 from fast_agent.session.snapshot import load_session_snapshot
 from fast_agent.session.trace_export_models import ExportResult
+from fast_agent.tools.invocation_context import outer_tool_call_id
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
     from datetime import datetime
-    from typing import Literal, TypeGuard
+    from typing import Literal
 
     from fast_agent.privacy.sanitizer import RedactionSummary, TraceSanitizer
     from fast_agent.session.trace_export_models import ResolvedSessionExport
@@ -149,6 +169,22 @@ def _usage_report(message: PromptMessageExtended) -> UsageReport | None:
         return None
 
 
+class ObservedAccounting(TypedDict):
+    schema: Literal["fast-agent.accounting/v1"]
+    scope: Literal["observed"]
+    provider_usage_complete: bool
+    observed_token_availability: dict[str, bool]
+
+
+def _accounting(complete: bool, availability: dict[str, bool]) -> ObservedAccounting:
+    return {
+        "schema": "fast-agent.accounting/v1",
+        "scope": "observed",
+        "provider_usage_complete": complete,
+        "observed_token_availability": availability,
+    }
+
+
 def _usage(message: PromptMessageExtended) -> AtifMetrics | None:
     report = _usage_report(message)
     if report is None:
@@ -161,9 +197,26 @@ def _usage(message: PromptMessageExtended) -> AtifMetrics | None:
         if all(cost is not None for cost in costs)
         else None
     )
+    observed = {
+        "prompt_tokens": _sum_known_optional_int(a.prompt.total for a in report.provider_attempts),
+        "completion_tokens": _sum_known_optional_int(
+            a.completion.total for a in report.provider_attempts
+        ),
+        "cached_tokens": _sum_known_optional_int(
+            a.prompt.cache_read for a in report.provider_attempts
+        ),
+        "reasoning_tokens": _sum_known_optional_int(
+            a.completion.reasoning for a in report.provider_attempts
+        ),
+        "tool_use_prompt_tokens": _sum_known_optional_int(
+            a.prompt.tool_use for a in report.provider_attempts
+        ),
+        "cost_usd": _sum_known_optional_float(costs),
+    }
     metric_extra = {
         key: value
         for key, value in {
+            **{f"observed_{key}_lower_bound": value for key, value in observed.items()},
             "provider": turn.provider.value,
             "upstream_provider": turn.upstream_provider,
             "usage_schema": turn.usage_schema.value,
@@ -214,34 +267,38 @@ def _reasoning_effort(model_name: str | None) -> str | None:
     return None
 
 
-type AtifImageMime = Literal["image/jpeg", "image/png", "image/gif", "image/webp"]
-
-
-def _is_atif_image_mime(value: str) -> TypeGuard[AtifImageMime]:
-    return value in {"image/jpeg", "image/png", "image/gif", "image/webp"}
+def _atif_media_part(block: object) -> AtifContentPart | None:
+    if isinstance(block, ImageContent):
+        image_type = atif_image_media_type(block.mime_type)
+        if image_type is None:
+            return None
+        return AtifContentPart(
+            type="image",
+            source=AtifImageSource(
+                media_type=image_type,
+                path=f"data:{image_type};base64,{block.data}",
+            ),
+        )
+    if isinstance(block, AudioContent):
+        audio_type = atif_audio_media_type(block.mime_type)
+        if audio_type is None:
+            return None
+        return AtifContentPart(
+            type="audio",
+            source=AtifAudioSource(
+                media_type=audio_type,
+                path=f"data:{audio_type};base64,{block.data}",
+            ),
+        )
+    return None
 
 
 def _atif_content(blocks: list[object]) -> AtifContent:
-    images = [
-        block
-        for block in blocks
-        if isinstance(block, ImageContent) and _is_atif_image_mime(block.mime_type)
-    ]
     texts = [block.text for block in blocks if isinstance(block, TextContent)]
-    if not images:
+    media = [part for block in blocks if (part := _atif_media_part(block)) is not None]
+    if not media:
         return "\n".join(texts)
-    parts = [AtifContentPart(type="text", text=text) for text in texts]
-    parts.extend(
-        AtifContentPart(
-            type="image",
-            source=AtifImageSource(
-                media_type=cast("AtifImageMime", image.mime_type),
-                path=f"data:{image.mime_type};base64,{image.data}",
-            ),
-        )
-        for image in images
-    )
-    return parts
+    return [AtifContentPart(type="text", text=text) for text in texts] + media
 
 
 def _result_content(result: CallToolResult) -> AtifContent:
@@ -288,6 +345,10 @@ def _tool_result_extra(
     metadata = (_json_channel_mapping(message, FAST_AGENT_TOOL_METADATA) or {}).get(call_id)
     if isinstance(metadata, dict):
         extra["tool_metadata"] = metadata
+    ptc_calls = (result.meta or {}).get(FAST_AGENT_PTC_CALLS)
+    if isinstance(ptc_calls, list):
+        extra["ptc_calls"] = ptc_calls
+        extra["ptc_calls_schema"] = "fast-agent.ptc-calls/v1"
     subagent_metadata = (result.meta or {}).get(FAST_AGENT_SUBAGENT_RESULT_METADATA)
     if isinstance(subagent_metadata, dict):
         label = subagent_metadata.get("label")
@@ -314,6 +375,9 @@ def _step_timing_extra(message: PromptMessageExtended) -> dict[str, object]:
     retry = _json_channel_mapping(message, FAST_AGENT_RETRY)
     if retry:
         extra["retry"] = retry
+    provider_error = _json_channel_mapping(message, FAST_AGENT_PROVIDER_ERROR)
+    if provider_error:
+        extra["provider_error"] = provider_error
     return extra
 
 
@@ -338,17 +402,6 @@ def _process_poll_folds(
     ]
 
 
-def _parse_process_poll_fold_audit(
-    fold: dict[str, object],
-) -> ProcessPollFoldAudit:
-    if "audit" not in fold:
-        raise ValueError("Managed-process poll fold is missing its audit archive")
-    try:
-        return ProcessPollFoldAudit.model_validate(fold.get("audit"))
-    except ValueError as exc:
-        raise ValueError("Managed-process poll fold audit archive is invalid") from exc
-
-
 def _context_rewrite(
     rewrite: ArchivedContextRewrite,
     *,
@@ -370,10 +423,7 @@ def _reconstruct_process_poll_audit_items(
 ) -> list[_AuditHistoryItem]:
     items: list[_AuditHistoryItem] = []
     rewrite_index = 0
-    exchanges = [
-        *audit.removed_exchanges,
-        *audit.retained_exchanges,
-    ]
+    exchanges = audit.exchanges
     for index, exchange in enumerate(exchanges):
         next_request_timestamp = (
             exchanges[index + 1].request.timestamp if index + 1 < len(exchanges) else None
@@ -416,57 +466,121 @@ def _expand_process_poll_folds(
     source: AtifRunSource,
 ) -> list[_AuditHistoryItem]:
     items: list[_AuditHistoryItem] = []
-    history = source.history
-    index = 0
-
-    while index < len(history):
-        message = history[index]
-        timestamp = source.message_timestamps[index]
-        if index + 1 >= len(history):
-            items.append(_AuditMessage(message=message, timestamp=timestamp))
-            index += 1
+    for segment in expand_process_poll_folds(source.history):
+        if isinstance(segment, HistoryMessage):
+            timestamp = source.message_timestamps[segment.index]
+            items.append(_AuditMessage(message=segment.message, timestamp=timestamp))
             continue
-
-        result_message = history[index + 1]
-        fold = _json_channel_mapping(result_message, FAST_AGENT_PROCESS_POLL_FOLD)
-        if fold is None:
-            items.append(_AuditMessage(message=message, timestamp=timestamp))
-            index += 1
-            continue
-        audit = _parse_process_poll_fold_audit(fold)
-        retained_call_ids = [exchange.call_id for exchange in audit.retained_exchanges]
-        retained_call_id = retained_call_ids[-1]
-        if retained_call_id not in (message.tool_calls or {}) or retained_call_id not in (
-            result_message.tool_results or {}
-        ):
-            raise ValueError("Managed-process poll fold retained exchange is invalid")
-
-        earlier_retained_call_ids = retained_call_ids[:-1]
-        retained_suffix_items = len(earlier_retained_call_ids) * 2
-        if retained_suffix_items > len(items):
-            raise ValueError("Managed-process poll fold retained-step archive is inconsistent")
-        if earlier_retained_call_ids:
-            suffix = items[-retained_suffix_items:]
-            suffix_call_ids = [
-                call_id
-                for archived_item in suffix
-                if isinstance(archived_item, _AuditMessage)
-                for call_id in (archived_item.message.tool_calls or {})
-            ]
-            if suffix_call_ids != earlier_retained_call_ids:
-                raise ValueError("Managed-process poll fold retained call IDs are inconsistent")
-            del items[-retained_suffix_items:]
-
-        fallback_timestamp = result_message.timestamp or source.message_timestamps[index + 1]
+        result_message = source.history[segment.index]
         items.extend(
             _reconstruct_process_poll_audit_items(
-                audit,
-                fallback_timestamp=fallback_timestamp,
+                segment.audit,
+                fallback_timestamp=(
+                    result_message.timestamp or source.message_timestamps[segment.index]
+                ),
             )
         )
-        index += 2
-
     return items
+
+
+def live_export_history(
+    history: list[PromptMessageExtended],
+    transient: list[PromptMessageExtended] | None,
+    session_dir: Path | None,
+    agent_name: str,
+) -> list[PromptMessageExtended]:
+    """Keep no-history turn exports, but never let a transient hide compaction."""
+    if not any(FAST_AGENT_COMPACTION_CHANNEL in (message.channels or {}) for message in history):
+        return _expand_pending_tool_media(list(transient or history))
+    restored = reconstruct_history(history, session_dir, agent_name)
+    if not transient:
+        return _expand_pending_tool_media(restored)
+    # Compare the lossless original poll messages to the raw ToolRunner turn,
+    # not its rewritten/folded prompt representation. Keep the folded form in
+    # the result so the normal writer still emits every poll context boundary.
+    audit = _expand_process_poll_folds(
+        AtifRunSource(
+            session_id="",
+            agent_name=agent_name,
+            model_name=None,
+            provider=None,
+            history=restored,
+            message_timestamps=tuple(message.timestamp for message in restored),
+        )
+    )
+    originals = [
+        item.message
+        for item in audit
+        if isinstance(item, _AuditMessage) and not is_export_marker(item.message)
+    ]
+    if any(
+        FAST_AGENT_PENDING_MEDIA_ATTACHMENTS in (message.channels or {}) for message in transient
+    ):
+        originals = _raw_tool_turn_messages(originals)
+    joined = reconcile_transient(
+        restored,
+        transient,
+        overlap_history=originals,
+        allow_missing_input_timestamps=True,
+    )
+    return _expand_pending_tool_media(joined)
+
+
+def _raw_tool_turn_messages(
+    history: list[PromptMessageExtended],
+) -> list[PromptMessageExtended]:
+    """Undo media staging for overlap comparison only; exported history stays canonical."""
+    result: list[PromptMessageExtended] = []
+    for message in history:
+        if (
+            FAST_AGENT_TOOL_MEDIA_MESSAGE in (message.channels or {})
+            and result
+            and result[-1].tool_results
+            and FAST_AGENT_PENDING_MEDIA_ATTACHMENTS not in (result[-1].channels or {})
+        ):
+            previous = result[-1]
+            result[-1] = previous.model_copy(
+                update={
+                    "channels": {
+                        **(previous.channels or {}),
+                        FAST_AGENT_PENDING_MEDIA_ATTACHMENTS: list(message.content),
+                    }
+                }
+            )
+        else:
+            result.append(message)
+    return result
+
+
+def _expand_pending_tool_media(
+    history: list[PromptMessageExtended],
+) -> list[PromptMessageExtended]:
+    """Surface attachments from completed tool results whose next LLM call failed."""
+    result: list[PromptMessageExtended] = []
+    for message in history:
+        channels = dict(message.channels or {})
+        pending = channels.pop(FAST_AGENT_PENDING_MEDIA_ATTACHMENTS, None)
+        if not message.tool_results or not pending:
+            result.append(message)
+            continue
+        result.append(message.model_copy(update={"channels": channels or None}))
+        media_channels: dict[str, list[ContentBlock]] = {
+            FAST_AGENT_TOOL_MEDIA_MESSAGE: [
+                TextContent(type="text", text="Tool media continuation")
+            ]
+        }
+        if COPIED_CONTEXT in channels:
+            media_channels[COPIED_CONTEXT] = list(channels[COPIED_CONTEXT])
+        result.append(
+            PromptMessageExtended(
+                role="user",
+                content=list(pending),
+                channels=media_channels,
+                timestamp=message.timestamp,
+                is_template=message.is_template,
+            )
+        )
+    return result
 
 
 def _resolve_call_step_ids(
@@ -481,12 +595,137 @@ def _resolve_call_step_ids(
     return [call_step_ids[call_id] for call_id in call_ids]
 
 
+def _copied_role(message: PromptMessageExtended) -> object:
+    return (_json_channel_mapping(message, COPIED_CONTEXT) or {}).get("role")
+
+
+def _summary_call_trajectory(
+    source: AtifRunSource,
+    summary_call: dict[str, object],
+    *,
+    trajectory_id: str,
+    parent_step_id: int,
+    input_step_ids: list[int],
+) -> AtifTrajectory:
+    request = summary_call.get("summary_request")
+    if not isinstance(request, str):
+        raise ValueError("Compaction summary request is malformed")
+    response = PromptMessageExtended.model_validate(summary_call.get("summary_response"))
+    history = [Prompt.user(request), response]
+    report = _usage_report(response)
+    child = build_atif_trajectory(
+        AtifRunSource(
+            session_id=source.session_id,
+            agent_name=source.agent_name,
+            model_name=report.final_attempt.model if report else source.model_name,
+            provider=source.provider,
+            history=history,
+            message_timestamps=(None, response.timestamp),
+        )
+    )
+    child.trajectory_id = trajectory_id
+    child.extra = {
+        "role": "context_compaction_summary",
+        "parent_step_id": parent_step_id,
+        # The summarizer saw these parent steps followed by this request; they are
+        # referenced rather than copied to avoid duplicating the compacted region.
+        "input_step_ids": input_step_ids,
+    }
+    return child
+
+
 def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
+    history = reconstruct_history(source.history, source.parent_session_dir, source.agent_name)
+    if history != source.history:
+        source = replace(
+            source,
+            history=history,
+            message_timestamps=tuple(message.timestamp for message in history),
+        )
     model_name = source.model_name
     steps: list[AtifStep] = []
     call_step_ids: dict[str, int] = {}
+    # Step IDs the model can see, in model order. Summary boundaries use it to
+    # name the steps they remove and retain.
+    context_step_ids: list[int] = []
+    compaction_children: list[AtifTrajectory] = []
+    summary_boundaries_with_usage = 0
+    provider_checkpoint_boundaries = 0
     audit_items = _expand_process_poll_folds(source)
     context_boundary_count = 0
+
+    def append_message(
+        message: PromptMessageExtended,
+        timestamp: datetime | None,
+        *,
+        copied_from_step_id: int | None = None,
+    ) -> int | None:
+        timestamp_text = timestamp.isoformat().replace("+00:00", "Z") if timestamp else None
+        if message.tool_results:
+            for call_id, result in message.tool_results.items():
+                _attach_tool_result(
+                    steps,
+                    call_id,
+                    result,
+                    _tool_result_extra(message, call_id, result),
+                )
+            return None
+        copied = COPIED_CONTEXT in (message.channels or {})
+        step_source = "agent" if message.role == "assistant" else "user"
+        calls = _tool_calls(message) if step_source == "agent" else None
+        step_extra = _step_timing_extra(message) if step_source == "agent" and not copied else {}
+        if step_source == "agent" and message.stop_reason is not None:
+            step_extra["stop_reason"] = str(message.stop_reason)
+        if step_source == "agent" and message.phase is not None:
+            step_extra["phase"] = str(message.phase)
+        if copied_from_step_id is not None:
+            step_extra["copied_from_step_id"] = copied_from_step_id
+        steps.append(
+            AtifStep(
+                step_id=len(steps) + 1,
+                timestamp=timestamp_text,
+                source=step_source,
+                model_name=model_name if step_source == "agent" else None,
+                reasoning_effort=(
+                    source.reasoning_effort or _reasoning_effort(model_name)
+                    if step_source == "agent"
+                    else None
+                ),
+                message=_atif_content(list(message.content)),
+                reasoning_content=(
+                    _channel_text(message, REASONING)
+                    if step_source == "agent" and not copied
+                    else None
+                ),
+                tool_calls=calls,
+                # Copied steps restate earlier interactions: they carry no new
+                # LLM call, so usage and call accounting stay on the original.
+                metrics=_usage(message) if step_source == "agent" and not copied else None,
+                llm_call_count=(
+                    (0 if copied else _llm_call_count(message)) if step_source == "agent" else None
+                ),
+                is_copied_context=True if copied else None,
+                extra=step_extra or None,
+            )
+        )
+        for call in calls or ():
+            call_step_ids[call.tool_call_id] = steps[-1].step_id
+        return steps[-1].step_id
+
+    def append_copies(
+        copies: list[PromptMessageExtended],
+        original_step_ids: list[int],
+        timestamp: datetime | None,
+    ) -> list[int]:
+        originals = iter(original_step_ids)
+        copy_ids: list[int] = []
+        for message in copies:
+            original = None if message.tool_results else next(originals)
+            step_id = append_message(message, timestamp, copied_from_step_id=original)
+            if step_id is not None:
+                copy_ids.append(step_id)
+        return copy_ids
+
     if source.system_prompt:
         steps.append(
             AtifStep(
@@ -495,7 +734,11 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
                 message=source.system_prompt,
             )
         )
-    for item in audit_items:
+        context_step_ids.append(1)
+    index = 0
+    while index < len(audit_items):
+        item = audit_items[index]
+        index += 1
         if isinstance(item, _ContextRewrite):
             removed_step_ids = _resolve_call_step_ids(
                 item.removed_call_ids,
@@ -520,6 +763,9 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
                 item.timestamp.isoformat().replace("+00:00", "Z") if item.timestamp else None
             )
             context_boundary_count += 1
+            context_step_ids = [
+                step_id for step_id in context_step_ids if step_id not in removed_step_ids
+            ]
             steps.append(
                 AtifStep(
                     step_id=len(steps) + 1,
@@ -542,48 +788,105 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
             continue
 
         message = item.message
-        timestamp = item.timestamp
-        timestamp_text = timestamp.isoformat().replace("+00:00", "Z") if timestamp else None
-        if message.tool_results:
-            for call_id, result in message.tool_results.items():
-                _attach_tool_result(
-                    steps,
-                    call_id,
-                    result,
-                    _tool_result_extra(message, call_id, result),
-                )
+        boundary = _json_channel_mapping(message, COMPACTION_BOUNDARY)
+        if boundary is None:
+            step_id = append_message(message, item.timestamp)
+            if step_id is not None:
+                context_step_ids.append(step_id)
             continue
-        step_source = "agent" if message.role == "assistant" else "user"
-        calls = _tool_calls(message) if step_source == "agent" else None
-        step_extra = _step_timing_extra(message)
-        if message.stop_reason is not None:
-            step_extra["stop_reason"] = str(message.stop_reason)
-        if message.phase is not None:
-            step_extra["phase"] = str(message.phase)
+
+        copies: list[PromptMessageExtended] = []
+        while index < len(audit_items):
+            candidate = audit_items[index]
+            if not isinstance(candidate, _AuditMessage):
+                break
+            if COPIED_CONTEXT not in (candidate.message.channels or {}):
+                break
+            copies.append(candidate.message)
+            index += 1
+        template_copies = [m for m in copies if _copied_role(m) == "template"]
+        tail_copies = [m for m in copies if _copied_role(m) == "retained_tail"]
+        if len(template_copies) + len(tail_copies) != len(copies):
+            raise ValueError("Compaction copied context is malformed")
+        system_ids = context_step_ids[:1] if source.system_prompt else []
+        body = context_step_ids[len(system_ids) :]
+        template_count = sum(not m.tool_results for m in template_copies)
+        tail_count = sum(not m.tool_results for m in tail_copies)
+        if template_count + tail_count > len(body):
+            raise ValueError("Compaction boundary does not match the exported context")
+        template_ids = body[:template_count]
+        tail_ids = body[len(body) - tail_count :] if tail_count else []
+        removed_ids = body[template_count : len(body) - tail_count]
+
+        summary_call = boundary.pop("summary_call", None)
+        if boundary.get("strategy") != CompactionStrategy.SUMMARY.value:
+            provider_checkpoint_boundaries += 1
+        boundary_step_id = len(steps) + 1
+        timestamp = item.timestamp
+        summary_ref: list[AtifSubagentTrajectoryRef] | None = None
+        if isinstance(summary_call, dict):
+            child = _summary_call_trajectory(
+                source,
+                summary_call,
+                trajectory_id=f"compaction-step-{boundary_step_id}",
+                parent_step_id=boundary_step_id,
+                input_step_ids=[*system_ids, *template_ids, *removed_ids],
+            )
+            compaction_children.append(child)
+            summary_boundaries_with_usage += 1
+            summary_ref = [
+                AtifSubagentTrajectoryRef(
+                    trajectory_id=child.trajectory_id,
+                    session_id=child.session_id,
+                    extra={"role": "context_compaction_summary"},
+                )
+            ]
         steps.append(
             AtifStep(
-                step_id=len(steps) + 1,
-                timestamp=timestamp_text,
-                source=step_source,
-                model_name=model_name if step_source == "agent" else None,
-                reasoning_effort=(
-                    source.reasoning_effort or _reasoning_effort(model_name)
-                    if step_source == "agent"
-                    else None
+                step_id=boundary_step_id,
+                timestamp=timestamp.isoformat().replace("+00:00", "Z") if timestamp else None,
+                source="system",
+                message="Context compaction performed",
+                observation=AtifObservation(
+                    results=[
+                        AtifObservationResult(
+                            content=_atif_content(list(message.content)),
+                            subagent_trajectory_ref=summary_ref,
+                        )
+                    ]
                 ),
-                message=_atif_content(list(message.content)),
-                reasoning_content=(
-                    _channel_text(message, REASONING) if step_source == "agent" else None
-                ),
-                tool_calls=calls,
-                metrics=_usage(message) if step_source == "agent" else None,
-                llm_call_count=_llm_call_count(message) if step_source == "agent" else None,
-                extra=step_extra if step_source == "agent" and step_extra else None,
+                extra={"context_management": boundary},
             )
         )
-        if calls:
-            for call in calls:
-                call_step_ids[call.tool_call_id] = steps[-1].step_id
+        system_copy_ids: list[int] = []
+        if source.system_prompt:
+            steps.append(
+                AtifStep(
+                    step_id=len(steps) + 1,
+                    timestamp=steps[-1].timestamp,
+                    source="system",
+                    message=source.system_prompt,
+                    is_copied_context=True,
+                    extra={"copied_from_step_id": system_ids[0]},
+                )
+            )
+            system_copy_ids.append(steps[-1].step_id)
+        template_copy_ids = append_copies(template_copies, template_ids, timestamp)
+        tail_copy_ids = append_copies(tail_copies, tail_ids, timestamp)
+        boundary.update(
+            {
+                "removed_step_ids": removed_ids,
+                "retained_step_ids": [*system_ids, *template_ids, *tail_ids],
+                "copied_step_ids": [*system_copy_ids, *template_copy_ids, *tail_copy_ids],
+                "replacement_source": "observation",
+            }
+        )
+        context_step_ids = [
+            *system_copy_ids,
+            *template_copy_ids,
+            boundary_step_id,
+            *tail_copy_ids,
+        ]
     if not steps:
         raise ValueError("ATIF trajectories require at least one interaction step")
     metrics = [
@@ -591,6 +894,10 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
     ]
     usage_coverage = _usage_coverage_extra(steps)
     usage_calls_complete = usage_coverage["llm_usage_calls_complete"]
+    summary_boundaries = sum(
+        COMPACTION_BOUNDARY in (message.channels or {}) for message in source.history
+    )
+    summary_usage_complete = summary_boundaries_with_usage == summary_boundaries
     total_reasoning_tokens = _sum_optional_int(
         _metric_extra_int(item, "reasoning_tokens") if item is not None else None
         for item in metrics
@@ -634,6 +941,21 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
                 "folded_process_poll_steps": folded_polls or None,
                 "process_poll_context_rewrites": context_boundary_count or None,
                 **usage_coverage,
+                "accounting": _accounting(bool(usage_calls_complete), _token_availability(steps)),
+                **(
+                    {
+                        "summary_compactions": summary_boundaries,
+                        "provider_checkpoint_compactions": (provider_checkpoint_boundaries or None),
+                        "summary_compaction_usage_complete": summary_usage_complete,
+                        "accounting_scope": (
+                            None
+                            if summary_usage_complete
+                            else "original_assistant_messages_excluding_summary_calls"
+                        ),
+                    }
+                    if summary_boundaries
+                    else {}
+                ),
             }.items()
             if value is not None
         }
@@ -658,10 +980,14 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
         ),
         steps=steps,
         final_metrics=total,
+        subagent_trajectories=compaction_children or None,
         extra=source.extra,
         notes=_atif_notes(
             source.notes,
             context_boundary_count=context_boundary_count,
+            summary_boundary_count=summary_boundaries,
+            provider_checkpoint_count=provider_checkpoint_boundaries,
+            summary_usage_complete=summary_usage_complete,
         ),
     )
     _embed_subagent_trajectories(trajectory, source)
@@ -672,8 +998,32 @@ def _atif_notes(
     notes: str | None,
     *,
     context_boundary_count: int,
+    summary_boundary_count: int = 0,
+    summary_usage_complete: bool = True,
+    provider_checkpoint_count: int = 0,
 ) -> str | None:
     additions: list[str] = []
+    if summary_boundary_count:
+        additions.append(
+            "Summary compaction archives restore the audit history before each "
+            "context_management replace boundary. The boundary observation holds the "
+            "summary; the system prompt, templates, and retained tail that stay visible "
+            "to the model follow it as is_copied_context steps, which carry no usage."
+        )
+        additions.append(
+            "Summary-generation calls are embedded as subagent trajectories referenced "
+            "from each boundary observation and included in final metrics."
+            if summary_usage_complete
+            else "Some summary-generation calls were not persisted: accounting excludes "
+            "them, so these totals are not complete run spend."
+        )
+    if provider_checkpoint_count:
+        additions.append(
+            "Boundaries with a provider-native strategy (for example openai_compaction) "
+            "replaced the compacted region with an opaque, encrypted provider checkpoint: "
+            "their observation describes the checkpoint rather than quoting a readable "
+            "summary, and the embedded call is the provider's compaction request."
+        )
     if context_boundary_count:
         additions.append(
             "Managed-process polling folds preserve every original LLM/tool step for "
@@ -718,19 +1068,58 @@ def _usage_coverage_extra(steps: Iterable[AtifStep]) -> dict[str, int | float | 
         "llm_usage_observed_call_count": observed_calls,
         "llm_usage_call_coverage_ratio": coverage_ratio,
         "llm_usage_calls_complete": usage_complete,
-        "observed_prompt_tokens_lower_bound": sum(item.prompt_tokens or 0 for item in metrics),
-        "observed_completion_tokens_lower_bound": sum(
-            item.completion_tokens or 0 for item in metrics
-        ),
-        "observed_cached_tokens_lower_bound": sum(item.cached_tokens or 0 for item in metrics),
-        "observed_cost_usd_lower_bound": sum(item.cost_usd or 0.0 for item in metrics),
-        "observed_reasoning_tokens_lower_bound": sum(
-            _metric_extra_int(item, "reasoning_tokens") or 0 for item in metrics
-        ),
-        "observed_tool_use_prompt_tokens_lower_bound": sum(
-            _metric_extra_int(item, "tool_use_prompt_tokens") or 0 for item in metrics
-        ),
+        **{
+            f"observed_{key}_lower_bound": sum(_observed_metric(item, key) or 0 for item in metrics)
+            for key in (
+                "prompt_tokens",
+                "completion_tokens",
+                "cached_tokens",
+                "cost_usd",
+                "reasoning_tokens",
+                "tool_use_prompt_tokens",
+            )
+        },
     }
+
+
+def _observed_metric(metrics: AtifMetrics, key: str) -> int | float | None:
+    observed = (metrics.extra or {}).get(f"observed_{key}_lower_bound")
+    if isinstance(observed, (int, float)) and not isinstance(observed, bool):
+        return observed
+    canonical = {
+        "prompt_tokens": metrics.prompt_tokens,
+        "completion_tokens": metrics.completion_tokens,
+        "cached_tokens": metrics.cached_tokens,
+        "cost_usd": metrics.cost_usd,
+        "reasoning_tokens": _metric_extra_int(metrics, "reasoning_tokens"),
+        "tool_use_prompt_tokens": _metric_extra_int(metrics, "tool_use_prompt_tokens"),
+    }
+    return canonical[key]
+
+
+def _token_availability(steps: Iterable[AtifStep]) -> dict[str, bool]:
+    metrics = [
+        step.metrics
+        for step in steps
+        if step.source == "agent" and (step.llm_call_count or 0) > 0 and step.metrics is not None
+    ]
+    return {
+        key: any(_observed_metric(item, key) is not None for item in metrics)
+        for key in ("prompt_tokens", "completion_tokens", "cached_tokens")
+    }
+
+
+def _trajectory_token_availability(trajectory: AtifTrajectory) -> dict[str, bool]:
+    extra = (trajectory.final_metrics.extra if trajectory.final_metrics else None) or {}
+    accounting = extra.get("accounting")
+    if isinstance(accounting, dict):
+        availability = accounting.get("observed_token_availability")
+        if isinstance(availability, dict):
+            return {
+                key: availability.get(key) is True
+                for key in ("prompt_tokens", "completion_tokens", "cached_tokens")
+            }
+    return _token_availability(trajectory.steps)
 
 
 def _metrics_observed_call_count(metrics: AtifMetrics | None) -> int:
@@ -833,12 +1222,17 @@ def _embed_subagent_trajectories(
     root: AtifTrajectory,
     source: AtifRunSource,
 ) -> None:
-    embedded: list[AtifTrajectory] = []
+    # Compaction summary calls are embedded while their boundary steps are built.
+    embedded: list[AtifTrajectory] = list(root.subagent_trajectories or ())
     embedded_session_ids: set[str] = set()
     embedded_call_ids: set[str] = set()
     exported_call_ids = {
         call.tool_call_id for step in root.steps for call in (step.tool_calls or ())
     }
+
+    def _is_exported(parent_call_id: str) -> bool:
+        # Children of calls made from PTC code hang off the exported exec_sandbox call.
+        return outer_tool_call_id(parent_call_id) in exported_call_ids
 
     parent_session_dir = source.parent_session_dir
     if parent_session_dir is not None:
@@ -851,17 +1245,17 @@ def _embed_subagent_trajectories(
                 if child.session_id in embedded_session_ids:
                     continue
                 parent_call_id = _child_parent_call_id(child)
-                if parent_call_id is not None and parent_call_id not in exported_call_ids:
+                if parent_call_id is not None and not _is_exported(parent_call_id):
                     continue
                 embedded.append(child)
                 embedded_session_ids.add(child.session_id)
                 if parent_call_id is not None:
                     embedded_call_ids.add(parent_call_id)
-                    _attach_subagent_ref(root, parent_call_id, child)
+                    _attach_subagent_ref(root, outer_tool_call_id(parent_call_id), child)
 
     for record in source.transient_child_trajectories:
         parent_call_id = record.parent_tool_call_id
-        if parent_call_id is not None and parent_call_id not in exported_call_ids:
+        if parent_call_id is not None and not _is_exported(parent_call_id):
             continue
         if parent_call_id is not None and parent_call_id in embedded_call_ids:
             continue
@@ -869,7 +1263,7 @@ def _embed_subagent_trajectories(
         embedded.append(child)
         if parent_call_id is not None:
             embedded_call_ids.add(parent_call_id)
-            _attach_subagent_ref(root, parent_call_id, child)
+            _attach_subagent_ref(root, outer_tool_call_id(parent_call_id), child)
 
     directory = source.child_trajectory_dir
     if directory is None and parent_session_dir is not None:
@@ -889,7 +1283,7 @@ def _embed_subagent_trajectories(
             continue
         parent_call_id = payload.get("parent_tool_call_id")
         child_session_id = payload.get("child_session_id")
-        if isinstance(parent_call_id, str) and parent_call_id not in exported_call_ids:
+        if isinstance(parent_call_id, str) and not _is_exported(parent_call_id):
             continue
         if (
             isinstance(child_session_id, str)
@@ -905,7 +1299,7 @@ def _embed_subagent_trajectories(
         embedded.append(child)
         if isinstance(parent_call_id, str) and child.trajectory_id is not None:
             embedded_call_ids.add(parent_call_id)
-            _attach_subagent_ref(root, parent_call_id, child)
+            _attach_subagent_ref(root, outer_tool_call_id(parent_call_id), child)
     if embedded:
         root.subagent_trajectories = embedded
         _include_subagent_metrics(root, embedded)
@@ -1045,6 +1439,7 @@ def _load_child_session_trajectory(
             provider=active_agent.provider,
             history=history,
             message_timestamps=tuple(message.timestamp for message in history),
+            parent_session_dir=child_dir,
             extra={
                 key: value
                 for key, value in {
@@ -1099,6 +1494,21 @@ def _final_metrics_from_usage_summary(
         observed_calls,
     )
     usage_complete = observed_calls == expected_calls
+    availability = _token_availability(steps)
+    summary_tokens = {
+        "prompt_tokens": usage.prompt.total,
+        "completion_tokens": usage.completion.total,
+        "cached_tokens": usage.prompt.cache_read,
+        "reasoning_tokens": usage.completion.reasoning,
+        "tool_use_prompt_tokens": usage.prompt.tool_use,
+    }
+    # The summary covers the same calls, not additional consumption. Complete
+    # summary fields supersede step sums; absent fields must not erase evidence.
+    for key, value in summary_tokens.items():
+        if value is not None:
+            coverage[f"observed_{key}_lower_bound"] = value
+            if key in availability:
+                availability[key] = True
     coverage.update(
         {
             "llm_usage_expected_call_count": expected_calls,
@@ -1107,11 +1517,6 @@ def _final_metrics_from_usage_summary(
                 observed_calls / expected_calls if expected_calls else 1.0
             ),
             "llm_usage_calls_complete": usage_complete,
-            "observed_prompt_tokens_lower_bound": usage.prompt.total or 0,
-            "observed_completion_tokens_lower_bound": usage.completion.total or 0,
-            "observed_cached_tokens_lower_bound": usage.prompt.cache_read or 0,
-            "observed_reasoning_tokens_lower_bound": usage.completion.reasoning or 0,
-            "observed_tool_use_prompt_tokens_lower_bound": usage.prompt.tool_use or 0,
         }
     )
     return AtifFinalMetrics(
@@ -1125,6 +1530,7 @@ def _final_metrics_from_usage_summary(
                 "total_reasoning_tokens": (usage.completion.reasoning if usage_complete else None),
                 "total_tool_use_tokens": (usage.prompt.tool_use if usage_complete else None),
                 **coverage,
+                "accounting": _accounting(usage_complete, availability),
             }.items()
             if value is not None
         },
@@ -1217,10 +1623,15 @@ def _include_subagent_metrics(
     if not usage_complete:
         total_reasoning_tokens = None
         total_tool_use_tokens = None
+    availability = _trajectory_token_availability(root)
+    for child in embedded:
+        for key, observed in _trajectory_token_availability(child).items():
+            availability[key] |= observed
     root_metrics.extra = {
         key: value
         for key, value in {
             **(root_metrics.extra or {}),
+            "accounting": _accounting(usage_complete, availability),
             "total_reasoning_tokens": total_reasoning_tokens,
             "total_tool_use_tokens": total_tool_use_tokens,
             "root_prompt_tokens": root_prompt_tokens,
@@ -1420,6 +1831,14 @@ def _sanitize_trajectory(
         for result in step.observation.results if step.observation else []:
             if result.content is not None:
                 result.content = _sanitize_content(result.content, sanitizer, redactions)
+            ptc_calls = (result.extra or {}).get("ptc_calls")
+            if result.extra is not None and isinstance(ptc_calls, list):
+                result.extra["ptc_calls"] = [
+                    {**call, "arguments": _sanitize_value(call["arguments"], sanitizer, redactions)}
+                    if isinstance(call, dict) and "arguments" in call
+                    else call
+                    for call in ptc_calls
+                ]
     for child in trajectory.subagent_trajectories or []:
         child_summary = _sanitize_trajectory(child, sanitizer)
         if child_summary is not None:

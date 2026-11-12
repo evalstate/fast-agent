@@ -30,6 +30,7 @@ from fast_agent.core.agent_capabilities import (
     agent_capability_mode_supported,
     resolve_agent_capability_mode,
 )
+from fast_agent.history.turns import total_user_turns
 from fast_agent.llm.model_display_name import resolve_model_display_name
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
@@ -115,6 +116,7 @@ class ToolbarAgentState:
     tdv_segment: str | None = None
     turn_count: int = 0
     context_pct: float | None = None
+    is_copilot_model: bool = False
     is_codex_responses_model: bool = False
     is_overlay_model: bool = False
     model_gauges: str = ""
@@ -127,6 +129,7 @@ class ToolbarAgentState:
 
 @dataclass(slots=True)
 class ModelVisualState:
+    is_copilot_model: bool = False
     is_codex_responses_model: bool = False
     is_overlay_model: bool = False
     model_gauges: str = ""
@@ -187,6 +190,7 @@ def resolve_active_llm(
 def render_input_toolbar(
     *,
     agent_name: str,
+    show_agent_name: bool,
     toolbar_color: str,
     agent_provider: "AgentApp | None",
     multiline_mode: bool,
@@ -203,10 +207,14 @@ def render_input_toolbar(
     resolved_agent_state = _resolve_toolbar_agent_state_cached(
         agent_name, agent_provider, cache=cache
     )
-    agent_identity_segment = _format_toolbar_agent_identity(
-        agent_name,
-        toolbar_color,
-        resolved_agent_state.state.agent,
+    agent_identity_segment = (
+        _format_toolbar_agent_identity(
+            agent_name,
+            toolbar_color,
+            resolved_agent_state.state.agent,
+        )
+        if show_agent_name
+        else ""
     )
     attachment_summary = _resolve_attachment_summary(
         current_input_text=current_input_text,
@@ -401,6 +409,7 @@ def _build_toolbar_agent_state(
         tdv_segment=tdv_segment,
         turn_count=turn_count,
         context_pct=context_pct,
+        is_copilot_model=model_visuals.is_copilot_model,
         is_codex_responses_model=model_visuals.is_codex_responses_model,
         is_overlay_model=model_visuals.is_overlay_model,
         model_gauges=model_visuals.model_gauges,
@@ -497,7 +506,7 @@ def _active_process_count_for_agent(agent: object) -> int:
 
 
 def _turn_count_for_agent(agent: AgentProtocol) -> int:
-    return sum(1 for message in agent.message_history if message.role == "user")
+    return total_user_turns(agent.message_history)
 
 
 def _usage_context_for_agent(agent: AgentProtocol) -> AgentUsageContext:
@@ -579,7 +588,13 @@ def _resolve_model_visuals(
     model_name: str | None,
     llm: "FastAgentLLMProtocol | None",
 ) -> ModelVisualState:
-    visuals = ModelVisualState()
+    # Runtime provider wins: Copilot adapters expose native wire model names.
+    is_copilot_model = (
+        llm.provider == Provider.COPILOT
+        if llm is not None
+        else bool(model_name and model_name.strip().startswith(("copilot.", "copilot/")))
+    )
+    visuals = ModelVisualState(is_copilot_model=is_copilot_model)
     if model_name is None or llm is None:
         return visuals
 
@@ -707,6 +722,8 @@ def _build_middle_segment(
             model_prefix = "∞"
         elif agent_state.is_overlay_model:
             model_prefix = "▼"
+        if agent_state.is_copilot_model:
+            model_prefix = f"(cp) {model_prefix}"
         model_label = f"{model_prefix}{agent_state.model_display}"
         attachment_indicator = render_attachment_indicator(attachment_summary)
         process_indicator = render_managed_process_indicator(agent_state.active_process_count)

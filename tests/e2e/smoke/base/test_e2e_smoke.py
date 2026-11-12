@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     ],
 )
 async def test_basic_textual_prompting(fast_agent, model_name):
-    """Test that the agent can process an image and respond appropriately."""
+    """Test basic textual prompting."""
     fast = fast_agent
 
     # Define the agent

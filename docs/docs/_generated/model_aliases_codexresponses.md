@@ -1,11 +1,16 @@
 | Model Alias | Maps to |
 | --- | --- |
-| `codexplan` | `codexresponses.gpt-5.6-sol?reasoning=high` |
+| `astra` | `codexresponses.gpt-6-astra?reasoning=high` |
+| `codexplan` | `codexresponses.gpt-6-astra?reasoning=high` |
 | `codexplan53` | `codexresponses.gpt-5.3-codex?reasoning=medium` |
 | `codexplan54` | `codexresponses.gpt-5.4?reasoning=high` |
 | `codexplan55` | `codexresponses.gpt-5.5?reasoning=medium` |
 | `codexspark` | `codexresponses.gpt-5.3-codex-spark` |
 | `gpt-5.3-codex-spark` | `gpt-5.3-codex-spark` |
-| `luna` | `codexresponses.gpt-5.6-luna?reasoning=medium` |
-| `sol` | `codexresponses.gpt-5.6-sol?reasoning=high` |
-| `terra` | `codexresponses.gpt-5.6-terra?reasoning=high` |
+| `luna` | `codexresponses.gpt-6-luna?reasoning=high` |
+| `luna56` | `codexresponses.gpt-5.6-luna?reasoning=medium` |
+| `sol` | `codexresponses.gpt-6.1-sol?reasoning=high` |
+| `sol56` | `codexresponses.gpt-5.6-sol?reasoning=high` |
+| `sol6` | `codexresponses.gpt-6-sol?reasoning=medium` |
+| `terra` | `codexresponses.gpt-6.1-terra?reasoning=high` |
+| `terra56` | `codexresponses.gpt-5.6-terra?reasoning=high` |

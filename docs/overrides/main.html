@@ -3,16 +3,11 @@
 <strong><a href="https://discord.gg/xg5cJ7ndN6">Discord</a></strong>
 {% endblock %}
 
-{# The site is mono-first. Override the default Inter + JetBrains request so
-only the font family used by the design is render-blocking. #}
+{# Brand B / Forward font families from the supplied design system. #}
 {% block fonts %}
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link
-  href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=optional"
-  rel="stylesheet"
-/>
-<style>:root{--md-text-font:"JetBrains Mono";--md-code-font:"JetBrains Mono"}</style>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,100..900,0..100,0..1&family=Ultra&family=Figtree:wght@400;500;600;700;800;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 {% endblock %}
 
 {% block extrahead %} {{ super() }}

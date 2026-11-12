@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import httpx
-from a2a.client import A2ACardResolver, ClientConfig, create_client
+from a2a.client import A2ACardResolver, AgentCardResolutionError, ClientConfig, create_client
 from a2a.types import Message, Part, Role, SendMessageRequest, TaskState
 from google.protobuf.json_format import MessageToDict
 from mcp_types import TextContent
@@ -17,6 +17,7 @@ from mcp_types import TextContent
 from fast_agent.a2a.content import part_from_content
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_decorator import LlmDecorator
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.stream_types import StreamChunk
@@ -153,7 +154,13 @@ class A2ARemoteAgent(LlmDecorator):
             self.a2a_config.url,
             self.a2a_config.relative_card_path or "/.well-known/agent-card.json",
         )
-        self.remote_card = await resolver.get_agent_card()
+        try:
+            self.remote_card = await resolver.get_agent_card()
+        except AgentCardResolutionError as exc:
+            raise AgentConfigError(
+                f"Could not resolve A2A agent card for '{self.name}'",
+                f"{self.a2a_config.url}: {exc}",
+            ) from exc
         card_headers = _headers_for_resolved_card(
             url=self.a2a_config.url,
             headers=headers,
@@ -184,13 +191,18 @@ class A2ARemoteAgent(LlmDecorator):
 
     async def shutdown(self) -> None:
         client = self._client
-        if client is not None:
-            await client.close()
-            self._client = None
-        if self._httpx_client is not None:
-            await self._httpx_client.aclose()
+        self._client = None
+        try:
+            if client is not None:
+                await client.close()
+        finally:
+            httpx_client = self._httpx_client
             self._httpx_client = None
-        await super().shutdown()
+            try:
+                if httpx_client is not None:
+                    await httpx_client.aclose()
+            finally:
+                await super().shutdown()
 
     def add_stream_listener(self, listener: Callable[[StreamChunk], None]) -> Callable[[], None]:
         self._stream_listeners.append(listener)

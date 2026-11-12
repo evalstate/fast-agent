@@ -12,6 +12,7 @@ default_instruction = """You are a helpful AI Agent.
 {{agentSkills}}
 {{file_silent:AGENTS.md}}
 {{env}}
+{{herdrInstructions}}
 
 {{model_specific}}
 

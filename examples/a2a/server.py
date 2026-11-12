@@ -6,7 +6,7 @@ from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes, c
 from a2a.server.routes.common import DefaultServerCallContextBuilder
 from a2a.server.tasks.inmemory_task_store import InMemoryTaskStore
 from agent_executor import A2AHarnessAdapter, FastAgentExecutor, agent_card, fast
-from fastapi import FastAPI
+from starlette.applications import Starlette
 
 HOST = "127.0.0.1"
 PORT = 9999
@@ -21,7 +21,7 @@ async def main() -> None:
             agent_card=card,
         )
         context_builder = DefaultServerCallContextBuilder()
-        app = FastAPI(title=card.name)
+        app = Starlette()
         app.routes.extend(create_agent_card_routes(agent_card=card))
         app.routes.extend(
             create_jsonrpc_routes(

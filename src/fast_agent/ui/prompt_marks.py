@@ -20,14 +20,15 @@ def emit_prompt_mark(
     stream: TextIO | None = None,
 ) -> None:
     """Emit an OSC 133 prompt mark if enabled and stdout is a TTY."""
-    report_prompt_mark(code)
     sequence = prompt_mark_sequence(code, settings=settings, stream=stream)
-    if not sequence:
-        return
+    if sequence:
+        target_stream = stream or sys.stdout
+        target_stream.write(sequence)
+        target_stream.flush()
 
-    target_stream = stream or sys.stdout
-    target_stream.write(sequence)
-    target_stream.flush()
+    # OSC 133 A may clear status records. Publish the current status afterwards,
+    # even when prompt marks themselves are disabled.
+    report_prompt_mark(code)
 
 
 def prompt_mark_sequence(

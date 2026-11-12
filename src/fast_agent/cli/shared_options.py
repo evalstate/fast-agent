@@ -169,6 +169,18 @@ class CommonAgentOptions:
         )
 
     @staticmethod
+    def isolated():
+        return typer.Option(
+            False,
+            "--isolated",
+            help=(
+                "One-shot run that reads config, secrets and model aliases from home but writes "
+                "nothing there and loads no shell, filesystem, subagent, skill, card, plugin or "
+                "hook extensions. Only MCP servers from --servers/--url/--stdio/--npx/--uvx."
+            ),
+        )
+
+    @staticmethod
     def skills_dir():
         return typer.Option(
             None, "--skills-dir", "--skills", help="Override the default skills directory"
@@ -205,6 +217,17 @@ class CommonAgentOptions:
             False,
             "--no-shell",
             help="Disable local shell/filesystem tools, even when skills or agent config request them.",
+        )
+
+    @staticmethod
+    def ptc():
+        return typer.Option(
+            None,
+            "--ptc/--no-ptc",
+            help=(
+                "Enable or disable programmatic tool calling through a Python code tool "
+                "(local POSIX only). When omitted, use the model/configuration default."
+            ),
         )
 
     @staticmethod

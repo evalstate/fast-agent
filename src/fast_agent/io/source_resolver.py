@@ -6,12 +6,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, Protocol
 from urllib.parse import ParseResult, urlparse
 
-import requests
-
 from fast_agent.io.path_uri import file_uri_to_path
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
 REMOTE_TEXT_SCHEMES = frozenset({"http", "https", "hf"})
 
@@ -26,6 +24,8 @@ def read_text_source(source: str | Path, *, label: str = "source") -> str:
     parsed = urlparse(source_text)
 
     if parsed.scheme in {"http", "https"}:
+        import requests
+
         try:
             response = requests.get(source_text, timeout=30)
             response.raise_for_status()
@@ -76,7 +76,7 @@ def materialized_text_source(
     *,
     label: str = "source",
     suffix: str | None = None,
-) -> "Iterator[Path]":
+) -> "Generator[Path]":
     """Yield a local path for a text source and clean up remote temp files."""
     source_text = str(source)
     parsed = urlparse(source_text)

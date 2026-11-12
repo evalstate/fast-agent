@@ -81,7 +81,7 @@ def test_asciinema_player_vendor_assets_are_present() -> None:
     catppuccin_text = catppuccin.read_text(encoding="utf-8")
     assert "asciinema-player-theme-fast-agent-dark" in catppuccin_text
     assert "asciinema-player-theme-fast-agent-light" in catppuccin_text
-    assert "a2a-terminal-theme-switch" in catppuccin_text
+    assert "fa-terminal-theme-switch" in catppuccin_text
     assert "AsciinemaPlayer" in js.read_text(encoding="utf-8")[:200]
 
 

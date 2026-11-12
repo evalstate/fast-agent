@@ -9,7 +9,8 @@ from mcp import Tool
 from mcp_types import CallToolRequest, CallToolRequestParams, ListToolsResult, TextContent
 from pydantic import BaseModel
 
-from fast_agent.config import BedrockSettings
+from fast_agent.config import BedrockSettings, Settings
+from fast_agent.context import Context
 from fast_agent.llm.provider.bedrock.llm_bedrock import (
     BEDROCK_REASONING_SPEC,
     BedrockLLM,
@@ -387,8 +388,7 @@ async def test_bedrock_structured_schema_path_preserves_tools(monkeypatch):
     )
     captured_tools = None
 
-    llm = object.__new__(BedrockLLM)
-    llm.default_request_params = RequestParams(model="amazon.nova-lite-v1:0")
+    llm = BedrockLLM(model="amazon.nova-lite-v1:0", context=Context(config=Settings()))
 
     async def structured_schema(
         multipart_messages,

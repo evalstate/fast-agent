@@ -64,7 +64,6 @@ class ManagedRuntimeMixin:
     args: Any
     app: Any
     agents: dict[str, "AgentCardData"]
-    context: "Context"
     _agent_card_histories: dict[str, list[Path]]
     _agent_card_history_len: dict[str, int]
     _agent_card_history_mtime: dict[str, float]
@@ -78,8 +77,12 @@ class ManagedRuntimeMixin:
     _card_collision_warnings: list[str]
     _registered_tools: list["FunctionTool"]
     _server_instance_dispose: "Callable[[AgentInstance], Awaitable[None]] | None"
-    _server_managed_instances: list["AgentInstance"] | None
+    _server_managed_instances: list["AgentInstance"]
     _skills_directory_override: Any
+
+    @property
+    def context(self) -> "Context":
+        raise NotImplementedError
 
     def _build_model_factory_func(
         self,

@@ -7,12 +7,15 @@ from typing import TYPE_CHECKING, Any, Literal
 import httpx2
 from openai import APIError
 from openai.types.responses import (
+    Response,
+    ResponseError,
+    ResponseErrorEvent,
+    ResponseFailedEvent,
     ResponseReasoningSummaryTextDeltaEvent,
     ResponseReasoningTextDeltaEvent,
     ResponseTextDeltaEvent,
 )
 
-from fast_agent.core.exceptions import ProviderSafetyBufferingError
 from fast_agent.core.logging.json_serializer import snapshot_json_value
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
@@ -48,6 +51,7 @@ from fast_agent.llm.provider.openai.tool_event_helpers import (
 )
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider.openai.tool_stream_state import OpenAIToolStreamState
+from fast_agent.llm.provider.streaming_timeouts import ToolInputRunawayError
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.tool_activity_presentation import (
     ToolActivityFamily,
@@ -70,8 +74,7 @@ _ARGUMENT_DELTA_EVENT_TYPES = {
 type _ResponsesToolKind = Literal["tool", "server_tool", "web_search"]
 _DEFAULT_TOOL_KIND: _ResponsesToolKind = "tool"
 _SAFETY_BUFFERING_NOTICE = (
-    "Codex is safety-buffering this request. Fast-agent stopped the turn instead of "
-    "waiting or retrying the same request.\n\n"
+    "Codex is safety-buffering this request. Waiting for the original stream to continue.\n\n"
 )
 _TOOL_KIND_BY_ACTIVITY_FAMILY: dict[ToolActivityFamily, _ResponsesToolKind] = {
     "web_search": "web_search",
@@ -123,6 +126,28 @@ def _tool_progress_chunk(item: Any, *, family: ToolActivityFamily) -> str | None
     return None
 
 
+def _responses_stream_failure(event: object) -> APIError:
+    body: dict[str, object] = {}
+    match event:
+        case ResponseFailedEvent(response=Response(error=ResponseError() as error)):
+            body = {
+                "message": error.message,
+                "code": error.code,
+                "param": error.param,
+                "type": error.type,
+            }
+        case ResponseErrorEvent():
+            # A flat event's type is the event discriminator, not an API error type.
+            body = {"message": event.message, "code": event.code, "param": event.param}
+    body = {key: value for key, value in body.items() if value}
+    message = str(body.setdefault("message", "Responses stream failed."))
+    return APIError(
+        message,
+        request=httpx2.Request("POST", "https://responses.invalid/responses"),
+        body=body,
+    )
+
+
 class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
     if TYPE_CHECKING:
         from pathlib import Path
@@ -130,6 +155,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         from fast_agent.core.logging.logger import Logger
         from fast_agent.llm.tool_tracking import ToolKind
 
+        verb: str | ProgressAction | None
         logger: Logger
         name: str | None
 
@@ -153,6 +179,14 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
 
         def chat_turn(self) -> int: ...
 
+        def _get_model_params(self, model_name: str | None) -> Any: ...
+
+    def _tool_input_stream_delta_limit(self, model: str) -> int | None:
+        get_params = getattr(self, "_get_model_params", None)
+        params = get_params(model) if callable(get_params) else None
+        limit = getattr(params, "tool_input_stream_delta_limit", None)
+        return limit if isinstance(limit, int) else None
+
     def _is_provider_managed_function_call(self, name: str) -> bool:
         del name
         return False
@@ -162,10 +196,11 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         event: Any,
         *,
         model: str,
-    ) -> None:
+    ) -> bool:
+        """Log and announce safety buffering; return True when the event carried it."""
         buffering = snapshot_json_value(getattr(event, "safety_buffering", None))
         if not isinstance(buffering, dict) or not buffering:
-            return
+            return False
 
         reasons = buffering.get("reasons")
         use_cases = buffering.get("use_cases")
@@ -192,12 +227,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             },
         )
         self._notify_stream_listeners(StreamChunk(text=_SAFETY_BUFFERING_NOTICE, is_reasoning=True))
-        raise ProviderSafetyBufferingError(
-            model,
-            retry_model=retry_model if isinstance(retry_model, str) else None,
-            reasons=normalized_reasons,
-            use_cases=normalized_use_cases,
-        )
+        return True
 
     def _tool_family_for_responses_item(
         self,
@@ -589,28 +619,43 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
     async def _handle_responses_reasoning_delta(
         self,
         *,
-        event: Any,
+        event: object,
         event_type: str | None,
         reasoning_segments: ReasoningTextAccumulator,
-        reasoning_summary_parts: dict[tuple[str, int], ReasoningTextAccumulator],
+        reasoning_summary_parts: dict[tuple[int | str, int], ReasoningTextAccumulator],
         reasoning_chars: int,
         model: str,
     ) -> tuple[bool, int]:
-        if not isinstance(
-            event,
-            (ResponseReasoningSummaryTextDeltaEvent, ResponseReasoningTextDeltaEvent),
-        ) and not is_responses_reasoning_delta_event(event_type):
+        if isinstance(event, ResponseReasoningSummaryTextDeltaEvent):
+            delta = event.delta
+            output_index = event.output_index
+            item_id = event.item_id
+            summary_index = event.summary_index
+        elif isinstance(event, ResponseReasoningTextDeltaEvent):
+            delta = event.delta
+            output_index = item_id = summary_index = None
+        elif is_responses_reasoning_delta_event(event_type):
+            # Legacy aliases and untyped provider events may omit the indexes.
+            payload = snapshot_json_value(event)
+            if not isinstance(payload, dict):
+                return True, reasoning_chars
+            delta = payload.get("delta")
+            output_index = payload.get("output_index")
+            item_id = payload.get("item_id")
+            summary_index = payload.get("summary_index")
+        else:
             return False, reasoning_chars
 
-        delta = getattr(event, "delta", None)
-        if not delta:
+        if not isinstance(delta, str) or not delta:
             return True, reasoning_chars
 
-        item_id = getattr(event, "item_id", None)
-        summary_index = getattr(event, "summary_index", None)
+        # Output positions identify items within this stream. Some gateways rotate
+        # item_id on every delta, which must not create artificial summary parts.
+        # Keep the string ID fallback separate from integer output positions.
+        item_key = output_index if isinstance(output_index, int) else item_id
         starts_new_part = False
-        if isinstance(item_id, str) and isinstance(summary_index, int):
-            part_key = (item_id, summary_index)
+        if isinstance(item_key, (int, str)) and isinstance(summary_index, int):
+            part_key = (item_key, summary_index)
             part = reasoning_summary_parts.get(part_key)
             if part is None:
                 part = ReasoningTextAccumulator()
@@ -683,27 +728,79 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
 
         return False
 
+    def _check_tool_input_runaway(
+        self,
+        event: Any,
+        *,
+        tool_state: OpenAIToolStreamState,
+        counters: dict[object, list[int]],
+        limit: int,
+    ) -> None:
+        """Count one tool-input delta and raise once a single call exceeds ``limit``."""
+        index = getattr(event, "output_index", None)
+        item_id = responses_event_item_id(event)
+        key: object = item_id if item_id is not None else index
+        delta = getattr(event, "delta", None)
+        text = delta if isinstance(delta, str) else ""
+        counts = counters.setdefault(key, [0, 0, 0])  # deltas, chars, whitespace-only
+        counts[0] += 1
+        counts[1] += len(text)
+        counts[2] += bool(text) and not text.strip()
+        if counts[0] <= limit:
+            return
+        tool_info = tool_state.resolve_open(index=index, item_id=item_id)
+        tool_name = tool_info.tool_name if tool_info is not None else None
+        error = ToolInputRunawayError(
+            tool_name=tool_name,
+            limit=limit,
+            deltas=counts[0],
+            chars=counts[1],
+            whitespace_only_deltas=counts[2],
+        )
+        self.logger.error(
+            "Runaway tool input stream abandoned",
+            data={
+                "tool_name": tool_name,
+                "event_type": getattr(event, "type", None),
+                "limit": limit,
+                "deltas": counts[0],
+                "chars": counts[1],
+                "whitespace_only_deltas": counts[2],
+                "tail_whitespace_only": not text.strip(),
+            },
+        )
+        raise error
+
     async def _process_stream(
         self, stream: Any, model: str, capture_filename: Path | None
     ) -> tuple[Any, list[str]]:
         estimated_tokens = 0
         reasoning_chars = 0
         reasoning_segments = ReasoningTextAccumulator(normalizer=normalize_reasoning_delta)
-        reasoning_summary_parts: dict[tuple[str, int], ReasoningTextAccumulator] = {}
+        reasoning_summary_parts: dict[tuple[int | str, int], ReasoningTextAccumulator] = {}
         tool_state = OpenAIToolStreamState()
         notified_tool_indices: set[int] = set()
         notified_tool_use_ids: set[str] = set()
         final_response: Any | None = None
         completed_output_items: list[CompletedOutputItem] = []
         stream_event_index = 0
+        tool_input_limit = self._tool_input_stream_delta_limit(model)
+        tool_input_deltas: dict[object, list[int]] = {}
+        safety_buffered = False
 
         async for event in stream:
             _save_stream_chunk(capture_filename, event)
             event_type = getattr(event, "type", None)
-            self._handle_safety_buffering_event(
-                event,
-                model=model,
-            )
+            if tool_input_limit is not None and event_type in _ARGUMENT_DELTA_EVENT_TYPES:
+                self._check_tool_input_runaway(
+                    event,
+                    tool_state=tool_state,
+                    counters=tool_input_deltas,
+                    limit=tool_input_limit,
+                )
+            # Buffered streams repeat ``safety_buffering`` on every event; announce once.
+            if not safety_buffered:
+                safety_buffered = self._handle_safety_buffering_event(event, model=model)
             if event_type == "response.output_item.done":
                 record_completed_output_item(
                     completed_output_items,
@@ -711,6 +808,20 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     fallback_sequence=stream_event_index,
                 )
             stream_event_index += 1
+            if event_type == "response.compaction.compacting" or (
+                event_type == "response.output_item.added"
+                and responses_item_type(getattr(event, "item", None)) == "compaction"
+            ):
+                # Compaction emits no text deltas; surface it as COMPACTING progress.
+                await self._emit_streaming_progress(
+                    model,
+                    estimated_tokens,
+                    type=(
+                        ProgressAction.COMPACTING_CHECKPOINT
+                        if self.verb == ProgressAction.COMPACTING_CHECKPOINT
+                        else ProgressAction.COMPACTING_IN_REQUEST
+                    ),
+                )
 
             handled, reasoning_chars = await self._handle_responses_reasoning_delta(
                 event=event,
@@ -739,20 +850,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 final_response = getattr(event, "response", None) or final_response
                 continue
             if is_responses_failure_event(event_type):
-                response = getattr(event, "response", None)
-                error = getattr(response, "error", None) if response is not None else event
-                message = getattr(error, "message", None)
-                code = getattr(error, "code", None)
-                if not isinstance(message, str) or not message:
-                    message = "Responses stream failed."
-                body: dict[str, Any] = {"message": message}
-                if isinstance(code, str) and code:
-                    body["code"] = code
-                raise APIError(
-                    message,
-                    request=httpx2.Request("POST", "https://responses.invalid/responses"),
-                    body={"error": body},
-                )
+                raise _responses_stream_failure(event)
             if self._handle_responses_tool_stream_event(
                 event=event,
                 event_type=event_type,

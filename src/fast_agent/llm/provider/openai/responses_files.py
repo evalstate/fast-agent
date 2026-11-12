@@ -3,12 +3,13 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
 
+from fast_agent.io.path_uri import local_file_url_path
+from fast_agent.llm.upload_progress import plan_upload
 from fast_agent.mcp.mime_utils import guess_mime_type
 
 
@@ -53,11 +54,15 @@ class ResponsesFileMixin:
         data: bytes,
         filename: str | None,
         mime_type: str | None,
+        *,
+        already_counted: bool = False,
     ) -> str:
         cache_key = self._file_cache_key(data, filename, mime_type)
         cached = self._file_id_cache.get(cache_key)
         if cached:
             return cached
+        if not already_counted and plan_upload(cache_key):
+            return ""  # Planning pass; its result is discarded.
 
         if filename and mime_type:
             file_param: Any = (filename, data, mime_type)
@@ -92,11 +97,11 @@ class ResponsesFileMixin:
         file_id = part.get("file_id")
         if file_id:
             return self._input_image_file_id_part(file_id, detail), bool(image_url)
-        if not isinstance(image_url, str) or not image_url.startswith("file://"):
+        if not isinstance(image_url, str):
             return part, False
 
-        local_path = Path(image_url[len("file://") :])
-        if not local_path.exists():
+        local_path = local_file_url_path(image_url)
+        if local_path is None:
             return part, False
 
         data_bytes = local_path.read_bytes()
@@ -128,11 +133,8 @@ class ResponsesFileMixin:
         if file_url.startswith("data:"):
             data_bytes, mime_type = self._decode_file_data(file_url)
             return data_bytes, filename, mime_type
-        if not file_url.startswith("file://"):
-            return None, filename, None
-
-        local_path = Path(file_url[len("file://") :])
-        if not local_path.exists():
+        local_path = local_file_url_path(file_url)
+        if local_path is None:
             return None, filename, None
 
         resolved_filename = filename or local_path.name

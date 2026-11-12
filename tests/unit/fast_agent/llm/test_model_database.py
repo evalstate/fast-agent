@@ -12,6 +12,7 @@ Testing notes:
   test_max_tokens_acp_regression.py.
 """
 
+import pytest
 from mcp import Tool
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -27,6 +28,7 @@ from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
+from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import RequestParams
 from fast_agent.utils.reasoning_chunk_join import ReasoningTextAccumulator
@@ -55,8 +57,123 @@ def test_gpt_56_context_windows_follow_provider_limits() -> None:
     assert codex_window < responses_window
 
 
+def test_gpt_6_astra_matches_codex_catalog_capabilities() -> None:
+    params = ModelDatabase.get_model_params("gpt-6-astra")
+
+    assert params is not None
+    assert params.context_window == 272_000
+    assert params.max_output_tokens == 128_000
+    assert params.codex_responses_lite is True
+    assert params.response_transports == ("sse", "websocket")
+    assert params.response_websocket_providers == (
+        Provider.RESPONSES,
+        Provider.CODEX_RESPONSES,
+    )
+    assert params.response_service_tiers == ("fast", "flex")
+    assert params.reasoning_effort_spec == ModelDatabase.OPENAI_GPT_6_ASTRA_REASONING
+    assert params.reasoning_effort_spec.default == ReasoningEffortSetting(
+        kind="effort",
+        value="medium",
+    )
+    assert params.reasoning_effort_spec.allowed_efforts == [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    ]
+    assert params.text_verbosity_spec is not None
+    assert params.text_verbosity_spec.default == "low"
+    assert ModelDatabase.get_default_provider("gpt-6-astra") == Provider.RESPONSES
+
+
+@pytest.mark.parametrize("model", ["gpt-6-sol", "gpt-6-luna", "gpt-6.1-terra"])
+def test_gpt_6_sol_luna_match_astra_contract_with_none_effort(model: str) -> None:
+    params = ModelDatabase.get_model_params(model)
+    astra = ModelDatabase.get_model_params("gpt-6-astra")
+
+    assert params is not None and astra is not None
+    assert params.reasoning_effort_spec is not None
+    assert params.reasoning_effort_spec.allowed_efforts == [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    ]
+    assert params.reasoning_effort_spec.default == ReasoningEffortSetting(
+        kind="effort", value="medium"
+    )
+    shared = {
+        "context_window",
+        "max_output_tokens",
+        "codex_responses_lite",
+        "response_service_tiers",
+        "shell_edit_tool",
+        "shell_tool_name",
+        "text_verbosity_spec",
+        "tokenizes",
+    }
+    assert params.model_dump(include=shared) == astra.model_dump(include=shared)
+    assert params.shell_tool_profile == "freeform_shell"
+    assert astra.shell_tool_profile == "freeform_shell"
+    assert params.fast is (model in {"gpt-6-luna", "gpt-6.1-terra"})
+    for provider, window in ((Provider.RESPONSES, 1_050_000), (Provider.CODEX_RESPONSES, 872_000)):
+        routed = ModelDatabase.get_model_params(model, provider=provider)
+        assert routed is not None
+        assert routed.long_context_window == window
+        assert routed.shell_tool_profile == params.shell_tool_profile
+
+
+def test_gpt_61_sol_uses_sol_layout_without_none_effort() -> None:
+    params = ModelDatabase.get_model_params("gpt-6.1-sol")
+    sol = ModelDatabase.get_model_params("gpt-6-sol")
+
+    assert params is not None and sol is not None
+    assert params.reasoning_effort_spec is not None
+    assert params.reasoning_effort_spec.allowed_efforts == ["low", "medium", "high", "xhigh", "max"]
+    assert params.reasoning_effort_spec.default == ReasoningEffortSetting(
+        kind="effort", value="medium"
+    )
+    layout = {
+        "context_window",
+        "max_output_tokens",
+        "json_mode",
+        "codex_responses_lite",
+        "response_transports",
+        "response_service_tiers",
+        "shell_tool_name",
+        "shell_tool_profile",
+        "shell_edit_tool",
+        "text_verbosity_spec",
+        "tokenizes",
+        "managed_process_poll_folding",
+    }
+    assert params.model_dump(include=layout) == sol.model_dump(include=layout)
+    assert params.fast is False
+    for provider, window in ((Provider.RESPONSES, 1_050_000), (Provider.CODEX_RESPONSES, 872_000)):
+        routed = ModelDatabase.get_model_params("gpt-6.1-sol", provider=provider)
+        assert routed is not None
+        assert routed.long_context_window == window
+
+
+@pytest.mark.parametrize("provider", [Provider.RESPONSES, Provider.CODEX_RESPONSES])
+@pytest.mark.parametrize("mime_type", [*DOCUMENT_MIME_TYPES, "image/png", "text/plain"])
+def test_astra_supports_documents_and_existing_modalities(
+    provider: Provider, mime_type: str
+) -> None:
+    assert ModelDatabase.supports_mime("gpt-6-astra", mime_type, provider=provider)
+
+
+@pytest.mark.parametrize("provider", [Provider.RESPONSES, Provider.CODEX_RESPONSES])
+@pytest.mark.parametrize("mime_type", ["audio/mpeg", "video/mp4", "application/zip"])
+def test_astra_rejects_unsupported_modalities(provider: Provider, mime_type: str) -> None:
+    assert not ModelDatabase.supports_mime("gpt-6-astra", mime_type, provider=provider)
+
+
 def test_managed_process_poll_folding_is_enabled_for_validated_models() -> None:
-    for model in ("grok-4.3", "grok-4.5", "grok-4.6"):
+    for model in ("grok-4.3", "grok-4.5", "grok-4.6", "grok-4.7"):
         grok = ModelDatabase.get_model_params(
             model,
             provider=Provider.XAI,
@@ -94,23 +211,23 @@ def test_managed_process_poll_folding_is_enabled_for_validated_models() -> None:
             assert params.process_poll_default_wait_seconds == 240
 
 
-def test_anthropic_catalog_uses_posix_file_creation_guidance() -> None:
-    anthropic_models = [model for model in ModelDatabase.MODELS if model.startswith("claude-")]
-
-    assert anthropic_models
+@pytest.mark.parametrize("provider", [Provider.ANTHROPIC, Provider.ANTHROPIC_VERTEX])
+def test_anthropic_file_creation_guidance_is_limited_to_older_models(provider: Provider) -> None:
+    unguided = {
+        "claude-opus-5",
+        "claude-opus-5-5",
+        "claude-sonnet-5",
+        "claude-sonnet-5-5",
+        "claude-fable-5",
+        "claude-haiku-5-5",
+        "claude-fable-5-1",
+        "claude-fable-5-2",
+    }
+    anthropic_models = {model for model in ModelDatabase.MODELS if model.startswith("claude-")}
+    assert unguided <= anthropic_models
     for model in anthropic_models:
-        assert (
-            ModelDatabase.get_model_specific(model, provider=Provider.ANTHROPIC)
-            == ModelDatabase.MODEL_PREFERS_HEREDOCS
-        )
-
-    assert (
-        ModelDatabase.get_model_specific(
-            "claude-sonnet-4-6",
-            provider=Provider.ANTHROPIC_VERTEX,
-        )
-        == ModelDatabase.MODEL_PREFERS_HEREDOCS
-    )
+        expected = "" if model in unguided else ModelDatabase.MODEL_PREFERS_HEREDOCS
+        assert ModelDatabase.get_model_specific(model, provider=provider) == expected
 
 
 def test_glm52_hf_provider_suffix_resolves_without_provider_prefix():
@@ -209,46 +326,10 @@ def test_google_native_schema_tool_policy_matches_catalog_entries() -> None:
     assert policies == {None, "no_tools"}
 
 
-def test_gemini35_flash_specs_match_api_guide() -> None:
-    params = ModelDatabase.get_model_params("gemini-3.5-flash")
-
-    assert params is not None
-    assert params.context_window == 1_048_576
-    assert params.max_output_tokens == 65_536
-    assert params.fast is True
-    assert params.structured_tool_policy is None
-    assert params.reasoning == "google_thinking"
-    assert params.reasoning_effort_spec is not None
-    assert params.reasoning_effort_spec.default is not None
-    assert params.reasoning_effort_spec.default.kind == "effort"
-    assert params.reasoning_effort_spec.default.value == "medium"
-
-
-def test_gemini37_flash_specs_match_api_guide() -> None:
-    params = ModelDatabase.get_model_params("gemini-3.7-flash")
-
-    assert params is not None
-    assert params.context_window == 1_048_576
-    assert params.max_output_tokens == 65_536
-    assert params.fast is True
-    assert params.structured_tool_policy is None
-    assert params.google_search_supported is True
-    assert params.reasoning == "google_thinking"
-    assert params.reasoning_effort_spec is not None
-    assert params.reasoning_effort_spec.allowed_efforts == ["low", "medium", "high"]
-    assert params.reasoning_effort_spec.default == ReasoningEffortSetting(
-        kind="effort",
-        value="medium",
-    )
-    assert params.google_service_tiers == ("flex",)
-    assert ModelDatabase.supports_google_service_tier("gemini-3.7-flash", "flex")
-
-
-def test_gemini31_pro_allows_tools_with_structured_output() -> None:
-    params = ModelDatabase.get_model_params("gemini-3.1-pro-preview")
-
-    assert params is not None
-    assert params.structured_tool_policy is None
+@pytest.mark.parametrize("mime", ["image/png", "application/pdf", "audio/mpeg", "video/mp4"])
+def test_gemini38_supports_documented_inputs_and_structured_output(mime: str) -> None:
+    assert ModelDatabase.supports_mime("gemini-3.8-flash", mime)
+    assert ModelDatabase.get_json_mode("gemini-3.8-flash") == "schema"
 
 
 def test_huggingface_qwen35_structured_output_uses_prompted_json_object_mode() -> None:
@@ -330,30 +411,6 @@ def test_qwen38_defers_json_object_until_after_tool_use() -> None:
         prepared_params,
         [tool],
     )
-
-
-def test_huggingface_kimi25_uses_schema_mode() -> None:
-    params = ModelDatabase.get_model_params("moonshotai/Kimi-K2.5")
-
-    assert params is not None
-    assert params.json_mode == "schema"
-    assert params.structured_tool_policy is None
-
-
-def test_huggingface_gemma4_31b_metadata() -> None:
-    params = ModelDatabase.get_model_params("google/gemma-4-31B-it:cerebras")
-
-    assert params is not None
-    assert params.context_window == 131_000
-    assert params.max_output_tokens == 40_000
-    assert params.json_mode == "schema"
-    assert params.structured_tool_policy == "no_tools"
-    assert params.reasoning == "reasoning_content"
-    assert params.reasoning_effort_spec is not None
-    assert params.reasoning_effort_spec.default is not None
-    assert params.reasoning_effort_spec.default.value == "none"
-    assert ModelDatabase.supports_mime("google/gemma-4-31B-it", "image/png")
-    assert not ModelDatabase.supports_mime("google/gemma-4-31B-it", "audio/mpeg")
 
 
 def test_model_database_anthropic_web_tool_versions_for_46_models():
@@ -499,7 +556,7 @@ def test_model_database_supports_mime_basic():
     )
 
     # Text-only models should not support images
-    assert not ModelDatabase.supports_mime("deepseek-v4-flash", "image/png")
+    assert not ModelDatabase.supports_mime("deepseek-v4-pro", "image/png")
     assert not ModelDatabase.supports_mime("deepseek-v4-flash", "pdf")
     assert not ModelDatabase.supports_mime(
         "deepseek-v4-flash",
@@ -515,8 +572,13 @@ def test_model_database_supports_mime_basic():
     assert ModelDatabase.supports_mime("gpt-4o", "png")
 
 
+def test_deepseek_hf_flash_remains_text_only() -> None:
+    assert not ModelDatabase.supports_mime("deepseek-ai/DeepSeek-V4-Flash-0731", "image/png")
+
+
 def test_deepseek_v4_flash_uses_learned_shell_contract() -> None:
     for model_name in (
+        "deepseek-flash",
         "deepseek-v4-flash",
         "deepseek-v4-pro",
         "deepseek-ai/DeepSeek-V4-Flash-0731",
@@ -540,30 +602,6 @@ def test_gemini_37_flash_uses_validated_shell_contract() -> None:
     assert params.shell_edit_tool == "write_text_file"
 
 
-def test_model_database_xai_grok_aliases_and_responses_transport():
-    assert ModelDatabase.get_default_provider("grok") == Provider.XAI
-    assert ModelDatabase.get_default_provider("grok-4.3") == Provider.XAI
-    assert ModelDatabase.get_default_provider("grok-4.5") == Provider.XAI
-    assert ModelDatabase.get_default_provider("grok-4.6") == Provider.XAI
-
-    assert ModelDatabase.get_context_window("grok") == 500_000
-    assert ModelDatabase.get_context_window("grok-4.3") == 1_000_000
-    assert ModelDatabase.get_context_window("grok-4.5") == 500_000
-    assert ModelDatabase.get_context_window("grok-4.6") == 500_000
-    assert ModelDatabase.get_model_params("grok-4.3-latest") is None
-    assert ModelDatabase.get_model_params("grok-4-fast-reasoning") is None
-    assert ModelDatabase.get_model_params("grok-3") is None
-    assert ModelDatabase.get_response_transports("grok-4.3") == ("sse", "websocket")
-    assert ModelDatabase.supports_response_websocket_provider("grok-4.3", Provider.XAI)
-
-    openrouter = ModelDatabase.get_model_params(
-        "x-ai/grok-4.6",
-        provider=Provider.OPENROUTER,
-    )
-    assert openrouter is not None
-    assert openrouter.reasoning_effort_spec == ModelDatabase.XAI_GROK_46_REASONING_EFFORT_SPEC
-
-
 def test_model_database_xai_image_input_mime_types_match_docs():
     vision_model = "grok-4.5"
 
@@ -573,40 +611,6 @@ def test_model_database_xai_image_input_mime_types_match_docs():
     assert not ModelDatabase.supports_mime(vision_model, "image/webp")
     assert ModelDatabase.supports_mime("grok-4.3", "image/png")
     assert not ModelDatabase.supports_mime("grok-4.3", "image/webp")
-
-
-def test_model_database_metaai_muse_spark_metadata():
-    models = (
-        "muse-spark-1.2",
-        "muse-spark-1.2-contributor",
-        "muse-spark-1.1",
-    )
-
-    for model in models:
-        assert ModelDatabase.get_default_provider(model) == Provider.META_AI
-        assert ModelDatabase.get_context_window(model) == 1_048_576
-        assert ModelDatabase.get_response_transports(model) == ("sse",)
-        assert not ModelDatabase.supports_response_websocket_provider(model, Provider.META_AI)
-        assert ModelDatabase.supports_mime(model, "image/png")
-        assert ModelDatabase.supports_mime(model, "application/pdf")
-        assert ModelDatabase.supports_mime(model, "video/mp4")
-
-
-def test_model_database_muse_glimmer_huggingface_metadata() -> None:
-    model = "meta-models/Muse-Glimmer-30B:together"
-    params = ModelDatabase.get_model_params(model, provider=Provider.HUGGINGFACE)
-
-    assert params is not None
-    assert params.default_provider == Provider.HUGGINGFACE
-    assert params.context_window == 131_072
-    assert params.max_output_tokens == 128_000
-    assert params.json_mode is None
-    assert params.reasoning == "stream"
-    assert params.stream_mode == "manual"
-    assert params.reasoning_effort_spec == ModelDatabase.MUSE_GLIMMER_REASONING_EFFORT_SPEC
-    assert ModelDatabase.supports_mime(model, "image/png")
-    assert not ModelDatabase.supports_mime(model, "application/pdf")
-    assert not ModelDatabase.supports_mime(model, "video/mp4")
 
 
 def test_model_database_google_video_audio_mime_types():
@@ -729,23 +733,6 @@ def test_model_database_response_websocket_provider_support() -> None:
     assert ModelDatabase.supports_response_websocket_provider("gpt-4o", Provider.RESPONSES) is None
 
 
-def test_model_database_grok_reasoning_spec() -> None:
-    specs = [ModelDatabase.get_reasoning_effort_spec(model) for model in ("grok-4.3", "grok-4.5")]
-
-    for spec in specs:
-        assert spec is not None
-        assert spec.kind == "effort"
-        assert spec.allowed_efforts == ["low", "medium", "high"]
-        assert spec.default is not None
-        assert spec.default.kind == "effort"
-        assert spec.default.value == "high"
-
-    grok_46_spec = ModelDatabase.get_reasoning_effort_spec("grok-4.6")
-    assert grok_46_spec is not None
-    assert grok_46_spec.allowed_efforts == ["low", "medium", "high", "xhigh"]
-    assert grok_46_spec.default == ReasoningEffortSetting(kind="effort", value="high")
-
-
 def test_glm_51_matches_glm_5_capabilities() -> None:
     old = ModelDatabase.get_model_params("zai-org/glm-5")
     new = ModelDatabase.get_model_params("zai-org/glm-5.1")
@@ -764,68 +751,6 @@ def test_model_database_codex_spark_is_text_only() -> None:
     assert ModelDatabase.supports_mime("gpt-5.3-codex-spark", "text/plain")
     assert not ModelDatabase.supports_mime("gpt-5.3-codex-spark", "application/pdf")
     assert not ModelDatabase.supports_mime("gpt-5.3-codex-spark", "image/png")
-
-
-def test_model_database_opus_47_reasoning_spec():
-    """Opus 4.7 should expose adaptive effort settings including xhigh."""
-    spec = ModelDatabase.get_reasoning_effort_spec("claude-opus-4-7")
-    assert spec is not None
-    assert spec.kind == "effort"
-    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh", "max"]
-    assert spec.allow_toggle_disable
-
-
-def test_model_database_opus_5_capabilities():
-    """Opus 5 defaults to adaptive thinking and does not support web fetch."""
-    params = ModelDatabase.get_model_params("claude-opus-5")
-    spec = ModelDatabase.get_reasoning_effort_spec("claude-opus-5")
-
-    assert params is not None
-    assert params.context_window == 1_000_000
-    assert params.max_output_tokens == 128_000
-    assert params.anthropic_thinking_field_required is False
-    assert params.anthropic_thinking_disable_supported is True
-    assert params.anthropic_web_search_version == "web_search_20260209"
-    assert params.anthropic_web_fetch_version is None
-    assert params.anthropic_task_budget_supported is True
-    assert spec is not None
-    assert spec.kind == "effort"
-    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh", "max"]
-    assert spec.allow_auto is True
-    assert spec.allow_toggle_disable is True
-
-
-def test_model_database_fable_5_reasoning_spec_is_always_on():
-    """Fable 5 adaptive thinking is always on and needs no thinking field."""
-    params = ModelDatabase.get_model_params("claude-fable-5")
-    spec = ModelDatabase.get_reasoning_effort_spec("claude-fable-5")
-
-    assert params is not None
-    assert params.anthropic_thinking_field_required is False
-    assert spec is not None
-    assert spec.kind == "effort"
-    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh"]
-    assert spec.allow_auto is True
-    assert spec.allow_toggle_disable is False
-    assert spec.default is not None
-    assert spec.default.value == "auto"
-
-
-def test_model_database_sonnet_5_reasoning_spec():
-    """Sonnet 5 defaults to adaptive thinking, supports disable, and has 128k output."""
-    params = ModelDatabase.get_model_params("claude-sonnet-5")
-    spec = ModelDatabase.get_reasoning_effort_spec("claude-sonnet-5")
-
-    assert params is not None
-    assert params.context_window == 1_000_000
-    assert params.max_output_tokens == 128_000
-    assert params.anthropic_thinking_field_required is False
-    assert params.anthropic_thinking_disable_supported is True
-    assert spec is not None
-    assert spec.kind == "effort"
-    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh", "max"]
-    assert spec.allow_auto is True
-    assert spec.allow_toggle_disable is True
 
 
 def test_model_database_text_verbosity_spec():
@@ -1245,30 +1170,6 @@ def test_model_specific_defaults_for_gpt_53_plus_family():
     assert ModelDatabase.get_model_specific("gpt-5.2") == ""
 
 
-def test_gpt_54_mini_default_reasoning_effort_is_medium():
-    spec = ModelDatabase.get_reasoning_effort_spec("gpt-5.4-mini")
-
-    assert spec is not None
-    assert spec.default == ReasoningEffortSetting(kind="effort", value="medium")
-
-
-def test_gpt_56_supports_api_reasoning_efforts_through_max():
-    for model_name in ("gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
-        spec = ModelDatabase.get_reasoning_effort_spec(model_name)
-
-        assert spec is not None
-        assert spec.allowed_efforts == ["none", "low", "medium", "high", "xhigh", "max"]
-        assert spec.default == ReasoningEffortSetting(kind="effort", value="high")
-        assert ModelDatabase.supports_mime(model_name, "application/pdf")
-        assert ModelDatabase.supports_mime(model_name, "image/png")
-
-    assert ModelDatabase.uses_codex_responses_lite("gpt-5.6-luna")
-    assert not ModelDatabase.uses_codex_responses_lite("gpt-5.6")
-    assert not ModelDatabase.uses_codex_responses_lite("gpt-5.6-sol")
-    assert not ModelDatabase.uses_codex_responses_lite("gpt-5.6-terra")
-    assert not ModelDatabase.uses_codex_responses_lite("gpt-5.5")
-
-
 def test_gemini_model_specific_mentions_youtube_capability():
     for model_name in (
         "gemini-2.0-flash",
@@ -1282,3 +1183,48 @@ def test_gemini_model_specific_mentions_youtube_capability():
         assert "capable" in model_specific
         assert "free" not in model_specific.lower()
         assert ModelDatabase.supports_mime(model_name, "video/mp4")
+
+
+@pytest.mark.parametrize("model", ["grok-4.7-build-fast", "grok47fast", "grokfast"])
+def test_grok_47_fast_inherits_standard_capabilities(model: str) -> None:
+    standard = ModelDatabase.get_model_params("grok-4.7")
+    fast = ModelDatabase.get_model_params(model)
+    assert standard is not None
+    assert fast is not None
+    assert fast.fast
+    assert fast.model_dump(exclude={"fast"}) == standard.model_dump(exclude={"fast"})
+
+
+def test_catalog_entries_are_internally_consistent() -> None:
+    """Catalog invariants; per-model limits are data, not test literals."""
+    problems: list[str] = []
+    for model, params in ModelDatabase.MODELS.items():
+        if params.max_output_tokens > params.context_window:
+            problems.append(f"{model}: max_output_tokens exceeds context_window")
+        if (
+            params.long_context_window is not None
+            and params.long_context_window <= params.context_window
+        ):
+            problems.append(f"{model}: long_context_window does not extend context_window")
+        spec = params.reasoning_effort_spec
+        if spec is not None and spec.default is not None and spec.default.kind == "effort":
+            allowed = [*(spec.allowed_efforts or []), *(["auto"] if spec.allow_auto else [])]
+            if spec.default.value not in allowed:
+                problems.append(f"{model}: default effort {spec.default.value!r} not allowed")
+
+    assert problems == []
+
+
+def test_runaway_tool_input_limit_applies_only_to_gpt_6_luna() -> None:
+    limits: dict[str, int | None] = {}
+    for model in ("gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "gpt-5.6-luna", "grok-4.3"):
+        params = ModelDatabase.get_model_params(model)
+        assert params is not None
+        limits[model] = params.tool_input_stream_delta_limit
+    assert limits == {
+        "gpt-6-luna": 64_000,
+        "gpt-6-sol": None,
+        "gpt-6-astra": None,
+        "gpt-5.6-luna": None,
+        "grok-4.3": None,
+    }

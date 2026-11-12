@@ -26,8 +26,14 @@ from fast_agent.mcp.app_integrations import (
     APP_INTEGRATION_RESOURCE_URI_KEY,
     AppIntegrationKind,
 )
-from fast_agent.mcp.common import is_namespaced_name
+from fast_agent.mcp.common import get_server_name, is_namespaced_name
 from fast_agent.tools.tool_sources import TOOL_SOURCE_LABELS, ToolSource, tool_source
+from fast_agent.tools.tool_surface import (
+    ProgrammaticSurface,
+    SurfaceTool,
+    ToolExposure,
+    ToolSurface,
+)
 from fast_agent.utils.action_normalization import enabled_disabled_label
 from fast_agent.utils.text import strip_to_none
 
@@ -54,6 +60,46 @@ class ToolSummary:
     suffix: str | None
     template: str | None
     is_mcp: bool = False
+    group: str = "local"
+    """Source grouping label, e.g. ``orders (MCP)`` or ``Shell``."""
+    exposure: ToolExposure = ToolExposure.MODEL
+    context_tokens: int | None = None
+    direct_reason: str | None = None
+    python_name: str | None = None
+    signature: str | None = None
+    large: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ToolsListing:
+    """Tools grouped by how the model reaches them."""
+
+    model: list[ToolSummary]
+    programmatic: list[ToolSummary]
+    provider: list[ProviderToolSummary]
+    ptc: ProgrammaticSurface | None = None
+
+    @property
+    def is_empty(self) -> bool:
+        return not (self.model or self.programmatic or self.provider)
+
+    @property
+    def model_tokens(self) -> int:
+        return sum(summary.context_tokens or 0 for summary in self.model)
+
+    @property
+    def programmatic_tokens(self) -> int:
+        return sum(summary.context_tokens or 0 for summary in self.programmatic)
+
+    @property
+    def large_programmatic(self) -> list[ToolSummary]:
+        return [summary for summary in self.programmatic if summary.large]
+
+    def programmatic_groups(self) -> list[tuple[str, list[ToolSummary]]]:
+        groups: dict[str, list[ToolSummary]] = {}
+        for summary in self.programmatic:
+            groups.setdefault(summary.group, []).append(summary)
+        return list(groups.items())
 
 
 @dataclass(slots=True)
@@ -333,35 +379,91 @@ def _append_app_tool_suffixes(suffix: str | None, meta: Mapping[str, object]) ->
     return suffix
 
 
+def _tool_group(name: str, classification: _ToolClassification) -> str:
+    if classification.is_mcp:
+        return f"{get_server_name(name)} (MCP)"
+    if classification.suffix is not None:
+        return classification.suffix.strip("()")
+    return "local"
+
+
+def _summarize_tool(tool: Tool, tool_name_sets: _ToolNameSets) -> ToolSummary:
+    meta = _tool_meta(tool)
+    classification = _classify_tool(tool.name, tool_source(tool), tool_name_sets)
+    return ToolSummary(
+        name=tool.name,
+        title=tool.title,
+        description=strip_to_none(tool.description),
+        args=_format_tool_args(tool.input_schema),
+        suffix=_append_app_tool_suffixes(classification.suffix, meta),
+        template=optional_string(meta.get(APP_INTEGRATION_RESOURCE_URI_KEY)),
+        is_mcp=classification.is_mcp,
+        group=_tool_group(tool.name, classification),
+    )
+
+
 def build_tool_summaries(agent: object, tools: list[Tool]) -> list[ToolSummary]:
     tool_name_sets = _collect_tool_name_sets(agent)
-
-    summaries: list[ToolSummary] = []
-
-    for tool in tools:
-        name = tool.name
-        title = tool.title
-        description = strip_to_none(tool.description)
-        meta = _tool_meta(tool)
-        source = tool_source(tool)
-        classification = _classify_tool(name, source, tool_name_sets)
-
-        suffix = classification.suffix
-        suffix = _append_app_tool_suffixes(suffix, meta)
-
-        args = _format_tool_args(tool.input_schema)
-        template = optional_string(meta.get(APP_INTEGRATION_RESOURCE_URI_KEY))
-
-        summaries.append(
-            ToolSummary(
-                name=name,
-                title=title,
-                description=description,
-                args=args,
-                suffix=suffix,
-                template=template,
-                is_mcp=classification.is_mcp,
-            )
-        )
-
+    summaries = [_summarize_tool(tool, tool_name_sets) for tool in tools]
     return sorted(summaries, key=lambda summary: summary.is_mcp)
+
+
+def _summarize_surface_tool(
+    surface_tool: SurfaceTool,
+    tool_name_sets: _ToolNameSets,
+    *,
+    code_tool_name: str | None,
+) -> ToolSummary:
+    summary = _summarize_tool(surface_tool.tool, tool_name_sets)
+    if surface_tool.tool.name == code_tool_name:
+        summary.suffix = "(PTC)"
+        summary.group = "PTC"
+    summary.exposure = surface_tool.exposure
+    summary.context_tokens = surface_tool.context_tokens
+    summary.direct_reason = surface_tool.direct_reason
+    summary.python_name = surface_tool.python_name
+    summary.signature = surface_tool.signature
+    summary.large = surface_tool.large
+    return summary
+
+
+def build_tools_listing(agent: object, surface: ToolSurface) -> ToolsListing:
+    tool_name_sets = _collect_tool_name_sets(agent)
+    code_tool_name = surface.programmatic.tool_name if surface.programmatic else None
+
+    def summaries(exposure: ToolExposure) -> list[ToolSummary]:
+        built = [
+            _summarize_surface_tool(tool, tool_name_sets, code_tool_name=code_tool_name)
+            for tool in surface.exposed(exposure)
+        ]
+        return sorted(built, key=lambda summary: summary.is_mcp)
+
+    return ToolsListing(
+        model=summaries(ToolExposure.MODEL),
+        programmatic=summaries(ToolExposure.PROGRAMMATIC),
+        provider=build_provider_tool_summaries(agent),
+        ptc=surface.programmatic,
+    )
+
+
+def ptc_settings_label(ptc: ProgrammaticSurface) -> str:
+    parts = ["Programmatic tool calling: on"]
+    if ptc.tool_format == "freeform":
+        parts.append("freeform input")
+    if ptc.type_check:
+        parts.append("type-checked")
+    parts.append(f"{ptc.max_duration_seconds:g}s / {ptc.max_memory_mb} MB limits")
+    return " · ".join(parts)
+
+
+def code_tool_description(listing: ToolsListing) -> str:
+    count = len(listing.programmatic)
+    noun = "function" if count == 1 else "functions"
+    return f"Runs Python that calls the {count} {noun} listed below."
+
+
+def format_token_estimate(tokens: int) -> str:
+    """Format a rough token estimate, e.g. ``~950 tokens`` or ``~1.7k tokens``."""
+    if tokens < 1000:
+        return f"~{tokens} tokens"
+    return f"~{tokens / 1000:.1f}".removesuffix(".0") + "k tokens"

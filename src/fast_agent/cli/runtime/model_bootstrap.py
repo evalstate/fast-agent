@@ -458,6 +458,25 @@ async def select_model_from_picker(
     initial_model_spec: str | None = None,
 ) -> str:
     """Prompt user for model selection and return a resolved model string."""
+    from fast_agent.integrations.herdr_lifecycle import herdr_blocked
+
+    # Startup picker: terminal managers (herdr-core) should show this as waiting.
+    with herdr_blocked(kind="question", activate=True):
+        return await _select_model_from_picker(
+            request,
+            config_payload=config_payload,
+            initial_provider=initial_provider,
+            initial_model_spec=initial_model_spec,
+        )
+
+
+async def _select_model_from_picker(
+    request: AgentRunRequest,
+    *,
+    config_payload: dict[str, Any] | None,
+    initial_provider: str | None,
+    initial_model_spec: str | None,
+) -> str:
     from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
     from fast_agent.llm.provider_types import Provider
     from fast_agent.ui.model_picker import run_model_picker_async
@@ -484,7 +503,20 @@ async def select_model_from_picker(
         initial_provider = picker_result.provider
 
         if picker_result.activation_action is not None:
-            if activate_model_picker_provider(picker_result.activation_action):
+            if picker_result.activation_action.provider == Provider.COPILOT:
+                from fast_agent.cli.runtime.copilot_activation import activate_copilot
+                from fast_agent.config import CopilotSettings
+
+                settings = load_request_settings(request)
+                copilot_settings = (
+                    CopilotSettings.model_validate(config_payload.get("copilot") or {})
+                    if config_payload is not None
+                    else settings.copilot
+                )
+                activated = await activate_copilot(copilot_settings)
+            else:
+                activated = activate_model_picker_provider(picker_result.activation_action)
+            if activated:
                 if picker_result.selected_model:
                     return picker_result.selected_model
             continue

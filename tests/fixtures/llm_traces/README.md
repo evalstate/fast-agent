@@ -95,6 +95,21 @@ uv run pytest tests/unit/fast_agent/llm/provider/anthropic/test_anthropic_stream
 uv run pytest tests/unit/fast_agent/llm/providers/test_google_stream_replay.py
 ```
 
+## Codex native compaction traces
+
+`sanitized/codexresponses/gpt-6-astra/compaction_trigger_{sse,websocket}/` hold
+live captures of a `compaction_trigger` request, replayed by
+`tests/unit/fast_agent/llm/providers/test_codex_native_compaction.py`. SSE leaves
+`response.completed.output` empty (rebuilt from `output_item.done`); WebSocket
+includes it plus Codex-only events. Regenerate with:
+
+```bash
+uv run scripts/openai_native_compaction_smoke.py --fixture-out /tmp/codex-compaction-trace
+```
+
+then redact `encrypted_content`, `codex.*` event payloads, the prompt cache key, and
+the bulk tool output in `request.json` before committing.
+
 ## Notes
 
 - Raw captures may contain prompts, answers, URLs, citations, and provider ids.

@@ -7,6 +7,7 @@ import json
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 from urllib.parse import urlparse
@@ -203,9 +204,8 @@ def _provider_view(status: ProviderAuthStatus) -> ProviderAuthView:
 
 def _provider_views() -> list[ProviderAuthView]:
     from fast_agent.auth.providers import provider_ids
-    from fast_agent.auth.providers import provider_status as get_status
 
-    return [_provider_view(get_status(provider)) for provider in provider_ids()]
+    return [_provider_view_for(provider) for provider in provider_ids()]
 
 
 def _provider_view_for(provider: str) -> ProviderAuthView:
@@ -477,7 +477,7 @@ def provider_list(
 
 @provider_app.command("show")
 def provider_show(
-    provider: str = typer.Argument(..., help="Provider name: xai or codex"),
+    provider: str = typer.Argument(..., help="Provider name: xai, codex, or copilot"),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
 ) -> None:
     """Show one model-provider credential."""
@@ -488,17 +488,35 @@ def provider_show(
     _print_provider_views([view])
 
 
+class ProviderLoginMethod(str, Enum):
+    DEVICE = "device"
+    BROWSER = "browser"
+
+
 @provider_app.command("login")
 def provider_login(
-    provider: str = typer.Argument(..., help="Provider name: xai or codex"),
+    provider: str = typer.Argument(..., help="Provider name: xai, codex, or copilot"),
+    method: ProviderLoginMethod = typer.Option(
+        ProviderLoginMethod.DEVICE,
+        "--method",
+        help="Login method. Browser login is available for Codex accounts without device auth.",
+    ),
 ) -> None:
-    """Authenticate with a model provider."""
+    """Authenticate with a model provider using device auth by default."""
     from fast_agent.auth.providers import get_oauth_provider
     from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
 
     try:
         handler = get_oauth_provider(provider)
-        handler.login()
+        login = handler.login
+        if method == ProviderLoginMethod.BROWSER:
+            if handler.browser_login is None:
+                raise ProviderKeyError(
+                    "Unsupported login method",
+                    f"{handler.display_name} does not support browser login. Use --method device.",
+                )
+            login = handler.browser_login
+        login()
         typer.echo(f"{handler.display_name} OAuth login complete.")
     except ProviderKeyError as exc:
         typer.echo(format_fast_agent_error(exc), err=True)
@@ -507,7 +525,7 @@ def provider_login(
 
 @provider_app.command("logout")
 def provider_logout(
-    provider: str = typer.Argument(..., help="Provider name: xai or codex"),
+    provider: str = typer.Argument(..., help="Provider name: xai, codex, or copilot"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Do not prompt for confirmation"),
 ) -> None:
     """Remove a stored provider credential."""
@@ -534,7 +552,7 @@ def provider_logout(
 
 @provider_app.command("token")
 def provider_token(
-    provider: str = typer.Argument(..., help="Provider name: xai or codex"),
+    provider: str = typer.Argument(..., help="Provider name: xai, codex, or copilot"),
 ) -> None:
     """Print a current provider access token."""
     from fast_agent.auth.providers import get_oauth_provider
@@ -556,11 +574,11 @@ def provider_token(
 
 @provider_app.command("export")
 def provider_export(
-    provider: str = typer.Argument(..., help="Provider name: xai or codex"),
+    provider: str = typer.Argument(..., help="Provider name: xai, codex, or copilot"),
     output: str = typer.Argument(..., help="Destination provider auth JSON file"),
     force: bool = typer.Option(False, "--force", help="Replace an existing file"),
 ) -> None:
-    """Export one refreshable provider credential."""
+    """Export one provider credential."""
     from fast_agent.auth.providers import export_provider_credential
     from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
 

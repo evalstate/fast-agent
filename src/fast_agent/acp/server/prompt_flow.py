@@ -23,6 +23,7 @@ from fast_agent.acp.server.common import (
 from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.integrations.herdr_lifecycle import herdr_working
 from fast_agent.interfaces import AgentProtocol, StreamingAgentProtocol, ToolRunnerHookCapable
 from fast_agent.llm.structured_schema import validate_json_schema_definition
 from fast_agent.mcp.helpers.content_helpers import is_text_content
@@ -192,47 +193,48 @@ class ACPPromptFlow:
             structured_output=structured_output is not None,
         )
         write_interactive_trace("acp.prompt.start", session_id=session_id)
-        await self._mark_prompt_active(session_id)
+        with herdr_working():
+            await self._mark_prompt_active(session_id)
 
-        try:
-            turn = await self._prepare_prompt_turn(prompt, session_id)
-            if turn is None:
-                logger.error(
-                    "ACP prompt error: session not found",
-                    name="acp_prompt_error",
+            try:
+                turn = await self._prepare_prompt_turn(prompt, session_id)
+                if turn is None:
+                    logger.error(
+                        "ACP prompt error: session not found",
+                        name="acp_prompt_error",
+                        session_id=session_id,
+                    )
+                    return PromptResponse(stop_reason=REFUSAL)
+
+                slash_response = await self._maybe_handle_slash_command(
+                    turn=turn,
+                    session_id=session_id,
+                    structured_output=structured_output,
+                    message_id=message_id,
+                )
+                if slash_response is not None:
+                    return slash_response
+
+                return await self._handle_agent_prompt(
+                    turn=turn,
+                    session_id=session_id,
+                    structured_output=structured_output,
+                    message_id=message_id,
+                )
+            except asyncio.CancelledError:
+                clear_current_task_cancellation_requests(session_id=session_id)
+                write_interactive_trace("acp.prompt.cancelled", session_id=session_id)
+                logger.info(
+                    "Prompt cancelled by user",
+                    name="acp_prompt_cancelled",
                     session_id=session_id,
                 )
-                return PromptResponse(stop_reason=REFUSAL)
-
-            slash_response = await self._maybe_handle_slash_command(
-                turn=turn,
-                session_id=session_id,
-                structured_output=structured_output,
-                message_id=message_id,
-            )
-            if slash_response is not None:
-                return slash_response
-
-            return await self._handle_agent_prompt(
-                turn=turn,
-                session_id=session_id,
-                structured_output=structured_output,
-                message_id=message_id,
-            )
-        except asyncio.CancelledError:
-            clear_current_task_cancellation_requests(session_id=session_id)
-            write_interactive_trace("acp.prompt.cancelled", session_id=session_id)
-            logger.info(
-                "Prompt cancelled by user",
-                name="acp_prompt_cancelled",
-                session_id=session_id,
-            )
-            return PromptResponse(
-                stop_reason=CANCELLED,
-                user_message_id=message_id,
-            )
-        finally:
-            await self._mark_prompt_inactive(session_id)
+                return PromptResponse(
+                    stop_reason=CANCELLED,
+                    field_meta={"user_message_id": message_id} if message_id is not None else None,
+                )
+            finally:
+                await self._mark_prompt_inactive(session_id)
 
     async def _mark_prompt_active(self, session_id: str) -> None:
         async with self._host._session_lock:
@@ -382,8 +384,11 @@ class ACPPromptFlow:
 
         return PromptResponse(
             stop_reason=acp_stop_reason,
-            field_meta=status_line_meta,
-            user_message_id=message_id,
+            field_meta=(
+                {**(status_line_meta or {}), "user_message_id": message_id}
+                if message_id is not None
+                else status_line_meta
+            ),
         )
 
     async def _send_prompt_to_agent(
@@ -600,7 +605,7 @@ class ACPPromptFlow:
 
         return PromptResponse(
             stop_reason=END_TURN,
-            user_message_id=message_id,
+            field_meta={"user_message_id": message_id} if message_id is not None else None,
         )
 
     async def _prepare_streaming_context(

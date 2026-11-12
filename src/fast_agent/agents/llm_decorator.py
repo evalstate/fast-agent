@@ -18,6 +18,7 @@ from typing import (
 )
 
 if TYPE_CHECKING:
+    from a2a.types import AgentCard
     from rich.text import Text
 
     from fast_agent.agents.llm_agent import LlmAgent
@@ -26,7 +27,6 @@ if TYPE_CHECKING:
     from fast_agent.hooks.lifecycle_hook_types import LifecycleHookType
     from fast_agent.session.trajectory import TrajectoryRecord
 
-from a2a.types import AgentCard
 from mcp import ListToolsResult, Tool
 from mcp_types import (
     CallToolResult,
@@ -187,9 +187,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._name = self.config.name
         self._tracer = trace.get_tracer(__name__)
         self._instruction = self.config.instruction
+        self._instruction_context: dict[str, str] = {}
 
         # Agent-owned conversation state (PromptMessageExtended only)
         self._message_history: list[PromptMessageExtended] = []
+        # Advances at the synchronous commit boundary, before response rendering can await.
+        self._history_commit_count = 0
 
         # Optional registry for cross-agent lookups (populated by AgentApp)
         self._agent_registry: Mapping[str, AgentProtocol] | None = None
@@ -329,6 +332,15 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         """Return the agent's instruction/system prompt."""
         return self._instruction
 
+    @property
+    def instruction_context(self) -> dict[str, str]:
+        """Context values retained for instruction template refreshes."""
+        return self._instruction_context
+
+    def set_instruction_context(self, context: dict[str, str]) -> None:
+        """Retain shared template values across model changes and cloning."""
+        self._instruction_context.update(context)
+
     def set_instruction(self, instruction: str) -> None:
         """Set the agent's instruction/system prompt."""
         self._instruction = instruction
@@ -337,6 +349,20 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         if self._llm is not None:
             self._llm.instruction = instruction
             self._llm.default_request_params.system_prompt = instruction
+
+    def restore_streaming_timeout(self, timeout: float | None, *, configured: bool) -> None:
+        """Keep a restored timeout policy in the caches used by reattachment and cloning."""
+        if self._default_request_params is None:
+            self._default_request_params = RequestParams()
+        cached = [self._default_request_params]
+        if self._llm_attach_kwargs is not None:
+            overrides = self._llm_attach_kwargs.get("request_params")
+            if isinstance(overrides, RequestParams):
+                cached.append(overrides)
+        for params in cached:
+            params.streaming_timeout = timeout
+            if not configured:
+                params.model_fields_set.discard("streaming_timeout")
 
     async def set_model(self, model: str | None) -> None:
         """Set the default model for this agent and reattach the LLM if needed."""
@@ -458,6 +484,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._llm_attach_kwargs = attach_kwargs
         self._on_llm_attached(self._llm)
 
+        from fast_agent.core.instruction_utils import apply_instruction_context
+
+        # Explicit request-level prompts take precedence over the agent template.
+        if request_params is None or request_params.system_prompt is None:
+            await apply_instruction_context([self], self.instruction_context)
+
         return self._llm
 
     def _validate_llm_attachment(self, llm: FastAgentLLMProtocol) -> None:
@@ -523,6 +555,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         constructor_kwargs = self._clone_constructor_kwargs()
         clone = type(self)(config=new_config, context=self.context, **constructor_kwargs)
+        clone.set_instruction_context(dict(self.instruction_context))
         try:
             await clone.initialize()
             await self._configure_cloned_instance(clone)
@@ -1034,15 +1067,18 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         assistant_message: PromptMessageExtended,
     ) -> None:
         """Persist the last turn unless explicitly disabled by control text."""
-        if not sanitized_messages:
-            return
-        if sanitized_messages[-1].first_text().startswith(CONTROL_MESSAGE_SAVE_HISTORY):
+        # Provider-requested follow-ups have no new user/tool input, but their
+        # assistant response must still be retained for subsequent inference.
+        if sanitized_messages and sanitized_messages[-1].first_text().startswith(
+            CONTROL_MESSAGE_SAVE_HISTORY
+        ):
             return
 
         history_messages = [self._strip_removed_metadata(msg) for msg in sanitized_messages]
         assistant_message.ensure_timestamp()
         self._message_history.extend(history_messages)
         self._message_history.append(assistant_message)
+        self._history_commit_count += 1
 
     @staticmethod
     def _timestamp_messages(messages: list[PromptMessageExtended]) -> None:
@@ -1437,10 +1473,14 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
                 break
         return prefix
 
-    def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None:
-        """Replace message history with a deep copy of supplied messages (or empty list)."""
+    def load_message_history(
+        self, messages: list[PromptMessageExtended] | None, *, clear_state: bool = False
+    ) -> None:
+        """Replace history, optionally resetting underlying conversation state first."""
         from fast_agent.history.compaction import normalize_compaction_notice
 
+        if clear_state:
+            self.clear(clear_prompts=True)
         msgs = messages or []
         self._message_history = [msg.model_copy(deep=True) for msg in msgs]
         for message in self._message_history:
@@ -1558,7 +1598,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             if override_params:
                 # Merge only the explicitly set values from override_params
                 for k, v in override_params.model_dump(exclude_unset=True).items():
-                    if v is not None:
+                    if v is not None or k == "streaming_timeout":
                         setattr(result, k, v)
 
         # Apply model override if specified
@@ -1567,7 +1607,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         return result
 
-    async def agent_card(self) -> AgentCard:
+    async def agent_card(self) -> "AgentCard":
         """
         Return an A2A card describing this Agent
         """

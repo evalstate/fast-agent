@@ -42,7 +42,7 @@ from fast_agent.tools.transient_artifacts import (
     validate_artifact_name_parts,
 )
 from fast_agent.utils.shell_detection import shell_runtime_info
-from fast_agent.utils.text import strip_casefold
+from fast_agent.utils.text import UTF8_LOCALE_FALLBACK_ERRORS, strip_casefold
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -370,6 +370,7 @@ class LocalShellExecutor:
             tailer = ShellOutputSpoolTailer(
                 plan.output_spool,
                 read_chunk=read_local_output_chunk,
+                errors=UTF8_LOCALE_FALLBACK_ERRORS,
                 on_stdout=on_stdout,
                 on_stderr=on_stderr,
                 on_stdout_activity=on_stdout_activity,
@@ -547,7 +548,7 @@ class LocalShellExecutor:
             if not chunk:
                 if pending:
                     await self._record_stream_output(
-                        pending.decode(errors="replace"),
+                        pending.decode("utf-8", errors=UTF8_LOCALE_FALLBACK_ERRORS),
                         output=output,
                         callbacks=callbacks,
                         is_stderr=is_stderr,
@@ -561,7 +562,7 @@ class LocalShellExecutor:
                     line = bytes(pending[: newline_index + 1])
                     del pending[: newline_index + 1]
                     await self._record_stream_output(
-                        line.decode(errors="replace"),
+                        line.decode("utf-8", errors=UTF8_LOCALE_FALLBACK_ERRORS),
                         output=output,
                         callbacks=callbacks,
                         is_stderr=is_stderr,
@@ -574,7 +575,7 @@ class LocalShellExecutor:
                 line = bytes(pending[:_MAX_PENDING_STREAM_BYTES])
                 del pending[:_MAX_PENDING_STREAM_BYTES]
                 await self._record_stream_output(
-                    line.decode(errors="replace"),
+                    line.decode("utf-8", errors=UTF8_LOCALE_FALLBACK_ERRORS),
                     output=output,
                     callbacks=callbacks,
                     is_stderr=is_stderr,

@@ -1,10 +1,15 @@
+import pytest
+
 from fast_agent.core.error_handling import handle_error
-from fast_agent.core.exceptions import FastAgentError
+from fast_agent.core.exceptions import ConfigFileError, FastAgentError
 
 
-def test_handle_error_prints_fast_agent_error_details(capsys) -> None:
+@pytest.mark.parametrize("error_type", [FastAgentError, ConfigFileError])
+def test_handle_error_prints_fast_agent_error_details(
+    capsys, error_type: type[FastAgentError]
+) -> None:
     handle_error(
-        FastAgentError("Bad config", "Missing server"),
+        error_type("Bad config", "Missing server"),
         "Configuration Error",
         "Check fast-agent.yaml",
     )

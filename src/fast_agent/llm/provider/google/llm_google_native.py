@@ -21,7 +21,6 @@ from mcp_types import (
 
 from fast_agent.constants import (
     DEFAULT_MAX_ITERATIONS,
-    DEFAULT_STREAMING_TIMEOUT,
     FAST_AGENT_SAFETY_DETAILS,
     REASONING,
 )
@@ -68,6 +67,7 @@ _GOOGLE_FINISH_REASON_MAP: dict[str, LlmStopReason] = {
     "STOP": LlmStopReason.END_TURN,
     "MAX_TOKENS": LlmStopReason.MAX_TOKENS,
     "LENGTH": LlmStopReason.MAX_TOKENS,
+    "CONTINUATION": LlmStopReason.MAX_TOKENS,
     "PROHIBITED_CONTENT": LlmStopReason.SAFETY,
     "SAFETY": LlmStopReason.SAFETY,
     "RECITATION": LlmStopReason.SAFETY,
@@ -165,10 +165,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             bool(web_search_override) if isinstance(web_search_override, bool) else None
         )
         super().__init__(provider=Provider.GOOGLE, **kwargs)
-        self._google_streaming_timeout_configured = bool(
-            self._init_request_params
-            and "streaming_timeout" in self._init_request_params.model_fields_set
-        )
         # Initialize the converter
         self._converter = GoogleConverter()
         self._init_reasoning(kwargs)
@@ -282,16 +278,9 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
     ) -> RequestParams:
         resolved = super().get_request_params(request_params)
         service_tier = self._resolve_google_service_tier(resolved)
-        request_timeout_configured = bool(
-            request_params and "streaming_timeout" in request_params.model_fields_set
-        )
-        if (
-            service_tier == "flex"
-            and not request_timeout_configured
-            and not self._google_streaming_timeout_configured
-            and resolved.streaming_timeout == DEFAULT_STREAMING_TIMEOUT
-        ):
+        if service_tier == "flex" and "streaming_timeout" not in resolved.model_fields_set:
             resolved.streaming_timeout = GOOGLE_FLEX_STREAMING_TIMEOUT
+            resolved.model_fields_set.discard("streaming_timeout")
         return resolved
 
     def _init_reasoning(self, kwargs: dict) -> None:
@@ -561,9 +550,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 timeout_seconds=timeout_seconds,
                 timeout_message=f"Google stream did not start within {timeout_seconds} seconds.",
             )
-        except AttributeError:
-            # Older SDKs might not expose streaming; fall back to non-streaming.
-            return None
         except TimeoutError:
             raise
         except errors.APIError:
@@ -1509,13 +1495,15 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             turn_messages.extend(self._converter.convert_to_google_content([last_message]))
         if not turn_messages:
             raise ValueError("Google generateContent requires a non-empty final user turn.")
-        if self._is_gemini_37(model) and not self._has_google_final_turn_input(turn_messages):
-            raise ValueError("Gemini 3.7 Flash requires non-empty text in the final user turn.")
+        if self._requires_final_turn_text(model) and not self._has_google_final_turn_input(
+            turn_messages
+        ):
+            raise ValueError(f"{model.strip()} requires non-empty text in the final user turn.")
         return turn_messages
 
     @staticmethod
-    def _is_gemini_37(model: str) -> bool:
-        return strip_casefold(model).endswith("gemini-3.7-flash")
+    def _requires_final_turn_text(model: str) -> bool:
+        return strip_casefold(model).endswith(("gemini-3.7-flash", "gemini-3.8-flash"))
 
     @staticmethod
     def _has_google_final_turn_input(turn_messages: list[types.Content]) -> bool:

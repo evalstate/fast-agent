@@ -12,6 +12,7 @@ from mcp_types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.context import Context
 from fast_agent.core.agent_capabilities import AgentCapabilityMode, resolve_agent_capability_mode
@@ -32,6 +33,7 @@ from fast_agent.session import (
     SessionRequestSettingsSnapshot,
     SessionSnapshot,
 )
+from fast_agent.session.history_agent import HistoryAgent
 from fast_agent.session.session_manager import SessionManager
 
 if TYPE_CHECKING:
@@ -184,6 +186,69 @@ def _write_snapshot(session: Session, snapshot: SessionSnapshot) -> None:
         json.dumps(snapshot.model_dump(mode="json"), indent=2),
         encoding="utf-8",
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("saved_shell", "no_shell", "other_workspace", "acp_origin", "explicit_shell", "restored"),
+    [
+        (True, False, False, False, False, True),
+        (True, True, False, False, False, False),
+        (True, False, True, False, False, False),
+        (True, False, False, True, False, False),
+        (False, False, False, False, False, False),
+        (False, False, False, False, True, True),
+    ],
+)
+async def test_session_shell_restoration_respects_runtime_and_workspace(
+    tmp_path: Path,
+    saved_shell: bool,
+    no_shell: bool,
+    other_workspace: bool,
+    acp_origin: bool,
+    explicit_shell: bool,
+    restored: bool,
+) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    metadata = {"cwd": str(tmp_path)}
+    if acp_origin:
+        metadata["acp_session_id"] = "editor-session"
+    session = manager.create_session(metadata=metadata)
+    source = McpAgent(AgentConfig("worker"), context=Context(shell_runtime=saved_shell))
+    await session.save_history(
+        cast("AgentProtocol", HistoryAgent(agent=source, message_history=[_message("user", "hi")]))
+    )
+    assert session.load_snapshot().continuation.agents["worker"].shell_enabled is saved_shell
+    manager.release_session(session.info.name)
+
+    current_workspace = tmp_path / "elsewhere" if other_workspace else tmp_path
+    current_workspace.mkdir(exist_ok=True)
+    resumed_manager = SessionManager(
+        cwd=current_workspace,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    resumed_session = resumed_manager.load_session(session.info.name)
+    assert resumed_session is not None
+    runtime = McpAgent(
+        AgentConfig("worker"), context=Context(no_shell=no_shell, shell_runtime=explicit_shell)
+    )
+    result = await SessionHydrator().hydrate_session(
+        session=resumed_session,
+        agents={"worker": runtime},
+        fallback_agent_name="worker",
+    )
+    assert runtime.shell_runtime_enabled is restored
+    assert ("bash" in {tool.name for tool in (await runtime.list_tools()).tools}) is restored
+    assert any(warning.code == "shell-restore-skipped" for warning in result.warnings) is (
+        saved_shell and not restored
+    )
+    await source.shutdown()
+    await runtime.shutdown()
 
 
 @pytest.mark.asyncio

@@ -13,11 +13,11 @@ from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider.openai.llm_deepseek import (
     DEEPSEEK_BASE_URL,
     DEFAULT_DEEPSEEK_MODEL,
-    DEFAULT_DEEPSEEK_REASONING_EFFORT,
     SUPPORTED_DEEPSEEK_MODELS,
     DeepSeekResponsesLLM,
 )
 from fast_agent.llm.provider_types import Provider
+from fast_agent.types import RequestParams
 
 
 def _input_items() -> list[dict[str, object]]:
@@ -37,6 +37,31 @@ def test_deepseek_responses_defaults_to_sse_and_official_endpoint() -> None:
     assert llm.configured_transport == "sse"
     assert llm.default_request_params.model == DEFAULT_DEEPSEEK_MODEL
     assert llm._base_url() == DEEPSEEK_BASE_URL
+
+
+@pytest.mark.parametrize("model", SUPPORTED_DEEPSEEK_MODELS)
+def test_deepseek_omits_default_output_limit_without_reducing_context(model: str) -> None:
+    llm = DeepSeekResponsesLLM(context=Context(config=Settings()), model=model)
+
+    args = llm._build_response_args(_input_items(), llm.get_request_params(), tools=None)
+
+    assert "max_output_tokens" not in args
+    assert llm.default_request_params.max_tokens is None
+    assert llm.usage_accumulator.context_window_size == 1_048_576
+
+
+@pytest.mark.parametrize("at_initialization", [True, False])
+def test_deepseek_preserves_explicit_output_limit(at_initialization: bool) -> None:
+    override = RequestParams(max_tokens=4096)
+    llm = DeepSeekResponsesLLM(
+        context=Context(config=Settings()),
+        request_params=override if at_initialization else None,
+    )
+    params = llm.get_request_params(None if at_initialization else override)
+
+    args = llm._build_response_args(_input_items(), params, tools=None)
+
+    assert args["max_output_tokens"] == 4096
 
 
 def test_deepseek_responses_uses_provider_configuration() -> None:
@@ -68,24 +93,37 @@ def test_deepseek_responses_rejects_models_not_migrated_to_responses(model: str)
         DeepSeekResponsesLLM(context=Context(config=Settings()), model=model)
 
 
-def test_deepseek_factory_builds_sse_responses_adapter() -> None:
-    factory = ModelFactory.create_factory("deepseek?reasoning=low")
+@pytest.mark.parametrize("max_tokens", [None, 8192])
+def test_deepseek_factory_builds_sse_responses_adapter(max_tokens: int | None) -> None:
+    model = "deepseek?reasoning=low"
+    if max_tokens is not None:
+        model += f"&max_tokens={max_tokens}"
+    factory = ModelFactory.create_factory(model)
     llm = factory(LlmAgent(AgentConfig(name="test")))
 
     assert isinstance(llm, DeepSeekResponsesLLM)
     assert llm.configured_transport == "sse"
+    args = llm._build_response_args(_input_items(), llm.get_request_params(), tools=None)
+    if max_tokens is None:
+        assert "max_output_tokens" not in args
+    else:
+        assert args["max_output_tokens"] == max_tokens
 
 
-def test_deepseek_vision_model_serializes_inline_image_for_responses() -> None:
+@pytest.mark.parametrize(
+    "model", ["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"]
+)
+@pytest.mark.parametrize("mime", ["image/jpeg", "image/png", "image/gif", "image/webp"])
+def test_deepseek_vision_model_serializes_inline_image_for_responses(model: str, mime: str) -> None:
     llm = DeepSeekResponsesLLM(
         context=Context(config=Settings()),
-        model="deepseek-v4-flash-vision-exp",
+        model=model,
     )
 
     parts = llm._convert_content_parts(
         [
             TextContent(type="text", text="What is in this image?"),
-            ImageContent(type="image", data="aW1hZ2U=", mime_type="image/png"),
+            ImageContent(type="image", data="aW1hZ2U=", mime_type=mime),
         ],
         role="user",
     )
@@ -94,7 +132,7 @@ def test_deepseek_vision_model_serializes_inline_image_for_responses() -> None:
         {"type": "input_text", "text": "What is in this image?"},
         {
             "type": "input_image",
-            "image_url": "data:image/png;base64,aW1hZ2U=",
+            "image_url": f"data:{mime};base64,aW1hZ2U=",
         },
     ]
 
@@ -122,8 +160,8 @@ def test_deepseek_rejects_websocket_transport() -> None:
 @pytest.mark.parametrize(
     ("reasoning", "wire_effort"),
     [
-        (None, DEFAULT_DEEPSEEK_REASONING_EFFORT),
-        (True, DEFAULT_DEEPSEEK_REASONING_EFFORT),
+        (None, "max"),
+        (True, "max"),
         ("low", "low"),
         ("high", "high"),
         ("max", "max"),

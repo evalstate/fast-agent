@@ -91,7 +91,9 @@ class PRReviewData:
 def run_gh(args: list[str], check: bool = True) -> dict | list | str:
     """Run gh CLI command and return parsed JSON or raw output."""
     cmd = ["gh"] + args
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False
+    )
     if result.returncode != 0:
         if check:
             raise subprocess.CalledProcessError(
@@ -107,7 +109,9 @@ def run_gh(args: list[str], check: bool = True) -> dict | list | str:
 def run_gh_jsonlines(args: list[str], check: bool = True) -> list[dict]:
     """Run gh command that prints one JSON object per line; return list of objects."""
     cmd = ["gh"] + args
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False
+    )
     if result.returncode != 0:
         if check:
             raise subprocess.CalledProcessError(
@@ -271,6 +275,8 @@ def get_file_content_at_ref(owner: str, repo: str, path: str, ref: str) -> str |
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
 

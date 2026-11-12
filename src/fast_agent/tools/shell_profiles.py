@@ -5,6 +5,7 @@ type ResolvedShellToolProfile = Literal[
     "minimal_process",
     "grok_shell",
     "luna_exec",
+    "freeform_shell",
 ]
 type ShellToolProfile = Literal["auto"] | ResolvedShellToolProfile
 

@@ -215,7 +215,7 @@ def test_overlay_group_without_entries_renders_empty_message() -> None:
     )
     picker.state.provider_index = 0
 
-    rendered = "".join(fragment for _, fragment in picker._render_model_panel())
+    rendered = "".join(fragment[1] for fragment in picker._render_model_panel())
 
     assert "No local overlays found." in rendered
     assert picker._provider_availability_label(picker.current_provider) == "none yet"

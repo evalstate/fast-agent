@@ -161,9 +161,11 @@ class HistoryChild(LlmAgent):
         self.loaded_history: list[PromptMessageExtended] | None = None
         self.last_clone: HistoryChild | None = None
 
-    def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None:
+    def load_message_history(
+        self, messages: list[PromptMessageExtended] | None, *, clear_state: bool = False
+    ) -> None:
         self.loaded_history = list(messages or [])
-        super().load_message_history(messages)
+        super().load_message_history(messages, clear_state=clear_state)
 
     async def generate(
         self,

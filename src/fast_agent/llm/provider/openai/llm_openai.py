@@ -2,6 +2,7 @@ import asyncio
 import json
 from contextlib import suppress
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, ClassVar, Protocol, cast, runtime_checkable
@@ -36,7 +37,11 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.fastagent_llm import FastAgentLLM, RequestParams
-from fast_agent.llm.provider.error_utils import build_stream_failure_response
+from fast_agent.llm.provider.error_utils import (
+    EmptyCompletionError,
+    build_stream_failure_response,
+    is_empty_completion,
+)
 from fast_agent.llm.provider.openai._stream_capture import (
     save_stream_chunk as _save_stream_chunk,
 )
@@ -49,7 +54,6 @@ from fast_agent.llm.provider.openai._stream_capture import (
 from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
 from fast_agent.llm.provider.openai.schema_sanitizer import (
-    sanitize_response_format_schema,
     sanitize_tool_input_schema,
     should_strip_tool_schema_defaults,
 )
@@ -57,15 +61,15 @@ from fast_agent.llm.provider.openai.structured_output import OpenAIStructuredOut
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider.reasoning_config import reasoning_setting_from_config
 from fast_agent.llm.provider.streaming_timeouts import (
-    StreamTiming,
     await_stream_start,
-    stream_timing_payload,
     with_stream_idle_timeout,
 )
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
+from fast_agent.llm.retry_telemetry import append_retry_channel
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
+from fast_agent.llm.upload_progress import plan_upload, run_with_upload_progress
 from fast_agent.llm.usage_tracking import usage_from_openai_chat
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.mime_utils import guess_mime_type
@@ -194,6 +198,7 @@ class _OpenAIStopResult:
 
 
 class OpenAILLM(
+    OpenAIStructuredOutputMixin,
     OpenAIToolNotificationMixin,
     ResponsesFileMixin,
     FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage],
@@ -213,24 +218,6 @@ class OpenAILLM(
         FastAgentLLM.PARAM_MCP_METADATA,
         FastAgentLLM.PARAM_STOP_SEQUENCES,
     }
-
-    _prepare_structured_request = OpenAIStructuredOutputMixin._prepare_structured_request
-    _apply_prompt_provider_specific_structured_schema = (
-        OpenAIStructuredOutputMixin._apply_prompt_provider_specific_structured_schema
-    )
-
-    @staticmethod
-    def schema_to_response_format(
-        schema: dict[str, Any],
-        *,
-        name: str = "structured_output",
-        strict: bool = True,
-    ) -> dict[str, Any]:
-        return FastAgentLLM.schema_to_response_format(
-            sanitize_response_format_schema(schema) if strict else schema,
-            name=name,
-            strict=strict,
-        )
 
     def __init__(self, provider: Provider = Provider.OPENAI, **kwargs) -> None:
         self._reasoning_field: str | None = kwargs.pop("reasoning_field", None)
@@ -301,23 +288,10 @@ class OpenAILLM(
         file_url: str,
         filename: str | None,
     ) -> tuple[bytes | None, str | None, str | None]:
-        if file_url.startswith("data:"):
-            data_bytes, mime_type = self._decode_file_data(file_url)
-            return data_bytes, filename, mime_type
-        if file_url.startswith("file://"):
-            local_path = Path(file_url[len("file://") :])
-            if local_path.exists():
-                resolved_filename = filename or local_path.name
-                return (
-                    local_path.read_bytes(),
-                    resolved_filename,
-                    guess_mime_type(local_path.name),
-                )
-            return None, filename, None
         if file_url.startswith(("http://", "https://")):
             data_bytes, mime_type = await self._download_remote_file(file_url)
             return data_bytes, filename, mime_type
-        return None, filename, None
+        return self._file_bytes_from_url(file_url, filename)
 
     async def _normalize_chat_file_part(
         self,
@@ -336,12 +310,32 @@ class OpenAILLM(
             return part, False
 
         filename = self._chat_file_filename(file_obj)
+        # Content-hash caching needs the bytes, so key remote files by URL to avoid
+        # re-downloading every history attachment on every turn.
+        remote_key = (
+            f"url:{filename or ''}:{file_url}"
+            if file_url.startswith(("http://", "https://"))
+            else None
+        )
+        if remote_key is not None:
+            if cached := self._file_id_cache.get(remote_key):
+                return {"type": "file", "file": {"file_id": cached}}, True
+            if plan_upload(remote_key):
+                return part, False
         data_bytes, filename, mime_type = await self._chat_file_bytes_from_url(file_url, filename)
         if data_bytes is None:
             return part, False
 
         resolved_mime_type = mime_type or guess_mime_type(filename or file_url)
-        file_id = await self._upload_file_bytes(client, data_bytes, filename, resolved_mime_type)
+        file_id = await self._upload_file_bytes(
+            client,
+            data_bytes,
+            filename,
+            resolved_mime_type,
+            already_counted=remote_key is not None,
+        )
+        if remote_key is not None:
+            self._file_id_cache[remote_key] = file_id
         return {"type": "file", "file": {"file_id": file_id}}, True
 
     async def _normalize_chat_content_parts(
@@ -384,7 +378,15 @@ class OpenAILLM(
         client: AsyncOpenAI,
         messages: list[ChatCompletionMessageParam],
     ) -> list[ChatCompletionMessageParam]:
-        return [await self._normalize_chat_message_files(client, message) for message in messages]
+        async def walk() -> list[ChatCompletionMessageParam]:
+            return [
+                await self._normalize_chat_message_files(client, message) for message in messages
+            ]
+
+        normalized, _ = await run_with_upload_progress(
+            walk, partial(self._log_upload_progress, model=self.default_request_params.model)
+        )
+        return normalized
 
     def _resolve_reasoning_effort(self) -> str | None:
         setting = self.reasoning_effort
@@ -1195,6 +1197,10 @@ class OpenAILLM(
 
         return final_completion, reasoning_parts
 
+    def _openai_completion_model_name(self, params: RequestParams | None) -> str:
+        resolved = self.get_request_params(request_params=params)
+        return resolved.model or self.default_request_params.model or DEFAULT_OPENAI_MODEL
+
     def _openai_completion_request(
         self,
         message: list[ChatCompletionMessageParam] | None,
@@ -1202,7 +1208,7 @@ class OpenAILLM(
         tools: list[Tool] | None,
     ) -> _OpenAICompletionRequest:
         params = self.get_request_params(request_params=request_params)
-        model_name = params.model or self.default_request_params.model or DEFAULT_OPENAI_MODEL
+        model_name = self._openai_completion_model_name(params)
         messages = self._openai_completion_messages(message, params)
         available_tools = self._openai_completion_tools(tools, model_name)
         arguments = self._prepare_api_request(messages, available_tools, params)
@@ -1260,11 +1266,17 @@ class OpenAILLM(
         capture_filename: Path | None,
     ) -> _OpenAICompletionResponse:
         timeout = request.params.streaming_timeout
-        stream = await await_stream_start(
-            client.chat.completions.create(**request.arguments),
-            timeout_seconds=timeout,
-            timeout_message=f"OpenAI stream did not start within {timeout} seconds.",
-        )
+        try:
+            stream = await await_stream_start(
+                client.chat.completions.create(**request.arguments),
+                timeout_seconds=timeout,
+                timeout_message=f"OpenAI stream did not start within {timeout} seconds.",
+            )
+        except Exception as error:
+            self._record_stream_outcome(
+                None, error=error, model=request.model_name, timeout_seconds=timeout
+            )
+            raise
         timed_stream = with_stream_idle_timeout(
             stream,
             idle_timeout_seconds=timeout,
@@ -1302,38 +1314,18 @@ class OpenAILLM(
                 streamed_reasoning,
                 source="OpenAI non-streaming fallback response",
             )
-        except TimeoutError:
-            self._record_stream_failure(timed_stream.timing)
-            if timeout is None:
-                raise
-            self.logger.error(
-                "Streaming idle timeout while waiting for OpenAI completion",
-                data={
-                    "model": request.model_name,
-                    "timeout_seconds": timeout,
-                    "stream_timing": stream_timing_payload(timed_stream.timing, timed_out=True),
-                },
+        except Exception as error:
+            # Mid-stream failures (idle timeouts, truncated chunked responses, resets)
+            # restart the whole turn, so record how far this attempt got.
+            self._record_stream_outcome(
+                timed_stream.timing, error=error, model=request.model_name, timeout_seconds=timeout
             )
             raise
-        except Exception:
-            # Mid-stream failures (truncated chunked responses, resets) restart the
-            # whole turn, so record how far this attempt got for retry telemetry.
-            self._record_stream_failure(timed_stream.timing)
-            raise
         else:
-            self._record_stream_gap_observation(timed_stream.timing, model=request.model_name)
+            self._record_stream_outcome(
+                timed_stream.timing, error=None, model=request.model_name, timeout_seconds=timeout
+            )
         return _OpenAICompletionResponse(response, streamed_reasoning)
-
-    def _record_stream_gap_observation(self, timing: StreamTiming, *, model: str) -> None:
-        if not timing.inter_event_waits_over_threshold:
-            return
-        self.logger.warning(
-            "OpenAI stream observed extended inter-event gap",
-            data={
-                "model": model,
-                "stream_timing": stream_timing_payload(timing, timed_out=False),
-            },
-        )
 
     async def _run_openai_completion_request(
         self,
@@ -1537,6 +1529,32 @@ class OpenAILLM(
         The default implementation uses OpenAI's ChatCompletion as the LLM.
         Override this method to use a different LLM.
         """
+        response = await self._openai_completion_once(message, request_params, tools)
+        if not is_empty_completion(response):
+            return response
+
+        # As for OpenAI Responses: an end_turn with nothing in it (often a stream cut
+        # off mid-reasoning) would end the agent loop, so ask once more.
+        model_name = self._openai_completion_model_name(request_params)
+        self.logger.warning(
+            "OpenAI completion returned no assistant content or tool calls; retrying once",
+            data={"model": model_name},
+        )
+        retry = await self._openai_completion_once(message, request_params, tools)
+        if is_empty_completion(retry):
+            error = EmptyCompletionError()
+            self.logger.error(str(error), data={"model": model_name})
+            retry = build_stream_failure_response(self.provider, error, model_name)
+        append_retry_channel(retry, [self._empty_completion_retry()])
+        return retry
+
+    async def _openai_completion_once(
+        self,
+        message: list[ChatCompletionMessageParam] | None,
+        request_params: RequestParams | None,
+        tools: list[Tool] | None,
+    ) -> PromptMessageExtended:
+        """One request, built fresh: finalizing appends the reply to its messages."""
         request = self._openai_completion_request(message, request_params, tools)
         try:
             completion = await self._run_openai_completion_request(request)
@@ -1549,8 +1567,6 @@ class OpenAILLM(
             )
         except APIError as error:
             self.logger.error("APIError during OpenAI completion", exc_info=error)
-            raise
-        except Exception:
             raise
         return await self._finalize_openai_completion(request, completion)
 

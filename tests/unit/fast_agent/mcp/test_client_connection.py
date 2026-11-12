@@ -1,7 +1,7 @@
 import json
 import warnings
 from collections.abc import Awaitable, Callable
-from typing import cast
+from typing import Literal, cast
 
 import httpx2
 import pytest
@@ -11,6 +11,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp_types import (
     INVALID_REQUEST,
+    LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
     BlobResourceContents,
     EmbeddedResource,
@@ -23,7 +24,11 @@ from fast_agent.config import MCPServerSettings
 from fast_agent.core.exceptions import ServerSessionTerminatedError
 from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
 from fast_agent.mcp.client_connection import MCPClientConnection
-from fast_agent.mcp.skills_extension import GetSkillResult, ListSkillsResult
+from fast_agent.mcp.skills_extension import (
+    GetSkillResult,
+    ListSkillsResult,
+    ReadResourceDirectoryResult,
+)
 from fast_agent.mcp.tool_result_metadata import url_elicitation_required_payload
 from fast_agent.mcp.uri_security import is_file_uri
 
@@ -70,7 +75,7 @@ class StatefulStreamableHTTPSimulator:
                     "jsonrpc": "2.0",
                     "id": payload["id"],
                     "result": {
-                        "supportedVersions": ["2026-07-28"],
+                        "supportedVersions": [LATEST_PROTOCOL_VERSION],
                         "capabilities": {},
                         "resultType": "complete",
                     },
@@ -139,6 +144,10 @@ class BlockingDiscoverStreamableHTTPSimulator(StatefulStreamableHTTPSimulator):
 
 
 class SkillsResponseStreamableHTTPSimulator(StatefulStreamableHTTPSimulator):
+    def __init__(self) -> None:
+        super().__init__()
+        self.requests: list[tuple[str, dict[str, object]]] = []
+
     async def __call__(self, request: httpx2.Request) -> httpx2.Response:
         if request.method != "POST":
             return await super().__call__(request)
@@ -146,24 +155,48 @@ class SkillsResponseStreamableHTTPSimulator(StatefulStreamableHTTPSimulator):
         payload = json.loads(request.content)
         assert isinstance(payload, dict)
         method = payload["method"]
-        if method in {"initialize", "notifications/initialized"}:
+        if method in {"initialize", "notifications/initialized", "server/discover"}:
             return await super().__call__(request)
 
-        assert self.session_id is not None
-        assert request.headers["mcp-session-id"] == self.session_id
+        if self.session_id is not None:
+            assert request.headers["mcp-session-id"] == self.session_id
         params = payload["params"]
         assert isinstance(params, dict)
+        self.requests.append((method, params))
         skill = {
             "uri": "skill://demo/SKILL.md",
             "frontmatter": {"name": "demo", "description": "Demo skill"},
             "resources": [
                 {
                     "uri": "skill://demo/SKILL.md",
-                    "digest": "sha256:abc",
+                    "digest": "sha256:" + "a" * 64,
+                    "size": 42,
                 }
             ],
+            "_meta": {"example.com/provenance": "signed"},
         }
-        if method == "skills/list":
+        if method == "resources/directory/read":
+            assert params["uri"] == "skill://demo/templates"
+            assert params["cursor"] == "dir-1"
+            result = {
+                "resultType": "complete",
+                "resources": [
+                    {
+                        "uri": "skill://demo/templates/invoice.md",
+                        "name": "invoice.md",
+                        "mimeType": "text/markdown",
+                    },
+                    {
+                        "uri": "skill://demo/templates/regional",
+                        "name": "regional",
+                        "mimeType": "inode/directory",
+                    },
+                ],
+                "nextCursor": "dir-2",
+                "ttlMs": 30_000,
+                "cacheScope": "public",
+            }
+        elif method == "skills/list":
             assert params["cursor"] == "page-1"
             result = {
                 "resultType": "complete",
@@ -175,7 +208,12 @@ class SkillsResponseStreamableHTTPSimulator(StatefulStreamableHTTPSimulator):
         else:
             assert method == "skills/get"
             assert params["uri"] == skill["uri"]
-            result = {"resultType": "complete", "skill": skill}
+            result = {
+                "resultType": "complete",
+                "skill": skill,
+                "ttlMs": 30_000,
+                "cacheScope": "private",
+            }
         return httpx2.Response(
             200,
             headers={"content-type": "application/json"},
@@ -224,7 +262,7 @@ class MixedResponseStreamableHTTPSimulator:
                     "jsonrpc": "2.0",
                     "id": payload["id"],
                     "result": {
-                        "supportedVersions": ["2026-07-28"],
+                        "supportedVersions": [LATEST_PROTOCOL_VERSION],
                         "capabilities": {"tools": {"listChanged": False}},
                         "resultType": "complete",
                     },
@@ -559,7 +597,10 @@ async def test_forced_modern_discovery_cancellation_closes_client() -> None:
 
 
 @pytest.mark.asyncio
-async def test_skills_extension_requests_and_parses_results() -> None:
+@pytest.mark.parametrize("protocol_mode", ["legacy", "modern"])
+async def test_skills_extension_requests_and_parses_results(
+    protocol_mode: Literal["legacy", "modern"],
+) -> None:
     simulator = SkillsResponseStreamableHTTPSimulator()
     http_client = httpx2.AsyncClient(transport=httpx2.MockTransport(simulator))
     transport = streamable_http_client("https://example.test/mcp", http_client=http_client)
@@ -569,10 +610,11 @@ async def test_skills_extension_requests_and_parses_results() -> None:
         transport,
         callbacks,
         cache=False,
-        protocol_mode="legacy",
+        protocol_mode=protocol_mode,
     ) as connection:
         listed = await connection.list_skills(cursor="page-1")
         skill = await connection.get_skill("skill://demo/SKILL.md")
+        directory = await connection.read_directory("skill://demo/templates", cursor="dir-1")
 
     await http_client.aclose()
 
@@ -580,10 +622,38 @@ async def test_skills_extension_requests_and_parses_results() -> None:
     assert listed.next_cursor == "page-2"
     assert listed.ttl_ms == 30_000
     assert listed.cache_scope == "public"
-    assert listed.skills[0].resources is not None
-    assert listed.skills[0].resources[0].digest == "sha256:abc"
+    assert isinstance(listed.skills[0].resources, list)
+    assert listed.skills[0].resources[0].digest == "sha256:" + "a" * 64
+    assert listed.skills[0].resources[0].size == 42
+    assert listed.skills[0].meta == {"example.com/provenance": "signed"}
     assert isinstance(skill, GetSkillResult)
     assert skill.skill.frontmatter["name"] == "demo"
+    assert skill.skill.meta == {"example.com/provenance": "signed"}
+    assert skill.ttl_ms == 30_000
+    assert skill.cache_scope == "private"
+    assert isinstance(directory, ReadResourceDirectoryResult)
+    assert directory.result_type == "complete"
+    assert [str(resource.uri) for resource in directory.resources] == [
+        "skill://demo/templates/invoice.md",
+        "skill://demo/templates/regional",
+    ]
+    assert directory.resources[1].mime_type == "inode/directory"
+    assert directory.next_cursor == "dir-2"
+    assert directory.ttl_ms == 30_000
+    assert directory.cache_scope == "public"
+
+    assert [method for method, _ in simulator.requests] == [
+        "skills/list",
+        "skills/get",
+        "resources/directory/read",
+    ]
+    if protocol_mode == "modern":
+        for _, params in simulator.requests:
+            meta = params["_meta"]
+            assert isinstance(meta, dict)
+            assert meta["io.modelcontextprotocol/protocolVersion"] == LATEST_PROTOCOL_VERSION
+            assert isinstance(meta["io.modelcontextprotocol/clientInfo"], dict)
+            assert isinstance(meta["io.modelcontextprotocol/clientCapabilities"], dict)
 
 
 @pytest.mark.asyncio

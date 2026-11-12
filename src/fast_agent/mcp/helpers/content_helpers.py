@@ -29,7 +29,9 @@ if TYPE_CHECKING:
 class ToolResultWarningLogger(Protocol):
     """Minimal logger interface used for best-effort tool result warnings."""
 
-    def warning(self, message: str, **data: object) -> None: ...
+    def warning(
+        self, message: str, *, text_block_count: int, source: str | None = None
+    ) -> None: ...
 
 
 def get_text(content: object) -> str | None:
@@ -159,14 +161,12 @@ def canonicalize_tool_result_content_for_llm(
 
     text_blocks = [item for item in content if is_text_content(item)]
     if logger is not None and len(text_blocks) > 1:
-        warning_data: dict[str, object] = {"text_block_count": len(text_blocks)}
-        if source is not None:
-            warning_data["source"] = source
         logger.warning(
             "Tool result includes multiple text blocks alongside structuredContent; "
             "ignoring those text blocks for LLM serialization and using "
             "structuredContent as the canonical text payload.",
-            **warning_data,
+            text_block_count=len(text_blocks),
+            source=source,
         )
 
     non_text_blocks = [item for item in content if not is_text_content(item)]

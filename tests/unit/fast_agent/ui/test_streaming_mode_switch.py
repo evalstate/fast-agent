@@ -1521,3 +1521,18 @@ def test_diff_live_height_clamp_preserves_cursor_tracking() -> None:
 def test_stream_header_margin_constant() -> None:
     """The header/margin constant should reserve 3 lines (header + safety)."""
     assert streaming_module._STREAM_HEADER_AND_MARGIN_LINES == 3
+
+
+def test_diff_live_participates_in_rich_live_nesting() -> None:
+    output = io.StringIO()
+    local_console = Console(file=output, force_terminal=True, color_system=None)
+    with Live("outer", console=local_console, auto_refresh=False) as outer:
+        with streaming_module._DiffLive(console=local_console) as inner:
+            assert isinstance(inner, Live)
+            assert inner.get_renderable() == ""
+            inner.update(Text("inner"))
+            outer.refresh()
+        assert local_console._live_stack == [outer]
+    assert not local_console._live_stack
+    assert "outer" in output.getvalue()
+    assert "inner" in output.getvalue()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.key_binding import KeyBindings
@@ -10,7 +10,8 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 
 from fast_agent.ui.single_list_picker_layout import build_single_list_picker_app
 
-StyleFragments = list[tuple[str, str]]
+if TYPE_CHECKING:
+    from prompt_toolkit.formatted_text import StyleAndTextTuples
 
 type ModelReferencePickerPriority = Literal["required", "repair", "recommended", "configured"]
 type ModelReferencePickerAction = Literal["set", "unset", "custom", "done"]
@@ -170,7 +171,7 @@ class _ReferencePicker:
         parts.append(f"class:{priority}")
         return " ".join(parts)
 
-    def _render_rows(self) -> StyleFragments:
+    def _render_rows(self) -> StyleAndTextTuples:
         rows: list[ModelReferencePickerItem | _PickerControlRow] = [
             *self.items,
             _CUSTOM_ROW,
@@ -179,7 +180,7 @@ class _ReferencePicker:
         width = self._terminal_cols()
         status_width = 34
         token_width = max(18, width - status_width - 4)
-        fragments: StyleFragments = []
+        fragments: StyleAndTextTuples = []
         for index, item in enumerate(rows):
             selected = index == self.state.index
             if isinstance(item, _PickerControlRow):
@@ -207,7 +208,7 @@ class _ReferencePicker:
             )
         return fragments
 
-    def _render_details(self) -> StyleFragments:
+    def _render_details(self) -> StyleAndTextTuples:
         item = self.current_item
         if self._is_custom_row():
             return [

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import pytest
 from mcp_types import ListToolsResult, Tool
@@ -10,10 +11,18 @@ from fast_agent.commands.context import CommandContext, NonInteractiveCommandIOB
 from fast_agent.commands.handlers.model import handle_model_web_search
 from fast_agent.commands.handlers.tools import handle_list_tools
 from fast_agent.config import Settings
+from fast_agent.llm.compaction_support import CompactAt, CompactionSupport
 from fast_agent.llm.provider_types import Provider
+
+if TYPE_CHECKING:
+    from fast_agent.llm.usage_tracking import UsageAccumulator
 
 
 class _MutableLlm:
+    compaction_support = CompactionSupport.CLIENT
+    compact_at_override: CompactAt | None = None
+    default_compact_at: CompactAt | None = None
+    usage_accumulator: UsageAccumulator | None = None
     provider = Provider.RESPONSES
     model_name = "gpt-5"
     model_info = None

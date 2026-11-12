@@ -4,12 +4,14 @@ import asyncio
 import copy
 import hashlib
 import json
+import re
 import time
+from collections import deque
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
-from urllib.parse import parse_qs, urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse
 
 from aiohttp import WSMsgType
 from openai import AsyncOpenAI
@@ -75,6 +77,8 @@ class ResponsesWebSocketError(RuntimeError):
         *,
         stream_started: bool = False,
         error_code: str | None = None,
+        diagnostic_error_code: str | None = None,
+        response_failed: bool = False,
         status: int | None = None,
         error_param: str | None = None,
         headers: dict[str, str] | None = None,
@@ -83,10 +87,22 @@ class ResponsesWebSocketError(RuntimeError):
         super().__init__(message)
         self.stream_started = stream_started
         self.error_code = error_code
+        self._diagnostic_error_code = diagnostic_error_code
+        # A terminal response failure is not a transport reconnect hint.
+        self.response_failed = response_failed
         self.status = status
         self.error_param = error_param
         self.headers = headers
         self.stream_id = stream_id
+        # Set for streams that end without a completion event. ``last_frame`` is raw
+        # provider data (bounded); it is for programmatic inspection and is never logged.
+        self.close_snapshot: dict[str, Any] | None = None
+        self.last_frame: str | None = None
+
+    @property
+    def diagnostic_error_code(self) -> str | None:
+        """Failure code for telemetry only; never used to decide retries."""
+        return self._diagnostic_error_code or self.error_code
 
 
 class _AttrObjectView:
@@ -526,13 +542,22 @@ async def connect_websocket(
     headers: Mapping[str, str],
     timeout_seconds: float | None = None,
     keepalive_options: ResponsesWebSocketKeepaliveOptions | None = None,
+    client: AsyncOpenAI | None = None,
 ) -> ManagedWebSocketConnection:
-    websocket_base_url, extra_query = _responses_websocket_connection_parts(url)
-    api_key = _authorization_token(headers) or "unused"
-    client = AsyncOpenAI(
-        api_key=api_key,
-        websocket_base_url=websocket_base_url,
-    )
+    """Dial with an optional dedicated client, transferring ownership to this helper.
+
+    The client is closed on connection failure or when the returned managed
+    connection closes. Its websocket_base_url is set from url; callers must not
+    share the supplied client. Omission preserves the default OpenAI client.
+    """
+    websocket_base_url = _responses_websocket_base_url(url)
+    if client is None:
+        client = AsyncOpenAI(
+            api_key=_authorization_token(headers) or "unused",
+            websocket_base_url=websocket_base_url,
+        )
+    else:
+        client.websocket_base_url = websocket_base_url
     websocket_options: _SdkWebSocketConnectionOptions = {
         # Preserve aiohttp's previous 4 MiB incoming-message limit.
         "max_size": RESPONSES_WEBSOCKET_MAX_MESSAGE_BYTES,
@@ -548,7 +573,6 @@ async def connect_websocket(
         if "ping_timeout" in keepalive_options:
             websocket_options["ping_timeout"] = keepalive_options["ping_timeout"]
     manager = client.responses.connect(
-        extra_query=extra_query,
         extra_headers=dict(headers),
         # The SDK forwards these options to websockets.connect but its generated
         # TypedDict doesn't yet include open_timeout or Ping keepalive options.
@@ -632,16 +656,11 @@ async def _close_connection_attempt(
         await client.close()
 
 
-def _responses_websocket_connection_parts(url: str) -> tuple[str, dict[str, object]]:
+def _responses_websocket_base_url(url: str) -> str:
+    """Strip the /responses suffix; the SDK re-appends it and keeps the base URL query."""
     parsed = urlparse(url)
-    path = (parsed.path or "").rstrip("/")
-    if path.endswith("/responses"):
-        path = path[: -len("/responses")]
-    base_url = urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
-    query: dict[str, object] = {}
-    for key, values in parse_qs(parsed.query, keep_blank_values=True).items():
-        query[key] = values[0] if len(values) == 1 else values
-    return base_url, query
+    path = parsed.path.rstrip("/").removesuffix("/responses")
+    return urlunparse(parsed._replace(path=path, fragment=""))
 
 
 def _authorization_token(headers: Mapping[str, str]) -> str | None:
@@ -785,6 +804,11 @@ class WebSocketResponsesStream:
         self._completed_output_items: list[tuple[int | None, int, Any]] = []
         self._events_seen = 0
         self._last_frame_preview: str | None = None
+        self._request_started_monotonic = time.perf_counter()
+        self._last_frame_monotonic: float | None = None
+        self._frames: deque[tuple[str, str]] = deque(maxlen=_FRAME_HISTORY_LIMIT)
+        self.last_frame_raw: str | None = None
+        self.close_snapshot: dict[str, Any] | None = None
 
     @property
     def stream_started(self) -> bool:
@@ -811,6 +835,7 @@ class WebSocketResponsesStream:
 
         raw_data = self._raw_message_data(message)
         payload = self._payload_from_raw_data(raw_data)
+        self._record_frame(payload)
         event_type = payload.get("type")
         self._raise_top_level_payload_error(payload, event_type)
         self._record_completed_output_item(payload, event_type)
@@ -836,10 +861,13 @@ class WebSocketResponsesStream:
             self._websocket.exception(),
         )
         detail = "; ".join(diagnostics)
-        raise ResponsesWebSocketError(
+        error = ResponsesWebSocketError(
             "WebSocket stream closed before completion event" + (f" ({detail})" if detail else ""),
             stream_started=self._stream_started,
         )
+        error.close_snapshot = self.close_snapshot
+        error.last_frame = self.last_frame_raw
+        raise error
 
     def _close_diagnostics(
         self,
@@ -849,14 +877,21 @@ class WebSocketResponsesStream:
     ) -> list[str]:
         diagnostics = []
         received_close_code: int | None = None
+        close_kind = "unknown"
         if isinstance(websocket_error, ConnectionClosed):
             received = websocket_error.rcvd
             sent = websocket_error.sent
             if received is not None:
+                close_kind = "close_frame_received"
                 received_close_code = received.code
                 diagnostics.append(f"received_close_code={received.code}")
                 if received.reason:
                     diagnostics.append(f"received_close_reason={received.reason}")
+            else:
+                # The peer dropped the connection without a WebSocket close frame
+                # (for example a TCP reset or an intermediary closing the socket).
+                close_kind = "no_close_frame"
+                diagnostics.append("received_close=none")
             if sent is not None:
                 diagnostics.append(f"sent_close_code={sent.code}")
                 if sent.reason:
@@ -866,20 +901,54 @@ class WebSocketResponsesStream:
                     "received_then_sent" if websocket_error.rcvd_then_sent else "sent_then_received"
                 )
                 diagnostics.append(f"close_order={order}")
+            diagnostics.append(f"ws_exception={type(websocket_error).__name__}")
         else:
             if close_code is not None:
+                close_kind = "close_code"
                 diagnostics.append(f"close_code={close_code}")
+            else:
+                close_kind = "no_close_code"
+                diagnostics.append("close_code=none")
             if close_reason:
                 diagnostics.append(f"reason={close_reason}")
+            if websocket_error is not None:
+                diagnostics.append(f"ws_exception={type(websocket_error).__name__}")
         diagnostics.append(f"events_seen={self._events_seen}")
-        if self._last_frame_preview:
-            diagnostics.append(f"last_frame={self._last_frame_preview}")
+        now = time.perf_counter()
+        since_request = round(now - self._request_started_monotonic, 3)
+        since_last_frame = (
+            round(now - self._last_frame_monotonic, 3)
+            if self._last_frame_monotonic is not None
+            else None
+        )
+        diagnostics.append(f"seconds_since_request={since_request}")
+        if since_last_frame is not None:
+            diagnostics.append(f"seconds_since_last_frame={since_last_frame}")
+        if self._frames:
+            diagnostics.append(
+                "frames=[" + " | ".join(summary for _, summary in self._frames) + "]"
+            )
         if received_close_code == 1008 or (
             not isinstance(websocket_error, ConnectionClosed) and close_code == 1008
         ):
             diagnostics.append(
                 "hint=policy_violation (account/feature may not permit Responses websocket beta)"
             )
+        numeric_close_code = (
+            received_close_code
+            if received_close_code is not None
+            else close_code
+            if isinstance(close_code, int) and not isinstance(close_code, bool)
+            else None
+        )
+        self.close_snapshot = {
+            "close_kind": close_kind,
+            "close_code": numeric_close_code,
+            "events_seen": self._events_seen,
+            "last_event_types": [kind for kind, _ in self._frames],
+            "seconds_since_request": since_request,
+            "seconds_since_last_frame": since_last_frame,
+        }
         return diagnostics
 
     def _raise_if_error_message(self, message: Any) -> None:
@@ -898,8 +967,14 @@ class WebSocketResponsesStream:
             return message.data.decode("utf-8", errors="replace")
         return str(message.data)
 
+    def _record_frame(self, payload: Mapping[str, Any]) -> None:
+        kind = _frame_kind(payload)
+        self._frames.append((kind, _frame_summary(payload, kind)))
+        self._last_frame_monotonic = time.perf_counter()
+
     def _payload_from_raw_data(self, raw_data: str) -> dict[str, Any]:
         self._last_frame_preview = _preview_text(raw_data)
+        self.last_frame_raw = raw_data[:_LAST_FRAME_RAW_LIMIT]
         try:
             payload = json.loads(raw_data)
         except json.JSONDecodeError as exc:
@@ -995,6 +1070,7 @@ class WebSocketResponsesStream:
             error_message,
             stream_started=self._stream_started,
             error_code=error_code,
+            response_failed=payload.get("type") == "response.failed",
             status=error_status,
             error_param=error_param,
             headers=error_headers,
@@ -1030,6 +1106,10 @@ class WebSocketResponsesStream:
         top_level_message = _non_empty_string(message)
 
         error = payload.get("error")
+        if error is None and payload.get("type") == "response.failed":
+            response = payload.get("response")
+            if isinstance(response, Mapping):
+                error = response.get("error")
         if (error_text := _non_empty_string(error)) is not None:
             return error_text, None, error_status, None, None, stream_id
         if isinstance(error, Mapping):
@@ -1089,6 +1169,50 @@ def _preview_text(raw_data: str, *, limit: int = 240) -> str:
     if len(compact) <= limit:
         return compact
     return f"{compact[:limit]}..."
+
+
+# Frame diagnostics for streams that end without a completion event.
+# Persisted fields are protocol-shaped only; provider-controlled strings (header
+# values, unknown event names) appear only in the exception message, never in logs.
+_FRAME_HISTORY_LIMIT = 5
+_LAST_FRAME_RAW_LIMIT = 16 * 1024
+_EVENT_TYPE_PATTERN = re.compile(r"(?:response(?:\.[a-z0-9_]{1,40}){1,4}|error)")
+_REQUEST_ID_HEADER_PATTERN = re.compile(r"[A-Za-z0-9-]{0,60}request-id", re.IGNORECASE)
+_REQUEST_ID_VALUE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9:._-]{0,127}")
+_HEADER_NAME_PATTERN = re.compile(r"[A-Za-z0-9-]{1,80}")
+
+
+def _frame_kind(payload: Mapping[str, Any]) -> str:
+    """Protocol-shaped frame label that is safe to persist."""
+    event_type = payload.get("type")
+    if isinstance(event_type, str):
+        return event_type if _EVENT_TYPE_PATTERN.fullmatch(event_type) else "other"
+    if isinstance(payload.get("headers"), Mapping):
+        # Copilot sends an untyped {"headers": {...}} frame before response events.
+        return "headers"
+    return "untyped"
+
+
+def _frame_summary(payload: Mapping[str, Any], kind: str) -> str:
+    """Readable frame label for the exception message (not persisted)."""
+    if kind != "headers":
+        return kind
+    headers = cast("Mapping[Any, Any]", payload["headers"])
+    names = sorted(
+        name for name in headers if isinstance(name, str) and _HEADER_NAME_PATTERN.fullmatch(name)
+    )
+    request_ids = [
+        f"{name}={value}"
+        for name, value in sorted(
+            (item for item in headers.items() if isinstance(item[0], str)),
+            key=lambda item: item[0],
+        )
+        if _REQUEST_ID_HEADER_PATTERN.fullmatch(name)
+        and isinstance(value, str)
+        and _REQUEST_ID_VALUE_PATTERN.fullmatch(value)
+    ]
+    summary = f"headers[{','.join(names)}]"
+    return f"{summary} {' '.join(request_ids)}" if request_ids else summary
 
 
 class WebSocketConnectionManager:
@@ -1191,6 +1315,12 @@ class WebSocketConnectionManager:
             connection.created_monotonic = self._clock()
         if connection.reuse_key is None:
             connection.reuse_key = reuse_key
+
+    def connection_age_seconds(self, connection: ManagedWebSocketConnection) -> float | None:
+        """Observe age using the same monotonic clock as connection lifecycle policy."""
+        if connection.created_monotonic is None:
+            return None
+        return round(max(0.0, self._clock() - connection.created_monotonic), 3)
 
     def _is_too_old(self, connection: ManagedWebSocketConnection) -> bool:
         if self._max_age_seconds <= 0 or connection.created_monotonic is None:

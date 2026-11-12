@@ -51,6 +51,44 @@ session_history_window: 20
 git_aware: false
 ```
 
+### Programmatic tool calling (PTC)
+
+PTC is included in the core install from **0.10.53**, using the bundled
+`python-monty` engine (`pydantic-monty`). It exposes tools as async Python functions
+behind `exec_sandbox`, allowing the model to filter and aggregate results in code
+rather than sending every result back into its context.
+
+Enablement precedence (highest first):
+
+1. CLI `--ptc` or `--no-ptc`.
+2. Model query `ptc=on|true|off|false`, for example `glm53flash?ptc=off`.
+3. YAML `ptc.enabled: true` or `false`.
+4. Model database default. **GLM-5.3-Flash, GPT-6 Astra, GPT-6.1 Sol, GPT-6.1 Terra,
+   GPT-6 Luna and Kimi K3.1 Pro default to on** (including their provider aliases); other models
+   default to off.
+
+Omit `ptc.enabled` or set it to `null` to use model defaults. Limits and tool
+exposure settings are independent of enablement:
+
+--8<-- "_generated/ptc_config_snippet.md"
+
+`direct_tools` keeps matching tools callable directly; `nested_tools` makes
+matching tools code-only, with `direct_tools` taking precedence. The engine
+is not configurable.
+
+!!! warning "Local POSIX only"
+    PTC does not yet support Docker, remote, ACP-owned terminal/filesystem, custom
+    execution environments or non-POSIX hosts. A model default (such as GLM-5.3-Flash)
+    falls back to direct tools there; an explicit `--ptc`, `ptc=on` or
+    `ptc.enabled: true` is rejected. With local shell/filesystem access
+    enabled, sandbox file operations access the host working directory directly,
+    without tool permission prompts; this is not a filesystem sandbox.
+
+See the [PTC example](https://github.com/evalstate/fast-agent/tree/main/examples/ptc)
+for a runnable demonstration.
+
+### History compaction defaults
+
 History compaction defaults are generated from `fast_agent.config.CompactionSettings`:
 
 --8<-- "_generated/compaction_config_snippet.md"
@@ -257,7 +295,7 @@ Responses-family providers can also be toggled per run in the model string:
 - `responses.gpt-5?web_search=on`
 - `openresponses.openai/gpt-oss-120b:groq?web_search=on`
 - `codexresponses.gpt-5.3-codex?web_search=off`
-- `metaai.muse-spark-1.2?web_search=on`
+- `metaai.muse-spark-1.3?web_search=on`
 
 Allowed values: `on`/`off` (also accepts `true`/`false`, `1`/`0`).
 
@@ -371,7 +409,7 @@ xai:
 metaai:
   api_key: "${META_AI_API_KEY}"
   base_url: "https://api.meta.ai/v1"  # Optional, defaults to this value
-  default_model: "muse-spark-1.2"
+  default_model: "muse-spark-1.3"
   web_search:
     enabled: false
     search_context_size: medium  # Optional: low | medium | high
@@ -381,7 +419,7 @@ metaai:
 ```
 
 MetaAI search grounding can also be toggled per run with
-`metaai.muse-spark-1.2?web_search=on`. See the
+`metaai.muse-spark-1.3?web_search=on`. See the
 [MetaAI provider guide](../models/providers/metaai/) for supported media,
 interactive toggles, and search-result behavior.
 
@@ -779,6 +817,41 @@ When `logger.path` is omitted, file logging writes to
 `<current-working-directory>/fast-agent-log.jsonl`. Explicit relative paths continue to resolve
 from the process current working directory.
 
+Responses websocket failures emit an error-level structured event,
+`Responses websocket attempt failed`, through this logging path, including failures
+recovered by the transport's bounded reconnect. File logging persists these events
+as JSONL even at `level: "error"`; they do not depend on a completed assistant
+response or ATIF export. Logging disabled with `type: "none"` does not persist them.
+
+The `fast-agent.responses-websocket-failure/v2` payload includes an allowlisted
+`error_code` (`null` when absent, `unknown` for unrecognized codes), `stream_started`,
+connection ages at request start and failure in seconds (`null` when unknown),
+reuse status, and `reconnect_eligible`. Ages use the connection manager's monotonic
+clock. Eligibility describes the existing single transport reconnect only, not
+outer provider retries; `websocket_attempt` / `websocket_max_attempts` distinguish
+that bound from the provider `call`, `attempt`, and `max_attempts` counters.
+When a stream ends without a completion event, v2 adds how it ended (otherwise
+`null`):
+
+- `close_kind`: one of `close_frame_received`, `no_close_frame` (the peer dropped
+  the connection without a WebSocket close frame), `close_code`, `no_close_code`
+  or `unknown`.
+- `close_code`: the numeric close code, if any.
+- `events_seen`: the number of frames received.
+- `last_event_types`: up to the last five frame types. Responses event names are
+  kept, Copilot's untyped header frame is recorded as `headers`, and anything else
+  becomes `other` or `untyped`.
+- `seconds_since_request` and `seconds_since_last_frame`.
+
+The diagnostic contains no error text, headers, URLs, request/response bodies,
+prompts, or credentials. It does not change retry or timeout policy.
+
+The raised error's message is more detailed but is not persisted by this event. It
+lists the recent frames, including header names and `*request-id*` header values
+that match a strict identifier pattern, which are useful when contacting the
+provider. The exception also exposes `last_frame`, the raw last frame (at most
+16 KiB), for programmatic inspection. It is never logged.
+
 ## MCP Diagnostics Settings
 
 ```yaml
@@ -806,11 +879,12 @@ shell_execution:
   warning_interval_seconds: 30
   interactive_use_pty: true  # Use PTY for interactive prompt shell commands
   output_byte_limit: 16000  # Explicit value; omit for catalog/default selection, null for auto
+  running_output_byte_limit: 6000  # Preview for still-running commands (1/8 head, 7/8 tail); null = normal preview
   retain_truncated_output: true
   retained_output_max_bytes: 2097152  # Per shell process
   durable_output_max_bytes: 2097152  # Per persistent stdout/stderr/combined log
   retained_output_temp_directory: null  # Optional parent directory
-  process_poll_max_wait_seconds: 3600  # Accepted range: 1–3600
+  process_poll_max_wait_seconds: 260  # Default keeps prompt caches warm; range: 1–3600
   foreground_auto_await_max_seconds: 30  # Total runtime; range: 0–3600; 0 disables
   managed_process_poll_history_folding: auto  # auto | on | off
 ```
@@ -832,6 +906,25 @@ When `output_byte_limit` is omitted, a model-catalog override is used when
 available, followed by the global 16,000-byte default. An explicit positive
 value always wins. Set the field to `null` to use automatic sizing from model
 output-token metadata.
+
+`running_output_byte_limit` changes the preview of a command that is still running
+(it outlasted the foreground wait, or a `process` wait/status returned it running):
+an eighth of the budget from the start of the unread output and the rest from the end,
+at most `output_byte_limit`. This applies to both session-managed and persistent
+processes. An explicit `process` preview `limit` takes precedence; `null` disables
+the running-specific policy. Completed commands keep the normal preview for their
+new, unread output; completion does not replay earlier omitted output.
+Session-managed output is retained when `retain_truncated_output` is enabled and a
+preview is shortened, subject to `retained_output_max_bytes`. Persistent processes
+retain logs subject to `durable_output_max_bytes`.
+
+In PTC, `show(r)` prints a summary of the bounded capture, including capture loss
+(`truncated=True`), and `show(r, pattern="error|fail")` searches both stderr and stdout.
+Summarising with `show()` does not itself retain output: short command output may
+have no `process(action="read_output")` backing log. If further inspection may be
+needed, use `await store("result", r)` and recover it in a later call with
+`r = await load("result")`. This preserves the returned capture, not bytes already
+dropped by capture or retention limits.
 
 When `retain_truncated_output` is enabled, fast-agent creates a private
 session-scoped directory and lazily writes a `0600` file only when a shell
@@ -862,9 +955,13 @@ commands model-interruptible. It still lets shorter commands finish in their
 original shell call without a model turn spent scheduling a process wait.
 
 `process_poll_max_wait_seconds` caps a single model-initiated managed-process
-wait. Catalogue and overlay defaults are capped for compatibility. An explicit
-model-string `poll_period` above the configured maximum is rejected instead of
-being silently reduced.
+wait. The 260-second default returns each wait while provider prompt caches are
+still warm (a hung or long process then costs a cached poll rather than blocking
+the model for up to an hour); longer work is followed with repeated waits, which
+fold in history when quiet. Model requests above the ceiling are clamped. Unless
+the ceiling is set explicitly, a longer model wait period (catalogue, overlay or
+`poll_period`) raises it; an explicit ceiling is authoritative and a longer
+`poll_period` is rejected instead of being silently reduced.
 
 See [Foreground auto-await and outer-budget-aware process waits](shell_runtime_budgeting.md)
 for the model-interruptibility tradeoff, external-deadline integration gap,

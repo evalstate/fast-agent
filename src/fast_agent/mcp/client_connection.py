@@ -31,18 +31,20 @@ from mcp_types.version import LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS
 
 from fast_agent.core.exceptions import ServerSessionTerminatedError
 from fast_agent.mcp.skills_extension import (
-    DirectoryReadRequest,
-    DirectoryReadRequestParams,
     GetSkillRequest,
     GetSkillRequestParams,
     GetSkillResult,
     ListSkillsRequest,
     ListSkillsRequestParams,
     ListSkillsResult,
+    ReadResourceDirectoryRequest,
+    ReadResourceDirectoryRequestParams,
+    ReadResourceDirectoryResult,
 )
 from fast_agent.mcp.tool_result_metadata import set_url_elicitation_required_payload
 from fast_agent.mcp.uri_security import SANITIZED_INLINE_RESOURCE_URI, is_file_uri
 from fast_agent.mcp.url_elicitation_required import (
+    URLElicitationDisplayItem,
     URLElicitationRequiredDisplayPayload,
     build_url_elicitation_required_display_payload,
 )
@@ -284,12 +286,12 @@ class MCPClientConnection:
         return await self._request(self.client.complete(ref, argument, context_arguments))
 
     async def list_skills(self, *, cursor: str | None = None) -> ListSkillsResult:
-        """List skills published under the pinned SEP-2640 draft."""
+        """List skills published under the stable MCP Skills extension."""
         request = ListSkillsRequest(params=ListSkillsRequestParams(cursor=cursor))
         return await self._request(self.client.session.send_request(request, ListSkillsResult))
 
     async def get_skill(self, uri: str) -> GetSkillResult:
-        """Get a single skill entry under the pinned SEP-2640 draft."""
+        """Get a single skill entry under the stable MCP Skills extension."""
         request = GetSkillRequest(params=GetSkillRequestParams(uri=uri))
         return await self._request(self.client.session.send_request(request, GetSkillResult))
 
@@ -298,9 +300,14 @@ class MCPClientConnection:
         uri: str,
         *,
         cursor: str | None = None,
-    ) -> ListResourcesResult:
-        request = DirectoryReadRequest(params=DirectoryReadRequestParams(uri=uri, cursor=cursor))
-        return await self._request(self.client.session.send_request(request, ListResourcesResult))
+    ) -> ReadResourceDirectoryResult:
+        """List a directory's direct children under the stable MCP Skills extension."""
+        request = ReadResourceDirectoryRequest(
+            params=ReadResourceDirectoryRequestParams(uri=uri, cursor=cursor)
+        )
+        return await self._request(
+            self.client.session.send_request(request, ReadResourceDirectoryResult)
+        )
 
     async def _request(self, operation: Awaitable[T]) -> T:
         try:
@@ -323,29 +330,27 @@ class MCPClientConnection:
         operation: Awaitable[T],
         sanitize: Callable[[T], T],
     ) -> T:
-        self.callbacks.discard_pending_url_elicitations()
-        try:
-            result = sanitize(await self._request(operation))
-        except ServerSessionTerminatedError:
-            self.callbacks.discard_pending_url_elicitations()
-            raise
-        except MCPError as exc:
-            self.callbacks.discard_pending_url_elicitations()
-            if exc.code == URL_ELICITATION_REQUIRED:
-                payload = build_url_elicitation_required_display_payload(
-                    exc.data,
-                    server_name=self.callbacks.display_server_name,
-                    request_method=method,
-                )
-                set_url_elicitation_required_payload(exc, payload)
-            raise
+        with self.callbacks.url_elicitation_scope() as scope:
+            try:
+                result = sanitize(await self._request(operation))
+            except MCPError as exc:
+                if exc.code == URL_ELICITATION_REQUIRED:
+                    payload = build_url_elicitation_required_display_payload(
+                        exc.data,
+                        server_name=self.callbacks.display_server_name,
+                        request_method=method,
+                    )
+                    set_url_elicitation_required_payload(exc, payload)
+                raise
+            items = self.callbacks.consume_url_elicitations(scope)
 
-        self._attach_pending_url_elicitations(result, method)
+        self._attach_pending_url_elicitations(result, method, items)
         self._attach_url_elicitation_result(result, method)
         return result
 
-    def _attach_pending_url_elicitations(self, result: object, method: str) -> None:
-        items = self.callbacks.consume_pending_url_elicitations()
+    def _attach_pending_url_elicitations(
+        self, result: object, method: str, items: list[URLElicitationDisplayItem]
+    ) -> None:
         if not items:
             return
         payload = URLElicitationRequiredDisplayPayload(

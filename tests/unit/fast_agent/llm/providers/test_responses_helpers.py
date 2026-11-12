@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal
+from unittest.mock import AsyncMock
 
 import pytest
 from mcp_types import (
@@ -44,10 +45,7 @@ from fast_agent.llm.provider.openai.codex_responses import (
     CODEX_ROUTING_HINT_HEADER,
     CodexResponsesLLM,
 )
-from fast_agent.llm.provider.openai.openresponses import (
-    OpenResponsesLLM,
-    _OpenResponsesRawStream,
-)
+from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 from fast_agent.llm.provider.openai.openresponses_streaming import (
     OpenResponsesStreamingMixin,
     _OpenResponsesStreamState,
@@ -59,6 +57,7 @@ from fast_agent.llm.provider.openai.responses import (
 from fast_agent.llm.provider.openai.responses_content import ResponsesContentMixin
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
 from fast_agent.llm.provider.openai.responses_output import ResponsesOutputMixin
+from fast_agent.llm.provider.openai.responses_raw_stream import RawResponsesStream
 from fast_agent.llm.provider.openai.responses_streaming import (
     ResponsesStreamingMixin,
     _tool_search_arguments_chunk,
@@ -134,7 +133,9 @@ class _FileHarness(ResponsesFileMixin):
     def __init__(self) -> None:
         self._file_id_cache: dict[str, str] = {}
 
-    async def _upload_file_bytes(self, client, data, filename, mime_type) -> str:
+    async def _upload_file_bytes(
+        self, client, data, filename, mime_type, *, already_counted: bool = False
+    ) -> str:
         return f"file_{len(data)}"
 
 
@@ -868,6 +869,7 @@ def _build_responses_family_llm(
     *,
     model_name: str | None = None,
     configured_service_tier: Literal["fast", "flex"] | None = None,
+    lite: bool = False,
 ) -> ResponsesLLM:
     if provider == Provider.RESPONSES:
         settings = Settings(
@@ -895,7 +897,12 @@ def _build_responses_family_llm(
             )
         )
         model = model_name or "gpt-5.3-codex"
-        llm_class = CodexResponsesLLM
+        return CodexResponsesLLM(
+            context=Context(config=settings),
+            model=model,
+            name=f"{provider.value}-service-tier-test",
+            lite=lite,
+        )
     else:
         raise AssertionError(f"unexpected provider: {provider}")
 
@@ -915,8 +922,11 @@ def test_codexresponses_provider_defaults_to_websocket_preferred_transport() -> 
     assert llm.configured_transport == "auto"
 
 
-def test_codexresponses_lite_uses_internal_request_contract() -> None:
-    llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name="gpt-5.6-luna")
+@pytest.mark.parametrize(
+    "model_name", ["gpt-5.6-luna", "gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"]
+)
+def test_codexresponses_lite_uses_internal_request_contract(model_name: str) -> None:
+    llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name=model_name, lite=True)
     input_items = [
         {
             "type": "message",
@@ -928,13 +938,13 @@ def test_codexresponses_lite_uses_internal_request_contract() -> None:
 
     args = llm._build_response_args(
         input_items,
-        RequestParams(model="gpt-5.6-luna", system_prompt="instructions"),
+        RequestParams(model=model_name, system_prompt="instructions"),
         [tool],
     )
 
     assert args["extra_headers"] == {
         CODEX_RESPONSES_LITE_HEADER: "true",
-        CODEX_ROUTING_HINT_HEADER: "model=gpt-5.6-luna",
+        CODEX_ROUTING_HINT_HEADER: f"model={model_name}",
     }
     assert "instructions" not in args
     assert "tools" not in args
@@ -953,6 +963,7 @@ def test_codexresponses_lite_fast_preserves_both_routing_headers() -> None:
     llm = _build_responses_family_llm(
         Provider.CODEX_RESPONSES,
         model_name="gpt-5.6-luna",
+        lite=True,
     )
 
     args = llm._build_response_args(
@@ -968,8 +979,63 @@ def test_codexresponses_lite_fast_preserves_both_routing_headers() -> None:
     }
 
 
+def test_gpt_6_astra_sends_max_reasoning_to_codexresponses() -> None:
+    llm = _build_responses_family_llm(
+        Provider.CODEX_RESPONSES,
+        model_name="gpt-6-astra",
+    )
+    llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value="max"))
+
+    args = llm._build_response_args(
+        [],
+        RequestParams(model="gpt-6-astra"),
+        None,
+    )
+
+    assert args["reasoning"]["effort"] == "max"
+    assert "context" not in args["reasoning"]
+
+
+def test_gpt_6_astra_uses_standard_contract_through_responses_api() -> None:
+    llm = _build_responses_family_llm(
+        Provider.RESPONSES,
+        model_name="gpt-6-astra",
+    )
+    llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value="max"))
+
+    args = llm._build_response_args(
+        [],
+        RequestParams(model="gpt-6-astra"),
+        None,
+    )
+
+    assert args["model"] == "gpt-6-astra"
+    assert args["reasoning"]["effort"] == "max"
+    assert "extra_headers" not in args
+
+
+def test_gpt_6_astra_codex_client_meets_minimum_version() -> None:
+    payload = base64.urlsafe_b64encode(
+        json.dumps(
+            {
+                "https://api.openai.com/auth": {
+                    "chatgpt_account_id": "account-test",
+                }
+            }
+        ).encode()
+    ).decode()
+    token = f"header.{payload.rstrip('=')}.signature"
+    llm = CodexResponsesLLM(model="gpt-6-astra", api_key=token)
+
+    headers = llm._build_websocket_headers()
+
+    assert headers["User-Agent"].startswith("codex_cli_rs/0.153.0 ")
+
+
 def test_codexresponses_lite_adds_per_request_websocket_metadata() -> None:
-    llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name="gpt-5.6-luna")
+    llm = _build_responses_family_llm(
+        Provider.CODEX_RESPONSES, model_name="gpt-5.6-luna", lite=True
+    )
     arguments: dict[str, Any] = {"model": "gpt-5.6-luna"}
 
     llm._prepare_websocket_arguments(arguments)
@@ -980,8 +1046,11 @@ def test_codexresponses_lite_adds_per_request_websocket_metadata() -> None:
 
 
 @pytest.mark.asyncio
-async def test_codexresponses_inlines_local_pdf_without_files_api(tmp_path: Path) -> None:
-    pdf_path = tmp_path / "sample.pdf"
+@pytest.mark.parametrize("filename", ["sample.pdf", "résumé #100%.pdf", "report%20.pdf"])
+async def test_codexresponses_inlines_local_pdf_without_files_api(
+    tmp_path: Path, filename: str
+) -> None:
+    pdf_path = tmp_path / filename
     pdf_path.write_bytes(b"%PDF-1.7 sample")
     llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name="gpt-5.6-luna")
 
@@ -996,11 +1065,85 @@ async def test_codexresponses_inlines_local_pdf_without_files_api(tmp_path: Path
         "file_data": (
             f"data:application/pdf;base64,{base64.b64encode(pdf_path.read_bytes()).decode('ascii')}"
         ),
-        "filename": "sample.pdf",
+        "filename": filename,
     }
 
 
-@pytest.mark.parametrize("model_name", ["gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra"])
+@pytest.mark.asyncio
+@pytest.mark.parametrize("filename", ["sample.pdf", "résumé #100%.pdf", "report%20.pdf"])
+async def test_responses_uploads_local_pdf_uri(
+    tmp_path: Path, filename: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdf_path = tmp_path / filename
+    pdf_bytes = b"%PDF-1.7 sample"
+    pdf_path.write_bytes(pdf_bytes)
+    llm = _build_responses_family_llm(Provider.RESPONSES)
+    client = AsyncOpenAI(api_key="test-key")
+    create_file = AsyncMock(return_value=SimpleNamespace(id="file-local-pdf"))
+    monkeypatch.setattr(client.files, "create", create_file)
+
+    normalized, changed = await llm._normalize_input_file_part(
+        client, {"type": "input_file", "file_url": pdf_path.as_uri()}
+    )
+
+    assert changed
+    assert normalized == {"type": "input_file", "file_id": "file-local-pdf"}
+    create_file.assert_awaited_once_with(
+        file=(filename, pdf_bytes, "application/pdf"), purpose="user_data"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="Native drive paths are Windows-specific")
+@pytest.mark.parametrize("forward_slashes", [False, True])
+@pytest.mark.parametrize("provider", [Provider.RESPONSES, Provider.CODEX_RESPONSES])
+async def test_responses_preserves_native_windows_file_urls(
+    tmp_path: Path,
+    forward_slashes: bool,
+    provider: Provider,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pdf_path = tmp_path / "report #100%20.pdf"
+    pdf_bytes = b"%PDF-1.7 native path"
+    pdf_path.write_bytes(pdf_bytes)
+    path = pdf_path.as_posix() if forward_slashes else str(pdf_path)
+    llm = _build_responses_family_llm(provider)
+    client = AsyncOpenAI(api_key="test-key")
+    create_file = AsyncMock(return_value=SimpleNamespace(id="file-native-pdf"))
+    monkeypatch.setattr(client.files, "create", create_file)
+
+    normalized, changed = await llm._normalize_input_file_part(
+        client, {"type": "input_file", "file_url": f"file://{path}"}
+    )
+
+    assert changed
+    if provider == Provider.CODEX_RESPONSES:
+        assert normalized == {
+            "type": "input_file",
+            "file_data": f"data:application/pdf;base64,{base64.b64encode(pdf_bytes).decode('ascii')}",
+            "filename": pdf_path.name,
+        }
+        create_file.assert_not_awaited()
+    else:
+        assert normalized == {"type": "input_file", "file_id": "file-native-pdf"}
+        create_file.assert_awaited_once_with(
+            file=(pdf_path.name, pdf_bytes, "application/pdf"), purpose="user_data"
+        )
+
+
+@pytest.mark.parametrize(
+    "model_name",
+    # Lite-capable models also use the standard contract unless `lite=on` is set.
+    [
+        "gpt-5.5",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-6-astra",
+        "gpt-6.1-sol",
+        "gpt-6-sol",
+    ],
+)
 def test_codexresponses_standard_model_omits_lite_contract(model_name: str) -> None:
     llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name=model_name)
     args = llm._build_response_args(
@@ -1011,6 +1154,7 @@ def test_codexresponses_standard_model_omits_lite_contract(model_name: str) -> N
 
     assert args["extra_headers"] == {CODEX_ROUTING_HINT_HEADER: f"model={model_name}"}
     assert args["instructions"] == "instructions"
+    assert args["parallel_tool_calls"] is True
     assert "client_metadata" not in args
 
 
@@ -1036,7 +1180,7 @@ async def test_openresponses_raw_stream_tracks_final_response() -> None:
             SimpleNamespace(type="response.completed", response=final_response),
         ]
     )
-    wrapped_stream = _OpenResponsesRawStream(raw_stream)
+    wrapped_stream = RawResponsesStream(raw_stream)
 
     seen_event_types = [event.type async for event in wrapped_stream]
 
@@ -2330,6 +2474,30 @@ def test_request_service_tier_overrides_configured_default() -> None:
     assert args["service_tier"] == "flex"
 
 
+@pytest.mark.parametrize("include_null_details", [False, True])
+def test_openresponses_records_usage_without_token_details(include_null_details: bool) -> None:
+    llm = OpenResponsesLLM(context=Context(config=Settings()), model="local-model")
+    payload: dict[str, object] = {
+        "input_tokens": 12,
+        "output_tokens": 8,
+        "total_tokens": 20,
+    }
+    if include_null_details:
+        payload.update(input_tokens_details=None, output_tokens_details=None)
+    # The SDK constructs compatible server responses without enforcing its required details.
+    usage = ResponseUsage.model_construct(_fields_set=None, **payload)
+
+    llm._record_usage(usage, "local-model")
+
+    assert len(llm.usage_accumulator.turns) == 1
+    turn = llm.usage_accumulator.turns[0]
+    assert turn.prompt.total == 12
+    assert turn.completion.total == 8
+    assert turn.prompt.cache_read is None
+    assert turn.prompt.cache_write is None
+    assert turn.completion.reasoning is None
+
+
 def test_requested_and_effective_service_tiers_are_recorded_in_turn_usage() -> None:
     llm = _build_responses_family_llm(
         Provider.RESPONSES,
@@ -3471,3 +3639,82 @@ async def test_stream_process_finalizes_mcp_call_when_done_event_is_missing() ->
     stop_payloads = [payload for event, payload in harness.events if event == "stop"]
     assert len(stop_payloads) == 1
     assert stop_payloads[0]["tool_name"] == "stripe/create_payment_link"
+
+
+class _LimitedStreamingHarness(_StreamingHarness):
+    def __init__(self, limit: int | None) -> None:
+        super().__init__()
+        self._limit = limit
+
+    def _get_model_params(self, model_name: str | None) -> Any:
+        del model_name
+        return SimpleNamespace(tool_input_stream_delta_limit=self._limit)
+
+
+def _custom_tool_input_stream(delta_count: int) -> _FakeResponsesStream:
+    final_response = SimpleNamespace(output=[], usage=None)
+    added = SimpleNamespace(
+        type="response.output_item.added",
+        output_index=0,
+        item=SimpleNamespace(type="custom_tool_call", id="ctc_1", call_id="call_1", name="shell"),
+        item_id="ctc_1",
+    )
+    deltas = [
+        SimpleNamespace(
+            type="response.custom_tool_call_input.delta",
+            output_index=0,
+            item_id="ctc_1",
+            delta="   ",
+        )
+        for _ in range(delta_count)
+    ]
+    return _FakeResponsesStream(
+        events=[
+            added,
+            *deltas,
+            SimpleNamespace(
+                type="response.output_item.done",
+                output_index=0,
+                item=SimpleNamespace(
+                    type="custom_tool_call",
+                    id="ctc_1",
+                    call_id="call_1",
+                    name="shell",
+                    status="completed",
+                ),
+                item_id="ctc_1",
+            ),
+            SimpleNamespace(type="response.completed", response=final_response),
+        ],
+        final_response=final_response,
+    )
+
+
+@pytest.mark.asyncio
+async def test_runaway_tool_input_stream_raises_after_model_limit() -> None:
+    from fast_agent.llm.fastagent_llm import FastAgentLLM
+    from fast_agent.llm.provider.streaming_timeouts import ToolInputRunawayError
+
+    harness = _LimitedStreamingHarness(limit=5)
+
+    with pytest.raises(ToolInputRunawayError) as caught:
+        await harness._process_stream(
+            _custom_tool_input_stream(6), model="gpt-test", capture_filename=None
+        )
+
+    assert caught.value.tool_name == "shell"
+    assert caught.value.deltas == 6
+    assert caught.value.whitespace_only_deltas == 6
+    assert FastAgentLLM._is_fatal_retry_error(caught.value) is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("limit", "deltas"), [(5, 5), (None, 200)])
+async def test_tool_input_stream_within_limit_or_unlimited_completes(
+    limit: int | None, deltas: int
+) -> None:
+    harness = _LimitedStreamingHarness(limit=limit)
+
+    await harness._process_stream(
+        _custom_tool_input_stream(deltas), model="gpt-test", capture_filename=None
+    )

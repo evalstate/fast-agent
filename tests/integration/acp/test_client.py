@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Never
 
 from acp.exceptions import RequestError
 from acp.interfaces import Client
@@ -8,6 +8,7 @@ from acp.schema import (
     AllowedOutcome,
     CreateTerminalResponse,
     DeniedOutcome,
+    ElicitationMode,
     EnvVariable,
     KillTerminalResponse,
     PermissionOption,
@@ -72,9 +73,9 @@ class TestClient(Client):
     # New SDK 0.7.0 style: snake_case with flattened parameters
     async def request_permission(
         self,
-        options: list[PermissionOption],
         session_id: str,
         tool_call: ToolCallUpdate,
+        options: list[PermissionOption],
         **kwargs: Any,
     ) -> RequestPermissionResponse:
         if self.permission_outcomes:
@@ -83,9 +84,9 @@ class TestClient(Client):
 
     async def write_text_file(
         self,
-        content: str,
-        path: str,
         session_id: str,
+        path: str,
+        content: str,
         **kwargs: Any,
     ) -> WriteTextFileResponse | None:
         self.files[str(path)] = content
@@ -94,10 +95,10 @@ class TestClient(Client):
 
     async def read_text_file(
         self,
-        path: str,
         session_id: str,
-        limit: int | None = None,
+        path: str,
         line: int | None = None,
+        limit: int | None = None,
         **kwargs: Any,
     ) -> ReadTextFileResponse:
         self.file_reads.append(str(path))
@@ -125,11 +126,11 @@ class TestClient(Client):
     # Terminal support - implement simple in-memory simulation
     async def create_terminal(
         self,
-        command: str,
         session_id: str,
+        command: str,
         args: list[str] | None = None,
-        cwd: str | None = None,
         env: list[EnvVariable] | None = None,
+        cwd: str | None = None,
         output_byte_limit: int | None = None,
         **kwargs: Any,
     ) -> CreateTerminalResponse:
@@ -225,6 +226,12 @@ class TestClient(Client):
             self.terminals[terminal_id]["exit_code"] = -1
             self.terminals[terminal_id]["completed"] = True
         return KillTerminalResponse()
+
+    async def create_elicitation(self, message: str, mode: ElicitationMode, **kwargs: Any) -> Never:
+        raise RequestError.method_not_found("elicitation/create")
+
+    async def complete_elicitation(self, elicitation_id: str, **kwargs: Any) -> None:
+        """No elicitations are created by this client."""
 
     async def ext_method(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         self.ext_calls.append((method, params))

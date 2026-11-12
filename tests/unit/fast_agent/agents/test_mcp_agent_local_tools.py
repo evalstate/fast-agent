@@ -32,6 +32,7 @@ from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_info import ModelInfo
+from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.terminal_output_limits import (
     calculate_terminal_output_limit_for_model,
@@ -42,6 +43,7 @@ from fast_agent.mcp.tool_result_metadata import (
     update_tool_result_display_metadata,
 )
 from fast_agent.skills.registry import SkillRegistry
+from fast_agent.tools.apply_patch_tool import get_openai_responses_custom_tool_payload
 from fast_agent.tools.durable_processes import DurableProcessStore
 from fast_agent.tools.shell_process import process_result_metadata
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
@@ -163,6 +165,7 @@ def _create_skill(directory, name: str, description: str = "desc") -> None:
 class StubLLM:
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
+        self.provider = ModelDatabase.get_default_provider(model_name) or Provider.GENERIC
         self.resolved_model = SimpleNamespace(
             max_output_tokens=ModelDatabase.get_max_output_tokens(model_name),
             model_params=ModelDatabase.get_model_params(model_name),
@@ -178,6 +181,7 @@ class StubLLM:
 class StubLLMWithoutResolvedModel:
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
+        self.provider = ModelDatabase.get_default_provider(model_name) or Provider.GENERIC
         self.instruction = ""
         self.default_request_params = RequestParams()
 
@@ -249,6 +253,75 @@ async def test_model_query_poll_period_updates_shell_runtime_on_model_switch() -
     assert agent._shell_runtime._process_poll_default_wait_seconds == 120
     assert agent._shell_runtime._minimal_process_wait_seconds() == 120
     await agent._aggregator.close()
+
+
+def _process_wait_maximum(agent: McpAgent) -> int:
+    runtime = agent._shell_runtime
+    assert runtime is not None
+    process_tool = next(tool for tool in runtime.tools if tool.name == "process")
+    return process_tool.input_schema["properties"]["wait_sec"]["maximum"]
+
+
+@pytest.mark.asyncio
+async def test_default_process_wait_ceiling_is_cache_warm() -> None:
+    agent = McpAgent(
+        AgentConfig(
+            name="test",
+            instruction="Instruction",
+            servers=[],
+            shell=True,
+            model="codexresponses.gpt-6-luna",
+        ),
+        context=Context(),
+    )
+    try:
+        assert _process_wait_maximum(agent) == 260
+    finally:
+        await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_longer_model_poll_period_raises_default_wait_ceiling() -> None:
+    agent = McpAgent(
+        AgentConfig(
+            name="test",
+            instruction="Instruction",
+            servers=[],
+            shell=True,
+            model="silent?poll_period=30",
+        ),
+        context=Context(),
+    )
+    await agent.attach_llm(ModelFactory.create_factory("silent?poll_period=30"))
+    try:
+        assert _process_wait_maximum(agent) == 260
+        await agent.set_model("silent?poll_period=3000")
+        assert _process_wait_maximum(agent) == 3000
+        runtime = agent._shell_runtime
+        assert runtime is not None
+        assert runtime._process_poll_default_wait_seconds == 3000
+    finally:
+        await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_process_wait_ceiling_is_authoritative() -> None:
+    agent = McpAgent(
+        AgentConfig(
+            name="test",
+            instruction="Instruction",
+            servers=[],
+            shell=True,
+            model="codexresponses.gpt-6-luna",
+        ),
+        context=Context(
+            config=Settings(shell_execution=ShellSettings(process_poll_max_wait_seconds=3600))
+        ),
+    )
+    try:
+        assert _process_wait_maximum(agent) == 3600
+    finally:
+        await agent._aggregator.close()
 
 
 @pytest.mark.asyncio
@@ -536,8 +609,12 @@ async def test_public_home_setting_enables_durable_process_store(tmp_path: Path)
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
-async def test_durable_process_provenance_uses_each_agent_acp_session(tmp_path: Path) -> None:
+async def test_durable_process_provenance_uses_each_agent_acp_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """ACP agents must not use another session's shared-manager current pointer."""
+    # Provenance is persisted at launch; startup grace is covered by the shell tests.
+    monkeypatch.setattr("fast_agent.tools.shell_runtime.BACKGROUND_LAUNCH_SETTLE_SECONDS", 0)
     shared_manager = SimpleNamespace(
         current_session=SimpleNamespace(info=SimpleNamespace(name="second-session"))
     )
@@ -976,7 +1053,11 @@ async def test_local_read_text_file_option_is_enabled_by_default() -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "model_name",
-    ["codexplan", "gpt-5.2", "gpt-5.4", "responses.gpt-5.4"],
+    [
+        "gpt-5.2",
+        "gpt-5.4",
+        "responses.gpt-5.4",
+    ],
 )
 async def test_write_text_file_auto_mode_prefers_apply_patch_for_codex_family_models(
     model_name: str,
@@ -994,6 +1075,188 @@ async def test_write_text_file_auto_mode_prefers_apply_patch_for_codex_family_mo
     assert "read_text_file" in tool_names
     assert "write_text_file" not in tool_names
     assert "apply_patch" in tool_names
+    assert "edit_file" not in tool_names
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "codexplan",
+        "astra",
+        "gpt-6-astra",
+        "codexresponses.gpt-6-astra",
+        "responses.gpt-6-astra",
+        "codexresponses.gpt-6-astra?reasoning=low",
+        "responses.gpt-6-astra?reasoning=max",
+        "sol",
+        "luna",
+        "gpt-6-sol",
+        "gpt-6.1-sol",
+        "sol6",
+        "responses.gpt-6-luna?reasoning=none",
+    ],
+)
+async def test_gpt6_defaults_to_writer_editor_pair_with_shell_name(model_name: str) -> None:
+    config = AgentConfig(
+        name="test", instruction="Instruction", servers=[], shell=True, model=model_name
+    )
+    agent = McpAgent(config=config, context=Context())
+
+    tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert {"shell", "process", "read_text_file", "write_text_file", "edit_file"} <= tool_names
+    assert "bash" not in tool_names
+    assert "apply_patch" not in tool_names
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "gpt6_model",
+    ["codexresponses.gpt-6.1-sol", "codexresponses.gpt-6-sol", "codexresponses.gpt-6-astra"],
+)
+async def test_gpt6_sol_astra_use_freeform_shell_with_folding_capability(gpt6_model: str) -> None:
+    agents = [
+        McpAgent(
+            config=AgentConfig(
+                name="test", instruction="Instruction", servers=[], shell=True, model=model
+            ),
+            context=Context(),
+        )
+        for model in (gpt6_model, "codexresponses.gpt-5.5")
+    ]
+    try:
+        gpt6_tools = {tool.name: tool for tool in (await agents[0].list_tools()).tools}
+        previous_tools = {tool.name: tool for tool in (await agents[1].list_tools()).tools}
+        assert get_openai_responses_custom_tool_payload(gpt6_tools["shell"]) is not None
+        assert get_openai_responses_custom_tool_payload(previous_tools["bash"]) is None
+        assert "shell" in (gpt6_tools["process"].description or "")
+        params = ModelDatabase.get_model_params(gpt6_model.removeprefix("codexresponses."))
+        assert params is not None
+        assert params.managed_process_poll_folding is True
+        assert "bash" not in gpt6_tools
+        assert "shell" not in previous_tools
+    finally:
+        for agent in agents:
+            await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "codexresponses.gpt-6-luna",
+        "responses.gpt-6-luna",
+        "codexresponses.gpt-6-luna?reasoning=low",
+    ],
+)
+async def test_gpt6_luna_selected_luna_exec_contract_is_named_shell(model_name: str) -> None:
+    default_agent = McpAgent(
+        config=AgentConfig(
+            name="test", instruction="Instruction", servers=[], shell=True, model=model_name
+        ),
+        context=Context(ptc_enabled=False),
+    )
+    try:
+        default_tools = {tool.name: tool for tool in (await default_agent.list_tools()).tools}
+        default_shell = default_tools["shell"]
+        assert set(default_shell.input_schema["properties"]) == {"input"}
+        assert get_openai_responses_custom_tool_payload(default_shell) is not None
+        assert "not JSON" in (default_shell.description or "")
+    finally:
+        await default_agent._aggregator.close()
+
+    agent = McpAgent(
+        config=AgentConfig(
+            name="test", instruction="Instruction", servers=[], shell=True, model=model_name
+        ),
+        context=Context(
+            config=Settings(shell_execution=ShellSettings(tool_profile="luna_exec")),
+            ptc_enabled=False,
+        ),
+    )
+    try:
+        tools = {tool.name: tool for tool in (await agent.list_tools()).tools}
+        assert "exec" not in tools
+        assert "bash" not in tools
+        shell = tools["shell"]
+        assert set(shell.input_schema["properties"]) == {
+            "command",
+            "working_directory",
+            "background",
+            "timeout",
+        }
+        assert "result or exit status matters" in (shell.description or "")
+        assert "returned by shell" in (tools["process"].description or "")
+        assert {"write_text_file", "edit_file", "read_text_file"} <= set(tools)
+    finally:
+        await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_name", ["codexresponses.gpt-6-astra", "responses.gpt-6-astra"])
+async def test_astra_explicit_apply_patch_overrides_writer_editor_default(model_name: str) -> None:
+    settings = Settings(shell_execution=ShellSettings(write_text_file_mode="apply_patch"))
+    config = AgentConfig(
+        name="test", instruction="Instruction", servers=[], shell=True, model=model_name
+    )
+    agent = McpAgent(config=config, context=Context(config=settings, ptc_enabled=False))
+
+    tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "apply_patch" in tool_names
+    assert "write_text_file" not in tool_names
+    assert "edit_file" not in tool_names
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "luna56",
+        "gpt-5.6-luna",
+        "codexresponses.gpt-5.6-luna",
+        "responses.gpt-5.6-luna",
+        "codexresponses.gpt-5.6-luna?reasoning=high",
+        "responses.gpt-5.6-luna?reasoning=max",
+    ],
+)
+async def test_luna_defaults_to_writer_editor_pair_with_native_exec(model_name: str) -> None:
+    config = AgentConfig(
+        name="test", instruction="Instruction", servers=[], shell=True, model=model_name
+    )
+    agent = McpAgent(config=config, context=Context())
+
+    tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert {
+        LUNA_EXEC_TOOL_NAME,
+        "process",
+        "read_text_file",
+        "write_text_file",
+        "edit_file",
+    } <= tool_names
+    assert "apply_patch" not in tool_names
+    assert BASH_TOOL_NAME not in tool_names
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_name", ["codexresponses.gpt-5.6-luna", "responses.gpt-5.6-luna"])
+async def test_luna_explicit_apply_patch_overrides_writer_editor_default(model_name: str) -> None:
+    settings = Settings(shell_execution=ShellSettings(write_text_file_mode="apply_patch"))
+    config = AgentConfig(
+        name="test", instruction="Instruction", servers=[], shell=True, model=model_name
+    )
+    agent = McpAgent(config=config, context=Context(config=settings))
+
+    tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert {LUNA_EXEC_TOOL_NAME, "process", "read_text_file", "apply_patch"} <= tool_names
+    assert "write_text_file" not in tool_names
     assert "edit_file" not in tool_names
 
     await agent._aggregator.close()
@@ -1183,12 +1446,12 @@ async def test_write_text_file_auto_mode_uses_context_default_model_when_agent_m
 ):
     settings = Settings(default_model="codexplan")
     config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=True)
-    agent = McpAgent(config=config, context=Context(config=settings))
+    agent = McpAgent(config=config, context=Context(config=settings, ptc_enabled=False))
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
-    assert "write_text_file" not in tool_names
-    assert "apply_patch" in tool_names
-    assert "edit_file" not in tool_names
+    assert "write_text_file" in tool_names
+    assert "apply_patch" not in tool_names
+    assert "edit_file" in tool_names
 
     await agent._aggregator.close()
 
@@ -1223,7 +1486,7 @@ async def test_write_text_file_mode_on_enables_tool_for_codex_models() -> None:
         shell=True,
         model="codexplan",
     )
-    agent = McpAgent(config=config, context=Context(config=settings))
+    agent = McpAgent(config=config, context=Context(config=settings, ptc_enabled=False))
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "write_text_file" in tool_names

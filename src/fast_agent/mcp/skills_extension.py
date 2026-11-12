@@ -1,11 +1,11 @@
-"""Provisional local wire models for SEP-2640 Draft d7490ecd.
+"""Local wire models for the stable MCP Skills extension.
 
 The pinned MCP SDK does not yet provide Skills Extension request/result types.
 """
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from mcp_types import (
     CacheableResult,
@@ -13,7 +13,7 @@ from mcp_types import (
     PaginatedResult,
     Request,
     RequestParams,
-    Result,
+    Resource,
 )
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -25,16 +25,18 @@ class SkillResource(BaseModel):
 
     uri: str = Field(alias="uri")
     digest: str = Field(alias="digest")
+    size: Annotated[int, Field(strict=True, ge=0)]
 
 
 class SkillEntry(BaseModel):
-    """A skill's metadata and optional complete resource manifest."""
+    """A skill's metadata and complete or dynamic resource manifest."""
 
     model_config = ConfigDict(populate_by_name=True)
 
     uri: str = Field(alias="uri")
     frontmatter: dict[str, Any] = Field(alias="frontmatter")
-    resources: list[SkillResource] | None = Field(default=None, alias="resources")
+    resources: list[SkillResource] | Literal["dynamic"] = Field(alias="resources")
+    meta: dict[str, Any] | None = Field(default=None, alias="_meta")
 
 
 class ListSkillsRequestParams(PaginatedRequestParams):
@@ -68,23 +70,30 @@ class GetSkillRequest(Request[GetSkillRequestParams, Literal["skills/get"]]):
     params: GetSkillRequestParams
 
 
-class GetSkillResult(Result):
+class GetSkillResult(CacheableResult):
     """The response to ``skills/get``."""
 
     skill: SkillEntry = Field(alias="skill")
     result_type: Literal["complete"] = Field(default="complete", alias="resultType")
 
 
-class DirectoryReadRequestParams(PaginatedRequestParams):
-    """Parameters for the SEP-2640 directory-read extension."""
+class ReadResourceDirectoryRequestParams(PaginatedRequestParams):
+    """Parameters for the SEP-2640 ``resources/directory/read`` method."""
 
     uri: str = Field(alias="uri")
 
 
-class DirectoryReadRequest(
-    Request[DirectoryReadRequestParams, Literal["resources/directory/read"]]
+class ReadResourceDirectoryRequest(
+    Request[ReadResourceDirectoryRequestParams, Literal["resources/directory/read"]]
 ):
     """Request for the SEP-2640 directory-read extension."""
 
     method: Literal["resources/directory/read"] = "resources/directory/read"
-    params: DirectoryReadRequestParams
+    params: ReadResourceDirectoryRequestParams
+
+
+class ReadResourceDirectoryResult(PaginatedResult, CacheableResult):
+    """The paginated, cacheable response to ``resources/directory/read``."""
+
+    resources: list[Resource] = Field(alias="resources")
+    result_type: Literal["complete"] = Field(default="complete", alias="resultType")

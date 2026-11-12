@@ -1,8 +1,9 @@
 import inspect
 
-import click
 import pytest
 import typer
+from typer._click.core import ParameterSource
+from typer.core import TyperCommand
 
 from fast_agent.cli.commands import go as go_command
 from fast_agent.cli.commands import serve as serve_command
@@ -162,7 +163,7 @@ def test_run_async_agent_passes_serve_mode() -> None:
 
 
 def test_serve_command_builds_run_request() -> None:
-    ctx = typer.Context(click.Command("serve"))
+    ctx = typer.Context(TyperCommand("serve"))
     request = serve_command._build_run_request(
         ctx=ctx,
         name="fast-agent",
@@ -207,7 +208,7 @@ def test_serve_command_builds_run_request() -> None:
 
 
 def test_serve_command_no_home_forces_permissions_disabled() -> None:
-    ctx = typer.Context(click.Command("serve"))
+    ctx = typer.Context(TyperCommand("serve"))
     request = serve_command._build_run_request(
         ctx=ctx,
         name="fast-agent",
@@ -241,7 +242,7 @@ def test_serve_command_no_home_forces_permissions_disabled() -> None:
 
 
 def test_serve_command_builds_request_with_missing_shell_cwd_override() -> None:
-    ctx = typer.Context(click.Command("serve"))
+    ctx = typer.Context(TyperCommand("serve"))
     request = serve_command._build_run_request(
         ctx=ctx,
         name="fast-agent",
@@ -275,7 +276,7 @@ def test_serve_command_builds_request_with_missing_shell_cwd_override() -> None:
 
 
 def test_serve_command_rejects_watch_for_mcp_serve() -> None:
-    ctx = typer.Context(click.Command("serve"))
+    ctx = typer.Context(TyperCommand("serve"))
 
     with pytest.raises(typer.BadParameter, match="--watch is not supported"):
         serve_command._build_run_request(
@@ -308,8 +309,8 @@ def test_serve_command_rejects_watch_for_mcp_serve() -> None:
 
 
 def test_resolve_instance_scope_defaults_acp_to_connection() -> None:
-    ctx = typer.Context(click.Command("serve"))
-    ctx.set_parameter_source("instance_scope", click.core.ParameterSource.DEFAULT)
+    ctx = typer.Context(TyperCommand("serve"))
+    ctx.set_parameter_source("instance_scope", ParameterSource.DEFAULT)
 
     resolved = serve_command._resolve_instance_scope(
         ctx,
@@ -321,8 +322,8 @@ def test_resolve_instance_scope_defaults_acp_to_connection() -> None:
 
 
 def test_resolve_instance_scope_rejects_explicit_shared_for_acp() -> None:
-    ctx = typer.Context(click.Command("serve"))
-    ctx.set_parameter_source("instance_scope", click.core.ParameterSource.COMMANDLINE)
+    ctx = typer.Context(TyperCommand("serve"))
+    ctx.set_parameter_source("instance_scope", ParameterSource.COMMANDLINE)
 
     with pytest.raises(typer.BadParameter, match="ACP is always connection-scoped"):
         serve_command._resolve_instance_scope(
@@ -333,8 +334,8 @@ def test_resolve_instance_scope_rejects_explicit_shared_for_acp() -> None:
 
 
 def test_resolve_instance_scope_rejects_explicit_request_for_acp() -> None:
-    ctx = typer.Context(click.Command("serve"))
-    ctx.set_parameter_source("instance_scope", click.core.ParameterSource.COMMANDLINE)
+    ctx = typer.Context(TyperCommand("serve"))
+    ctx.set_parameter_source("instance_scope", ParameterSource.COMMANDLINE)
 
     with pytest.raises(typer.BadParameter, match="ACP is always connection-scoped"):
         serve_command._resolve_instance_scope(

@@ -4,17 +4,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from fast_agent.commands.handlers.tools import parse_tools_query
 from fast_agent.commands.renderers.tools_markdown import (
-    render_tool_schema_markdown,
+    render_tool_query_markdown,
     render_tools_markdown,
 )
-from fast_agent.commands.tool_summaries import build_provider_tool_summaries, build_tool_summaries
+from fast_agent.commands.tool_summaries import build_tools_listing
 from fast_agent.interfaces import AgentProtocol
+from fast_agent.tools.tool_surface import resolve_tool_surface
 
 if TYPE_CHECKING:
-    from mcp_types import ListToolsResult
-
     from fast_agent.acp.slash_commands import SlashCommandHandler
+    from fast_agent.tools.tool_surface import ToolSurface
 
 
 async def handle_tools(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
@@ -34,7 +35,12 @@ async def handle_tools(handler: "SlashCommandHandler", arguments: str | None = N
         )
 
     try:
-        tools_result: "ListToolsResult" = await agent.list_tools()
+        query = parse_tools_query(arguments)
+    except ValueError as exc:
+        return "\n".join([f"# {heading}", "", str(exc)])
+
+    try:
+        surface: "ToolSurface" = await resolve_tool_surface(agent)
     except Exception as exc:
         return "\n".join(
             [
@@ -45,16 +51,14 @@ async def handle_tools(handler: "SlashCommandHandler", arguments: str | None = N
             ]
         )
 
-    tools = tools_result.tools if tools_result else []
-    tool_name = arguments.strip() if arguments else ""
-    if tool_name and tool_name.casefold() != "summary":
-        tool = next((tool for tool in tools if tool.name == tool_name), None)
-        if tool is None:
-            return "\n".join([f"# {heading}", "", f"Tool not found: {tool_name}"])
-        return render_tool_schema_markdown(tool)
+    if query.tool_name is not None:
+        detail = render_tool_query_markdown(query.tool_name, surface)
+        if detail is None:
+            return "\n".join([f"# {heading}", "", f"Tool not found: {query.tool_name}"])
+        return detail
 
-    provider_summaries = build_provider_tool_summaries(agent)
-    if not tools and not provider_summaries:
+    listing = build_tools_listing(agent, surface)
+    if listing.is_empty:
         return "\n".join(
             [
                 f"# {heading}",
@@ -63,9 +67,4 @@ async def handle_tools(handler: "SlashCommandHandler", arguments: str | None = N
             ]
         )
 
-    summaries = build_tool_summaries(agent, list(tools))
-    return render_tools_markdown(
-        summaries,
-        heading=heading,
-        provider_summaries=provider_summaries,
-    )
+    return render_tools_markdown(listing, heading=heading, show_all=query.show_all)

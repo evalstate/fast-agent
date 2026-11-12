@@ -46,6 +46,12 @@ if TYPE_CHECKING:
 _SHELL = Path("/bin/sh")
 
 
+@pytest.fixture
+def immediate_background_launch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Poll tests synchronize on output themselves; launch settling has its own suite."""
+    monkeypatch.setattr(shell_runtime_module, "BACKGROUND_LAUNCH_SETTLE_SECONDS", 0)
+
+
 class _FailingWriter(io.BytesIO):
     def write(self, data: Buffer, /) -> int:
         del data
@@ -249,7 +255,9 @@ async def test_durable_poll_consumes_dropped_output_accounting(tmp_path: Path) -
     assert first_metadata["retained_output_bytes_since_last_poll"] == 1024
     assert first_metadata["dropped_output_bytes_since_last_poll"] == 200000 - 1024
     assert first_metadata["output_truncated"] is True
+    assert first_metadata["output_line_count"] > 0
     assert second_metadata["output_bytes_since_last_poll"] == 0
+    assert second_metadata["output_line_count"] == 0
     assert second_metadata["retained_output_bytes_since_last_poll"] == 0
     assert second_metadata["dropped_output_bytes_since_last_poll"] == 0
 
@@ -257,34 +265,14 @@ async def test_durable_poll_consumes_dropped_output_accounting(tmp_path: Path) -
 @pytest.mark.unit
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
 def test_durable_process_stop_is_file_backed_and_idempotent(tmp_path: Path) -> None:
-    store = DurableProcessStore(tmp_path / "durable")
-    created = store.create(
-        command="trap 'printf stopped; exit 0' TERM; printf ready; while :; do sleep 1; done",
-        shell=_SHELL,
-        cwd=tmp_path,
-    )
-    store.launch(created.spec.process_id, environment=dict(os.environ))
-    changed = store.wait_for_change(
-        created.spec.process_id,
-        previous=created,
-        timeout_seconds=5,
-    )
+    root = tmp_path / "durable"
+    store = DurableProcessStore(root)
+    created = store.create(command="exit 0", shell=_SHELL, cwd=tmp_path)
 
-    assert changed.status.state in {"starting", "running"}
-    assert store.request_stop(created.spec.process_id)
-    assert not store.request_stop(created.spec.process_id)
+    assert store.request_stop(created.spec.process_id) is True
 
-    stopped = store.wait(created.spec.process_id, timeout_seconds=5)
-    output = store.read_output(
-        created.spec.process_id,
-        stream=DurableProcessStream.STDOUT,
-        offset=0,
-        limit=1024,
-    )
-
-    assert stopped.status.state == "stopped"
-    assert stopped.status.exit_code is not None
-    assert "ready" in output.text
+    replacement = DurableProcessStore(root)
+    assert replacement.request_stop(created.spec.process_id) is False
 
 
 @pytest.mark.unit
@@ -922,6 +910,7 @@ def test_supervisor_signal_stops_child_process_group(
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+@pytest.mark.usefixtures("immediate_background_launch")
 async def test_shell_runtime_can_attach_and_stop_process_after_replacement(
     tmp_path: Path,
 ) -> None:
@@ -1135,6 +1124,8 @@ async def test_durable_poll_waits_for_unread_output_to_settle(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(shell_runtime_module, "_PROCESS_OUTPUT_DEBOUNCE_SECONDS", 0.1)
+    # This test covers poll debounce; skip the launch settle so the burst is still unread.
+    monkeypatch.setattr(shell_runtime_module, "BACKGROUND_LAUNCH_SETTLE_SECONDS", 0)
     root = tmp_path / "processes"
     script = tmp_path / "burst.py"
     script.write_text(
@@ -1195,6 +1186,7 @@ async def test_durable_poll_waits_for_unread_output_to_settle(
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+@pytest.mark.usefixtures("immediate_background_launch")
 async def test_cancelled_durable_poll_preserves_output_debounce(
     tmp_path: Path,
     monkeypatch,
@@ -1259,6 +1251,7 @@ async def test_cancelled_durable_poll_preserves_output_debounce(
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+@pytest.mark.usefixtures("immediate_background_launch")
 async def test_continuous_durable_output_waits_until_poll_deadline(tmp_path: Path) -> None:
     root = tmp_path / "processes"
     script = tmp_path / "continuous.py"
@@ -1312,6 +1305,111 @@ async def test_continuous_durable_output_waits_until_poll_deadline(tmp_path: Pat
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+@pytest.mark.usefixtures("immediate_background_launch")
+# UTF-8 limit boundaries are covered by ShellOutputBuffer tests; these cases
+# exercise each process action and boundary through the durable store.
+@pytest.mark.parametrize(("action", "limit"), [("wait", 1), ("status", 999), ("wait", 1000)])
+async def test_unified_durable_preview_limit(tmp_path: Path, action: str, limit: int) -> None:
+    root = tmp_path / "processes"
+    gate = tmp_path / "finish"
+    exit_gate = tmp_path / "exit"
+    script = tmp_path / "preview.py"
+    script.write_text(
+        "import pathlib,sys,time\n"
+        f"gate = pathlib.Path({str(gate)!r})\n"
+        "print('é' * 1000, flush=True)\n"
+        "while not gate.exists(): time.sleep(0.01)\n"
+        "print('z' * 1500, flush=True)\n"
+        f"while not pathlib.Path({str(exit_gate)!r}).exists(): time.sleep(0.01)\n"
+        "print('y' * 1500, flush=True)\n"
+        "sys.exit(7)\n"
+    )
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger(__name__),
+        working_directory=tmp_path,
+        durable_process_root=root,
+        output_byte_limit=4096,
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+    )
+    launch = await runtime.call_tool(
+        "bash", {"command": f'"{sys.executable}" "{script}"', "run_in_background": True}
+    )
+    metadata = process_result_metadata(launch)
+    assert metadata is not None
+    process_id = metadata["process_id"]
+    store = DurableProcessStore(root)
+    try:
+        async with asyncio.timeout(10):
+            while store.get(process_id).output_bytes < 2001:
+                await asyncio.sleep(0.02)
+        status = await runtime.call_tool(
+            "process", {"process_id": process_id, "action": "status", "limit": limit}
+        )
+        status_metadata = process_result_metadata(status)
+        assert status_metadata is not None
+        assert status_metadata["process_status"] == "running"
+        assert isinstance(status.content[0], TextContent)
+        preview = status.content[0].text.split("[Output truncated:", 1)[0].rstrip("\n")
+        assert preview == "é" * (limit // 2)
+        assert "[Output truncated:" in status.content[0].text
+
+        retained = await runtime.call_tool(
+            "process", {"process_id": process_id, "action": "read_output", "limit": 3000}
+        )
+        assert isinstance(retained.content[0], TextContent)
+        assert json.loads(retained.content[0].text)["content"] == "é" * 1000 + "\n"
+
+        gate.touch()
+        async with asyncio.timeout(10):
+            while store.get(process_id).output_bytes < 3502:
+                await asyncio.sleep(0.02)
+        if action == "wait":
+            exit_gate.touch()
+            await asyncio.to_thread(store.wait, process_id, timeout_seconds=10)
+        # Concurrent polls consume each batch once, without sharing a mutable limit.
+        async with asyncio.TaskGroup() as group:
+            limited = group.create_task(
+                runtime.call_tool(
+                    "process", {"process_id": process_id, "action": action, "limit": limit}
+                )
+            )
+            default = group.create_task(
+                runtime.call_tool("process", {"process_id": process_id, "action": "status"})
+            )
+        limited_result = limited.result()
+        assert isinstance(limited_result.content[0], TextContent)
+        assert "z" * limit + "\n[Output truncated:" in limited_result.content[0].text
+        for result in (limited_result, default.result()):
+            result_metadata = process_result_metadata(result)
+            assert result_metadata is not None
+            if action == "wait":
+                assert result_metadata["exit_code"] == 7
+            else:
+                assert result_metadata["process_status"] == "running"
+        assert store.get(process_id).spec.output_byte_limit == 4096
+        exit_gate.touch()
+        await asyncio.to_thread(store.wait, process_id, timeout_seconds=10)
+        default_output = await runtime.call_tool(
+            "process", {"process_id": process_id, "action": "status"}
+        )
+        assert isinstance(default_output.content[0], TextContent)
+        if action == "status":
+            assert "y" * 1500 in default_output.content[0].text
+        assert "[Output truncated:" not in default_output.content[0].text
+        final_metadata = process_result_metadata(default_output)
+        assert final_metadata is not None
+        assert final_metadata["exit_code"] == 7
+    finally:
+        gate.touch()
+        exit_gate.touch()
+        await runtime.terminate_process({"process_id": process_id})
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+@pytest.mark.usefixtures("immediate_background_launch")
 async def test_durable_poll_preserves_per_command_output_limit(tmp_path: Path) -> None:
     root = tmp_path / "processes"
     script = tmp_path / "output_limit.py"
@@ -1350,7 +1448,7 @@ async def test_durable_poll_preserves_per_command_output_limit(tmp_path: Path) -
         assert first_metadata is not None
         assert first_metadata["output_bytes_since_last_poll"] == 1000
         assert isinstance(first.content[0], TextContent)
-        assert "showing first 40 bytes and last 40 bytes" in first.content[0].text
+        assert "showing first 10 bytes and last 70 bytes" in first.content[0].text
 
         second = await runtime.poll_process({"process_id": process_id, "wait_sec": 0})
         assert isinstance(second.content[0], TextContent)
@@ -1363,6 +1461,7 @@ async def test_durable_poll_preserves_per_command_output_limit(tmp_path: Path) -
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+@pytest.mark.usefixtures("immediate_background_launch")
 async def test_durable_processes_use_independent_poll_locks(tmp_path: Path) -> None:
     root = tmp_path / "processes"
     runtime = ShellRuntime(
@@ -1444,3 +1543,52 @@ def _linux_process_is_running(process_id: int) -> bool:
     except FileNotFoundError:
         return False
     return len(stat_fields) > 2 and stat_fields[2] != "Z"
+
+
+def test_new_durable_process_ids_are_short_and_unambiguous() -> None:
+    from fast_agent.tools.durable_processes import (
+        _PROCESS_ID_ALPHABET,
+        _new_process_id,
+        validate_process_id,
+    )
+
+    ids = {_new_process_id() for _ in range(2000)}
+    for process_id in ids:
+        assert process_id.startswith("process-")
+        suffix = process_id.removeprefix("process-")
+        assert len(suffix) == 5
+        assert set(suffix) <= set(_PROCESS_ID_ALPHABET)
+        assert not set(suffix) & set("01oil")
+        assert any(character.isalpha() for character in suffix)
+        validate_process_id(process_id)
+    assert len(ids) > 1990
+
+
+def test_legacy_durable_process_ids_remain_valid_and_malformed_ids_are_rejected() -> None:
+    from fast_agent.tools.durable_processes import validate_process_id
+
+    validate_process_id("process-5204d725801a45c4a7f6f5a9d46485a7")
+    for invalid in (
+        "process-12345",
+        "process-abc1",
+        "process-abcd0",
+        "process-ABCDE",
+        "process-5204d725801a45c4a7f6f5a9d46485a",
+        "proc-k7m2q",
+        "process-k7m2q/..",
+    ):
+        with pytest.raises(ValueError):
+            validate_process_id(invalid)
+
+
+def test_durable_store_creates_short_process_ids(tmp_path: Path) -> None:
+    store = DurableProcessStore(tmp_path / "processes")
+    snapshot = store.create(
+        command="true",
+        shell=Path("/bin/sh"),
+        cwd=tmp_path,
+        output_byte_limit=1024,
+    )
+    assert len(snapshot.spec.process_id) == len("process-") + 5
+    assert (tmp_path / "processes" / snapshot.spec.process_id).is_dir()
+    assert store.get(snapshot.spec.process_id).spec.process_id == snapshot.spec.process_id

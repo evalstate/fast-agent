@@ -121,6 +121,7 @@ def _seed_session_model(home: Path, session_id: str, model_spec: str) -> None:
         model_spec=model_spec,
     )
     session._save_snapshot(snapshot)
+    manager.close()
 
 
 def test_should_prompt_for_model_picker_in_interactive_tty_startup() -> None:

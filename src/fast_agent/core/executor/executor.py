@@ -186,7 +186,7 @@ class AsyncioExecutor(Executor):
             self._activity_semaphore = asyncio.Semaphore(self.config.max_concurrent_activities)
 
     @asynccontextmanager
-    async def _activity_limit(self) -> AsyncIterator[None]:
+    async def _activity_limit(self) -> AsyncGenerator[None]:
         if self._activity_semaphore is None:
             yield
             return
@@ -234,8 +234,6 @@ class AsyncioExecutor(Executor):
                 timeout = self.config.timeout_seconds.total_seconds()
                 async with asyncio.timeout(timeout):
                     return await self._run_task_once(task, kwargs)
-        except asyncio.CancelledError:
-            raise
         except Exception as e:
             return e
 
@@ -277,29 +275,3 @@ class AsyncioExecutor(Executor):
                     await asyncio.gather(*pending, return_exceptions=True)
 
         return stream()
-
-    async def signal(
-        self,
-        signal_name: str,
-        payload: SignalValueT | None = None,
-        signal_description: str | None = None,
-    ) -> None:
-        await super().signal(signal_name, payload, signal_description)
-
-    async def wait_for_signal(
-        self,
-        signal_name: str,
-        request_id: str | None = None,
-        workflow_id: str | None = None,
-        signal_description: str | None = None,
-        timeout_seconds: int | None = None,
-        signal_type: type[Any] | None = None,
-    ) -> Any:
-        return await super().wait_for_signal(
-            signal_name,
-            request_id,
-            workflow_id,
-            signal_description,
-            timeout_seconds,
-            signal_type,
-        )

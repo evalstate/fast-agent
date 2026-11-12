@@ -885,6 +885,7 @@ async def test_refresh_attached_server_cache_discovers_mcp_skill_registry() -> N
             SkillResource(
                 uri=skill_uri,
                 digest="sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                size=0,
             )
         ],
     )

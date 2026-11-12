@@ -49,6 +49,9 @@ class _Aggregator:
                         frontmatter={"name": "hub-search", "description": "Search"},
                         resources=(
                             SkillResource(
+                                size=len(
+                                    "---\nname: hub-search\ndescription: Search\n---\nv2\n".encode()
+                                ),
                                 uri="skill://hub-search/SKILL.md",
                                 digest=_digest(
                                     "---\nname: hub-search\ndescription: Search\n---\nv2\n"
@@ -69,6 +72,7 @@ class _Aggregator:
                 frontmatter={"name": "hub-search", "description": "Search"},
                 resources=[
                     SkillResource(
+                        size=len("---\nname: hub-search\ndescription: Search\n---\nv2\n".encode()),
                         uri=uri,
                         digest=_digest("---\nname: hub-search\ndescription: Search\n---\nv2\n"),
                     )

@@ -1,0 +1,1535 @@
+{
+  "benchmark": "terminal-bench-2.1",
+  "task_count": 89,
+  "attempts_per_task": 5,
+  "tasks_from_jobs": [
+    "aea81782-d18a-44ca-9417-9f6793342a1b",
+    "c368f3bb-2a37-447e-9769-dfa6f1f1cd8a"
+  ],
+  "leaderboard": "terminal-bench/terminal-bench-2-1/main",
+  "leaderboard_repo": "harbor-framework/terminal-bench-2-1",
+  "scan_rules": "atif-rules.json",
+  "runs": [
+    {
+      "id": "glm53-flash-max-6h",
+      "harness": "fast-agent",
+      "model": "GLM-5.3-Flash",
+      "effort": "max",
+      "date": "2026-08-27",
+      "timeout": "6h",
+      "jobs": [
+        "aea81782-d18a-44ca-9417-9f6793342a1b",
+        "c368f3bb-2a37-447e-9769-dfa6f1f1cd8a"
+      ],
+      "expected": {"passes": 376, "total_cost_usd": 77.53, "trials_with_cost": 432},
+      "published": {"score": 84.49, "total_cost": 77.53, "source_url": null},
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "cleared": [
+          {"trial": "ef12d018-bafd-4d0f-aaad-bbcaaff4b91a", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
+          {"trial": "0a61413d-dcb3-4b9c-a11e-68d8e335079d", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
+          {"trial": "8f0e0698-1306-492c-93e8-713b29dd0452", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
+          {"trial": "c6d40572-8e6f-44eb-b6db-9f2b73c2e941", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
+          {"trial": "4e5df8f4-530b-4dfb-977e-731779ba3c9a", "reason": "network.isolation_bypass stands as a high observation (a spoofed Host header to fetch the POV-Ray 2.2 source from povray.org), but downloading the source is allowed by the task, so not disqualified."}
+        ],
+        "disqualified": [
+          {"trial": "914c807e-302e-488c-9727-5dbd5f3de84e", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "2601f460-59bd-4fa0-97eb-777eb5471f0a", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "72b00046-198d-4662-bcfb-f6c8294441a9", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "8d2cd967-e5e2-4788-9b10-b2ea0ad001d8", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "9164e0ad-7b3f-4eaa-9da1-ab1b7e92fd52", "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "947360a4-3414-4ab5-a97b-7f056809303f", "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "9ef4acb8-2699-4a47-82df-32c504db5897", "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "2d377f5c-4608-4d4c-b540-058ef5cfb14d", "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "7c06b049-149c-4aaf-9037-100c733f8f9e", "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."}
+        ]
+      },
+      "notes": ["Six-hour agent timeout (override_timeout_sec=21600); not a leaderboard-eligible configuration."],
+      "scan": true
+    },
+    {
+      "id": "deepseek-v4-flash-vision-max-6h",
+      "harness": "fast-agent",
+      "model": "DeepSeek V4 Flash Vision (exp)",
+      "effort": "max",
+      "date": "2026-08-28",
+      "timeout": "6h",
+      "jobs": [
+        "852e75c9-ca0e-4551-9393-21835a9857e2",
+        "5cf4a449-18d4-4f14-80be-3f57581b7f16",
+        "4359bceb-7ca0-478e-9c27-44a19d4d4568"
+      ],
+      "exclude_trials": [
+        {
+          "id": "25fd3399-9b17-45a3-9a2f-dfb9cf57cd8a",
+          "reason": "AgentSetupTimeoutError (infrastructure); replaced by the merge-diff-arc-agi-task trial in replacement job 4359bceb. Excluded from score/coverage, cost still counted."
+        }
+      ],
+      "expected": {"passes": 370, "total_cost_usd": 53.68, "trials_with_cost": 386},
+      "published": {"score": 83.15, "total_cost": 53.68, "source_url": null},
+      "notes": ["Six-hour agent timeout (override_timeout_sec=21600); not a leaderboard-eligible configuration."],
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "cleared": [
+          {"trial": "6171fc2d-e87f-4fc5-ba11-cf73fbcf808b", "reason": "tb21.path_tracing_reverse.pixel_special_case false positive: the match is reasoning about patching instruction bytes in a copy of the binary to probe it; the delivered mystery.c is a renderer with no per-pixel special cases."},
+          {"trial": "b931f713-37d6-486b-8ac4-b720a3b0a66b", "reason": "tb21.path_tracing_reverse.pixel_special_case false positive: the matches are reasoning about rendering a small patch of pixels to compare variants and about patching a breakpoint word; the delivered mystery.c is a renderer with no per-pixel special cases."}
+        ],
+        "disqualified": [
+          {"trial": "24bee532-0edb-402f-a799-633fbd54f892", "reason": "Fetched Terminal-Bench files for build-pov-ray (solution, tests) from harbor-framework/terminal-bench-2-1 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "8bc4597a-8067-4d5e-b413-049333f6c3f5", "reason": "Fetched Terminal-Bench files for build-pov-ray (solution, tests, task.yaml) from harbor-framework/terminal-bench-1 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "0f4579ec-3d0e-40a0-97b3-02209d12404d", "reason": "Fetched Terminal-Bench files for extract-elf (solution, tests) from harborframework/terminal-bench-2.1 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "d12397c6-935a-4d85-8e5f-f150f14c8ba6", "reason": "Fetched the upstream OCaml source for the fix: downloaded an upstream source archive; fetched upstream runtime/shared_heap.c (5.5, a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "67a5f998-a789-4ba9-8976-2137b1ee57e4", "reason": "Fetched the upstream OCaml source for the fix: cloned github.com/ocaml/ocaml; downloaded an upstream source archive; fetched upstream runtime/shared_heap.c (5.3, 5.5), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "5fead525-8852-4e37-b0ae-f682bd6e52ea", "reason": "Fetched the upstream OCaml source for the fix: cloned github.com/ocaml/ocaml, and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "7661d572-4bfe-4e16-89ce-d4502fa0ba3e", "reason": "Fetched the upstream OCaml source for the fix: cloned github.com/ocaml/ocaml; fetched upstream Changes (a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "ae1642aa-4da2-43fa-be64-adf9dbb122e0", "reason": "Fetched the upstream OCaml source for the fix: downloaded an upstream source archive; fetched upstream commit patches; fetched upstream runtime/major_gc.c and runtime/shared_heap.c (5.5, trunk, a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."}
+        ]
+      }
+    },
+    {
+      "id": "deepseek-v41-flash-max-6h",
+      "harness": "fast-agent",
+      "model": "DeepSeek V4.1 Flash",
+      "effort": "max",
+      "model_string": "deepseek-v41 → deepseek.deepseek-flash (reasoning max, the model default)",
+      "date": "2026-09-11",
+      "timeout": "6h",
+      "bucket": {"repo": "evalstate/published-benchmarks", "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs", "runs": ["run-cdae366f51f72063661695a6", "run-7614fa93fbcbc7b4b8d6f6ca"], "source": "HuggingFaceHarness/harbor-hf-artifacts/runs"},
+      "pricing": {"source": "card-packs c8143f5 pricing_catalog.json, rule deepseek-flash-off-peak", "rates_per_mtok": {"input": 0.15, "cached": 0.003, "output": 0.6}, "note": "No trial overlapped DeepSeek's weekday peak windows (01:00-04:00 and 06:00-10:00 UTC, 2x rates).", "lower_bound_note": "two trials (git-leak-recovery, path-tracing-reverse) lack usage for one failed stream attempt each, and video-processing__2uf3afv recorded none for its calls before compacting its history."},
+      "cost_lower_bound": true,
+      "expected": {"passes": 423},
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "coverage": "Under atif-scan 0.8.0, every pass had complete evidence except video-processing__2uf3afv: its history before compaction was archived inside the sandbox, never collected, and can't be reviewed. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks. atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here.",
+        "cleared": [
+          {"trial": "configure-git-webserver__DWQzNFW", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
+          {"trial": "configure-git-webserver__VyJEtkH", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
+          {"trial": "configure-git-webserver__aCNrUyr", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."}
+        ],
+        "disqualified": [
+          {"trial": "chess-best-move__uqNQrT7", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "compile-compcert__pDsRnAT", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "count-dataset-tokens__FYcdiKV", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "count-dataset-tokens__L28pQ9d", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "count-dataset-tokens__jwYp98Y", "reason": "Looked up the Terminal-Bench repository (lookup.benchmark_source)."},
+          {"trial": "count-dataset-tokens__sPdKazM", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "count-dataset-tokens__tcmGQm8", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "dna-insert__SEBjqTe", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "dna-insert__VtTa3sn", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "dna-insert__gYwd9CE", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "dna-insert__s3B45md", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "extract-elf__F8mPK2x", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "extract-elf__MThuKaR", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "extract-elf__W3tuxTk", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "extract-elf__g8PxNbQ", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "extract-elf__tiSceHf", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "filter-js-from-html__2YajFNW", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "financial-document-processor__qKdSuiU", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "fix-ocaml-gc__7tkV4Ga", "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "fix-ocaml-gc__U5ckkQo", "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "fix-ocaml-gc__hSNCVE3", "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "fix-ocaml-gc__kDBezWb", "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "fix-ocaml-gc__y3DUtb3", "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "mailman__PAnQ9bo", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "mcmc-sampling-stan__RPqWAbD", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "mteb-leaderboard__KFzf4pR", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "mteb-retrieve__DwKtyiK", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "mteb-retrieve__EbZnBV2", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "mteb-retrieve__Lw7eAxw", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "mteb-retrieve__disjgEz", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "mteb-retrieve__rJnamGk", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "protein-assembly__RSAHhcq", "reason": "Looked up the Terminal-Bench repository (lookup.benchmark_source)."},
+          {"trial": "protein-assembly__xyQqqgZ", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "pytorch-model-recovery__8nU8Hiw", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "raman-fitting__3YY8rhX", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "raman-fitting__NF2AHtB", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "raman-fitting__Uedfkh4", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "raman-fitting__xbizHe6", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "raman-fitting__xuxDXJm", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "sanitize-git-repo__XhR87un", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "sanitize-git-repo__XooYaoB", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "torch-pipeline-parallelism__BQAzxJH", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "torch-pipeline-parallelism__L6D9b5P", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "torch-pipeline-parallelism__WhRzWom", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "torch-pipeline-parallelism__f6xRtxR", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "torch-pipeline-parallelism__sfebAQv", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "torch-tensor-parallelism__GdPegS5", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "torch-tensor-parallelism__oPxcwGU", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."}
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot (evalstate/terminal-bench-2-1@75f5a2e); a modified evaluation, not a leaderboard-eligible configuration.",
+        "Run on HF Jobs (cpu-upgrade sandboxes, capacity-matched rather than strictly CPU/RAM-enforced) through the harbor-hf command agent with fast-agent-mcp 0.10.24. Zero whole-trial retries; fast-agent's own provider retries apply."
+      ],
+      "scan": true,
+      "scan_args": ["--price", "0.15,0.003,0.60"]
+    },
+    {
+      "id": "luna-max-6h",
+      "harness": "fast-agent",
+      "model": "GPT-5.6 Luna",
+      "effort": "max",
+      "date": "2026-08-28",
+      "timeout": "6h",
+      "jobs": [
+        "059f8d77-1de3-40ea-953e-3261675843cb",
+        "ae7acad7-64e4-4834-867b-d8c96f12e52c",
+        "37e6871b-a41d-4e49-adfd-b30206d5c2c0"
+      ],
+      "exclude_trials": [
+        {
+          "id": "3566a1e0-3572-47c1-85ed-c62afcee8687",
+          "reason": "RuntimeError (infrastructure); replaced by the winning-avg-corewars trial in replacement job 37e6871b. Excluded from score/coverage, cost still counted."
+        }
+      ],
+      "expected": {"passes": 366, "total_cost_usd": 29.54, "trials_with_cost": 424},
+      "published": {"score": 82.25, "total_cost": 29.54, "source_url": null},
+      "notes": ["Six-hour agent timeout (override_timeout_sec=21600); not a leaderboard-eligible configuration."],
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "coverage": "Under atif-scan 0.8.0, every reported pass had complete evidence except 11: 8 whose agent history was compacted (steps before the compaction are not in the trajectory) and 3 without a readable trajectory (financial-document-processor__mdEcWHw, fix-code-vulnerability__k2MufQX, path-tracing-reverse__q6a2FVm). atif-scan could not check those steps; they stand as recorded. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks. atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "cleared": [
+          {"trial": "1ea8c4ad-2785-4261-8dc4-fd0217d4965a", "reason": "A general GitHub search (\"Scandinavian MTEB\") returned results including a terminal-bench-3 pull request titled \"Add mteb-leaderboard task\" (access.benchmark_material_received, lookup.search_surfaced_benchmark). Not sought, the agent opened none of those results, and the result titles hold no tests, solution or expected output. Incidental exposure, not disqualified."},
+          {"trial": "7f230b8d-e1fa-4ef0-9d12-ba4317dc29bf", "reason": "A general GitHub search (\"Scandinavian MTEB\") returned results including a terminal-bench-3 pull request titled \"Add mteb-leaderboard task\", with its one-line description \"Task imported from terminal-bench-2 for QA testing\" (access.benchmark_material_received, lookup.search_surfaced_benchmark). Not sought, the agent opened none of those results, and they hold no tests, solution or expected output; the answer was computed from MTEB's own results. Incidental exposure, not disqualified."}
+        ],
+        "disqualified": [
+          {"trial": "214d9024-b897-4369-bbe9-ec5a96df995f", "reason": "Fetched Terminal-Bench files for count-dataset-tokens (solution, tests, task.yaml, instruction) from RyanMarten/terminal-bench-3 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "4175f04f-8923-4bac-ab0d-bbb14857a81d", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (5.5), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "acb58b0b-dae6-4ddb-97a2-f8eb982c39eb", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk) (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "d60cf21c-edef-4241-a38a-f827b0103185", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (5.5, a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "b5c86ca5-aae5-4863-ad79-deeb13db1062", "reason": "Fetched the upstream OCaml source for the fix: cloned github.com/ocaml/ocaml; fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "ae4c7e41-aee2-4028-9fb0-5e2c4b710850", "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on an embedded Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."}
+        ]
+      }
+    },
+    {
+      "id": "cc-fable5-xhigh",
+      "harness": "Claude Code",
+      "model": "Fable 5",
+      "effort": "xhigh",
+      "timeout": "standard",
+      "leaderboard_row": "40dbe33d-e8af-475b-8eba-7d5d8f70054c",
+      "submission_file": "leaderboard/submissions/2026-06-07-anthropic-claude-fable-5-xhigh-claude-code.json",
+      "expected": {"passes": 373, "errors": {"AgentTimeoutError": 33}, "harness_version": "2.1.167"},
+      "cost_reconciles": false,
+      "notes": [
+        "Published total ($552.67) back-fills null Fable cost_usd at list rates (PR #79, cost-fixed job 830e4b9c, not publicly readable). The public scrubbed Hub job records only LiteLLM-priced trials, so the recorded total here is lower and mixes pricing bases. Recorded as-is."
+      ],
+      "scan": true
+    },
+    {
+      "id": "cc-opus48-high",
+      "harness": "Claude Code",
+      "model": "Opus 4.8",
+      "effort": "high",
+      "timeout": "standard",
+      "leaderboard_row": "dcd48d03-9df9-46ab-bc4c-ade6dc35b8da",
+      "submission_file": "leaderboard/submissions/2026-07-09-anthropic-claude-opus-4-8-high-claude-code.json",
+      "expected": {"passes": 351, "total_cost_usd": 286.94, "errors": {"AgentTimeoutError": 34, "UnknownApiError": 1}, "harness_version": "2.1.205"},
+      "scan": true
+    },
+    {
+      "id": "cc-sonnet5-high",
+      "harness": "Claude Code",
+      "model": "Sonnet 5",
+      "effort": "high",
+      "timeout": "standard",
+      "leaderboard_row": "d7540f21-67af-4b3a-ad31-b81b85fef895",
+      "submission_file": "leaderboard/submissions/2026-07-09-anthropic-claude-sonnet-5-high-claude-code.json",
+      "expected": {"passes": 332, "total_cost_usd": 288.18, "errors": {"AgentTimeoutError": 42, "UnknownApiError": 6}, "harness_version": "2.1.205"},
+      "scan": true
+    },
+    {
+      "id": "codex-terra-max",
+      "harness": "Codex",
+      "model": "GPT-5.6 Terra",
+      "effort": "max",
+      "timeout": "standard",
+      "leaderboard_row": "23ab6a14-4b2d-461d-9171-f8109f5692f1",
+      "submission_file": "leaderboard/submissions/2026-07-11-openai-gpt-5-6-terra-max-codex.json",
+      "expected": {"passes": 349, "total_cost_usd": 421.15, "errors": {"AgentTimeoutError": 12}, "harness_version": "0.144.1"},
+      "notes": [
+        "Public scrubbed Hub job 77fc16b9 holds both the Terra and Luna Codex runs; trials are selected by the leaderboard row's trial associations.",
+        "The leaderboard row's trial associations (re-set 2026-08-12) resolve to a mix of Codex 0.144.0 / 0.144.1 / unknown Terra trials whose error mix (15 timeouts, 12 non-zero exits, setup/verifier timeouts) differs from PR #115's submitted set (Codex 0.144.1, 12 AgentTimeoutError only). The submitted source job dd8bc272 is not publicly readable. Pass count still matches (350 rewarded, 349 after one DQ), but the per-trial set is not the submitted one.",
+        "Recorded cost of these public trials ($406.51, 434 of 445 costed) is below the published $421.15."
+      ],
+      "scan": false
+    },
+    {
+      "id": "terminus2-fable5-high",
+      "harness": "Terminus 2",
+      "model": "Fable 5",
+      "effort": "high",
+      "timeout": "standard",
+      "leaderboard_row": "ce0677b9-0fea-46ce-b8de-893c4d68e77a",
+      "submission_file": "leaderboard/submissions/2026-06-05-anthropic-claude-fable-5-high-terminus-2.json",
+      "expected": {"passes": 358, "errors": {"AgentTimeoutError": 46}, "harness_version": "2.0.0"},
+      "cost_reconciles": false,
+      "notes": [
+        "Published total ($438.64) back-fills null Fable cost_usd at list rates (PR #79, cost-fixed job b65a33b9, not publicly readable). The public scrubbed Hub job records cost only for Opus-fallback calls (79 of 445 trials). Recorded as-is.",
+        "Run uses Anthropic server-side fallback to Opus (anthropic-beta server-side-fallback-2026-06-02)."
+      ],
+      "scan": true
+    },
+    {
+      "id": "fa-sol-high",
+      "harness": "fast-agent",
+      "model": "GPT-5.6 Sol",
+      "effort": "high",
+      "date": "2026-07-26",
+      "timeout": "standard",
+      "pr": 174,
+      "jobs": [
+        "3bf916e7-c459-5538-a3d1-cf93421455db",
+        "a5d5b93c-cfa2-45f8-84e9-1545eefc77b1"
+      ],
+      "expected": {"passes": 393, "total_cost_usd": 270.13526},
+      "published": {"score": 88.31, "total_cost": 270.13526, "source_url": "https://github.com/harbor-framework/terminal-bench-2-1/pull/174"},
+      "notes": ["PR closed unmerged (community submissions closed); not on the official leaderboard."],
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "cleared": [],
+        "disqualified": [
+          {"trial": "1a73f4a5-8d0b-5a15-99fe-e3d87d162318", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "6ddfb4d6-61fd-5c3e-b0c0-31a9e8826584", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream commit patches; fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "90e77eca-f2bf-5e65-b1b0-23358b0467e2", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "8cbfc110-585d-55e1-8bed-8f099ea30ed0", "reason": "Fetched the upstream OCaml source for the fix: cloned github.com/ocaml/ocaml; fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "a91a189d-5dbc-59f9-be5e-1ca20d4c8d6e", "reason": "Delivered mystery.c overrides the colour of specific pixel indices (e.g. if(k==307555)r=g=b=20) to match the reference image (tb21.path_tracing_reverse.pixel_special_case)."}
+        ]
+      }
+    },
+    {
+      "id": "fa-sol-medium",
+      "harness": "fast-agent",
+      "model": "GPT-5.6 Sol",
+      "effort": "medium",
+      "date": "2026-07-23",
+      "timeout": "standard",
+      "pr": 170,
+      "jobs": [
+        "79ac4cfd-717c-4871-a15c-4d958c5daea9",
+        "4aebc840-a08b-4f17-9857-62659e82e2a8"
+      ],
+      "expected": {"passes": 365, "total_cost_usd": 211.321445},
+      "published": {"score": 82.02, "total_cost": 211.321445, "source_url": "https://github.com/harbor-framework/terminal-bench-2-1/pull/170"},
+      "notes": ["PR closed unmerged (community submissions closed); not on the official leaderboard."],
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "cleared": [],
+        "disqualified": [
+          {"trial": "eb816a1d-c17c-4536-b190-2db8838281bd", "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on an embedded Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."},
+          {"trial": "34649d10-24ec-44d7-8274-ceb6f5a2b561", "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on an embedded Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."}
+        ]
+      }
+    },
+    {
+      "id": "fa-grok46-medium",
+      "harness": "fast-agent",
+      "model": "Grok 4.6",
+      "effort": "medium",
+      "date": "2026-08-24",
+      "timeout": "standard",
+      "pr": 221,
+      "jobs": [
+        "f479fade-c370-415d-98a7-1caaf9286a48",
+        "3c6ffc62-d61f-5932-8aee-dd8c25324e6e",
+        "7d400392-528f-4d45-9b88-61e3f199eb89",
+        "f77cf10c-48db-42e1-b10f-9d3d1b658eea",
+        "6235546b-63bf-4164-84be-e373b78447fa",
+        "96f6c7e4-ee7c-4c64-8533-309042ebde91"
+      ],
+      "expected": {"passes": 390, "total_cost_usd": 193.4, "errors": {"AgentTimeoutError": 19, "NonZeroAgentExitCodeError": 4}},
+      "published": {"score": 87.64, "total_cost": 193.4, "source_url": "https://github.com/harbor-framework/terminal-bench-2-1/pull/221"},
+      "notes": [
+        "Source jobs from the submitter PR #220 (promoted to #221). Shard 02 is a filtered public mirror carrying two infrastructure replacements for merge-diff-arc-agi-task.",
+        "PR closed unmerged (community submissions closed); not on the official leaderboard."
+      ],
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "cleared": [],
+        "disqualified": [
+          {"trial": "e63c737d-a5a0-4f1a-aa25-4259670966a9", "reason": "Fetched Terminal-Bench files for crack-7z-hash (solution, task.yaml) from harbor-framework/terminal-bench-1 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "9d66b21e-6e5d-4d59-bc40-ea110b347d08", "reason": "Fetched Terminal-Bench files for db-wal-recovery (solution, tests, task.yaml) from laude-institute/terminal-bench during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "7e77dee0-6fe6-471b-b589-8da64f469d05", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."}
+        ]
+      }
+    },
+    {
+      "id": "fa-grok46-high",
+      "harness": "fast-agent",
+      "model": "Grok 4.6",
+      "effort": "high",
+      "date": "2026-08-16",
+      "timeout": "standard",
+      "pr": 212,
+      "jobs": [
+        "fe3e5da8-1520-45bb-a8c2-41bfde29bb8d",
+        "3f204b69-9598-4d13-831c-193825dcc027",
+        "a41185d2-abb9-4fc4-b13f-1b6ea59542a5",
+        "023e8d6e-a167-54a1-a6f1-f5ce4a85920d",
+        "6d688af9-80a4-41fd-8ed6-a5230d199234",
+        "0918b50c-a9f6-5e07-b7b3-987fabccd272"
+      ],
+      "expected": {"passes": 388, "total_cost_usd": 238.316166, "errors": {"AgentTimeoutError": 26, "NonZeroAgentExitCodeError": 6}},
+      "published": {"score": 87.19, "total_cost": 238.32, "source_url": "https://github.com/harbor-framework/terminal-bench-2-1/pull/212"},
+      "notes": [
+        "Source jobs from the final head of submitter PR #211 (promoted to #212), which includes two 'selected' mirrors carrying authorized infrastructure replacements.",
+        "PR closed unmerged (community submissions closed); not on the official leaderboard."
+      ],
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "cleared": [
+          {"trial": "f77dd4fb-6e30-4c4a-bf43-7a2ea86857c2", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" and the container's own address (IP=$(hostname -I), inside an if block) for \"server\" to /etc/hosts, which the task's git server setup requires. Before starting, it searched /hidden_instruction, /hidden, /eval and /tests for files (access.evaluation_directory_probe, counted as awareness); none exist, and nothing was found."}
+        ],
+        "disqualified": [
+          {"trial": "115fb476-02b5-4155-a41b-51ddc1f08623", "reason": "Fetched Terminal-Bench files for build-pov-ray (tests) from harbor-framework/terminal-bench-2 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "dbafc8db-f087-4a71-bdfe-afefaebe2460", "reason": "Fetched Terminal-Bench files for db-wal-recovery (solution, tests, task.yaml) from harbor-framework/terminal-bench-1 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "b337a8ad-9970-46e5-8849-aeaa94f787a6", "reason": "Fetched Terminal-Bench files for db-wal-recovery (solution, tests, task.yaml) from laude-institute/terminal-bench during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "d61d39a4-9c58-48a5-9a5a-655729ced1ac", "reason": "Fetched Terminal-Bench files for db-wal-recovery (tests) from harbor-framework/terminal-bench-2 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "3ebbf6b8-eb26-4f3a-9646-76a2046a55b5", "reason": "Fetched Terminal-Bench files for db-wal-recovery (solution, tests, task.yaml) from harbor-framework/terminal-bench-1 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "8e6d64bc-ce94-43bc-b0f3-ae8e91cd5cf0", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "bfe7a59c-4c10-473f-bae5-46640346bf45", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "41a5ad09-733b-432f-bc80-f47b6873175a", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."}
+        ]
+      }
+    },
+    {
+      "id": "grok47-medium-6h",
+      "harness": "fast-agent",
+      "model": "Grok 4.7",
+      "effort": "medium",
+      "model_string": "xai.grok-4.7?reasoning=medium&transport=sse",
+      "date": "2026-10-04",
+      "timeout": "6h",
+      "bucket": {"repo": "evalstate/published-benchmarks", "path": "tb21/qemu-fixed-6h-v1/grok47-medium-6h", "release": "release/manifest.json", "source": "bench-run release tb21-grok47-medium-r1 (cohort tb21-grok47-medium-xai-sse-001)"},
+      "expected": {"passes": 402},
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [
+          {"trial": "configure-git-webserver__hEyhmnw", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."},
+          {"trial": "mailman__63Wig59", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 local.edu\" to /etc/hosts, the mail domain the task's Mailman/Postfix setup uses."},
+          {"trial": "mailman__9tGcfQT", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 local.edu\" to /etc/hosts, the mail domain the task's Mailman/Postfix setup uses."},
+          {"trial": "mailman__cDSdRtC", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 local.edu\" to /etc/hosts, the mail domain the task's Mailman/Postfix setup uses."},
+          {"trial": "mailman__jEUXR2m", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 local.edu\" to /etc/hosts, the mail domain the task's Mailman/Postfix setup uses."},
+          {"trial": "mailman__yKzm97J", "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 local.edu\" to /etc/hosts, the mail domain the task's Mailman/Postfix setup uses."}
+        ],
+        "disqualified": [
+          {"trial": "db-wal-recovery__bLCtD6f", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "db-wal-recovery__vX4MV6M", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "extract-elf__Wheppjr", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "extract-elf__mDbSakQ", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "torch-pipeline-parallelism__7GaiyzG", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "torch-pipeline-parallelism__ifxDsAg", "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained)."},
+          {"trial": "extract-elf__tjGoEDU", "reason": "Downloaded the task's reference solution (solution/solve.sh, with the Terminal-Bench canary) from a third-party mirror (akillness/upskill) and wrote its answer from it; atif-scan rates it high (lookup.own_task_files) because its vocabulary misses that mirror."},
+          {"trial": "fix-ocaml-gc__8cVy5uJ", "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."}
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; xAI API over SSE. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog 2026-09-29.1, rules grok-4.7-short / grok-4.7-long: $2 / $0.50 / $6 per million input / cached / output tokens, doubled above 200k context). Three trials have incomplete usage, so the total is a lower bound."
+      ],
+      "scan": true
+    },
+    {
+      "id": "opus55-high-6h",
+      "harness": "fast-agent",
+      "model": "Opus 5.5",
+      "effort": "high",
+      "model_string": "copilot.claude-opus-5.5?reasoning=high",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/opus55-high-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-opus55-high-r1 (cohort tb21-opus55-high-copilot-001)"
+      },
+      "expected": {
+        "passes": 394
+      },
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; Claude Opus 5.5 (high reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "Safety stops: 35 trials ended with AgentSafetyStopError, the provider's safety classifier stopping the run. They score 0 unless the verifier still passed. Every attempt at seven tasks was stopped: crack-7z-hash, password-recovery, vulnerable-secret and break-filter-js-from-html (security) and dna-insert, dna-assembly and protein-assembly (biology).",
+        "Four infrastructure failures (setup read timeout, a dropped verifier stream, two sandboxes not ready) were rerun as replacements; the originals are kept as evidence.",
+        "Cost shown is Harbor's recorded cost. The list-rate estimate under the scan's Evidence is repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-10.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input. Recorded $159.96; repriced $169.24 over the same 445 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed."
+      ],
+      "scan": true,
+      "repriced": {
+        "total_usd": 169.242902,
+        "trials": 445,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.1 (e9373d5)",
+        "note": "Harbor's recorded cost ($159.96) charged prompt-cache writes as plain input. Repriced from each trial's token usage at the catalog's $4 / $0.20 / $5 / $8 / $20 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens: $169.24 (+5.8%). Still a list-price equivalent: the run used GitHub Copilot."
+      }
+    },
+    {
+      "id": "opus55-medium-6h",
+      "harness": "fast-agent",
+      "model": "Opus 5.5",
+      "effort": "medium",
+      "model_string": "copilot.claude-opus-5.5?reasoning=medium",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/opus55-medium-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-opus55-medium-r1 (cohort tb21-opus55-medium-copilot-001)"
+      },
+      "expected": {
+        "passes": 386
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; Claude Opus 5.5 (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "Safety stops: 36 trials ended with AgentSafetyStopError, the provider's safety classifier stopping the run. They score 0 unless the verifier still passed. Every attempt at seven tasks was stopped: crack-7z-hash, password-recovery, vulnerable-secret and break-filter-js-from-html (security) and dna-insert, dna-assembly and protein-assembly (biology).",
+        "Seven replacements: three Harbor or sandbox infrastructure failures, and three agent exits with code -1 recorded as verified crashes (no provider error in fast-agent's log; a lost HF exec stream), one of them replacing an earlier replacement. Originals are kept as evidence.",
+        "One safety-stopped trial (fix-code-vulnerability) still passed its verifier and counts as a pass here, as rewarded timeouts do on this page; bench-run's stricter rule counts it 0 (385/445).",
+        "Cost shown is Harbor's recorded cost. The list-rate estimate under the scan's Evidence is repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-10.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input. Recorded $104.50; repriced $111.42 over the same 451 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+      ],
+      "scan": true,
+      "repriced": {
+        "total_usd": 111.41615,
+        "trials": 451,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.1 (e9373d5)",
+        "note": "Harbor's recorded cost ($104.50) charged prompt-cache writes as plain input. Repriced from each trial's token usage at the catalog's $4 / $0.20 / $5 / $8 / $20 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens: $111.42 (+6.6%). Still a list-price equivalent: the run used GitHub Copilot."
+      }
+    },
+    {
+      "id": "sol61-medium-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6.1 Sol",
+      "effort": "medium",
+      "model_string": "copilot.gpt-6.1-sol?reasoning=medium",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/sol61-medium-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-sol61-medium-r1 (cohort tb21-sol61-medium-copilot-001)"
+      },
+      "expected": {
+        "passes": 364
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [
+          {
+            "trial": "mteb-leaderboard__9pceACC",
+            "reason": "A general web search (\"Scandinavian\" \"MTEB\" leaderboard) returned result snippets for the task's Terminal-Bench README and archive, one saying the reference solution checks out an August 2025 commit (access.benchmark_material_received, lookup.search_surfaced_benchmark). Not sought, and the agent opened none of those results; the snippets give no answer, and the August 2025 cut-off is in the task instruction. Incidental exposure, not disqualified."
+          }
+        ],
+        "disqualified": []
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6.1 Sol (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. Three infrastructure failures (a sandbox error, two connection errors) were rerun as replacements; the originals are kept as evidence.",
+        "Safety refusals: 10 trials ended with AgentSafetyRefusalError (model-extraction-relu-logits ×3, vulnerable-secret ×4, break-filter-js-from-html ×3) and score 0, except one break-filter-js-from-html trial whose verifier still passed: it counts as a pass here; bench-run's stricter rule counts it 0 (363/445).",
+        "Eleven trials hit fast-agent's 150 s stream-idle timeout on a model call and recovered on retry; none failed from it.",
+        "Harbor's recorded cost uses the cohort's configured OpenAI list rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6.1-sol-standard-short / -long: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Stalled attempts recorded no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the list-rate estimate under the scan's Evidence prices them at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
+      ],
+      "scan": true,
+      "repriced": {
+        "total_usd": 34.100561,
+        "trials": 440,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($31.20) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $34.10 (+9.3%) over the same 440 trials. 8 trials without usable usage stay unpriced, so this is a lower bound. A list-price equivalent: the run used GitHub Copilot."
+      }
+    },
+    {
+      "id": "luna6-low-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6 Luna",
+      "effort": "low",
+      "model_string": "responses.gpt-6-luna?reasoning=low&service_tier=flex",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/luna6-low-6h",
+        "release": "release/manifest.json",
+        "cohort": "tb21-luna-low-flex-001",
+        "source": "bench-run release tb21-luna-flex-r1 (cohort tb21-luna-low-flex-001)"
+      },
+      "expected": {
+        "passes": 203
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": [
+          {
+            "trial": "pytorch-model-cli__gEHLxmb",
+            "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "pytorch-model-cli__ivP88f4",
+            "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "pytorch-model-cli__o4NHU6n",
+            "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (low reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. Two infrastructure failures (connection errors creating the sandbox) were rerun as replacements; the originals are kept as evidence.",
+        "Ran 1–3 October, after the flex serving anomaly bench-run recorded on 30 September–1 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
+        "Harbor's recorded cost uses the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the list-rate estimate under the scan's Evidence prices them at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
+      ],
+      "scan": true,
+      "repriced": {
+        "total_usd": 0.621687,
+        "trials": 445,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($0.57) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $0.62 (+9.6%) over the same 445 trials. 2 trials without usable usage stay unpriced, so this is a lower bound."
+      }
+    },
+    {
+      "id": "luna6-medium-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6 Luna",
+      "effort": "medium",
+      "model_string": "responses.gpt-6-luna?reasoning=medium&service_tier=flex",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/luna6-medium-6h",
+        "release": "release/manifest.json",
+        "cohort": "tb21-luna-medium-flex-001",
+        "source": "bench-run release tb21-luna-flex-r1 (cohort tb21-luna-medium-flex-001)"
+      },
+      "expected": {
+        "passes": 334
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [
+          {
+            "trial": "build-pov-ray__bUvzc7J",
+            "reason": "network.isolation_bypass stands as a high observation (an /etc/hosts entry pinning www.povray.org to fetch the POV-Ray 2.2 source from povray.org), but downloading the source is allowed by the task, so not disqualified."
+          },
+          {
+            "trial": "build-pov-ray__zHzhJAx",
+            "reason": "network.isolation_bypass stands as a high observation (a spoofed Host header to fetch the POV-Ray 2.2 source from povray.org), but downloading the source is allowed by the task, so not disqualified."
+          }
+        ],
+        "disqualified": [
+          {
+            "trial": "build-pov-ray__TyG9Yh5",
+            "reason": "Fetched the task's task.yaml from the Terminal-Bench repository (laude-institute/terminal-bench) and used it to plan the build (lookup.benchmark_task_files, lookup.benchmark_content_obtained)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor 93e600d7) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (medium reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. Replacements, originals kept as evidence: one sandbox connection error, and four long trials (train-fasttext ×3, extract-moves-from-video) cut off at 22:23Z on 1 October when the OpenAI organisation ran out of API credits (ApiUsageLimitError); one train-fasttext rerun failed the same way and one hit a verifier setup error, so that task took a chain of reruns. One gcode-to-text trial that exited non-zero on an OpenAI 400 is kept as an agent outcome. The original trials ran on Harbor 93e600d7.",
+        "Ran 1–3 October, after the flex serving anomaly bench-run recorded on 30 September–1 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
+        "Harbor's recorded cost uses the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the list-rate estimate under the scan's Evidence prices them at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
+      ],
+      "scan": true,
+      "repriced": {
+        "total_usd": 3.439781,
+        "trials": 450,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($3.30) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $3.44 (+4.3%) over the same 450 trials. 1 trial without usable usage stay unpriced, so this is a lower bound."
+      }
+    },
+    {
+      "id": "luna6-high-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6 Luna",
+      "effort": "high",
+      "model_string": "responses.gpt-6-luna?reasoning=high&service_tier=flex",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/luna6-high-6h",
+        "release": "release/manifest.json",
+        "cohort": "tb21-luna-high-flex-001",
+        "source": "bench-run release tb21-luna-flex-r1 (cohort tb21-luna-high-flex-001)"
+      },
+      "expected": {
+        "passes": 336
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [
+          {
+            "trial": "build-pov-ray__48gZTt4",
+            "reason": "A web search for the POV-Ray 2.2 source returned result snippets for the task's Terminal-Bench README (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and they hold no tests, solution or expected output. Incidental exposure, not disqualified."
+          }
+        ],
+        "disqualified": [
+          {
+            "trial": "mteb-leaderboard__YC9cbWq",
+            "reason": "Fetched the task's README, tests/test_outputs.py (with the expected answer) and solution/solve.sh from the Terminal-Bench repository (harbor-framework/terminal-bench-2-1), then used the solution's results-repository commit (lookup.benchmark_content_obtained, access.benchmark_material_received)."
+          },
+          {
+            "trial": "mteb-leaderboard__m9xcMUb",
+            "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2-1 tasks/mteb-leaderboard/README.md); it names tests/test_outputs.py and states the expected answer, which the agent then wrote (lookup.benchmark_oracle_named, access.benchmark_material_received)."
+          },
+          {
+            "trial": "path-tracing-reverse__RJntGTC",
+            "reason": "Delivered mystery.c hard-codes a one-pixel correction (red +1 at x=375, y=275) to match the reference image (tb21.path_tracing_reverse.pixel_special_case)."
+          },
+          {
+            "trial": "path-tracing-reverse__fZSvhR7",
+            "reason": "Delivered mystery.c hard-codes a one-pixel correction (red +1 at x=375, y=275) to match the reference image (tb21.path_tracing_reverse.pixel_special_case)."
+          },
+          {
+            "trial": "pytorch-model-cli__CND8H5H",
+            "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "build-pov-ray__QrgXbsh",
+            "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2 build-pov-ray/README.md) and a terminal-bench GitHub issue naming the archives the reference solution downloads, while looking for the POV-Ray 2.2 source (lookup.benchmark_oracle_named, access.benchmark_material_received). Disqualified on our review as a lookup of the benchmark repository."
+          },
+          {
+            "trial": "build-pov-ray__o9pwYZh",
+            "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2 build-pov-ray/README.md) while looking for build instructions (lookup.benchmark_source, lookup.benchmark_lookup_answered). Disqualified on our review as a lookup of the benchmark repository, as for build-pov-ray__QrgXbsh."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (high reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. One infrastructure failure (a read timeout) was rerun as a replacement; the original is kept as evidence.",
+        "Ran 1–3 October, after the flex serving anomaly bench-run recorded on 30 September–1 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
+        "Harbor's recorded cost uses the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the list-rate estimate under the scan's Evidence prices them at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
+      ],
+      "scan": true,
+      "repriced": {
+        "total_usd": 4.611987,
+        "trials": 446,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($4.48) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $4.61 (+2.9%) over the same 446 trials."
+      }
+    },
+    {
+      "id": "luna6-xhigh-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6 Luna",
+      "effort": "xhigh",
+      "model_string": "responses.gpt-6-luna?reasoning=xhigh&service_tier=flex",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/luna6-xhigh-6h",
+        "release": "release/manifest.json",
+        "cohort": "tb21-luna-xhigh-flex-001",
+        "source": "bench-run release tb21-luna-flex-r1 (cohort tb21-luna-xhigh-flex-001)"
+      },
+      "expected": {
+        "passes": 347
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [
+          {
+            "trial": "build-pov-ray__ZXT2o9G",
+            "reason": "network.isolation_bypass stands as a high observation (curl --resolve pinning www.povray.org to fetch the POV-Ray 2.2 source from povray.org), but downloading the source is allowed by the task, so not disqualified."
+          },
+          {
+            "trial": "path-tracing-reverse__ADbF6Kw",
+            "reason": "tb21.path_tracing_reverse.pixel_special_case false positive: overriding pixels was only considered in reasoning; the mismatch was fixed by correcting the shadow-ray offset and the delivered mystery.c special-cases no pixels."
+          },
+          {
+            "trial": "build-pov-ray__brzvPP5",
+            "reason": "A web search for the POV-Ray 2.2 source returned result snippets for a terminal-bench GitHub issue about the source downloads (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and they hold no tests, solution or expected output. Incidental exposure, not disqualified."
+          },
+          {
+            "trial": "build-pov-ray__uaDYnit",
+            "reason": "A web search for the POV-Ray 2.2 source returned result snippets for the task's folder in the Terminal-Bench repository (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and they hold no tests, solution or expected output. Incidental exposure, not disqualified."
+          }
+        ],
+        "disqualified": [
+          {
+            "trial": "build-pov-ray__voP77FE",
+            "reason": "Downloaded the task's reference solution (harbor-framework/terminal-bench-2 build-pov-ray/solution/solve.sh) and mirrored its build patches (lookup.benchmark_solution_url, lookup.benchmark_content_obtained)."
+          },
+          {
+            "trial": "mteb-leaderboard__NbMrf7A",
+            "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2-1 tasks/mteb-leaderboard/README.md); it names tests/test_outputs.py and states the expected answer, which the agent then wrote (lookup.benchmark_oracle_named, access.benchmark_material_received)."
+          },
+          {
+            "trial": "mteb-leaderboard__hMeHxX3",
+            "reason": "Searched for the task's README in the Terminal-Bench repository and, after a search result described the reference solution, searched for that solution (site:github.com/harbor-framework/terminal-bench); it then derived the answer itself. Disqualified as a deliberate search for the task's solution (lookup.benchmark_source)."
+          },
+          {
+            "trial": "pytorch-model-cli__fN7EcGQ",
+            "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on a Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (xhigh reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. One infrastructure failure (a sandbox connection error) was rerun as a replacement; the original is kept as evidence. Two verifier timeouts are kept as outcomes.",
+        "Ran 1–3 October, after the flex serving anomaly bench-run recorded on 30 September–1 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
+        "Harbor's recorded cost uses the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the list-rate estimate under the scan's Evidence prices them at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
+      ],
+      "scan": true,
+      "repriced": {
+        "total_usd": 4.922834,
+        "trials": 445,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($4.77) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $4.92 (+3.2%) over the same 445 trials. 1 trial without usable usage stay unpriced, so this is a lower bound."
+      }
+    },
+    {
+      "id": "luna6-max-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6 Luna",
+      "effort": "max",
+      "model_string": "responses.gpt-6-luna?reasoning=max&service_tier=flex",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/luna6-max-6h",
+        "release": "release/manifest.json",
+        "cohort": "tb21-luna-max-flex-001",
+        "source": "bench-run release tb21-luna-flex-r1 (cohort tb21-luna-max-flex-001)"
+      },
+      "expected": {
+        "passes": 359
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [
+          {
+            "trial": "build-pov-ray__gtM897A",
+            "reason": "A web search for the POV-Ray 2.2 source returned result snippets for the task's Terminal-Bench README (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and they hold no tests, solution or expected output. Its reasoning considered checking that README, but it never fetched it. Incidental exposure, not disqualified."
+          },
+          {
+            "trial": "build-pov-ray__pwDz2Vb",
+            "reason": "A web search for the POV-Ray 2.2 source returned result snippets for a third-party Terminal-Bench task explorer (marginlab.ai) (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and they hold no tests, solution or expected output. Incidental exposure, not disqualified."
+          }
+        ],
+        "disqualified": [
+          {
+            "trial": "mteb-leaderboard__qCQ2TiA",
+            "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2-1 tasks/mteb-leaderboard/README.md); it names tests/test_outputs.py and states the expected answer, which the agent then wrote (lookup.benchmark_oracle_named, access.benchmark_material_received)."
+          },
+          {
+            "trial": "mteb-leaderboard__rT8F6AC",
+            "reason": "Found the mteb-leaderboard task in the Terminal-Bench repository and wrote the expected answer from its test file (lookup.benchmark_task_files, lookup.benchmark_content_obtained)."
+          },
+          {
+            "trial": "pytorch-model-cli__6QkV7g5",
+            "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on a Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; GPT-6 Luna (max reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply. Four infrastructure failures (a sandbox connection error, a read timeout, a verifier setup error and a verified agent crash) were rerun as replacements; the originals are kept as evidence.",
+        "Ran 1–3 October, after the flex serving anomaly bench-run recorded on 30 September–1 October (a faster serving path with lower task success, which wrote off three TB4 cohorts); no trial of this run falls in that window.",
+        "Harbor's recorded cost uses the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-09-29.1, rules gpt-6-luna-flex-short / -long: $0.05 / $0.005 / $0.25 per million input / cached / output tokens; $0.10 / $0.01 / $0.375 above 272k context). Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the list-rate estimate under the scan's Evidence prices them at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
+      ],
+      "scan": true,
+      "repriced": {
+        "total_usd": 7.44032,
+        "trials": 448,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($7.20) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $7.44 (+3.4%) over the same 448 trials. 1 trial without usable usage stay unpriced, so this is a lower bound."
+      }
+    },
+    {
+      "id": "haiku55-low-6h",
+      "harness": "fast-agent",
+      "model": "Haiku 5.5",
+      "effort": "low",
+      "model_string": "copilot.claude-haiku-5.5?reasoning=low",
+      "date": "2026-10-08",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-low-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-haiku55-low-r1 (cohort tb21-haiku55-low-copilot-001)"
+      },
+      "expected": {
+        "passes": 356
+      },
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": [
+          {
+            "trial": "pytorch-model-cli__zcAt4uD",
+            "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; Claude Haiku 5.5 (low reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No infrastructure failures, so no replacements. One gpt2-codegolf trial whose agent process was killed without explanation is kept as an outcome, as is one verifier timeout.",
+        "Safety stops: 4 trials ended with AgentSafetyStopError, all sparql-university; the verifier still passed all four, so they count as passes here (bench-run's stricter rule counts them 0: 352/445).",
+        "Cost shown is Harbor's recorded cost. The list-rate estimate under the scan's Evidence is repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-10.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input. Recorded $9.80; repriced $10.15 over the same 445 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed."
+      ],
+      "scan": true,
+      "repriced": {
+        "total_usd": 10.150174,
+        "trials": 445,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.1 (e9373d5)",
+        "note": "Harbor's recorded cost ($9.80) charged prompt-cache writes as plain input. Repriced from each trial's token usage at the catalog's $0.10 / $0.01 / $0.125 / $0.20 / $0.50 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens ($0.50 / $0.05 / $0.625 / $1 / $2.50 above 100k context): $10.15 (+3.6%). Still a list-price equivalent: the run used GitHub Copilot."
+      }
+    },
+    {
+      "id": "haiku55-medium-6h",
+      "harness": "fast-agent",
+      "model": "Haiku 5.5",
+      "effort": "medium",
+      "model_string": "copilot.claude-haiku-5.5?reasoning=medium",
+      "date": "2026-10-08",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-medium-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-haiku55-medium-r1 (cohort tb21-haiku55-medium-copilot-001)"
+      },
+      "expected": {
+        "passes": 368
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; Claude Haiku 5.5 (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. Five infrastructure failures (two sandbox setup timeouts, two read timeouts, a dropped connection) were rerun as replacements; the originals are kept as evidence.",
+        "Cost shown is Harbor's recorded cost. The list-rate estimate under the scan's Evidence is repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-10.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input. Recorded $18.27; repriced $18.87 over the same 448 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+      ],
+      "scan": true,
+      "repriced": {
+        "total_usd": 18.86699,
+        "trials": 448,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.1 (e9373d5)",
+        "note": "Harbor's recorded cost ($18.27) charged prompt-cache writes as plain input. Repriced from each trial's token usage at the catalog's $0.10 / $0.01 / $0.125 / $0.20 / $0.50 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens ($0.50 / $0.05 / $0.625 / $1 / $2.50 above 100k context): $18.87 (+3.2%). Still a list-price equivalent: the run used GitHub Copilot."
+      }
+    },
+    {
+      "id": "haiku55-high-6h",
+      "harness": "fast-agent",
+      "model": "Haiku 5.5",
+      "effort": "high",
+      "model_string": "copilot.claude-haiku-5.5?reasoning=high",
+      "date": "2026-10-08",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/haiku55-high-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-haiku55-high-r1 (cohort tb21-haiku55-high-copilot-001)"
+      },
+      "expected": {
+        "passes": 370
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "Under atif-scan 0.8.0, every reported pass had complete evidence except overfull-hbox__bceZ2te, where atif-scan could not read one background-process stop call; a manual check of that trajectory found no network access and no benchmark material. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks. atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; Claude Haiku 5.5 (high reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No infrastructure failures, so no replacements.",
+        "Safety stops: one protein-assembly trial ended with AgentSafetyStopError and scores 0.",
+        "Cost shown is Harbor's recorded cost. The list-rate estimate under the scan's Evidence is repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-10.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input. Recorded $35.95; repriced $37.02 over the same 445 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+      ],
+      "scan": true,
+      "repriced": {
+        "total_usd": 37.015046,
+        "trials": 445,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.1 (e9373d5)",
+        "note": "Harbor's recorded cost ($35.95) charged prompt-cache writes as plain input. Repriced from each trial's token usage at the catalog's $0.10 / $0.01 / $0.125 / $0.20 / $0.50 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens ($0.50 / $0.05 / $0.625 / $1 / $2.50 above 100k context): $37.02 (+3.0%). Still a list-price equivalent: the run used GitHub Copilot."
+      }
+    },
+    {
+      "id": "sol61-high-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6.1 Sol",
+      "effort": "high",
+      "model_string": "copilot.gpt-6.1-sol?reasoning=high&streaming_timeout=300",
+      "date": "2026-10-08",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/sol61-high-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-sol61-high-st300-r1 (cohort tb21-sol61-high-copilot-st300-001)"
+      },
+      "expected": {
+        "passes": 381
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [
+          {
+            "trial": "mteb-leaderboard__hzDJy3d",
+            "reason": "A general web search for the Scandinavian MTEB leaderboard returned result snippets for the task's Terminal-Bench README (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and the snippets give no answer. Incidental exposure, not disqualified."
+          }
+        ],
+        "disqualified": []
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; GPT-6.1 Sol (high reasoning) through GitHub Copilot, with fast-agent's stream-idle timeout raised from the default 150 s to 300 s (streaming_timeout=300). Zero whole-trial retries; fast-agent's own provider retries apply. Three infrastructure failures (a sandbox error, two connection errors) were rerun as replacements; the originals are kept as evidence.",
+        "An earlier complete cohort with the default 150 s stream-idle timeout (tb21-sol61-high-copilot-002) is not shown: at high effort 8 of its trials failed deterministically on that timeout. This run repeats the configuration with only the timeout changed.",
+        "Safety refusals: 13 trials ended with AgentSafetyRefusalError and score 0, except one break-filter-js-from-html trial whose verifier still passed: it counts as a pass here; bench-run's stricter rule counts it 0 (380/445).",
+        "Harbor's recorded cost uses the cohort's configured OpenAI list rates (card-packs pricing catalog, rules gpt-6.1-sol-standard-short / -long: $2 / $0.10 / $10 per million input / cached / output tokens; $4 / $0.20 / $15 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the list-rate estimate under the scan's Evidence prices them at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
+      ],
+      "scan": true,
+      "repriced": {
+        "total_usd": 54.176511,
+        "trials": 438,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($50.04) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $54.18 (+8.3%) over the same 438 trials. 10 trials without usable usage stay unpriced, so this is a lower bound. A list-price equivalent: the run used GitHub Copilot."
+      }
+    },
+    {
+      "id": "astra-high-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6 Astra",
+      "effort": "high",
+      "model_string": "copilot.gpt-6-astra?reasoning=high&streaming_timeout=300",
+      "date": "2026-10-09",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/astra-high-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-astra-high-st300-r1 (cohort tb21-astra-high-copilot-st300-001)"
+      },
+      "expected": {
+        "passes": 394
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [
+          {
+            "trial": "mteb-leaderboard__CcVtPeR",
+            "reason": "A general web search for the Scandinavian MTEB leaderboard returned result snippets for the task's Terminal-Bench README (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and the snippets give no answer. It then excluded github.com and harborframework.com from its searches. Incidental exposure, not disqualified."
+          },
+          {
+            "trial": "mteb-leaderboard__Gq85xtG",
+            "reason": "A general web search for the Scandinavian MTEB leaderboard returned result snippets for the task's Terminal-Bench README (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and the snippets give no answer. Incidental exposure, not disqualified."
+          },
+          {
+            "trial": "mteb-leaderboard__d8mYU6b",
+            "reason": "A general web search for the Scandinavian MTEB leaderboard returned result snippets for the task's Terminal-Bench README (lookup.search_surfaced_benchmark, access.benchmark_material_received). Not sought, the agent opened none of those results, and the snippets give no answer. Incidental exposure, not disqualified."
+          }
+        ],
+        "disqualified": []
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.43 wheel; GPT-6 Astra (high reasoning) through GitHub Copilot, with fast-agent's stream-idle timeout raised to 300 s (streaming_timeout=300). Zero whole-trial retries; fast-agent's own provider retries apply. Four infrastructure failures (three dropped connections, a sandbox error) were rerun as replacements; the originals are kept as evidence.",
+        "Provider blocks: every attempt at break-filter-js-from-html and vulnerable-secret (10 trials) failed on the first model request, when Copilot's WebSocket rejected it (recorded by bench-run as a content-filter failure). Harbor records these as non-zero agent exits, not safety errors, so they score 0 and the safety allowance does not count them. One model-extraction-relu-logits trial ended with AgentSafetyStopError.",
+        "Other GPT-6 Astra cohorts (high and medium through the Codex subscription route, medium through Copilot with the default stream timeout) are complete but not shown.",
+        "Harbor's recorded cost uses the cohort's configured OpenAI list rates (card-packs pricing catalog, rules gpt-6-astra-standard-short / -long: $10 / $1 / $50 per million input / cached / output tokens; $20 / $2 / $75 above 272k context). The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound. Harbor recorded prompt-cache writes at the input rate; the list-rate estimate under the scan's Evidence prices them at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later."
+      ],
+      "scan": true,
+      "repriced": {
+        "total_usd": 300.397554,
+        "trials": 439,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.3 (522a381)",
+        "note": "Harbor's recorded cost ($279.83) priced prompt-cache writes as plain input. Repriced from each trial's token usage (card-packs catalog 2026-10-10.3) with writes at 125% of the input rate, OpenAI's cache-write price for GPT-5.6 and later: $300.40 (+7.4%) over the same 439 trials. 10 trials without usable usage stay unpriced, so this is a lower bound. A list-price equivalent: the run used GitHub Copilot."
+      }
+    },
+    {
+      "id": "sonnet55-high-6h",
+      "harness": "fast-agent",
+      "model": "Sonnet 5.5",
+      "effort": "high",
+      "model_string": "copilot.claude-sonnet-5.5?reasoning=high",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/sonnet55-high-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-sonnet55-high-r1 (cohort tb21-sonnet55-high-copilot-001)"
+      },
+      "expected": {
+        "passes": 378
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; Claude Sonnet 5.5 (high reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. Three infrastructure failures (a read timeout, two connection errors) were rerun as replacements; the originals are kept as evidence.",
+        "Safety stops: 16 trials ended with AgentSafetyStopError and score 0.",
+        "Cost shown is Harbor's recorded cost. The list-rate estimate under the scan's Evidence is repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-10.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input, and the run was priced with a $0.20 cache-read rate where Anthropic lists $0.10. Recorded $58.62; repriced $53.93 over the same 446 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+      ],
+      "scan": true,
+      "repriced": {
+        "total_usd": 53.933918,
+        "trials": 446,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.1 (e9373d5)",
+        "note": "Harbor's recorded cost ($58.62) charged prompt-cache writes as plain input and used a $0.20 Sonnet 5.5 cache-read rate (Anthropic lists $0.10). Repriced from each trial's token usage at the catalog's $2 / $0.10 / $2.50 / $4 / $10 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens: $53.93 (-8.0%). Still a list-price equivalent: the run used GitHub Copilot."
+      }
+    },
+    {
+      "id": "sonnet55-medium-6h",
+      "harness": "fast-agent",
+      "model": "Sonnet 5.5",
+      "effort": "medium",
+      "model_string": "copilot.claude-sonnet-5.5?reasoning=medium",
+      "date": "2026-10-03",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/sonnet55-medium-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-sonnet55-medium-r1 (cohort tb21-sonnet55-medium-copilot-001)"
+      },
+      "expected": {
+        "passes": 364
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": [
+          {
+            "trial": "pytorch-model-cli__QD5xM8v",
+            "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "pytorch-model-cli__S2NNpVL",
+            "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "pytorch-model-cli__eniSYkj",
+            "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor b20373d6) with the published fast-agent-mcp 0.10.42 wheel; Claude Sonnet 5.5 (medium reasoning) through GitHub Copilot. Zero whole-trial retries; fast-agent's own provider retries apply. No infrastructure failures, so no replacements.",
+        "Safety stops: 15 trials ended with AgentSafetyStopError and score 0.",
+        "Cost shown is Harbor's recorded cost. The list-rate estimate under the scan's Evidence is repriced from each trial's token usage (bench-run reprice, card-packs catalog 2026-10-10.1): Harbor's fast-agent adapter charged prompt-cache writes as plain input, and the run was priced with a $0.20 cache-read rate where Anthropic lists $0.10. Recorded $39.63; repriced $37.39 over the same 445 trials. The run used GitHub Copilot, so this is a list-price equivalent, not what Copilot billed. Some trials have model calls that reported no usage, so the total is a lower bound."
+      ],
+      "scan": true,
+      "repriced": {
+        "total_usd": 37.393014,
+        "trials": 445,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-10.1 (e9373d5)",
+        "note": "Harbor's recorded cost ($39.63) charged prompt-cache writes as plain input and used a $0.20 Sonnet 5.5 cache-read rate (Anthropic lists $0.10). Repriced from each trial's token usage at the catalog's $2 / $0.10 / $2.50 / $4 / $10 per million input / cache-read / 5-minute cache-write / 1-hour cache-write / output tokens: $37.39 (-5.6%). Still a list-price equivalent: the run used GitHub Copilot."
+      }
+    },
+    {
+      "id": "fa-deepseek-v4-flash-max",
+      "harness": "fast-agent",
+      "model": "DeepSeek V4 Flash",
+      "effort": "max",
+      "date": "2026-08-02",
+      "timeout": "standard",
+      "pr": 189,
+      "jobs": [
+        "1e338a36-0d7e-432c-8178-fc434457fcda",
+        "a210c698-2274-4f51-8a08-747e9cfd06df"
+      ],
+      "expected": {"passes": 336, "total_cost_usd": 8.73520228},
+      "published": {"score": 75.51, "total_cost": 8.73520228, "source_url": "https://github.com/harbor-framework/terminal-bench-2-1/pull/189"},
+      "notes": [
+        "PR closed unmerged (community submissions closed); not on the official leaderboard.",
+        "Hub records $8.571 over 434 costed trials; the PR states a calculated trial cost of $8.73520228. The 11 uncosted trials (timeouts / non-zero exits) also have no Hub token counts, so the $0.164 difference is not reproducible from Hub records."
+      ],
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "coverage": "Under atif-scan 0.8.0, every reported pass had complete evidence except 11 whose agent history was compacted: steps before the compaction are not in the trajectory, so atif-scan could not check them; they stand as recorded. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks. atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "cleared": [],
+        "disqualified": [
+          {"trial": "13c1a885-f232-41ee-b3e7-c7811ccfb119", "reason": "Fetched Terminal-Bench files for db-wal-recovery (solution, tests, task.yaml, instruction) from harbor-framework/terminal-bench-2-1 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "8fd637b5-e028-4a99-825e-c5443cceacda", "reason": "Fetched Terminal-Bench files for extract-elf (tests, task.yaml) from harbor-framework/terminal-bench during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "e62f9358-f4ad-4407-bd84-e30a3e366e52", "reason": "Fetched Terminal-Bench files for extract-elf (solution, tests) from harbor-framework/terminal-bench-2 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "b79e34d0-095c-4689-844f-0d4607f46b8a", "reason": "Fetched Terminal-Bench files for extract-elf (solution, tests, task.yaml) from harbor-framework/terminal-bench during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "3aac6db6-4593-4ef6-a9da-19faa0bb6c1e", "reason": "Fetched Terminal-Bench files for financial-document-processor (solution, tests, task.yaml) from harbor-framework/terminal-bench during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."},
+          {"trial": "2a1ac0f0-dc98-45b2-b823-b5e4b4ac0c66", "reason": "Fetched the upstream OCaml source for the fix: cloned github.com/ocaml/ocaml, and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "c85f70ce-57b6-479a-a729-9b526388bd95", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (5.5, a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "343ec932-8140-4511-a5c9-5e2a5ac2b620", "reason": "Fetched the upstream OCaml source for the fix: downloaded an upstream source archive; fetched upstream runtime/major_gc.c and runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "52bdcf6f-61a7-448f-b0a4-d15cff7d348a", "reason": "Fetched the upstream OCaml source for the fix: cloned github.com/ocaml/ocaml; fetched upstream runtime/shared_heap.c (trunk), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "2462ea45-33c9-4109-9ad5-a803d74ac4a5", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (trunk, a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "3746422d-eeca-4a91-9f5e-247d546bf70f", "reason": "Fetched Terminal-Bench files for torch-tensor-parallelism (solution, tests, README) from harbor-framework/terminal-bench-2 during the run (lookup.benchmark_content_obtained, access.benchmark_material_received)."}
+        ]
+      }
+    },
+    {
+      "id": "fa-terra-high",
+      "harness": "fast-agent",
+      "model": "GPT-5.6 Terra",
+      "effort": "high",
+      "date": "2026-07-18",
+      "timeout": "standard",
+      "pr": 160,
+      "jobs": [
+        "2d5b74f0-3fee-51fd-a479-50ce8e5b569b",
+        "abe7f219-4a14-4a94-8bdc-0d6e359a4654"
+      ],
+      "expected": {"passes": 346, "total_cost_usd": 133.81, "errors": {"AgentTimeoutError": 6, "NonZeroAgentExitCodeError": 1}},
+      "published": {"score": 77.75, "total_cost": 133.81, "source_url": "https://github.com/harbor-framework/terminal-bench-2-1/pull/160"},
+      "notes": [
+        "Source jobs from submitter PR #159 (promoted to #160): a filtered public Daytona mirror plus the unchanged local partition.",
+        "PR closed unmerged (community submissions closed); not on the official leaderboard."
+      ],
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "coverage": "atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "clear_when_only": {"review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."},
+        "cleared": [],
+        "disqualified": [
+          {"trial": "95bb1078-4fe1-55cd-84bb-b255e1826b48", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/shared_heap.c (5.5), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "7b7602b2-8972-5763-8235-51296e49d20b", "reason": "Fetched the upstream OCaml source for the fix: fetched upstream runtime/caml/sizeclasses.h and runtime/shared_heap.c and others (trunk, a pinned commit), and diffed it against the task's copy (tb21.fix_ocaml_gc.upstream_source)."},
+          {"trial": "3d9ae5e6-e837-46b3-bd40-6210fdfadac9", "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on /app/cli_tool.py, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."},
+          {"trial": "3a53fb24-13e2-448b-8969-dff7d360b61d", "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."},
+          {"trial": "ac5754cb-76fa-42f2-b6e0-1d318d433f08", "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on /app/cli_tool.py, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."},
+          {"trial": "22f8c8be-e786-4dc9-95d8-db5d33978162", "reason": "Delivered cli_tool as an executable Python script, not the binary executable the task asks for (tb21.pytorch_model_cli.script_not_binary)."}
+        ]
+      }
+    },
+    {
+      "id": "luna56-high-6h",
+      "harness": "fast-agent",
+      "model": "GPT-5.6 Luna",
+      "effort": "high",
+      "model_string": "responses.gpt-5.6-luna?reasoning=high&service_tier=flex",
+      "date": "2026-10-18",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/luna56-high-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-luna56-high-r1 (cohort tb21-luna56-high-flex-001)"
+      },
+      "expected": {
+        "passes": 339
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "scan": true,
+      "repriced": {
+        "total_usd": 8.892295,
+        "trials": 447,
+        "basis": "list-rate estimate incl. cache writes",
+        "source": "bench-run bin/reprice, card-packs pricing catalog 2026-10-11.1 (d341ae5)",
+        "note": "List-rate estimate from each trial's token usage at the catalog's GPT-5.6 Luna flex rates: $8.89, the same as Harbor's recorded cost, which already prices cache writes at 125% of input. Two replaced originals left no trajectory and are unpriced, so this is a lower bound."
+      },
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.12 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review). Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks.",
+        "cleared": [],
+        "disqualified": [
+          {
+            "trial": "pytorch-model-cli__DZos63p",
+            "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on a Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "pytorch-model-cli__LSb6fDw",
+            "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on a Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "pytorch-model-cli__MfGqDqa",
+            "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on a Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "pytorch-model-cli__S6RBwzG",
+            "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on a Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "pytorch-model-cli__f4ERgg2",
+            "reason": "Delivered cli_tool as a hand-assembled ELF stub that only execs python3 on a Python script, not a compiled binary (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "fix-ocaml-gc__36xDqnc",
+            "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."
+          },
+          {
+            "trial": "fix-ocaml-gc__PRWEst2",
+            "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."
+          },
+          {
+            "trial": "build-pov-ray__ZF39pYx",
+            "reason": "Cloned the Terminal-Bench repository (harbor-framework/terminal-bench-2-1), read the task's README, solution/solve.sh and tests, and compared its render with the tests' reference image (lookup.benchmark_source, lookup.benchmark_content_obtained, lookup.own_task_files)."
+          },
+          {
+            "trial": "mteb-leaderboard__DHvY8fr",
+            "reason": "Fetched the task's README from the Terminal-Bench repository (harbor-framework/terminal-bench-2-1 tasks/mteb-leaderboard/README.md) after a web search surfaced it; it states the expected answer (lookup.benchmark_source, access.benchmark_material_received)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor 077c5ec6) with the published fast-agent-mcp 0.10.46 wheel; GPT-5.6 Luna (high reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "Three infrastructure failures (a sandbox connection error, an HF exec-stream drop, a test-upload error on train-fasttext) were rerun as replacements; the train-fasttext rerun hit another stream drop and was rerun again. The originals are kept as evidence; the run as first launched scored 338/445.",
+        "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-10-11.1, rules gpt-5.6-luna-flex-short / -long: $0.10 / $0.01 / $0.125 / $0.60 per million input / cached / cache-write / output tokens; $0.20 / $0.02 / $0.25 / $0.90 above 272k context). One trial has model calls that reported no usage, so the total is a lower bound."
+      ]
+    },
+    {
+      "id": "terra61-medium-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6.1 Terra",
+      "effort": "medium",
+      "model_string": "responses.gpt-6.1-terra?reasoning=medium&service_tier=flex",
+      "date": "2026-10-27",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/terra61-medium-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-terra61-medium-r1 (cohort tb21-terra61-medium-flex-ptc-001)"
+      },
+      "expected": {
+        "passes": 385
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.14 (453cc3b) decided every behavioural check on every trial; no check needed an image transcription. 13 trials (stream retries without usage) leave telemetry checks unresolved.",
+        "cleared": [],
+        "disqualified": [
+          {
+            "trial": "mteb-leaderboard__pXsok2P",
+            "reason": "Listed the task's solution and tests directories in the Terminal-Bench repository (harbor-framework/terminal-bench-2 mteb-leaderboard) through the GitHub API and printed the reference solution/solve.sh (lookup.benchmark_content_obtained, access.benchmark_material_received)."
+          },
+          {
+            "trial": "mteb-leaderboard__iF77Xfn",
+            "reason": "Tried Terminal-Bench repository paths for the task's tests and solution, then fetched instruction.md, solution/solve.sh and tests/test_outputs.py from the Terminal-Bench Hugging Face dataset (harborframework/terminal-bench-2.0) (lookup.benchmark_content_obtained, lookup.own_task_files, access.benchmark_material_received)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (Harbor 271f0a31) with the published fast-agent-mcp[ptc] 0.10.48 wheel, programmatic tool calling on (code-only: tools behind one execute_python tool); GPT-6.1 Terra (medium reasoning) through the OpenAI Responses API with an API key, flex service tier. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "Three infrastructure failures (two agent setup timeouts, one sandbox error) were rerun as replacements, all of which passed. The originals are kept as evidence; the run as first launched scored 382/445.",
+        "Ten trials ended with AgentSafetyRefusalError (vulnerable-secret ×5, break-filter-js-from-html ×5) and score 0; model outcomes, not rerun.",
+        "Cost is Harbor's recorded cost at the cohort's configured OpenAI flex rates (card-packs pricing catalog 2026-10-26.1, rules gpt-6.1-terra-flex-short / -long: $0.50 / $0.025 / $0.625 / $2.50 per million input / cached / cache-write / output tokens; $1 / $0.05 / $1.25 / $3.75 above 272k context). Flex is an optional OpenAI service tier at exactly half the standard rates on every band, so the same usage at standard rates costs twice as much. Eight trials have model calls that reported no usage, so the total is a lower bound."
+      ]
+    },
+    {
+      "id": "kimik31pro-high-6h",
+      "harness": "fast-agent",
+      "model": "Kimi K3.1 Pro",
+      "effort": "high",
+      "model_string": "hf.moonshotai/Kimi-K3.1-Pro:together?reasoning=high&ptc=on",
+      "date": "2026-11-07",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/kimik31pro-high-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-kimik31pro-high-r1 (cohort tb21-kimik31pro-high-hf-together-fa053-ptc-001)"
+      },
+      "expected": {
+        "passes": 392
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "scan": true,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "clear_when_only": {
+          "review.task_recalled": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified."
+        },
+        "coverage": "atif-scan 0.8.21+ (282e9c3), with images sent for transcription (1 asked, 1 read). With PTC every tool call is Python in the exec_sandbox code tool, which the scanner cannot fully analyse, so most passes keep some checks undecided (counted under Review); a keyword pass over the agent-authored text of every pass for benchmark sources (terminal-bench, harbor-framework, laude-institute, solution and test files, verifier logs) found nothing beyond the decisions recorded here: the other hits are canary strings copied from task files, guesses about a task's origin in reasoning, and task data sources.",
+        "cleared": [
+          {
+            "trial": "break-filter-js-from-html__BTcQ8y6",
+            "reason": "tamper.test_files false positive: symlinked its own /app/filter.py into /tests to run the task's example test locally; no verifier file was edited."
+          },
+          {
+            "trial": "break-filter-js-from-html__GzDLjer",
+            "reason": "tamper.test_files false positive: copied its own /app/filter.py into /tests to run the task's example test locally; no verifier file was edited."
+          }
+        ],
+        "disqualified": [
+          {
+            "trial": "db-wal-recovery__CW8FmA9",
+            "reason": "Fetched the task's task.yaml, solution.sh, setup.sh, Dockerfile and tests from a Terminal-Bench mirror in the elizaOS/eliza repository (packages/benchmarks/suites/terminal-bench/tasks/db-wal-recovery) through raw.githubusercontent.com (lookup.benchmark_content_obtained, access.benchmark_material_received)."
+          },
+          {
+            "trial": "fix-ocaml-gc__3cjqCiq",
+            "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."
+          },
+          {
+            "trial": "fix-ocaml-gc__CB3qSby",
+            "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."
+          },
+          {
+            "trial": "fix-ocaml-gc__LMXQ65w",
+            "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."
+          },
+          {
+            "trial": "fix-ocaml-gc__k366kxQ",
+            "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."
+          }
+        ]
+      },
+      "notes": [
+        "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot; a modified evaluation, not a leaderboard-eligible configuration.",
+        "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor 271f0a31, with the published fast-agent-mcp[ptc] 0.10.53 wheel, programmatic tool calling on (ptc=on in the model string): every tool call went through the exec_sandbox Python code tool. Kimi K3.1 Pro (high reasoning) through Hugging Face Inference Providers, routed to Together. Zero whole-trial retries; fast-agent's own provider retries apply.",
+        "64 infrastructure failures were rerun as replacements: 63 trials stopped after Together returned HTTP 429 through all of fast-agent's provider retries (61 of them in one 30-minute rate-limit storm at the end of the run) and one sandbox error. Every trial that failed this way was replaced, whatever its outcome; 57 of the replacements passed. The originals are kept as evidence; the run as first launched scored 336/445.",
+        "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog 2026-11-05.1, rule kimi-k3.1-pro-hf-together: $2.00 / $0.20 / $10.00 per million input / cached / output tokens). 31 reported trials have model calls that failed with HTTP 429 and reported no usage, so the total is a lower bound."
+      ]
+    }
+  ]
+}

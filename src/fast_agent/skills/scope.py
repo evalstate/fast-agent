@@ -37,11 +37,10 @@ def resolve_skills_management_scope(
 
     configured_directories: list[Path] | None = None
     if skills_settings.directories:
-        directory_entries = skills_settings.directories
-        if directory_entries:
-            configured_directories = [
-                _resolve_skill_directory_entry(entry, base=base) for entry in directory_entries
-            ]
+        configured_directories = [
+            _resolve_skill_directory_entry(entry, base=base)
+            for entry in skills_settings.directories
+        ]
 
     if managed_directory_override is not None:
         managed_directory = _resolve_skill_directory_entry(managed_directory_override, base=base)

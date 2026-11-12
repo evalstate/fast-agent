@@ -22,7 +22,7 @@ from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import load_model_overlay_registry
-from fast_agent.llm.model_selection import ModelSelectionCatalog
+from fast_agent.llm.model_selection import CatalogModelEntry, ModelSelectionCatalog
 from fast_agent.llm.provider.anthropic.vertex_config import GoogleAdcStatus
 from fast_agent.llm.provider_types import Provider
 from fast_agent.utils.collections import unique_preserve_order
@@ -46,22 +46,6 @@ def _write_overlay(home: "Path", name: str, *, provider: str, model: str) -> Non
     )
 
 
-def _static_current_entries(provider: Provider) -> list:
-    return [
-        entry
-        for entry in ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[provider]
-        if entry.current
-    ]
-
-
-def test_list_current_models_for_provider() -> None:
-    models = ModelSelectionCatalog.list_current_models(Provider.ANTHROPIC)
-    expected = unique_preserve_order(
-        entry.model for entry in _static_current_entries(Provider.ANTHROPIC)
-    )
-    assert models == expected
-
-
 def test_list_current_aliases_for_provider() -> None:
     aliases = ModelSelectionCatalog.list_current_aliases(Provider.ANTHROPIC)
 
@@ -78,8 +62,8 @@ def test_list_current_aliases_for_provider() -> None:
 
 def test_metaai_picker_lists_muse_tiers_in_release_order() -> None:
     assert ModelSelectionCatalog.list_current_aliases(Provider.META_AI) == [
-        "Muse Spark 1.2",
-        "Muse Spark 1.2 (Contributor)",
+        "Muse Spark 1.3",
+        "Muse Spark 1.3 (Contributor)",
         "Muse Spark 1.1",
     ]
 
@@ -90,11 +74,17 @@ def test_xai_picker_omits_unsupported_instant_grok() -> None:
     assert "Grok 4.3 (instant)" not in aliases
 
 
-def test_xai_picker_promotes_grok_46() -> None:
+def test_xai_picker_promotes_grok_47() -> None:
     aliases = ModelSelectionCatalog.list_current_aliases(Provider.XAI)
 
-    assert aliases[:2] == ["Grok 4.6", "Grok 4.6 (X Search)"]
-    assert BUILTIN_MODEL_ALIASES["grok"] == "xai.grok-4.6"
+    assert aliases[:2] == ["Grok 4.7", "Grok 4.7 (X Search)"]
+    assert "Grok 4.7 Fast (OAuth)" in aliases
+    assert "Grok 4.7 Fast (X Search, OAuth)" in aliases
+    assert "Grok 4.6" in aliases
+    assert "Grok 4.6 (X Search)" in aliases
+    assert BUILTIN_MODEL_ALIASES["grok"] == "xai.grok-4.7"
+    assert BUILTIN_MODEL_ALIASES["grok4"] == "xai.grok-4.7"
+    assert BUILTIN_MODEL_ALIASES["grok47"] == "xai.grok-4.7"
     assert BUILTIN_MODEL_ALIASES["grok46"] == "xai.grok-4.6"
 
 
@@ -102,17 +92,23 @@ def test_metaai_muse_aliases_select_the_current_and_contributor_tiers() -> None:
     assert {
         alias: BUILTIN_MODEL_ALIASES[alias] for alias in ("muse", "muse-spark", "musecontrib")
     } == {
-        "muse": "metaai.muse-spark-1.2",
-        "muse-spark": "metaai.muse-spark-1.2",
-        "musecontrib": "metaai.muse-spark-1.2-contributor",
+        "muse": "metaai.muse-spark-1.3",
+        "muse-spark": "metaai.muse-spark-1.3",
+        "musecontrib": "metaai.muse-spark-1.3-contributor",
     }
 
 
 def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() -> None:
     expected = {
-        "sol": "codexresponses.gpt-5.6-sol?reasoning=high",
-        "terra": "codexresponses.gpt-5.6-terra?reasoning=high",
-        "codexplan": "codexresponses.gpt-5.6-sol?reasoning=high",
+        "astra": "codexresponses.gpt-6-astra?reasoning=high",
+        "sol": "codexresponses.gpt-6.1-sol?reasoning=high",
+        "sol6": "codexresponses.gpt-6-sol?reasoning=medium",
+        "luna": "codexresponses.gpt-6-luna?reasoning=high",
+        "sol56": "codexresponses.gpt-5.6-sol?reasoning=high",
+        "luna56": "codexresponses.gpt-5.6-luna?reasoning=medium",
+        "terra": "codexresponses.gpt-6.1-terra?reasoning=high",
+        "terra56": "codexresponses.gpt-5.6-terra?reasoning=high",
+        "codexplan": "codexresponses.gpt-6-astra?reasoning=high",
     }
     entries = {
         entry.alias: entry.model
@@ -129,9 +125,28 @@ def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() ->
         ) == ModelFactory.parse_model_string(model_spec)
 
 
+@pytest.mark.parametrize(
+    ("name", "model", "codex_effort"),
+    [
+        ("astra", "gpt-6-astra", "high"),
+        ("sol", "gpt-6.1-sol", "high"),
+        ("terra", "gpt-6.1-terra", "high"),
+        ("sol6", "gpt-6-sol", "medium"),
+        ("luna", "gpt-6-luna", "high"),
+    ],
+)
+def test_gpt_6_models_are_available_through_codex_and_api_routes(
+    name: str, model: str, codex_effort: str
+) -> None:
+    assert BUILTIN_MODEL_ALIASES[name] == f"codexresponses.{model}?reasoning={codex_effort}"
+    assert BUILTIN_MODEL_ALIASES[model] == f"responses.{model}?reasoning=medium"
+    assert name in ModelSelectionCatalog.list_current_aliases(Provider.CODEX_RESPONSES)
+    assert model in ModelSelectionCatalog.list_current_aliases(Provider.RESPONSES)
+
+
 def test_deepseek_catalog_exposes_native_responses_models() -> None:
     aliases = ModelSelectionCatalog.list_current_aliases(Provider.DEEPSEEK)
-    assert aliases == ["deepseek", "deepseekvision", "DeepSeek V4 Pro"]
+    assert aliases == ["DeepSeek V4.1 Flash", "DeepSeek V4 Pro"]
 
 
 def test_non_current_aliases_are_listed_but_not_current() -> None:
@@ -140,23 +155,34 @@ def test_non_current_aliases_are_listed_but_not_current() -> None:
         non_current_aliases = ModelSelectionCatalog.list_non_current_aliases(provider)
 
         assert set(current_aliases).isdisjoint(non_current_aliases)
-        assert non_current_aliases == [
-            entry.alias
-            for entry in ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER.get(provider, ())
-            if not entry.current
-        ]
 
 
-def test_list_fast_models_uses_explicit_curated_designation() -> None:
-    for provider in (
-        Provider.ANTHROPIC,
-        Provider.CODEX_RESPONSES,
-        Provider.HUGGINGFACE,
-        Provider.GROQ,
-    ):
-        assert ModelSelectionCatalog.list_fast_models(provider) == unique_preserve_order(
-            entry.model for entry in _static_current_entries(provider) if entry.fast
-        )
+def test_catalog_filters_and_deduplicates_without_reordering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        ModelSelectionCatalog,
+        "CATALOG_ENTRIES_BY_PROVIDER",
+        {
+            Provider.ANTHROPIC: (
+                CatalogModelEntry(alias="primary", model="model-a"),
+                CatalogModelEntry(alias="retired", model="model-old", current=False, fast=True),
+                CatalogModelEntry(alias="quick", model="model-b", fast=True),
+                CatalogModelEntry(alias="alternate", model="model-a"),
+                CatalogModelEntry(alias="quick", model="model-b", fast=True),
+            ),
+            Provider.GOOGLE: (CatalogModelEntry(alias="other-provider", model="model-c"),),
+        },
+    )
+
+    assert ModelSelectionCatalog.list_current_models(Provider.ANTHROPIC) == ["model-a", "model-b"]
+    assert ModelSelectionCatalog.list_current_aliases(Provider.ANTHROPIC) == [
+        "primary",
+        "quick",
+        "alternate",
+    ]
+    assert ModelSelectionCatalog.list_non_current_aliases(Provider.ANTHROPIC) == ["retired"]
+    assert ModelSelectionCatalog.list_fast_models(Provider.ANTHROPIC) == ["model-b"]
 
 
 def test_groq_current_aliases_drop_deprecated_kimi_entry() -> None:
@@ -164,29 +190,6 @@ def test_groq_current_aliases_drop_deprecated_kimi_entry() -> None:
 
     assert "kimigroq" not in aliases
     assert "qwen3-32b" in aliases
-
-
-@pytest.mark.parametrize(
-    "provider",
-    (
-        Provider.ANTHROPIC,
-        Provider.GOOGLE,
-        Provider.HUGGINGFACE,
-        Provider.CODEX_RESPONSES,
-    ),
-)
-def test_current_catalog_helpers_project_current_entries(provider: Provider) -> None:
-    current_entries = _static_current_entries(provider)
-
-    assert ModelSelectionCatalog.list_current_aliases(provider) == [
-        entry.alias for entry in current_entries
-    ]
-    assert ModelSelectionCatalog.list_current_models(provider) == unique_preserve_order(
-        entry.model for entry in current_entries
-    )
-    assert ModelSelectionCatalog.list_fast_models(provider) == unique_preserve_order(
-        entry.model for entry in current_entries if entry.fast
-    )
 
 
 def test_is_fast_model_normalizes_provider_prefix() -> None:
@@ -320,14 +323,14 @@ def test_google_catalog_exposes_curated_and_fast_models() -> None:
     assert ModelSelectionCatalog.list_all_models(Provider.GOOGLE)
 
 
-def test_google_picker_lists_gemini37_flash_first() -> None:
+def test_google_picker_lists_gemini38_flash_first() -> None:
     entries = ModelSelectionCatalog.list_entries(Provider.GOOGLE)
     current_entries = [entry for entry in entries if entry.current]
 
     assert current_entries
     first = current_entries[0]
-    assert first.alias == "gemini37flash"
-    assert first.model == "google.gemini-3.7-flash"
+    assert first.alias == "gemini38flash"
+    assert first.model == "google.gemini-3.8-flash"
     assert first.fast is True
     assert "$0.75/M input" in (first.description or "")
     assert "$0.375/M input" in (first.description or "")
@@ -341,50 +344,6 @@ def test_catalog_lists_legacy_aliases_when_configured() -> None:
     assert "glm5" in non_current_aliases
     assert "glm47" in non_current_aliases
     assert "glm47" not in current_aliases
-
-
-def test_huggingface_curated_catalog_includes_both_kimi_k3_routes() -> None:
-    entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.HUGGINGFACE]
-    aliases = {"Kimi K3 (fireworks-ai)", "Kimi K3 (together)"}
-    kimi_k3_entries = [entry for entry in entries if entry.alias in aliases]
-
-    assert [(entry.display_label, entry.model) for entry in kimi_k3_entries] == [
-        ("Kimi K3 (fireworks-ai)", "hf.moonshotai/Kimi-K3:fireworks-ai"),
-        ("Kimi K3 (together)", "hf.moonshotai/Kimi-K3:together"),
-    ]
-    assert all(entry.current for entry in kimi_k3_entries)
-
-
-def test_huggingface_curated_catalog_includes_muse_glimmer_together() -> None:
-    entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.HUGGINGFACE]
-    glimmer = next(entry for entry in entries if entry.alias == "glimmer")
-
-    assert glimmer.display_label == "Muse Glimmer 30B (together)"
-    assert glimmer.model == (
-        "hf.meta-models/Muse-Glimmer-30B:together?temperature=1.0&top_p=0.95&top_k=64"
-    )
-    assert glimmer.current is True
-
-
-def test_huggingface_curated_catalog_includes_deepseek_v4_flash_0731_routes() -> None:
-    entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.HUGGINGFACE]
-    aliases = {
-        "DeepSeek V4 Flash 0731 (baseten)",
-        "DeepSeek V4 Flash 0731 (deepinfra)",
-    }
-    deepseek_entries = [entry for entry in entries if entry.alias in aliases]
-
-    assert [(entry.display_label, entry.model) for entry in deepseek_entries] == [
-        (
-            "DeepSeek V4 Flash 0731 (baseten)",
-            "hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten?max_tokens=384000",
-        ),
-        (
-            "DeepSeek V4 Flash 0731 (deepinfra)",
-            "hf.deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra",
-        ),
-    ]
-    assert all(entry.current for entry in deepseek_entries)
 
 
 def test_list_all_models_for_provider() -> None:
@@ -428,15 +387,6 @@ def test_codexresponses_current_entries_use_explicit_transports() -> None:
     assert "codexresponses.gpt-5.4?reasoning=high" in current
     assert "codexresponses.gpt-5.5?reasoning=medium" in current
     assert "codexresponses.gpt-5.3-codex-spark" in current
-
-
-def test_google_curated_models_exist_in_provider_catalog() -> None:
-    known = {
-        ModelDatabase.normalize_model_name(model)
-        for model in ModelSelectionCatalog.list_all_models(Provider.GOOGLE)
-    }
-    for entry in ModelSelectionCatalog.list_current_entries(Provider.GOOGLE):
-        assert ModelDatabase.normalize_model_name(entry.model) in known
 
 
 def test_openrouter_list_all_models_uses_discovery(monkeypatch) -> None:
@@ -529,3 +479,41 @@ def test_overlay_catalog_uses_explicit_environment_context(
     assert "openresponses.overlay-tests/ambient" not in models
     assert "projectoverlay" in current_aliases
     assert "ambientoverlay" not in current_aliases
+
+
+def test_opus_55_picker_defaults_and_limits() -> None:
+    anthropic = ModelSelectionCatalog.list_current_models(Provider.ANTHROPIC)
+    copilot = ModelSelectionCatalog.list_current_models(Provider.COPILOT)
+    assert "claude-opus-5-5" in anthropic
+    assert copilot.index("copilot.claude-opus-5.5") < copilot.index("copilot.claude-opus-5")
+    for model in ("claude-opus-5-5", "copilot.claude-opus-5.5"):
+        params = ModelDatabase.get_model_params(model)
+        assert params is not None
+        assert params.context_window == 1_000_000
+        assert params.max_output_tokens == 128_000
+        assert not params.anthropic_thinking_disable_supported
+
+
+def test_catalog_entries_resolve_to_known_models() -> None:
+    """Every picker entry must parse and land on a known model catalog entry."""
+    unresolved = []
+    for entries in ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER.values():
+        for entry in entries:
+            config = ModelFactory.parse_model_string(entry.model)
+            if ModelDatabase.get_model_params(config.model_name, provider=config.provider) is None:
+                unresolved.append(entry.model)
+
+    assert unresolved == []
+
+
+def test_sonnet_55_picker_defaults_and_limits() -> None:
+    assert "claude-sonnet-5-5" in ModelSelectionCatalog.list_current_models(Provider.ANTHROPIC)
+    copilot = ModelSelectionCatalog.list_current_models(Provider.COPILOT)
+    assert copilot.index("copilot.claude-sonnet-5.5") < copilot.index("copilot.claude-sonnet-5")
+    for model in ("claude-sonnet-5-5", "copilot.claude-sonnet-5.5"):
+        params = ModelDatabase.get_model_params(model)
+        assert params is not None
+        assert params.context_window == 1_000_000
+        assert params.max_output_tokens == 128_000
+        assert params.json_mode == "schema"
+        assert params.structured_tool_policy == "always"

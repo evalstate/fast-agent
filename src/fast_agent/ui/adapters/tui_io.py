@@ -281,7 +281,19 @@ class TuiCommandIO(CommandIO):
     async def _handle_model_activation(self, activation: ProviderActivation) -> bool:
         from fast_agent.auth.providers import get_oauth_provider
         from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
+        from fast_agent.llm.provider_types import Provider
         from fast_agent.ui import console
+
+        if activation.provider == Provider.COPILOT:
+            from fast_agent.cli.runtime.copilot_activation import activate_copilot
+            from fast_agent.config import CopilotSettings
+
+            payload = self._model_picker_config_payload()
+            if payload is None:
+                payload = get_settings().model_dump()
+            return await activate_copilot(
+                CopilotSettings.model_validate(payload.get("copilot") or {})
+            )
 
         handler = get_oauth_provider(activation.provider.config_name)
 
@@ -361,6 +373,8 @@ class TuiCommandIO(CommandIO):
 
             if picker_result.activation_action is not None:
                 if not await self._handle_model_activation(picker_result.activation_action):
+                    if picker_result.activation_action.provider == Provider.COPILOT:
+                        continue
                     return None
                 if picker_result.selected_model:
                     return picker_result.selected_model

@@ -21,6 +21,10 @@ ANTHROPIC_CONTAINER_CHANNEL = "anthropic-container"
 """Anthropic code-execution container metadata for multi-turn request reuse."""
 OPENAI_REASONING_ENCRYPTED = "openai-reasoning-encrypted"
 """Encrypted OpenAI reasoning items for stateless Responses API passback."""
+OPENAI_COMPACTION_ITEMS = "openai-compaction-items"
+"""Opaque OpenAI Responses compaction items carried by a provider-native checkpoint."""
+OPENAI_COMPACTION_TRIGGER = "openai-compaction-trigger"
+"""Request-only marker for a final ``compaction_trigger`` item; never persist to history."""
 OPENAI_ASSISTANT_MESSAGE_ITEMS = "openai-assistant-message-items"
 """Raw OpenAI assistant message items for Responses history passback, including phase."""
 OPENAI_MCP_LIST_TOOLS_ITEMS = "openai-mcp-list-tools-items"
@@ -38,14 +42,31 @@ BUILTIN_SUBAGENT_TOOL_NAME = "subagent"
 """Reserved name of the built-in one-shot subagent tool."""
 FAST_AGENT_SUBAGENT_RESULT_METADATA = "fast-agent-subagent"
 """Tool-result ``_meta`` key for built-in subagent execution details."""
+FAST_AGENT_PTC_VALUE = "fast-agent-ptc-value"
+"""Tool-result ``_meta`` key for the value sandbox code receives instead of the model text."""
+FAST_AGENT_PTC_ERROR = "fast-agent-ptc-error"
+"""Tool-result ``_meta`` key for the short message sandbox code sees when an error result raises."""
+FAST_AGENT_PTC_CALLS = "fast-agent-ptc-calls"
+"""``exec_sandbox`` result ``_meta`` key recording the nested tool calls the script made."""
 FAST_AGENT_SHELL_PROCESS_METADATA = "fast-agent-shell-process-metadata"
 FAST_AGENT_PROCESS_POLL_FOLD = "fast-agent-process-poll-fold"
 FAST_AGENT_USAGE = "fast-agent-usage"
 FAST_AGENT_RETRY = "fast-agent-retry"
+FAST_AGENT_PROVIDER_ERROR = "fast-agent-provider-error"
+"""Why a model call failed, as codes (`fast-agent.provider-error/v1`): exported to ATIF."""
 FAST_AGENT_SYNTHETIC_FINAL_CHANNEL = "fast-agent-synthetic-final"
 FAST_AGENT_PENDING_MEDIA_ATTACHMENTS = "fast-agent-pending-media-attachments"
 """Content blocks staged by attach_media for injection as user input on the next LLM call."""
+# Persisted provenance for user-role media staged from tool results, not a new turn.
+FAST_AGENT_TOOL_MEDIA_MESSAGE = "fast-agent-tool-media-message"
+# Persisted provenance for user-role messages added inside a tool loop, not a new turn.
+FAST_AGENT_TOOL_LOOP_MESSAGE = "fast-agent-tool-loop-message"
 FAST_AGENT_COMPACTION_CHANNEL = "fast-agent-compaction"
+# Marks a model response that carries a provider compaction checkpoint in-band
+# (e.g. an Anthropic compaction block or an OpenAI compaction item). History
+# rewrites such as process-poll folding must keep these messages: the provider
+# reads the checkpoint to know where compacted context starts.
+FAST_AGENT_PROVIDER_CHECKPOINT = "fast-agent-provider-checkpoint"
 """Metadata channel marking a compaction summary message (prompt used, counts, timestamps)."""
 
 FORCE_SEQUENTIAL_TOOL_CALLS = False
@@ -61,14 +82,33 @@ def should_parallelize_tool_calls(tool_call_count: int) -> bool:
 DEFAULT_MAX_ITERATIONS = 9999
 """Maximum number of User/Assistant turns to take"""
 
-DEFAULT_STREAMING_TIMEOUT = 120.0
+DEFAULT_STREAMING_TIMEOUT = 150.0
 """Default idle timeout in seconds between provider streaming events."""
+
+DEFAULT_HIGH_REASONING_STREAMING_TIMEOUT = 300.0
+"""Default stream idle timeout for high, xhigh, and max reasoning effort."""
 
 MIN_PROCESS_POLL_WAIT_SECONDS = 10
 """Minimum positive managed-process wait exposed to models."""
 
 MAX_PROCESS_POLL_WAIT_SECONDS = 3600
 """Maximum configurable managed-process wait in seconds."""
+
+BACKGROUND_LAUNCH_SETTLE_SECONDS = 1.5
+"""How long a background launch watches for an immediate exit before reporting "running".
+
+A service that crashes on startup (bad path, port in use, missing binary) is then
+reported with its exit code and output instead of appearing to be running.
+"""
+
+DEFAULT_PROCESS_POLL_MAX_WAIT_SECONDS = 260
+"""Default ceiling for one model-initiated managed-process wait.
+
+Each wait returns while provider prompt caches are still warm (tested with a safe
+buffer at about 260 seconds), so a hung or long process costs a cached poll
+rather than blocking the model for up to an hour. Longer work is followed with
+repeated waits, which fold in history when quiet.
+"""
 
 MAX_PROCESS_OUTPUT_QUERY_CHARS = 512
 """Maximum literal query length for retained process output."""
@@ -110,6 +150,7 @@ DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
 {{agentSkills}}
 {{file_silent:AGENTS.md}}
 {{env}}
+{{herdrInstructions}}
 
 Mermaid diagrams between code fences are supported.
 

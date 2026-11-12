@@ -36,6 +36,7 @@ def test_metaai_responses_default_model_used_when_model_missing() -> None:
         model="",
     )
 
+    assert DEFAULT_META_AI_MODEL == "muse-spark-1.3"
     assert llm.default_request_params.model == DEFAULT_META_AI_MODEL
 
 

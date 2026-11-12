@@ -59,15 +59,9 @@ def tool_activities_for_message(
     activities: list[ToolActivity] = []
     order = 0
 
-    tool_calls = getattr(message, "tool_calls", None) or {}
-    for tool_use_id, call in tool_calls.items():
-        params = getattr(call, "params", None)
-        tool_name = getattr(params, "name", None) or getattr(call, "name", None) or tool_use_id
-        arguments = getattr(params, "arguments", None) if params is not None else None
-        if not isinstance(arguments, Mapping):
-            arguments = getattr(call, "arguments", None)
-        if not isinstance(arguments, Mapping):
-            arguments = {}
+    for tool_use_id, call in (message.tool_calls or {}).items():
+        tool_name = call.params.name or tool_use_id
+        arguments = call.params.arguments or {}
         activities.append(
             ToolActivity(
                 kind="call",
@@ -79,8 +73,7 @@ def tool_activities_for_message(
         )
         order += 1
 
-    tool_results = getattr(message, "tool_results", None) or {}
-    for tool_use_id, result in tool_results.items():
+    for tool_use_id, result in (message.tool_results or {}).items():
         tool_name = (
             tool_name_lookup.get(tool_use_id, tool_use_id) if tool_name_lookup else tool_use_id
         )
@@ -96,19 +89,8 @@ def tool_activities_for_message(
         order += 1
 
     for remote_activity in remote_tool_activities(message):
-        activities.append(
-            ToolActivity(
-                kind=remote_activity.kind,
-                tool_use_id=remote_activity.tool_use_id,
-                tool_name=remote_activity.tool_name,
-                order=order,
-                arguments=remote_activity.arguments,
-                result=remote_activity.result,
-                is_remote=remote_activity.is_remote,
-                family=remote_activity.family,
-                server_name=remote_activity.server_name,
-            )
-        )
+        remote_activity.order = order
+        activities.append(remote_activity)
         order += 1
 
     return activities
@@ -297,8 +279,8 @@ def _server_tool_use_activity(
 
 
 def _remote_tool_payloads(message: "PromptMessageExtended") -> list[dict[str, Any]]:
-    channels = getattr(message, "channels", None)
-    if not isinstance(channels, Mapping):
+    channels = message.channels
+    if channels is None:
         return []
 
     raw_payloads = _decode_channel_payloads(channels.get(ANTHROPIC_ASSISTANT_RAW_CONTENT))

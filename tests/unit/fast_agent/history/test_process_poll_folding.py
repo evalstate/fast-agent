@@ -12,11 +12,13 @@ from mcp_types import (
 from fast_agent.agents.tool_result_channels import build_tool_result_message
 from fast_agent.constants import (
     FAST_AGENT_PROCESS_POLL_FOLD,
+    FAST_AGENT_PROVIDER_CHECKPOINT,
     FAST_AGENT_SHELL_PROCESS_METADATA,
     FAST_AGENT_TIMING,
     FAST_AGENT_TOOL_TIMING,
     FAST_AGENT_USAGE,
 )
+from fast_agent.history.process_poll_fold_audit import restore_process_poll_history
 from fast_agent.history.process_poll_folding import (
     fold_managed_process_poll_history as fold_completed_process_poll_history,
 )
@@ -487,34 +489,57 @@ def test_failed_process_audit_restores_original_poll_order() -> None:
     assert context_management["retained_step_ids"] == [6, 7]
 
 
-def test_running_process_with_output_is_not_folded() -> None:
+def test_output_poll_bounds_running_fold_and_is_preserved() -> None:
     history = _history_before_terminal(5)
+    output_pair = history[1:3]
     _update_result_metadata(history[2], output_line_count=1)
+
+    folded = fold_completed_process_poll_history(
+        history,
+        _poll_result(5, output_line_count=0),
+    )
+
+    assert folded is not None
+    assert folded.history[1:3] == output_pair
+    assert folded.metadata["polls_folded"] == 3
+    assert folded.metadata["polls_retained"] == 1
+
+
+def test_unknown_output_poll_bounds_fold() -> None:
+    history = _history_before_terminal(4)
+    results = history[4].tool_results
+    assert results is not None
+    meta = next(iter(results.values())).meta
+    assert meta is not None
+    del meta[FAST_AGENT_SHELL_PROCESS_METADATA]["output_line_count"]
 
     assert (
         fold_completed_process_poll_history(
             history,
-            _poll_result(5, output_line_count=0),
+            _poll_result(4, output_line_count=0),
         )
         is None
     )
 
 
-def test_terminal_process_with_output_in_earlier_poll_is_not_folded() -> None:
-    history = _history_before_terminal(5)
+def test_terminal_fold_keeps_earlier_output_poll() -> None:
+    history = _history_before_terminal(7)
     result = history[4].tool_results
     assert result is not None
     output_result = next(iter(result.values()))
     _update_result_metadata(history[4], output_line_count=3)
     output_result.content = [TextContent(type="text", text="compiler error details")]
+    output_pair = history[3:5]
 
-    assert (
-        fold_completed_process_poll_history(
-            history,
-            _poll_result(5, status="failed", output_line_count=0),
-        )
-        is None
+    folded = fold_completed_process_poll_history(
+        history,
+        _poll_result(7, status="failed", output_line_count=0),
     )
+
+    assert folded is not None
+    assert folded.history[3:5] == output_pair
+    assert folded.metadata["polls_folded"] == 3
+    assert folded.metadata["polls_retained"] == 2
 
 
 def test_quiet_running_process_folds_earlier_polls() -> None:
@@ -633,14 +658,16 @@ def test_narration_does_not_weaken_zero_output_fold_guard() -> None:
     history = _history_before_terminal(4)
     history[1].content = [TextContent(type="text", text="Waiting.")]
     _update_result_metadata(history[2], output_line_count=1)
+    output_pair = history[1:3]
 
-    assert (
-        fold_completed_process_poll_history(
-            history,
-            _poll_result(4, status="completed", output_line_count=0),
-        )
-        is None
+    folded = fold_completed_process_poll_history(
+        history,
+        _poll_result(4, status="completed", output_line_count=0),
     )
+
+    assert folded is not None
+    assert folded.history[1:3] == output_pair
+    assert "assistant_updates" not in folded.metadata
 
 
 def test_parallel_narrated_poll_call_stops_suffix_collection() -> None:
@@ -761,7 +788,8 @@ def test_tool_result_message_preserves_shell_process_metadata_in_channel() -> No
     }
 
 
-def test_fold_archives_exact_usage_and_atif_restores_totals() -> None:
+@pytest.mark.parametrize("summary_compaction", [False, True])
+def test_fold_archives_exact_usage_and_atif_restores_totals(tmp_path, summary_compaction) -> None:
     history = _history_before_terminal(4)
     first_request = history[1]
     assert first_request.tool_calls is not None
@@ -829,6 +857,16 @@ def test_fold_archives_exact_usage_and_atif_restores_totals() -> None:
     final = PromptMessageExtended(role="assistant")
     _add_usage(final, 5, cost_usd=0.05)
     exported_history = [*folded.history, folded.tool_message, final]
+    if summary_compaction:
+        from tests.unit.fast_agent.history.test_atif_reconstruction import _checkpoint
+
+        exported_history = _checkpoint(tmp_path, exported_history, tail=1)
+        from fast_agent.session.trace_export_atif import live_export_history
+
+        # ToolRunner keeps raw transient messages even when prompt history folds.
+        exported_history = live_export_history(
+            exported_history, [*history, terminal, final], tmp_path, "agent"
+        )
     trajectory = build_atif_trajectory(
         AtifRunSource(
             session_id="session",
@@ -837,6 +875,7 @@ def test_fold_archives_exact_usage_and_atif_restores_totals() -> None:
             provider="provider",
             history=exported_history,
             message_timestamps=(None,) * len(exported_history),
+            parent_session_dir=tmp_path,
         )
     )
 
@@ -845,7 +884,8 @@ def test_fold_archives_exact_usage_and_atif_restores_totals() -> None:
     assert trajectory.final_metrics.total_cached_tokens == 400
     assert trajectory.final_metrics.total_completion_tokens == 65
     assert trajectory.final_metrics.total_cost_usd == pytest.approx(0.15)
-    assert trajectory.final_metrics.total_steps == 7
+    # A summary boundary adds itself plus the copied retained tail (the final reply).
+    assert trajectory.final_metrics.total_steps == 7 + 2 * int(summary_compaction)
     assert trajectory.final_metrics.extra is not None
     assert trajectory.final_metrics.extra["total_reasoning_tokens"] == 15
     assert trajectory.final_metrics.extra["total_tool_use_tokens"] == 15
@@ -857,7 +897,8 @@ def test_fold_archives_exact_usage_and_atif_restores_totals() -> None:
     assert trajectory.final_metrics.extra["observed_prompt_tokens_lower_bound"] == 515
     assert trajectory.final_metrics.extra["observed_completion_tokens_lower_bound"] == 65
     assert trajectory.final_metrics.extra["observed_cached_tokens_lower_bound"] == 400
-    assert len(trajectory.steps) == 7
+    assert len(trajectory.steps) == 7 + 2 * int(summary_compaction)
+    assert sum(bool(step.is_copied_context) for step in trajectory.steps) == int(summary_compaction)
     step_metrics = [step.metrics for step in trajectory.steps if step.metrics is not None]
     assert sum(metric.prompt_tokens or 0 for metric in step_metrics) == 515
     assert sum(metric.completion_tokens or 0 for metric in step_metrics) == 65
@@ -1405,3 +1446,83 @@ def test_runner_style_repeated_folds_keep_audit_linear_and_lossless() -> None:
     assert [step.tool_calls[0].tool_call_id for step in poll_steps if step.tool_calls] == [
         f"call-{index}" for index in range(1, polls + 1)
     ]
+
+
+def test_restore_returns_exact_unfolded_exchanges_with_timing_channels() -> None:
+    def with_timing(message: PromptMessageExtended, index: int) -> PromptMessageExtended:
+        message.channels = {
+            FAST_AGENT_TIMING: [
+                TextContent(type="text", text=json.dumps({"duration_ms": 1_000.0 + index}))
+            ]
+        }
+        return message
+
+    polls = 12
+    history: list[PromptMessageExtended] = [
+        PromptMessageExtended(role="user", content=[TextContent(type="text", text="build")])
+    ]
+    unfolded = list(history)
+    for index in range(1, polls + 1):
+        request = with_timing(_poll_request(index), index)
+        status = "completed" if index == polls else "running"
+        result = _poll_result(index, status=status, output_line_count=0)
+        _add_tool_timing(result, index)
+        unfolded += [request, result]
+        folded = fold_completed_process_poll_history([*history, request], result)
+        history = (
+            [*history, request, result]
+            if folded is None
+            else [
+                *folded.history,
+                folded.tool_message,
+            ]
+        )
+
+    restored = restore_process_poll_history(history)
+
+    assert len(history) < len(unfolded)
+    assert [message.tool_calls for message in restored] == [
+        message.tool_calls for message in unfolded
+    ]
+    assert [set(message.tool_results or {}) for message in restored] == [
+        set(message.tool_results or {}) for message in unfolded
+    ]
+    for original, restored_message in zip(unfolded, restored, strict=True):
+        for channel in (FAST_AGENT_TIMING, FAST_AGENT_TOOL_TIMING):
+            assert (restored_message.channels or {}).get(channel) == (original.channels or {}).get(
+                channel
+            )
+    assert restore_process_poll_history(unfolded) == unfolded
+
+
+def _with_provider_checkpoint(message: PromptMessageExtended) -> PromptMessageExtended:
+    message.channels = {
+        **(message.channels or {}),
+        FAST_AGENT_PROVIDER_CHECKPOINT: [TextContent(type="text", text="anthropic")],
+    }
+    return message
+
+
+def test_in_band_provider_checkpoint_bounds_the_fold_and_is_kept() -> None:
+    # Poll 2's response carried a compaction checkpoint (e.g. a Copilot Claude
+    # compaction block alongside its poll call). Folding it away would resend the
+    # uncompacted prefix and trigger compaction again.
+    history = _history_before_terminal(8)
+    checkpoint = _with_provider_checkpoint(history[3])
+
+    folded = fold_completed_process_poll_history(history, _poll_result(8, output_line_count=0))
+
+    assert folded is not None
+    assert any(message is checkpoint for message in folded.history)
+    # Only the quiet polls after the checkpoint fold (3..8 minus the retained one).
+    assert folded.metadata["polls"] == 6
+    assert folded.metadata["polls_folded"] == 5
+
+
+def test_poll_whose_response_carries_a_checkpoint_is_never_folded() -> None:
+    history = _history_before_terminal(4)
+    _with_provider_checkpoint(history[-1])
+
+    assert (
+        fold_completed_process_poll_history(history, _poll_result(4, output_line_count=0)) is None
+    )

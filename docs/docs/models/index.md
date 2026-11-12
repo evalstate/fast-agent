@@ -103,7 +103,7 @@ Start with the native providers for common use, or use additional providers for 
 | Anthropic            | `fable`, `sonnet`, `opus`, `opus5`, `opus48`, `haiku`    | Claude 4.x/5, prompt caching, adaptive reasoning/effort, structured outputs, `web_search`, `web_fetch` where supported, long context, task budget |
 | Google               | `gemini37flash`, `gemini`, `gemini35flash`               | Gemini native API, structured outputs, thinking controls, text/image/PDF/audio/video input, YouTube links through media attachments             |
 | DeepSeek             | `deepseek`, `deepseekpro`                                | Native stateless Responses API, reasoning, function tools, JSON Schema structured output, and web search                                       |
-| xAI / Grok           | `grok43`, `grok45`, `grok46`, `grok-4.3`, `grok-4.5`, `grok-4.6` | Grok models, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports                                                      |
+| xAI / Grok           | `grok`, `grok43`, `grok45`, `grok46`, `grok47`, `grok47fast` (OAuth required), `grok-4.3`, `grok-4.5`, `grok-4.6`, `grok-4.7` | Grok models, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports                                                      |
 | Hugging Face         | `kimi`, `kimi26instant`, `deepseek-hf`, `glm`, `minimax` | Hugging Face Inference Providers routing, curated aliases, and HF MCP authentication                                                            |
 | Additional providers | `qwen-turbo`, `gpt-oss`                                  | Groq, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints                                                   |
 
@@ -125,6 +125,11 @@ Useful query parameters:
 - `web_search=on|off`
 - `transport=sse|ws|auto`
 - `service_tier=fast|flex` where supported
+- `lite=on|off` (`codexresponses` only): opt in to Codex's internal Responses Lite
+  contract for models that support it; the default is the standard contract
+- `compaction=native|client`: OpenAI provider-native compaction checkpoints (the default
+  on `responses`, `codexresponses` and Copilot GPT models) or fast-agent's own summary;
+  see [Compaction](../guides/compaction.md#openai-provider-native-checkpoints)
 - `poll_period=10..3600` for the default managed-process wait
 
 Use the `openai` provider for Chat Completions-style models such as `openai.gpt-4.1`.
@@ -156,7 +161,8 @@ Useful query parameters and config:
 - `anthropic.cache_ttl: 5m|1h`
 - `poll_period=10..3600` for the default managed-process wait
 
-`opus` and `opus5` resolve to `claude-opus-5`; use `opus48`, `opus47`, or `opus46` to pin an older
+`opus` and `opus55` resolve to `claude-opus-5-5`; `opus5` remains pinned to
+`claude-opus-5`. Use `opus48`, `opus47`, or `opus46` to pin an older
 Opus generation. Opus 5 does not support `web_fetch`, so use `web_search` alone or pin `opus48`
 when fetch is required. Claude Opus 4.7+ uses adaptive reasoning rather than fixed thinking budgets:
 `reasoning=auto` lets the model choose, effort levels tune depth and token spend, and `task_budget`
@@ -199,10 +205,12 @@ fast-agent --model "deepseek?reasoning=high"
 fast-agent --model "deepseek?web_search=true"
 ```
 
-The native route supports `deepseek-v4-flash`,
-`deepseek-v4-flash-vision-exp`, and `deepseek-v4-pro`. All provide reasoning,
+The native route supports `deepseek-flash` (V4.1 Flash) and `deepseek-v4-pro`.
+Both provide reasoning,
 function tools, JSON Schema structured output, and provider-managed web search.
-The experimental vision variant also accepts JPEG, PNG, GIF, and WebP images.
+Flash accepts JPEG, PNG, GIF, and WebP images, with 1M context and up to 384K
+output tokens. Both `deepseek` and `deepseekvision` select V4.1 Flash. Retired
+Flash API IDs remain accepted and redirect to V4.1 Flash.
 Hugging Face aliases such as `deepseek-hf` are separate routes.
 
 ### xAI
@@ -251,8 +259,27 @@ provider.model_name[?reasoning=value][&query=value...]
 - **model_name**: the model or deployment name
 - **query parameters**: provider/model-specific overrides such as `reasoning`, `structured`,
   `context`, `transport`, `service_tier`, `temperature` (`temp` alias), `web_search`,
-  `web_fetch`, `x_search`, `task_budget`, `max_tokens`, `streaming_timeout`, and
-  `poll_period`
+  `web_fetch`, `x_search`, `task_budget`, `max_tokens`, `streaming_timeout`, `lite`,
+  `compaction`, `compact_at`, `ptc`, and `poll_period`
+
+`ptc=on|true|off|false` (any provider) enables or disables
+[programmatic tool calling](../ref/config_file.md#programmatic-tool-calling-ptc).
+For example, `glm53flash?ptc=off` disables the GLM-5.3-Flash default, while
+`glm53?ptc=on` enables PTC for GLM-5.3. GPT-6 Astra, GPT-6.1 Sol/Terra, GPT-6 Luna and
+Kimi K3.1 Pro also default to on (`luna?ptc=off` to disable). The CLI flags `--ptc` / `--no-ptc`
+take precedence over the model string.
+
+`compact_at` (any provider) sets when auto-compaction fires for this model: input tokens
+(`grok?compact_at=150k`) or a context-window fraction (`sonnet?compact_at=0.7`, `70%`).
+It overrides `compaction.threshold`; see [Compaction](../guides/compaction.md#tuning-the-trigger).
+
+!!! Note "Provider delimiter: `.` or `/`"
+    `/` is accepted as an equivalent provider delimiter, so `anthropic/claude-opus-5` is the
+    same as `anthropic.claude-opus-5`. The slash form is checked first: `hf/Qwen/Qwen3-235B`
+    resolves to provider `hf`, model `Qwen/Qwen3-235B`. The leading segment is only treated as
+    a provider when it matches a known provider name, so a bare Hugging Face-style `org/model`
+    id whose org equals a provider name (e.g. `openai/gpt-oss-120b`) would be read as a provider
+    override — prefix such ids explicitly with `hf.` / `hf/`.
 
 Examples:
 
@@ -272,6 +299,38 @@ Examples:
 - `generic.llama3.2:latest`
 - `openrouter.google/gemini-2.5-pro-exp-03-25:free`
 - `tensorzero.my_tensorzero_function`
+
+### Model-selection vocabulary
+
+A model string selects along four independent dimensions, plus the settings
+that travel with the selection:
+
+- **provider** — who fast-agent authenticates to and which SDK/client it uses.
+  This is the model-string prefix (`.` or `/` delimited; the `Provider` enum; `provider` in an
+  overlay). `copilot.claude-opus-5` is a Copilot-account model, not an
+  Anthropic-account model.
+- **wire API** — the request/response schema: Anthropic Messages, OpenAI Chat
+  Completions, OpenAI Responses, Gemini, and so on. Today this is implicit in
+  the provider prefix for most providers (`openai.` is Chat Completions;
+  `responses.`, `openresponses.`, `codexresponses.` and `googleoai.` are
+  Responses-style routes) and is only recorded explicitly per model on the
+  Copilot route (`wire_api` in its model spec).
+- **transport** — the streaming transport for the LLM connection: `sse`,
+  `websocket`, or `auto`, chosen with `?transport=` or an overlay's
+  `defaults.transport`. This is unrelated to MCP *server* transports
+  (`stdio`/`sse`/`http`), which describe how fast-agent talks to tool servers.
+- **model name** — the exact name sent on the wire.
+
+Settings live in three tiers:
+
+1. **Catalog capabilities** (`ModelParameters`): context window, tokenizer/MIME
+   support, reasoning spec, edit-tool contract, `model_specific` prompt text.
+   These describe the model and are shared across provider routes.
+2. **Per-selection defaults** (`ModelConfig`): values parsed from the model
+   string query or an overlay's `defaults` (`reasoning`, `transport`,
+   `temperature`, ...).
+3. **Per-call `RequestParams`**: what an agent sends on a given turn, layered
+   on top of the defaults.
 
 ### Precedence
 
@@ -302,6 +361,8 @@ Reasoning, Verbosity and Task Budget settings are also available from the `/mode
 
 ### Stream idle timeout
 
+--8<-- "_generated/streaming_timeout_defaults.md"
+
 Set the maximum time between provider stream events with `streaming_timeout`:
 
 - `responses.gpt-5.5?streaming_timeout=300` waits up to 300 seconds between events.
@@ -309,7 +370,8 @@ Set the maximum time between provider stream events with `streaming_timeout`:
 
 The value must be a positive, finite number of seconds or `none`. An explicit
 request-level `RequestParams(streaming_timeout=...)` value takes precedence over the model-string
-default.
+default. Older saved sessions retain their recorded timeout rather than being
+reinterpreted as automatic.
 
 ### Managed-process wait period
 
@@ -319,10 +381,8 @@ Set the default wait used when `process(action="wait")` omits `wait_sec`:
 - `opus?poll_period=3000` for an intentionally long wait with a one-hour cache policy
 
 `poll_period` is local fast-agent runtime policy and is not sent to the provider.
-It must be an integer from 10 through 3600. It overrides catalogue and model-overlay
-defaults, but an explicit value above
-`shell_execution.process_poll_max_wait_seconds` is rejected. A wait still returns
-as soon as the managed process completes.
+It must be an integer from 10 through 3600 and overrides catalogue and model-overlay
+defaults. By default the ceiling is 260 seconds, so each wait returns while provider prompt caches are still warm; a model wait period above it (catalogue, overlay or `poll_period`) raises the default ceiling to that period. When `shell_execution.process_poll_max_wait_seconds` is set explicitly it is authoritative and a longer `poll_period` is rejected. Model requests above the ceiling are clamped. A wait still returns as soon as the managed process completes.
 
 ### Output token limit
 

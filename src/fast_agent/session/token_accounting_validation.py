@@ -7,15 +7,19 @@ import argparse
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Never
+from typing import TYPE_CHECKING, Never
 
 from mcp_types import TextContent
 
 from fast_agent.constants import FAST_AGENT_USAGE
 from fast_agent.llm.usage_tracking import UsageReport
 from fast_agent.mcp.prompt_serialization import load_messages
-from fast_agent.session.atif_models import AtifMetrics, AtifStep, AtifTrajectory
+from fast_agent.session.atif_models import AtifFinalMetrics, AtifMetrics, AtifStep, AtifTrajectory
 from fast_agent.session.snapshot import load_session_snapshot
+from fast_agent.utils.text import split_lines
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class ArtifactValidationError(ValueError):
@@ -92,6 +96,20 @@ def _nested_integer(mapping: dict[str, object], parent: str, key: str) -> int | 
     return _integer(_json_object(nested, label=parent), key)
 
 
+def _plus(total: int | None, value: int | None) -> int | None:
+    return total + value if total is not None and value is not None else None
+
+
+def _anthropic_compaction_iterations(raw: dict[str, object]) -> list[dict[str, object]]:
+    iterations = raw.get("iterations")
+    if iterations is None:
+        return []
+    if not isinstance(iterations, list):
+        _fail("iterations must be a list or null")
+    entries = [_json_object(entry, label="iterations[]") for entry in iterations]
+    return [entry for entry in entries if entry.get("type") == "compaction"]
+
+
 def _raw_usage_signature(
     raw_usage: object,
     *,
@@ -105,12 +123,19 @@ def _raw_usage_signature(
         uncached = _integer(raw, "input_tokens")
         cache_read = _integer(raw, "cache_read_input_tokens")
         cache_write = _integer(raw, "cache_creation_input_tokens")
+        output = _integer(raw, "output_tokens")
+        # Server-side compaction iterations are billed but excluded from top-level usage.
+        for compaction in _anthropic_compaction_iterations(raw):
+            uncached = _plus(uncached, _integer(compaction, "input_tokens"))
+            cache_read = _plus(cache_read, _integer(compaction, "cache_read_input_tokens"))
+            cache_write = _plus(cache_write, _integer(compaction, "cache_creation_input_tokens"))
+            output = _plus(output, _integer(compaction, "output_tokens"))
         prompt = None
         if uncached is not None and cache_read is not None and cache_write is not None:
             prompt = uncached + cache_read + cache_write
         return (
             prompt,
-            _integer(raw, "output_tokens"),
+            output,
             cache_read,
             _nested_integer(raw, "output_tokens_details", "thinking_tokens"),
         )
@@ -238,7 +263,7 @@ def validate_session(session_dir: Path) -> tuple[SessionReport, list[UsageSignat
 def _codex_records(path: Path) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = split_lines(path.read_text(encoding="utf-8"))
     except OSError as exc:
         raise ArtifactValidationError(f"failed to read {path}: {exc}") from exc
     for line_number, line in enumerate(lines, start=1):
@@ -408,6 +433,28 @@ def _complete_sum(steps: list[AtifStep], field: str) -> int | None:
     return sum(values)
 
 
+def _complete_sum_with_children(
+    trajectory: AtifTrajectory,
+    steps: list[AtifStep],
+    step_field: str,
+    final_value: Callable[[AtifFinalMetrics], int | None],
+) -> int | None:
+    """Step sum plus embedded subagent totals (summary/compaction calls, delegated agents).
+
+    Mirrors the exporter: final metrics include embedded trajectories, and any
+    incomplete child makes the total incomplete.
+    """
+    total = _complete_sum(steps, step_field)
+    for child in trajectory.subagent_trajectories or ():
+        if child.final_metrics is None:
+            continue
+        value = final_value(child.final_metrics)
+        if total is None or value is None:
+            return None
+        total += value
+    return total
+
+
 def _validate_final_metrics(trajectory: AtifTrajectory) -> None:
     final = trajectory.final_metrics
     if final is None:
@@ -418,9 +465,18 @@ def _validate_final_metrics(trajectory: AtifTrajectory) -> None:
         if step.source == "agent" and (step.llm_call_count is None or step.llm_call_count > 0)
     ]
     expected = {
-        "total_prompt_tokens": _complete_sum(relevant, "prompt_tokens"),
-        "total_completion_tokens": _complete_sum(relevant, "completion_tokens"),
-        "total_cached_tokens": _complete_sum(relevant, "cached_tokens"),
+        "total_prompt_tokens": _complete_sum_with_children(
+            trajectory, relevant, "prompt_tokens", lambda metrics: metrics.total_prompt_tokens
+        ),
+        "total_completion_tokens": _complete_sum_with_children(
+            trajectory,
+            relevant,
+            "completion_tokens",
+            lambda metrics: metrics.total_completion_tokens,
+        ),
+        "total_cached_tokens": _complete_sum_with_children(
+            trajectory, relevant, "cached_tokens", lambda metrics: metrics.total_cached_tokens
+        ),
     }
     for field, value in expected.items():
         actual = getattr(final, field)

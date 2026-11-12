@@ -191,3 +191,77 @@ class TestOpenTelemetryCompatibility:
         assert asyncio.iscoroutine(coroutine_obj)
         # Clean up the coroutine
         await coroutine_obj
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["success", "error", "api_error", "cancel", "idle_timeout"])
+async def test_stream_execution_contract(outcome: str):
+    import httpx2
+    from anthropic import APIError
+
+    from fast_agent.llm.provider.anthropic import llm_anthropic as provider
+
+    fixtures = TestOpenTelemetryCompatibility()
+    llm = fixtures._create_llm()
+    message = fixtures._create_mock_message()
+    failure = (
+        APIError("failed", httpx2.Request("POST", "https://example.com"), body=None)
+        if outcome == "api_error"
+        else RuntimeError("failed")
+    )
+    waiting = asyncio.Event()
+    iterator_closed = asyncio.Event()
+
+    class Stream(MockStreamManager):
+        async def __aiter__(self):
+            try:
+                if outcome in {"error", "api_error"}:
+                    raise failure
+                if outcome == "idle_timeout":
+                    raise httpx2.ReadTimeout("HTTP stream stalled")
+                if outcome == "cancel":
+                    waiting.set()
+                    await asyncio.Event().wait()
+                async for event in super().__aiter__():
+                    yield event
+            finally:
+                iterator_closed.set()
+
+    stream = Stream(message)
+    client = MagicMock()
+    client.beta.messages.stream.return_value = stream
+    with patch.object(provider.logger, "error") as log_error:
+        task = asyncio.create_task(
+            llm._execute_anthropic_stream(
+                anthropic=client,
+                arguments={},
+                model=message.model,
+                capture_filename=None,
+                timeout_seconds=0.01 if outcome == "idle_timeout" else None,
+            )
+        )
+        if outcome == "cancel":
+            await asyncio.wait_for(waiting.wait(), timeout=1)
+            task.cancel()
+        if outcome == "success":
+            result = await task
+            assert result == (message, [], [])
+        elif outcome in {"error", "api_error"}:
+            with pytest.raises(type(failure)) as caught:
+                await task
+            assert caught.value is failure
+        elif outcome == "cancel":
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            with pytest.raises(httpx2.ReadTimeout):
+                await task
+
+        assert stream._entered and stream._exited
+        assert iterator_closed.is_set()
+        if outcome == "api_error":
+            assert any(
+                call.args == ("Streaming APIError during Anthropic completion",)
+                and call.kwargs.get("exc_info") is failure
+                for call in log_error.call_args_list
+            )

@@ -14,6 +14,9 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
+import pytest
+
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.model_selection import CatalogModelEntry
 from fast_agent.llm.provider_types import Provider
@@ -24,7 +27,6 @@ from fast_agent.ui.model_picker_common import (
     ModelOption,
     ModelPickerSnapshot,
     ProviderOption,
-    _provider_is_active,
     build_snapshot,
     format_catalog_model_entry_label,
     has_explicit_provider_prefix,
@@ -33,13 +35,12 @@ from fast_agent.ui.model_picker_common import (
     model_options_for_option,
     model_options_for_provider,
     provider_activation_action,
+    provider_credential_summary,
     provider_option_count_label,
 )
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 def _overlay_group(snapshot: ModelPickerSnapshot):
@@ -122,12 +123,12 @@ def test_curated_scope_hides_non_current_catalog_entries(tmp_path: Path) -> None
     assert "glm47" in all_tokens
 
 
-def test_huggingface_provider_is_active_when_hub_login_is_verified(
+def test_huggingface_provider_is_active_when_hub_token_is_present(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "fast_agent.ui.model_picker_common.is_huggingface_hub_logged_in",
-        lambda: True,
+        "fast_agent.ui.model_picker_common.get_huggingface_hub_token",
+        lambda: "hf_token",
     )
 
     snapshot = build_snapshot(config_payload={})
@@ -140,13 +141,26 @@ def test_huggingface_provider_is_inactive_without_hub_login_or_token(
 ) -> None:
     monkeypatch.delenv("HF_TOKEN", raising=False)
     monkeypatch.setattr(
-        "fast_agent.ui.model_picker_common.is_huggingface_hub_logged_in",
-        lambda: False,
+        "fast_agent.ui.model_picker_common.get_huggingface_hub_token",
+        lambda: None,
     )
 
     snapshot = build_snapshot(config_payload={})
 
     assert _provider_option(snapshot, Provider.HUGGINGFACE).active is False
+
+
+@pytest.mark.parametrize(
+    ("model", "default"),
+    [("astra", "high"), ("codexplan", "high"), ("gpt-6-astra", "medium")],
+)
+def test_astra_picker_default_reasoning_by_route(model: str, default: str) -> None:
+    # Codex Responses defaults Astra to high effort; the Responses route keeps medium.
+    capabilities = model_capabilities(model)
+
+    assert capabilities.model_name == "gpt-6-astra"
+    assert capabilities.default_reasoning == f"effort={default}"
+    assert "low" in capabilities.reasoning_values
 
 
 def test_openresponses_models_do_not_report_web_search_support() -> None:
@@ -216,12 +230,12 @@ def test_provider_option_count_label_names_llamacpp_import_flow() -> None:
     assert provider_option_count_label(option) == "import flow"
 
 
-def test_provider_is_active_accepts_provider_specific_fallbacks() -> None:
-    assert _provider_is_active(
+def test_provider_credential_summary_accepts_provider_specific_fallbacks() -> None:
+    assert provider_credential_summary(
         Provider.GOOGLE,
         {"google": {"vertex_ai": {"enabled": True}}},
-    )
-    assert _provider_is_active(
+    ).active
+    assert provider_credential_summary(
         Provider.AZURE,
         {
             "azure": {
@@ -229,8 +243,8 @@ def test_provider_is_active_accepts_provider_specific_fallbacks() -> None:
                 "base_url": "https://example.openai.azure.com",
             }
         },
-    )
-    assert _provider_is_active(
+    ).active
+    assert provider_credential_summary(
         Provider.AZURE,
         {
             "azure": {
@@ -238,8 +252,8 @@ def test_provider_is_active_accepts_provider_specific_fallbacks() -> None:
                 "base_url": " https://example.openai.azure.com ",
             }
         },
-    )
-    assert not _provider_is_active(
+    ).active
+    assert not provider_credential_summary(
         Provider.AZURE,
         {
             "azure": {
@@ -247,7 +261,7 @@ def test_provider_is_active_accepts_provider_specific_fallbacks() -> None:
                 "base_url": "   ",
             }
         },
-    )
+    ).active
 
 
 def test_provider_is_active_for_codex_auth_json(
@@ -263,10 +277,6 @@ def test_provider_is_active_for_codex_auth_json(
         },
     )
 
-    assert _provider_is_active(Provider.CODEX_RESPONSES, {})
-
-    from fast_agent.ui.model_picker_common import provider_credential_summary
-
     summary = provider_credential_summary(Provider.CODEX_RESPONSES, {})
     assert summary.active is True
     assert summary.label == "Codex auth.json"
@@ -275,6 +285,7 @@ def test_provider_is_active_for_codex_auth_json(
 def test_provider_is_active_for_xai_oauth(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
     monkeypatch.setattr(
         "fast_agent.llm.provider.openai.xai_oauth.get_xai_token_status",
         lambda: {
@@ -284,10 +295,6 @@ def test_provider_is_active_for_xai_oauth(
             "expires_at": 1_900_000_000,
         },
     )
-
-    assert _provider_is_active(Provider.XAI, {})
-
-    from fast_agent.ui.model_picker_common import provider_credential_summary
 
     summary = provider_credential_summary(Provider.XAI, {})
     assert summary.active is True
@@ -481,6 +488,47 @@ def test_build_snapshot_places_deepseek_under_llamacpp() -> None:
     )
 
 
+def test_huggingface_picker_supersedes_glm52_with_glm53_routes() -> None:
+    snapshot = build_snapshot(config_payload={})
+    options = model_options_for_provider(snapshot, Provider.HUGGINGFACE, source="curated")
+    glm_options = {
+        option.preset_token: option
+        for option in options
+        if option.preset_token and option.preset_token.startswith("GLM 5.")
+    }
+
+    expected = {
+        f"GLM 5.3{label} ({backend})": f"hf.zai-org/GLM-5.3{suffix}:{backend}"
+        for label, suffix in [("", ""), (" Flash", "-Flash")]
+        for backend in ("together", "novita", "zai-org")
+    }
+    assert {alias: option.spec for alias, option in glm_options.items()} == expected
+    for alias, option in glm_options.items():
+        assert alias in option.label
+        assert ("fast" in option.label) == ("Flash" in alias)
+        assert ModelFactory.parse_model_string(alias) == ModelFactory.parse_model_string(
+            option.spec
+        )
+
+
+@pytest.mark.parametrize(
+    ("alias", "route"),
+    [
+        ("glm", "hf.zai-org/GLM-5.3:zai-org"),
+        ("glm53", "hf.zai-org/GLM-5.3:zai-org"),
+        ("glm53flash", "hf.zai-org/GLM-5.3-Flash:zai-org"),
+        ("glm52", "hf.zai-org/GLM-5.2:zai-org"),
+        ("GLM 5.2 (zai-org)", "hf.zai-org/GLM-5.2:zai-org"),
+        ("GLM 5.2 (fireworks-ai)", "hf.zai-org/GLM-5.2:fireworks-ai"),
+        ("GLM 5.2 (deepinfra)", "hf.zai-org/GLM-5.2:deepinfra"),
+        ("zaiglm", "zai.glm-5.3"),
+        ("zaiglm52", "zai.glm-5.2"),
+    ],
+)
+def test_glm_alias_migration_preserves_explicit_and_native_routes(alias: str, route: str) -> None:
+    assert ModelFactory.parse_model_string(alias) == ModelFactory.parse_model_string(route)
+
+
 def test_build_snapshot_includes_native_zai_provider() -> None:
     snapshot = build_snapshot(config_payload={})
     option = next(
@@ -493,7 +541,7 @@ def test_build_snapshot_includes_native_zai_provider() -> None:
     assert [entry.alias for entry in option.curated_entries] == [
         "zaiglm53",
         "zaiglm53flash",
-        "zaiglm",
+        "zaiglm52",
     ]
     assert [entry.model for entry in option.curated_entries] == [
         "zai.glm-5.3",
@@ -512,8 +560,11 @@ def test_build_snapshot_includes_native_moonshot_provider() -> None:
     )
 
     assert option.provider is Provider.MOONSHOT
-    assert [entry.alias for entry in option.curated_entries] == ["kimik3"]
-    assert [entry.model for entry in option.curated_entries] == ["moonshot.kimi-k3"]
+    assert [entry.alias for entry in option.curated_entries] == ["kimik31", "kimik3"]
+    assert [entry.model for entry in option.curated_entries] == [
+        "moonshot.kimi-k3.1-pro",
+        "moonshot.kimi-k3",
+    ]
 
 
 def test_build_snapshot_uses_xai_brand_casing() -> None:
@@ -533,6 +584,7 @@ def test_build_snapshot_surfaces_oauth_credential_source(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
     from fast_agent.auth.credentials import OAuthCredential, export_oauth_credential
 
     auth_path = tmp_path / "auth.json"
@@ -834,8 +886,8 @@ def _isolate_activation_sources(monkeypatch: pytest.MonkeyPatch) -> None:
         staticmethod(lambda _provider_name: None),
     )
     monkeypatch.setattr(
-        "fast_agent.ui.model_picker_common.is_huggingface_hub_logged_in",
-        lambda: False,
+        "fast_agent.ui.model_picker_common.get_huggingface_hub_token",
+        lambda: None,
     )
     monkeypatch.setattr(
         "fast_agent.llm.provider.openai.codex_oauth.get_codex_token_status",
@@ -888,3 +940,15 @@ def test_snapshot_orders_active_providers_first_and_fast_agent_last(
     # Directed check: openrouter (late in fixed order) floats above responses.
     keys = [option.provider for option in ranked]
     assert keys.index(Provider.OPENROUTER) < keys.index(Provider.RESPONSES)
+
+
+def test_claude55_picker_places_sonnet_immediately_after_opus() -> None:
+    """Keep the two current Claude tiers adjacent on both supported routes."""
+    snapshot = build_snapshot()
+    for provider, opus, sonnet in (
+        (Provider.ANTHROPIC, "claude-opus-5-5", "claude-sonnet-5-5"),
+        (Provider.COPILOT, "copilot.claude-opus-5.5", "copilot.claude-sonnet-5.5"),
+    ):
+        options = model_options_for_provider(snapshot, provider, source="curated")
+        specs = [option.spec for option in options]
+        assert specs.index(sonnet) == specs.index(opus) + 1

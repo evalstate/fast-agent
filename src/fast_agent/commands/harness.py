@@ -27,6 +27,7 @@ from fast_agent.commands.mcp_command_intents import (
     parse_mcp_no_args_tokens,
     parse_mcp_server_name_tokens,
 )
+from fast_agent.commands.option_parsing import first_shell_token_end
 from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
 from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.core.exceptions import AgentConfigError
@@ -200,28 +201,6 @@ def _parse_command(command: str) -> tuple[str, str]:
     return strip_casefold(parsed[0]), parsed[1]
 
 
-def _first_shell_token_end(text: str) -> int:
-    quote: str | None = None
-    escaped = False
-    for index, char in enumerate(text):
-        if escaped:
-            escaped = False
-            continue
-        if char == "\\" and quote != "'":
-            escaped = True
-            continue
-        if quote is not None:
-            if char == quote:
-                quote = None
-            continue
-        if char in {"'", '"'}:
-            quote = char
-            continue
-        if char.isspace():
-            return index
-    return len(text)
-
-
 def _parse_family_action(
     arguments: str,
     *,
@@ -237,7 +216,7 @@ def _parse_family_action(
         raise AgentConfigError(f"Invalid /{command_name} arguments", str(exc)) from exc
     if not tokens:
         return default, ""
-    action_end = _first_shell_token_end(text)
+    action_end = first_shell_token_end(text)
     return strip_casefold(tokens[0]), text[action_end:].strip()
 
 
@@ -513,15 +492,11 @@ def _execute_commands_command(arguments: str) -> str:
 
 def _parse_tools_argument(arguments: str) -> str | None:
     try:
-        tokens = split_commandline(arguments, syntax="posix")
+        argument = " ".join(split_commandline(arguments, syntax="posix"))
+        tools_handlers.parse_tools_query(argument)
     except ValueError as exc:
         raise AgentConfigError("Invalid /tools arguments", str(exc)) from exc
-    if len(tokens) > 1:
-        raise AgentConfigError(
-            "Invalid /tools arguments",
-            "Usage: /tools [summary|<tool-name>]",
-        )
-    return tokens[0] if tokens else None
+    return argument or None
 
 
 async def execute_harness_command(

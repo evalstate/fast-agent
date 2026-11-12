@@ -61,12 +61,35 @@
 # History compaction keeps long conversations within the model context window.
 compaction:
   auto: true # automatically compact when the threshold is crossed
-  threshold: 0.85 # fraction of the context window that triggers compaction
+  # threshold: 0.85 # fraction of the context window that triggers compaction (unset: model default)
   keep_turns: 2 # recent turns kept verbatim after compaction
   # prompt: null # built-in prompt; set inline text or a relative file path
 
 # otel:
 #   enabled: true
+
+# GitHub Copilot: experimental native compatibility profile, not GitHub endorsement.
+# Uses fast-agent's own OAuth app/token and User-Agent; no Copilot SDK/CLI required.
+# Included in the base installation; native GitHub device login:
+#   fast-agent auth provider login copilot
+#   fast-agent --model copilot.claude-sonnet-5
+# Credentials use shared provider-auth storage (keyring or ~/.fast-agent/auth.json).
+# Headless: stage an exported provider file via FAST_AGENT_AUTH_FILE, or supply
+# COPILOT_GITHUB_TOKEN via a secret environment (never chat/YAML). That dedicated
+# token overrides stored credentials; GH_TOKEN and GITHUB_TOKEN are ignored.
+# Optional copilot settings (omit to use CopilotSettings defaults):
+#   base_url: HTTPS origin only; no path/query/credentials/fragment
+#   integration_id: configurable routing identity; custom ID requires explicit config
+#     Safe HTTP header value; incidental request headers cannot override it.
+#     Custom IDs do not imply GitHub registration; see guide for generated defaults.
+#   runtime_timeout_seconds: positive timeout for runtime operations
+#   cache_mode: Claude prompt caching (auto, prompt, or off)
+#   cache_ttl: optional Claude TTL override (null inherits the model default)
+# Copilot GPT defaults to WebSockets with no SSE fallback; uses curated support,
+# not /models. Use ?transport=sse for HTTP/SSE, or ?transport=auto for WebSocket-first
+# with early-error SSE fallback. Ordinary OpenAI/Codex Responses defaults to auto.
+# Claude is SSE-only. See the provider guide for the controlled diagnostic record.
+# See https://fast-agent.ai/models/providers/copilot/ for generated defaults.
 
 anthropic:
   reasoning: null # Optional: auto/low/medium/high/max, an integer token budget, or off
@@ -79,13 +102,13 @@ anthropic:
 #   api_key: "${ZAI_API_KEY}"
 #   # base_url: "https://api.z.ai/api/paas/v4/"
 #   # Coding Plan: "https://api.z.ai/api/coding/paas/v4/"
-#   # default_model: "glm-5.2"
+#   # default_model: "glm-5.3"
 
 # Native Moonshot Chat Completions provider:
 # moonshot:
 #   api_key: "${MOONSHOT_API_KEY}"
 #   # base_url: "https://api.moonshot.ai/v1"
-#   # default_model: "kimi-k3"
+#   # default_model: "kimi-k3.1-pro"
 
 # Experimental Grok 4.5/4.6 Responses streaming:
 # xai:
@@ -101,6 +124,13 @@ anthropic:
 #   api_key: "${ATLASCLOUD_API_KEY}"
 #   # base_url: "https://api.atlascloud.ai/v1"
 #   # default_model: "qwen/qwen3.8-max"
+
+# Programmatic tool calling: null follows the model default (GLM-5.3-Flash on;
+# other models off). CLI --ptc/--no-ptc and model query ?ptc=on|off override this.
+# Local POSIX only (model defaults fall back to direct tools elsewhere);
+# pydantic-monty is included in the core install.
+#ptc:
+#  enabled: null
 
 #shell_execution:
 # model-facing shell tools: auto (Grok shell/Process; others Bash/Process),
@@ -121,6 +151,8 @@ anthropic:
 # model-facing shell output preview bytes; omitted uses a catalog override or
 # the 16000 global default; null uses automatic model sizing
 #  output_byte_limit: 16000
+# preview bytes for still-running commands (1/8 head, 7/8 tail); null = normal preview
+#  running_output_byte_limit: 6000
 # retain complete truncated output in private session-scoped temporary files
 #  retain_truncated_output: true
 # maximum retained bytes per shell process
@@ -129,8 +161,9 @@ anthropic:
 #  durable_output_max_bytes: 2097152
 # optional parent directory for retained-output session directories
 #  retained_output_temp_directory: null
-# maximum duration of one model-initiated managed-process wait
-#  process_poll_max_wait_seconds: 3600
+# maximum duration of one model-initiated managed-process wait; the default keeps
+# provider prompt caches warm between polls (raise up to 3600 if needed)
+#  process_poll_max_wait_seconds: 260
 # maximum total foreground runtime before returning a live process;
 # 0 returns it at the initial yield without stopping it
 #  foreground_auto_await_max_seconds: 30
@@ -165,6 +198,11 @@ logger:
     show_successful_file_reads: false
     stream_edit_previews: primary # off | primary | all
     aggregate_parallel: true
+  # Images auto-detect reported terminal support, including Kitty in Herdr.
+  # For Herdr inside Foot/Windows Terminal, use halfcell here or set
+  # LOGGER__TERMINAL_IMAGES__BACKEND=halfcell (leave backend unset for env selection).
+  # terminal_images:
+  #   backend: halfcell
   # Streaming renderer for assistant responses: "markdown", "plain", or "none"
   streaming: markdown
   # Render markdown code fences with Rich Syntax instead of markdown fence blocks

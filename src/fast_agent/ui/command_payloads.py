@@ -9,7 +9,7 @@ from fast_agent.mcp.connect_targets import (
 
 
 class CommandBase:
-    kind: str
+    """Marker base for command payloads; each subclass declares a frozen `kind` literal."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -391,6 +391,7 @@ class ShellCommand(CommandBase):
     command: str
     local: bool = False
     interactive: bool = False
+    output_to_prompt: bool = False
     kind: Literal["shell_command"] = "shell_command"
 
 

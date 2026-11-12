@@ -155,7 +155,7 @@ async def test_extended_inter_event_gap_is_reported() -> None:
     for _ in range(3):
         await timed_stream.__anext__()
 
-    llm._record_stream_gap_observation(timed_stream.timing, model=MODEL)
+    llm._record_stream_outcome(timed_stream.timing, error=None, model=MODEL, timeout_seconds=None)
 
     (event,) = [e for e in logger.events if "inter-event gap" in e["message"]]
     timing = event["data"]["data"]["stream_timing"]
@@ -178,6 +178,6 @@ async def test_steady_chat_stream_reports_no_gap() -> None:
     for _ in range(2):
         await timed_stream.__anext__()
 
-    llm._record_stream_gap_observation(timed_stream.timing, model=MODEL)
+    llm._record_stream_outcome(timed_stream.timing, error=None, model=MODEL, timeout_seconds=None)
 
     assert logger.events == []

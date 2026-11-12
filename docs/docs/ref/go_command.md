@@ -44,7 +44,7 @@ fast-agent go [OPTIONS]
 - `--schema-model <module.path:ClassName>`: Pydantic `BaseModel` import path used for one-shot structured output
 - `--structured-tool-policy <auto|always|defer|no_tools>`: Control whether tools may be used with one-shot structured output
 - `--results <path>`: Write the resulting history to a file, or per-model suffixed files in comparison mode
-- `--trajectory-output <path>`: Write a self-contained ATIF v1.7 JSON trajectory for a one-shot run
+- `--trajectory-output <path>`: Write a self-contained ATIF v1.8 JSON trajectory for a one-shot run
 - `--trajectory-format atif`: Select the direct trajectory format (currently ATIF)
 
 For Harbor-style one-shot execution, keep the Fast-Agent result artifact and
@@ -60,13 +60,14 @@ fast-agent go \
   --trajectory-output /logs/agent/trajectory.json
 ```
 
-The trajectory is one self-contained `ATIF-v1.7` JSON document. Recorded
+The trajectory is one self-contained `ATIF-v1.8` JSON document. Recorded
 agent-as-tool invocations are embedded in `subagent_trajectories`; Harbor does
 not need to inspect Fast-Agent session files or private message channels.
 - `--workspace <path>`: Override the workspace root; when `--home` is omitted, the home defaults to `<workspace>/.fast-agent`
 - `--home <path>`: Use `<path>` as the `.fast-agent` home itself (cards load from `<path>/agent-cards/`); relative paths resolve under the selected workspace
 - `--no-home`: Run in ephemeral mode (disable implicit home card loading, session persistence/resume, and permission-store side effects)
-- `--resume <id|latest>`: Resume the latest session (or a specific session id) and restore its saved model, web-search/web-fetch state, and Delegate/Orchestrate/Harness capability mode without opening the startup picker. A session already active in another process is rejected; use `fast-agent session fork <id>` to branch its latest committed checkpoint.
+- `--isolated`: Embedded one-shot mode. Config, secrets, credentials and model references are still read from the home, but nothing is written there (no sessions, no log file, no telemetry), and shell/filesystem tools, subagents, skills, AgentCards, plugins and hooks are disabled regardless of config. Only MCP servers named with `--servers` or passed via `--url`/`--stdio`/`--npx`/`--uvx` are attached. Requires `--message` or `--prompt-file`; combining it with options that would re-enable any of the above (`--shell`, `--card`, `--skills-dir`, `--resume`, `--no-home`, ...) is an error
+- `--resume <id|latest>`: Resume the latest session (or a specific session id) and restore its saved model, web-search/web-fetch state, Delegate/Orchestrate/Harness capability mode, and per-agent shell availability without opening the startup picker. Saved shell access is restored only in the same local workspace; `--no-shell` disables it and `--shell` explicitly enables it. ACP-originated sessions do not inherit shell access. Older sessions without saved shell state require `--shell`. A session already active in another process is rejected; use `fast-agent session fork <id>` to branch its latest committed checkpoint.
 - `--subagents`: Enable the built-in `subagent` tool for the selected or generated agent
 - `--subagent-model <model_string>`: Enable built-in subagents and force every one to use this model
 - `--prompt-file`, `-p <path or uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to a prompt file to use (either text or JSON)
@@ -77,6 +78,7 @@ not need to inspect Fast-Agent session files or private message channels.
 - `--shell`, `-x`: Enable a local shell runtime and expose the execute tool (bash or pwsh)
 - `-xx`: Enable both local shell access and built-in subagents
 - `--no-shell`: Disable local shell/filesystem tools, even when skills or agent config request them
+- `--ptc` / `--no-ptc`: Enable or disable [programmatic tool calling](config_file.md#programmatic-tool-calling-ptc), overriding the model string, YAML configuration and model default. When omitted, GLM-5.3-Flash, GPT-6 Astra, GPT-6.1 Sol, GPT-6.1 Terra, GPT-6 Luna and Kimi K3.1 Pro default to PTC on; other models default to off. Local POSIX environments only.
 - `--reload`: Enable manual AgentCard reloads with `/reload`
 - `--watch`: Watch AgentCard paths and reload automatically
 - `--timeout`, `-t <seconds>`: Maximum one-shot execution duration for `--message` or `--prompt-file` runs
@@ -132,6 +134,9 @@ FAST_AGENT_MODEL=haiku fast-agent go --message="Summarize this report"
 
 # Attach files or URLs to a one-shot message
 fast-agent go --message "Summarize these" --attach ./report.pdf --attach https://example.com/chart.png --model=haiku
+
+# Embedded run: home config is read, nothing is written, only the named MCP server is attached
+fast-agent go --isolated --servers docs --message "Find the retry policy" --results ./out.json
 
 # Machine-readable structured one-shot output
 fast-agent go --no-home --model haiku --message "What is the weather in London?" --json-schema ./schema.json

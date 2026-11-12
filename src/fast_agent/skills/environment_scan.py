@@ -9,6 +9,7 @@ fast-agent home) into the environment to make skills available there.
 
 from __future__ import annotations
 
+import asyncio
 import posixpath
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -61,26 +62,38 @@ async def _scan_directory(
         logger.debug("Environment skills directory not found", data={"directory": directory})
         return []
 
+    manifest_paths = [
+        posixpath.join(entry.path, SKILL_MANIFEST_FILENAME)
+        for entry in sorted(entries, key=lambda entry: entry.path)
+        if entry.kind == "directory"
+    ]
     manifests: list[SkillManifest] = []
-    for entry in entries:
-        if entry.kind != "directory":
-            continue
-        manifest_path = posixpath.join(entry.path, SKILL_MANIFEST_FILENAME)
-        try:
-            if not await filesystem.exists(manifest_path):
-                continue
-            manifest_text = await filesystem.read_text(manifest_path)
-        except Exception as exc:
-            warnings.append(f"Failed to read skill manifest {manifest_path}: {exc}")
-            continue
-        manifest, error = SkillRegistry.parse_manifest_text(manifest_text, path=Path(manifest_path))
-        if manifest is not None:
-            manifests.append(manifest)
-        else:
-            warnings.append(
-                f"Failed to parse skill manifest {manifest_path}: {error or 'invalid manifest'}"
-            )
+    # Bound both remote I/O and task creation; gather preserves directory order.
+    for start in range(0, len(manifest_paths), 8):
+        results = await asyncio.gather(
+            *(_read_manifest(filesystem, path) for path in manifest_paths[start : start + 8])
+        )
+        for manifest, warning in results:
+            if manifest is not None:
+                manifests.append(manifest)
+            if warning is not None:
+                warnings.append(warning)
     return manifests
+
+
+async def _read_manifest(
+    filesystem: "EnvironmentFilesystem", manifest_path: str
+) -> tuple[SkillManifest | None, str | None]:
+    try:
+        if not await filesystem.exists(manifest_path):
+            return None, None
+        manifest_text = await filesystem.read_text(manifest_path)
+    except Exception as exc:
+        return None, f"Failed to read skill manifest {manifest_path}: {exc}"
+    manifest, error = SkillRegistry.parse_manifest_text(manifest_text, path=Path(manifest_path))
+    if manifest is not None:
+        return manifest, None
+    return None, f"Failed to parse skill manifest {manifest_path}: {error or 'invalid manifest'}"
 
 
 __all__ = ["scan_environment_skills"]

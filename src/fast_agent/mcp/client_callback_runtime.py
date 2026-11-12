@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Generator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from importlib.metadata import version
 from typing import TYPE_CHECKING, cast
@@ -52,6 +54,20 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+
+@dataclass(slots=True, eq=False)
+class URLElicitationScope:
+    """URL elicitations received while one interactive request is in flight."""
+
+    owner: MCPClientCallbackRuntime
+    items: list[URLElicitationDisplayItem] = field(default_factory=list)
+    active: bool = True
+
+
+_ACTIVE_URL_ELICITATION_SCOPE: ContextVar[URLElicitationScope | None] = ContextVar(
+    "fast_agent_url_elicitation_scope", default=None
+)
+
 type ToolListChangedCallback = Callable[[str], Awaitable[None]]
 type TransportNotificationHandler = Callable[[str], None]
 type AgentModelResolver = Callable[[], str | None]
@@ -89,6 +105,7 @@ class MCPClientCallbackRuntime:
         init=False,
         default_factory=list,
     )
+    _active_url_elicitation_scopes: int = field(init=False, default=0)
 
     def __post_init__(self) -> None:
         if self.aggregator is None:
@@ -227,27 +244,63 @@ class MCPClientCallbackRuntime:
         url: str,
         elicitation_id: str | None,
     ) -> bool:
-        """Queue URL elicitation for attachment to the active request result."""
+        """Queue URL elicitation for attachment to the active request result.
+
+        Elicitations dispatched inside a request's own task (2026 input-required rounds) go to
+        that request's scope. Legacy server-initiated requests arrive on the connection's receive
+        loop and cannot be correlated, so they attach to the next request on this connection
+        that completes.
+        """
         from fast_agent.mcp.url_elicitation_required import URLElicitationDisplayItem
 
-        self._pending_url_elicitations.append(
-            URLElicitationDisplayItem(
-                message=message,
-                url=url,
-                elicitation_id=elicitation_id or "",
-            )
+        item = URLElicitationDisplayItem(
+            message=message,
+            url=url,
+            elicitation_id=elicitation_id or "",
         )
+        scope = _ACTIVE_URL_ELICITATION_SCOPE.get()
+        if scope is not None and scope.owner is self and scope.active:
+            scope.items.append(item)
+        else:
+            self._pending_url_elicitations.append(item)
         return True
+
+    @contextmanager
+    def url_elicitation_scope(self) -> Generator[URLElicitationScope]:
+        """Collect URL elicitations for one interactive request.
+
+        Concurrent requests on the same connection keep their own scopes, so one request
+        starting or failing no longer discards elicitations queued for another.
+        """
+        if self._active_url_elicitation_scopes == 0:
+            # Nothing is in flight, so anything still queued is stale.
+            self._pending_url_elicitations = []
+        scope = URLElicitationScope(owner=self)
+        self._active_url_elicitation_scopes += 1
+        token = _ACTIVE_URL_ELICITATION_SCOPE.set(scope)
+        try:
+            yield scope
+        finally:
+            _ACTIVE_URL_ELICITATION_SCOPE.reset(token)
+            scope.active = False
+            self._active_url_elicitation_scopes -= 1
+            if self._active_url_elicitation_scopes == 0:
+                self._pending_url_elicitations = []
+
+    def consume_url_elicitations(
+        self, scope: URLElicitationScope
+    ) -> list[URLElicitationDisplayItem]:
+        """Return and clear a completed request's elicitations plus uncorrelated ones."""
+        items = [*scope.items, *self._pending_url_elicitations]
+        scope.items.clear()
+        self._pending_url_elicitations = []
+        return items
 
     def consume_pending_url_elicitations(self) -> list[URLElicitationDisplayItem]:
         """Return and clear URL elicitations received during the active request."""
         items = self._pending_url_elicitations
         self._pending_url_elicitations = []
         return items
-
-    def discard_pending_url_elicitations(self) -> None:
-        """Discard URL elicitations when the associated request fails."""
-        self._pending_url_elicitations = []
 
     async def _handle_message(self, message: object) -> None:
         if isinstance(message, ProgressNotification) and self.transport_notification_handler:

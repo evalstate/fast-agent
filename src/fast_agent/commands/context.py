@@ -228,7 +228,10 @@ async def noninteractive_prompt_argument(
 
 
 class NonInteractiveCommandIOBase(CommandIO):
-    """Shared no-op prompt/display behavior for non-interactive command IO."""
+    """Shared no-op IO behavior; subclasses override emission when needed."""
+
+    async def emit(self, message: CommandMessage) -> None:
+        del message
 
     async def prompt_text(
         self,
@@ -431,10 +434,3 @@ class CommandContext:
         if self.session_runtime is not None:
             return self.session_runtime.resolve_manager()
         raise RuntimeError("Sessions are not enabled for this command context.")
-
-    def _session_manager_cwd(self) -> "Path | None":
-        if self.session_store_scope == "app":
-            return None
-        if self.session_store_cwd is not None:
-            return self.session_store_cwd
-        return self.session_cwd

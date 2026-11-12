@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import pytest
+
 from fast_agent.utils.text import (
     casefold_text,
     collapse_whitespace,
     format_english_list,
+    split_lines,
     starts_with_casefold,
     strip_casefold,
     strip_str_to_none,
@@ -58,3 +61,19 @@ def test_format_english_list_handles_empty_and_single_item_lists() -> None:
 def test_format_english_list_uses_oxford_comma_for_multiple_items() -> None:
     assert format_english_list(["--one", "--two"]) == "--one, and --two"
     assert format_english_list(["--one", "--two", "--three"]) == "--one, --two, and --three"
+
+
+@pytest.mark.parametrize("text", ["", "\n", "a", "a\n", "a\nb", "a\r\nb\r\n", "\n\na\n\n"])
+def test_split_lines_matches_splitlines_for_newline_text(text: str) -> None:
+    assert split_lines(text) == text.splitlines()
+    assert split_lines(text, keepends=True) == text.splitlines(keepends=True)
+
+
+@pytest.mark.parametrize(
+    "separator", ["\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029"]
+)
+def test_split_lines_keeps_unicode_separators_inside_lines(separator: str) -> None:
+    text = f"one{separator}still one\ntwo\n"
+
+    assert split_lines(text) == [f"one{separator}still one", "two"]
+    assert "".join(split_lines(text, keepends=True)) == text

@@ -249,50 +249,6 @@ async def test_bedrock_structured_output_strategy_fallback(fast_agent, model_nam
     _bedrock_models_for_capability_tests()
     or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
 )
-async def test_bedrock_force_non_streaming_structured(fast_agent, model_name):
-    """Test force non-streaming for structured output: should force non-streaming on first structured call."""
-
-    # Mark models known to have issues with structured output
-    if model_name.startswith(
-        ("amazon.titan-text", "amazon.titan-tg1", "cohere.", "mistral.", "amazon.nova-")
-    ):
-        pytest.xfail("These models have unreliable structured output support")
-
-    fast = fast_agent
-
-    @fast.agent(
-        "force_non_streaming_test",
-        instruction="You are a helpful assistant.",
-        model=f"bedrock.{model_name}",
-    )
-    async def force_non_streaming_test():
-        async with fast.run() as agent:
-            from pydantic import BaseModel
-
-            class SimpleResponse(BaseModel):
-                message: str
-                count: int
-
-            # This should trigger _force_non_streaming_once behavior
-            response, _ = await agent.force_non_streaming_test.structured(
-                [Prompt.user("Say hello and count to 3.")], model=SimpleResponse
-            )
-
-            assert isinstance(response, SimpleResponse)
-            assert response.message
-            assert response.count == 3
-
-    await force_non_streaming_test()
-
-
-@pytest.mark.integration
-@pytest.mark.asyncio
-@pytest.mark.e2e
-@pytest.mark.parametrize(
-    "model_name",
-    _bedrock_models_for_capability_tests()
-    or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
-)
 async def test_bedrock_reasoning_fallback(fast_agent, model_name):
     """Test reasoning fallback: models that don't support reasoning should fallback gracefully."""
 

@@ -15,6 +15,9 @@ from pydantic import BaseModel
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.workflow.prompts import (
+    ROUTING_SYSTEM_INSTRUCTION as ROUTING_SYSTEM_INSTRUCTION,
+)
 from fast_agent.agents.workflow.request_params import child_request_params
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
@@ -29,17 +32,6 @@ if TYPE_CHECKING:
     from fast_agent.context import Context
 
 logger = get_logger(__name__)
-
-# Simple system instruction for the router
-ROUTING_SYSTEM_INSTRUCTION = """
-You are a highly accurate request router that directs incoming requests to the most appropriate agent.
-Analyze each request and determine which specialized agent would be best suited to handle it based on their capabilities.
-
-Follow these guidelines:
-- Carefully match the request's needs with each agent's capabilities and description
-- Select the single most appropriate agent for the request
-- Provide your confidence level (high, medium, low) and brief reasoning for your selection
-"""
 
 # Default routing instruction with placeholders for context (AgentCard JSON)
 ROUTING_AGENT_INSTRUCTION = """
@@ -102,6 +94,7 @@ class RouterAgent(LlmAgent):
         self.agents = agents
         self.routing_instruction = routing_instruction
         self.agent_map = {agent.name: agent for agent in agents}
+        self._instruction_template = config.instruction
 
         # Set up base router request parameters with just the base instruction for now
         if default_request_params:
@@ -118,6 +111,11 @@ class RouterAgent(LlmAgent):
             )
 
         self._default_request_params = merged_params
+
+    @property
+    def instruction_template(self) -> str:
+        """Refresh source, including worker cards once initialized."""
+        return self._instruction_template
 
     async def initialize(self) -> None:
         """Initialize the router and all agents."""
@@ -137,6 +135,7 @@ class RouterAgent(LlmAgent):
             combined_system_prompt = (
                 ROUTING_SYSTEM_INSTRUCTION + "\n\n" + complete_routing_instruction
             )
+            self._instruction_template = combined_system_prompt
             self.set_instruction(combined_system_prompt)
 
     async def shutdown(self) -> None:

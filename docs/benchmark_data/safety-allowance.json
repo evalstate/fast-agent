@@ -1,0 +1,33 @@
+{
+  "$comment": "Safety allowance: a hypothetical scenario on the benchmarks page, never a measured score. A trial a provider safety stop or refusal ended (fetch_runs.py safety_cells: unrewarded AgentSafetyRefusalError / AgentSafetyStopError) counts as a pass when its task is easy for the run's reference model: the reference passed at least minPasses of its attempts. Each run uses the first reference listing its family, else the default. A reference is a site run (by id, passes after review) or an external per-task pass table with its source.",
+  "benchmark": "terminal-bench-2.1",
+  "label": "Safety allowance",
+  "rule": "A task is easy when the reference model passed at least 4 of 5 attempts: Claude Haiku 5.5 (high) for Anthropic models, GPT-6 Luna (high) for every other model.",
+  "minPasses": 4,
+  "errorTypes": [
+    "AgentSafetyRefusalError",
+    "AgentSafetyStopError"
+  ],
+  "references": [
+    {
+      "id": "haiku-5.5-high",
+      "label": "Claude Haiku 5.5 high",
+      "families": [
+        "anthropic"
+      ],
+      "note": "Reference for Anthropic models: our Claude Haiku 5.5 high run (GitHub Copilot), 5 attempts per task, passes after review.",
+      "runs": [
+        "haiku55-high-6h"
+      ]
+    },
+    {
+      "id": "gpt-6-luna-high",
+      "label": "GPT-6 Luna high",
+      "default": true,
+      "runs": [
+        "luna6-high-6h"
+      ],
+      "note": "Reference for every other model: our GPT-6 Luna high run (API key, flex tier), 5 attempts per task, passes after review."
+    }
+  ]
+}

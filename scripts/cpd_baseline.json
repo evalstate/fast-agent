@@ -1,5 +1,5 @@
 {
-  "pmd_version": "7.26.0",
+  "pmd_version": "7.27.0",
   "minimum_tokens": 100,
   "findings": [
     {
@@ -30,12 +30,12 @@
       "rationale": "Typer requires explicit callback signatures for command introspection and help output."
     },
     {
-      "tokens": 145,
+      "tokens": 143,
       "paths": [
         "fast_agent/llm/model_factory.py",
         "fast_agent/llm/model_factory.py"
       ],
-      "code_hash": "247c75b0123f69e9e3d6ab2d6bd8125dfa5db6f620e87e3ab3a6e8ea5a653ca6",
+      "code_hash": "4bfdd6c5c5d8d5d1c5e95f867915bfa2a3892b960195b09f77a98465b8ce638d",
       "rationale": "Model configuration and frozen query overrides intentionally expose parallel typed fields with distinct semantics."
     },
     {

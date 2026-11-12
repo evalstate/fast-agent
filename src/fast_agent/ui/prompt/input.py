@@ -284,8 +284,7 @@ def _initialize_prompt_input_state(
     global in_multiline_mode, available_agents
 
     in_multiline_mode = multiline
-    if available_agent_names:
-        available_agents = set(available_agent_names)
+    available_agents = set(available_agent_names or [agent_name])
     if agent_provider is not None:
         with suppress(Exception):
             available_agents = set(agent_provider.visible_agent_names(force_include=agent_name))
@@ -330,6 +329,7 @@ def _build_toolbar(
             current_input_text = ""
         result = render_input_toolbar(
             agent_name=agent_name,
+            show_agent_name=len(available_agents) > 1,
             toolbar_color=toolbar_color,
             agent_provider=agent_provider,
             multiline_mode=in_multiline_mode,

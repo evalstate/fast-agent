@@ -68,6 +68,25 @@ Plugin registries are used for direct plugin installs and updates. Card-pack
 dependencies use the card-pack registry that supplied the selected pack; see
 [Card Packs](#card-packs) for the coupling rule.
 
+### Bundles and update notices
+
+Marketplaces can group plugins into `plugin_bundles`. Install a whole bundle in
+one step; plugins that are already installed are just enabled:
+
+```bash
+fast-agent plugins add --bundle recommended --global
+```
+
+The first time `fast-agent go` starts interactively with no plugins installed,
+it offers the `recommended` bundle once (globally). The question is not asked
+again after you answer it, and never in CI, non-TTY or `--message` runs.
+
+The daily startup update check also reports installed plugins whose published
+contents changed, comparing each marketplace entry's `path_oid` with the
+version you installed (one fetch, no git). Updates whose `requires_fast_agent`
+is not met are listed with the fast-agent version they need. `--no-update-check`
+disables these checks and the bundle offer.
+
 ## Global Plugins
 
 Global plugin installs write to `FAST_AGENT_HOME` when it is set; otherwise
@@ -119,6 +138,7 @@ A plugin is a directory containing `plugin.yaml`:
 schema_version: 1
 name: agent-finder
 version: 0.1.0
+requires_fast_agent: ">=0.7.3"  # optional; published to the marketplace
 description: Discover skills and MCP servers.
 commands:
   find:
@@ -202,15 +222,78 @@ The context contains:
 
 - `plugin_name` — manifest plugin name.
 - `agent_name` — top-level agent selected by the user.
-- `turn_usage` — canonical provider attempts for the completed user turn.
+- `turn_usage` — canonical provider attempts for the completed user turn. The
+  final attempt of each LLM request carries `timing` (`duration_ms`, `ttft_ms`,
+  `time_to_response_ms`) as observed by the client; failed retry attempts and
+  usage recorded by earlier fast-agent versions leave it `None`.
 - `session_usage` — cumulative canonical provider attempts for the selected
   agent or parallel workflow.
 - `config` — the plugin's mapping from `plugins.config.<plugin-name>`.
+- `turn_messages` — the completed turn from the selected agent's message history,
+  starting at the user message. Managed-process polling may be folded; use
+  `fast_agent.history.process_poll_fold_audit.restore_process_poll_history` to
+  restore the exact archived poll exchanges, including their timing channels.
 
 Handlers run in enabled-plugin order. A load or execution failure is logged and
 does not fail the completed agent turn or prevent later display plugins from
 running. Hooks require `schema_version: 2`; schema v1 remains supported for
 command-only plugins.
+
+### Tool-call review hooks
+
+Manifest schema v3 adds a `tool_call_review` hook. It runs before an
+assistant message's tool calls execute (MCP, shell, filesystem, function and
+agent tools alike) and can deny any of them:
+
+```yaml
+schema_version: 3
+name: tool-guard
+version: 0.1.0
+requires_fast_agent: ">=0.10.50"
+description: Deny shell commands that delete files.
+hooks:
+  tool_call_review: ./guard.py:review
+```
+
+```python
+from fast_agent.plugins import PluginToolCallReviewContext
+
+
+def review(ctx: PluginToolCallReviewContext) -> dict[str, str] | None:
+    return {
+        call.id: "Deleting files needs the user's approval."
+        for call in ctx.tool_calls
+        if "rm " in str(call.arguments.get("command", ""))
+    }
+```
+
+Return the denied call ids mapped to the error text the model receives as each
+call's result, or `None` to let every call run. Denied calls never execute; the
+others run as usual. The handler may be synchronous or asynchronous.
+
+The context contains:
+
+- `plugin_name`, `agent_name`, and `model` — the reviewing plugin and the agent
+  and model making the calls.
+- `instruction` — the agent's system prompt.
+- `tools` — the tools offered to the model.
+- `history` — the conversation before the request, as stored.
+- `request` — the assistant message making the calls.
+- `tool_calls` — `PluginToolCall(id, name, arguments)` for each call, named by
+  the tool that will run: an unprefixed alias of an MCP tool (`delete_file`)
+  is reported by its advertised name (`docs__delete_file`). Calls to
+  unavailable tools are rejected before review.
+- `config` — the plugin's mapping from `plugins.config.<plugin-name>`.
+
+Reviewers run for every agent and subagent, in every mode (TUI, `--message`,
+ACP, serve), in enabled-plugin order; each sees only the calls earlier
+reviewers let through. Review fails closed: a reviewer that cannot be loaded,
+raises, or returns anything other than a mapping or `None` denies every call it
+was given. An enabled plugin whose manifest fails to load and mentions
+`tool_call_review` counts as a reviewer that cannot be loaded, as does every
+enabled plugin when its plugins directory cannot be read at all. With programmatic tool calling (`--ptc`), reviewers see the code
+tool's call, not the tool calls made from inside the code. Reviewers are loaded
+at the first tool call; restart fast-agent after enabling or updating one.
 
 ### Price calculator
 

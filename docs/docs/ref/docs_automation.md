@@ -31,6 +31,21 @@ uv run scripts/docs.py assess
 - `assess` runs deterministic screenshot checks for capture dimensions, blank or unstyled pages,
   the designed home-page header, and visible terminal areas.
 
+## Homepage Artwork
+
+The homepage uses cropped, display-sized WebP exports, not the full authoring PNGs.
+After changing the source artwork, regenerate the committed exports with:
+
+```bash
+uv run docs/generate_home_assets.py
+uv run pytest tests/unit/test_homepage_assets.py
+```
+
+The artwork test checks the combined image budget and intrinsic dimensions. Terminal-player
+assets load only on pages with demos, including when reached through instant navigation.
+Generated include fragments use `_generated/.meta.yml` to stay out of search; their content
+remains searchable in the guides and reference pages that include them.
+
 ## Terminal Captures
 
 Use `scripts/docs_terminal_capture.py` to run a command and write a terminal-style SVG that can be

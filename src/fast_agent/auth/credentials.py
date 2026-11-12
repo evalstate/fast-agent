@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from filelock import FileLock
+from filelock import FileLock, Timeout
 from pydantic import BaseModel, Field
 
 from fast_agent.constants import FAST_AGENT_AUTH_FILE
@@ -17,6 +17,9 @@ from fast_agent.core.keyring_utils import get_keyring_status, maybe_print_keyrin
 
 AUTH_KEYRING_SERVICE = "fast-agent-provider-auth"
 AuthSource = Literal["file", "keyring"]
+# Bounds waits behind another process's refresh so callers fail retryably
+# instead of blocking a worker thread indefinitely.
+CREDENTIAL_REFRESH_LOCK_TIMEOUT_SECONDS = 30.0
 
 
 class OAuthCredential(BaseModel):
@@ -120,12 +123,27 @@ def _file_lock(path: Path) -> FileLock:
 
 
 @contextmanager
-def credential_refresh_lock(provider: str):
+def credential_refresh_lock(
+    provider: str, *, timeout: float = CREDENTIAL_REFRESH_LOCK_TIMEOUT_SECONDS
+):
     configured_path = configured_auth_path()
     path = configured_path or default_auth_path()
     _ensure_parent_directory(path, private=configured_path is None)
-    with FileLock(path.parent / f".{provider}.refresh.lock"):
+    lock = FileLock(
+        path.parent / f".{provider}.refresh.lock",
+        timeout=timeout,
+    )
+    try:
+        lock.acquire()
+    except Timeout:
+        raise ProviderKeyError(
+            f"Timed out waiting for another fast-agent process to refresh {provider} credentials.",
+            "Retry the request.",
+        ) from None
+    try:
         yield
+    finally:
+        lock.release()
 
 
 def _read_file_credential(path: Path, provider: str) -> OAuthCredential | None:
@@ -152,7 +170,7 @@ def _modify_file_credential(
 
 def _read_keyring_credential(provider: str) -> OAuthCredential | None:
     try:
-        maybe_print_keyring_access_notice(purpose="loading provider OAuth credentials")
+        maybe_print_keyring_access_notice(purpose="loading OAuth credentials")
         import keyring
 
         payload = keyring.get_password(AUTH_KEYRING_SERVICE, provider)
@@ -162,7 +180,7 @@ def _read_keyring_credential(provider: str) -> OAuthCredential | None:
 
 
 def _write_keyring_credential(provider: str, credential: OAuthCredential) -> None:
-    maybe_print_keyring_access_notice(purpose="saving provider OAuth credentials")
+    maybe_print_keyring_access_notice(purpose="saving OAuth credentials")
     import keyring
 
     keyring.set_password(AUTH_KEYRING_SERVICE, provider, credential.model_dump_json())
@@ -170,7 +188,7 @@ def _write_keyring_credential(provider: str, credential: OAuthCredential) -> Non
 
 def _delete_keyring_credential(provider: str) -> bool:
     try:
-        maybe_print_keyring_access_notice(purpose="clearing provider OAuth credentials")
+        maybe_print_keyring_access_notice(purpose="clearing OAuth credentials")
         import keyring
 
         keyring.delete_password(AUTH_KEYRING_SERVICE, provider)

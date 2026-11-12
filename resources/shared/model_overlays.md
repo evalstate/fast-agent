@@ -167,6 +167,9 @@ Common fields:
   `0` keeps polls non-blocking, and `shell_execution.process_poll_max_wait_seconds`
   caps the effective value. An explicit model-string `poll_period` takes
   precedence and is rejected if it exceeds the configured maximum
+- `compaction_trigger_tokens`: input tokens at which auto-compaction fires (at least
+  1,000), e.g. to stay below a long-context price tier. A model-string `compact_at`
+  or `compaction.threshold` in config takes precedence
 - `shell_tool_name`: optional model-facing name for the minimal-process shell tool
 - `shell_tool_requires_description`: require a short operator-facing `description`
   argument on the minimal-process shell tool

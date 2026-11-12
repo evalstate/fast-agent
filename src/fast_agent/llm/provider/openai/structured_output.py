@@ -45,8 +45,8 @@ class OpenAIStructuredOutputMixin:
             request_params,
         )
 
+    @staticmethod
     def schema_to_response_format(
-        self,
         schema: dict[str, Any],
         *,
         name: str = "structured_output",

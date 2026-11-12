@@ -1,11 +1,78 @@
 """Utility functions for LLM provider error handling."""
 
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+import json
+
+from mcp_types import TextContent
+
+from fast_agent.constants import (
+    FAST_AGENT_ERROR_CHANNEL,
+    FAST_AGENT_PROVIDER_ERROR,
+    OPENAI_COMPACTION_ITEMS,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.utils.text import strip_str_to_none
+
+PROVIDER_ERROR_SCHEMA = "fast-agent.provider-error/v1"
+
+
+class EmptyCompletionError(RuntimeError):
+    """The model ended its turn with no content and no tool call, again after a retry."""
+
+    def __init__(self) -> None:
+        super().__init__("Completion returned no assistant content or tool calls after one retry.")
+
+
+def _status(error: Exception) -> int | None:
+    """The HTTP status a provider error carries, when it has one."""
+    from fast_agent.llm.provider.openai.responses_websocket import ResponsesWebSocketError
+
+    if isinstance(error, ResponsesWebSocketError):
+        return error.status
+    status = getattr(error, "status_code", None)  # OpenAI and Anthropic SDK status errors
+    return status if isinstance(status, int) else None
+
+
+def _code(error: Exception) -> str | None:
+    from fast_agent.llm.provider.openai.responses_websocket import ResponsesWebSocketError
+
+    if isinstance(error, ResponsesWebSocketError):
+        return error.error_code
+    code = getattr(error, "code", None)  # Provider SDK boundary.
+    return str(code) if isinstance(code, (str, int)) else None
+
+
+def provider_policy_code(error: Exception) -> str | None:
+    """Recognize provider refusals, not arbitrary errors mentioning security/content."""
+    from fast_agent.llm.provider.openai.responses_websocket import ResponsesWebSocketError
+
+    if isinstance(error, ResponsesWebSocketError):
+        code, message = error.error_code, str(error)
+    else:
+        # Keep optional provider SDKs deferred, as in retry classification.
+        if not any(cls.__module__.partition(".")[0] == "openai" for cls in type(error).__mro__):
+            return None
+        from openai import APIError
+
+        if not isinstance(error, APIError):
+            return None
+        code, message = error.code, error.message
+
+    if isinstance(code, str) and code.casefold() in {
+        "cyber_policy",
+        "content_policy_violation",
+        "content_filter",
+    }:
+        return code.casefold()
+    # Older Responses events sometimes omit the code. Match the provider's refusal
+    # sentence, never a keyword anywhere in a timeout, validation error, or content.
+    if code in (None, "unknown") and message.startswith(
+        "This content was flagged for possible cybersecurity risk."
+    ):
+        return "cyber_policy"
+    return None
 
 
 def build_stream_failure_response(
@@ -31,10 +98,11 @@ def build_stream_failure_response(
     parts: list[str] = [f"{provider_label} request failed"]
     if model_name:
         parts.append(f"for model '{model_name}'")
-    code = getattr(error, "code", None)
+    code = _code(error)
+    policy_code = provider_policy_code(error)
     if code:
         parts.append(f"(code: {code})")
-    status = getattr(error, "status_code", None)
+    status = _status(error)
     if status:
         parts.append(f"(status={status})")
 
@@ -56,12 +124,49 @@ def build_stream_failure_response(
             "I hit an internal error while calling the model; see fast-agent-error for details."
         )
 
+    if policy_code:
+        assistant_text = (
+            "The provider declined this request under its safety policy. "
+            "See fast-agent-error for additional details."
+        )
+
     assistant_block = text_content(assistant_text)
     error_block = text_content(message)
 
+    # Codes only (no message text), for trace exports: why this call failed.
+    provider_error = {
+        "schema": PROVIDER_ERROR_SCHEMA,
+        "error_type": type(error).__name__,
+        "status": status,
+    }
+    if code:
+        provider_error["code"] = code
+    if policy_code:
+        provider_error["policy_code"] = policy_code
     return PromptMessageExtended(
         role="assistant",
         content=[assistant_block],
-        channels={FAST_AGENT_ERROR_CHANNEL: [error_block]},
-        stop_reason=LlmStopReason.ERROR,
+        channels={
+            FAST_AGENT_ERROR_CHANNEL: [error_block],
+            FAST_AGENT_PROVIDER_ERROR: [text_content(json.dumps(provider_error))],
+        },
+        stop_reason=LlmStopReason.SAFETY if policy_code else LlmStopReason.ERROR,
+    )
+
+
+def is_empty_completion(message: PromptMessageExtended) -> bool:
+    """An end_turn with no content and no tool call (reasoning alone doesn't count).
+
+    It would end the agent loop with nothing done. Providers retry it once: a stream
+    cut off mid-reasoning is often recorded this way. A compaction request legitimately
+    returns only its compaction items.
+    """
+    has_content = any(
+        not isinstance(block, TextContent) or bool(block.text.strip()) for block in message.content
+    )
+    return (
+        message.stop_reason == LlmStopReason.END_TURN
+        and not has_content
+        and not message.tool_calls
+        and OPENAI_COMPACTION_ITEMS not in (message.channels or {})
     )

@@ -9,6 +9,186 @@ social:
 
 Anthropic models support Text, Vision and PDF content. Caching is enabled by default, and Remote MCP is supported.
 
+## Streaming timeout
+
+`streaming_timeout` limits HTTP read inactivity for Anthropic Messages, including
+Copilot Messages. SSE pings keep a stream alive even when no text or other parsed
+events arrive. It is not a total response deadline. Parsed-event timing is still
+recorded for diagnostics.
+
+`streaming_timeout=none` disables the read and stream-start timeouts; SDK
+connect/write/pool limits remain unchanged. A numeric value also bounds stream
+startup as before.
+
+## Claude Sonnet 5.5
+
+`sonnet`, `claude`, and `sonnet55` select `claude-sonnet-5-5`.
+`sonnet5` remains pinned to Sonnet 5.
+
+```bash
+# Uses ANTHROPIC_API_KEY (or anthropic.api_key in configuration).
+uv run fast-agent go --model sonnet55
+# Uses the existing Copilot login, not your Anthropic API key.
+uv run fast-agent go --model copilot.sonnet55
+```
+
+Sonnet 5.5 has a 1M-token context and 128K maximum output. Adaptive thinking
+defaults to `high` effort; `low`, `medium`, `high`, `xhigh`, and `max` are
+supported. fast-agent requests `thinking: {"type": "adaptive", "display": "summarized"}`
+by default on both API-key and Copilot routes, preserving adaptive thinking while
+making progress summaries visible. Explicit request metadata can override display.
+`reasoning=off` sends `thinking: {"type": "between_tools"}` rather
+than `disabled`. This mode supports only low/medium/high effort; manual thinking
+budgets and forced tool choice are rejected locally. Unsupported sampling controls
+are removed. Preserve signed thinking blocks unchanged and keep history append-only.
+
+See Anthropic's [Sonnet 5.5 migration notes](https://platform.claude.com/docs/en/models/sonnet-5-5/whats-new-sonnet-5-5).
+
+### Structured output: current models
+
+GPT-6 Astra/Sol/Luna, Opus 5.5, and Sonnet 5.5 use JSON-schema output by
+default on their API-key and Copilot routes. GPT-6 uses Responses `text.format`;
+Claude uses Messages `output_config.format`. Regular tools may coexist with the
+schema (`structured_tool_policy: always`). Request-level `no_tools` and `defer`
+remain available. Do not select legacy `tool_use` output mode for Claude 5.5:
+those models reject forced tool choice.
+
+Local mocked-HTTP tests cover schema payloads, tool coexistence, tool suppression,
+schema deferral, and Copilot header restrictions. Live Copilot smoke tests passed
+on September 28, 2026 for all five models, both schema-only and tool-call-to-schema
+round trips, including Sonnet 5.5 with `reasoning=off`. The accepted Sonnet wire ID
+is `claude-sonnet-5.5`. Direct API smoke tests remain blocked by missing credentials
+in the test environment.
+
+Use `structured_schema()` for structured output through the normal agent tool
+loop; `structured()` is the Pydantic-only output path and does not run that loop.
+The live tool test reads a randomly generated value from a local function tool
+and checks both tool execution and the final schema-validated value.
+
+To verify real responses with your configured credentials and Copilot account
+(this makes billable requests):
+
+```bash
+uv run pytest tests/e2e/structured/test_current_model_structured_outputs.py -q
+# Or test only the Sonnet routes:
+uv run pytest tests/e2e/structured/test_current_model_structured_outputs.py -q -k sonnet55
+```
+
+## Claude Haiku 5.5
+
+`haiku` and `haiku55` select `claude-haiku-5-5`. `haiku45` remains pinned to
+Haiku 4.5.
+
+```bash
+# Uses ANTHROPIC_API_KEY (or anthropic.api_key in configuration).
+uv run fast-agent go --model haiku55
+# Uses the existing Copilot login, not your Anthropic API key.
+uv run fast-agent go --model copilot.haiku55
+```
+
+Haiku 5.5 is the fast, low-cost model for high-volume work such as
+classification, routing, extraction, and subagents. It has a 1M-token context and
+128K maximum output. Adaptive thinking is on by default and defaults to `medium`
+effort; `low`, `medium`, `high`, `xhigh`, and `max` are supported, and
+`reasoning=off` sends `thinking: {"type": "disabled"}`. fast-agent requests
+summarized thinking display, removes unsupported sampling controls, and streams
+client tool input with `eager_input_streaming`. Unlike Opus/Sonnet 5.5, forced
+tool choice is accepted (the response then starts with the tool call, without
+thinking). Native JSON-schema structured output is supported.
+
+Pricing is tiered on prompt size: $0.10/$0.50 per million input/output tokens up
+to 100K prompt tokens, and $0.50/$2.50 above. The new tokenizer counts about 30%
+more tokens than Haiku 4.5 for the same text. On Copilot the wire ID is
+`claude-haiku-5.5`, with the same 1M context and 128K output limits.
+
+See Anthropic's [Haiku 5.5 overview](https://platform.claude.com/docs/en/models/haiku-5-5/overview)
+and [migration guide](https://platform.claude.com/docs/en/models/haiku-5-5/migration-guide).
+
+## Claude Opus 5.5
+
+Released September 22, 2026. `opus` and `opus55` select `claude-opus-5-5`;
+`opus5` remains pinned to Opus 5. Copilot uses `copilot.claude-opus-5.5`
+(or `copilot.opus` / `copilot.opus55`).
+
+- 1,000,000-token context and 128,000-token maximum output.
+- Adaptive thinking is always on and cannot be disabled or assigned a manual
+  token budget. Default effort is `medium`; `auto` leaves effort to the provider.
+  Supported effort levels are `low`, `medium`, `high`, `xhigh`, and `max`, as
+  confirmed in the [Anthropic effort documentation](https://platform.claude.com/docs/en/build-with-claude/effort).
+  Fast-mode pricing is not assumed.
+- Forced tool use is unsupported. Use `auto` or `none`, and native JSON mode for
+  structured output on both direct Anthropic and Copilot routes. Legacy forced-tool
+  output mode is rejected. Unsupported sampling controls
+  are removed, as for Fable 5.1.
+- Thinking blocks belong to their originating model and conversation. Do not
+  transplant them into other conversations or models, or edit earlier history.
+  Preserve empty signed thinking blocks and text between tool calls. Thinking
+  display is omitted by the provider by default; fast-agent explicitly requests
+  `thinking: {"type": "adaptive", "display": "summarized"}` on API-key and Copilot
+  routes so progress is visible while adaptive thinking remains on.
+- Anthropic pricing per million tokens: input **$4**, output **$20**, 5-minute
+  cache writes **$5**, 1-hour cache writes **$8**, cache reads **$0.20**.
+  Cache reads are **5%** of input price, not 10%. These are not Copilot charges.
+
+## Claude Fable 5.2
+
+Released November 2026. Use `claude-fable-5-2` (for example,
+`fast-agent go --model "claude-fable-5-2?reasoning=xhigh"`); Copilot uses
+`copilot.claude-fable-5.2`. `fable` and `fable52` select Fable 5.2; `fable51` and `fable5`
+pin the older versions. On Copilot, `copilot.fable` and the short form `cp.fable` select
+Fable 5.2.
+
+The request contract matches Fable 5.1: 1M-token context, up to 128K output tokens
+(including thinking), always-on adaptive thinking with `auto` leaving effort at the
+API default (`high`), sampling controls removed before sending, `auto`/`none` tool
+choice only, and native JSON structured output on both direct and Copilot routes.
+
+What differs from Fable 5.1:
+
+- The thinking prefix check applies to **every** account, not only accounts created
+  after August 31, 2026. A thinking block is only valid against the exact system
+  prompt, tools, and history that preceded it, so changing any of those mid-conversation
+  (for example, `/connect` adding MCP tools, or editing the system prompt) would
+  otherwise fail every later request. On the direct API, fast-agent sends
+  `thinking.block_binding.prefix_mismatch_behavior: "drop_block"` (beta
+  `thinking-binding-controls-2026-08-01`) for models that run this check (Fable 5.1/5.2,
+  Opus/Sonnet/Haiku 5.5), so the API drops the stale thinking and the conversation
+  continues; the next turn may use more output tokens. Copilot does not need this.
+- Fable 5.1 and earlier models cannot read Fable 5.2 thinking blocks; switching models
+  mid-conversation drops them (the request still succeeds).
+- No Priority Tier. Requires 30-day data retention, as for Fable 5.1.
+- Anthropic pricing per million tokens: input **$8**, output **$40**, 5-minute cache
+  writes **$10**, 1-hour cache writes **$16**, cache reads **$0.20** (2.5% of input).
+  Batch is $4/$20. Fast mode ($16/$80) is not enabled by fast-agent.
+
+See the official [migration guide](https://platform.claude.com/docs/en/models/fable-5-2/migration-guide)
+and [preserved thinking](https://platform.claude.com/docs/en/build-with-claude/preserved-thinking).
+
+## Claude Fable 5.1
+
+Use `claude-fable-5-1` (for example, `fast-agent go --model "claude-fable-5-1?reasoning=max"`).
+`fable51` selects Fable 5.1; `fable` now selects Fable 5.2.
+
+- 1M-token context; up to 128K output tokens, including thinking.
+- Adaptive thinking is always on. `auto` leaves effort at the API default (`high`);
+  supported levels are `low`, `medium`, `high`, `xhigh`, and `max`. Thinking cannot
+  be disabled or configured with a manual token budget.
+- Sampling controls (`temperature`, `top_p`, `top_k`) are removed before sending.
+- Tool choice supports `auto` and `none`, not forced/required tools. Use native
+  JSON structured output rather than `tool_use` mode; unsupported forcing fails locally.
+- Preserve thinking blocks unchanged, including empty signed blocks, and keep
+  history append-only. Editing earlier turns invalidates thinking; earlier models
+  cannot read Fable 5.1 thinking blocks. Assistant prefill is unsupported.
+- Requires 30-day data retention unless Anthropic expressly authorizes otherwise.
+  Input/output pricing is $10/$50 per million tokens; cache reads are $0.25/MTok.
+
+Per-message effort, turn-scoped system messages, and progress-update betas are
+not enabled automatically by this integration.
+
+See the official [overview](https://platform.claude.com/docs/en/models/fable-5-1/overview),
+[migration guide](https://platform.claude.com/docs/en/models/fable-5-1/migration-guide),
+and [thinking constraints](https://platform.claude.com/docs/en/build-with-claude/thinking).
+
 **YAML Configuration:**
 
 ```yaml
@@ -85,7 +265,8 @@ Claude reasoning support depends on the model family:
 
 | Model family | fast-agent aliases | Reasoning mode | Effort values | Task budget |
 | --- | --- | --- | --- | --- |
-| Claude Opus 5 | `opus`, `opus5` | adaptive, on by default | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | supported |
+| Claude Opus 5.5 | `opus`, `opus55` | adaptive, always on | `auto`, `low`, `medium`, `high`, `xhigh`, `max` | not enabled |
+| Claude Opus 5 | `opus5` | adaptive, on by default | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | supported |
 | Claude Opus 4.8 | `opus4`, `opus48` | adaptive | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | supported |
 | Claude Opus 4.7 | `opus47` | adaptive | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | supported |
 | Claude Opus 4.6 | `opus46` | adaptive | `auto`, `low`, `medium`, `high`, `max`, `off` | not supported |
@@ -132,7 +313,7 @@ anthropic:
 You can also set reasoning per run using the model string:
 
 - `sonnet?reasoning=4096`
-- `opus?reasoning=xhigh&task_budget=128k`
+- `opus5?reasoning=xhigh&task_budget=128k`
 - `opus47?reasoning=auto&task_budget=64k`
 - `claude-opus-4-6?reasoning=auto`
 
@@ -197,7 +378,7 @@ entries.
 
 See [Configuration Reference](../../ref/config_file/#mcp-server-configuration)
 for the MCP server schema and
-[Agent Cards](../../agents/defining/agent_cards/#runtime-mcp-targets-mcp_connect)
+[Agent Cards](../../agents/defining/agent_cards.md#configure-mcp-servers-and-filters)
 for card-scoped runtime targets.
 
 

@@ -1,0 +1,19 @@
+:root {
+  --space-4: 4px; --space-8: 8px; --space-12: 12px; --space-16: 16px;
+  --space-24: 24px; --space-32: 32px; --space-48: 48px; --space-64: 64px; --space-96: 96px;
+
+  --radius-sm: 6px;     /* bars, chips, inputs */
+  --radius-md: 10px;    /* buttons */
+  --radius-lg: 14px;    /* cards, panels */
+  --radius-tile: 23%;   /* app icon only */
+
+  --border: 2px solid var(--petrol);   /* the brand keyline: 2px, never 1px hairlines for structure */
+  --border-dash: 2px dashed var(--petrol);
+
+  /* print-style offset shadow for stickers/bursts only. No blur shadows. */
+  --shadow-offset: 6px 6px 0 var(--amber);
+  --shadow-offset-sm: 3px 3px 0 var(--petrol);
+
+  --tilt: -8deg; /* @kind other */        /* resting angle for bursts, stickers, badges */
+  --tilt-range: -4deg to -10deg; /* @kind other */
+}

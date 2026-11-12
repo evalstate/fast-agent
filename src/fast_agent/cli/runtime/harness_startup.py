@@ -124,6 +124,8 @@ def _session_has_assistant_preview(session: "Session") -> bool:
 
 def _latest_session_id_with_assistant_preview(manager: "SessionManager") -> str | None:
     for info in manager.list_sessions():
+        if manager.owned_elsewhere(info.name):
+            continue
         session = manager.get_session(info.name)
         if session is not None and _session_has_assistant_preview(session):
             return info.name
@@ -132,6 +134,8 @@ def _latest_session_id_with_assistant_preview(manager: "SessionManager") -> str 
 
 def _latest_session_id_with_content(manager: "SessionManager") -> str | None:
     for info in manager.list_sessions():
+        if manager.owned_elsewhere(info.name):
+            continue
         session = manager.get_session(info.name)
         if session is not None and session.has_persisted_content():
             return info.name

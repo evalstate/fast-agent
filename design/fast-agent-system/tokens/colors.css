@@ -1,0 +1,29 @@
+:root {
+  /* base */
+  --ivory: #FFF7E8;
+  --ivory-deep: #F4EAD5;      /* page desk / inset panels */
+  --paper: #FFFCF4;           /* raised card on ivory */
+  --petrol: #082C34;
+  --petrol-2: #11414B;        /* raised surface on petrol */
+  --amber: #FFB52E;
+  --amber-ink: #8A5A00;       /* amber-family text on ivory (≥ 4.5:1) */
+  --orange: #F45125;
+  --teal: #277C80;
+
+  /* semantic */
+  --surface-page: var(--ivory);
+  --surface-card: var(--paper);
+  --surface-inverse: var(--petrol);
+  --text-body: var(--petrol);
+  --text-inverse: var(--ivory);
+  --text-muted: rgba(8, 44, 52, 0.72);   /* ≥ 4.5:1 on ivory; don't go lighter */
+  --line: rgba(8, 44, 52, 0.14);
+  --line-strong: var(--petrol);
+  --accent: var(--amber);                /* fast-agent, and fast-agent only */
+  --campaign: var(--orange);             /* bursts, illustration, banners */
+  --link: var(--petrol);
+  --link-underline: var(--amber);
+  --link-hover: var(--teal);
+  --focus-ring: var(--teal);
+  --danger: var(--orange);
+}

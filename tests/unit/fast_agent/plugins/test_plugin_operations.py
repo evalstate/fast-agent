@@ -4,6 +4,9 @@ import json
 import subprocess
 from typing import TYPE_CHECKING
 
+import pytest
+
+from fast_agent.plugins import operations as plugin_operations
 from fast_agent.plugins.models import MarketplacePlugin
 from fast_agent.plugins.operations import (
     apply_plugin_updates,
@@ -59,6 +62,52 @@ def test_select_plugin_by_name_or_index_accepts_install_dir_name_alias() -> None
     plugin = _marketplace_plugin("bundle-entry", "plugins/canonical/PLUGIN.YAML")
 
     assert select_plugin_by_name_or_index([plugin], "canonical") is plugin
+
+
+def test_install_marketplace_plugin_rejects_install_path_escape(tmp_path: Path) -> None:
+    plugin = _marketplace_plugin("../outside", "plugin.yaml")
+
+    with pytest.raises(ValueError, match="Invalid marketplace install directory"):
+        install_marketplace_plugin_sync(plugin, destination_root=tmp_path / "managed")
+
+    assert not (tmp_path / "outside").exists()
+
+
+def test_plugin_staging_prefix_uses_validated_install_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_plugin(repo)
+    _commit_all(repo, "initial")
+    plugin = MarketplacePlugin(
+        name="../../../outside",
+        description=None,
+        repo_url=repo.as_posix(),
+        repo_ref=None,
+        repo_path="plugins/finder",
+    )
+    prefixes: list[str] = []
+    temporary_directory = plugin_operations.tempfile.TemporaryDirectory
+
+    def tracked_temporary_directory(*args, **kwargs):
+        prefixes.append(kwargs["prefix"])
+        return temporary_directory(*args, **kwargs)
+
+    monkeypatch.setattr(
+        plugin_operations.tempfile,
+        "TemporaryDirectory",
+        tracked_temporary_directory,
+    )
+
+    install_dir = install_marketplace_plugin_sync(
+        plugin,
+        destination_root=tmp_path / "managed",
+    )
+
+    assert install_dir == (tmp_path / "managed" / "finder").resolve()
+    assert prefixes == [".finder.staging-"]
 
 
 def test_select_plugin_by_name_or_index_rejects_ambiguous_install_dir_name_alias() -> None:

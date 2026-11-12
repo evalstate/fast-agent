@@ -30,6 +30,7 @@ from fast_agent.session import (
 )
 
 if TYPE_CHECKING:
+    from fast_agent.cli.runtime.run_request import AgentRunRequest
     from fast_agent.interfaces import AgentProtocol
 
 
@@ -690,6 +691,41 @@ def test_delete_and_prune_skip_owner_busy_session(tmp_path) -> None:
 
     owner.close()
     assert maintenance.delete_session(session.info.name)
+
+
+@pytest.mark.asyncio
+async def test_resume_latest_skips_sessions_owned_by_another_manager(tmp_path) -> None:
+    from types import SimpleNamespace
+
+    from fast_agent.cli.runtime.harness_startup import resolve_harness_resume_session_id
+
+    home = tmp_path / ".fast-agent"
+    owner = SessionManager(
+        cwd=tmp_path, home_override=home, respect_env_override=False, surface="owner"
+    )
+    agent = _Agent(
+        name="foo",
+        instruction="Stored prompt",
+        history=[_message("user", "hello"), _message("assistant", "done")],
+    )
+    for session_id in ("idle", "busy"):
+        session = owner.create_session_with_id(session_id)
+        await session.save_history(cast("AgentProtocol", agent))
+    owner.release_session("idle")
+
+    contender = SessionManager(
+        cwd=tmp_path, home_override=home, respect_env_override=False, surface="contender"
+    )
+    request = cast("AgentRunRequest", SimpleNamespace(resume="latest"))
+
+    assert [info.name for info in contender.list_sessions()] == ["busy", "idle"]
+    assert resolve_harness_resume_session_id(request, contender) == "idle"
+    latest = contender.load_latest_session(require_content=True)
+    assert latest is not None and latest.info.name == "idle"
+
+    owner.close()
+    contender.close()
+    assert resolve_harness_resume_session_id(request, contender) == "busy"
 
 
 def test_owned_session_delete_removes_directory_and_releases_lease(tmp_path) -> None:

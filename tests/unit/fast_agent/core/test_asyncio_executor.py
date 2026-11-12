@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from fast_agent.core.executor.executor import AsyncioExecutor, ExecutorConfig
+from fast_agent.core.executor.workflow_signal import AsyncioSignalHandler, Signal
 
 
 def add(value: int, *, increment: int = 0) -> int:
@@ -217,3 +218,21 @@ async def test_execute_streaming_cancels_pending_tasks_when_closed() -> None:
     await stream.aclose()
 
     await asyncio.wait_for(cancelled.wait(), timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_signal_delivers_payload_and_description_to_registered_handler() -> None:
+    bus = AsyncioSignalHandler()
+    received: list[Signal[int]] = []
+
+    @bus.on_signal("ready")
+    def receive(signal: Signal[int]) -> None:
+        received.append(signal)
+
+    executor = AsyncioExecutor(signal_bus=bus)
+    await executor.signal("ready", 42, "work completed")
+
+    assert len(received) == 1
+    assert received[0].name == "ready"
+    assert received[0].payload == 42
+    assert received[0].description == "work completed"

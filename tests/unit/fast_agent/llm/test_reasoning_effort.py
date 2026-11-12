@@ -27,6 +27,10 @@ def test_parse_boolean_alias_returns_none_for_non_boolean_values(value: str) -> 
     assert parse_boolean_alias(value) is None
 
 
+def test_parse_ultra_reasoning_effort_is_unsupported() -> None:
+    assert parse_reasoning_setting("ultra") is None
+
+
 def test_effort_spec_without_disable_rejects_off() -> None:
     spec = ReasoningEffortSpec(
         kind="effort",

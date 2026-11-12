@@ -1,0 +1,52 @@
+{
+  "model": "grok-4.7",
+  "input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Call read_notes, then reply only OK."
+        }
+      ]
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_25585437-f1d5-9776-beee-b9ccad9107ea",
+      "summary": [],
+      "encrypted_content": "REDACTED-ENCRYPTED-REASONING"
+    },
+    {
+      "type": "function_call",
+      "id": "fc_call-efc08d2f-60ff-4836-a806-2139c39affbd-0",
+      "call_id": "call_call-efc08d2f-60ff-4836-a806-2139c39affbd-0",
+      "name": "read_notes",
+      "arguments": "{}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_call-efc08d2f-60ff-4836-a806-2139c39affbd-0",
+      "output": "Deployment codeword: PINEAPPLE-42.\nline 0: the quick brown fox jumps over the la [... filler truncated]"
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_1186a56f-99b9-9bbd-9e0f-4604d2798d5f",
+      "summary": [],
+      "encrypted_content": "REDACTED-ENCRYPTED-REASONING"
+    },
+    {
+      "content": [
+        {
+          "annotations": [],
+          "text": "OK",
+          "type": "output_text",
+          "logprobs": []
+        }
+      ],
+      "role": "assistant",
+      "status": "completed",
+      "type": "message"
+    }
+  ]
+}

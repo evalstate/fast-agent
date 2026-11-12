@@ -1,90 +1,196 @@
-"""Session management for fast-agent."""
+"""Session management for fast-agent, with lazily loaded public exports."""
 
-from .durable_processes import DurableProcessResumeResult, resume_durable_processes
-from .formatting import (
-    SessionEntrySummary,
-    SessionListMode,
-    build_session_entry_summaries,
-    extract_session_title,
-    format_history_summary,
-    format_session_agent_label,
-    format_session_entries,
-    format_session_reference,
-)
-from .hydrator import (
-    NonResumableSessionError,
-    SessionHydrationPolicy,
-    SessionHydrationResult,
-    SessionHydrationWarning,
-    SessionHydrator,
-)
-from .identity import SessionSaveContext, SessionSaveIdentity, resolve_session_for_save
-from .locking import SessionBusyError, SessionCheckpointBusyError, SessionOwner
-from .session_manager import (
-    ResumeSessionAgentsResult,
-    Session,
-    SessionDeleteResult,
-    SessionInfo,
-    SessionManager,
-    SessionPruneResult,
-    apply_session_window,
-    display_session_name,
-    get_active_session_manager,
-    get_session_history_window,
-    get_session_manager,
-    is_session_pinned,
-    reset_session_manager,
-    set_session_manager,
-    summarize_session_histories,
-)
-from .snapshot import (
-    SESSION_SNAPSHOT_SCHEMA_VERSION,
-    SessionAgentSnapshot,
-    SessionAnalysisSnapshot,
-    SessionAttachmentRef,
-    SessionCardProvenanceRef,
-    SessionChildLinkSnapshot,
-    SessionContinuationSnapshot,
-    SessionDiagnosticSnapshot,
-    SessionExecutionSnapshot,
-    SessionExecutionStatus,
-    SessionGitSnapshot,
-    SessionGitStateSnapshot,
-    SessionLineageSnapshot,
-    SessionMetadataSnapshot,
-    SessionModelOverlayRef,
-    SessionRequestSettingsSnapshot,
-    SessionSnapshot,
-    SessionTimingSummarySnapshot,
-    SessionUsageSummarySnapshot,
-    capture_session_snapshot,
-    clone_session_snapshot_for_fork,
-    load_session_snapshot,
-    session_info_from_snapshot,
-    snapshot_from_session_info,
-    synthesize_legacy_session_snapshot,
-)
-from .subagent_runs import (
-    SubagentRun,
-    format_subagent_alias,
-    subagent_alias_slug,
-    subagent_run_from_session,
-    subagent_task_preview,
-)
-from .trace_export_errors import (
-    InvalidSessionExportTargetError,
-    SessionExportAgentNotFoundError,
-    SessionExportAmbiguousAgentError,
-    SessionExportNoAgentsError,
-    SessionExportNotFoundError,
-    SessionExportPrivacyFilterError,
-    SessionExportReadError,
-    SessionExportWriteError,
-    TraceExportError,
-    UnsupportedTraceExportFormatError,
-)
-from .trace_export_models import ExportFormat, ExportRequest, ExportResult, ResolvedSessionExport
-from .trace_exporter import SessionTraceExporter
+from importlib import import_module
+from typing import TYPE_CHECKING
+
+# Keep concrete signatures visible to static analyzers without runtime imports.
+if TYPE_CHECKING:
+    from .durable_processes import DurableProcessResumeResult, resume_durable_processes
+    from .formatting import (
+        SessionEntrySummary,
+        SessionListMode,
+        build_session_entry_summaries,
+        extract_session_title,
+        format_history_summary,
+        format_session_agent_label,
+        format_session_entries,
+        format_session_reference,
+    )
+    from .hydrator import (
+        NonResumableSessionError,
+        SessionHydrationPolicy,
+        SessionHydrationResult,
+        SessionHydrationWarning,
+        SessionHydrator,
+    )
+    from .identity import SessionSaveContext, SessionSaveIdentity, resolve_session_for_save
+    from .locking import SessionBusyError, SessionCheckpointBusyError, SessionOwner
+    from .session_manager import (
+        ResumeSessionAgentsResult,
+        Session,
+        SessionDeleteResult,
+        SessionInfo,
+        SessionManager,
+        SessionPruneResult,
+        apply_session_window,
+        display_session_name,
+        get_active_session_manager,
+        get_session_history_window,
+        get_session_manager,
+        is_session_pinned,
+        reset_session_manager,
+        set_session_manager,
+        summarize_session_histories,
+    )
+    from .snapshot import (
+        SESSION_SNAPSHOT_SCHEMA_VERSION,
+        SessionAgentSnapshot,
+        SessionAnalysisSnapshot,
+        SessionAttachmentRef,
+        SessionCardProvenanceRef,
+        SessionChildLinkSnapshot,
+        SessionContinuationSnapshot,
+        SessionDiagnosticSnapshot,
+        SessionExecutionSnapshot,
+        SessionExecutionStatus,
+        SessionGitSnapshot,
+        SessionGitStateSnapshot,
+        SessionLineageSnapshot,
+        SessionMetadataSnapshot,
+        SessionModelOverlayRef,
+        SessionRequestSettingsSnapshot,
+        SessionSnapshot,
+        SessionTimingSummarySnapshot,
+        SessionUsageSummarySnapshot,
+        capture_session_snapshot,
+        clone_session_snapshot_for_fork,
+        load_session_snapshot,
+        session_info_from_snapshot,
+        snapshot_from_session_info,
+        synthesize_legacy_session_snapshot,
+    )
+    from .subagent_runs import (
+        SubagentRun,
+        format_subagent_alias,
+        subagent_alias_slug,
+        subagent_run_from_session,
+        subagent_task_preview,
+    )
+    from .trace_export_errors import (
+        InvalidSessionExportTargetError,
+        SessionExportAgentNotFoundError,
+        SessionExportAmbiguousAgentError,
+        SessionExportNoAgentsError,
+        SessionExportNotFoundError,
+        SessionExportPrivacyFilterError,
+        SessionExportReadError,
+        SessionExportWriteError,
+        TraceExportError,
+        UnsupportedTraceExportFormatError,
+    )
+    from .trace_export_models import (
+        ExportFormat,
+        ExportRequest,
+        ExportResult,
+        ResolvedSessionExport,
+    )
+    from .trace_exporter import SessionTraceExporter
+
+
+_LAZY_EXPORTS: dict[str, str] = {
+    "DurableProcessResumeResult": ".durable_processes",
+    "resume_durable_processes": ".durable_processes",
+    "SessionEntrySummary": ".formatting",
+    "SessionListMode": ".formatting",
+    "build_session_entry_summaries": ".formatting",
+    "extract_session_title": ".formatting",
+    "format_history_summary": ".formatting",
+    "format_session_agent_label": ".formatting",
+    "format_session_entries": ".formatting",
+    "format_session_reference": ".formatting",
+    "NonResumableSessionError": ".hydrator",
+    "SessionHydrationPolicy": ".hydrator",
+    "SessionHydrationResult": ".hydrator",
+    "SessionHydrationWarning": ".hydrator",
+    "SessionHydrator": ".hydrator",
+    "SessionSaveContext": ".identity",
+    "SessionSaveIdentity": ".identity",
+    "resolve_session_for_save": ".identity",
+    "SessionBusyError": ".locking",
+    "SessionCheckpointBusyError": ".locking",
+    "SessionOwner": ".locking",
+    "ResumeSessionAgentsResult": ".session_manager",
+    "Session": ".session_manager",
+    "SessionDeleteResult": ".session_manager",
+    "SessionInfo": ".session_manager",
+    "SessionManager": ".session_manager",
+    "SessionPruneResult": ".session_manager",
+    "apply_session_window": ".session_manager",
+    "display_session_name": ".session_manager",
+    "get_active_session_manager": ".session_manager",
+    "get_session_history_window": ".session_manager",
+    "get_session_manager": ".session_manager",
+    "is_session_pinned": ".session_manager",
+    "reset_session_manager": ".session_manager",
+    "set_session_manager": ".session_manager",
+    "summarize_session_histories": ".session_manager",
+    "SESSION_SNAPSHOT_SCHEMA_VERSION": ".snapshot",
+    "SessionAgentSnapshot": ".snapshot",
+    "SessionAnalysisSnapshot": ".snapshot",
+    "SessionAttachmentRef": ".snapshot",
+    "SessionCardProvenanceRef": ".snapshot",
+    "SessionChildLinkSnapshot": ".snapshot",
+    "SessionContinuationSnapshot": ".snapshot",
+    "SessionDiagnosticSnapshot": ".snapshot",
+    "SessionExecutionSnapshot": ".snapshot",
+    "SessionExecutionStatus": ".snapshot",
+    "SessionGitSnapshot": ".snapshot",
+    "SessionGitStateSnapshot": ".snapshot",
+    "SessionLineageSnapshot": ".snapshot",
+    "SessionMetadataSnapshot": ".snapshot",
+    "SessionModelOverlayRef": ".snapshot",
+    "SessionRequestSettingsSnapshot": ".snapshot",
+    "SessionSnapshot": ".snapshot",
+    "SessionTimingSummarySnapshot": ".snapshot",
+    "SessionUsageSummarySnapshot": ".snapshot",
+    "capture_session_snapshot": ".snapshot",
+    "clone_session_snapshot_for_fork": ".snapshot",
+    "load_session_snapshot": ".snapshot",
+    "session_info_from_snapshot": ".snapshot",
+    "snapshot_from_session_info": ".snapshot",
+    "synthesize_legacy_session_snapshot": ".snapshot",
+    "SubagentRun": ".subagent_runs",
+    "format_subagent_alias": ".subagent_runs",
+    "subagent_alias_slug": ".subagent_runs",
+    "subagent_run_from_session": ".subagent_runs",
+    "subagent_task_preview": ".subagent_runs",
+    "InvalidSessionExportTargetError": ".trace_export_errors",
+    "SessionExportAgentNotFoundError": ".trace_export_errors",
+    "SessionExportAmbiguousAgentError": ".trace_export_errors",
+    "SessionExportNoAgentsError": ".trace_export_errors",
+    "SessionExportNotFoundError": ".trace_export_errors",
+    "SessionExportPrivacyFilterError": ".trace_export_errors",
+    "SessionExportReadError": ".trace_export_errors",
+    "SessionExportWriteError": ".trace_export_errors",
+    "TraceExportError": ".trace_export_errors",
+    "UnsupportedTraceExportFormatError": ".trace_export_errors",
+    "ExportFormat": ".trace_export_models",
+    "ExportRequest": ".trace_export_models",
+    "ExportResult": ".trace_export_models",
+    "ResolvedSessionExport": ".trace_export_models",
+    "SessionTraceExporter": ".trace_exporter",
+}
+
+
+def __getattr__(name: str) -> object:
+    try:
+        module_name = _LAZY_EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+    value: object = import_module(module_name, __name__).__dict__[name]
+    globals()[name] = value
+    return value
+
 
 __all__ = [
     "SESSION_SNAPSHOT_SCHEMA_VERSION",

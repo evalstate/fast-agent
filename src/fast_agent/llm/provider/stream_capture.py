@@ -25,7 +25,7 @@ def stream_capture_filename(turn: int, *, label: str) -> Path | None:
     if not STREAM_CAPTURE_ENABLED:
         return None
     STREAM_CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     return STREAM_CAPTURE_DIR / f"{timestamp}_{label}turn{turn}"
 
 

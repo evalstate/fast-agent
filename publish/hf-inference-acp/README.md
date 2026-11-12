@@ -84,7 +84,7 @@ Set your HuggingFace token using one of these methods:
 
 2. **HuggingFace CLI**:
    ```bash
-   huggingface-cli login
+   hf auth login
    ```
 
 Get your token from: https://huggingface.co/settings/tokens

@@ -5,9 +5,11 @@ from mcp_types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.tool_runner import ToolRunner, _ToolLoopAgent
 from fast_agent.config import Settings
 from fast_agent.context import Context
+from fast_agent.interfaces import AgentProtocol
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
@@ -16,8 +18,8 @@ from fast_agent.types import PromptMessageExtended
 
 
 class FakeLLM(FastAgentLLM[PromptMessageExtended, PromptMessageExtended]):
-    def __init__(self, **kwargs):
-        super().__init__(provider=Provider.FAST_AGENT, name="fake-llm", **kwargs)
+    def __init__(self, agent: AgentProtocol | None = None, **kwargs):
+        super().__init__(agent=agent, provider=Provider.FAST_AGENT, name="fake-llm", **kwargs)
         self.last_messages: list[PromptMessageExtended] | None = None
 
     async def _apply_prompt_provider_specific(
@@ -77,8 +79,9 @@ def test_llm_resolves_managed_process_poll_folding_from_model_metadata(model: st
 
 
 @pytest.mark.asyncio
-async def test_templates_sent_when_history_disabled():
-    agent = LlmAgent(AgentConfig("test-agent"))
+@pytest.mark.parametrize("agent_type", [LlmAgent, McpAgent])
+async def test_templates_sent_when_history_disabled(agent_type: type[LlmAgent]):
+    agent = agent_type(AgentConfig("test-agent"))
     llm = FakeLLM()
     agent._llm = llm
 
@@ -102,3 +105,18 @@ async def test_templates_sent_when_history_disabled():
     assert len(agent.message_history) == 1
     assert agent.message_history[0].first_text() == template_result.first_text()
     assert response.role == "assistant"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("agent_type", [LlmAgent, McpAgent])
+async def test_callable_agent_records_history_and_exposes_attached_usage(
+    agent_type: type[LlmAgent],
+) -> None:
+    agent = agent_type(AgentConfig("test-agent"))
+    assert agent.usage_accumulator is None
+    llm = await agent.attach_llm(FakeLLM)
+
+    assert await agent("hello") == "ok"
+
+    assert [message.first_text() for message in agent.message_history] == ["hello", "ok"]
+    assert agent.usage_accumulator is llm.usage_accumulator

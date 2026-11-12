@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_overlays import ModelOverlayRegistry, load_model_overlay_registry
+from fast_agent.llm.provider.copilot.models import COPILOT_MODELS
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_model_catalog import ProviderModelCatalogRegistry
 from fast_agent.llm.provider_types import Provider
@@ -56,6 +57,11 @@ class ModelSelectionCatalog:
 
     CATALOG_ENTRIES_BY_PROVIDER: ClassVar[dict[Provider, tuple[CatalogModelEntry, ...]]] = {
         Provider.RESPONSES: (
+            _builtin_entry("gpt-6-astra"),
+            _builtin_entry("gpt-6.1-sol"),
+            _builtin_entry("gpt-6.1-terra", fast=True),
+            _builtin_entry("gpt-6-sol"),
+            _builtin_entry("gpt-6-luna", fast=True),
             _builtin_entry("gpt-5.6-sol"),
             _builtin_entry("gpt-5.6-terra", fast=True),
             _builtin_entry("gpt-5.6-luna", fast=True),
@@ -77,9 +83,10 @@ class ModelSelectionCatalog:
             _builtin_entry("fable"),
             _builtin_entry("opus"),
             _builtin_entry("sonnet"),
+            _builtin_entry("haiku", fast=True),
             _builtin_entry("opus48"),
             _builtin_entry("opus46"),
-            _builtin_entry("haiku", fast=True),
+            _builtin_entry("haiku45", fast=True),
         ),
         Provider.ANTHROPIC_VERTEX: (
             CatalogModelEntry(alias="opus", model="anthropic-vertex.claude-opus-4-7"),
@@ -93,9 +100,9 @@ class ModelSelectionCatalog:
         ),
         Provider.GOOGLE: (
             CatalogModelEntry(
-                alias="gemini37flash",
-                display_label="Gemini 3.7 Flash",
-                model="google.gemini-3.7-flash",
+                alias="gemini38flash",
+                display_label="Gemini 3.8 Flash",
+                model="google.gemini-3.8-flash",
                 fast=True,
                 description=(
                     "GA coding and agent model. Through Dec 31, 2026, Standard is "
@@ -126,7 +133,15 @@ class ModelSelectionCatalog:
                 model="google.gemini-3-flash-preview",
             ),
         ),
+        Provider.COPILOT: tuple(
+            CatalogModelEntry(alias=model_id, model=f"copilot.{model_id}")
+            for model_id in COPILOT_MODELS
+        ),
         Provider.XAI: (
+            _builtin_entry("Grok 4.7"),
+            _builtin_entry("Grok 4.7 (X Search)"),
+            _builtin_entry("Grok 4.7 Fast (OAuth)"),
+            _builtin_entry("Grok 4.7 Fast (X Search, OAuth)"),
             _builtin_entry("Grok 4.6"),
             _builtin_entry("Grok 4.6 (X Search)"),
             _builtin_entry("Grok 4.5"),
@@ -134,19 +149,14 @@ class ModelSelectionCatalog:
             _builtin_entry("Grok 4.3"),
         ),
         Provider.META_AI: (
-            _builtin_entry("Muse Spark 1.2"),
-            _builtin_entry("Muse Spark 1.2 (Contributor)"),
+            _builtin_entry("Muse Spark 1.3"),
+            _builtin_entry("Muse Spark 1.3 (Contributor)"),
             _builtin_entry("Muse Spark 1.1"),
         ),
         Provider.DEEPSEEK: (
             _builtin_entry(
-                "deepseek",
-                display_label="DeepSeek V4 Flash",
-                fast=True,
-            ),
-            _builtin_entry(
-                "deepseekvision",
-                display_label="DeepSeek V4 Flash Vision (experimental)",
+                "DeepSeek V4.1 Flash",
+                display_label="DeepSeek V4.1 Flash",
                 fast=True,
             ),
             _builtin_entry(
@@ -157,9 +167,12 @@ class ModelSelectionCatalog:
         Provider.ZAI: (
             _builtin_entry("zaiglm53", display_label="GLM 5.3"),
             _builtin_entry("zaiglm53flash", display_label="GLM 5.3 Flash", fast=True),
-            _builtin_entry("zaiglm", display_label="GLM 5.2", current=True),
+            _builtin_entry("zaiglm52", display_label="GLM 5.2"),
         ),
-        Provider.MOONSHOT: (_builtin_entry("kimik3", display_label="Kimi K3"),),
+        Provider.MOONSHOT: (
+            _builtin_entry("kimik31", display_label="Kimi K3.1 Pro"),
+            _builtin_entry("kimik3", display_label="Kimi K3", current=False),
+        ),
         Provider.OPENROUTER: (),
         Provider.ATLASCLOUD: (
             CatalogModelEntry(
@@ -179,26 +192,48 @@ class ModelSelectionCatalog:
                 display_label="Muse Glimmer 30B (together)",
             ),
             _builtin_entry(
+                "Kimi K3.1 Pro (together)",
+                display_label="Kimi K3.1 Pro (together)",
+                description="image-only HF route",
+            ),
+            _builtin_entry(
                 "Kimi K3 (fireworks-ai)",
                 display_label="Kimi K3 (fireworks-ai)",
                 description="image-only HF route",
+                current=False,
             ),
             _builtin_entry(
                 "Kimi K3 (together)",
                 display_label="Kimi K3 (together)",
                 description="image-only HF route",
+                current=False,
             ),
             _builtin_entry(
-                "GLM 5.2 (zai-org)",
-                display_label="GLM 5.2 (zai-org)",
+                "GLM 5.3 (together)",
+                display_label="GLM 5.3 (together)",
             ),
             _builtin_entry(
-                "GLM 5.2 (fireworks-ai)",
-                display_label="GLM 5.2 (fireworks-ai)",
+                "GLM 5.3 (novita)",
+                display_label="GLM 5.3 (novita)",
             ),
             _builtin_entry(
-                "GLM 5.2 (deepinfra)",
-                display_label="GLM 5.2 (deepinfra)",
+                "GLM 5.3 (zai-org)",
+                display_label="GLM 5.3 (zai-org)",
+            ),
+            _builtin_entry(
+                "GLM 5.3 Flash (together)",
+                display_label="GLM 5.3 Flash (together)",
+                fast=True,
+            ),
+            _builtin_entry(
+                "GLM 5.3 Flash (novita)",
+                display_label="GLM 5.3 Flash (novita)",
+                fast=True,
+            ),
+            _builtin_entry(
+                "GLM 5.3 Flash (zai-org)",
+                display_label="GLM 5.3 Flash (zai-org)",
+                fast=True,
             ),
             _builtin_entry(
                 "kimi27",
@@ -215,6 +250,10 @@ class ModelSelectionCatalog:
             _builtin_entry(
                 "DeepSeek V4 Flash 0731 (deepinfra)",
                 display_label="DeepSeek V4 Flash 0731 (deepinfra)",
+            ),
+            _builtin_entry(
+                "DeepSeek V4.1 Flash (novita)",
+                display_label="DeepSeek V4.1 Flash (novita)",
             ),
             _builtin_entry("deepseek-hf", display_label="DeepSeek V4 Pro (HF)"),
             _builtin_entry(
@@ -275,9 +314,14 @@ class ModelSelectionCatalog:
             _builtin_entry("deepseek32", current=False),
         ),
         Provider.CODEX_RESPONSES: (
-            _builtin_entry("sol"),
-            _builtin_entry("terra"),
-            _builtin_entry("luna"),
+            _builtin_entry("astra", display_label="GPT-6-Astra"),
+            _builtin_entry("sol", display_label="GPT-6.1-Sol"),
+            _builtin_entry("terra", display_label="GPT-6.1-Terra", fast=True),
+            _builtin_entry("sol6", display_label="GPT-6-Sol"),
+            _builtin_entry("luna", display_label="GPT-6-Luna", fast=True),
+            _builtin_entry("sol56"),
+            _builtin_entry("terra56"),
+            _builtin_entry("luna56"),
             _builtin_entry("codexplan"),
             _builtin_entry("codexplan55"),
             _builtin_entry("codexplan54"),

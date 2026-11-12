@@ -25,5 +25,14 @@
     "mime_type": "text/markdown",
     "source": "execution_environments.md",
     "tags": ["environments", "config", "reference"]
+  },
+  {
+    "uri": "internal://fast-agent/herdr",
+    "title": "Herdr Coordination Guidance",
+    "description": "Concise fast-agent integration guidance for herdr-core terminals.",
+    "why": "Use when coordinating fast-agent terminals through herdr-core; consult hc --skill for current commands.",
+    "mime_type": "text/markdown",
+    "source": "herdr.md",
+    "tags": ["herdr", "coordination"]
   }
 ]

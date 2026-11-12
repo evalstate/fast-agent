@@ -102,6 +102,8 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         self._tool_schemas: list[Tool] = []
         self._agent_tools: dict[str, LlmAgent] = {}
         self._card_tool_names: set[str] = set()
+        # Request whose calls a subclass already sent through tool-call review.
+        self._prereviewed_tool_request: PromptMessageExtended | None = None
         self.last_turn_messages: list[PromptMessageExtended] = []
         self._transient_artifact_store: TransientArtifactStore | None = None
 
@@ -198,6 +200,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 name=tool.name,
                 description=tool.description,
                 input_schema=tool.parameters,
+                meta=dict(tool.meta) if tool.meta else None,
             )
         )
 
@@ -212,6 +215,13 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         if tool is None or not isinstance(tool.meta, Mapping):
             return None
         metadata = dict(tool.meta)
+        fast_agent_meta = metadata.get("fast_agent")
+        if isinstance(fast_agent_meta, Mapping) and "ptc" in fast_agent_meta:
+            # PTC exposure options describe the tool surface, not a call; keep them out of
+            # the per-call metadata that is displayed and persisted with history.
+            metadata["fast_agent"] = {
+                key: value for key, value in fast_agent_meta.items() if key != "ptc"
+            }
         return metadata or None
 
     def resolve_stream_tool_metadata(self, tool_name: str) -> Mapping[str, Any] | None:
@@ -707,6 +717,9 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         )
         for unavailable_call in plan.unavailable_calls:
             error_message = f"Tool '{unavailable_call.name}' is not available.{available_summary}"
+            hint = self._unavailable_tool_hint(unavailable_call.name)
+            if hint:
+                error_message = f"{error_message} {hint}"
             logger.warning(error_message)
             self._record_tool_error_result(
                 correlation_id=unavailable_call.correlation_id,
@@ -715,6 +728,68 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 tool_call_id=unavailable_call.correlation_id if should_parallel else None,
             )
         return plan.planned_calls
+
+    async def _review_planned_tool_calls(
+        self,
+        request: PromptMessageExtended,
+        planned_calls: list[PlannedToolCall],
+        *,
+        should_parallel: bool,
+        tool_results: dict[str, CallToolResult],
+    ) -> list[PlannedToolCall]:
+        """Drop calls denied by tool-call review plugins, recording their error results."""
+        if request is self._prereviewed_tool_request:
+            return planned_calls
+        denials = await self._review_tool_calls(request, planned_calls)
+        for correlation_id, message in denials.items():
+            self._record_tool_error_result(
+                correlation_id=correlation_id,
+                error_message=message,
+                tool_results=tool_results,
+                tool_call_id=correlation_id if should_parallel else None,
+            )
+        return [call for call in planned_calls if call.correlation_id not in denials]
+
+    def _tool_call_review_enabled(self) -> bool:
+        settings = self.context.config if self.context is not None else None
+        return settings is not None and bool(settings._plugin_tool_call_review)
+
+    async def _review_tool_calls(
+        self,
+        request: PromptMessageExtended,
+        calls: Sequence[PlannedToolCall],
+    ) -> dict[str, str]:
+        """Run tool-call review plugins over resolved calls; return denied ids and messages."""
+        settings = self.context.config if self.context is not None else None
+        if settings is None or not settings._plugin_tool_call_review or not calls:
+            return {}
+
+        from fast_agent.plugins.tool_call_review import (
+            PluginToolCall,
+            load_plugin_tool_call_reviewers,
+            review_plugin_tool_calls,
+        )
+
+        history = tuple(self.message_history)
+        if history and history[-1] == request:
+            history = history[:-1]
+        return await review_plugin_tool_calls(
+            load_plugin_tool_call_reviewers(settings._plugin_tool_call_review),
+            agent_name=self.name,
+            model=self.llm.model_name if self.llm is not None else None,
+            instruction=self.instruction,
+            tools=tuple((await self.list_tools()).tools),
+            history=history,
+            request=request,
+            tool_calls=[
+                PluginToolCall(call.correlation_id, call.name, call.arguments) for call in calls
+            ],
+            config=settings.plugins.config,
+        )
+
+    def _unavailable_tool_hint(self, name: str) -> str | None:
+        """Return guidance for reaching a tool the model called but cannot call directly."""
+        return None
 
     def _planned_tool_call_display_request(
         self,
@@ -990,6 +1065,12 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             known_tool_names={*available_tools, *self._execution_tools},
             case_insensitive_tool_names={*available_tools, *self._execution_tools},
             available_tools=available_tools,
+            should_parallel=should_parallel,
+            tool_results=tool_results,
+        )
+        planned_calls = await self._review_planned_tool_calls(
+            request,
+            planned_calls,
             should_parallel=should_parallel,
             tool_results=tool_results,
         )

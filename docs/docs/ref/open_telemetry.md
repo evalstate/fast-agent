@@ -48,11 +48,19 @@ Then, run your agent as normal - telemetry is transmitted by default to `http://
 
 !!! note "OpenAI Responses WebSocket instrumentation"
     With the currently pinned OpenLLMetry OpenAI instrumentation
-    (`opentelemetry-instrumentation-openai==0.62.1`), Responses API calls using the
+    (`opentelemetry-instrumentation-openai==0.62.4`), Responses API calls using the
     WebSocket transport produce fast-agent's agent and root spans, but not the detailed
     `openai.response` provider span. To capture provider metadata such as model and
     response IDs, token usage, and finish reasons, use the SDK-backed SSE transport by
     adding `transport=sse` to the model string, for example
     `responses.gpt-5.6-terra?transport=sse`.
+
+!!! note "Anthropic instrumentation"
+    Anthropic (including Vertex) spans are emitted natively by the `anthropic` SDK
+    using fast-agent's tracer provider. By default they record metadata only (model,
+    token usage, finish reasons); set
+    `ANTHROPIC_OPEN_TELEMETRY_TRACES_CONTENT_MODE=content` to also capture prompt and
+    completion content. See the `ANTHROPIC_OPEN_TELEMETRY*` environment variables in the
+    Anthropic SDK documentation for further options.
 
 For full configuration settings, check the [configuration file reference](config_file/#opentelemetry-settings)

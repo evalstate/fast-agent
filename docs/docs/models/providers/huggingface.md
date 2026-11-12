@@ -27,7 +27,100 @@ fast-agent --model hf.moonshotai/kimi-k2-instruct-0905:groq
 fast-agent --model "hf.moonshotai/Kimi-K2.6:novita?reasoning=on"
 ```
 
-Curated aliases such as `kimi`, `deepseek-hf`, `glm`, and `minimax` include provider choices and request defaults tested with fast-agent features such as structured outputs and tool use. Capability can still vary by backing provider.
+Kimi K3.1 Pro is available via Together using
+`hf.moonshotai/Kimi-K3.1-Pro:together` (`HF_TOKEN` required). The suffix is
+`together`, not `togetherai`. This route supports images and top-level
+`reasoning_effort` (`low`, `high`, `max`; default `max`), with preserved reasoning
+history. It is also the default HF model and the target of `kimi`/`kimithink`.
+PTC is enabled by default for K3.1 Pro; `--no-ptc` or `?ptc=off` disables it.
+Its structured-output requests use Together's legacy schema-bearing envelope
+to work around HF router translation; output is validated locally.
+See [Moonshot](moonshot.md) for the native route and model details.
+
+Curated aliases such as `kimi`, `deepseek-hf`, `glm`, and `minimax` include provider choices and request defaults. Capabilities and supported parameters vary by backing provider; see the route-specific notes below.
+
+## GLM-5.3 and GLM-5.3-Flash
+
+`glm` and `glm53` select `hf.zai-org/GLM-5.3:zai-org`; `glm53flash` selects
+`hf.zai-org/GLM-5.3-Flash:zai-org`. The HF picker offers both models through
+Together, Novita, and Z.ai, replacing its GLM-5.2 entries:
+
+| Picker alias | Route |
+| --- | --- |
+| `GLM 5.3 (together)` | `hf.zai-org/GLM-5.3:together` |
+| `GLM 5.3 (novita)` | `hf.zai-org/GLM-5.3:novita` |
+| `GLM 5.3 (zai-org)` | `hf.zai-org/GLM-5.3:zai-org` |
+| `GLM 5.3 Flash (together)` | `hf.zai-org/GLM-5.3-Flash:together` |
+| `GLM 5.3 Flash (novita)` | `hf.zai-org/GLM-5.3-Flash:novita` |
+| `GLM 5.3 Flash (zai-org)` | `hf.zai-org/GLM-5.3-Flash:zai-org` |
+
+The explicit `glm52` and `GLM 5.2 (zai-org)`, `GLM 5.2 (fireworks-ai)`, and
+`GLM 5.2 (deepinfra)` aliases remain available. For the native provider, see
+[Z.ai](zai.md).
+
+```bash
+fast-agent --model glm
+fast-agent --model "glm53flash?reasoning=low"
+fast-agent --model "hf.zai-org/GLM-5.3:together?reasoning=high"
+fast-agent --model "hf.zai-org/GLM-5.3-Flash:novita?reasoning=max"
+```
+
+Reasoning is always on, with `low`, `high`, and `max` effort levels (default
+`max`). `minimal` maps to `low` and `medium` to `high`; requests to disable
+reasoning are ignored with a warning. Each route sends top-level
+`reasoning_effort`, plus backend-specific preserved-thinking controls:
+
+| Backend | Additional request fields |
+| --- | --- |
+| Together | `chat_template_kwargs.clear_thinking: false` ([guide](https://docs.together.ai/docs/glm-5.3-quickstart)) |
+| Novita | None ([model page](https://novita.ai/models/model-detail/zai-org-glm-5.3)) |
+| Z.ai (`zai-org`) | `thinking: {type: enabled, clear_thinking: false}` ([thinking guide](https://docs.z.ai/guides/capabilities/thinking-mode)) |
+
+Streamed reasoning is preserved exactly and replayed as `reasoning_content` on
+later turns and tool-result continuations.
+
+Structured output uses JSON object mode with schema instructions and
+fast-agent validation, not strict `json_schema` mode.
+
+[GLM-5.3](https://huggingface.co/zai-org/GLM-5.3) is text-only.
+[GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash) accepts text and
+images through HF; native Z.ai PDF/MOV support is not available on HF routes.
+
+## DeepSeek V4.1 Flash
+
+```bash
+fast-agent --model deepseek41-hf
+fast-agent --model "hf.deepseek-ai/DeepSeek-V4.1-Flash:novita?reasoning=off"
+fast-agent --model "hf.deepseek-ai/DeepSeek-V4.1-Flash:fireworks-ai"
+```
+
+`deepseek41-hf`, `deepseek-v41-hf`, and `DeepSeek V4.1 Flash (novita)` select
+Novita. Native DeepSeek aliases are unchanged. Omitting the backend uses the
+configured HF default provider or HF auto-routing; other backends fall back to
+the same model-level request profile, not automatic retry/failover.
+
+The HF profile inherits V4.1's vision support, 1,048,576-token context,
+393,216-token output limit, and JSON Schema mode. Backend limits and capabilities
+may differ. Reasoning history is replayed as `reasoning_content`.
+
+For compatibility with the existing HF DeepSeek profile, requests send top-level
+`reasoning_effort`: `max` by default, `low`/`high`/`max` when selected, and `none`
+for `reasoning=off` or `reasoning=none`. No numeric effort conversion is made:
+the model README's raw-weights range of 1–100 does not establish API semantics.
+HF's maintained [Novita adapter](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/inference/_providers/novita.py)
+uses the [shared chat parameter passthrough](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/inference/_providers/_common.py)
+without an effort mapping. Other backends may differ in which effort values they honor.
+
+As of September 11, 2026, HF lists Novita and Fireworks as live routes. Local
+request-shaping tests cover default/max/off and backend profile fallback. Live
+FastAgent harness tests on Novita passed default/max/off reasoning, a tool-call
+roundtrip, and synthetic image recognition. Reasoning appeared for default/max
+and was absent for off. Low/high effort and other backends remain unverified live.
+
+For a credential-free, explicitly opt-in synthetic harness smoke script, run
+`uv run examples/huggingface-novita-smoke.py --live` from the repository with
+`HF_TOKEN` configured (or an HF cached login). It isolates workspace configuration
+and caps each request at 2,048 output tokens; it does not test the default output limit.
 
 ## Qwen3.8 27B
 
@@ -151,3 +244,50 @@ fast-agent --model "gemma4?reasoning=none"   # sends reasoning_effort=none
 ## Model aliases
 
 --8<-- "_generated/model_aliases_hf.md"
+
+
+## DeepSeek V4 Flash 0731 route limits
+
+`hf.deepseek-ai/DeepSeek-V4-Flash-0731:<provider>` uses the model's default
+reasoning profile unless a backend-specific profile applies. Baseten caps output
+at 384,000 tokens; Scaleway caps output at 32,768 tokens. Fast-agent applies these
+route limits to defaults and clamps larger explicit `max_tokens` values before
+sending a request. Smaller explicit budgets are preserved.
+
+Scaleway exposes a 262,144-token context window; context display and automatic
+compaction use this route-specific window, not the model-wide 1M window.
+Together omits the default output limit. DeepInfra defaults to 131,072 output
+tokens because omission still reserves 384,000 tokens on that backend. Explicit
+`max_tokens` overrides are preserved on Together and DeepInfra.
+
+The V4.1 Flash Novita route also omits the default output limit while preserving
+explicit overrides. Other routes retain the model-wide output budget.
+
+These limits apply to raw model strings, picker aliases, and routes selected with
+`hf.default_provider`; no `?max_tokens=...` workaround is needed for Baseten.
+
+## Inline images and the request size limit
+
+The router rejects request bodies larger than about 5 MB with HTTP 413. Image-heavy
+turns (document scans, video frames) can reach that quickly, because every image in
+the history is resent on each turn. Fast-agent fits inline images to the limit when
+it builds each request; the conversation history is never changed:
+
+1. Images whose longest side exceeds `image_max_dimension` (default 2048 px) are
+   downscaled. Images larger than `image_reencode_min_bytes` (default 300 KB) are
+   re-encoded as the smaller of their own format and JPEG; images with transparency
+   stay PNG. The result is deterministic, so repeated turns keep a stable prompt prefix.
+2. If the request is still larger than `max_request_bytes` (default 4.5 MiB), the oldest
+   images are replaced with a short text placeholder until it fits.
+3. If the router still answers 413, the request is resent once with the images trimmed
+   to half its size.
+
+This applies to the Hugging Face router only; requests to a custom `hf.base_url`
+endpoint are sent unchanged.
+
+```yaml
+hf:
+  # image_max_dimension: 2048       # null disables downscaling
+  # image_reencode_min_bytes: 300000 # null disables re-encoding
+  # max_request_bytes: 4718592      # null disables the budget
+```

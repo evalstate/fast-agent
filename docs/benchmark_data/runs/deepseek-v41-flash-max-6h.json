@@ -1,0 +1,3075 @@
+{
+  "id": "deepseek-v41-flash-max-6h",
+  "benchmark": "terminal-bench-2.1",
+  "harness": "fast-agent",
+  "harness_version": "0.10.24",
+  "model": "DeepSeek V4.1 Flash",
+  "effort": "max",
+  "model_string": "deepseek-v41 \u2192 deepseek.deepseek-flash (reasoning max, the model default)",
+  "date": "2026-09-11",
+  "timeout": "6h",
+  "jobs": [
+    {
+      "id": "run-cdae366f51f72063661695a6",
+      "name": "run-cdae366f51f72063661695a6 (445 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job"
+    },
+    {
+      "id": "run-7614fa93fbcbc7b4b8d6f6ca",
+      "name": "run-7614fa93fbcbc7b4b8d6f6ca (5 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-7614fa93fbcbc7b4b8d6f6ca",
+      "path": "/home/ssmith/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-7614fa93fbcbc7b4b8d6f6ca/job"
+    }
+  ],
+  "excluded_trials": [
+    {
+      "id": "aef4557f-4fc9-4dce-abe7-3f4f252d9b73",
+      "task": "filter-js-from-html",
+      "error_type": "AddTestsDirError",
+      "cost_usd": 0.32968825199999996,
+      "reason": "AddTestsDirError (infrastructure); replaced by the rerun in run-7614fa93fbcbc7b4b8d6f6ca. Not scored; its cost is still counted."
+    },
+    {
+      "id": "87a4d3bf-80cc-42ec-a021-087238fa9266",
+      "task": "large-scale-text-editing",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": null,
+      "reason": "RemoteProtocolError (infrastructure); replaced by the rerun in run-7614fa93fbcbc7b4b8d6f6ca. Not scored; its cost is still counted."
+    },
+    {
+      "id": "0ad1b619-99bf-431a-9fda-8c18752d736a",
+      "task": "qemu-startup",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": null,
+      "reason": "RemoteProtocolError (infrastructure); replaced by the rerun in run-7614fa93fbcbc7b4b8d6f6ca. Not scored; its cost is still counted."
+    },
+    {
+      "id": "05eb569e-de6f-43ab-8343-de38bff0edd0",
+      "task": "regex-chess",
+      "error_type": "SandboxError",
+      "cost_usd": null,
+      "reason": "SandboxError (infrastructure); replaced by the rerun in run-7614fa93fbcbc7b4b8d6f6ca. Not scored; its cost is still counted."
+    },
+    {
+      "id": "c24cfe4d-78ff-4aa6-bc92-b295e3c3778e",
+      "task": "train-fasttext",
+      "error_type": "RemoteProtocolError",
+      "cost_usd": null,
+      "reason": "RemoteProtocolError (infrastructure); replaced by the rerun in run-7614fa93fbcbc7b4b8d6f6ca. Not scored; its cost is still counted."
+    }
+  ],
+  "disqualified_trials": [],
+  "slots": 445,
+  "passes": 375,
+  "score": 84.27,
+  "tasks": {
+    "adaptive-rejection-sampler": "11111",
+    "bn-fit-modify": "11111",
+    "break-filter-js-from-html": "11111",
+    "build-cython-ext": "11111",
+    "build-pmars": "11111",
+    "build-pov-ray": "11111",
+    "caffe-cifar-10": "11111",
+    "cancel-async-tasks": "11111",
+    "chess-best-move": "111x1",
+    "circuit-fibsqrt": "11111",
+    "cobol-modernization": "11111",
+    "code-from-image": "11111",
+    "compile-compcert": "1x111",
+    "configure-git-webserver": "11111",
+    "constraints-scheduling": "11111",
+    "count-dataset-tokens": "xxxxx",
+    "crack-7z-hash": "11111",
+    "custom-memory-heap-crash": "11111",
+    "db-wal-recovery": "11111",
+    "distribution-search": "11111",
+    "dna-assembly": "11111",
+    "dna-insert": "xxx1x",
+    "extract-elf": "xxxxx",
+    "extract-moves-from-video": "1111e",
+    "feal-differential-cryptanalysis": "11111",
+    "feal-linear-cryptanalysis": "11111",
+    "filter-js-from-html": "x0000",
+    "financial-document-processor": "1x111",
+    "fix-code-vulnerability": "11111",
+    "fix-git": "11111",
+    "fix-ocaml-gc": "xxxxx",
+    "gcode-to-text": "11111",
+    "git-leak-recovery": "11111",
+    "git-multibranch": "11011",
+    "gpt2-codegolf": "11111",
+    "headless-terminal": "11111",
+    "hf-model-inference": "11111",
+    "install-windows-3.11": "11111",
+    "kv-store-grpc": "11111",
+    "large-scale-text-editing": "11111",
+    "largest-eigenval": "11111",
+    "llm-inference-batching-scheduler": "11111",
+    "log-summary-date-ranges": "11111",
+    "mailman": "x1111",
+    "make-doom-for-mips": "00000",
+    "make-mips-interpreter": "11111",
+    "mcmc-sampling-stan": "1110x",
+    "merge-diff-arc-agi-task": "11111",
+    "model-extraction-relu-logits": "11110",
+    "modernize-scientific-stack": "11111",
+    "mteb-leaderboard": "x1111",
+    "mteb-retrieve": "xxxxx",
+    "multi-source-data-merger": "11111",
+    "nginx-request-logging": "11111",
+    "openssl-selfsigned-cert": "11111",
+    "overfull-hbox": "11111",
+    "password-recovery": "11111",
+    "path-tracing": "11111",
+    "path-tracing-reverse": "11111",
+    "polyglot-c-py": "11111",
+    "polyglot-rust-c": "11111",
+    "portfolio-optimization": "11111",
+    "protein-assembly": "x110x",
+    "prove-plus-comm": "11111",
+    "pypi-server": "11111",
+    "pytorch-model-cli": "00000",
+    "pytorch-model-recovery": "111x1",
+    "qemu-alpine-ssh": "11111",
+    "qemu-startup": "11111",
+    "query-optimize": "11011",
+    "raman-fitting": "xxxxx",
+    "regex-chess": "11111",
+    "regex-log": "11111",
+    "reshard-c4-data": "11111",
+    "rstan-to-pystan": "11111",
+    "sam-cell-seg": "11111",
+    "sanitize-git-repo": "1x1x1",
+    "schemelike-metacircular-eval": "11111",
+    "sparql-university": "11111",
+    "sqlite-db-truncate": "11111",
+    "sqlite-with-gcov": "11111",
+    "torch-pipeline-parallelism": "xxxxx",
+    "torch-tensor-parallelism": "11xx1",
+    "train-fasttext": "01111",
+    "tune-mjcf": "11111",
+    "video-processing": "11110",
+    "vulnerable-secret": "11111",
+    "winning-avg-corewars": "11111",
+    "write-compressor": "11111"
+  },
+  "trials": {
+    "adaptive-rejection-sampler": [
+      {
+        "name": "adaptive-rejection-sampler__8FZYgDa",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/adaptive-rejection-sampler__8FZYgDa"
+      },
+      {
+        "name": "adaptive-rejection-sampler__kYvC3Pf",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/adaptive-rejection-sampler__kYvC3Pf"
+      },
+      {
+        "name": "adaptive-rejection-sampler__pznYqtc",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/adaptive-rejection-sampler__pznYqtc"
+      },
+      {
+        "name": "adaptive-rejection-sampler__xaeC3dZ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/adaptive-rejection-sampler__xaeC3dZ"
+      },
+      {
+        "name": "adaptive-rejection-sampler__9xNqYSS",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/adaptive-rejection-sampler__9xNqYSS"
+      }
+    ],
+    "bn-fit-modify": [
+      {
+        "name": "bn-fit-modify__8vm6uvz",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/bn-fit-modify__8vm6uvz"
+      },
+      {
+        "name": "bn-fit-modify__8H22BZ7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/bn-fit-modify__8H22BZ7"
+      },
+      {
+        "name": "bn-fit-modify__DmAE7Pb",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/bn-fit-modify__DmAE7Pb"
+      },
+      {
+        "name": "bn-fit-modify__yQbFoXK",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/bn-fit-modify__yQbFoXK"
+      },
+      {
+        "name": "bn-fit-modify__UTWBuat",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/bn-fit-modify__UTWBuat"
+      }
+    ],
+    "break-filter-js-from-html": [
+      {
+        "name": "break-filter-js-from-html__Ey4DXbh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/break-filter-js-from-html__Ey4DXbh"
+      },
+      {
+        "name": "break-filter-js-from-html__pAhvr9m",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/break-filter-js-from-html__pAhvr9m"
+      },
+      {
+        "name": "break-filter-js-from-html__gmZ5joT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/break-filter-js-from-html__gmZ5joT"
+      },
+      {
+        "name": "break-filter-js-from-html__W26ZkdX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/break-filter-js-from-html__W26ZkdX"
+      },
+      {
+        "name": "break-filter-js-from-html__b96xA5k",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/break-filter-js-from-html__b96xA5k"
+      }
+    ],
+    "build-cython-ext": [
+      {
+        "name": "build-cython-ext__Xa9U64x",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-cython-ext__Xa9U64x"
+      },
+      {
+        "name": "build-cython-ext__XhJ4Twm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-cython-ext__XhJ4Twm"
+      },
+      {
+        "name": "build-cython-ext__sC2QKLJ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-cython-ext__sC2QKLJ"
+      },
+      {
+        "name": "build-cython-ext__JSgZWxq",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-cython-ext__JSgZWxq"
+      },
+      {
+        "name": "build-cython-ext__YhVgPua",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-cython-ext__YhVgPua"
+      }
+    ],
+    "build-pmars": [
+      {
+        "name": "build-pmars__5RN4Bxk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pmars__5RN4Bxk"
+      },
+      {
+        "name": "build-pmars__vRW4fV3",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pmars__vRW4fV3"
+      },
+      {
+        "name": "build-pmars__Kudhpgr",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pmars__Kudhpgr"
+      },
+      {
+        "name": "build-pmars__ojvQsxM",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pmars__ojvQsxM"
+      },
+      {
+        "name": "build-pmars__dz3WfUY",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pmars__dz3WfUY"
+      }
+    ],
+    "build-pov-ray": [
+      {
+        "name": "build-pov-ray__7D2QDJY",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pov-ray__7D2QDJY"
+      },
+      {
+        "name": "build-pov-ray__8ssvRaf",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pov-ray__8ssvRaf"
+      },
+      {
+        "name": "build-pov-ray__Mdicb3h",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pov-ray__Mdicb3h"
+      },
+      {
+        "name": "build-pov-ray__PvfHYak",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pov-ray__PvfHYak"
+      },
+      {
+        "name": "build-pov-ray__iMtYNzE",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/build-pov-ray__iMtYNzE"
+      }
+    ],
+    "caffe-cifar-10": [
+      {
+        "name": "caffe-cifar-10__Epc3JZA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/caffe-cifar-10__Epc3JZA"
+      },
+      {
+        "name": "caffe-cifar-10__ayshSTX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/caffe-cifar-10__ayshSTX"
+      },
+      {
+        "name": "caffe-cifar-10__Ceb3f9a",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/caffe-cifar-10__Ceb3f9a"
+      },
+      {
+        "name": "caffe-cifar-10__Kifnreh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/caffe-cifar-10__Kifnreh"
+      },
+      {
+        "name": "caffe-cifar-10__zSg5Rit",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/caffe-cifar-10__zSg5Rit"
+      }
+    ],
+    "cancel-async-tasks": [
+      {
+        "name": "cancel-async-tasks__YkiTwfc",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cancel-async-tasks__YkiTwfc"
+      },
+      {
+        "name": "cancel-async-tasks__yUSiG9o",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cancel-async-tasks__yUSiG9o"
+      },
+      {
+        "name": "cancel-async-tasks__QgAZfXa",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cancel-async-tasks__QgAZfXa"
+      },
+      {
+        "name": "cancel-async-tasks__UNo9jVL",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cancel-async-tasks__UNo9jVL"
+      },
+      {
+        "name": "cancel-async-tasks__zCPa9zK",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cancel-async-tasks__zCPa9zK"
+      }
+    ],
+    "chess-best-move": [
+      {
+        "name": "chess-best-move__nq3eaY4",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/chess-best-move__nq3eaY4"
+      },
+      {
+        "name": "chess-best-move__euEtVWk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/chess-best-move__euEtVWk"
+      },
+      {
+        "name": "chess-best-move__t3XxEXd",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/chess-best-move__t3XxEXd"
+      },
+      {
+        "name": "chess-best-move__uqNQrT7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/chess-best-move__uqNQrT7"
+      },
+      {
+        "name": "chess-best-move__zwKzaX5",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/chess-best-move__zwKzaX5"
+      }
+    ],
+    "circuit-fibsqrt": [
+      {
+        "name": "circuit-fibsqrt__cVUaQjT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/circuit-fibsqrt__cVUaQjT"
+      },
+      {
+        "name": "circuit-fibsqrt__cd5A4yt",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/circuit-fibsqrt__cd5A4yt"
+      },
+      {
+        "name": "circuit-fibsqrt__Z4GZvFk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/circuit-fibsqrt__Z4GZvFk"
+      },
+      {
+        "name": "circuit-fibsqrt__XTh6ydh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/circuit-fibsqrt__XTh6ydh"
+      },
+      {
+        "name": "circuit-fibsqrt__amQUdXR",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/circuit-fibsqrt__amQUdXR"
+      }
+    ],
+    "cobol-modernization": [
+      {
+        "name": "cobol-modernization__HtfgVXs",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cobol-modernization__HtfgVXs"
+      },
+      {
+        "name": "cobol-modernization__rgKVKBD",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cobol-modernization__rgKVKBD"
+      },
+      {
+        "name": "cobol-modernization__s7Yikxw",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cobol-modernization__s7Yikxw"
+      },
+      {
+        "name": "cobol-modernization__5oowebP",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cobol-modernization__5oowebP"
+      },
+      {
+        "name": "cobol-modernization__otYkL6Q",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/cobol-modernization__otYkL6Q"
+      }
+    ],
+    "code-from-image": [
+      {
+        "name": "code-from-image__hPYH6Zy",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/code-from-image__hPYH6Zy"
+      },
+      {
+        "name": "code-from-image__nC2opAL",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/code-from-image__nC2opAL"
+      },
+      {
+        "name": "code-from-image__Ru9wbdH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/code-from-image__Ru9wbdH"
+      },
+      {
+        "name": "code-from-image__A6GNgW2",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/code-from-image__A6GNgW2"
+      },
+      {
+        "name": "code-from-image__5QMjKLv",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/code-from-image__5QMjKLv"
+      }
+    ],
+    "compile-compcert": [
+      {
+        "name": "compile-compcert__QL89Cq3",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/compile-compcert__QL89Cq3"
+      },
+      {
+        "name": "compile-compcert__pDsRnAT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/compile-compcert__pDsRnAT"
+      },
+      {
+        "name": "compile-compcert__5XzZVKM",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/compile-compcert__5XzZVKM"
+      },
+      {
+        "name": "compile-compcert__PYD2z2E",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/compile-compcert__PYD2z2E"
+      },
+      {
+        "name": "compile-compcert__txkmw6V",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/compile-compcert__txkmw6V"
+      }
+    ],
+    "configure-git-webserver": [
+      {
+        "name": "configure-git-webserver__aCNrUyr",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/configure-git-webserver__aCNrUyr"
+      },
+      {
+        "name": "configure-git-webserver__5YqLecX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/configure-git-webserver__5YqLecX"
+      },
+      {
+        "name": "configure-git-webserver__DWQzNFW",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/configure-git-webserver__DWQzNFW"
+      },
+      {
+        "name": "configure-git-webserver__VyJEtkH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/configure-git-webserver__VyJEtkH"
+      },
+      {
+        "name": "configure-git-webserver__7ZBJsUT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/configure-git-webserver__7ZBJsUT"
+      }
+    ],
+    "constraints-scheduling": [
+      {
+        "name": "constraints-scheduling__jWvCMwq",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/constraints-scheduling__jWvCMwq"
+      },
+      {
+        "name": "constraints-scheduling__W38wJy5",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/constraints-scheduling__W38wJy5"
+      },
+      {
+        "name": "constraints-scheduling__4GZXYV8",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/constraints-scheduling__4GZXYV8"
+      },
+      {
+        "name": "constraints-scheduling__wFnoZxc",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/constraints-scheduling__wFnoZxc"
+      },
+      {
+        "name": "constraints-scheduling__vTXnGKd",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/constraints-scheduling__vTXnGKd"
+      }
+    ],
+    "count-dataset-tokens": [
+      {
+        "name": "count-dataset-tokens__FYcdiKV",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/count-dataset-tokens__FYcdiKV"
+      },
+      {
+        "name": "count-dataset-tokens__jwYp98Y",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/count-dataset-tokens__jwYp98Y"
+      },
+      {
+        "name": "count-dataset-tokens__tcmGQm8",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/count-dataset-tokens__tcmGQm8"
+      },
+      {
+        "name": "count-dataset-tokens__sPdKazM",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/count-dataset-tokens__sPdKazM"
+      },
+      {
+        "name": "count-dataset-tokens__L28pQ9d",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/count-dataset-tokens__L28pQ9d"
+      }
+    ],
+    "crack-7z-hash": [
+      {
+        "name": "crack-7z-hash__MetPjbm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/crack-7z-hash__MetPjbm"
+      },
+      {
+        "name": "crack-7z-hash__7KQUBHM",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/crack-7z-hash__7KQUBHM"
+      },
+      {
+        "name": "crack-7z-hash__wPSaKTk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/crack-7z-hash__wPSaKTk"
+      },
+      {
+        "name": "crack-7z-hash__iBiSfoV",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/crack-7z-hash__iBiSfoV"
+      },
+      {
+        "name": "crack-7z-hash__gUQ5duX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/crack-7z-hash__gUQ5duX"
+      }
+    ],
+    "custom-memory-heap-crash": [
+      {
+        "name": "custom-memory-heap-crash__pkrQmsg",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/custom-memory-heap-crash__pkrQmsg"
+      },
+      {
+        "name": "custom-memory-heap-crash__BQVC5b5",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/custom-memory-heap-crash__BQVC5b5"
+      },
+      {
+        "name": "custom-memory-heap-crash__cBBELXU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/custom-memory-heap-crash__cBBELXU"
+      },
+      {
+        "name": "custom-memory-heap-crash__j4hWNn9",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/custom-memory-heap-crash__j4hWNn9"
+      },
+      {
+        "name": "custom-memory-heap-crash__yzwhy7R",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/custom-memory-heap-crash__yzwhy7R"
+      }
+    ],
+    "db-wal-recovery": [
+      {
+        "name": "db-wal-recovery__vPmARMv",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/db-wal-recovery__vPmARMv"
+      },
+      {
+        "name": "db-wal-recovery__nFKtzD7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/db-wal-recovery__nFKtzD7"
+      },
+      {
+        "name": "db-wal-recovery__KmJfPuX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/db-wal-recovery__KmJfPuX"
+      },
+      {
+        "name": "db-wal-recovery__3zXVX2D",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/db-wal-recovery__3zXVX2D"
+      },
+      {
+        "name": "db-wal-recovery__XE2DPXp",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/db-wal-recovery__XE2DPXp"
+      }
+    ],
+    "distribution-search": [
+      {
+        "name": "distribution-search__r8PsEsp",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/distribution-search__r8PsEsp"
+      },
+      {
+        "name": "distribution-search__9pBYgUZ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/distribution-search__9pBYgUZ"
+      },
+      {
+        "name": "distribution-search__iPk3ViA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/distribution-search__iPk3ViA"
+      },
+      {
+        "name": "distribution-search__TPK6vg4",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/distribution-search__TPK6vg4"
+      },
+      {
+        "name": "distribution-search__zwf5HK9",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/distribution-search__zwf5HK9"
+      }
+    ],
+    "dna-assembly": [
+      {
+        "name": "dna-assembly__8J2Y8Mz",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-assembly__8J2Y8Mz"
+      },
+      {
+        "name": "dna-assembly__KAnntoM",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-assembly__KAnntoM"
+      },
+      {
+        "name": "dna-assembly__R4BK7NR",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-assembly__R4BK7NR"
+      },
+      {
+        "name": "dna-assembly__5fsjKn5",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-assembly__5fsjKn5"
+      },
+      {
+        "name": "dna-assembly__pYHpJUu",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-assembly__pYHpJUu"
+      }
+    ],
+    "dna-insert": [
+      {
+        "name": "dna-insert__SEBjqTe",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-insert__SEBjqTe"
+      },
+      {
+        "name": "dna-insert__s3B45md",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-insert__s3B45md"
+      },
+      {
+        "name": "dna-insert__gYwd9CE",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-insert__gYwd9CE"
+      },
+      {
+        "name": "dna-insert__j5wa8So",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-insert__j5wa8So"
+      },
+      {
+        "name": "dna-insert__VtTa3sn",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/dna-insert__VtTa3sn"
+      }
+    ],
+    "extract-elf": [
+      {
+        "name": "extract-elf__F8mPK2x",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-elf__F8mPK2x"
+      },
+      {
+        "name": "extract-elf__tiSceHf",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-elf__tiSceHf"
+      },
+      {
+        "name": "extract-elf__g8PxNbQ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-elf__g8PxNbQ"
+      },
+      {
+        "name": "extract-elf__W3tuxTk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-elf__W3tuxTk"
+      },
+      {
+        "name": "extract-elf__MThuKaR",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-elf__MThuKaR"
+      }
+    ],
+    "extract-moves-from-video": [
+      {
+        "name": "extract-moves-from-video__kJc7Hxk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-moves-from-video__kJc7Hxk"
+      },
+      {
+        "name": "extract-moves-from-video__2Zd87y2",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-moves-from-video__2Zd87y2"
+      },
+      {
+        "name": "extract-moves-from-video__FTNQzWT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-moves-from-video__FTNQzWT"
+      },
+      {
+        "name": "extract-moves-from-video__QWVKSyN",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-moves-from-video__QWVKSyN"
+      },
+      {
+        "name": "extract-moves-from-video__j36tsRn",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/extract-moves-from-video__j36tsRn"
+      }
+    ],
+    "feal-differential-cryptanalysis": [
+      {
+        "name": "feal-differential-cryptanalysis__Ah3evtB",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-differential-cryptanalysis__Ah3evtB"
+      },
+      {
+        "name": "feal-differential-cryptanalysis__QTWUpAP",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-differential-cryptanalysis__QTWUpAP"
+      },
+      {
+        "name": "feal-differential-cryptanalysis__suVqM2q",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-differential-cryptanalysis__suVqM2q"
+      },
+      {
+        "name": "feal-differential-cryptanalysis__fGCcrGw",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-differential-cryptanalysis__fGCcrGw"
+      },
+      {
+        "name": "feal-differential-cryptanalysis__67gWVHy",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-differential-cryptanalysis__67gWVHy"
+      }
+    ],
+    "feal-linear-cryptanalysis": [
+      {
+        "name": "feal-linear-cryptanalysis__x8RstfS",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-linear-cryptanalysis__x8RstfS"
+      },
+      {
+        "name": "feal-linear-cryptanalysis__3inMV5q",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-linear-cryptanalysis__3inMV5q"
+      },
+      {
+        "name": "feal-linear-cryptanalysis__xb3oQmY",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-linear-cryptanalysis__xb3oQmY"
+      },
+      {
+        "name": "feal-linear-cryptanalysis__nh5VxTE",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-linear-cryptanalysis__nh5VxTE"
+      },
+      {
+        "name": "feal-linear-cryptanalysis__eoYVeqo",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/feal-linear-cryptanalysis__eoYVeqo"
+      }
+    ],
+    "filter-js-from-html": [
+      {
+        "name": "filter-js-from-html__2YajFNW",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/filter-js-from-html__2YajFNW"
+      },
+      {
+        "name": "filter-js-from-html__238xCup",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/filter-js-from-html__238xCup"
+      },
+      {
+        "name": "filter-js-from-html__Rbzdxpn",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/filter-js-from-html__Rbzdxpn"
+      },
+      {
+        "name": "filter-js-from-html__gjFViS4",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/filter-js-from-html__gjFViS4"
+      },
+      {
+        "name": "filter-js-from-html__zaHD2X2",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-7614fa93fbcbc7b4b8d6f6ca/job/filter-js-from-html__zaHD2X2"
+      }
+    ],
+    "financial-document-processor": [
+      {
+        "name": "financial-document-processor__ahq3ayC",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/financial-document-processor__ahq3ayC"
+      },
+      {
+        "name": "financial-document-processor__qKdSuiU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/financial-document-processor__qKdSuiU"
+      },
+      {
+        "name": "financial-document-processor__iTE23Gt",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/financial-document-processor__iTE23Gt"
+      },
+      {
+        "name": "financial-document-processor__vpioU2h",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/financial-document-processor__vpioU2h"
+      },
+      {
+        "name": "financial-document-processor__xCCchWY",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/financial-document-processor__xCCchWY"
+      }
+    ],
+    "fix-code-vulnerability": [
+      {
+        "name": "fix-code-vulnerability__kjWeKFe",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-code-vulnerability__kjWeKFe"
+      },
+      {
+        "name": "fix-code-vulnerability__JJhhiWL",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-code-vulnerability__JJhhiWL"
+      },
+      {
+        "name": "fix-code-vulnerability__564hRdF",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-code-vulnerability__564hRdF"
+      },
+      {
+        "name": "fix-code-vulnerability__EhLeE6Z",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-code-vulnerability__EhLeE6Z"
+      },
+      {
+        "name": "fix-code-vulnerability__xnoTpgo",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-code-vulnerability__xnoTpgo"
+      }
+    ],
+    "fix-git": [
+      {
+        "name": "fix-git__iF2ZBAX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-git__iF2ZBAX"
+      },
+      {
+        "name": "fix-git__Mtchu3Z",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-git__Mtchu3Z"
+      },
+      {
+        "name": "fix-git__WWDpNv9",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-git__WWDpNv9"
+      },
+      {
+        "name": "fix-git__HheRkS7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-git__HheRkS7"
+      },
+      {
+        "name": "fix-git__dejc4uH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-git__dejc4uH"
+      }
+    ],
+    "fix-ocaml-gc": [
+      {
+        "name": "fix-ocaml-gc__y3DUtb3",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-ocaml-gc__y3DUtb3"
+      },
+      {
+        "name": "fix-ocaml-gc__U5ckkQo",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-ocaml-gc__U5ckkQo"
+      },
+      {
+        "name": "fix-ocaml-gc__kDBezWb",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-ocaml-gc__kDBezWb"
+      },
+      {
+        "name": "fix-ocaml-gc__hSNCVE3",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-ocaml-gc__hSNCVE3"
+      },
+      {
+        "name": "fix-ocaml-gc__7tkV4Ga",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/fix-ocaml-gc__7tkV4Ga"
+      }
+    ],
+    "gcode-to-text": [
+      {
+        "name": "gcode-to-text__qx9fnkH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gcode-to-text__qx9fnkH"
+      },
+      {
+        "name": "gcode-to-text__8oU5WyX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gcode-to-text__8oU5WyX"
+      },
+      {
+        "name": "gcode-to-text__8P74hYU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gcode-to-text__8P74hYU"
+      },
+      {
+        "name": "gcode-to-text__urymx2D",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gcode-to-text__urymx2D"
+      },
+      {
+        "name": "gcode-to-text__Uk98YSE",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gcode-to-text__Uk98YSE"
+      }
+    ],
+    "git-leak-recovery": [
+      {
+        "name": "git-leak-recovery__yCSKLpy",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-leak-recovery__yCSKLpy"
+      },
+      {
+        "name": "git-leak-recovery__K88FRm8",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-leak-recovery__K88FRm8"
+      },
+      {
+        "name": "git-leak-recovery__xTgFGWA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-leak-recovery__xTgFGWA"
+      },
+      {
+        "name": "git-leak-recovery__ruor4am",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-leak-recovery__ruor4am"
+      },
+      {
+        "name": "git-leak-recovery__RHZJkX8",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-leak-recovery__RHZJkX8"
+      }
+    ],
+    "git-multibranch": [
+      {
+        "name": "git-multibranch__2dqg3cm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-multibranch__2dqg3cm"
+      },
+      {
+        "name": "git-multibranch__kwPbMyW",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-multibranch__kwPbMyW"
+      },
+      {
+        "name": "git-multibranch__9qGz3A8",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-multibranch__9qGz3A8"
+      },
+      {
+        "name": "git-multibranch__an7Ug7P",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-multibranch__an7Ug7P"
+      },
+      {
+        "name": "git-multibranch__nJUSSAm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/git-multibranch__nJUSSAm"
+      }
+    ],
+    "gpt2-codegolf": [
+      {
+        "name": "gpt2-codegolf__5zewJ3w",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gpt2-codegolf__5zewJ3w"
+      },
+      {
+        "name": "gpt2-codegolf__NW3yrQU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gpt2-codegolf__NW3yrQU"
+      },
+      {
+        "name": "gpt2-codegolf__a6McoY5",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gpt2-codegolf__a6McoY5"
+      },
+      {
+        "name": "gpt2-codegolf__dKwRtHQ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gpt2-codegolf__dKwRtHQ"
+      },
+      {
+        "name": "gpt2-codegolf__juQvNL4",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/gpt2-codegolf__juQvNL4"
+      }
+    ],
+    "headless-terminal": [
+      {
+        "name": "headless-terminal__3rWMyef",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/headless-terminal__3rWMyef"
+      },
+      {
+        "name": "headless-terminal__Lwm2X88",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/headless-terminal__Lwm2X88"
+      },
+      {
+        "name": "headless-terminal__fa7FZPT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/headless-terminal__fa7FZPT"
+      },
+      {
+        "name": "headless-terminal__WRoXSin",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/headless-terminal__WRoXSin"
+      },
+      {
+        "name": "headless-terminal__goMpUNF",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/headless-terminal__goMpUNF"
+      }
+    ],
+    "hf-model-inference": [
+      {
+        "name": "hf-model-inference__fAoycSh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/hf-model-inference__fAoycSh"
+      },
+      {
+        "name": "hf-model-inference__saNrhPu",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/hf-model-inference__saNrhPu"
+      },
+      {
+        "name": "hf-model-inference__x5ruETY",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/hf-model-inference__x5ruETY"
+      },
+      {
+        "name": "hf-model-inference__QWxhSd7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/hf-model-inference__QWxhSd7"
+      },
+      {
+        "name": "hf-model-inference__Pzi7snj",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/hf-model-inference__Pzi7snj"
+      }
+    ],
+    "install-windows-3.11": [
+      {
+        "name": "install-windows-3.11__RLB5wm7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/install-windows-3.11__RLB5wm7"
+      },
+      {
+        "name": "install-windows-3.11__YFBZoRQ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/install-windows-3.11__YFBZoRQ"
+      },
+      {
+        "name": "install-windows-3.11__9spicVL",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/install-windows-3.11__9spicVL"
+      },
+      {
+        "name": "install-windows-3.11__cZxFZME",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/install-windows-3.11__cZxFZME"
+      },
+      {
+        "name": "install-windows-3.11__CZnoHpb",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/install-windows-3.11__CZnoHpb"
+      }
+    ],
+    "kv-store-grpc": [
+      {
+        "name": "kv-store-grpc__vvZHtev",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/kv-store-grpc__vvZHtev"
+      },
+      {
+        "name": "kv-store-grpc__b4hRu9p",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/kv-store-grpc__b4hRu9p"
+      },
+      {
+        "name": "kv-store-grpc__NtRxnMX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/kv-store-grpc__NtRxnMX"
+      },
+      {
+        "name": "kv-store-grpc__WYZHz7i",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/kv-store-grpc__WYZHz7i"
+      },
+      {
+        "name": "kv-store-grpc__pVqmTHf",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/kv-store-grpc__pVqmTHf"
+      }
+    ],
+    "large-scale-text-editing": [
+      {
+        "name": "large-scale-text-editing__DqyDFDH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/large-scale-text-editing__DqyDFDH"
+      },
+      {
+        "name": "large-scale-text-editing__UeRzYsr",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/large-scale-text-editing__UeRzYsr"
+      },
+      {
+        "name": "large-scale-text-editing__Q4qVXsp",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/large-scale-text-editing__Q4qVXsp"
+      },
+      {
+        "name": "large-scale-text-editing__WnLb6fG",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/large-scale-text-editing__WnLb6fG"
+      },
+      {
+        "name": "large-scale-text-editing__et6WJEJ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-7614fa93fbcbc7b4b8d6f6ca/job/large-scale-text-editing__et6WJEJ"
+      }
+    ],
+    "largest-eigenval": [
+      {
+        "name": "largest-eigenval__ANVKzyE",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/largest-eigenval__ANVKzyE"
+      },
+      {
+        "name": "largest-eigenval__rPTr9cH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/largest-eigenval__rPTr9cH"
+      },
+      {
+        "name": "largest-eigenval__8hrbGCh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/largest-eigenval__8hrbGCh"
+      },
+      {
+        "name": "largest-eigenval__dyL4sM9",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/largest-eigenval__dyL4sM9"
+      },
+      {
+        "name": "largest-eigenval__3kfapvF",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/largest-eigenval__3kfapvF"
+      }
+    ],
+    "llm-inference-batching-scheduler": [
+      {
+        "name": "llm-inference-batching-scheduler__yAQYiFv",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/llm-inference-batching-scheduler__yAQYiFv"
+      },
+      {
+        "name": "llm-inference-batching-scheduler__QGdyUNL",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/llm-inference-batching-scheduler__QGdyUNL"
+      },
+      {
+        "name": "llm-inference-batching-scheduler__iJGBshH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/llm-inference-batching-scheduler__iJGBshH"
+      },
+      {
+        "name": "llm-inference-batching-scheduler__4FyUt3Q",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/llm-inference-batching-scheduler__4FyUt3Q"
+      },
+      {
+        "name": "llm-inference-batching-scheduler__qBSSVFN",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/llm-inference-batching-scheduler__qBSSVFN"
+      }
+    ],
+    "log-summary-date-ranges": [
+      {
+        "name": "log-summary-date-ranges__quPCGLm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/log-summary-date-ranges__quPCGLm"
+      },
+      {
+        "name": "log-summary-date-ranges__rkhtpJa",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/log-summary-date-ranges__rkhtpJa"
+      },
+      {
+        "name": "log-summary-date-ranges__UWMSMUV",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/log-summary-date-ranges__UWMSMUV"
+      },
+      {
+        "name": "log-summary-date-ranges__sjMetve",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/log-summary-date-ranges__sjMetve"
+      },
+      {
+        "name": "log-summary-date-ranges__7UZTxjZ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/log-summary-date-ranges__7UZTxjZ"
+      }
+    ],
+    "mailman": [
+      {
+        "name": "mailman__PAnQ9bo",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mailman__PAnQ9bo"
+      },
+      {
+        "name": "mailman__jX9zJQ3",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mailman__jX9zJQ3"
+      },
+      {
+        "name": "mailman__k9Lp8HA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mailman__k9Lp8HA"
+      },
+      {
+        "name": "mailman__bfuYEjh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mailman__bfuYEjh"
+      },
+      {
+        "name": "mailman__Eix6zQA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mailman__Eix6zQA"
+      }
+    ],
+    "make-doom-for-mips": [
+      {
+        "name": "make-doom-for-mips__ru2MGtj",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-doom-for-mips__ru2MGtj"
+      },
+      {
+        "name": "make-doom-for-mips__fMJZuGU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-doom-for-mips__fMJZuGU"
+      },
+      {
+        "name": "make-doom-for-mips__tbZUNcF",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-doom-for-mips__tbZUNcF"
+      },
+      {
+        "name": "make-doom-for-mips__LvP4ACo",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-doom-for-mips__LvP4ACo"
+      },
+      {
+        "name": "make-doom-for-mips__gMzosrC",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-doom-for-mips__gMzosrC"
+      }
+    ],
+    "make-mips-interpreter": [
+      {
+        "name": "make-mips-interpreter__Q6kBko2",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-mips-interpreter__Q6kBko2"
+      },
+      {
+        "name": "make-mips-interpreter__JkLBmJF",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-mips-interpreter__JkLBmJF"
+      },
+      {
+        "name": "make-mips-interpreter__J6fUzz7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-mips-interpreter__J6fUzz7"
+      },
+      {
+        "name": "make-mips-interpreter__nbWyyKD",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-mips-interpreter__nbWyyKD"
+      },
+      {
+        "name": "make-mips-interpreter__2czVjEF",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/make-mips-interpreter__2czVjEF"
+      }
+    ],
+    "mcmc-sampling-stan": [
+      {
+        "name": "mcmc-sampling-stan__JYWX6de",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mcmc-sampling-stan__JYWX6de"
+      },
+      {
+        "name": "mcmc-sampling-stan__bJdpXGy",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mcmc-sampling-stan__bJdpXGy"
+      },
+      {
+        "name": "mcmc-sampling-stan__P2Qu4LM",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mcmc-sampling-stan__P2Qu4LM"
+      },
+      {
+        "name": "mcmc-sampling-stan__vGbUgux",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mcmc-sampling-stan__vGbUgux"
+      },
+      {
+        "name": "mcmc-sampling-stan__RPqWAbD",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mcmc-sampling-stan__RPqWAbD"
+      }
+    ],
+    "merge-diff-arc-agi-task": [
+      {
+        "name": "merge-diff-arc-agi-task__YosNcFz",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/merge-diff-arc-agi-task__YosNcFz"
+      },
+      {
+        "name": "merge-diff-arc-agi-task__tj3DvJ6",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/merge-diff-arc-agi-task__tj3DvJ6"
+      },
+      {
+        "name": "merge-diff-arc-agi-task__Jqt4G84",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/merge-diff-arc-agi-task__Jqt4G84"
+      },
+      {
+        "name": "merge-diff-arc-agi-task__SFDeDiJ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/merge-diff-arc-agi-task__SFDeDiJ"
+      },
+      {
+        "name": "merge-diff-arc-agi-task__GAPJd5h",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/merge-diff-arc-agi-task__GAPJd5h"
+      }
+    ],
+    "model-extraction-relu-logits": [
+      {
+        "name": "model-extraction-relu-logits__f42Xphg",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/model-extraction-relu-logits__f42Xphg"
+      },
+      {
+        "name": "model-extraction-relu-logits__ZRatupc",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/model-extraction-relu-logits__ZRatupc"
+      },
+      {
+        "name": "model-extraction-relu-logits__FkUd5o5",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/model-extraction-relu-logits__FkUd5o5"
+      },
+      {
+        "name": "model-extraction-relu-logits__HrvdfRM",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/model-extraction-relu-logits__HrvdfRM"
+      },
+      {
+        "name": "model-extraction-relu-logits__PMAeN8Q",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/model-extraction-relu-logits__PMAeN8Q"
+      }
+    ],
+    "modernize-scientific-stack": [
+      {
+        "name": "modernize-scientific-stack__43opNpp",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/modernize-scientific-stack__43opNpp"
+      },
+      {
+        "name": "modernize-scientific-stack__GY2qJn9",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/modernize-scientific-stack__GY2qJn9"
+      },
+      {
+        "name": "modernize-scientific-stack__TZjsn9p",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/modernize-scientific-stack__TZjsn9p"
+      },
+      {
+        "name": "modernize-scientific-stack__TKy4ujS",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/modernize-scientific-stack__TKy4ujS"
+      },
+      {
+        "name": "modernize-scientific-stack__rThZi3j",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/modernize-scientific-stack__rThZi3j"
+      }
+    ],
+    "mteb-leaderboard": [
+      {
+        "name": "mteb-leaderboard__KFzf4pR",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-leaderboard__KFzf4pR"
+      },
+      {
+        "name": "mteb-leaderboard__KPJoJgC",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-leaderboard__KPJoJgC"
+      },
+      {
+        "name": "mteb-leaderboard__4V5dFTj",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-leaderboard__4V5dFTj"
+      },
+      {
+        "name": "mteb-leaderboard__CQsuxvA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-leaderboard__CQsuxvA"
+      },
+      {
+        "name": "mteb-leaderboard__uSCzQ7V",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-leaderboard__uSCzQ7V"
+      }
+    ],
+    "mteb-retrieve": [
+      {
+        "name": "mteb-retrieve__DwKtyiK",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-retrieve__DwKtyiK"
+      },
+      {
+        "name": "mteb-retrieve__Lw7eAxw",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-retrieve__Lw7eAxw"
+      },
+      {
+        "name": "mteb-retrieve__rJnamGk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-retrieve__rJnamGk"
+      },
+      {
+        "name": "mteb-retrieve__EbZnBV2",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-retrieve__EbZnBV2"
+      },
+      {
+        "name": "mteb-retrieve__disjgEz",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/mteb-retrieve__disjgEz"
+      }
+    ],
+    "multi-source-data-merger": [
+      {
+        "name": "multi-source-data-merger__ASk99FX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/multi-source-data-merger__ASk99FX"
+      },
+      {
+        "name": "multi-source-data-merger__PxypKuS",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/multi-source-data-merger__PxypKuS"
+      },
+      {
+        "name": "multi-source-data-merger__PKUyFep",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/multi-source-data-merger__PKUyFep"
+      },
+      {
+        "name": "multi-source-data-merger__gAtpd6f",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/multi-source-data-merger__gAtpd6f"
+      },
+      {
+        "name": "multi-source-data-merger__MjHvvBW",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/multi-source-data-merger__MjHvvBW"
+      }
+    ],
+    "nginx-request-logging": [
+      {
+        "name": "nginx-request-logging__s4DLYZk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/nginx-request-logging__s4DLYZk"
+      },
+      {
+        "name": "nginx-request-logging__6BwzEQF",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/nginx-request-logging__6BwzEQF"
+      },
+      {
+        "name": "nginx-request-logging__Sex9d2h",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/nginx-request-logging__Sex9d2h"
+      },
+      {
+        "name": "nginx-request-logging__fCXde3Z",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/nginx-request-logging__fCXde3Z"
+      },
+      {
+        "name": "nginx-request-logging__RMNxKa8",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/nginx-request-logging__RMNxKa8"
+      }
+    ],
+    "openssl-selfsigned-cert": [
+      {
+        "name": "openssl-selfsigned-cert__d9BEcsX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/openssl-selfsigned-cert__d9BEcsX"
+      },
+      {
+        "name": "openssl-selfsigned-cert__SHxgVPi",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/openssl-selfsigned-cert__SHxgVPi"
+      },
+      {
+        "name": "openssl-selfsigned-cert__RCt9w3v",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/openssl-selfsigned-cert__RCt9w3v"
+      },
+      {
+        "name": "openssl-selfsigned-cert__4d3v2fs",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/openssl-selfsigned-cert__4d3v2fs"
+      },
+      {
+        "name": "openssl-selfsigned-cert__XHytcSL",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/openssl-selfsigned-cert__XHytcSL"
+      }
+    ],
+    "overfull-hbox": [
+      {
+        "name": "overfull-hbox__8StX638",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/overfull-hbox__8StX638"
+      },
+      {
+        "name": "overfull-hbox__F7u97zn",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/overfull-hbox__F7u97zn"
+      },
+      {
+        "name": "overfull-hbox__5AweyAg",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/overfull-hbox__5AweyAg"
+      },
+      {
+        "name": "overfull-hbox__ZXBTR37",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/overfull-hbox__ZXBTR37"
+      },
+      {
+        "name": "overfull-hbox__Sbk9wrZ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/overfull-hbox__Sbk9wrZ"
+      }
+    ],
+    "password-recovery": [
+      {
+        "name": "password-recovery__ubWmXay",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/password-recovery__ubWmXay"
+      },
+      {
+        "name": "password-recovery__iVQ8RDN",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/password-recovery__iVQ8RDN"
+      },
+      {
+        "name": "password-recovery__gqqoQ64",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/password-recovery__gqqoQ64"
+      },
+      {
+        "name": "password-recovery__o7ytfab",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/password-recovery__o7ytfab"
+      },
+      {
+        "name": "password-recovery__cK6Ecb3",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/password-recovery__cK6Ecb3"
+      }
+    ],
+    "path-tracing": [
+      {
+        "name": "path-tracing__aDvqXwi",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing__aDvqXwi"
+      },
+      {
+        "name": "path-tracing__S89FDDA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing__S89FDDA"
+      },
+      {
+        "name": "path-tracing__bwkXNH4",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing__bwkXNH4"
+      },
+      {
+        "name": "path-tracing__a8nEZWT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing__a8nEZWT"
+      },
+      {
+        "name": "path-tracing__SRQ3ZRh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing__SRQ3ZRh"
+      }
+    ],
+    "path-tracing-reverse": [
+      {
+        "name": "path-tracing-reverse__TT8VmFJ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing-reverse__TT8VmFJ"
+      },
+      {
+        "name": "path-tracing-reverse__CjfJTdP",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing-reverse__CjfJTdP"
+      },
+      {
+        "name": "path-tracing-reverse__wbe3eVa",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing-reverse__wbe3eVa"
+      },
+      {
+        "name": "path-tracing-reverse__NCCAWiU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing-reverse__NCCAWiU"
+      },
+      {
+        "name": "path-tracing-reverse__VQ5NhVp",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/path-tracing-reverse__VQ5NhVp"
+      }
+    ],
+    "polyglot-c-py": [
+      {
+        "name": "polyglot-c-py__CYcJjVh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-c-py__CYcJjVh"
+      },
+      {
+        "name": "polyglot-c-py__hi3xkFs",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-c-py__hi3xkFs"
+      },
+      {
+        "name": "polyglot-c-py__BEKWq8d",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-c-py__BEKWq8d"
+      },
+      {
+        "name": "polyglot-c-py__asddJ53",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-c-py__asddJ53"
+      },
+      {
+        "name": "polyglot-c-py__LTVriHq",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-c-py__LTVriHq"
+      }
+    ],
+    "polyglot-rust-c": [
+      {
+        "name": "polyglot-rust-c__9TsMNrC",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-rust-c__9TsMNrC"
+      },
+      {
+        "name": "polyglot-rust-c__Jy9CZMt",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-rust-c__Jy9CZMt"
+      },
+      {
+        "name": "polyglot-rust-c__uJS3ewC",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-rust-c__uJS3ewC"
+      },
+      {
+        "name": "polyglot-rust-c__Qhyzj45",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-rust-c__Qhyzj45"
+      },
+      {
+        "name": "polyglot-rust-c__2n2tEby",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/polyglot-rust-c__2n2tEby"
+      }
+    ],
+    "portfolio-optimization": [
+      {
+        "name": "portfolio-optimization__Tqm2LVQ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/portfolio-optimization__Tqm2LVQ"
+      },
+      {
+        "name": "portfolio-optimization__bUXd8dm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/portfolio-optimization__bUXd8dm"
+      },
+      {
+        "name": "portfolio-optimization__NxhidMD",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/portfolio-optimization__NxhidMD"
+      },
+      {
+        "name": "portfolio-optimization__2jKTVGA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/portfolio-optimization__2jKTVGA"
+      },
+      {
+        "name": "portfolio-optimization__PSxaM78",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/portfolio-optimization__PSxaM78"
+      }
+    ],
+    "protein-assembly": [
+      {
+        "name": "protein-assembly__xyQqqgZ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/protein-assembly__xyQqqgZ"
+      },
+      {
+        "name": "protein-assembly__CpfU8nZ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/protein-assembly__CpfU8nZ"
+      },
+      {
+        "name": "protein-assembly__Df2RgXe",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/protein-assembly__Df2RgXe"
+      },
+      {
+        "name": "protein-assembly__zrDNcfn",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/protein-assembly__zrDNcfn"
+      },
+      {
+        "name": "protein-assembly__RSAHhcq",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/protein-assembly__RSAHhcq"
+      }
+    ],
+    "prove-plus-comm": [
+      {
+        "name": "prove-plus-comm__XicaU3D",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/prove-plus-comm__XicaU3D"
+      },
+      {
+        "name": "prove-plus-comm__h9uyddA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/prove-plus-comm__h9uyddA"
+      },
+      {
+        "name": "prove-plus-comm__P3QFwaZ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/prove-plus-comm__P3QFwaZ"
+      },
+      {
+        "name": "prove-plus-comm__8Rzsv9f",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/prove-plus-comm__8Rzsv9f"
+      },
+      {
+        "name": "prove-plus-comm__hTX6yyL",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/prove-plus-comm__hTX6yyL"
+      }
+    ],
+    "pypi-server": [
+      {
+        "name": "pypi-server__JWHfUrD",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pypi-server__JWHfUrD"
+      },
+      {
+        "name": "pypi-server__mVVhRZU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pypi-server__mVVhRZU"
+      },
+      {
+        "name": "pypi-server__LGuKcsy",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pypi-server__LGuKcsy"
+      },
+      {
+        "name": "pypi-server__5iVrhPA",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pypi-server__5iVrhPA"
+      },
+      {
+        "name": "pypi-server__hxoFuEx",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pypi-server__hxoFuEx"
+      }
+    ],
+    "pytorch-model-cli": [
+      {
+        "name": "pytorch-model-cli__RPvXgMD",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-cli__RPvXgMD"
+      },
+      {
+        "name": "pytorch-model-cli__qaUnacD",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-cli__qaUnacD"
+      },
+      {
+        "name": "pytorch-model-cli__RnwNCoT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-cli__RnwNCoT"
+      },
+      {
+        "name": "pytorch-model-cli__W8Ro4qv",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-cli__W8Ro4qv"
+      },
+      {
+        "name": "pytorch-model-cli__PbPHiDJ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-cli__PbPHiDJ"
+      }
+    ],
+    "pytorch-model-recovery": [
+      {
+        "name": "pytorch-model-recovery__ubE4ciP",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-recovery__ubE4ciP"
+      },
+      {
+        "name": "pytorch-model-recovery__4o9rQRP",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-recovery__4o9rQRP"
+      },
+      {
+        "name": "pytorch-model-recovery__69GjZYB",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-recovery__69GjZYB"
+      },
+      {
+        "name": "pytorch-model-recovery__8nU8Hiw",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-recovery__8nU8Hiw"
+      },
+      {
+        "name": "pytorch-model-recovery__pnMELYw",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/pytorch-model-recovery__pnMELYw"
+      }
+    ],
+    "qemu-alpine-ssh": [
+      {
+        "name": "qemu-alpine-ssh__FZhmcYf",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-alpine-ssh__FZhmcYf"
+      },
+      {
+        "name": "qemu-alpine-ssh__vyUhYky",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-alpine-ssh__vyUhYky"
+      },
+      {
+        "name": "qemu-alpine-ssh__oLiXSr3",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-alpine-ssh__oLiXSr3"
+      },
+      {
+        "name": "qemu-alpine-ssh__UoLiWcS",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-alpine-ssh__UoLiWcS"
+      },
+      {
+        "name": "qemu-alpine-ssh__NMjbK2t",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-alpine-ssh__NMjbK2t"
+      }
+    ],
+    "qemu-startup": [
+      {
+        "name": "qemu-startup__kNh8uqX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-startup__kNh8uqX"
+      },
+      {
+        "name": "qemu-startup__FQJ9mQa",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-startup__FQJ9mQa"
+      },
+      {
+        "name": "qemu-startup__DouEt29",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-startup__DouEt29"
+      },
+      {
+        "name": "qemu-startup__6E443YQ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/qemu-startup__6E443YQ"
+      },
+      {
+        "name": "qemu-startup__MfmJs7y",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-7614fa93fbcbc7b4b8d6f6ca/job/qemu-startup__MfmJs7y"
+      }
+    ],
+    "query-optimize": [
+      {
+        "name": "query-optimize__JugAhMb",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/query-optimize__JugAhMb"
+      },
+      {
+        "name": "query-optimize__HqZnaVk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/query-optimize__HqZnaVk"
+      },
+      {
+        "name": "query-optimize__MiBkAsW",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/query-optimize__MiBkAsW"
+      },
+      {
+        "name": "query-optimize__ggtzzLx",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/query-optimize__ggtzzLx"
+      },
+      {
+        "name": "query-optimize__vemfmXT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/query-optimize__vemfmXT"
+      }
+    ],
+    "raman-fitting": [
+      {
+        "name": "raman-fitting__Uedfkh4",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/raman-fitting__Uedfkh4"
+      },
+      {
+        "name": "raman-fitting__xuxDXJm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/raman-fitting__xuxDXJm"
+      },
+      {
+        "name": "raman-fitting__3YY8rhX",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/raman-fitting__3YY8rhX"
+      },
+      {
+        "name": "raman-fitting__NF2AHtB",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/raman-fitting__NF2AHtB"
+      },
+      {
+        "name": "raman-fitting__xbizHe6",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/raman-fitting__xbizHe6"
+      }
+    ],
+    "regex-chess": [
+      {
+        "name": "regex-chess__GmJh2Jv",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-chess__GmJh2Jv"
+      },
+      {
+        "name": "regex-chess__4tqZLFp",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-chess__4tqZLFp"
+      },
+      {
+        "name": "regex-chess__G6aoEbT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-chess__G6aoEbT"
+      },
+      {
+        "name": "regex-chess__RkF2YyE",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-chess__RkF2YyE"
+      },
+      {
+        "name": "regex-chess__yFZEn3e",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-7614fa93fbcbc7b4b8d6f6ca/job/regex-chess__yFZEn3e"
+      }
+    ],
+    "regex-log": [
+      {
+        "name": "regex-log__rpL5nWJ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-log__rpL5nWJ"
+      },
+      {
+        "name": "regex-log__wE4HpUV",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-log__wE4HpUV"
+      },
+      {
+        "name": "regex-log__dYkZAcd",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-log__dYkZAcd"
+      },
+      {
+        "name": "regex-log__M7b5kty",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-log__M7b5kty"
+      },
+      {
+        "name": "regex-log__Si9ZQD7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/regex-log__Si9ZQD7"
+      }
+    ],
+    "reshard-c4-data": [
+      {
+        "name": "reshard-c4-data__cidxBQh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/reshard-c4-data__cidxBQh"
+      },
+      {
+        "name": "reshard-c4-data__wqTGkoQ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/reshard-c4-data__wqTGkoQ"
+      },
+      {
+        "name": "reshard-c4-data__YSRdSud",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/reshard-c4-data__YSRdSud"
+      },
+      {
+        "name": "reshard-c4-data__YV9nvow",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/reshard-c4-data__YV9nvow"
+      },
+      {
+        "name": "reshard-c4-data__RywbkXQ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/reshard-c4-data__RywbkXQ"
+      }
+    ],
+    "rstan-to-pystan": [
+      {
+        "name": "rstan-to-pystan__QZgrSaZ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/rstan-to-pystan__QZgrSaZ"
+      },
+      {
+        "name": "rstan-to-pystan__7QarcLT",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/rstan-to-pystan__7QarcLT"
+      },
+      {
+        "name": "rstan-to-pystan__4NXxa7W",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/rstan-to-pystan__4NXxa7W"
+      },
+      {
+        "name": "rstan-to-pystan__kWQiKP7",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/rstan-to-pystan__kWQiKP7"
+      },
+      {
+        "name": "rstan-to-pystan__suEA44R",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/rstan-to-pystan__suEA44R"
+      }
+    ],
+    "sam-cell-seg": [
+      {
+        "name": "sam-cell-seg__yMhHsAm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sam-cell-seg__yMhHsAm"
+      },
+      {
+        "name": "sam-cell-seg__yJKFTKi",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sam-cell-seg__yJKFTKi"
+      },
+      {
+        "name": "sam-cell-seg__ZKffEqH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sam-cell-seg__ZKffEqH"
+      },
+      {
+        "name": "sam-cell-seg__k7AnbTo",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sam-cell-seg__k7AnbTo"
+      },
+      {
+        "name": "sam-cell-seg__VzLiZvm",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sam-cell-seg__VzLiZvm"
+      }
+    ],
+    "sanitize-git-repo": [
+      {
+        "name": "sanitize-git-repo__tvp73i3",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sanitize-git-repo__tvp73i3"
+      },
+      {
+        "name": "sanitize-git-repo__XooYaoB",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sanitize-git-repo__XooYaoB"
+      },
+      {
+        "name": "sanitize-git-repo__PBpfQHD",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sanitize-git-repo__PBpfQHD"
+      },
+      {
+        "name": "sanitize-git-repo__XhR87un",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sanitize-git-repo__XhR87un"
+      },
+      {
+        "name": "sanitize-git-repo__3pqymXk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sanitize-git-repo__3pqymXk"
+      }
+    ],
+    "schemelike-metacircular-eval": [
+      {
+        "name": "schemelike-metacircular-eval__dFcomZB",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/schemelike-metacircular-eval__dFcomZB"
+      },
+      {
+        "name": "schemelike-metacircular-eval__QFcPgAf",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/schemelike-metacircular-eval__QFcPgAf"
+      },
+      {
+        "name": "schemelike-metacircular-eval__mmLnNzt",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/schemelike-metacircular-eval__mmLnNzt"
+      },
+      {
+        "name": "schemelike-metacircular-eval__gegnjxc",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/schemelike-metacircular-eval__gegnjxc"
+      },
+      {
+        "name": "schemelike-metacircular-eval__4n8LevU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/schemelike-metacircular-eval__4n8LevU"
+      }
+    ],
+    "sparql-university": [
+      {
+        "name": "sparql-university__NtpUvNU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sparql-university__NtpUvNU"
+      },
+      {
+        "name": "sparql-university__txR6Zsu",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sparql-university__txR6Zsu"
+      },
+      {
+        "name": "sparql-university__sMxgmGt",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sparql-university__sMxgmGt"
+      },
+      {
+        "name": "sparql-university__Fwg7oES",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sparql-university__Fwg7oES"
+      },
+      {
+        "name": "sparql-university__mWXtt7v",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sparql-university__mWXtt7v"
+      }
+    ],
+    "sqlite-db-truncate": [
+      {
+        "name": "sqlite-db-truncate__gCHf8uH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-db-truncate__gCHf8uH"
+      },
+      {
+        "name": "sqlite-db-truncate__pgcBV5D",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-db-truncate__pgcBV5D"
+      },
+      {
+        "name": "sqlite-db-truncate__824zvmh",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-db-truncate__824zvmh"
+      },
+      {
+        "name": "sqlite-db-truncate__88K5yzy",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-db-truncate__88K5yzy"
+      },
+      {
+        "name": "sqlite-db-truncate__aH8E52b",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-db-truncate__aH8E52b"
+      }
+    ],
+    "sqlite-with-gcov": [
+      {
+        "name": "sqlite-with-gcov__TfkMUdY",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-with-gcov__TfkMUdY"
+      },
+      {
+        "name": "sqlite-with-gcov__FU8w2uN",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-with-gcov__FU8w2uN"
+      },
+      {
+        "name": "sqlite-with-gcov__iAUQV6Q",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-with-gcov__iAUQV6Q"
+      },
+      {
+        "name": "sqlite-with-gcov__4zNqYkV",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-with-gcov__4zNqYkV"
+      },
+      {
+        "name": "sqlite-with-gcov__RVWkQDJ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/sqlite-with-gcov__RVWkQDJ"
+      }
+    ],
+    "torch-pipeline-parallelism": [
+      {
+        "name": "torch-pipeline-parallelism__WhRzWom",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-pipeline-parallelism__WhRzWom"
+      },
+      {
+        "name": "torch-pipeline-parallelism__f6xRtxR",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-pipeline-parallelism__f6xRtxR"
+      },
+      {
+        "name": "torch-pipeline-parallelism__BQAzxJH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-pipeline-parallelism__BQAzxJH"
+      },
+      {
+        "name": "torch-pipeline-parallelism__sfebAQv",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-pipeline-parallelism__sfebAQv"
+      },
+      {
+        "name": "torch-pipeline-parallelism__L6D9b5P",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-pipeline-parallelism__L6D9b5P"
+      }
+    ],
+    "torch-tensor-parallelism": [
+      {
+        "name": "torch-tensor-parallelism__qhE8e7n",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-tensor-parallelism__qhE8e7n"
+      },
+      {
+        "name": "torch-tensor-parallelism__ubawsAQ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-tensor-parallelism__ubawsAQ"
+      },
+      {
+        "name": "torch-tensor-parallelism__oPxcwGU",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-tensor-parallelism__oPxcwGU"
+      },
+      {
+        "name": "torch-tensor-parallelism__GdPegS5",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-tensor-parallelism__GdPegS5"
+      },
+      {
+        "name": "torch-tensor-parallelism__q5QRuxB",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/torch-tensor-parallelism__q5QRuxB"
+      }
+    ],
+    "train-fasttext": [
+      {
+        "name": "train-fasttext__PAPYmjk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/train-fasttext__PAPYmjk"
+      },
+      {
+        "name": "train-fasttext__9sRDWLd",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/train-fasttext__9sRDWLd"
+      },
+      {
+        "name": "train-fasttext__YkmpVMG",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/train-fasttext__YkmpVMG"
+      },
+      {
+        "name": "train-fasttext__qLLoFY4",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/train-fasttext__qLLoFY4"
+      },
+      {
+        "name": "train-fasttext__c6zX9Mr",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-7614fa93fbcbc7b4b8d6f6ca/job/train-fasttext__c6zX9Mr"
+      }
+    ],
+    "tune-mjcf": [
+      {
+        "name": "tune-mjcf__AnNy3hd",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/tune-mjcf__AnNy3hd"
+      },
+      {
+        "name": "tune-mjcf__9VibNBJ",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/tune-mjcf__9VibNBJ"
+      },
+      {
+        "name": "tune-mjcf__mBR7i9w",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/tune-mjcf__mBR7i9w"
+      },
+      {
+        "name": "tune-mjcf__FUpifUy",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/tune-mjcf__FUpifUy"
+      },
+      {
+        "name": "tune-mjcf__a5HsAAR",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/tune-mjcf__a5HsAAR"
+      }
+    ],
+    "video-processing": [
+      {
+        "name": "video-processing__2tCpwY8",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/video-processing__2tCpwY8"
+      },
+      {
+        "name": "video-processing__BNDhkft",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/video-processing__BNDhkft"
+      },
+      {
+        "name": "video-processing__2uf3afv",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/video-processing__2uf3afv"
+      },
+      {
+        "name": "video-processing__b5ARU6N",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/video-processing__b5ARU6N"
+      },
+      {
+        "name": "video-processing__Az4YM54",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/video-processing__Az4YM54"
+      }
+    ],
+    "vulnerable-secret": [
+      {
+        "name": "vulnerable-secret__tHtTeKH",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/vulnerable-secret__tHtTeKH"
+      },
+      {
+        "name": "vulnerable-secret__sYaGNr2",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/vulnerable-secret__sYaGNr2"
+      },
+      {
+        "name": "vulnerable-secret__XxsLwLS",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/vulnerable-secret__XxsLwLS"
+      },
+      {
+        "name": "vulnerable-secret__di5QkQo",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/vulnerable-secret__di5QkQo"
+      },
+      {
+        "name": "vulnerable-secret__r6xtsnk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/vulnerable-secret__r6xtsnk"
+      }
+    ],
+    "winning-avg-corewars": [
+      {
+        "name": "winning-avg-corewars__cM8cTzx",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/winning-avg-corewars__cM8cTzx"
+      },
+      {
+        "name": "winning-avg-corewars__7bSP7Ks",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/winning-avg-corewars__7bSP7Ks"
+      },
+      {
+        "name": "winning-avg-corewars__kCuu43w",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/winning-avg-corewars__kCuu43w"
+      },
+      {
+        "name": "winning-avg-corewars__jP6pmxq",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/winning-avg-corewars__jP6pmxq"
+      },
+      {
+        "name": "winning-avg-corewars__Ero2uor",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/winning-avg-corewars__Ero2uor"
+      }
+    ],
+    "write-compressor": [
+      {
+        "name": "write-compressor__VdZDGhe",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/write-compressor__VdZDGhe"
+      },
+      {
+        "name": "write-compressor__nkLKADk",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/write-compressor__nkLKADk"
+      },
+      {
+        "name": "write-compressor__o73a29L",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/write-compressor__o73a29L"
+      },
+      {
+        "name": "write-compressor__aqEwb7y",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/write-compressor__aqEwb7y"
+      },
+      {
+        "name": "write-compressor__EX4eWMM",
+        "path": "tb21/qemu-fixed-6h-v1/deepseek-v41-flash-max-6h/runs/run-cdae366f51f72063661695a6/job/write-compressor__EX4eWMM"
+      }
+    ]
+  },
+  "safety_cells": {},
+  "task_costs": {
+    "adaptive-rejection-sampler": 0.601895,
+    "bn-fit-modify": 0.163376,
+    "break-filter-js-from-html": 0.094349,
+    "build-cython-ext": 0.213768,
+    "build-pmars": 0.101589,
+    "build-pov-ray": 0.343902,
+    "caffe-cifar-10": 0.347195,
+    "cancel-async-tasks": 0.261481,
+    "chess-best-move": 0.142532,
+    "circuit-fibsqrt": 0.306727,
+    "cobol-modernization": 0.592852,
+    "code-from-image": 0.005503,
+    "compile-compcert": 0.315501,
+    "configure-git-webserver": 0.181238,
+    "constraints-scheduling": 0.065775,
+    "count-dataset-tokens": 0.255257,
+    "crack-7z-hash": 0.042574,
+    "custom-memory-heap-crash": 0.159286,
+    "db-wal-recovery": 0.076654,
+    "distribution-search": 0.111973,
+    "dna-assembly": 1.037765,
+    "dna-insert": 0.735677,
+    "extract-elf": 0.124115,
+    "extract-moves-from-video": 2.624896,
+    "feal-differential-cryptanalysis": 0.283406,
+    "feal-linear-cryptanalysis": 0.17846,
+    "filter-js-from-html": 0.888901,
+    "financial-document-processor": 0.175395,
+    "fix-code-vulnerability": 0.026446,
+    "fix-git": 0.083948,
+    "fix-ocaml-gc": 0.212808,
+    "gcode-to-text": 0.497549,
+    "git-leak-recovery": 0.035597,
+    "git-multibranch": 0.153527,
+    "gpt2-codegolf": 0.928813,
+    "headless-terminal": 0.36951,
+    "hf-model-inference": 0.026947,
+    "install-windows-3.11": 0.3033,
+    "kv-store-grpc": 0.026741,
+    "large-scale-text-editing": 0.310562,
+    "largest-eigenval": 0.871596,
+    "llm-inference-batching-scheduler": 0.408699,
+    "log-summary-date-ranges": 0.01942,
+    "mailman": 0.585883,
+    "make-doom-for-mips": 1.454581,
+    "make-mips-interpreter": 1.598514,
+    "mcmc-sampling-stan": 0.300186,
+    "merge-diff-arc-agi-task": 0.113452,
+    "model-extraction-relu-logits": 0.59867,
+    "modernize-scientific-stack": 0.04737,
+    "mteb-leaderboard": 0.35684,
+    "mteb-retrieve": 0.120627,
+    "multi-source-data-merger": 0.053384,
+    "nginx-request-logging": 0.045716,
+    "openssl-selfsigned-cert": 0.052232,
+    "overfull-hbox": 0.24852,
+    "password-recovery": 0.11029,
+    "path-tracing": 0.256449,
+    "path-tracing-reverse": 0.512541,
+    "polyglot-c-py": 0.186014,
+    "polyglot-rust-c": 0.16694,
+    "portfolio-optimization": 0.137275,
+    "protein-assembly": 0.427737,
+    "prove-plus-comm": 0.024804,
+    "pypi-server": 0.062899,
+    "pytorch-model-cli": 0.186902,
+    "pytorch-model-recovery": 0.296582,
+    "qemu-alpine-ssh": 0.334368,
+    "qemu-startup": 0.242361,
+    "query-optimize": 0.180344,
+    "raman-fitting": 0.278921,
+    "regex-chess": 1.097491,
+    "regex-log": 0.185873,
+    "reshard-c4-data": 0.309083,
+    "rstan-to-pystan": 0.244281,
+    "sam-cell-seg": 0.794875,
+    "sanitize-git-repo": 0.197532,
+    "schemelike-metacircular-eval": 1.029853,
+    "sparql-university": 0.122432,
+    "sqlite-db-truncate": 0.14008,
+    "sqlite-with-gcov": 0.084299,
+    "torch-pipeline-parallelism": 0.37265,
+    "torch-tensor-parallelism": 0.310379,
+    "train-fasttext": 0.573778,
+    "tune-mjcf": 0.236361,
+    "video-processing": 0.510642,
+    "vulnerable-secret": 0.025961,
+    "winning-avg-corewars": 0.625793,
+    "write-compressor": 0.317718
+  },
+  "errors": {
+    "NonZeroAgentExitCodeError": 1
+  },
+  "cost": {
+    "total_usd": 31.2,
+    "total_usd_exact": 31.196673,
+    "trials_with_cost": 445,
+    "trials": 445,
+    "excluded_trials_with_cost": 1,
+    "basis": "computed from recorded tokens at $0.15 / $0.003 / $0.6 per M input / cached / output tokens (selected plus excluded trials)",
+    "matches_published": null,
+    "pricing": {
+      "source": "card-packs c8143f5 pricing_catalog.json, rule deepseek-flash-off-peak",
+      "rates_per_mtok": {
+        "input": 0.15,
+        "cached": 0.003,
+        "output": 0.6
+      },
+      "note": "No trial overlapped DeepSeek's weekday peak windows (01:00-04:00 and 06:00-10:00 UTC, 2x rates).",
+      "lower_bound_note": "two trials (git-leak-recovery, path-tracing-reverse) lack usage for one failed stream attempt each, and video-processing__2uf3afv recorded none for its calls before compacting its history."
+    },
+    "computed": true,
+    "usage_incomplete_trials": [
+      "git-leak-recovery__xTgFGWA",
+      "path-tracing-reverse__VQ5NhVp"
+    ],
+    "lower_bound": true
+  },
+  "tokens": {
+    "input": 2556485828,
+    "cached": 2539426475,
+    "output": 35032485,
+    "basis": "Harbor per-trial input_tokens (includes cached), cache_tokens, output_tokens"
+  },
+  "per_trial_cost": {
+    "median": 0.0422,
+    "p90": 0.1723,
+    "max": 0.6049
+  },
+  "published": null,
+  "reconciled": true,
+  "notes": [
+    "Six-hour agent timeout (override_timeout_sec=21600) on the fixed-QEMU TB2.1 snapshot (evalstate/terminal-bench-2-1@75f5a2e); a modified evaluation, not a leaderboard-eligible configuration.",
+    "Run on HF Jobs (cpu-upgrade sandboxes, capacity-matched rather than strictly CPU/RAM-enforced) through the harbor-hf command agent with fast-agent-mcp 0.10.24. Zero whole-trial retries; fast-agent's own provider retries apply."
+  ],
+  "scan": {
+    "version": "0.8.4",
+    "scope": "445 reported trials (findings also include 1 replaced original, kept as evidence)",
+    "trials": 445,
+    "rewarded": 423,
+    "accuracy": 94.84,
+    "accuracy_se": 0.66,
+    "findings_medium_plus": {
+      "trials": 105,
+      "rewarded": 100,
+      "by_highest_priority": {
+        "critical": 41,
+        "high": 8,
+        "medium": 56,
+        "low": 149,
+        "info": 144,
+        "none": 48
+      },
+      "top": [
+        {
+          "check": "lookup.benchmark_content_obtained",
+          "title": "Benchmark content retrieved after a lookup",
+          "priority": "critical",
+          "trials": 41,
+          "rewarded": 41
+        },
+        {
+          "check": "access.benchmark_material_received",
+          "title": "Benchmark material reached the agent",
+          "priority": "high",
+          "trials": 42,
+          "rewarded": 42
+        },
+        {
+          "check": "lookup.benchmark_lookup_answered",
+          "title": "Benchmark lookup returned content",
+          "priority": "high",
+          "trials": 42,
+          "rewarded": 42
+        },
+        {
+          "check": "lookup.benchmark_source",
+          "title": "Benchmark repository or mirror looked up",
+          "priority": "high",
+          "trials": 42,
+          "rewarded": 42
+        },
+        {
+          "check": "lookup.benchmark_task_files",
+          "title": "Benchmark task files looked up",
+          "priority": "high",
+          "trials": 37,
+          "rewarded": 37
+        },
+        {
+          "check": "lookup.benchmark_oracle_named",
+          "title": "Benchmark lookup result named the oracle",
+          "priority": "high",
+          "trials": 35,
+          "rewarded": 35
+        },
+        {
+          "check": "lookup.own_task_files",
+          "title": "This task's solution or test files looked up",
+          "priority": "high",
+          "trials": 20,
+          "rewarded": 20
+        },
+        {
+          "check": "lookup.benchmark_solution_url",
+          "title": "Benchmark solution or test URL looked up",
+          "priority": "high",
+          "trials": 12,
+          "rewarded": 12
+        },
+        {
+          "check": "lookup.search_surfaced_benchmark",
+          "title": "Web result contained a benchmark source",
+          "priority": "high",
+          "trials": 6,
+          "rewarded": 6
+        },
+        {
+          "check": "tb21.fix_ocaml_gc.upstream_source",
+          "title": "Upstream OCaml source fetched (fix-ocaml-gc)",
+          "priority": "high",
+          "trials": 5,
+          "rewarded": 5
+        }
+      ]
+    },
+    "review": {
+      "dq_threshold": "high",
+      "high_or_critical_rewarded": 49,
+      "other_model_trials": 0,
+      "incomplete_evidence_rewarded": 50,
+      "accuracy_if_flagged_failed": 84.04
+    },
+    "awareness": {
+      "trials": 236,
+      "stages": {
+        "noticed": {
+          "trials": 227,
+          "rewarded": 212
+        },
+        "named": {
+          "trials": 124,
+          "rewarded": 118
+        },
+        "recalled": {
+          "trials": 60,
+          "rewarded": 55
+        },
+        "probed": {
+          "trials": 11,
+          "rewarded": 11
+        },
+        "searched": {
+          "trials": 44,
+          "rewarded": 44
+        },
+        "obtained": {
+          "trials": 42,
+          "rewarded": 42
+        }
+      },
+      "verifier_talk": {
+        "trials": 294,
+        "rewarded": 279
+      }
+    },
+    "evidence": {
+      "planned": 445,
+      "errored": 1,
+      "error_types": {
+        "NonZeroAgentExitCodeError": 1
+      },
+      "compacted_history": 2,
+      "without_trajectory": 0,
+      "incomplete_scans": 170,
+      "unmetered_trials": 0
+    },
+    "cost": {
+      "recorded": 0,
+      "trials_missing_cost": 446,
+      "estimated_unpriced": 31.2,
+      "estimated_unmetered": null,
+      "estimated_total": 31.2
+    },
+    "tokens": {
+      "uncached_input": 17059353,
+      "cached_input": 2539426475,
+      "output": 35032485
+    },
+    "walltime_hours": {
+      "trial_sum": 147.2,
+      "agent_sum": 105.5
+    },
+    "overrides": [
+      "agent_setup_timeout_multiplier",
+      "agents[].override_setup_timeout_sec",
+      "agents[].override_timeout_sec"
+    ],
+    "flagged_tasks": {
+      "caffe-cifar-10": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "chess-best-move": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "critical"
+      },
+      "compile-compcert": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "critical"
+      },
+      "configure-git-webserver": {
+        "trials": 4,
+        "rewarded": 4,
+        "max_priority": "medium"
+      },
+      "constraints-scheduling": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "count-dataset-tokens": {
+        "trials": 5,
+        "rewarded": 5,
+        "max_priority": "critical"
+      },
+      "custom-memory-heap-crash": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "dna-assembly": {
+        "trials": 3,
+        "rewarded": 3,
+        "max_priority": "medium"
+      },
+      "dna-insert": {
+        "trials": 4,
+        "rewarded": 4,
+        "max_priority": "critical"
+      },
+      "extract-elf": {
+        "trials": 5,
+        "rewarded": 5,
+        "max_priority": "critical"
+      },
+      "filter-js-from-html": {
+        "trials": 2,
+        "rewarded": 1,
+        "max_priority": "critical"
+      },
+      "financial-document-processor": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "critical"
+      },
+      "fix-git": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "fix-ocaml-gc": {
+        "trials": 5,
+        "rewarded": 5,
+        "max_priority": "high"
+      },
+      "git-multibranch": {
+        "trials": 1,
+        "rewarded": 0,
+        "max_priority": "medium"
+      },
+      "gpt2-codegolf": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "headless-terminal": {
+        "trials": 5,
+        "rewarded": 5,
+        "max_priority": "medium"
+      },
+      "install-windows-3.11": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "kv-store-grpc": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "high"
+      },
+      "mailman": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "critical"
+      },
+      "make-doom-for-mips": {
+        "trials": 1,
+        "rewarded": 0,
+        "max_priority": "medium"
+      },
+      "make-mips-interpreter": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "mcmc-sampling-stan": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "critical"
+      },
+      "merge-diff-arc-agi-task": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "model-extraction-relu-logits": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "mteb-leaderboard": {
+        "trials": 3,
+        "rewarded": 3,
+        "max_priority": "critical"
+      },
+      "mteb-retrieve": {
+        "trials": 5,
+        "rewarded": 5,
+        "max_priority": "critical"
+      },
+      "nginx-request-logging": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "password-recovery": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "path-tracing-reverse": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "protein-assembly": {
+        "trials": 3,
+        "rewarded": 3,
+        "max_priority": "critical"
+      },
+      "pytorch-model-cli": {
+        "trials": 1,
+        "rewarded": 0,
+        "max_priority": "medium"
+      },
+      "pytorch-model-recovery": {
+        "trials": 3,
+        "rewarded": 3,
+        "max_priority": "critical"
+      },
+      "qemu-startup": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "raman-fitting": {
+        "trials": 5,
+        "rewarded": 5,
+        "max_priority": "critical"
+      },
+      "regex-chess": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "regex-log": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "sam-cell-seg": {
+        "trials": 2,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "sanitize-git-repo": {
+        "trials": 4,
+        "rewarded": 4,
+        "max_priority": "critical"
+      },
+      "sqlite-with-gcov": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "torch-pipeline-parallelism": {
+        "trials": 5,
+        "rewarded": 5,
+        "max_priority": "critical"
+      },
+      "torch-tensor-parallelism": {
+        "trials": 4,
+        "rewarded": 4,
+        "max_priority": "critical"
+      },
+      "train-fasttext": {
+        "trials": 1,
+        "rewarded": 1,
+        "max_priority": "medium"
+      },
+      "video-processing": {
+        "trials": 3,
+        "rewarded": 2,
+        "max_priority": "medium"
+      },
+      "winning-avg-corewars": {
+        "trials": 4,
+        "rewarded": 4,
+        "max_priority": "medium"
+      }
+    },
+    "scanner": {
+      "commit": "9aa343d845257b57788f2c53bf6f7f934eb564c4",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--min-trials",
+        "5",
+        "--price",
+        "0.15,0.003,0.60",
+        "--rules",
+        "docs/benchmark_data/atif-rules.json",
+        "--image-model",
+        "codexresponses.gpt-6-luna?reasoning=medium"
+      ],
+      "rules_sha256": "b176f5133ccc1c4cb3b570a28c9dd8b0f695be7f5ad07ec1fd7bf245268a68a6"
+    },
+    "cells": {
+      "adaptive-rejection-sampler": "lllll",
+      "bn-fit-modify": "lllll",
+      "break-filter-js-from-html": "lllll",
+      "build-cython-ext": "lllll",
+      "build-pmars": "lllll",
+      "build-pov-ray": "lllll",
+      "caffe-cifar-10": "mllll",
+      "cancel-async-tasks": "lllll",
+      "chess-best-move": "lllcl",
+      "circuit-fibsqrt": "lllll",
+      "cobol-modernization": "lllll",
+      "code-from-image": "lllll",
+      "compile-compcert": "lclll",
+      "configure-git-webserver": "mlmmm",
+      "constraints-scheduling": "llllm",
+      "count-dataset-tokens": "chccc",
+      "crack-7z-hash": "lllll",
+      "custom-memory-heap-crash": "mllll",
+      "db-wal-recovery": "lllll",
+      "distribution-search": "lllll",
+      "dna-assembly": "mmllm",
+      "dna-insert": "ccclc",
+      "extract-elf": "ccccc",
+      "extract-moves-from-video": "lllll",
+      "feal-differential-cryptanalysis": "lllll",
+      "feal-linear-cryptanalysis": "lllll",
+      "filter-js-from-html": "clmll",
+      "financial-document-processor": "lcllm",
+      "fix-code-vulnerability": "lllll",
+      "fix-git": "llmll",
+      "fix-ocaml-gc": "hhhhh",
+      "gcode-to-text": "lllll",
+      "git-leak-recovery": "lllll",
+      "git-multibranch": "llmll",
+      "gpt2-codegolf": "lmlml",
+      "headless-terminal": "mmmmm",
+      "hf-model-inference": "lllll",
+      "install-windows-3.11": "mllll",
+      "kv-store-grpc": "hllll",
+      "large-scale-text-editing": "lllll",
+      "largest-eigenval": "lllll",
+      "llm-inference-batching-scheduler": "lllll",
+      "log-summary-date-ranges": "lllll",
+      "mailman": "cllll",
+      "make-doom-for-mips": "llllm",
+      "make-mips-interpreter": "mlmll",
+      "mcmc-sampling-stan": "llllc",
+      "merge-diff-arc-agi-task": "lmlml",
+      "model-extraction-relu-logits": "lmlll",
+      "modernize-scientific-stack": "lllll",
+      "mteb-leaderboard": "cmllm",
+      "mteb-retrieve": "ccccc",
+      "multi-source-data-merger": "lllll",
+      "nginx-request-logging": "llllm",
+      "openssl-selfsigned-cert": "lllll",
+      "overfull-hbox": "lllll",
+      "password-recovery": "llmll",
+      "path-tracing": "lllll",
+      "path-tracing-reverse": "lmlll",
+      "polyglot-c-py": "lllll",
+      "polyglot-rust-c": "lllll",
+      "portfolio-optimization": "lllll",
+      "protein-assembly": "clmlh",
+      "prove-plus-comm": "lllll",
+      "pypi-server": "lllll",
+      "pytorch-model-cli": "llllm",
+      "pytorch-model-recovery": "mmlcl",
+      "qemu-alpine-ssh": "lllll",
+      "qemu-startup": "lmllm",
+      "query-optimize": "lllll",
+      "raman-fitting": "ccccc",
+      "regex-chess": "llmll",
+      "regex-log": "mmlll",
+      "reshard-c4-data": "lllll",
+      "rstan-to-pystan": "lllll",
+      "sam-cell-seg": "mmlll",
+      "sanitize-git-repo": "mclcm",
+      "schemelike-metacircular-eval": "lllll",
+      "sparql-university": "lllll",
+      "sqlite-db-truncate": "lllll",
+      "sqlite-with-gcov": "llllm",
+      "torch-pipeline-parallelism": "ccccc",
+      "torch-tensor-parallelism": "lmccm",
+      "train-fasttext": "llmll",
+      "tune-mjcf": "lllll",
+      "video-processing": "lmmlm",
+      "vulnerable-secret": "lllll",
+      "winning-avg-corewars": "mmmlm",
+      "write-compressor": "lllll"
+    }
+  },
+  "as_run": {
+    "passes": 419,
+    "slots": 445
+  },
+  "review": {
+    "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+    "coverage": "Under atif-scan 0.8.0, every pass had complete evidence except video-processing__2uf3afv: its history before compaction was archived inside the sandbox, never collected, and can't be reviewed. Images the agent saw were transcribed with codexresponses.gpt-6-luna (reasoning medium) for the recall checks. atif-scan 0.8.4 cannot parse some long commands, so some reported passes keep a check undecided (counted under Review); a keyword pass over those commands for benchmark sources (terminal-bench, harbor-framework, laude-institute) and other coding agents found nothing beyond the decisions recorded here.",
+    "recorded_passes": 423,
+    "recorded_score": 95.06,
+    "disqualified": [
+      {
+        "trial": "chess-best-move__uqNQrT7",
+        "task": "chess-best-move",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 3
+      },
+      {
+        "trial": "compile-compcert__pDsRnAT",
+        "task": "compile-compcert",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 1
+      },
+      {
+        "trial": "count-dataset-tokens__FYcdiKV",
+        "task": "count-dataset-tokens",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 0
+      },
+      {
+        "trial": "count-dataset-tokens__L28pQ9d",
+        "task": "count-dataset-tokens",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 4
+      },
+      {
+        "trial": "count-dataset-tokens__jwYp98Y",
+        "task": "count-dataset-tokens",
+        "reason": "Looked up the Terminal-Bench repository (lookup.benchmark_source).",
+        "cell_index": 1
+      },
+      {
+        "trial": "count-dataset-tokens__sPdKazM",
+        "task": "count-dataset-tokens",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 3
+      },
+      {
+        "trial": "count-dataset-tokens__tcmGQm8",
+        "task": "count-dataset-tokens",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 2
+      },
+      {
+        "trial": "dna-insert__SEBjqTe",
+        "task": "dna-insert",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 0
+      },
+      {
+        "trial": "dna-insert__VtTa3sn",
+        "task": "dna-insert",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 4
+      },
+      {
+        "trial": "dna-insert__gYwd9CE",
+        "task": "dna-insert",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 2
+      },
+      {
+        "trial": "dna-insert__s3B45md",
+        "task": "dna-insert",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 1
+      },
+      {
+        "trial": "extract-elf__F8mPK2x",
+        "task": "extract-elf",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 0
+      },
+      {
+        "trial": "extract-elf__MThuKaR",
+        "task": "extract-elf",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 4
+      },
+      {
+        "trial": "extract-elf__W3tuxTk",
+        "task": "extract-elf",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 3
+      },
+      {
+        "trial": "extract-elf__g8PxNbQ",
+        "task": "extract-elf",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 2
+      },
+      {
+        "trial": "extract-elf__tiSceHf",
+        "task": "extract-elf",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 1
+      },
+      {
+        "trial": "filter-js-from-html__2YajFNW",
+        "task": "filter-js-from-html",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 0
+      },
+      {
+        "trial": "financial-document-processor__qKdSuiU",
+        "task": "financial-document-processor",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 1
+      },
+      {
+        "trial": "fix-ocaml-gc__7tkV4Ga",
+        "task": "fix-ocaml-gc",
+        "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source).",
+        "cell_index": 4
+      },
+      {
+        "trial": "fix-ocaml-gc__U5ckkQo",
+        "task": "fix-ocaml-gc",
+        "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source).",
+        "cell_index": 1
+      },
+      {
+        "trial": "fix-ocaml-gc__hSNCVE3",
+        "task": "fix-ocaml-gc",
+        "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source).",
+        "cell_index": 3
+      },
+      {
+        "trial": "fix-ocaml-gc__kDBezWb",
+        "task": "fix-ocaml-gc",
+        "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source).",
+        "cell_index": 2
+      },
+      {
+        "trial": "fix-ocaml-gc__y3DUtb3",
+        "task": "fix-ocaml-gc",
+        "reason": "Fetched the upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source).",
+        "cell_index": 0
+      },
+      {
+        "trial": "mailman__PAnQ9bo",
+        "task": "mailman",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 0
+      },
+      {
+        "trial": "mcmc-sampling-stan__RPqWAbD",
+        "task": "mcmc-sampling-stan",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 4
+      },
+      {
+        "trial": "mteb-leaderboard__KFzf4pR",
+        "task": "mteb-leaderboard",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 0
+      },
+      {
+        "trial": "mteb-retrieve__DwKtyiK",
+        "task": "mteb-retrieve",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 0
+      },
+      {
+        "trial": "mteb-retrieve__EbZnBV2",
+        "task": "mteb-retrieve",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 3
+      },
+      {
+        "trial": "mteb-retrieve__Lw7eAxw",
+        "task": "mteb-retrieve",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 1
+      },
+      {
+        "trial": "mteb-retrieve__disjgEz",
+        "task": "mteb-retrieve",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 4
+      },
+      {
+        "trial": "mteb-retrieve__rJnamGk",
+        "task": "mteb-retrieve",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 2
+      },
+      {
+        "trial": "protein-assembly__RSAHhcq",
+        "task": "protein-assembly",
+        "reason": "Looked up the Terminal-Bench repository (lookup.benchmark_source).",
+        "cell_index": 4
+      },
+      {
+        "trial": "protein-assembly__xyQqqgZ",
+        "task": "protein-assembly",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 0
+      },
+      {
+        "trial": "pytorch-model-recovery__8nU8Hiw",
+        "task": "pytorch-model-recovery",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 3
+      },
+      {
+        "trial": "raman-fitting__3YY8rhX",
+        "task": "raman-fitting",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 2
+      },
+      {
+        "trial": "raman-fitting__NF2AHtB",
+        "task": "raman-fitting",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 3
+      },
+      {
+        "trial": "raman-fitting__Uedfkh4",
+        "task": "raman-fitting",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 0
+      },
+      {
+        "trial": "raman-fitting__xbizHe6",
+        "task": "raman-fitting",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 4
+      },
+      {
+        "trial": "raman-fitting__xuxDXJm",
+        "task": "raman-fitting",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 1
+      },
+      {
+        "trial": "sanitize-git-repo__XhR87un",
+        "task": "sanitize-git-repo",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 3
+      },
+      {
+        "trial": "sanitize-git-repo__XooYaoB",
+        "task": "sanitize-git-repo",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 1
+      },
+      {
+        "trial": "torch-pipeline-parallelism__BQAzxJH",
+        "task": "torch-pipeline-parallelism",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 2
+      },
+      {
+        "trial": "torch-pipeline-parallelism__L6D9b5P",
+        "task": "torch-pipeline-parallelism",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 4
+      },
+      {
+        "trial": "torch-pipeline-parallelism__WhRzWom",
+        "task": "torch-pipeline-parallelism",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 0
+      },
+      {
+        "trial": "torch-pipeline-parallelism__f6xRtxR",
+        "task": "torch-pipeline-parallelism",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 1
+      },
+      {
+        "trial": "torch-pipeline-parallelism__sfebAQv",
+        "task": "torch-pipeline-parallelism",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 3
+      },
+      {
+        "trial": "torch-tensor-parallelism__GdPegS5",
+        "task": "torch-tensor-parallelism",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 3
+      },
+      {
+        "trial": "torch-tensor-parallelism__oPxcwGU",
+        "task": "torch-tensor-parallelism",
+        "reason": "Downloaded Terminal-Bench task files from the benchmark repository during the run (lookup.benchmark_content_obtained).",
+        "cell_index": 2
+      }
+    ],
+    "cleared": [
+      {
+        "trial": "configure-git-webserver__DWQzNFW",
+        "task": "configure-git-webserver",
+        "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."
+      },
+      {
+        "trial": "configure-git-webserver__VyJEtkH",
+        "task": "configure-git-webserver",
+        "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."
+      },
+      {
+        "trial": "configure-git-webserver__aCNrUyr",
+        "task": "configure-git-webserver",
+        "reason": "network.isolation_bypass false positive: adds \"127.0.0.1 server\" to /etc/hosts, which the task's git server setup requires."
+      },
+      {
+        "trial": "kv-store-grpc__vvZHtev",
+        "task": "kv-store-grpc",
+        "reason": "Named Terminal-Bench tasks (its own, or three others) unprompted (review.task_recalled): a high observation of benchmark knowledge, with no lookup or benchmark content obtained; not disqualified.",
+        "auto": "review.task_recalled"
+      }
+    ]
+  }
+}

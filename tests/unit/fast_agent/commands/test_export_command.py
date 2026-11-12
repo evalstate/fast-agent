@@ -4,8 +4,8 @@ import json
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from click.utils import strip_ansi
 from mcp_types import TextContent
+from typer._click.utils import strip_ansi
 from typer.testing import CliRunner
 
 import fast_agent.cli.commands.export as export_command
@@ -156,7 +156,7 @@ def test_export_command_supports_atif_export_format_alias(tmp_path: Path) -> Non
     assert result.exit_code == 0, result.output
     assert "Exported atif trace" in result.output
     payload = json.loads(output_path.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "ATIF-v1.7"
+    assert payload["schema_version"] == "ATIF-v1.8"
     assert payload["session_id"] == session_id
 
 

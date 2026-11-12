@@ -30,8 +30,8 @@ from fast_agent.agents.agent_types import (
     ScopedFunctionToolConfig,
     SkillConfig,
 )
-from fast_agent.agents.workflow.iterative_planner import ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE
-from fast_agent.agents.workflow.router_agent import (
+from fast_agent.agents.workflow.prompts import (
+    ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE,
     ROUTING_SYSTEM_INSTRUCTION,
 )
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
@@ -717,12 +717,10 @@ class DecoratorMixin:
             agents: List of agent names this orchestrator can use
             instruction: Base instruction for the orchestrator
             model: Model specification string
-            use_history: Whether to maintain conversation history
             request_params: Additional request parameters for the LLM
-            human_input: Whether to enable human input capabilities
-            plan_type: Planning approach - "full" or "iterative"
-            plan_iterations: Maximum number of planning iterations (0 for unlimited)
+            plan_iterations: Maximum number of planning iterations (0 or less for unlimited)
             default: Whether to mark this as the default agent
+            api_key: Optional API key for the LLM provider
 
         Returns:
             A decorator that registers the orchestrator with proper type annotations

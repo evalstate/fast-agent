@@ -202,6 +202,7 @@ from mcp_types import CallToolResult
 
 from fast_agent.acp.tool_call_context import acp_tool_call_context
 from fast_agent.agents.mcp_agent import McpAgent
+from fast_agent.agents.tool_call_planning import PlannedToolCall
 from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.agents.workflow.request_params import child_request_params
 from fast_agent.constants import (
@@ -240,7 +241,7 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.utils.async_utils import gather_with_cancel
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping
+    from collections.abc import Generator, Mapping
 
     from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.agents.llm_agent import LlmAgent
@@ -574,7 +575,7 @@ class AgentsAsToolsAgent(McpAgent):
         return ListToolsResult(tools=tools)
 
     @contextmanager
-    def _child_display_suppressed(self, child: LlmAgent) -> Iterator[None]:
+    def _child_display_suppressed(self, child: LlmAgent) -> Generator[None]:
         """Context manager to hide child chat while keeping tool logs visible."""
         child_id = id(child)
         count = self._display_suppression_count.get(child_id, 0)
@@ -1004,6 +1005,10 @@ class AgentsAsToolsAgent(McpAgent):
 
     def _resolve_child_agent(self, name: str) -> LlmAgent | None:
         return self._child_agents.get(name) or self._child_agents.get(self._make_tool_name(name))
+
+    def _child_tool_name(self, name: str) -> str:
+        """Return the advertised tool name for a call that resolves to a child agent."""
+        return name if name in self._child_agents else self._make_tool_name(name)
 
     async def _base_tool_names(self) -> set[str]:
         base = await super().list_tools()
@@ -1643,35 +1648,88 @@ class AgentsAsToolsAgent(McpAgent):
         if not child_ids:
             return await super().run_tools(request, request_params=request_params)
 
+        remaining_items = [
+            (correlation_id, tool_request)
+            for correlation_id, tool_request in request.tool_calls.items()
+            if correlation_id not in child_ids
+        ]
+        denied_results = await self._review_mixed_tool_calls(
+            request, child_ids=child_ids, remaining_items=remaining_items
+        )
+
         child_results, child_error = await self._run_child_tools(
             request,
-            set(child_ids),
+            {cid for cid in child_ids if cid not in denied_results},
             request_params=request_params,
         )
 
-        if len(child_ids) == len(request.tool_calls):
-            return self._finalize_tool_results(child_results, tool_loop_error=child_error)
-
         # Execute remaining MCP/local tools via base implementation
-        remaining_ids = [cid for cid in request.tool_calls if cid not in child_ids]
-        mcp_request = PromptMessageExtended(
-            role=request.role,
-            content=request.content,
-            tool_calls={cid: request.tool_calls[cid] for cid in remaining_ids},
-        )
-        mcp_message = await super().run_tools(mcp_request, request_params=request_params)
-        mcp_results = mcp_message.tool_results or {}
-        mcp_error = self._extract_error_text(mcp_message)
+        mcp_results: dict[str, CallToolResult] = {}
+        mcp_error: str | None = None
+        remaining_ids = [cid for cid, _ in remaining_items if cid not in denied_results]
+        if remaining_ids:
+            mcp_request = PromptMessageExtended(
+                role=request.role,
+                content=request.content,
+                tool_calls={cid: request.tool_calls[cid] for cid in remaining_ids},
+            )
+            # These calls were reviewed with the whole batch above.
+            self._prereviewed_tool_request = mcp_request
+            try:
+                mcp_message = await super().run_tools(mcp_request, request_params=request_params)
+            finally:
+                self._prereviewed_tool_request = None
+            mcp_results = mcp_message.tool_results or {}
+            mcp_error = self._extract_error_text(mcp_message)
 
         combined_results = {
             correlation_id: result
             for correlation_id in request.tool_calls
-            if (result := child_results.get(correlation_id) or mcp_results.get(correlation_id))
+            if (
+                result := denied_results.get(correlation_id)
+                or child_results.get(correlation_id)
+                or mcp_results.get(correlation_id)
+            )
             is not None
         }
 
         tool_loop_error = child_error or mcp_error
         return self._finalize_tool_results(combined_results, tool_loop_error=tool_loop_error)
+
+    async def _review_mixed_tool_calls(
+        self,
+        request: PromptMessageExtended,
+        *,
+        child_ids: list[str],
+        remaining_items: list[tuple[str, Any]],
+    ) -> dict[str, CallToolResult]:
+        """Review child-agent and MCP/local calls as one batch; return denied calls' results."""
+        if not self._tool_call_review_enabled():
+            return {}
+        tool_calls = request.tool_calls or {}
+        child_calls = [
+            PlannedToolCall(
+                correlation_id=cid,
+                name=self._child_tool_name(tool_calls[cid].params.name),
+                arguments=tool_calls[cid].params.arguments or {},
+            )
+            for cid in child_ids
+        ]
+        other_calls = await self._resolve_tool_calls_for_review(remaining_items)
+        order = {cid: index for index, cid in enumerate(tool_calls)}
+        calls = sorted([*child_calls, *other_calls], key=lambda call: order[call.correlation_id])
+        denials = await self._review_tool_calls(request, calls)
+
+        should_parallel = should_parallelize_tool_calls(len(tool_calls))
+        denied_results: dict[str, CallToolResult] = {}
+        for correlation_id, message in denials.items():
+            self._record_tool_error_result(
+                correlation_id=correlation_id,
+                error_message=message,
+                tool_results=denied_results,
+                tool_call_id=correlation_id if should_parallel else None,
+            )
+        return denied_results
 
     async def _run_child_tools(
         self,

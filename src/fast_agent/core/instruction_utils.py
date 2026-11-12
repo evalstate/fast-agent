@@ -27,7 +27,23 @@ INTERNAL_AGENT_CARD_SENTINEL = "(internal)"
 
 @runtime_checkable
 class InstructionTemplateCapable(Protocol):
-    instruction_template: str
+    """Authoritative refresh source, before shared context rendering.
+
+    Agents that compose workflow instructions must include that generated content
+    here. Neither the raw config nor the last rendered instruction can reconstruct
+    it reliably during context refresh.
+    """
+
+    @property
+    def instruction_template(self) -> str: ...
+
+
+@runtime_checkable
+class InstructionContextCapable(Protocol):
+    @property
+    def instruction_context(self) -> dict[str, str]: ...
+
+    def set_instruction_context(self, context: dict[str, str]) -> None: ...
 
 
 class InstructionContextAgent(Protocol):
@@ -44,6 +60,14 @@ class InstructionContextAgent(Protocol):
     def config(self) -> "AgentConfig": ...
 
     def set_instruction(self, instruction: str) -> None: ...
+
+
+@runtime_checkable
+class ShellRuntimeInstructionAgent(Protocol):
+    """The effective runtime includes CLI/skills activation and --no-shell overrides."""
+
+    @property
+    def shell_runtime_enabled(self) -> bool: ...
 
 
 @runtime_checkable
@@ -79,7 +103,9 @@ def _resolve_agent_card_paths(agent: InstructionContextAgent) -> tuple[str, str]
 def _resolve_model_specific(agent: InstructionContextAgent) -> str:
     if isinstance(agent, LlmInstructionContextAgent) and agent.llm is not None:
         model_params = agent.llm.resolved_model.model_params
-        if model_params is not None and model_params.model_specific:
+        # An explicit empty override (e.g. overlay metadata.model_specific: "") suppresses
+        # the catalog text; only an unset value falls through to the database.
+        if model_params is not None and model_params.model_specific is not None:
             return model_params.model_specific
 
     config_model = agent.config.model
@@ -108,12 +134,19 @@ def build_agent_instruction_context(
     context["agentType"] = agent_type
     context["agentCardPath"] = card_path
     context["agentCardDir"] = card_dir
+    context["modelName"] = ""
+    context["modelProvider"] = ""
+    if isinstance(agent, LlmInstructionContextAgent) and agent.llm is not None:
+        context["modelName"] = agent.llm.model_name or ""
+        context["modelProvider"] = agent.llm.provider.config_name
     context["model_specific"] = _resolve_model_specific(agent)
+    shell_enabled = isinstance(agent, ShellRuntimeInstructionAgent) and agent.shell_runtime_enabled
+    context["herdrInstructions"] = context.get("herdrInstructions", "") if shell_enabled else ""
     return context
 
 
 def get_instruction_template(agent: InstructionContextAgent) -> str | None:
-    if isinstance(agent, InstructionTemplateCapable) and agent.instruction_template:
+    if isinstance(agent, InstructionTemplateCapable):
         return agent.instruction_template
 
     instruction = agent.config.instruction
@@ -132,15 +165,16 @@ async def apply_instruction_context(
 ) -> None:
     for agent in agents:
         template = get_instruction_template(agent)
-        if not template:
+        if template is None:
             continue
         resolved_context = build_agent_instruction_context(agent, context_vars)
         aggregator = None
         skill_manifests = None
         skill_read_tool_name = READ_SKILL_TOOL_NAME
+        if isinstance(agent, InstructionContextCapable):
+            agent.set_instruction_context(dict(resolved_context))
         if isinstance(agent, McpInstructionCapable):
             configured_agent = cast("ConfiguredMcpInstructionCapable", agent)
-            agent.set_instruction_context(dict(resolved_context))
             aggregator = agent.aggregator
             skill_manifests = resolve_instruction_skill_manifests(
                 configured_agent,
@@ -158,7 +192,7 @@ async def apply_instruction_context(
         )
         if isinstance(agent, RenderedInstructionProcessor):
             resolved = agent.process_rendered_instruction(resolved)
-        if resolved is None or resolved == template:
+        if resolved is None or resolved == agent.instruction:
             continue
 
         agent.set_instruction(resolved)

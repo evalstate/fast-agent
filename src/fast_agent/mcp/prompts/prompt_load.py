@@ -413,8 +413,13 @@ def load_transcript_into_agent(
     messages = _history_messages(history)
     usage_snapshot = _snapshot_usage_state(agent)
 
-    agent.clear(clear_prompts=True)
-    agent.message_history.extend(_copy_messages(messages))
+    from fast_agent.agents.llm_decorator import LlmDecorator
+
+    if isinstance(agent, LlmDecorator):
+        agent.load_message_history(messages, clear_state=True)
+    else:
+        agent.clear(clear_prompts=True)
+        agent.message_history.extend(_copy_messages(messages))
 
     _restore_usage_state(agent, usage_snapshot)
 

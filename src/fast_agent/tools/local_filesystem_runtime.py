@@ -14,14 +14,12 @@ from typing import TYPE_CHECKING, Any
 
 from mcp_types import CallToolResult, TextContent
 
-from fast_agent.mcp.mime_utils import is_image_mime_type
-from fast_agent.mcp.tool_result_metadata import set_tool_result_media_preview
 from fast_agent.patch.engine import apply_patch as run_apply_patch
 from fast_agent.patch.errors import ApplyPatchError
 from fast_agent.tools.apply_patch_tool import extract_apply_patch_input
 from fast_agent.tools.attach_media import (
     DEFAULT_ATTACH_MEDIA_MAX_BYTES,
-    attach_media_staging_message,
+    attach_media_tool_result,
     build_attach_media,
     parse_attach_media_arguments,
 )
@@ -39,6 +37,7 @@ from fast_agent.tools.filesystem_tool_args import (
     parse_write_text_file_arguments,
     permission_denied_message,
 )
+from fast_agent.utils.text import split_lines
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -84,6 +83,11 @@ class LocalFilesystemRuntime(FilesystemRuntimeBase):
         """Update the base directory used for relative file paths."""
         self._working_directory = working_directory
 
+    @property
+    def working_directory(self) -> Path:
+        """Absolute directory used by local file operations."""
+        return self._base_directory()
+
     def _base_directory(self) -> Path:
         if self._working_directory is None:
             return Path.cwd()
@@ -119,7 +123,7 @@ class LocalFilesystemRuntime(FilesystemRuntimeBase):
             return text_result(f"Error reading file: {exc}", is_error=True)
 
         if parsed.line is not None or parsed.limit is not None:
-            lines = content.splitlines()
+            lines = split_lines(content)
             start_index = (parsed.line - 1) if parsed.line is not None else 0
             end_index = start_index + parsed.limit if parsed.limit is not None else None
             content = "\n".join(lines[start_index:end_index])
@@ -158,8 +162,6 @@ class LocalFilesystemRuntime(FilesystemRuntimeBase):
         self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
     ) -> CallToolResult:
         """Stage a local file or provider-fetchable URI as model input."""
-        del tool_use_id
-
         try:
             parsed_args = parse_attach_media_arguments(arguments)
             attached = build_attach_media(
@@ -179,18 +181,7 @@ class LocalFilesystemRuntime(FilesystemRuntimeBase):
             )
 
         self._pending_media_attachments.append(attached.block)
-        result = CallToolResult(
-            content=[
-                TextContent(
-                    type="text",
-                    text=attach_media_staging_message(attached),
-                )
-            ],
-            is_error=False,
-        )
-        if is_image_mime_type(attached.mime_type):
-            set_tool_result_media_preview(result, [attached.block])
-        return result
+        return attach_media_tool_result(attached, tool_use_id=tool_use_id)
 
     async def apply_patch(
         self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None

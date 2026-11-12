@@ -232,6 +232,7 @@ class ModelOverlayMetadata(BaseModel):
         ge=1,
         le=MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
     )
+    compaction_trigger_tokens: int | None = Field(default=None, ge=1_000)
     shell_tool_name: str | None = Field(default=None, pattern=r"^[A-Za-z][A-Za-z0-9_-]*$")
     shell_tool_requires_description: bool | None = None
     shell_edit_tool: Literal["write_text_file", "edit_file", "apply_patch", "off"] | None = None
@@ -246,6 +247,7 @@ class ModelOverlayMetadata(BaseModel):
         "max_output_tokens",
         "process_poll_default_wait_seconds",
         "shell_output_byte_limit",
+        "compaction_trigger_tokens",
         "default_temperature",
         mode="before",
     )
@@ -434,6 +436,7 @@ class LoadedModelOverlay:
                 self.manifest.metadata.process_poll_default_wait_seconds or 0
             ),
             shell_output_byte_limit=self.manifest.metadata.shell_output_byte_limit,
+            compaction_trigger_tokens=self.manifest.metadata.compaction_trigger_tokens,
             shell_tool_name=self.manifest.metadata.shell_tool_name,
             shell_tool_requires_description=(
                 self.manifest.metadata.shell_tool_requires_description or False
@@ -492,6 +495,8 @@ class LoadedModelOverlay:
             )
         if metadata.shell_output_byte_limit is not None:
             update_payload["shell_output_byte_limit"] = metadata.shell_output_byte_limit
+        if metadata.compaction_trigger_tokens is not None:
+            update_payload["compaction_trigger_tokens"] = metadata.compaction_trigger_tokens
         if metadata.shell_tool_name is not None:
             update_payload["shell_tool_name"] = metadata.shell_tool_name
         if metadata.shell_tool_requires_description is not None:
@@ -776,6 +781,7 @@ def build_model_overlay_manifest_from_database(
         managed_process_poll_folding=existing.managed_process_poll_folding,
         process_poll_default_wait_seconds=existing.process_poll_default_wait_seconds,
         shell_output_byte_limit=existing.shell_output_byte_limit,
+        compaction_trigger_tokens=existing.compaction_trigger_tokens,
         fast=existing.fast,
         default_temperature=existing.default_temperature,
     )

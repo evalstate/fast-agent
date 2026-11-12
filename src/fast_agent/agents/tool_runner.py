@@ -18,9 +18,12 @@ from fast_agent.constants import (
     FAST_AGENT_PENDING_MEDIA_ATTACHMENTS,
     FAST_AGENT_SYNTHETIC_FINAL_CHANNEL,
     FAST_AGENT_TIMING,
+    FAST_AGENT_TOOL_LOOP_MESSAGE,
+    FAST_AGENT_TOOL_MEDIA_MESSAGE,
     FAST_AGENT_USAGE,
 )
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.queued_input import take_queued_messages
 from fast_agent.interfaces import MessageHistoryAgentProtocol, TurnCancellationStateCapable
 from fast_agent.llm.request_params import tool_result_mode_is_passthrough
 from fast_agent.mcp.helpers.content_helpers import text_content
@@ -41,6 +44,7 @@ class _AgentConfig(Protocol):
 
 class _ToolLoopAgent(MessageHistoryAgentProtocol, Protocol):
     config: _AgentConfig
+    _history_commit_count: int
 
     async def _tool_runner_llm_step(
         self,
@@ -80,6 +84,14 @@ _HOOK_STATUS_BUCKET_AFTER_LLM_CALL = "after_llm_call"
 _HOOK_STATUS_BUCKET_BEFORE_TOOL_CALL = "before_tool_call"
 _HOOK_STATUS_BUCKET_AFTER_TOOL_RESULTS = "after_tool_results"
 _HOOK_STATUS_BUCKET_AFTER_TURN_COMPLETE = "after_turn_complete"
+
+
+def _tool_loop_message(message: PromptMessageExtended) -> PromptMessageExtended:
+    """Mark a message added inside the tool loop so history never reads it as a new turn."""
+    marker = [TextContent(type="text", text="Tool loop message")]
+    return message.model_copy(
+        update={"channels": {**(message.channels or {}), FAST_AGENT_TOOL_LOOP_MESSAGE: marker}}
+    )
 
 
 HistoryRollbackStatus = Literal[
@@ -160,6 +172,7 @@ class ToolRunner:
         self._pending_tool_request: PromptMessageExtended | None = None
         self._pending_tool_response: PromptMessageExtended | None = None
         self._staged_terminal_response: PromptMessageExtended | None = None
+        self._pending_input_messages: list[PromptMessageExtended] = []
         self._deferred_structured_finalization_started = False
 
     def _defer_hook_status_messages(self, bucket: str) -> AbstractContextManager[None]:
@@ -195,6 +208,15 @@ class ToolRunner:
         self._maybe_fold_managed_process_poll_history()
         await self._maybe_auto_compact_before_followup_llm()
         await self._ensure_tools_ready()
+        # Only consume input on a continuation, after all tool results have been
+        # staged. Never insert user messages between tool calls and their results.
+        if self._iteration > 0:
+            for text in take_queued_messages(self._agent):
+                self.append_messages(text)
+                message = self._delta_messages[-1]
+                self._turn_messages.append(message)
+                self._pending_input_messages.append(message)
+
         await self._run_before_llm_hook()
         assistant_message = await self._call_llm()
         await self._run_after_llm_hook(assistant_message)
@@ -239,11 +261,21 @@ class ToolRunner:
         return self._tools
 
     async def _call_llm(self) -> PromptMessageExtended:
-        assistant_message = await self._agent._tool_runner_llm_step(
-            self._delta_messages,
-            request_params=self._request_params,
-            tools=self._tools_for_next_llm_call(),
-        )
+        commit_count = self._agent._history_commit_count
+        try:
+            assistant_message = await self._agent._tool_runner_llm_step(
+                self._delta_messages,
+                request_params=self._request_params,
+                tools=self._tools_for_next_llm_call(),
+            )
+        finally:
+            # Rendering can fail or be cancelled after the LLM step commits history.
+            # Those inputs (including any tool response) already belong to history,
+            # even if the step never returns.
+            if self._agent._history_commit_count != commit_count:
+                self._pending_input_messages.clear()
+                self._pending_tool_response = None
+        self._pending_input_messages.clear()
         self._last_message = assistant_message
         self._turn_messages.append(assistant_message)
         return assistant_message
@@ -283,6 +315,15 @@ class ToolRunner:
             self._pending_tool_request = assistant_message
             self._pending_tool_response = None
             return
+        if assistant_message.stop_reason == LlmStopReason.CONTINUE:
+            if self._advance_iteration():
+                # History already contains this assistant response. Without history,
+                # retain it locally; never manufacture a user prompt/tool result.
+                if self._use_history_enabled():
+                    self._delta_messages = []
+                else:
+                    self._delta_messages.append(assistant_message)
+            return
         if self._should_start_deferred_structured_finalization(assistant_message):
             self._start_deferred_structured_finalization(assistant_message)
             return
@@ -293,7 +334,7 @@ class ToolRunner:
         try:
             async for message in self:
                 last = message
-                if message.stop_reason == LlmStopReason.TOOL_USE:
+                if message.stop_reason in (LlmStopReason.TOOL_USE, LlmStopReason.CONTINUE):
                     await self._persist_tool_loop_checkpoint(message)
             if last is None:
                 raise RuntimeError("ToolRunner produced no messages")
@@ -343,7 +384,10 @@ class ToolRunner:
 
     async def _maybe_auto_compact_before_followup_llm(self) -> None:
         message = self._last_message
-        if message is None or message.stop_reason != LlmStopReason.TOOL_USE:
+        if message is None or message.stop_reason not in (
+            LlmStopReason.TOOL_USE,
+            LlmStopReason.CONTINUE,
+        ):
             return
         try:
             from fast_agent.hooks.compaction import auto_compact_history_mid_turn
@@ -432,8 +476,15 @@ class ToolRunner:
         )
 
     async def _persist_exception_turn_state(self) -> None:
-        """Persist the last resumable tool-loop checkpoint on unhandled exceptions."""
+        """Restore and persist the last resumable checkpoint on unhandled exceptions."""
         history_override = self._history_for_resumable_persistence()
+        if history_override is not None and len(history_override) > len(
+            self._agent.message_history
+        ):
+            # The terminal has consumed these inputs. Keep the live agent in sync with
+            # its checkpoint so another prompt/save cannot silently discard them.
+            self._agent.load_message_history(history_override)
+            self._pending_input_messages.clear()
         await self._persist_session_history_best_effort(
             hook_type="after_turn_error",
             history_override=history_override,
@@ -542,6 +593,7 @@ class ToolRunner:
         resumable_history = self._history_for_resumable_persistence()
         if resumable_history is not None and len(resumable_history) > len(history):
             self._agent.load_message_history(resumable_history)
+            self._pending_input_messages.clear()
             return HistoryRollbackState(
                 status="appended_completed_tool_result",
                 history_before=len(history),
@@ -609,8 +661,6 @@ class ToolRunner:
             tool_message = await self._agent.run_tools(
                 self._pending_tool_request, request_params=self._request_params
             )
-        except asyncio.CancelledError:
-            raise
         except Exception as exc:
             tool_calls = self._pending_tool_request.tool_calls or {}
             tool_call_ids = list(tool_calls.keys())
@@ -628,6 +678,8 @@ class ToolRunner:
                 tool_names=tool_names,
             )
 
+        # Record completion even if the next LLM call never persists this input.
+        tool_message.ensure_timestamp()
         self._pending_tool_response = tool_message
 
         if self._hooks.after_tool_call is not None:
@@ -657,14 +709,10 @@ class ToolRunner:
     def append_messages(self, *messages: str | PromptMessageExtended) -> None:
         for message in messages:
             if isinstance(message, str):
-                self._delta_messages.append(
-                    PromptMessageExtended(
-                        role="user",
-                        content=[TextContent(type="text", text=message)],
-                    )
+                message = PromptMessageExtended(
+                    role="user", content=[TextContent(type="text", text=message)]
                 )
-            else:
-                self._delta_messages.append(message)
+            self._delta_messages.append(_tool_loop_message(message))
 
     @property
     def delta_messages(self) -> list[PromptMessageExtended]:
@@ -698,7 +746,15 @@ class ToolRunner:
             del visible_channels[FAST_AGENT_PENDING_MEDIA_ATTACHMENTS]
             staged_messages = [
                 tool_message.model_copy(update={"channels": visible_channels or None}),
-                PromptMessageExtended(role="user", content=list(pending_media)),
+                PromptMessageExtended(
+                    role="user",
+                    content=list(pending_media),
+                    channels={
+                        FAST_AGENT_TOOL_MEDIA_MESSAGE: [
+                            TextContent(type="text", text="Tool media continuation")
+                        ]
+                    },
+                ),
             ]
 
         if self._use_history_enabled():
@@ -726,17 +782,19 @@ class ToolRunner:
         assistant_message: PromptMessageExtended,
     ) -> None:
         self._deferred_structured_finalization_started = True
-        finalizer = PromptMessageExtended(
-            role="user",
-            content=[
-                TextContent(
-                    type="text",
-                    text=(
-                        "Now produce the final answer as structured JSON matching the "
-                        "requested schema. Do not call any tools."
-                    ),
-                )
-            ],
+        finalizer = _tool_loop_message(
+            PromptMessageExtended(
+                role="user",
+                content=[
+                    TextContent(
+                        type="text",
+                        text=(
+                            "Now produce the final answer as structured JSON matching the "
+                            "requested schema. Do not call any tools."
+                        ),
+                    )
+                ],
+            )
         )
         if self._use_history_enabled():
             self._delta_messages = [finalizer]
@@ -800,13 +858,18 @@ class ToolRunner:
 
         pending_request = self._pending_tool_request_at_history_end(history)
         if (
-            pending_request is None
-            or self._pending_tool_response is None
-            or self._pending_tool_request is not None
+            pending_request is not None
+            and self._pending_tool_response is not None
+            and self._pending_tool_request is None
         ):
-            return history
+            history.append(self._pending_tool_response.model_copy(deep=True))
 
-        return [*history, self._pending_tool_response.model_copy(deep=True)]
+        # Input taken from the surface is no longer available for prompt replay.
+        # Retain it if the continuation fails before the LLM commits it.
+        return [
+            *history,
+            *(message.model_copy(deep=True) for message in self._pending_input_messages),
+        ]
 
     def _synthesize_passthrough_assistant(
         self,
@@ -840,6 +903,29 @@ class ToolRunner:
             stop_reason=stop_reason,
         )
 
+    def _advance_iteration(self) -> bool:
+        """Charge tool and provider-requested follow-ups to the same finite budget."""
+        self._iteration += 1
+        max_iterations = (
+            self._request_params.max_iterations
+            if self._request_params is not None
+            else DEFAULT_MAX_ITERATIONS
+        )
+        if self._iteration <= max_iterations:
+            return True
+        _logger.warning(
+            "Tool loop stopped: maximum iterations reached",
+            data={
+                "agent_name": self._agent.name,
+                "iterations": self._iteration,
+                "max_iterations": max_iterations,
+            },
+        )
+        if self._last_message is not None:
+            self._last_message.stop_reason = LlmStopReason.MAX_ITERATIONS
+        self._done = True
+        return False
+
     async def _ensure_tools_ready(self) -> None:
         if self._tools is None:
             self._tools = (await self._agent.list_tools()).tools
@@ -868,24 +954,10 @@ class ToolRunner:
             self._done = True
             return
 
-        self._iteration += 1
-        max_iterations = (
-            self._request_params.max_iterations
-            if self._request_params is not None
-            else DEFAULT_MAX_ITERATIONS
-        )
-        if self._iteration > max_iterations:
-            _logger.warning(
-                "Tool loop stopped: maximum iterations reached",
-                data={
-                    "agent_name": self._agent.name,
-                    "iterations": self._iteration,
-                    "max_iterations": max_iterations,
-                },
-            )
-            if self._last_message is not None:
-                self._last_message.stop_reason = LlmStopReason.MAX_ITERATIONS
-            self._done = True
+        if not self._advance_iteration():
+            if self._use_history_enabled():
+                self._stage_tool_response(tool_message)
+                self._append_history_messages(*self._delta_messages)
             return
 
         if self._passthrough_enabled():

@@ -22,11 +22,17 @@ from fast_agent.commands.model_capabilities import (
     resolve_x_search_supported,
 )
 from fast_agent.constants import TERMINAL_BYTES_PER_TOKEN
+from fast_agent.history.compaction import uses_native_compaction
+from fast_agent.llm.compaction_support import (
+    in_request_compaction_trigger,
+    resolve_compact_at,
+)
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_display_name import (
     resolve_llm_display_name,
     resolve_resolved_model_display_name,
 )
+from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.task_budget import format_task_budget_tokens
 from fast_agent.llm.terminal_output_limits import (
     calculate_terminal_output_limit_for_max_tokens,
@@ -210,6 +216,14 @@ def _iter_model_identity_lines(
 
     if resolved_model is not None:
         lines.extend(_iter_structured_output_lines(resolved_model))
+        model_params = resolved_model.model_params
+        if (
+            resolved_model.provider == Provider.CODEX_RESPONSES
+            and model_params is not None
+            and model_params.codex_responses_lite
+        ):
+            lite = "on" if resolved_model.model_config.lite else "off (enable with ?lite=on)"
+            lines.append(("Responses Lite", lite, False))
 
     sampling_overrides = _render_sampling_overrides(llm)
     if sampling_overrides:
@@ -398,6 +412,23 @@ def add_model_details(
 ) -> None:
     for label, value, emphasize in _iter_model_identity_lines(llm):
         _emit_model_line(outcome, label, value, emphasize_value=emphasize)
+
+    compaction_settings = ctx.resolve_settings().compaction
+    in_request = in_request_compaction_trigger(llm, compaction_settings) is not None
+    if in_request:
+        compaction = "provider-native (in-request)"
+    elif uses_native_compaction(llm, compaction_settings):
+        compaction = "provider-native (on-demand)"
+    else:
+        compaction = "client (fast-agent summary)"
+    if not compaction_settings.auto:
+        compaction += "; auto-compaction off"
+    elif not in_request:
+        usage = llm.usage_accumulator
+        window = usage.context_window_size if usage else None
+        compact_at = resolve_compact_at(llm, compaction_settings)
+        compaction += f"; auto at {compact_at.describe(window)}"
+    _emit_model_line(outcome, "Compaction", compaction)
 
     resolved_model = resolve_resolved_model(llm)
     wire_model_name = (

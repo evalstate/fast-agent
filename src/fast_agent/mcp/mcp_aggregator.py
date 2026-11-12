@@ -69,7 +69,11 @@ from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.interfaces import ServerRegistryProtocol
 from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager, ServerConnection
 from fast_agent.mcp.prompt_metadata import with_prompt_metadata
-from fast_agent.mcp.skills_extension import GetSkillResult, ListSkillsResult
+from fast_agent.mcp.skills_extension import (
+    GetSkillResult,
+    ListSkillsResult,
+    ReadResourceDirectoryResult,
+)
 from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler, ToolExecutionHandler
 from fast_agent.mcp.tool_permission_handler import (
     NoOpToolPermissionHandler,
@@ -84,6 +88,7 @@ from fast_agent.mcp.transport_tracking import TransportSnapshot
 from fast_agent.skills.mcp_registry import (
     McpSkillRegistry,
     scan_mcp_skill_registry,
+    server_supports_directory_read,
     server_supports_mcp_skills,
 )
 from fast_agent.ui.tool_call_ids import format_tool_call_id
@@ -279,6 +284,20 @@ class MCPToolCatalog:
         return ToolNameResolution(
             server_name=self._server_names[0] if self._server_names else None,
             local_name=name,
+        )
+
+    def resolve_tool(self, name: str) -> NamespacedTool | None:
+        """Return the discovered tool that a call to ``name`` reaches, if any."""
+        resolution = self.resolve_tool_name(name)
+        if resolution.server_name is None:
+            return None
+        return next(
+            (
+                namespaced_tool
+                for namespaced_tool in self._by_server.get(resolution.server_name, ())
+                if namespaced_tool.tool.name == resolution.local_name
+            ),
+            None,
         )
 
 
@@ -2013,7 +2032,7 @@ class MCPAggregator(ContextDependent):
         except Exception:
             # Don't let transport tracking errors break normal operation
             logger.debug(
-                "Failed to notify stdio transport activity for %s", server_name, exc_info=True
+                f"Failed to notify stdio transport activity for {server_name}", exc_info=True
             )
 
     async def get_server_instructions(self) -> dict[str, tuple[str | None, list[str]]]:
@@ -2238,8 +2257,7 @@ class MCPAggregator(ContextDependent):
             return metrics.snapshot()
         except Exception:
             logger.debug(
-                "Failed to snapshot transport metrics for server '%s'",
-                server_conn.server_name,
+                f"Failed to snapshot transport metrics for server '{server_conn.server_name}'",
                 exc_info=True,
             )
             return None
@@ -3788,11 +3806,11 @@ class MCPAggregator(ContextDependent):
         *,
         server_name: str | None = None,
         cursor: str | None = None,
-    ) -> ListResourcesResult:
+    ) -> ReadResourceDirectoryResult:
         """List the direct children of a directory resource via SEP-2640.
 
-        Routes ``resources/directory/read`` to the named server. Callers should
-        only invoke this against servers that declared ``directoryRead``.
+        Routes ``resources/directory/read`` only to servers that declared
+        ``directoryRead: true`` and the resources capability.
 
         ``server_name`` is required: a walk is scoped to the one server hosting
         the skill. Unlike ``get_resource`` we don't fan out, since a same-named
@@ -3806,6 +3824,8 @@ class MCPAggregator(ContextDependent):
         server_name = self._resolve_server_key(server_name)
         if server_name not in self.server_names:
             raise ValueError(f"Server '{server_name}' not found")
+        if not server_supports_directory_read(await self.get_capabilities(server_name)):
+            raise ValueError(f"Server '{server_name}' does not support directoryRead")
         return await self._read_directory_from_server(server_name, uri, cursor=cursor)
 
     async def list_skills(
@@ -3820,6 +3840,10 @@ class MCPAggregator(ContextDependent):
         server_name = self._resolve_server_key(server_name)
         if server_name not in self.server_names:
             raise ValueError(f"Server '{server_name}' not found")
+        if not server_supports_mcp_skills(await self.get_capabilities(server_name)):
+            raise ValueError(f"Server '{server_name}' does not support the skills extension")
+        if not await self.server_supports_feature(server_name, "resources"):
+            raise ValueError(f"Server '{server_name}' does not support resources")
         return await self._list_skills_from_server(server_name, cursor=cursor)
 
     async def _list_skills_from_server(
@@ -3846,6 +3870,10 @@ class MCPAggregator(ContextDependent):
         server_name = self._resolve_server_key(server_name)
         if server_name not in self.server_names:
             raise ValueError(f"Server '{server_name}' not found")
+        if not server_supports_mcp_skills(await self.get_capabilities(server_name)):
+            raise ValueError(f"Server '{server_name}' does not support the skills extension")
+        if not await self.server_supports_feature(server_name, "resources"):
+            raise ValueError(f"Server '{server_name}' does not support resources")
         return await self._get_skill_from_server(server_name, uri)
 
     async def _get_skill_from_server(self, server_name: str, uri: str) -> GetSkillResult:
@@ -3860,7 +3888,7 @@ class MCPAggregator(ContextDependent):
 
     async def _read_directory_from_server(
         self, server_name: str, uri: str, *, cursor: str | None = None
-    ) -> ListResourcesResult:
+    ) -> ReadResourceDirectoryResult:
         """Internal helper to call ``resources/directory/read`` on a server."""
         return await self._execute_resource_read(
             server_name,

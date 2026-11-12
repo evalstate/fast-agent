@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, cast
 from pydantic import ValidationError
 
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.history.atif_reconstruction import reconstruct_history
 from fast_agent.mcp.prompt_serialization import load_messages, messages_from_dict
 from fast_agent.session.snapshot import SessionSnapshot, load_session_snapshot
 from fast_agent.session.trace_export_atif import AtifTraceWriter
@@ -159,6 +160,13 @@ class SessionTraceExporter:
         )
         try:
             loaded_history = self._load_history(agent.history_path)
+            if request.format == "atif":
+                history = reconstruct_history(loaded_history.messages, session_dir, agent.name)
+                if history != loaded_history.messages:
+                    loaded_history = _LoadedExportHistory(
+                        messages=history,
+                        timestamps=tuple(message.timestamp for message in history),
+                    )
         except (AgentConfigError, OSError, ValueError, ValidationError) as exc:
             raise SessionExportReadError(
                 f"Failed to load session history for agent '{agent.name}' "

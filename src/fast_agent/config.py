@@ -19,6 +19,7 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
 from fast_agent.constants import (
     DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES,
+    DEFAULT_PROCESS_POLL_MAX_WAIT_SECONDS,
     MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
     MAX_PROCESS_POLL_WAIT_SECONDS,
 )
@@ -44,7 +45,12 @@ from fast_agent.mcp.server_declaration import (
     MCPServerDeclaration,
     effective_server_view,
 )
-from fast_agent.plugins.models import PluginContributions, PluginPostUserTurnSpec
+from fast_agent.plugins.models import (
+    PluginContributions,
+    PluginPostUserTurnSpec,
+    PluginToolCallReviewSpec,
+    unloadable_tool_call_review,
+)
 from fast_agent.tools.environment_config import EnvironmentSpec
 from fast_agent.tools.shell_profiles import ShellToolProfile
 from fast_agent.types.streaming import StreamingMode
@@ -59,6 +65,10 @@ from fast_agent.utils.numeric import int_or_none
 from fast_agent.utils.text import strip_casefold, strip_str_to_none
 from fast_agent.utils.transports import McpClientTransport
 
+MOONSHOT_DEFAULT_MODEL = "kimi-k3.1-pro"
+HUGGINGFACE_DEFAULT_MODEL = "moonshotai/Kimi-K3.1-Pro:together"
+
+
 type TerminalImageSize = int | Literal["auto"] | str | None
 type ShellWriteTextFileMode = Literal["auto", "on", "off", "apply_patch", "edit_file"]
 
@@ -70,6 +80,9 @@ SHELL_WRITE_TEXT_FILE_MODES: tuple[ShellWriteTextFileMode, ...] = (
     "edit_file",
 )
 SHELL_WRITE_TEXT_FILE_MODE_HELP = "|".join(SHELL_WRITE_TEXT_FILE_MODES)
+# OpenAI provider-native compaction (``native_compaction``) on supported routes. Also
+# applies when a route has no config section.
+NATIVE_COMPACTION_DEFAULT = True
 _SHELL_WRITE_TEXT_FILE_MODE_ALIASES: dict[str, ShellWriteTextFileMode] = {
     **{mode: mode for mode in SHELL_WRITE_TEXT_FILE_MODES},
     **{alias: "on" for alias in TRUE_ACTION_ALIASES},
@@ -311,7 +324,9 @@ class ShellSettings(BaseModel):
             "'minimal_process' exposes Bash and Process; "
             "'native' retains the legacy execute/poll_process/terminate_process tools; "
             "'grok_shell' exposes aligned shell plus Process; "
-            "'luna_exec' exposes foreground-first exec plus Process"
+            "'luna_exec' exposes foreground-first exec plus Process; "
+            "'freeform_shell' exposes the luna_exec contract as a freeform (non-JSON) "
+            "raw-command shell tool plus Process"
         ),
     )
     timeout_seconds: int = Field(
@@ -340,6 +355,20 @@ class ShellSettings(BaseModel):
     output_byte_limit: int | None = Field(
         default=16_000,
         description="Model-facing shell output preview bytes (None = model-based auto)",
+    )
+    running_output_byte_limit: int | None = Field(
+        default=6000,
+        ge=256,
+        description=(
+            "Preview bytes for a command that is still running (when it outlasts the "
+            "foreground wait, or a process wait/status returns it running): an eighth from "
+            "the start of the unread output, the rest from the end; at most "
+            "output_byte_limit. Applies to session-managed and persistent processes; explicit "
+            "process preview limits override it. Retention is bounded by the applicable "
+            "session/durable quota (None = the normal head/tail preview). Default 6000 "
+            "(750 + 5250 bytes): "
+            "in A/B runs the model's next step was unchanged, almost always a process wait"
+        ),
     )
     output_byte_limit_selection: Literal["default", "explicit", "auto"] = Field(
         default="default",
@@ -371,7 +400,7 @@ class ShellSettings(BaseModel):
         ),
     )
     process_poll_max_wait_seconds: int = Field(
-        default=MAX_PROCESS_POLL_WAIT_SECONDS,
+        default=DEFAULT_PROCESS_POLL_MAX_WAIT_SECONDS,
         ge=1,
         le=MAX_PROCESS_POLL_WAIT_SECONDS,
         description="Maximum duration of one model-initiated managed-process wait",
@@ -537,16 +566,28 @@ class CompactionSettings(BaseModel):
         default=True,
         description="Automatically compact history when context usage crosses the threshold",
     )
-    threshold: float = Field(
-        default=0.85,
+    threshold: float | None = Field(
+        default=None,
         gt=0.0,
         le=1.0,
-        description="Fraction of the model context window that triggers auto-compaction",
+        description=(
+            "Fraction of the model context window that triggers auto-compaction, for every "
+            "model. Unset uses the model's default (e.g. Grok 4.7 compacts at 190k tokens), "
+            "else 0.85. A model string's compact_at overrides it"
+        ),
     )
     keep_turns: int = Field(
         default=2,
         ge=0,
         description="Number of recent complete turns kept verbatim after compaction",
+    )
+    strategy: Literal["auto", "client"] = Field(
+        default="auto",
+        description=(
+            "How compaction is performed. 'auto' uses provider-native compaction where the "
+            "model supports it and fast-agent's summary otherwise; 'client' always uses "
+            "fast-agent's summary"
+        ),
     )
     prompt: str | None = Field(
         default=None,
@@ -557,6 +598,32 @@ class CompactionSettings(BaseModel):
     )
     model_config = ConfigDict(extra="ignore")
     _config_file: str | None = PrivateAttr(default=None)
+
+    def configured_prompt(self) -> str | None:
+        """The configured summarization prompt (inline text or file contents), if any.
+
+        Relative file paths resolve from the config file's directory. An empty or
+        unreadable setting means no custom prompt: fast-agent's built-in one applies.
+        """
+        configured = self.prompt
+        if not configured or not configured.strip():
+            return None
+        candidate = configured.strip()
+        if len(candidate) < 1024 and "\n" not in candidate:
+            try:
+                path = Path(candidate).expanduser()
+                if not path.is_absolute() and self._config_file:
+                    path = Path(self._config_file).expanduser().resolve().parent / path
+                if path.is_file():
+                    return path.read_text(encoding="utf-8").strip() or None
+            except OSError:
+                pass
+        return configured
+
+    @property
+    def has_custom_prompt(self) -> bool:
+        """Whether a custom prompt is configured; it requires a written summary."""
+        return self.configured_prompt() is not None
 
 
 class MCPRootSettings(BaseModel):
@@ -1147,6 +1214,70 @@ class AnthropicVertexSettings(BaseModel):
     base_url: str | None = None
 
 
+class CopilotSettings(BaseModel):
+    """Native Copilot gateway and request settings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_url: str = "https://api.githubcopilot.com"
+    integration_id: str = Field(
+        default="copilot-sdk",
+        min_length=1,
+        pattern=r"^[!-~]+$",
+        description="Copilot integration routing identity sent on every inference request",
+    )
+
+    runtime_timeout_seconds: float = Field(default=30.0, gt=0)
+    native_compaction: bool = Field(
+        default=NATIVE_COMPACTION_DEFAULT,
+        description=(
+            "Compact GPT (Responses) model history into OpenAI's provider-native "
+            "checkpoint instead of fast-agent's summary. Override per model with "
+            "?compaction=native|client. Claude models use server-side threshold "
+            "compaction unless the model string sets compaction=client"
+        ),
+    )
+    cache_mode: Literal["off", "prompt", "auto"] = Field(
+        default="auto",
+        description=(
+            "Messages caching: off (disabled), prompt (cache tools+system and prompt templates), "
+            "auto (also advance through recent conversation turns)"
+        ),
+    )
+    cache_ttl: Literal["5m", "1h"] | None = Field(
+        default=None,
+        description="Messages cache TTL override; null uses the model default",
+    )
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: str) -> str:
+        from urllib.parse import urlsplit
+
+        message = (
+            "Copilot base_url must be an HTTPS origin without credentials, path, query or fragment."
+        )
+        try:
+            url = urlsplit(value)
+            port = url.port
+        except ValueError:
+            raise ValueError(message) from None
+        if (
+            any(character.isspace() or ord(character) < 32 for character in value)
+            or url.scheme != "https"
+            or not url.hostname
+            or url.username is not None
+            or url.password is not None
+            or url.path not in ("", "/")
+            or "?" in value
+            or "#" in value
+            or "\\" in value
+            or (port is None and url.netloc.endswith(":"))
+        ):
+            raise ValueError(message)
+        return value.rstrip("/")
+
+
 class AnthropicSettings(BaseModel):
     """Settings for using Anthropic models in the fast-agent application."""
 
@@ -1247,7 +1378,7 @@ class OpenAIWebSearchSettings(BaseModel):
 class XAIWebSearchSettings(OpenAIWebSearchSettings):
     """xAI Responses web_search tool settings."""
 
-    tool_type: Literal["web_search"] = "web_search"
+    tool_type: Literal["web_search"] = "web_search"  # ty: ignore[invalid-mutable-override] -- provider restricts accepted config values; settings are not mutated after validation
     excluded_domains: list[str] | None = Field(
         default=None,
         description="Domains to exclude from xAI web search results (maximum 5).",
@@ -1308,11 +1439,15 @@ class ResponsesProviderSettingsBase(BaseModel):
             "with automatic SSE fallback."
         ),
     )
-    service_tier: Literal["fast", "flex"] | None = Field(
-        default=None,
-        description="Responses service tier: fast (priority) or flex.",
-    )
     web_search: OpenAIWebSearchSettings = Field(default_factory=OpenAIWebSearchSettings)
+    native_compaction: bool = Field(
+        default=NATIVE_COMPACTION_DEFAULT,
+        description=(
+            "Compact history into OpenAI's provider-native checkpoint (compaction_trigger) "
+            "instead of fast-agent's summary, under compaction.strategy 'auto'. Override "
+            "per model with ?compaction=native|client. Responses and Codex Responses only"
+        ),
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -1322,6 +1457,10 @@ class OpenAISettings(ResponsesProviderSettingsBase):
 
     api_key: str | None = Field(default=None, description="OpenAI API key")
     base_url: str | None = Field(default=None, description="Override API endpoint")
+    service_tier: Literal["fast", "flex"] | None = Field(
+        default=None,
+        description="Responses service tier: fast (priority) or flex.",
+    )
     reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
         default=None,
         description="Unified reasoning setting (effort level or budget)",
@@ -1424,7 +1563,7 @@ class MoonshotSettings(BaseModel):
     api_key: str | None = Field(default=None, description="Moonshot API key")
     base_url: str | None = Field(default=None, description="Override API endpoint")
     default_model: str | None = Field(
-        default=None,
+        default=MOONSHOT_DEFAULT_MODEL,
         description="Default model when Moonshot provider is selected without an explicit model",
     )
     default_headers: dict[str, str] | None = Field(
@@ -1486,6 +1625,14 @@ class XAISettings(BaseModel):
         default=False,
         description="Stream experimental function-call argument deltas from Grok 4.5/4.6.",
     )
+    native_compaction: bool = Field(
+        default=NATIVE_COMPACTION_DEFAULT,
+        description=(
+            "Compact history into xAI's provider-native checkpoint (/responses/compact) "
+            "instead of fast-agent's summary, under compaction.strategy 'auto'. Override "
+            "per model with ?compaction=native|client"
+        ),
+    )
     image_upload_mode: Literal["inline", "public_url"] = Field(
         default="public_url",
         description=(
@@ -1506,7 +1653,7 @@ class XAISettings(BaseModel):
 class MetaAIWebSearchSettings(OpenAIWebSearchSettings):
     """MetaAI Responses web_search (search grounding) settings."""
 
-    tool_type: Literal["web_search"] = "web_search"
+    tool_type: Literal["web_search"] = "web_search"  # ty: ignore[invalid-mutable-override] -- provider restricts accepted config values; settings are not mutated after validation
 
 
 class MetaAISettings(BaseModel):
@@ -1721,7 +1868,7 @@ class HuggingFaceSettings(BaseModel):
         description="Override router endpoint (default: https://router.huggingface.co/v1)",
     )
     default_model: str | None = Field(
-        default=None,
+        default=HUGGINGFACE_DEFAULT_MODEL,
         description=(
             "Default model when HuggingFace provider is selected without an explicit model"
         ),
@@ -1733,6 +1880,28 @@ class HuggingFaceSettings(BaseModel):
     default_headers: dict[str, str] | None = Field(
         default=None,
         description="Custom headers for all API requests",
+    )
+    max_request_bytes: int | None = Field(
+        default=4_718_592,
+        ge=1,
+        description=(
+            "Request body budget (bytes). The router rejects bodies above about 5 MB with "
+            "HTTP 413; if inline images exceed this budget, the oldest are replaced with a "
+            "placeholder. Null disables the budget."
+        ),
+    )
+    image_max_dimension: int | None = Field(
+        default=2048,
+        ge=1,
+        description="Downscale inline images to this longest side (pixels). Null disables.",
+    )
+    image_reencode_min_bytes: int | None = Field(
+        default=300_000,
+        ge=1,
+        description=(
+            "Re-encode inline images larger than this (bytes) when JPEG or their own format "
+            "is smaller. Null disables."
+        ),
     )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
@@ -1753,7 +1922,10 @@ class TerminalImageSettings(BaseModel):
         "unicode",
         "none",
     ] = "auto"
-    """Terminal image backend; automatic Sixel rendering is fitted to the viewport."""
+    """Auto uses reported terminal support, including Kitty in Herdr; use halfcell to opt out.
+
+    Automatic Sixel rendering is fitted to the viewport.
+    """
 
     width: TerminalImageSize = "80%"
     """Image render width: cells, percentage (e.g. '80%'), 'auto', or null."""
@@ -1807,6 +1979,50 @@ class ToolDisplaySettings(BaseModel):
 
     aggregate_parallel: bool = True
     """Aggregate safe parallel calls to the same generic tool."""
+
+
+class ProgrammaticToolCallingSettings(BaseModel):
+    """Programmatic tool calling (PTC): tools are called from model-written Python code.
+
+    When enabled, agents expose a single code execution tool instead of their tools. The
+    model writes Python that runs in a pydantic-monty sandbox where every tool is an async
+    function; only printed output and the final expression value return to the context.
+    """
+
+    enabled: bool | None = None
+    """Expose tools through the Python code tool; null uses the model default.
+    Override with `--ptc` / `--no-ptc` or the `ptc` model query. Local POSIX only."""
+
+    direct_tools: list[str] = Field(default_factory=list)
+    """Tool names (fnmatch patterns) that stay directly callable alongside the code tool."""
+
+    nested_tools: list[str] = Field(default_factory=list)
+    """Tool names (fnmatch patterns) callable only from code, overriding a tool's own
+    `direct`/`both` exposure (e.g. the shell and process tools). `["*"]` makes every tool
+    code-only. `direct_tools` wins when both match."""
+
+    tool_format: Literal["auto", "json", "freeform"] = "auto"
+    """How the code tool receives source: `json` sends a `{"code": ...}` function argument;
+    `freeform` sends raw Python as a Responses custom (grammar) tool, avoiding JSON escaping.
+    `auto` uses the model's default (freeform for GPT-6)."""
+
+    type_check: bool = True
+    """Type-check code against generated tool stubs before running it."""
+
+    output_guidance: Literal["auto", "off", "print", "helpers"] = "auto"
+    """How the code tool tells the model to read bounded shell captures, which the model
+    sees only when printed or returned. `print` says to print the exit code and only the
+    part needed, with `show`/`tail`/`head`/`grep` sandbox helpers as shortcuts; `helpers` leads
+    with printing `show(r)`; `off` adds neither the guidance nor the helpers. `auto` uses the
+    model's default, which is helpers unless the model sets another."""
+
+    max_duration_seconds: float = Field(default=30.0, gt=0)
+    """Sandbox compute time limit per execution (time awaiting tools is not counted)."""
+
+    max_memory_mb: int = Field(default=256, gt=0)
+    """Sandbox memory limit per execution."""
+
+    model_config = ConfigDict(extra="ignore")
 
 
 class TUISettings(BaseModel):
@@ -2354,6 +2570,8 @@ class Settings(BaseSettings):
     compaction: CompactionSettings = Field(default_factory=CompactionSettings)
     """History compaction settings (auto trigger threshold, retained turns, prompt)."""
 
+    copilot: CopilotSettings = Field(default_factory=CopilotSettings)
+
     anthropic: AnthropicSettings | None = None
     """Settings for using Anthropic models in the fast-agent application"""
 
@@ -2438,6 +2656,9 @@ class Settings(BaseSettings):
     shell_execution: ShellSettings = Field(default_factory=ShellSettings)
     """Shell execution timeout and warning settings."""
 
+    ptc: ProgrammaticToolCallingSettings = Field(default_factory=ProgrammaticToolCallingSettings)
+    """Programmatic tool calling: call tools from sandboxed Python code."""
+
     llm_retries: int = 2
     """
     Number of times to retry transient LLM API errors.
@@ -2452,6 +2673,7 @@ class Settings(BaseSettings):
     _fast_agent_settings_source: Literal["manual", "discovered"] = PrivateAttr(default="manual")
     _logger_path_explicit: bool = PrivateAttr(default=False)
     _plugin_post_user_turn: tuple[PluginPostUserTurnSpec, ...] = PrivateAttr(default=())
+    _plugin_tool_call_review: tuple[PluginToolCallReviewSpec, ...] = PrivateAttr(default=())
 
     def __init__(self, **values: Any) -> None:
         raw_mcp = values.get("mcp")
@@ -2744,6 +2966,7 @@ def _settings_from_sources(
     plugin_contributions = _merge_enabled_plugin_contributions(settings)
     settings.commands = plugin_contributions.commands or None
     settings._plugin_post_user_turn = tuple(plugin_contributions.post_user_turn.values())
+    settings._plugin_tool_call_review = tuple(plugin_contributions.tool_call_review.values())
     return settings
 
 
@@ -2810,6 +3033,7 @@ def _merge_enabled_plugin_contributions(settings: Settings) -> PluginContributio
 
     plugin_commands: dict[str, PluginCommandActionSpec] = {}
     post_user_turn: dict[str, PluginPostUserTurnSpec] = {}
+    tool_call_review: dict[str, PluginToolCallReviewSpec] = {}
     if enabled_sources.home and settings._fast_agent_global_plugin_home:
         contributions = _load_enabled_plugin_contributions_from_root(
             destination_root=Path(settings._fast_agent_global_plugin_home) / "plugins",
@@ -2819,6 +3043,7 @@ def _merge_enabled_plugin_contributions(settings: Settings) -> PluginContributio
         )
         plugin_commands.update(contributions.commands)
         post_user_turn.update(contributions.post_user_turn)
+        tool_call_review.update(contributions.tool_call_review)
 
     if enabled_sources.project:
         contributions = _load_enabled_plugin_contributions_from_root(
@@ -2829,10 +3054,15 @@ def _merge_enabled_plugin_contributions(settings: Settings) -> PluginContributio
         )
         plugin_commands.update(contributions.commands)
         post_user_turn.update(contributions.post_user_turn)
+        tool_call_review.update(contributions.tool_call_review)
 
     merged = dict(plugin_commands)
     merged.update(inline_commands)
-    return PluginContributions(commands=merged, post_user_turn=post_user_turn)
+    return PluginContributions(
+        commands=merged,
+        post_user_turn=post_user_turn,
+        tool_call_review=tool_call_review,
+    )
 
 
 def _load_enabled_plugin_contributions_from_root(
@@ -2853,7 +3083,13 @@ def _load_enabled_plugin_contributions_from_root(
             UserWarning,
             stacklevel=3,
         )
-        return PluginContributions(commands={}, post_user_turn={})
+        # Any of these plugins may be a reviewer, so review fails closed for all of them.
+        error = f"enabled plugins from {scope} failed to load: {exc}"
+        return PluginContributions(
+            commands={},
+            post_user_turn={},
+            tool_call_review={name: unloadable_tool_call_review(name, error) for name in enabled},
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -2924,6 +3160,21 @@ def _enabled_plugins_from_config(config_path: Path) -> list[str]:
             if name and name not in enabled:
                 enabled.append(name)
     return enabled
+
+
+def apply_isolation(settings: Settings) -> None:
+    """Override configuration so a run loads no extensions and records nothing.
+
+    Config, secrets and model references stay as loaded; everything that would
+    load extension code or persist conversation content is switched off.
+    """
+    settings.session_history = False
+    settings.logger.type = "none"
+    settings.otel = None
+    settings.skills.directories = []
+    settings.plugins.enabled = []
+    settings.commands = None
+    settings._plugin_post_user_turn = ()
 
 
 def update_global_settings(settings: Settings) -> None:

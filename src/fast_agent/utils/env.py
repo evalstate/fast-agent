@@ -27,3 +27,12 @@ def env_flag(name: str, *, default: bool = False) -> bool:
 
 def optional_env_flag(name: str) -> bool | None:
     return _optional_env_flag_value(name)
+
+
+def utf8_python_child_env() -> dict[str, str]:
+    """Environment for a child Python process whose piped stdio is decoded as UTF-8.
+
+    Before Python 3.15, piped stdio uses the locale code page on Windows, so a child
+    could fail to print non-ASCII text or emit bytes the parent decodes incorrectly.
+    """
+    return {**os.environ, "PYTHONIOENCODING": "utf-8"}

@@ -45,6 +45,11 @@ BEDROCK_STOP_REASON_MAP: dict[str, LlmStopReason] = {
     "end_turn": LlmStopReason.END_TURN,
     "stop_sequence": LlmStopReason.STOP_SEQUENCE,
     "max_tokens": LlmStopReason.MAX_TOKENS,
+    "model_context_window_exceeded": LlmStopReason.MAX_TOKENS,
+    "guardrail_intervened": LlmStopReason.SAFETY,
+    "content_filtered": LlmStopReason.SAFETY,
+    "malformed_model_output": LlmStopReason.ERROR,
+    "malformed_tool_use": LlmStopReason.ERROR,
 }
 if TYPE_CHECKING:
     from mcp import ListToolsResult
@@ -489,9 +494,6 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
         self._resolve_aws_configuration()
         self._bedrock_runtime_client = None
-
-        # One-shot hint to force non-streaming on next completion (used by structured outputs)
-        self._force_non_streaming_once: bool = False
 
         self._configure_reasoning_from_kwargs(kwargs)
 
@@ -1915,11 +1917,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         *,
         has_tools: bool,
         has_tool_results: bool,
-        force_non_streaming: bool,
     ) -> bool:
-        if force_non_streaming:
-            return False
-
         cache_pref = (self.capabilities.get(model) or ModelCapabilities()).stream_with_tools
         if has_tools and cache_pref == StreamPreference.NON_STREAM:
             return False
@@ -2311,18 +2309,11 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             try:
                 has_tools = self._bedrock_has_tools_payload(attempt.tools_payload)
 
-                # Force non-streaming for structured-output flows (one-shot)
-                force_non_streaming = False
-                if self._force_non_streaming_once:
-                    force_non_streaming = True
-                    self._force_non_streaming_once = False
-
                 use_streaming = self._bedrock_use_streaming(
                     model,
                     schema_choice,
                     has_tools=has_tools,
                     has_tool_results=attempt.has_tool_results,
-                    force_non_streaming=force_non_streaming,
                 )
                 attempted_streaming = use_streaming
 

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 XAI_PROVIDER_ID = "xai"
+XAI_OAUTH_ONLY_MODELS = frozenset({"grok-4.7-build-fast"})
 XAI_CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828"
 XAI_SCOPE = "openid profile email offline_access grok-cli:access api:access"
 XAI_DEVICE_CODE_URL = "https://auth.x.ai/oauth2/device/code"

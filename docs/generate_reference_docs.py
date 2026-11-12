@@ -227,6 +227,18 @@ def generate_request_params_reference() -> str:
     return "".join(lines)
 
 
+def generate_streaming_timeout_defaults() -> str:
+    from fast_agent.types import RequestParams
+
+    description = RequestParams.model_fields["streaming_timeout"].description
+    assert description is not None
+    return (
+        "<!-- GENERATED FILE — DO NOT EDIT. Source: generate_reference_docs.py -->\n\n"
+        + description
+        + "\n"
+    )
+
+
 def _signature_without_self(func: Any) -> inspect.Signature:
     sig = _compact_signature_defaults(inspect.signature(func))
     params = list(sig.parameters.values())
@@ -677,8 +689,9 @@ def _yaml_default_text(default: object) -> str:
 
 _COMPACTION_SNIPPET_COMMENTS = {
     "auto": "automatically compact when the threshold is crossed",
-    "threshold": "fraction of the context window that triggers compaction",
+    "threshold": "context-window fraction that triggers compaction; unset: model default",
     "keep_turns": "recent turns kept verbatim after compaction",
+    "strategy": "auto: provider-native where supported; client: always summarize",
     "prompt": "built-in prompt; set inline text or a relative file path",
 }
 
@@ -706,6 +719,34 @@ def generate_compaction_config_snippet() -> str:
             lines.append(f"  # {key:<13} {value:<5} # {comment}\n")
         else:
             lines.append(f"  {key:<13} {value:<5} # {comment}\n")
+    lines.append("```\n")
+    return "".join(lines)
+
+
+def generate_ptc_config_snippet() -> str:
+    """Generate bundled PTC defaults from the settings model."""
+    from fast_agent.config import ProgrammaticToolCallingSettings
+
+    lines = [
+        "<!-- GENERATED FILE — DO NOT EDIT. Source: ProgrammaticToolCallingSettings -->\n\n",
+        "```yaml\nptc:\n",
+    ]
+    for name, value in ProgrammaticToolCallingSettings().model_dump().items():
+        lines.append(f"  {name}: {_yaml_scalar(value)}\n")
+    lines.append("```\n")
+    return "".join(lines)
+
+
+def generate_copilot_config_snippet() -> str:
+    """Generate Copilot defaults from the settings model."""
+    from fast_agent.config import CopilotSettings
+
+    lines = [
+        "<!-- GENERATED FILE — DO NOT EDIT. Source: CopilotSettings -->\n\n",
+        "```yaml\ncopilot:\n",
+    ]
+    for name, field in CopilotSettings.model_fields.items():
+        lines.append(f"  {name}: {_yaml_scalar(field.default)}\n")
     lines.append("```\n")
     return "".join(lines)
 
@@ -931,7 +972,8 @@ def generate_tui_runtime_reference() -> str:
         ),
         "logger.terminal_images.enabled": "Render image content in capable terminals.",
         "logger.terminal_images.backend": (
-            "Terminal image backend; automatic Sixel rendering is fitted to the viewport."
+            "Auto uses reported terminal support, including Kitty in Herdr; "
+            "use halfcell to opt out. Automatic Sixel rendering is fitted to the viewport."
         ),
         "logger.terminal_images.width": "Image render width.",
         "logger.terminal_images.height": "Image render height.",
@@ -1551,6 +1593,9 @@ def main() -> int:
         _write(GENERATED_DIR / "harness_reference.md", generate_harness_reference())
         _write(GENERATED_DIR / "extension_reference.md", generate_extension_reference())
         _write(GENERATED_DIR / "request_params_reference.md", generate_request_params_reference())
+        _write(
+            GENERATED_DIR / "streaming_timeout_defaults.md", generate_streaming_timeout_defaults()
+        )
         _write(GENERATED_DIR / "models_reference.md", generate_models_reference())
         _write(
             GENERATED_DIR / "current_models_responses.md", generate_current_model_table("responses")
@@ -1563,6 +1608,8 @@ def main() -> int:
         _write(GENERATED_DIR / "current_models_metaai.md", generate_current_model_table("metaai"))
         _write(GENERATED_DIR / "tui_runtime_reference.md", generate_tui_runtime_reference())
         _write(GENERATED_DIR / "compaction_config_snippet.md", generate_compaction_config_snippet())
+        _write(GENERATED_DIR / "copilot_config_snippet.md", generate_copilot_config_snippet())
+        _write(GENERATED_DIR / "ptc_config_snippet.md", generate_ptc_config_snippet())
         _write(
             GENERATED_DIR / "compaction_settings_reference.md",
             generate_compaction_settings_reference(),

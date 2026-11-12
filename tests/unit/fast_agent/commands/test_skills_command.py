@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import sys
 from pathlib import Path
 
-from click.utils import strip_ansi
+from typer._click.utils import strip_ansi
 from typer.testing import CliRunner
 
 import fast_agent.cli.commands.skills as skills_command
@@ -228,9 +230,7 @@ def test_top_level_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> None:
 
     result = subprocess.run(
         [
-            "uv",
-            "run",
-            "python",
+            sys.executable,
             "-m",
             "fast_agent.cli",
             "--home",
@@ -242,6 +242,8 @@ def test_top_level_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
         cwd=_repo_root(),
+        # Long tmp paths (e.g. xdist's popen-gwN) must not be truncated by Rich tables.
+        env={**os.environ, "COLUMNS": "400"},
     )
 
     assert result.returncode == 0, result.stderr
@@ -261,9 +263,7 @@ def test_local_skills_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> No
 
     result = subprocess.run(
         [
-            "uv",
-            "run",
-            "python",
+            sys.executable,
             "-m",
             "fast_agent.cli",
             "skills",
@@ -275,6 +275,8 @@ def test_local_skills_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> No
         capture_output=True,
         text=True,
         cwd=_repo_root(),
+        # Long tmp paths (e.g. xdist's popen-gwN) must not be truncated by Rich tables.
+        env={**os.environ, "COLUMNS": "400"},
     )
 
     assert result.returncode == 0, result.stderr

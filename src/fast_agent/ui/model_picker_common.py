@@ -18,7 +18,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import available_reasoning_values, format_reasoning_setting
 from fast_agent.utils.collections import unique_preserve_order
 from fast_agent.utils.count_display import format_count
-from fast_agent.utils.huggingface_hub import is_huggingface_hub_logged_in
+from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
 from fast_agent.utils.text import strip_str_to_none
 
 if TYPE_CHECKING:
@@ -32,6 +32,7 @@ PICKER_PROVIDER_ORDER: tuple[Provider, ...] = (
     Provider.RESPONSES,
     Provider.OPENRESPONSES,
     Provider.CODEX_RESPONSES,
+    Provider.COPILOT,
     Provider.ANTHROPIC,
     Provider.HUGGINGFACE,
     Provider.GOOGLE,
@@ -62,7 +63,6 @@ GENERIC_CUSTOM_MODEL_SENTINEL = "generic.__custom__"
 LLAMACPP_PROVIDER_KEY = "llamacpp"
 LLAMACPP_IMPORT_SENTINEL = "llamacpp.__import__"
 PROVIDER_PREFIX_DELIMITERS = ("/", ".")
-ProviderActiveCheck = Callable[[dict[str, Any]], bool]
 ModelSpecTransform = Callable[[str], str]
 
 
@@ -121,10 +121,6 @@ class ModelPickerSnapshot:
     config_payload: dict[str, Any]
 
 
-def _provider_is_active(provider: Provider, config_payload: dict[str, Any]) -> bool:
-    return provider_credential_summary(provider, config_payload).active
-
-
 def _google_vertex_is_active(config_payload: dict[str, Any]) -> bool:
     google_cfg = config_payload.get("google")
     if not isinstance(google_cfg, dict):
@@ -144,14 +140,9 @@ def _azure_default_credential_is_active(config_payload: dict[str, Any]) -> bool:
 
 
 def _huggingface_hub_is_active(_config_payload: dict[str, Any]) -> bool:
-    return is_huggingface_hub_logged_in()
-
-
-_PROVIDER_ACTIVE_CHECKS: dict[Provider, ProviderActiveCheck] = {
-    Provider.GOOGLE: _google_vertex_is_active,
-    Provider.AZURE: _azure_default_credential_is_active,
-    Provider.HUGGINGFACE: _huggingface_hub_is_active,
-}
+    # Local token presence only (matches ProviderKeyManager); the picker must not
+    # make a network round-trip to the Hub on every open.
+    return get_huggingface_hub_token() is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,8 +154,19 @@ class ProviderCredentialSummary:
 def provider_credential_summary(
     provider: Provider,
     config_payload: dict[str, Any],
+    *,
+    copilot_authenticated: bool = False,
 ) -> ProviderCredentialSummary:
     """Return whether a provider is usable and a short credential source label."""
+    if provider == Provider.COPILOT:
+        # Rendering uses only the async preflight result, never stored credentials.
+        return ProviderCredentialSummary(
+            active=copilot_authenticated,
+            label=("env" if "COPILOT_GITHUB_TOKEN" in os.environ else "OAuth")
+            if copilot_authenticated
+            else None,
+        )
+
     if provider == Provider.ANTHROPIC_VERTEX:
         ready, _ = anthropic_vertex_ready(config_payload)
         return ProviderCredentialSummary(active=ready, label="ADC" if ready else None)
@@ -213,10 +215,6 @@ def provider_credential_summary(
 
     if provider in {Provider.FAST_AGENT, Provider.GENERIC}:
         return ProviderCredentialSummary(active=True, label="local")
-
-    if active_check := _PROVIDER_ACTIVE_CHECKS.get(provider):
-        if active_check(config_payload):
-            return ProviderCredentialSummary(active=True)
 
     return ProviderCredentialSummary(active=False)
 
@@ -366,13 +364,16 @@ def build_snapshot(
     *,
     config_payload: dict[str, Any] | None = None,
     start_path: Path | None = None,
+    copilot_authenticated: bool = False,
 ) -> ModelPickerSnapshot:
     if config_payload is None:
         settings = get_settings(str(config_path) if config_path else None)
         config_payload = settings.model_dump()
 
     credential_by_provider = {
-        provider: provider_credential_summary(provider, config_payload)
+        provider: provider_credential_summary(
+            provider, config_payload, copilot_authenticated=copilot_authenticated
+        )
         for provider in PICKER_PROVIDER_ORDER
     }
     active_providers = {
@@ -664,7 +665,7 @@ def provider_activation_action(
     provider: Provider,
 ) -> ProviderActivation | None:
     option = find_provider(snapshot, provider.config_name)
-    if provider in {Provider.CODEX_RESPONSES, Provider.XAI} and not option.active:
+    if provider in {Provider.CODEX_RESPONSES, Provider.XAI, Provider.COPILOT} and not option.active:
         return ProviderActivation(provider)
     return None
 
@@ -706,20 +707,31 @@ def model_options_for_provider(
 
     provider_option = find_provider(snapshot, provider.config_name)
     activation_action = provider_activation_action(snapshot, provider)
-    if activation_action is not None:
-        return [
-            replace(option, activation_action=activation_action)
-            for option in _catalog_options_from_entries(
-                provider_option.curated_entries,
-                provider=provider,
-                source=source,
-            )
-        ]
-    return _catalog_options_from_entries(
+    options = _catalog_options_from_entries(
         provider_option.curated_entries,
         provider=provider,
         source=source,
     )
+    if provider == Provider.XAI:
+        from fast_agent.llm.provider.openai.xai_oauth import (
+            XAI_OAUTH_ONLY_MODELS,
+            get_xai_token_status,
+        )
+
+        oauth_only = {(Provider.XAI, model) for model in XAI_OAUTH_ONLY_MODELS}
+        # Fast uses OAuth even when ordinary Grok requests use an API key.
+        status = get_xai_token_status()
+        oauth_ready = bool(status.get("present")) and not bool(status.get("expired"))
+        return [
+            replace(
+                option,
+                activation_action=(None if oauth_ready else ProviderActivation(provider))
+                if model_identity(option.spec) in oauth_only
+                else activation_action,
+            )
+            for option in options
+        ]
+    return [replace(option, activation_action=activation_action) for option in options]
 
 
 def model_capabilities(model_spec: str) -> ModelCapabilities:

@@ -3,6 +3,15 @@
 from __future__ import annotations
 
 
+def format_bytes(value: int) -> str:
+    """Format a byte size for display, using binary KB and MB thresholds."""
+    if value >= 1024 * 1024:
+        return f"{value / (1024 * 1024):.1f} MB"
+    if value >= 1024:
+        return f"{value / 1024:.1f} KB"
+    return f"{value} B"
+
+
 def plural_label(count: int, singular: str, plural: str | None = None) -> str:
     return singular if count == 1 else (plural or f"{singular}s")
 

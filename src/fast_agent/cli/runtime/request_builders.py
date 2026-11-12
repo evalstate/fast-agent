@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+# PEP 810: deferred until first use on Python 3.15+, ignored on earlier versions.
+__lazy_modules__ = ["fast_agent.mcp.connect_targets"]
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal
@@ -9,6 +12,7 @@ from urllib.parse import urlparse
 
 import typer
 
+from fast_agent.cli.commands.url_parser import split_url_list
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 from fast_agent.core.agent_card_paths import is_agent_card_path
 from fast_agent.mcp.connect_targets import (
@@ -32,6 +36,8 @@ from .run_request import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from fast_agent.config import MCPServerSettings
     from fast_agent.llm.request_params import StructuredToolPolicy
 
@@ -115,6 +121,25 @@ def validate_no_home_conflicts(
 
     if resume is not None:
         raise typer.BadParameter("Cannot combine --no-home with --resume.")
+
+
+def validate_isolated_conflicts(
+    *,
+    isolated: bool,
+    one_shot: bool,
+    conflicts: Mapping[str, bool],
+) -> None:
+    """Reject options that would load extensions or write state in --isolated mode."""
+    if not isolated:
+        return
+    if not one_shot:
+        raise typer.BadParameter(
+            "--isolated requires --message or --prompt-file.", param_hint="--isolated"
+        )
+    if active := [flag for flag, enabled in conflicts.items() if enabled]:
+        raise typer.BadParameter(
+            f"Cannot combine --isolated with {', '.join(active)}.", param_hint="--isolated"
+        )
 
 
 def validate_shell_conflicts(*, shell_enabled: bool, no_shell: bool) -> None:
@@ -312,7 +337,7 @@ def resolve_instance_scope(
 def _expand_startup_urls(urls: list[str] | None) -> list[str]:
     expanded: list[str] = []
     for occurrence, value in enumerate(urls or (), start=1):
-        for item in value.split(","):
+        for item in split_url_list(value):
             url = strip_to_none(item)
             if url is None:
                 raise typer.BadParameter(
@@ -500,12 +525,14 @@ def build_agent_run_request(
     schema_model: str | None = None,
     structured_tool_policy: str | None = None,
     no_home: bool = False,
+    isolated: bool = False,
     attachments: list[str] | None = None,
     environment: str | None = None,
     workspace: Path | None = None,
     subagents: bool | None = None,
     subagent_model: str | None = None,
     model_base_url: str | None = None,
+    ptc: bool | None = None,
 ) -> AgentRunRequest:
     """Build a normalized runtime request from legacy CLI kwargs."""
     validate_no_home_conflicts(
@@ -540,7 +567,10 @@ def build_agent_run_request(
     )
     server_list = mcp_merge.server_list
 
-    if no_home:
+    if isolated:
+        no_shell = True
+        subagents = False
+    if no_home or isolated:
         merged_agent_cards = normalize_explicit_card_sources(agent_cards)
         merged_card_tools = normalize_explicit_card_sources(card_tools)
     else:
@@ -588,6 +618,7 @@ def build_agent_run_request(
         home=None if no_home else home,
         workspace=workspace,
         no_home=no_home,
+        isolated=isolated,
         shell_runtime=effective_shell_enabled,
         no_shell=no_shell,
         prefer_local_shell=prefer_local_shell,
@@ -611,6 +642,7 @@ def build_agent_run_request(
         subagents=True if subagent_model is not None else subagents,
         subagent_model=subagent_model,
         model_base_url=model_base_url,
+        ptc=ptc,
     )
 
 
@@ -667,6 +699,7 @@ def build_command_run_request(
     no_shell: bool = False,
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None,
     no_home: bool = False,
+    isolated: bool = False,
     json_schema: str | None = None,
     schema_model: str | None = None,
     structured_tool_policy: str | None = None,
@@ -676,6 +709,7 @@ def build_command_run_request(
     subagents: bool | None = None,
     subagent_model: str | None = None,
     model_base_url: str | None = None,
+    ptc: bool | None = None,
 ) -> AgentRunRequest:
     """Build a normalized request directly from command option values."""
     validate_no_home_conflicts(
@@ -723,6 +757,7 @@ def build_command_run_request(
         home=home,
         workspace=workspace,
         no_home=no_home,
+        isolated=isolated,
         shell_enabled=shell_enabled,
         prefer_local_shell=prefer_local_shell,
         no_shell=no_shell,
@@ -742,4 +777,5 @@ def build_command_run_request(
         subagents=subagents,
         subagent_model=subagent_model,
         model_base_url=model_base_url,
+        ptc=ptc,
     )

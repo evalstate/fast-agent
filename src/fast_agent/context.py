@@ -9,13 +9,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.propagate import set_global_textmap
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
-from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from pydantic import BaseModel, ConfigDict, Field
 
 from fast_agent.config import Settings, get_settings
@@ -29,6 +22,8 @@ from fast_agent.skills import SkillRegistry
 from fast_agent.utils.async_utils import run_sync
 
 if TYPE_CHECKING:
+    from opentelemetry.sdk.trace import TracerProvider
+
     from fast_agent.acp.acp_context import ACPContext
     from fast_agent.core.executor.workflow_signal import SignalWaitCallback
     from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
@@ -64,6 +59,8 @@ class Context(BaseModel):
     skill_registry: SkillRegistry | None = None
     runtime_mcp_server_names: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     no_shell: bool = False
+    ptc_enabled: bool | None = None
+    """CLI override for PTC, ahead of model-string and configuration settings."""
 
     tracer: trace.Tracer | None = None
     _connection_manager: "MCPConnectionManager | None" = None
@@ -89,6 +86,13 @@ async def configure_otel(config: "Settings") -> None:
     global _otel_tracer_provider
     if _otel_tracer_provider is not None:
         return
+
+    from opentelemetry.propagate import set_global_textmap
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+    from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
+    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
     # Set up global textmap propagator first
     set_global_textmap(TraceContextTextMapPropagator())
@@ -120,6 +124,8 @@ async def configure_otel(config: "Settings") -> None:
     # Add exporters based on config
     otlp_endpoint = config.otel.otlp_endpoint
     if otlp_endpoint:
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
         exporter = OTLPSpanExporter(endpoint=otlp_endpoint)
         tracer_provider.add_span_processor(BatchSpanProcessor(exporter))
 
@@ -133,7 +139,8 @@ async def configure_otel(config: "Settings") -> None:
     trace.set_tracer_provider(tracer_provider)
     _otel_tracer_provider = tracer_provider
 
-    # OpenLLMetry through 0.62.1 still uses asyncio.iscoroutinefunction while
+    # The Anthropic SDK emits its own spans via the global tracer provider set above.
+    # OpenLLMetry (verified through 0.62.4) still uses asyncio.iscoroutinefunction while
     # importing its instrumentations. Keep that Python 3.14 deprecation local to
     # the third-party import; importing fast-agent with telemetry disabled stays clean.
     with warnings.catch_warnings():
@@ -149,13 +156,11 @@ async def configure_otel(config: "Settings") -> None:
             category=DeprecationWarning,
             module=r"opentelemetry\.instrumentation\.openai\..*",
         )
-        from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
         from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
         from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 
         OpenAIInstrumentor().instrument(tracer_provider=tracer_provider)
         GoogleGenAiSdkInstrumentor().instrument(tracer_provider=tracer_provider)
-        AnthropicInstrumentor().instrument(tracer_provider=tracer_provider)
 
 
 async def configure_logger(config: "Settings") -> None:

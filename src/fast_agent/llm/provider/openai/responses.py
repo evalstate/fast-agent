@@ -2,18 +2,23 @@ import asyncio
 import json
 import time
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from functools import partial
 from typing import Any, ClassVar, Literal
+from uuid import uuid4
 
 from mcp import Tool
 from mcp_types import ContentBlock, TextContent
-from openai import APIError, AsyncOpenAI, AuthenticationError, DefaultAioHttpClient
+from openai import APIError, AsyncOpenAI, AuthenticationError, DefaultAioHttpClient, Omit
 
+from fast_agent.config import NATIVE_COMPACTION_DEFAULT, ResponsesProviderSettingsBase
 from fast_agent.constants import (
     ANTHROPIC_CITATIONS_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
-    FAST_AGENT_SAFETY_DETAILS,
+    FAST_AGENT_PROVIDER_CHECKPOINT,
     OPENAI_ASSISTANT_MESSAGE_ITEMS,
+    OPENAI_COMPACTION_ITEMS,
+    OPENAI_COMPACTION_TRIGGER,
     OPENAI_MCP_LIST_TOOLS_ITEMS,
     OPENAI_REASONING_ENCRYPTED,
     REASONING,
@@ -21,16 +26,33 @@ from fast_agent.constants import (
 from fast_agent.core.exceptions import (
     ModelConfigError,
     ProviderKeyError,
-    ProviderSafetyBufferingError,
 )
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.compaction_support import (
+    CompactionStrategy,
+    CompactionSupport,
+    NativeCompaction,
+    provider_checkpoint_marker,
+)
 from fast_agent.llm.fastagent_llm import FastAgentLLM
-from fast_agent.llm.provider.error_utils import build_stream_failure_response
+from fast_agent.llm.provider.error_utils import (
+    EmptyCompletionError,
+    build_stream_failure_response,
+    is_empty_completion,
+    provider_policy_code,
+)
 from fast_agent.llm.provider.openai._stream_capture import (
     save_stream_request as _save_stream_request,
 )
 from fast_agent.llm.provider.openai._stream_capture import (
     stream_capture_filename as _stream_capture_filename,
+)
+from fast_agent.llm.provider.openai.responses_cache import (
+    ASTRA_MODEL,
+    prepare_cached_input,
+    prepare_cached_request,
+    requested_astra_effort,
+    requested_model,
 )
 from fast_agent.llm.provider.openai.responses_content import ResponsesContentMixin
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
@@ -52,7 +74,6 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     websocket_reuse_key,
 )
 from fast_agent.llm.provider.openai.schema_sanitizer import (
-    sanitize_response_format_schema,
     sanitize_tool_input_schema,
     should_strip_tool_schema_defaults,
 )
@@ -64,16 +85,15 @@ from fast_agent.llm.provider.openai.web_tools import (
 )
 from fast_agent.llm.provider.reasoning_config import reasoning_setting_from_config
 from fast_agent.llm.provider.streaming_timeouts import (
-    StreamIdleTimeoutError,
-    StreamTiming,
     enter_stream_with_timeout,
-    stream_timing_payload,
     with_stream_idle_timeout,
 )
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.request_params import RequestParams
+from fast_agent.llm.retry_telemetry import append_retry_channel
 from fast_agent.llm.text_verbosity import parse_text_verbosity
+from fast_agent.llm.upload_progress import run_with_upload_progress
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -87,6 +107,10 @@ _logger = get_logger(__name__)
 
 DEFAULT_RESPONSES_MODEL = "gpt-5.2"
 DEFAULT_REASONING_EFFORT = "medium"
+# Routes whose compaction checkpoints are only readable on the same route.
+_ROUTE_BOUND_CHECKPOINT_ORIGINS = frozenset(
+    {Provider.COPILOT.config_name, Provider.XAI.config_name}
+)
 MIN_RESPONSES_MAX_TOKENS = 16
 DEFAULT_RESPONSES_BASE_URL = "https://api.openai.com/v1"
 RESPONSES_DIAGNOSTICS_CHANNEL = "fast-agent-provider-diagnostics"
@@ -151,13 +175,86 @@ class _ResponsesWsAttemptState:
     is_reusable: bool
     reused_existing_connection: bool
     planner: ResponsesWsRequestPlanner
+    connection_age_at_request_start_seconds: float | None = None
     keep_connection: bool = False
     retry_after_release: bool = False
     reconnect_diagnostics: dict[str, Any] | None = None
     stream: WebSocketResponsesStream | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _ResponsesWsFailureDiagnostic:
+    error_code: str | None
+    stream_started: bool
+    connection_age_at_request_start_seconds: float | None
+    connection_age_at_failure_seconds: float | None
+    reused_connection: bool | None
+    reconnect_eligible: bool
+    websocket_attempt: int
+    call: int
+    attempt: int
+    max_attempts: int
+    schema: Literal["fast-agent.responses-websocket-failure/v2"] = (
+        "fast-agent.responses-websocket-failure/v2"
+    )
+    transport: Literal["websocket"] = "websocket"
+    websocket_max_attempts: Literal[2] = 2
+    # v2: how a stream ended without a completion event. Protocol-shaped values only:
+    # close_kind is a fixed vocabulary, close_code an int, event types are allowlisted
+    # Responses event names (others become "other"; Copilot header frames "headers").
+    close_kind: str | None = None
+    close_code: int | None = None
+    events_seen: int | None = None
+    last_event_types: list[str] | None = None
+    seconds_since_request: float | None = None
+    seconds_since_last_frame: float | None = None
+
+
+_CLOSE_KINDS = frozenset(
+    {"close_frame_received", "no_close_frame", "close_code", "no_close_code", "unknown"}
+)
+
+
+def _close_snapshot_fields(
+    ws_error: ResponsesWebSocketError | None, stream: Any | None
+) -> dict[str, Any]:
+    snapshot = ws_error.close_snapshot if ws_error is not None else None
+    if snapshot is None and stream is not None:
+        snapshot = getattr(stream, "close_snapshot", None)
+    if not isinstance(snapshot, dict) or snapshot.get("close_kind") not in _CLOSE_KINDS:
+        return {}
+    return {
+        "close_kind": snapshot["close_kind"],
+        "close_code": snapshot.get("close_code"),
+        "events_seen": snapshot.get("events_seen"),
+        "last_event_types": list(snapshot.get("last_event_types") or []),
+        "seconds_since_request": snapshot.get("seconds_since_request"),
+        "seconds_since_last_frame": snapshot.get("seconds_since_last_frame"),
+    }
+
+
+def _safe_websocket_error_code(code: str | None) -> str | None:
+    # A provider-controlled string may contain secrets even if short/alphanumeric.
+    # Never persist arbitrary codes, truncated codes, or a hash of their contents.
+    if code is None:
+        return None
+    if code in {
+        "previous_response_not_found",
+        "websocket_connection_limit_reached",
+        "invalid_request_error",
+        "server_error",
+        "rate_limit_exceeded",
+        "insufficient_quota",
+        "context_length_exceeded",
+        "model_not_found",
+        "invalid_api_key",
+    }:
+        return code
+    return "unknown"
+
+
 class ResponsesLLM(
+    OpenAIStructuredOutputMixin,
     ResponsesContentMixin,
     ResponsesFileMixin,
     ResponsesOutputMixin,
@@ -167,6 +264,11 @@ class ResponsesLLM(
     """LLM implementation for OpenAI's Responses models."""
 
     config_section: str | None = None
+
+    NATIVE_COMPACTION_VENDOR: ClassVar[str] = "OpenAI"
+    NATIVE_COMPACTION_REQUEST: ClassVar[str] = (
+        "Responses request ending in a compaction_trigger input item"
+    )
 
     RESPONSES_EXCLUDE_FIELDS: ClassVar[set[str]] = {
         FastAgentLLM.PARAM_MESSAGES,
@@ -182,32 +284,16 @@ class ResponsesLLM(
         "response_format",
     }
 
-    _prepare_structured_request = OpenAIStructuredOutputMixin._prepare_structured_request
-    _apply_prompt_provider_specific_structured_schema = (
-        OpenAIStructuredOutputMixin._apply_prompt_provider_specific_structured_schema
-    )
-
-    @staticmethod
-    def schema_to_response_format(
-        schema: dict[str, Any],
-        *,
-        name: str = "structured_output",
-        strict: bool = True,
-    ) -> dict[str, Any]:
-        return FastAgentLLM.schema_to_response_format(
-            sanitize_response_format_schema(schema) if strict else schema,
-            name=name,
-            strict=strict,
-        )
-
     def _finalize_turn_usage(
         self,
-        usage: TurnUsage | None = None,
+        turn_usage: TurnUsage | None = None,
         *,
         requested_service_tier: Literal["fast", "flex"] | None = None,
-        **kwargs: TurnUsage,
+        usage: TurnUsage | None = None,
     ) -> None:
-        turn_usage = usage if usage is not None else kwargs["turn_usage"]
+        turn_usage = usage if usage is not None else turn_usage
+        if turn_usage is None:
+            raise TypeError("_finalize_turn_usage requires usage or turn_usage")
         FastAgentLLM._finalize_turn_usage(
             self,
             turn_usage,
@@ -215,6 +301,7 @@ class ResponsesLLM(
         )
 
     def __init__(self, provider: Provider = Provider.RESPONSES, **kwargs) -> None:
+        long_context_requested = kwargs.pop("long_context", False)
         web_search_override = kwargs.pop("web_search", None)
         kwargs.pop("provider", None)
         super().__init__(provider=provider, **kwargs)
@@ -227,18 +314,31 @@ class ResponsesLLM(
         self._configure_service_tier(settings)
         chosen_model = self._configure_reasoning_mode()
         self._configure_transport(kwargs, settings, chosen_model)
+        if long_context_requested:
+            self._configure_long_context(chosen_model)
+
+    def _configure_long_context(self, model_name: str | None) -> None:
+        window = self._get_model_long_context_window(model_name)
+        if self.provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES} and window is not None:
+            self._context_window_override = window
+            self._usage_accumulator.set_context_window_size(window)
+        else:
+            self.logger.warning(
+                f"Long context is not supported for model '{model_name}' "
+                f"on provider '{self.provider.value}'. Ignoring."
+            )
 
     def _initialize_response_state(self, web_search_override: Any) -> None:
+        self._responses_prompt_cache_key = uuid4().hex
         self._tool_call_id_map: dict[str, str] = {}
         self._tool_name_map: dict[str, str] = {}
-        self._tool_kind_map: dict[str, Literal["function", "custom"]] = {}
+        self._tool_kind_map: dict[str, str] = {}
         self._seen_tool_call_ids: set[str] = set()
         self._tool_call_diagnostics: dict[str, Any] | None = None
         self._last_ws_request_type: str | None = None
         self._last_ws_request_mode: Literal["create", "continuation"] | None = None
         self._last_ws_turn_outcome: ResponsesWsTurnOutcome | None = None
         self._last_ws_phase_timings_ms: dict[str, float] | None = None
-        self._last_stream_timing: dict[str, int | float | bool | None] | None = None
         self._ws_turn_counters: dict[str, int] = {
             "total": 0,
             RESPONSES_WS_FRESH_OUTCOME: 0,
@@ -250,7 +350,7 @@ class ResponsesLLM(
         self._last_transport_used: ResponsesActiveTransport | None = None
         self._ws_connections = WebSocketConnectionManager(
             idle_timeout_seconds=55 * 60.0,
-            max_age_seconds=55 * 60.0,
+            max_age_seconds=self._websocket_max_age_seconds(),
         )
         self._ws_debug_inline = env_flag("FAST_AGENT_DEBUG_RESPONSES_WS")
         self._web_search_override: bool | None = (
@@ -366,25 +466,6 @@ class ResponsesLLM(
         if self._last_ws_phase_timings_ms:
             payload["websocket_phase_ms"] = self._last_ws_phase_timings_ms
         return payload
-
-    def _record_successful_stream_timing(
-        self,
-        timing: StreamTiming,
-        *,
-        model: str,
-        transport: ResponsesActiveTransport,
-    ) -> None:
-        payload = stream_timing_payload(timing, timed_out=False)
-        self._last_stream_timing = payload
-        if timing.inter_event_waits_over_threshold:
-            self.logger.warning(
-                "Responses stream observed extended inter-event gap",
-                data={
-                    "model": model,
-                    "transport": transport,
-                    "stream_timing": payload,
-                },
-            )
 
     def _parse_service_tier(self, raw_value: Any) -> ResponsesServiceTier | None:
         if raw_value is None:
@@ -548,6 +629,10 @@ class ResponsesLLM(
     def _prepare_websocket_arguments(self, arguments: dict[str, Any]) -> None:
         """Apply provider-specific per-request websocket metadata."""
 
+    def _websocket_max_age_seconds(self) -> float:
+        """Rotate connections at safe request boundaries before the provider lifetime limit."""
+        return 55 * 60.0
+
     def _websocket_keepalive_options(self) -> ResponsesWebSocketKeepaliveOptions:
         return {}
 
@@ -679,15 +764,23 @@ class ResponsesLLM(
 
     def _resolve_reasoning_effort(self) -> str | None:
         setting = self.reasoning_effort
+        default = self._default_reasoning_effort()
         if setting is None:
-            return DEFAULT_REASONING_EFFORT
+            return default
         if setting.kind == "effort":
             return str(setting.value)
         if setting.kind == "toggle":
-            return None if setting.value is False else DEFAULT_REASONING_EFFORT
+            return None if setting.value is False else default
         if setting.kind == "budget":
             self.logger.warning("Ignoring budget reasoning setting for Responses models.")
-            return DEFAULT_REASONING_EFFORT
+            return default
+        return default
+
+    def _default_reasoning_effort(self) -> str:
+        """The model's route-specific default effort (shown by /model), else ``medium``."""
+        spec = self.reasoning_effort_spec
+        if spec is not None and spec.default is not None and spec.default.kind == "effort":
+            return str(spec.default.value)
         return DEFAULT_REASONING_EFFORT
 
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
@@ -761,6 +854,11 @@ class ResponsesLLM(
         settings = self._openai_settings()
         return settings.default_headers if settings else None
 
+    async def _prepare_responses_client(
+        self, model: str, transport: ResponsesActiveTransport
+    ) -> None:
+        """Resolve request-scoped provider routing before constructing a client."""
+
     def _responses_client(self) -> AsyncOpenAI:
         try:
             kwargs: dict[str, Any] = {
@@ -801,10 +899,36 @@ class ResponsesLLM(
         req_params = self.get_request_params(request_params)
 
         last_message = multipart_messages[-1]
-        if last_message.role == "assistant":
+        if last_message.role == "assistant" and last_message.stop_reason != LlmStopReason.CONTINUE:
             return last_message
 
-        input_items = self._convert_to_provider_format(multipart_messages)
+        cache_state = None
+        if self.provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES}:
+            input_items, cache_state, req_params = prepare_cached_request(
+                multipart_messages,
+                req_params,
+                key=self._responses_prompt_cache_key,
+                default_effort=self._resolve_reasoning_effort(),
+                convert=self._convert_message_to_items,
+            )
+            input_items = self._dedupe_input_items(input_items)
+        elif (
+            self._resends_astra_effort_after_checkpoint()
+            and requested_model(req_params) == ASTRA_MODEL
+        ):
+            # Copilot sends effort per request (no configuration updates) but must
+            # still re-send the request's effort after a checkpoint, before the next
+            # user message.
+            input_items, _, _ = prepare_cached_input(
+                multipart_messages,
+                model=ASTRA_MODEL,
+                key=self._responses_prompt_cache_key,
+                effort=requested_astra_effort(req_params, self._resolve_reasoning_effort()),
+                convert=self._convert_message_to_items,
+            )
+            input_items = self._dedupe_input_items(input_items)
+        else:
+            input_items = self._convert_to_provider_format(multipart_messages)
         if not input_items:
             input_items = [
                 {
@@ -814,7 +938,87 @@ class ResponsesLLM(
                 }
             ]
 
-        return await self._responses_completion(input_items, req_params, tools)
+        response = await self._responses_completion(input_items, req_params, tools)
+        if cache_state is not None:
+            cache_state.attach(response)
+        return response
+
+    @property
+    def compaction_support(self) -> CompactionSupport:
+        return (
+            CompactionSupport.ON_DEMAND
+            if self._native_compaction_enabled()
+            else CompactionSupport.CLIENT
+        )
+
+    def _replays_native_compaction(self) -> bool:
+        # Other providers also instantiate this base class directly.
+        return self.provider is Provider.RESPONSES
+
+    def _accepts_checkpoint_origin(self, origin: str | None) -> bool:
+        # Verified live: Copilot's and xAI's compaction items use route-bound ids and
+        # encryption that OpenAI's routes reject; Responses and Codex Responses items
+        # are readable on all three OpenAI routes.
+        if origin in _ROUTE_BOUND_CHECKPOINT_ORIGINS:
+            return origin == self.provider.config_name
+        return True
+
+    def _resends_astra_effort_after_checkpoint(self) -> bool:
+        """Routes that re-send effort without the OpenAI cache configuration contract."""
+        return False
+
+    def _native_compaction_enabled(self) -> bool:
+        """Only routes verified to accept ``compaction_trigger``.
+
+        The model string's ``compaction=`` wins over the route's ``native_compaction``
+        setting, which defaults on even when the route has no config section.
+        """
+        if not self._replays_native_compaction():
+            return False
+        if self.compaction_mode is not None:
+            return self.compaction_mode == "native"
+        return self._native_compaction_setting()
+
+    def _native_compaction_setting(self) -> bool:
+        settings = self._get_provider_config()
+        if isinstance(settings, ResponsesProviderSettingsBase):
+            return settings.native_compaction
+        return NATIVE_COMPACTION_DEFAULT
+
+    async def native_compaction(self, messages: list[PromptMessageExtended]) -> NativeCompaction:
+        """Compact ``messages`` with a final ``compaction_trigger`` input item.
+
+        Runs through ``generate`` (retries, timing, usage channels, transport) with no
+        tools; the API returns only opaque ``compaction`` items, no reply.
+        """
+        trigger = PromptMessageExtended(
+            role="user",
+            content=[],
+            channels={
+                OPENAI_COMPACTION_TRIGGER: [TextContent(type="text", text="compaction_trigger")]
+            },
+        )
+        response = await self.generate([*messages, trigger], None, tools=None)
+        items = (response.channels or {}).get(OPENAI_COMPACTION_ITEMS)
+        if not items:
+            raise RuntimeError(
+                f"{self.NATIVE_COMPACTION_VENDOR} compaction returned no compaction item"
+                + (f" (stop reason: {response.stop_reason})" if response.stop_reason else "")
+            )
+        parsed_items = self._compaction_input_items({OPENAI_COMPACTION_ITEMS: items})
+        opaque_bytes = sum(len(item["encrypted_content"]) for item in parsed_items)
+        return NativeCompaction(
+            strategy=CompactionStrategy.OPENAI_COMPACTION,
+            opaque_bytes=opaque_bytes,
+            request=self.NATIVE_COMPACTION_REQUEST,
+            response=response,
+            checkpoint_channels={OPENAI_COMPACTION_ITEMS: list(items)},
+            description=(
+                f"{self.NATIVE_COMPACTION_VENDOR} compaction checkpoint ({len(items)} encrypted item"
+                f"{'s' if len(items) != 1 else ''}). The provider restores the compacted "
+                "context from it; it is not human-readable."
+            ),
+        )
 
     def _build_web_search_tool(
         self,
@@ -972,6 +1176,8 @@ class ResponsesLLM(
             "include": [RESPONSE_INCLUDE_REASONING],
             "parallel_tool_calls": request_params.parallel_tool_calls,
         }
+        if self.provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES}:
+            base_args["prompt_cache_key"] = self._responses_prompt_cache_key
 
         system_prompt = self.instruction or request_params.system_prompt
         if system_prompt:
@@ -1050,7 +1256,11 @@ class ResponsesLLM(
             self._last_transport_used = RESPONSES_TRANSPORT_WEBSOCKET
             return _ResponsesCompletionResult(response, streamed_summary, normalized_input)
         except ResponsesWebSocketError as error:
-            if context.transport != RESPONSES_TRANSPORT_AUTO or error.stream_started:
+            if (
+                context.transport != RESPONSES_TRANSPORT_AUTO
+                or error.stream_started
+                or provider_policy_code(error)
+            ):
                 raise
             return await self._run_responses_sse_fallback(
                 input_items=input_items,
@@ -1122,9 +1332,18 @@ class ResponsesLLM(
         channels = self._add_response_channel(
             channels, REASONING, self._extract_reasoning_summary(response, streamed_summary)
         )
-        return self._add_response_channel(
+        channels = self._add_response_channel(
             channels, OPENAI_REASONING_ENCRYPTED, self._extract_encrypted_reasoning(response)
         )
+        compaction_blocks = self._capture_compaction_blocks(
+            response, origin=self.provider.config_name
+        )
+        channels = self._add_response_channel(channels, OPENAI_COMPACTION_ITEMS, compaction_blocks)
+        if compaction_blocks:
+            channels = self._add_response_channel(
+                channels, FAST_AGENT_PROVIDER_CHECKPOINT, provider_checkpoint_marker("openai")
+            )
+        return channels
 
     def _responses_raw_item_channels(
         self,
@@ -1145,6 +1364,8 @@ class ResponsesLLM(
     def _responses_diagnostics_channels(
         self,
         channels: dict[str, list[ContentBlock]] | None,
+        *,
+        end_turn: bool | None = None,
     ) -> dict[str, list[ContentBlock]] | None:
         tool_call_diagnostics = self._consume_tool_call_diagnostics()
         diagnostics_payload = dict(tool_call_diagnostics) if tool_call_diagnostics else None
@@ -1157,6 +1378,9 @@ class ResponsesLLM(
         ):
             diagnostics_payload = transport_diagnostics
 
+        if end_turn is not None:
+            diagnostics_payload = diagnostics_payload or {}
+            diagnostics_payload["end_turn"] = end_turn
         if not diagnostics_payload:
             return channels
         return self._add_response_channel(
@@ -1190,9 +1414,16 @@ class ResponsesLLM(
             if getattr(output_item, "type", None) != "message":
                 continue
             response_content_blocks.extend(
-                TextContent(type="text", text=getattr(part, "text", ""))
+                TextContent(
+                    type="text",
+                    text=(
+                        getattr(part, "refusal", "")
+                        if getattr(part, "type", None) == "refusal"
+                        else getattr(part, "text", "")
+                    ),
+                )
                 for part in getattr(output_item, "content", []) or []
-                if getattr(part, "type", None) == "output_text"
+                if getattr(part, "type", None) in {"output_text", "refusal"}
             )
 
         if not response_content_blocks:
@@ -1213,9 +1444,16 @@ class ResponsesLLM(
 
         self._log_chat_finished(model=context.model_name)
         channels = self._responses_reasoning_channels(response, result.streamed_summary)
-        tool_calls = self._extract_tool_calls(response)
+        stop_reason = self._map_response_stop_reason(response)
+        tool_calls = (
+            None if stop_reason == LlmStopReason.SAFETY else self._extract_tool_calls(response)
+        )
         channels, message_phase = self._responses_raw_item_channels(response, channels)
-        channels = self._responses_diagnostics_channels(channels)
+        # end_turn is a provider extension, not a typed SDK Response field.
+        end_turn = getattr(response, "end_turn", None)
+        channels = self._responses_diagnostics_channels(
+            channels, end_turn=end_turn if isinstance(end_turn, bool) else None
+        )
         channels = self._responses_server_tool_channels(response, channels)
 
         if getattr(response, "usage", None):
@@ -1232,23 +1470,13 @@ class ResponsesLLM(
             content=self._responses_content_blocks(response),
             tool_calls=tool_calls,
             channels=channels,
-            stop_reason=(
-                LlmStopReason.TOOL_USE if tool_calls else self._map_response_stop_reason(response)
-            ),
+            stop_reason=(LlmStopReason.TOOL_USE if tool_calls else stop_reason),
             phase=message_phase,
         )
 
     @staticmethod
     def _is_empty_responses_completion(message: PromptMessageExtended) -> bool:
-        has_content = any(
-            not isinstance(block, TextContent) or bool(block.text.strip())
-            for block in message.content
-        )
-        return (
-            message.stop_reason == LlmStopReason.END_TURN
-            and not has_content
-            and not message.tool_calls
-        )
+        return is_empty_completion(message)
 
     def _empty_responses_error(
         self,
@@ -1257,9 +1485,7 @@ class ResponsesLLM(
         retry_error: Exception | None = None,
     ) -> PromptMessageExtended:
         if retry_error is None:
-            error = RuntimeError(
-                "OpenAI Responses returned no assistant content or tool calls after one retry."
-            )
+            error: Exception = EmptyCompletionError()
         else:
             error = RuntimeError(
                 f"OpenAI Responses retry after an empty response failed: {retry_error}"
@@ -1272,29 +1498,6 @@ class ResponsesLLM(
             },
         )
         return build_stream_failure_response(self.provider, error, context.model_name)
-
-    def _safety_buffering_response(
-        self,
-        error: ProviderSafetyBufferingError,
-    ) -> PromptMessageExtended:
-        details = {
-            "provider": self.provider.value,
-            "category": "safety_buffering",
-            "model": error.model,
-            "reasons": error.reasons,
-            "use_cases": error.use_cases,
-            "retry_model": error.retry_model,
-        }
-        return PromptMessageExtended(
-            role="assistant",
-            content=[TextContent(type="text", text=error.message)],
-            channels={
-                FAST_AGENT_SAFETY_DETAILS: [
-                    TextContent(type="text", text=json.dumps(details)),
-                ]
-            },
-            stop_reason=LlmStopReason.SAFETY,
-        )
 
     async def _responses_completion(
         self,
@@ -1312,8 +1515,6 @@ class ResponsesLLM(
                 tools=tools,
                 context=context,
             )
-        except ProviderSafetyBufferingError as error:
-            return self._safety_buffering_response(error)
         except asyncio.CancelledError:
             return Prompt.assistant(
                 TextContent(type="text", text=""),
@@ -1338,8 +1539,6 @@ class ResponsesLLM(
                 tools=tools,
                 context=context,
             )
-        except ProviderSafetyBufferingError as error:
-            return self._safety_buffering_response(error)
         except asyncio.CancelledError:
             return Prompt.assistant(
                 TextContent(type="text", text=""),
@@ -1351,8 +1550,25 @@ class ResponsesLLM(
             context=context,
         )
         if self._is_empty_responses_completion(retry_message):
-            return self._empty_responses_error(context=context)
+            retry_message = self._empty_responses_error(context=context)
+        append_retry_channel(retry_message, [self._empty_completion_retry()])
         return retry_message
+
+    async def _normalize_request_files(
+        self,
+        client: AsyncOpenAI,
+        input_items: list[dict[str, Any]],
+        *,
+        display_model: str,
+    ) -> list[dict[str, Any]]:
+        normalized, uploaded = await run_with_upload_progress(
+            lambda: self._normalize_input_files(client, input_items),
+            partial(self._log_upload_progress, model=display_model),
+        )
+        if uploaded:
+            # Uploads run after the Sending event here; restore it for the request.
+            self._log_chat_progress(self.chat_turn(), model=display_model)
+        return normalized
 
     async def _responses_completion_sse(
         self,
@@ -1363,8 +1579,11 @@ class ResponsesLLM(
         model_name: str,
     ) -> tuple[Any, list[str], list[dict[str, Any]]]:
         try:
+            await self._prepare_responses_client(model_name, "sse")
             async with self._responses_client() as client:
-                normalized_input = await self._normalize_input_files(client, input_items)
+                normalized_input = await self._normalize_request_files(
+                    client, input_items, display_model=model_name
+                )
                 arguments = self._build_response_args(normalized_input, request_params, tools)
                 self.logger.debug("Responses request", data=arguments)
                 capture_filename = _stream_capture_filename(self.chat_turn())
@@ -1383,27 +1602,20 @@ class ResponsesLLM(
                         response, streamed_summary = await self._process_stream(
                             timed_stream, model_name, capture_filename
                         )
-                    except StreamIdleTimeoutError:
-                        self._record_stream_failure(timed_stream.timing)
-                        self.logger.error(
-                            "Streaming idle timeout while waiting for Responses",
-                            data={
-                                "model": model_name,
-                                "transport": RESPONSES_TRANSPORT_SSE,
-                                "timeout_seconds": timeout,
-                                "stream_timing": stream_timing_payload(
-                                    timed_stream.timing,
-                                    timed_out=True,
-                                ),
-                            },
+                    except Exception as error:
+                        self._record_stream_outcome(
+                            timed_stream.timing,
+                            error=error,
+                            model=model_name,
+                            timeout_seconds=timeout,
+                            transport=RESPONSES_TRANSPORT_SSE,
                         )
                         raise
-                    except Exception:
-                        self._record_stream_failure(timed_stream.timing)
-                        raise
-                    self._record_successful_stream_timing(
+                    self._record_stream_outcome(
                         timed_stream.timing,
+                        error=None,
                         model=model_name,
+                        timeout_seconds=timeout,
                         transport=RESPONSES_TRANSPORT_SSE,
                     )
                 return response, streamed_summary, normalized_input
@@ -1452,14 +1664,24 @@ class ResponsesLLM(
         phase_timings: dict[str, float] = {}
         self._last_ws_phase_timings_ms = phase_timings
 
+        await self._prepare_responses_client(model_name, "websocket")
         async with self._responses_client() as client:
             phase_started_at = time.perf_counter()
-            normalized_input = await self._normalize_input_files(client, input_items)
+            normalized_input = await self._normalize_request_files(
+                client, input_items, display_model=f"{model_name} [ws]"
+            )
             self._record_ws_phase(phase_timings, "normalize_input", phase_started_at)
 
         phase_started_at = time.perf_counter()
         arguments = self._build_response_args(normalized_input, request_params, tools)
         request_headers = arguments.pop("extra_headers", None)
+        # HTTP SDKs merge extra_body into the JSON body. WebSockets bypass that
+        # serialization, so apply the same shallow override/omission semantics
+        # before provider metadata hooks and request planning see the wire body.
+        extra_body = arguments.pop("extra_body", None)
+        if extra_body is not None:
+            arguments.update(extra_body)
+        arguments = {key: value for key, value in arguments.items() if not isinstance(value, Omit)}
         self._prepare_websocket_arguments(arguments)
         ws_headers = merge_headers_case_insensitive(
             self._build_websocket_headers(),
@@ -1510,6 +1732,9 @@ class ResponsesLLM(
             is_reusable=is_reusable,
             reused_existing_connection=reused_existing_connection,
             planner=planner,
+            connection_age_at_request_start_seconds=(
+                self._ws_connections.connection_age_seconds(connection)
+            ),
         )
 
     async def _run_responses_ws_attempt(
@@ -1565,27 +1790,20 @@ class ResponsesLLM(
             response, streamed_summary = await self._process_stream(
                 timed_stream, context.model_name, context.capture_filename
             )
-        except StreamIdleTimeoutError:
-            self._record_stream_failure(timed_stream.timing)
-            self.logger.error(
-                "Streaming idle timeout while waiting for Responses websocket",
-                data={
-                    "model": context.model_name,
-                    "transport": RESPONSES_TRANSPORT_WEBSOCKET,
-                    "timeout_seconds": context.timeout,
-                    "stream_timing": stream_timing_payload(
-                        timed_stream.timing,
-                        timed_out=True,
-                    ),
-                },
+        except Exception as error:
+            self._record_stream_outcome(
+                timed_stream.timing,
+                error=error,
+                model=context.model_name,
+                timeout_seconds=context.timeout,
+                transport=RESPONSES_TRANSPORT_WEBSOCKET,
             )
             raise
-        except Exception:
-            self._record_stream_failure(timed_stream.timing)
-            raise
-        self._record_successful_stream_timing(
+        self._record_stream_outcome(
             timed_stream.timing,
+            error=None,
             model=context.model_name,
+            timeout_seconds=context.timeout,
             transport=RESPONSES_TRANSPORT_WEBSOCKET,
         )
         self._record_ws_phase(context.phase_timings, "stream_total", stream_started_at)
@@ -1623,6 +1841,8 @@ class ResponsesLLM(
         attempt_state.retry_after_release = (
             attempt_state.attempt == 0
             and not error.stream_started
+            and not error.response_failed
+            and not provider_policy_code(error)
             and (
                 attempt_state.reused_existing_connection
                 or error.error_code
@@ -1696,6 +1916,48 @@ class ResponsesLLM(
             data=retry_data,
         )
 
+    def _record_responses_ws_failure(
+        self,
+        error: Exception,
+        *,
+        attempt: int,
+        attempt_state: _ResponsesWsAttemptState | None,
+    ) -> None:
+        """Persist failures, including recovered and terminal attempts, via JSONL logging.
+
+        Eligibility describes only the existing bounded transport reconnect, not
+        outer provider retries. No provider text or request metadata is serialized.
+        """
+        ws_error = error if isinstance(error, ResponsesWebSocketError) else None
+        stream = attempt_state.stream if attempt_state is not None else None
+        call, provider_attempt, max_attempts = self._stream_attempt or (0, 1, 1)
+        diagnostic = _ResponsesWsFailureDiagnostic(
+            error_code=_safe_websocket_error_code(ws_error.diagnostic_error_code)
+            if ws_error
+            else None,
+            stream_started=(
+                ws_error.stream_started if ws_error else stream.stream_started if stream else False
+            ),
+            connection_age_at_request_start_seconds=(
+                attempt_state.connection_age_at_request_start_seconds if attempt_state else None
+            ),
+            connection_age_at_failure_seconds=(
+                self._ws_connections.connection_age_seconds(attempt_state.connection)
+                if attempt_state
+                else None
+            ),
+            reused_connection=attempt_state.reused_existing_connection if attempt_state else None,
+            reconnect_eligible=attempt_state.retry_after_release if attempt_state else False,
+            websocket_attempt=attempt + 1,
+            call=call,
+            attempt=provider_attempt,
+            max_attempts=max_attempts,
+            **_close_snapshot_fields(ws_error, stream),
+        )
+        # Match the shared stream-failure path's severity: info retry notices are
+        # filtered out by error-level telemetry configurations.
+        self.logger.error("Responses websocket attempt failed", data=asdict(diagnostic))
+
     async def _responses_completion_ws(
         self,
         *,
@@ -1713,9 +1975,14 @@ class ResponsesLLM(
         last_error: ResponsesWebSocketError | None = None
         reconnected = False
         for attempt in range(2):
-            attempt_state = await self._acquire_responses_ws_attempt(
-                attempt=attempt, context=context
-            )
+            try:
+                attempt_state = await self._acquire_responses_ws_attempt(
+                    attempt=attempt, context=context
+                )
+            except Exception as error:
+                self._record_responses_ws_failure(error, attempt=attempt, attempt_state=None)
+                raise
+            failure: Exception | None = None
             try:
                 result = await self._run_responses_ws_attempt(
                     context=context,
@@ -1723,14 +1990,13 @@ class ResponsesLLM(
                     reconnected=reconnected,
                 )
                 return result.response, result.streamed_summary, result.input_items
-            except ProviderSafetyBufferingError as error:
-                attempt_state.planner.rollback(error, stream_started=True)
-                raise
             except ResponsesWebSocketError as error:
+                failure = error
                 last_error = self._handle_responses_ws_error(
                     error=error, attempt_state=attempt_state, context=context
                 )
             except TimeoutError as error:
+                failure = error
                 attempt_state.planner.rollback(
                     error,
                     stream_started=(
@@ -1741,10 +2007,15 @@ class ResponsesLLM(
                 )
                 raise
             except Exception as exc:
+                failure = exc
                 last_error = self._handle_responses_ws_unexpected_error(
                     error=exc, attempt_state=attempt_state
                 )
             finally:
+                if failure is not None:
+                    self._record_responses_ws_failure(
+                        failure, attempt=attempt, attempt_state=attempt_state
+                    )
                 await self._release_responses_ws_attempt(attempt_state)
 
             if attempt_state.retry_after_release:
@@ -1765,8 +2036,8 @@ class ResponsesLLM(
         )
 
     def _handle_retry_failure(self, error: Exception) -> PromptMessageExtended | None:
-        """Return the legacy error-channel response when retries are exhausted."""
-        if isinstance(error, APIError):
+        """Persist exhausted provider failures, without hiding programming/config errors."""
+        if isinstance(error, (APIError, ResponsesWebSocketError, TimeoutError)):
             model_name = self.default_request_params.model or DEFAULT_RESPONSES_MODEL
             return build_stream_failure_response(self.provider, error, model_name)
         return None
@@ -1778,6 +2049,7 @@ class ResponsesLLM(
 
     def clear(self, *, clear_prompts: bool = False) -> None:
         super().clear(clear_prompts=clear_prompts)
+        self._responses_prompt_cache_key = uuid4().hex
         self._tool_call_id_map.clear()
         self._tool_kind_map.clear()
         self._seen_tool_call_ids.clear()

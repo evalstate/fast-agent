@@ -8,7 +8,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
 
 ZAI_BASE_URL = "https://api.z.ai/api/paas/v4/"
-DEFAULT_ZAI_MODEL = "glm-5.2"
+DEFAULT_ZAI_MODEL = "glm-5.3"
 FORCED_REASONING_MODELS = frozenset({"glm-5.3", "glm-5.3-flash"})
 
 

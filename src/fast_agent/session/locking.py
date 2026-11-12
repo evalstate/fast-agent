@@ -11,9 +11,12 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, cast
+from typing import TYPE_CHECKING, cast
 
 from filelock import FileLock, Timeout
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 
 def _utc_now() -> str:
@@ -155,6 +158,18 @@ class SessionLockStore:
             raise
         return SessionOwnerLease(session_id, owner, lock, metadata_path)
 
+    def is_owned(self, session_id: str) -> bool:
+        """Return whether any lease (including this process's) currently owns the session."""
+        lock = FileLock(
+            self.directory / f"{_lock_key(session_id)}.owner.lock", timeout=0, thread_local=False
+        )
+        try:
+            lock.acquire()
+        except Timeout:
+            return True
+        lock.release()
+        return False
+
     def auxiliary(self, session_id: str, role: str, *, timeout: float = 0) -> FileLock:
         """Return a transient lock kept outside the session directory."""
         key = _lock_key(session_id)
@@ -165,7 +180,7 @@ class SessionLockStore:
         )
 
     @contextmanager
-    def checkpoint(self, session_id: str, *, timeout: float = 0) -> Iterator[None]:
+    def checkpoint(self, session_id: str, *, timeout: float = 0) -> Generator[None]:
         lock = self.auxiliary(session_id, "checkpoint", timeout=timeout)
         try:
             lock.acquire()

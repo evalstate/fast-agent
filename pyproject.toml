@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.10.16"
+version = "0.10.54"
 description = "Code, Build and Evaluate agents - excellent Model and Skills/MCP/ACP/A2A Support"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -12,58 +12,57 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent"
 ]
-requires-python = ">=3.12,<3.15"
+requires-python = ">=3.12,<3.16"
 dependencies = [
-    "fastapi==0.136.3",
-    "fastmcp-slim[server]>=4.0.0b5",
-    "mcp==2.0.0",
-    "mcp-types==2.0.0",
-    "pydantic-settings==2.14.2",
-    "pydantic==2.13.4",
+    "fastmcp-slim[server]==4.1.3",
+    "mcp==2.3.0",
+    "mcp-types==2.3.0",
+    "pydantic-settings==2.16.1",
+    "pydantic==2.14.1",
+    "pydantic-monty==1.4.0",
     "pyyaml==6.0.3",
     "rich==15.0.0",
-    "typer==0.25.1",
-    "anthropic[vertex]==1.0.0",
-    "openai[aiohttp,realtime]==3.5.0",
+    "typer==0.27.3",
+    "anthropic[vertex]==1.17.0",
+    "openai[aiohttp,realtime]==3.40.0",
     "prompt-toolkit==3.0.53",
-    "aiohttp==3.14.3",
-    "opentelemetry-exporter-otlp-proto-http==1.43.0",
-    "opentelemetry-instrumentation-openai==0.62.1; python_version >= '3.10' and python_version < '4.0'",
-    "opentelemetry-instrumentation-anthropic==0.62.1; python_version >= '3.10' and python_version < '4.0'",
-    "opentelemetry-instrumentation-google-genai==1.0b1",
-    "google-genai==2.19.0",
-    "a2a-sdk==1.1.0",
+    "aiohttp==3.14.5",
+    "opentelemetry-exporter-otlp-proto-http==1.45.1",
+    "opentelemetry-instrumentation-openai==0.62.4; python_version >= '3.10' and python_version < '4.0'",
+    "opentelemetry-instrumentation-google-genai==1.2b0",
+    "google-genai==2.33.0",
+    "a2a-sdk==1.2.3",
     "email-validator==2.3.0",
     "pyperclip==1.11.0",
     "keyring==25.7.0",
-    "pillow>=12.1.1",
-    "textual-image>=0.12.0",
+    "pillow>=13.0.0",
+    "textual-image>=0.14.2",
     "python-frontmatter==1.3.0",
-    "watchfiles==1.2.0",
-    "agent-client-protocol==0.10.1",
+    "watchfiles==1.3.0",
+    "agent-client-protocol==0.12.1",
     "jsonschema==4.26.0",
-    "tiktoken==0.13.0",
-    "uvloop==0.22.1; platform_system != 'Windows'",
+    "tiktoken==0.14.0",
+    "uvloop==0.23.0; platform_system != 'Windows'",
     "ruamel.yaml==0.19.1",
-    "huggingface_hub==1.29.0",
+    "huggingface_hub==2.3.0",
     "mslex==1.3.0",
-    "starlette==1.3.1",
+    "starlette==1.9.0",
     "uritemplate==4.2.0",
-    "filelock==3.29.1",
+    "filelock==4.2.4",
 ]
 
 [project.optional-dependencies]
 # For Azure OpenAI with DefaultAzureCredential support, install with: uv pip install fast-agent-mcp[azure]
 azure = [
-    "azure-identity>=1.14.0"
+    "azure-identity>=1.27.0"
 ]
 # For AWS Bedrock support, install with: uv pip install fast-agent-mcp[bedrock]
 bedrock = [
-    "boto3>=1.43.83"
+    "boto3>=1.43.119"
 ]
 # For TensorZero gateway support, install with: uv pip install fast-agent-mcp[tensorzero]
 tensorzero = [
-    "tensorzero>=2025.7.5"
+    "tensorzero>=2026.6.0"
 ]
 textual = [
     "textual>=6.2.1",
@@ -73,10 +72,10 @@ batch-parquet = [
 ]
 gepa = [
     "gepa>=0.1.1",
-    "trackio>=0.27.0",
+    "fast-agent-mcp[trackio]",
 ]
 trackio = [
-    "trackio>=0.27.0",
+    "trackio>=0.44.0",
 ]
 privacy = [
     "onnxruntime>=1.25",
@@ -84,17 +83,19 @@ privacy = [
     "numpy>=2",
 ]
 privacy-gpu = [
-    "onnxruntime-gpu>=1.25",
-    "nvidia-cudnn-cu12>=9; platform_system == 'Linux' and platform_machine == 'x86_64'",
+    # onnxruntime-gpu>=1.27 targets CUDA 13; its extras install the matching runtime and cuDNN.
+    "onnxruntime-gpu[cuda,cudnn]>=1.27",
     "tokenizers>=0.22",
     "numpy>=2",
 ]
 # For all provider support, install with: uv pip install fast-agent-mcp[all-providers]
 all-providers = [
-    "azure-identity>=1.14.0",
-    "boto3>=1.43.83",
-    "tensorzero>=2025.7.5"
+    "azure-identity>=1.27.0",
+    "boto3>=1.43.119",
+    "tensorzero>=2026.6.0"
 ]
+# Compatibility alias: PTC is included in the core install as of 0.10.53.
+ptc = []
 
 [build-system]
 requires = ["hatchling"]
@@ -142,18 +143,19 @@ testpaths = ["tests"]
 
 [dependency-groups]
 dev = [
-    "boto3>=1.43.83",
+    "boto3>=1.43.119",
     "pre-commit>=4.0.1",
     "pydantic>=2.10.4",
     "ruamel.yaml>=0.18.0",
     "pyyaml>=6.0.2",
-    "ruff==0.16.0",
-    "ty==0.0.65",
+    "ruff==0.17.1",
+    "ty==0.0.90",
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.1",
     "pytest-cov>=6.1.1",
     "ipdb>=0.13.13",
-    "zensical==0.0.44",
+    "zensical==0.0.71",
+    "pytest-xdist>=3.8",
 ]
 
 [project.scripts]
@@ -161,7 +163,6 @@ fast-agent = "fast_agent.cli.__main__:main"
 apply_patch = "fast_agent.patch.cli:main"
 fast-agent-mcp = "fast_agent.cli.__main__:main"
 fast-agent-acp = "fast_agent.cli.commands.acp:main"
-fast-agent-hf = "fast_agent.cli.commands.hf:main"
 
 
 [tool.ruff]

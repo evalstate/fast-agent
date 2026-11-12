@@ -1,7 +1,7 @@
 import os
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
 
 import pytest
 from mcp_types import CallToolResult, TextContent, Tool
@@ -65,7 +65,7 @@ def _sanitize_model_name(model: str) -> str:
 
 
 @asynccontextmanager
-async def agent_session(model_name: str, label: str) -> AsyncIterator[LlmAgent]:
+async def agent_session(model_name: str, label: str) -> AsyncGenerator[LlmAgent]:
     core = Core(settings=str(TEST_CONFIG_PATH))
     async with core.run():
         agent = LlmAgent(AgentConfig(label), core.context)

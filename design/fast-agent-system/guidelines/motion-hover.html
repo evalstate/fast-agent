@@ -1,0 +1,23 @@
+<!-- @dsCard group="Motion" viewport="700x190" subtitle="Buttons press down, links thicken, markers turn a fifth" name="Hover + press" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+body{margin:0;background:var(--ivory);color:var(--petrol);font-family:var(--font-read);-webkit-font-smoothing:antialiased;}
+.w{padding:20px 24px;box-sizing:border-box;min-height:190px;}
+.lab{font-size:11px;font-weight:800;letter-spacing:var(--track-label);text-transform:uppercase;}
+.voice{font-family:var(--font-voice);font-weight:900;font-variation-settings:var(--voice-settings);letter-spacing:var(--track-voice);}
+.btn{font:700 15px var(--font-read);background:var(--petrol);color:var(--ivory);border:0;border-radius:var(--radius-md);padding:11px 18px;box-shadow:0 4px 0 var(--amber);cursor:pointer;transition:transform var(--dur-hover) var(--ease-ui),box-shadow var(--dur-hover) var(--ease-ui)}
+.btn:hover{box-shadow:0 2px 0 var(--amber);transform:translateY(2px)}.btn:active{box-shadow:0 0 0 var(--amber);transform:translateY(4px)}
+.btn2{font:700 15px var(--font-read);background:transparent;color:var(--petrol);border:var(--border);border-radius:var(--radius-md);padding:9px 16px;cursor:pointer;transition:background var(--dur-hover)}
+.btn2:hover{background:var(--amber)}
+.lnk{font:600 15px var(--font-read);color:var(--petrol);text-decoration:none;box-shadow:inset 0 -2px 0 var(--amber);transition:box-shadow var(--dur-hover) var(--ease-ui)}.lnk:hover{box-shadow:inset 0 -4px 0 var(--amber)}
+.mk img{display:block;transition:transform var(--dur-ui) var(--ease-pop)}.mk:hover img{transform:rotate(36deg) scale(1.15)}
+</style></head><body><div class="w">
+
+<div style="display:flex;align-items:center;gap:28px;flex-wrap:wrap">
+<button class="btn">Try it now</button>
+<button class="btn2">Read the docs</button>
+<a href="#" class="lnk">Methodology</a>
+<span class="mk"><img src="../assets/burst-capsule-keyline.svg" width="40"></span>
+</div>
+<div style="font-size:12.5px;line-height:1.6;margin-top:14px">Hover each one. Primary button: the amber ledge shrinks and the button drops 2px on press. Link: the underline thickens from 2 to 4px. Chart marker: turns 36° and scales 1.15. All of these use --dur-hover (120ms) and --ease-ui.</div>
+</div></body></html>

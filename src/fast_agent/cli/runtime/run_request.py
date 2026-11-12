@@ -80,6 +80,8 @@ class AgentRunRequest:
     subagents: bool | None = None
     subagent_model: str | None = None
     model_base_url: str | None = None
+    isolated: bool = False
+    ptc: bool | None = None
 
     def __post_init__(self) -> None:
         self._validate_environment_options()
@@ -158,7 +160,7 @@ class AgentRunRequest:
 
     @property
     def allow_sessions(self) -> bool:
-        return not self.no_home
+        return not (self.no_home or self.isolated)
 
     @property
     def is_repl(self) -> bool:
@@ -193,6 +195,7 @@ class AgentRunRequest:
             "home": self.home,
             "workspace": self.workspace,
             "no_home": self.no_home,
+            "isolated": self.isolated,
             "shell_runtime": self.shell_runtime,
             "no_shell": self.no_shell,
             "subagents": self.subagents,
@@ -214,4 +217,5 @@ class AgentRunRequest:
             "timeout_seconds": self.timeout_seconds,
             "missing_shell_cwd_policy": self.missing_shell_cwd_policy,
             "managed_mcp_agent_names": self.managed_mcp_agent_names,
+            "ptc": self.ptc,
         }

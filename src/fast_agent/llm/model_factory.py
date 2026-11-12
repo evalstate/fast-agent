@@ -13,9 +13,11 @@ from fast_agent.constants import (
 )
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LLMFactoryProtocol
+from fast_agent.llm.compaction_support import CompactAt, CompactionMode
 from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_overlays import load_model_overlay_registry
+from fast_agent.llm.provider.copilot.models import get_copilot_model
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
     ReasoningEffortSetting,
@@ -98,9 +100,14 @@ _SINGLE_VALUE_MODEL_QUERY_KEYS = (
     "structured",
     "instant",
     "context",
+    "long_context",
     "transport",
     "service_tier",
     "streaming_timeout",
+    "lite",
+    "ptc",
+    "compaction",
+    "compact_at",
 )
 _STRUCTURED_TOOL_QUERY_KEYS = (
     "structured_tools",
@@ -196,6 +203,10 @@ class ModelConfig(BaseModel):
     structured_output_mode: StructuredOutputMode | None = None
     structured_tool_policy: StructuredToolPolicy | None = None
     long_context: bool = False
+    lite: bool | None = None
+    ptc: bool | None = None
+    compaction: CompactionMode | None = None
+    compact_at: CompactAt | None = None
     transport: TransportSetting | None = None
     service_tier: ServiceTierSetting | None = None
     web_search: bool | None = None
@@ -224,7 +235,11 @@ class ModelQueryOverrides:
     text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
     structured_tool_policy: StructuredToolPolicy | None = None
-    long_context: bool = False
+    long_context: bool | None = None
+    lite: bool | None = None
+    ptc: bool | None = None
+    compaction: CompactionMode | None = None
+    compact_at: CompactAt | None = None
     transport: TransportSetting | None = None
     service_tier: ServiceTierSetting | None = None
     web_search: bool | None = None
@@ -259,7 +274,11 @@ class ModelQueryOverrides:
             structured_tool_policy=coalesce(
                 self.structured_tool_policy, defaults.structured_tool_policy
             ),
-            long_context=self.long_context or defaults.long_context,
+            long_context=coalesce(self.long_context, defaults.long_context),
+            lite=coalesce(self.lite, defaults.lite),
+            ptc=coalesce(self.ptc, defaults.ptc),
+            compaction=coalesce(self.compaction, defaults.compaction),
+            compact_at=coalesce(self.compact_at, defaults.compact_at),
             transport=coalesce(self.transport, defaults.transport),
             service_tier=coalesce(self.service_tier, defaults.service_tier),
             web_search=coalesce(self.web_search, defaults.web_search),
@@ -313,7 +332,11 @@ class ParsedModelSpec:
             text_verbosity=self.query_overrides.text_verbosity,
             structured_output_mode=self.query_overrides.structured_output_mode,
             structured_tool_policy=self.query_overrides.structured_tool_policy,
-            long_context=self.query_overrides.long_context,
+            long_context=self.query_overrides.long_context or False,
+            lite=self.query_overrides.lite,
+            ptc=self.query_overrides.ptc,
+            compaction=self.query_overrides.compaction,
+            compact_at=self.query_overrides.compact_at,
             transport=self.query_overrides.transport,
             service_tier=self.query_overrides.service_tier,
             web_search=self.query_overrides.web_search,
@@ -568,7 +591,12 @@ def _parse_web_tool_queries(
     }
 
 
-def _parse_context_query(query_params: ModelQueryPairs, model_spec: str) -> bool:
+def _parse_context_query(query_params: ModelQueryPairs, model_spec: str) -> bool | None:
+    if _has_query_key(query_params, "long_context"):
+        if _has_query_key(query_params, "context"):
+            raise ModelConfigError(f"Multiple long context settings provided for '{model_spec}'.")
+        raw_value = _collect_query_values(query_params, ("long_context",))[-1]
+        return _parse_bool_query(raw_value, "long_context", model_spec)
     if _has_query_key(query_params, "context"):
         normalized_value = strip_casefold(_collect_query_values(query_params, ("context",))[-1])
         if normalized_value == "1m":
@@ -576,7 +604,21 @@ def _parse_context_query(query_params: ModelQueryPairs, model_spec: str) -> bool
         raise ModelConfigError(
             f"Invalid context query value: '{normalized_value}' — only '1m' is supported"
         )
-    return False
+    return None
+
+
+def _parse_ptc_query(query_params: ModelQueryPairs, model_spec: str) -> bool | None:
+    if _has_query_key(query_params, "ptc"):
+        raw_value = _collect_query_values(query_params, ("ptc",))[-1]
+        return _parse_bool_query(raw_value, "ptc", model_spec)
+    return None
+
+
+def _parse_lite_query(query_params: ModelQueryPairs, model_spec: str) -> bool | None:
+    if _has_query_key(query_params, "lite"):
+        raw_value = _collect_query_values(query_params, ("lite",))[-1]
+        return _parse_bool_query(raw_value, "lite", model_spec)
+    return None
 
 
 def _parse_transport_query(
@@ -667,6 +709,10 @@ def _parse_query_overrides(
         structured_output_mode=_parse_structured_query(query_params, model_spec),
         structured_tool_policy=_parse_structured_tool_query(query_params, model_spec),
         long_context=_parse_context_query(query_params, model_spec),
+        lite=_parse_lite_query(query_params, model_spec),
+        ptc=_parse_ptc_query(query_params, model_spec),
+        compaction=_parse_compaction_query(query_params, model_spec),
+        compact_at=_parse_compact_at_query(query_params, model_spec),
         transport=_parse_transport_query(query_params, model_spec),
         service_tier=_parse_service_tier_query(query_params, model_spec),
         web_search=web_tool_overrides["web_search"],
@@ -847,6 +893,9 @@ def _resolve_provider_and_model_name(
             f"(e.g., tensorzero.my-function), got: {model_spec}"
         )
 
+    if provider == Provider.COPILOT:
+        get_copilot_model(model_name)
+
     return provider, model_name
 
 
@@ -855,6 +904,15 @@ def _validate_transport_constraints(
     model_name: str,
     transport: TransportSetting | None,
 ) -> None:
+    if provider == Provider.COPILOT:
+        spec = get_copilot_model(model_name)
+        requested = "websocket" if transport == "auto" else transport
+        if requested is not None and requested not in spec.transports:
+            raise ModelConfigError(
+                f"Transport '{transport}' is not supported for Copilot model '{model_name}'."
+            )
+        return
+
     if transport not in {"websocket", "auto"}:
         return
 
@@ -883,6 +941,11 @@ def _validate_service_tier_constraints(
     model_name: str,
     service_tier: ServiceTierSetting | None,
 ) -> None:
+    if provider == Provider.COPILOT:
+        if service_tier is not None:
+            raise ModelConfigError("Copilot does not support service_tier selection; omit it.")
+        return
+
     if provider == Provider.GOOGLE and service_tier is not None:
         if service_tier != "flex":
             raise ModelConfigError(
@@ -922,6 +985,68 @@ def _validate_service_tier_constraints(
             f"with provider '{provider.config_name}'. Allowed values are fast or unset "
             "(standard)."
         )
+
+
+def _validate_lite_constraints(provider: Provider, model_name: str, lite: bool | None) -> None:
+    if not lite:
+        return
+    if provider != Provider.CODEX_RESPONSES:
+        raise ModelConfigError(
+            f"lite=on is supported only with provider 'codexresponses', not '{provider.config_name}'."
+        )
+    if not ModelDatabase.supports_codex_responses_lite(model_name, provider=provider):
+        raise ModelConfigError(
+            f"Model '{model_name}' does not support Codex Responses Lite (lite=on)."
+        )
+
+
+def _parse_compaction_query(
+    query_params: ModelQueryPairs, model_spec: str
+) -> CompactionMode | None:
+    if not _has_query_key(query_params, "compaction"):
+        return None
+    raw_value = _collect_query_values(query_params, ("compaction",))[-1]
+    match raw_value.strip().lower():
+        case "native":
+            return "native"
+        case "client":
+            return "client"
+    raise ModelConfigError(
+        f"Invalid compaction query value: '{raw_value}' in '{model_spec}'. "
+        "Use native (provider-native compaction) or client (fast-agent's summary)."
+    )
+
+
+def _parse_compact_at_query(query_params: ModelQueryPairs, model_spec: str) -> CompactAt | None:
+    if not _has_query_key(query_params, "compact_at"):
+        return None
+    raw_value = _collect_query_values(query_params, ("compact_at",))[-1]
+    try:
+        return CompactAt.parse(raw_value)
+    except ValueError as exc:
+        raise ModelConfigError(f"{exc} in '{model_spec}'.") from exc
+
+
+def _validate_compaction_constraints(
+    provider: Provider, model_name: str, compaction: CompactionMode | None
+) -> None:
+    """``compaction=native`` only where the route has verified native compaction."""
+    if compaction != "native":
+        return
+    if provider in (Provider.RESPONSES, Provider.CODEX_RESPONSES, Provider.XAI):
+        return
+    if provider == Provider.COPILOT:
+        spec = get_copilot_model(model_name)
+        if spec.supports_native_compaction or spec.supports_threshold_compaction:
+            return
+        raise ModelConfigError(
+            f"Copilot model '{model_name}' does not support native compaction "
+            "(compaction=native); use compaction=client or omit it."
+        )
+    raise ModelConfigError(
+        "compaction=native is supported with providers 'responses', 'codexresponses', "
+        f"'copilot' and 'xai', not '{provider.config_name}'."
+    )
 
 
 def _validate_max_tokens_constraints(
@@ -1005,6 +1130,17 @@ class ModelFactory:
             bedrock_pattern_matches=cls._bedrock_pattern_matches,
         )
 
+        if provider == Provider.COPILOT:
+            merged_overrides = merged_overrides.with_defaults(
+                ModelQueryOverrides(
+                    transport=(
+                        "websocket"
+                        if "websocket" in get_copilot_model(model_name).transports
+                        else "sse"
+                    )
+                )
+            )
+
         reasoning_effort = merged_overrides.reasoning_effort
         if merged_overrides.instant is not None:
             if reasoning_effort is not None:
@@ -1024,6 +1160,8 @@ class ModelFactory:
 
         _validate_transport_constraints(provider, model_name, merged_overrides.transport)
         _validate_service_tier_constraints(provider, model_name, merged_overrides.service_tier)
+        _validate_lite_constraints(provider, model_name, merged_overrides.lite)
+        _validate_compaction_constraints(provider, model_name, merged_overrides.compaction)
         _validate_max_tokens_constraints(
             provider,
             merged_overrides.max_tokens,
@@ -1124,20 +1262,31 @@ class ModelFactory:
         resolved_model = cls.resolve_model_spec(model_string, presets=presets)
         config = resolved_model.model_config
 
-        # Ensure provider is valid before trying to access PROVIDER_CLASSES with it
-        # Lazily ensure provider class map is populated and supports this provider
-        model_specific_class = cls.MODEL_SPECIFIC_CLASSES.get(config.model_name)
-        if model_specific_class is None and config.model_name not in cls.MODEL_SPECIFIC_NAMES:
-            llm_class = cls._load_provider_class(config.provider)
-            # Stash for next time
-            cls.PROVIDER_CLASSES[config.provider] = llm_class
-
-        if model_specific_class is not None:
-            llm_class = model_specific_class
-        elif config.model_name in cls.MODEL_SPECIFIC_NAMES:
-            llm_class = cls._load_model_specific_class(config.model_name)
+        if config.provider == Provider.COPILOT:
+            spec = get_copilot_model(config.model_name)
+            module_name = f"fast_agent.llm.provider.copilot.{spec.wire_api}"
+            class_name = (
+                "CopilotMessagesLLM" if spec.wire_api == "messages" else "CopilotResponsesLLM"
+            )
+            try:
+                llm_class = vars(import_module(module_name))[class_name]
+            except Exception as exc:
+                raise ModelConfigError(f"Copilot provider is unavailable: {exc}") from exc
         else:
-            llm_class = cls.PROVIDER_CLASSES[config.provider]
+            # Ensure provider is valid before trying to access PROVIDER_CLASSES with it
+            # Lazily ensure provider class map is populated and supports this provider
+            model_specific_class = cls.MODEL_SPECIFIC_CLASSES.get(config.model_name)
+            if model_specific_class is None and config.model_name not in cls.MODEL_SPECIFIC_NAMES:
+                llm_class = cls._load_provider_class(config.provider)
+                # Stash for next time
+                cls.PROVIDER_CLASSES[config.provider] = llm_class
+
+            if model_specific_class is not None:
+                llm_class = model_specific_class
+            elif config.model_name in cls.MODEL_SPECIFIC_NAMES:
+                llm_class = cls._load_model_specific_class(config.model_name)
+            else:
+                llm_class = cls.PROVIDER_CLASSES[config.provider]
 
         def factory(
             agent: AgentProtocol, request_params: RequestParams | None = None, **kwargs

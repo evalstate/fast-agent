@@ -195,7 +195,8 @@ def test_initialize_google_developer_client_uses_run_base_url_override(monkeypat
     assert http_options.headers == {"X-Proxy": "developer"}
 
 
-def test_gemini37_flex_service_tier_configures_developer_api() -> None:
+@pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.8-flash"])
+def test_current_flash_flex_service_tier_configures_developer_api(model: str) -> None:
     settings = Settings(
         google=GoogleSettings(
             api_key="test-key",
@@ -205,7 +206,7 @@ def test_gemini37_flex_service_tier_configures_developer_api() -> None:
     )
     llm = GoogleNativeLLM(
         context=Context(config=settings),
-        model="gemini-3.7-flash",
+        model=model,
     )
 
     assert llm.service_tier_supported is True
@@ -242,7 +243,8 @@ def test_gemini37_flex_service_tier_configures_developer_api() -> None:
         llm.set_service_tier("fast")
 
 
-def test_gemini37_explicit_request_defaults_override_flex_config() -> None:
+@pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.8-flash"])
+def test_current_flash_explicit_request_defaults_override_flex_config(model: str) -> None:
     settings = Settings(
         google=GoogleSettings(
             api_key="test-key",
@@ -251,7 +253,7 @@ def test_gemini37_explicit_request_defaults_override_flex_config() -> None:
     )
     llm = GoogleNativeLLM(
         context=Context(config=settings),
-        model="gemini-3.7-flash",
+        model=model,
         request_params=RequestParams(service_tier=None),
     )
 
@@ -262,7 +264,8 @@ def test_gemini37_explicit_request_defaults_override_flex_config() -> None:
     assert flex_params.streaming_timeout == 75
 
 
-def test_gemini37_vertex_flex_uses_global_v1_headers() -> None:
+@pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.8-flash"])
+def test_current_flash_vertex_flex_uses_global_v1_headers(model: str) -> None:
     settings = Settings.model_validate(
         {
             "google": {
@@ -278,7 +281,7 @@ def test_gemini37_vertex_flex_uses_global_v1_headers() -> None:
     )
     llm = GoogleNativeLLM(
         context=Context(config=settings),
-        model="gemini-3.7-flash",
+        model=model,
     )
     params = llm.get_request_params()
 
@@ -309,7 +312,8 @@ def test_gemini37_vertex_flex_uses_global_v1_headers() -> None:
     }
 
 
-def test_gemini37_vertex_flex_accepts_full_resource_name() -> None:
+@pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.8-flash"])
+def test_current_flash_vertex_flex_accepts_full_resource_name(model: str) -> None:
     settings = Settings.model_validate(
         {
             "google": {
@@ -322,7 +326,7 @@ def test_gemini37_vertex_flex_accepts_full_resource_name() -> None:
             }
         }
     )
-    model = "projects/proj/locations/global/publishers/google/models/gemini-3.7-flash"
+    model = f"projects/proj/locations/global/publishers/google/models/{model}"
 
     llm = GoogleNativeLLM(context=Context(config=settings), model=model)
 
@@ -331,7 +335,8 @@ def test_gemini37_vertex_flex_accepts_full_resource_name() -> None:
 
 
 @pytest.mark.parametrize("location", ["us-central1", "GLOBAL", " global "])
-def test_gemini37_vertex_flex_rejects_invalid_location(location: str) -> None:
+@pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.8-flash"])
+def test_current_flash_vertex_flex_rejects_invalid_location(location: str, model: str) -> None:
     settings = Settings.model_validate(
         {
             "google": {
@@ -346,7 +351,7 @@ def test_gemini37_vertex_flex_rejects_invalid_location(location: str) -> None:
     )
     llm = GoogleNativeLLM(
         context=Context(config=settings),
-        model="gemini-3.7-flash",
+        model=model,
     )
 
     with pytest.raises(ModelConfigError, match="requires location 'global'"):
@@ -382,14 +387,60 @@ def test_google_usage_tracks_requested_flex_tier() -> None:
 
 
 @pytest.mark.parametrize("text", ["", "   "])
-def test_gemini37_rejects_empty_final_user_text(text: str) -> None:
+@pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.8-flash"])
+def test_current_flash_rejects_empty_final_user_text(text: str, model: str) -> None:
     llm = _build_llm(Settings())
 
     with pytest.raises(ValueError, match="requires non-empty text"):
         llm._google_turn_messages(
             [Prompt.user(text)],
-            model="gemini-3.7-flash",
+            model=model,
         )
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "gemini-3.7-flash",
+        "gemini-3.8-flash",
+        " GEMINI-3.8-FLASH ",
+        "projects/proj/locations/global/publishers/google/models/gemini-3.8-flash",
+    ],
+)
+def test_current_flash_final_turn_validation(model: str) -> None:
+    llm = _build_llm(Settings())
+
+    with pytest.raises(ValueError) as exc:
+        llm._google_turn_messages([Prompt.user("   ")], model=model)
+    assert str(exc.value) == f"{model.strip()} requires non-empty text in the final user turn."
+    assert llm._google_turn_messages([Prompt.user("hello")], model=model)
+
+    messages = [
+        Prompt.assistant(
+            stop_reason=LlmStopReason.TOOL_USE,
+            tool_calls={
+                "call_known": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(name="known_tool", arguments={}),
+                )
+            },
+        ),
+        PromptMessageExtended(
+            role="user",
+            content=[],
+            tool_results={
+                "call_known": CallToolResult(content=[TextContent(type="text", text="result")])
+            },
+        ),
+    ]
+    [turn] = llm._google_turn_messages(messages, model=model)
+    assert turn.parts
+    assert turn.parts[0].function_response is not None
+
+
+def test_older_flash_still_accepts_whitespace_final_text() -> None:
+    llm = _build_llm(Settings())
+    assert llm._google_turn_messages([Prompt.user("   ")], model="gemini-3.5-flash")
 
 
 def test_google_tool_result_requires_matching_function_name() -> None:
@@ -420,17 +471,18 @@ def test_google_tool_result_requires_matching_function_name() -> None:
 
 
 @pytest.mark.asyncio
-async def test_gemini37_final_assistant_turn_is_not_sent_as_prefill() -> None:
+@pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.8-flash"])
+async def test_current_flash_final_assistant_turn_is_not_sent_as_prefill(model: str) -> None:
     class Harness(GoogleNativeLLM):
         async def _google_completion(self, *args, **kwargs):
             raise AssertionError("final assistant turn must not call Google")
 
-    llm = Harness(context=Context(config=Settings()), model="gemini-3.7-flash")
+    llm = Harness(context=Context(config=Settings()), model=model)
     assistant = Prompt.assistant("already complete")
 
     response = await llm._apply_prompt_provider_specific(
         [assistant],
-        RequestParams(model="gemini-3.7-flash"),
+        RequestParams(model=model),
     )
 
     assert response is assistant

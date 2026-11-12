@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 
 import keyring
 import pytest
-from click.utils import strip_ansi
 from keyring.backend import KeyringBackend
 from keyring.errors import PasswordDeleteError
+from typer._click.utils import strip_ansi
 from typer.testing import CliRunner
 
 from fast_agent.auth.credentials import OAuthCredential, save_oauth_credential
@@ -769,4 +769,176 @@ def test_auth_mcp_list_reports_invalid_settings_yaml_without_traceback(tmp_path:
 
     assert result.exit_code == 1, result.output
     assert "Error loading fast-agent settings:" in result.output
+    assert "Traceback" not in result.output
+
+
+@pytest.mark.parametrize("provider", ["codex", "codexplan", "codexresponses"])
+@pytest.mark.parametrize("method", [None, "device", "browser"])
+def test_codex_login_method_selection(
+    monkeypatch: pytest.MonkeyPatch, provider: str, method: str | None
+) -> None:
+    from fast_agent.llm.provider.openai import codex_oauth
+
+    calls: list[str] = []
+
+    def device_login(timeout_seconds: int = 900) -> codex_oauth.CodexOAuthTokens:
+        calls.append("device")
+        return codex_oauth.CodexOAuthTokens(access_token="test-token")
+
+    def browser_login(timeout_seconds: int = 300) -> codex_oauth.CodexOAuthTokens:
+        calls.append("browser")
+        return codex_oauth.CodexOAuthTokens(access_token="test-token")
+
+    monkeypatch.setattr(codex_oauth, "login_codex_device_oauth", device_login)
+    monkeypatch.setattr(codex_oauth, "login_codex_browser_oauth", browser_login)
+    args = ["provider", "login", provider]
+    if method:
+        args.extend(["--method", method])
+
+    result = CliRunner().invoke(auth_command.app, args)
+
+    assert result.exit_code == 0, result.output
+    assert calls == [method or "device"]
+    assert "Codex OAuth login complete." in result.output
+    assert "test-token" not in result.output
+
+
+def test_xai_browser_login_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fast_agent.llm.provider.openai import xai_oauth
+
+    def unexpected_login() -> OAuthCredential:
+        pytest.fail("unsupported browser login must not start device login")
+
+    monkeypatch.setattr(xai_oauth, "login_xai_oauth", unexpected_login)
+
+    result = CliRunner().invoke(
+        auth_command.app, ["provider", "login", "xai", "--method", "browser"]
+    )
+
+    assert result.exit_code == 1
+    assert "does not support browser login" in result.output
+
+
+def test_provider_login_rejects_unknown_method() -> None:
+    result = CliRunner().invoke(
+        auth_command.app, ["provider", "login", "codex", "--method", "unknown"]
+    )
+
+    assert result.exit_code == 2
+
+
+def test_codex_device_login_failure_does_not_switch_to_browser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.core.exceptions import ProviderKeyError
+    from fast_agent.llm.provider.openai import codex_oauth
+
+    def device_login(timeout_seconds: int = 900) -> codex_oauth.CodexOAuthTokens:
+        raise ProviderKeyError("Device login unavailable", "Use --method browser.")
+
+    def unexpected_login(timeout_seconds: int = 300) -> codex_oauth.CodexOAuthTokens:
+        pytest.fail("failed device login must not switch to browser automatically")
+
+    monkeypatch.setattr(codex_oauth, "login_codex_device_oauth", device_login)
+    monkeypatch.setattr(codex_oauth, "login_codex_browser_oauth", unexpected_login)
+
+    result = CliRunner().invoke(auth_command.app, ["provider", "login", "codex"])
+
+    assert result.exit_code == 1
+    assert "--method browser" in result.output
+    assert "login complete" not in result.output
+
+
+def test_copilot_native_login_and_credential_commands(
+    isolated_auth_environment: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.llm.provider.copilot import oauth
+
+    monkeypatch.delenv("COPILOT_GITHUB_TOKEN", raising=False)
+    calls: list[str] = []
+
+    def login() -> OAuthCredential:
+        calls.append("native-device-login")
+        credential = OAuthCredential(access_token="copilot-test-access", scope="read:user")
+        save_oauth_credential("copilot", credential)
+        return credential
+
+    monkeypatch.setattr(oauth, "login_copilot_oauth", login)
+    runner = CliRunner()
+    result = runner.invoke(auth_command.app, ["provider", "login", "copilot"])
+    assert result.exit_code == 0
+    assert calls == ["native-device-login"]
+    assert "GitHub Copilot OAuth login complete" in result.output
+    assert "copilot-test-access" not in result.output
+
+    shown = runner.invoke(auth_command.app, ["provider", "show", "copilot", "--json"])
+    assert shown.exit_code == 0
+    assert json.loads(shown.output)["provider"]["state"] == "ready"
+    assert "copilot-test-access" not in shown.output
+    token = runner.invoke(auth_command.app, ["provider", "token", "copilot"])
+    assert token.exit_code == 0
+    assert token.output.strip() == "copilot-test-access"
+    exported_path = tmp_path / "copilot.auth.json"
+    exported = runner.invoke(
+        auth_command.app, ["provider", "export", "copilot", str(exported_path)]
+    )
+    assert exported.exit_code == 0
+    document = json.loads(exported_path.read_text())
+    assert document["providers"]["copilot"]["access_token"] == "copilot-test-access"
+    assert document["providers"]["copilot"]["refresh_token"] is None
+    logout = runner.invoke(auth_command.app, ["provider", "logout", "copilot", "--yes"])
+    assert logout.exit_code == 0
+    assert "copilot" not in json.loads(isolated_auth_environment.read_text())["providers"]
+
+
+def test_copilot_export_uses_environment_identity_not_shadowed_saved_token(
+    isolated_auth_environment: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    save_oauth_credential("copilot", OAuthCredential(access_token="saved-copilot-secret"))
+    monkeypatch.setenv("COPILOT_GITHUB_TOKEN", "environment-copilot-secret")
+    path = tmp_path / "export.json"
+    runner = CliRunner()
+    result = runner.invoke(auth_command.app, ["provider", "export", "copilot", str(path)])
+    assert result.exit_code == 0
+    payload = json.loads(path.read_text())
+    assert payload["providers"]["copilot"]["access_token"] == "environment-copilot-secret"
+    assert "saved-copilot-secret" not in path.read_text()
+    assert "environment-copilot-secret" not in result.output
+    assert (
+        json.loads(isolated_auth_environment.read_text())["providers"]["copilot"]["access_token"]
+        == "saved-copilot-secret"
+    )
+
+
+def test_copilot_browser_login_option_is_rejected_without_starting_login(
+    isolated_auth_environment: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.llm.provider.copilot import oauth
+
+    def unexpected_login() -> OAuthCredential:
+        raise AssertionError("Browser flow must not start a device login")
+
+    monkeypatch.setattr(oauth, "login_copilot_oauth", unexpected_login)
+    result = CliRunner().invoke(
+        auth_command.app, ["provider", "login", "copilot", "--method", "browser"]
+    )
+    assert result.exit_code == 1
+    assert "Use --method device" in result.output
+    assert not isolated_auth_environment.exists()
+
+
+def test_provider_list_reports_invalid_copilot_environment_without_traceback(
+    isolated_auth_environment: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("COPILOT_GITHUB_TOKEN", "invalid secret token")
+    result = CliRunner().invoke(auth_command.app, ["provider", "list"])
+    assert result.exit_code == 1
+    assert "Invalid COPILOT_GITHUB_TOKEN" in result.output
+    assert "invalid secret token" not in result.output
     assert "Traceback" not in result.output

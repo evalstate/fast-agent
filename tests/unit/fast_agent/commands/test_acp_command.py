@@ -1,11 +1,14 @@
-import click
+import sys
+
+import pytest
 import typer
+from typer.core import TyperCommand
 
 from fast_agent.cli.commands import acp as acp_command
 
 
 def test_acp_command_builds_request_with_watch() -> None:
-    ctx = typer.Context(click.Command("acp"))
+    ctx = typer.Context(TyperCommand("acp"))
     request = acp_command._build_run_request(
         ctx=ctx,
         name="fast-agent-acp",
@@ -46,7 +49,7 @@ def test_acp_command_builds_request_with_watch() -> None:
 
 
 def test_acp_command_no_home_forces_permissions_disabled() -> None:
-    ctx = typer.Context(click.Command("acp"))
+    ctx = typer.Context(TyperCommand("acp"))
     request = acp_command._build_run_request(
         ctx=ctx,
         name="fast-agent-acp",
@@ -80,7 +83,7 @@ def test_acp_command_no_home_forces_permissions_disabled() -> None:
 
 
 def test_acp_command_builds_request_with_missing_shell_cwd_override() -> None:
-    ctx = typer.Context(click.Command("acp"))
+    ctx = typer.Context(TyperCommand("acp"))
     request = acp_command._build_run_request(
         ctx=ctx,
         name="fast-agent-acp",
@@ -114,7 +117,7 @@ def test_acp_command_builds_request_with_missing_shell_cwd_override() -> None:
 
 
 def test_acp_command_builds_request_with_prefer_local_shell() -> None:
-    ctx = typer.Context(click.Command("acp"))
+    ctx = typer.Context(TyperCommand("acp"))
     request = acp_command._build_run_request(
         ctx=ctx,
         name="fast-agent-acp",
@@ -146,3 +149,39 @@ def test_acp_command_builds_request_with_prefer_local_shell() -> None:
 
     assert request.shell_runtime is True
     assert request.prefer_local_shell is True
+
+
+def test_acp_entrypoint_formats_usage_errors_without_changing_root_exit_code(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from typer.testing import CliRunner
+
+    from fast_agent.cli.main import app as root_app
+
+    monkeypatch.setattr(sys, "argv", ["fast-agent-acp", "--unknown-option"])
+    with pytest.raises(SystemExit) as exc_info:
+        acp_command.main()
+
+    assert exc_info.value.code == 1
+    assert "No such command" in capsys.readouterr().err
+    result = CliRunner().invoke(root_app, ["--unknown-option"])
+    assert result.exit_code == 2
+    assert "No such option" in result.output
+
+
+def test_acp_entrypoint_falls_back_when_rich_error_rendering_fails(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from typer import rich_utils
+    from typer._click.exceptions import ClickException
+
+    def fail_render(exc: ClickException) -> None:
+        raise RuntimeError("rendering failed")
+
+    monkeypatch.setattr(rich_utils, "rich_format_error", fail_render)
+    monkeypatch.setattr(sys, "argv", ["fast-agent-acp", "--unknown-option"])
+    with pytest.raises(SystemExit) as exc_info:
+        acp_command.main()
+
+    assert exc_info.value.code == 1
+    assert "Error: No such command" in capsys.readouterr().err

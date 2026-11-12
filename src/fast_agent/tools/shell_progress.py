@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import math
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -107,10 +106,7 @@ class ShellProgressReporter:
             process_id=process.process_id,
             # Keep the original poll budget stable so the UI countdown track can
             # drain against task elapsed time instead of a shrinking remainder.
-            process_wait_seconds=max(
-                math.ceil(active_poll.deadline_at - active_poll.started_at),
-                0,
-            ),
+            process_wait_seconds=active_poll.wait_seconds,
             process_has_observed_output=(
                 True if has_fresh_output else process.output_state.had_stream_output
             ),

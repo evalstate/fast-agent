@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
     from fast_agent.llm.usage_tracking import TurnUsage
+    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.plugins.models import PluginPostUserTurnSpec
 
 logger = get_logger(__name__)
@@ -78,6 +79,7 @@ async def run_plugin_post_user_turn(
     config: Mapping[str, Mapping[str, object]],
     display: Callable[[str], None],
     report_session_usage: Callable[[str], None] | None = None,
+    turn_messages: tuple[PromptMessageExtended, ...] = (),
 ) -> None:
     for loaded in handlers:
         ctx = PluginPostUserTurnContext(
@@ -86,6 +88,7 @@ async def run_plugin_post_user_turn(
             turn_usage=turn_usage,
             session_usage=session_usage,
             config=config.get(loaded.plugin_name, {}),
+            turn_messages=turn_messages,
         )
         try:
             result = loaded.handler(ctx)

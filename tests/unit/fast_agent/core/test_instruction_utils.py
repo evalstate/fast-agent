@@ -7,11 +7,22 @@ import os
 import platform
 from typing import TYPE_CHECKING
 
+import pytest
+
+from fast_agent import FastAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.mcp_agent import McpAgent
+from fast_agent.agents.workflow.iterative_planner import IterativePlanner
+from fast_agent.agents.workflow.router_agent import RouterAgent
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
+from fast_agent.context import Context
+from fast_agent.core.instruction_refresh import build_instruction
 from fast_agent.core.instruction_utils import (
     apply_instruction_context,
     build_agent_instruction_context,
 )
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt_templates import (
     _format_client_info,
     _format_execution_environment,
@@ -19,7 +30,9 @@ from fast_agent.core.prompt_templates import (
     load_skills_for_context,
     refresh_execution_environment_context,
 )
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.tools.execution_environment import ShellRuntimeInfo
+from fast_agent.tools.local_shell_executor import LocalEnvironment
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -114,6 +127,9 @@ class StubMcpAgent(StubAgent):
 
 
 class _PromptEnvironment:
+    def __init__(self, kind: str = "remote") -> None:
+        self._kind = kind
+
     @property
     def cwd(self) -> str:
         return "/workspace"
@@ -121,7 +137,7 @@ class _PromptEnvironment:
     def runtime_info(self) -> ShellRuntimeInfo:
         return ShellRuntimeInfo(
             name="sh",
-            kind="remote",
+            kind=self._kind,
             provider="huggingface",
             environment_name="hf-gpu",
         )
@@ -135,6 +151,52 @@ class _PromptEnvironment:
     async def execute(self, request, *, callbacks=None):
         del request, callbacks
         raise NotImplementedError
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("workflow_type", [RouterAgent, IterativePlanner])
+@pytest.mark.parametrize("with_context", [False, True])
+async def test_workflow_instructions_survive_context_refresh(
+    workflow_type: type[RouterAgent] | type[IterativePlanner], with_context: bool
+) -> None:
+    worker = LlmAgent(AgentConfig("research_worker", description="Finds primary research sources"))
+    context_template = "Workspace: {{workspaceRoot}}\n" if with_context else ""
+    if workflow_type is RouterAgent:
+        # Router routing_instruction uses str.format before context rendering.
+        workflow = RouterAgent(
+            AgentConfig("router"),
+            [worker],
+            routing_instruction=(
+                "Workspace: {{{{workspaceRoot}}}}\n{context}" if with_context else None
+            ),
+        )
+    else:
+        workflow = IterativePlanner(
+            AgentConfig("planner", instruction=context_template + "Workers:\n{{agents}}"),
+            [worker],
+        )
+    original_config_instruction = workflow.config.instruction
+
+    try:
+        await workflow.initialize()
+        initialized_instruction = workflow.instruction
+        await apply_instruction_context([workflow], {})
+        assert workflow.instruction == initialized_instruction
+
+        llm = await workflow.attach_llm(ModelFactory.create_factory("passthrough"))
+        for workspace in ("/first", "/second", "/second"):
+            await apply_instruction_context([workflow], {"workspaceRoot": workspace})
+            assert workflow.instruction.count("research_worker") == 1
+            assert "Finds primary research sources" in workflow.instruction
+            assert "{{agents}}" not in workflow.instruction
+            assert llm.default_request_params.system_prompt == workflow.instruction
+            assert workflow.config.instruction == original_config_instruction
+            if with_context:
+                assert llm.instruction == workflow.instruction
+                assert f"Workspace: {workspace}" in workflow.instruction
+                assert "{{workspaceRoot}}" not in workflow.instruction
+    finally:
+        await workflow.shutdown()
 
 
 def test_format_client_info_ignores_blank_title_and_trims_version() -> None:
@@ -210,8 +272,8 @@ def test_enrich_environment_context_describes_active_execution_environment() -> 
         in context["env"]
     )
     assert (
-        f"Fast-agent runtime: {platform.python_implementation()} {platform.python_version()}"
-        in context["env"]
+        f"Fast-agent runtime: {platform.python_implementation()} {platform.python_version()} "
+        "(host process)" in context["env"]
     )
     assert "Client host platform:" not in context["env"]
     assert "Host platform:" not in context["env"]
@@ -501,3 +563,141 @@ description: A test skill for unit testing
     assert "{{agentSkills}}" not in agent.instruction
     assert "test-skill" not in agent.instruction
     assert "A test skill for unit testing" not in agent.instruction
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("terminal_id", "socket_path", "kind", "shell_enabled", "expected"),
+    [
+        ("t7", "/run/hc.sock", "local", True, True),
+        ("", "/run/hc.sock", "local", True, False),
+        ("t7", "", "local", True, False),
+        ("   ", "/run/hc.sock", "local", True, False),
+        ("t7", "   ", "local", True, False),
+        ("t7", "/run/hc.sock", "remote", True, False),
+        ("t7", "/run/hc.sock", "docker", True, False),
+        ("t7", "/run/hc.sock", "custom", True, False),
+        ("t7", "/run/hc.sock", None, True, False),
+        ("t7", "/run/hc.sock", "local", False, False),
+    ],
+)
+async def test_herdr_instructions_follow_execution_capability(
+    monkeypatch: pytest.MonkeyPatch,
+    terminal_id: str,
+    socket_path: str,
+    kind: str | None,
+    shell_enabled: bool,
+    expected: bool,
+) -> None:
+    monkeypatch.setenv("HC_TERMINAL_ID", terminal_id)
+    monkeypatch.setenv("HC_TERMINAL_SOCKET", socket_path)
+    # TERM_PROGRAM is not a reliable indicator of hc ownership.
+    monkeypatch.setenv("TERM_PROGRAM", "ghostty")
+    context: dict[str, str] = {}
+    environment = (
+        LocalEnvironment(logger=get_logger(__name__))
+        if kind == "local"
+        else _PromptEnvironment(kind)
+        if kind is not None
+        else None
+    )
+    refresh_execution_environment_context(context, environment)
+    agent = McpAgent(
+        AgentConfig(name="worker", instruction="Before\n{{herdrInstructions}}\nAfter"),
+        context=Context(shell_runtime=shell_enabled),
+    )
+    assert not agent.config.shell
+    assert agent.shell_runtime_enabled is shell_enabled
+
+    await apply_instruction_context([agent], context)
+
+    assert "{{herdrInstructions}}" not in agent.instruction
+    assert ("hc --skill" in agent.instruction) is expected
+    assert ("HC_TERMINAL_ID" in agent.instruction) is expected
+    if not expected:
+        assert agent.instruction == "Before\n\nAfter"
+
+
+@pytest.mark.asyncio
+async def test_herdr_guidance_refreshes_and_custom_prompts_can_omit_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HC_TERMINAL_ID", "t7")
+    monkeypatch.setenv("HC_TERMINAL_SOCKET", "/run/hc.sock")
+    context: dict[str, str] = {}
+    local = LocalEnvironment(logger=get_logger(__name__))
+    default_agent = McpAgent(
+        AgentConfig(name="default", instruction=DEFAULT_AGENT_INSTRUCTION),
+        context=Context(shell_runtime=True),
+    )
+    custom_agent = McpAgent(
+        AgentConfig(name="custom", instruction="Only my instructions."),
+        context=Context(shell_runtime=True),
+    )
+
+    for environment, expected in [
+        (local, True),
+        (_PromptEnvironment(), False),
+        (local, True),
+        (None, False),
+    ]:
+        refresh_execution_environment_context(context, environment)
+        await apply_instruction_context([default_agent, custom_agent], context)
+        assert ("hc --skill" in default_agent.instruction) is expected
+        assert "{{herdrInstructions}}" not in default_agent.instruction
+        assert custom_agent.instruction == "Only my instructions."
+
+    monkeypatch.delenv("HC_TERMINAL_ID")
+    monkeypatch.delenv("HC_TERMINAL_SOCKET")
+    refresh_execution_environment_context(context, local)
+    await apply_instruction_context([default_agent], context)
+    assert "hc --skill" not in default_agent.instruction
+
+
+@pytest.mark.asyncio
+async def test_herdr_template_without_harness_context_is_empty() -> None:
+    assert await build_instruction("Before{{herdrInstructions}}After") == "BeforeAfter"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("local", [True, False])
+async def test_herdr_guidance_reaches_harness_agent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, local: bool
+) -> None:
+    monkeypatch.setenv("HC_TERMINAL_ID", "t7")
+    monkeypatch.setenv("HC_TERMINAL_SOCKET", "/run/hc.sock")
+    monkeypatch.chdir(tmp_path)
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text("default_model: passthrough\nptc:\n  enabled: false\n", encoding="utf-8")
+    fast = FastAgent(
+        "herdr-test",
+        config_path=str(config_path),
+        parse_cli_args=False,
+        isolated=True,
+        no_home=True,
+        quiet=True,
+    )
+
+    @fast.agent(name="worker", model="passthrough", shell=True)
+    async def worker() -> None:
+        pass
+
+    environment = None if local else _PromptEnvironment()
+    async with fast.run(environment=environment) as app:
+        agent = app["worker"]
+        assert ("hc --skill" in agent.instruction) is local
+        assert "{{herdrInstructions}}" not in agent.instruction
+
+
+@pytest.mark.asyncio
+async def test_herdr_guidance_honors_runtime_no_shell_override() -> None:
+    agent = McpAgent(
+        AgentConfig(name="worker", instruction="{{herdrInstructions}}", shell=True),
+        context=Context(no_shell=True),
+    )
+    assert agent.config.shell
+    assert not agent.shell_runtime_enabled
+
+    await apply_instruction_context([agent], {"herdrInstructions": "hc --skill"})
+
+    assert "hc --skill" not in agent.instruction

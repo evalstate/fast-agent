@@ -1,298 +1,176 @@
-/* ────────────────────────────────────────────────────────────
-   fast-agent · social card styles
-   Drop in alongside template.html. 1200 × 630.
-   No JS required — pure CSS, screenshot-friendly.
-   ──────────────────────────────────────────────────────────── */
+/* fast-agent social cards · 1200 × 630.
+   Brand tokens come from docs/docs/assets/forward/tokens (linked by template.html).
+   Rules: flat colour, 2px keylines, solid offset shadows only, one shout per card. */
 
-:root {
-  /* fast-agent core */
-  --fg-0:       #f0ece2;
-  --fg-1:       #b9b3a5;
-  --fg-2:       #7d786d;
-  --crt-amber:  #f5a400;
-  --a-hi:       #ffc649;
-  --a-bg:       rgba(245,164,0,0.10);
-  --a-line:     rgba(245,164,0,0.32);
+html, body { margin: 0; padding: 0; }
 
-  /* TUI palette (only used by the optional `tui` background mode) */
-  --t-fg:       #c8c0a8;
-  --t-dim:      #7d7868;
-  --t-green:    #a4c87c;
-  --t-cyan:     #5cb3b3;
-  --t-magenta:  #c989c2;
-  --t-yellow:   #d4b85a;
-  --t-red:      #e07e6f;
-  --t-blue:     #7d99cb;
-
-  --mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-html, body {
-  margin: 0;
-  padding: 0;
-  background: #0a0b0e;
-  color: var(--fg-0);
-  font-family: var(--mono);
-}
-
-/* ── Card base ─────────────────────────────────────────────── */
 .card {
-  width: 1200px;
-  height: 630px;
+  --ink: var(--petrol);
+  --ink-muted: var(--text-muted);
+  --ground: var(--ivory);
+  --keyline: var(--petrol);
   position: relative;
-  background: #0a0b0e;
-  color: var(--fg-0);
-  font-family: var(--mono);
-  overflow: hidden;
-}
-
-/* Gentle amber halo on the wordmark — keeps the SVG crisp,
-   adds only a hint of phosphor. Increase the drop-shadow alphas
-   below to push toward the heavier identity-card look. */
-.phosphor-img.subtle {
-  filter:
-    drop-shadow(0 0 4px color-mix(in srgb, var(--crt-amber) 28%, transparent))
-    drop-shadow(0 0 12px color-mix(in srgb, var(--crt-amber) 10%, transparent));
-}
-
-/* ── Page-card primitives ──────────────────────────────────── */
-.v-page {
   display: flex;
   flex-direction: column;
-  background: #0a0b0e;
-  color: var(--fg-0);
-  font-family: var(--mono);
-  position: relative;
+  width: 1200px;
+  height: 630px;
+  overflow: hidden;
+  color: var(--ink);
+  background: var(--ground);
+  font: 500 16px/1.6 var(--font-read);
+  -webkit-font-smoothing: antialiased;
+}
+.card.scheme-petrol {
+  --ink: var(--ivory);
+  --ink-muted: rgba(255, 247, 232, 0.76);
+  --ground: var(--petrol);
+  --keyline: var(--ivory);
 }
 
-.v-page .topstrip {
-  height: 160px;
+/* ── Header: tile + wordmark, small uppercase section label ─────────── */
+.card header {
   display: flex;
   align-items: center;
-  gap: 22px;
-  padding: 0 56px;
-  position: relative;
-  z-index: 3;
+  gap: 18px;
+  height: 128px;
+  padding: 0 64px;
+  flex: none;
 }
-.v-page .topstrip .brand { height: 108px; display: block; }
-.v-page .topstrip .section {
-  margin-left: auto;
-  color: var(--fg-2);
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  font-size: 18px;
-  font-weight: 700;
-  font-family: var(--mono);
-  white-space: nowrap;
+.card header .tile { width: 60px; height: 60px; display: block; }
+.card header .wordmark {
+  font: 900 40px/1 var(--font-voice);
+  font-variation-settings: var(--voice-settings);
+  letter-spacing: var(--track-voice);
 }
-.v-page .topstrip .section .acc { color: var(--crt-amber); margin-right: 6px; }
-.v-page .topstrip .section-eyebrow {
-  color: var(--fg-0);
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  font-size: 22px;
-  font-weight: 700;
-  font-family: var(--mono);
+.card header .label {
   display: inline-flex;
   align-items: center;
-  gap: 18px;
+  gap: 14px;
+  margin-left: auto;
+  font: 700 18px/1 var(--font-read);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
 }
-.v-page .topstrip .section-eyebrow .bar {
-  width: 34px;
-  height: 4px;
-  background: var(--crt-amber);
-  display: inline-block;
-}
+.card header .label i { width: 34px; height: 6px; border-radius: 3px; background: var(--amber); }
 
-.v-page .body {
+/* ── Body: voice headline + read lede, art column on the right ─────── */
+.card .body {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 0 56px;
-  position: relative;
-  z-index: 3;
-}
-.v-page .body.hero-body {
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-}
-
-.v-page .title {
-  font-family: var(--mono);
-  font-weight: 600;
-  font-size: 64px;
-  line-height: 1.05;
-  letter-spacing: -0.028em;
-  color: var(--fg-0);
-  margin: 0;
-  text-wrap: balance;
-  max-width: 22ch;
-}
-.v-page .title .acc { color: var(--crt-amber); }
-
-.v-page .lede {
-  font-family: var(--mono);
-  font-size: 22px;
-  line-height: 1.45;
-  color: var(--fg-1);
-  margin: 22px 0 0;
-  max-width: 44ch;
-  text-wrap: pretty;
-  font-weight: 500;
-}
-.v-page .lede b { color: var(--fg-0); font-weight: 600; }
-
-.v-page .brand-hero {
-  display: block;
-  width: 640px;
-  height: auto;
-  margin: 0 auto;
-}
-.v-page .hero-tagline {
-  font-family: var(--mono);
-  font-size: 28px;
-  line-height: 1.4;
-  color: var(--fg-1);
-  margin: 32px auto 0;
-  max-width: 28ch;
-  font-weight: 500;
-  text-wrap: balance;
-}
-.v-page .hero-tagline b { color: var(--fg-0); font-weight: 600; }
-
-.v-page .bottomstrip {
-  height: 90px;
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 0 56px;
-  border-top: 1px solid rgba(245,164,0,0.22);
-  position: relative;
-  z-index: 3;
-  font-family: var(--mono);
-  font-size: 17px;
-  color: var(--fg-2);
-}
-.v-page .bottomstrip.center { justify-content: center; gap: 36px; }
-.v-page .bottomstrip .url {
-  color: var(--fg-0);
-  font-weight: 600;
-  font-size: 22px;
-  letter-spacing: 0.01em;
-}
-.v-page .bottomstrip .url .slash { color: var(--crt-amber); }
-.v-page .bottomstrip .spacer { flex: 1; }
-.v-page .bottomstrip .version {
-  color: var(--crt-amber);
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  font-size: 17px;
-  padding: 6px 14px;
-  border: 1px solid var(--a-line);
-  background: var(--a-bg);
-  border-radius: 2px;
-}
-.v-page .bottomstrip .meta {
-  color: var(--fg-2);
-  font-size: 15px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  font-weight: 600;
-}
-
-/* Subtle vertical vignette so the bottom strip stays readable
-   regardless of background mode. */
-.v-page::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, transparent 55%, rgba(10,11,14,0.55) 100%);
-  pointer-events: none;
+  padding: 0 64px 24px;
+  max-width: 700px;
+  box-sizing: border-box;
   z-index: 2;
 }
-
-/* ── Oversized glyph background (default) ──────────────────── */
-.glyph-bg {
-  position: absolute;
-  pointer-events: none;
-  z-index: 0;
-  opacity: var(--bg-intensity, 0.12);
+.card .title {
+  margin: 0;
+  font: 900 var(--title-size, 72px)/var(--lh-tight) var(--font-voice);
+  font-variation-settings: var(--voice-settings);
+  letter-spacing: var(--track-voice);
+  text-wrap: balance;
+}
+.card .lede {
+  margin: 26px 0 0;
+  color: var(--ink-muted);
+  font: 500 27px/1.38 var(--font-read);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.glyph-bg svg { display: block; width: 100%; height: 100%; }
-.glyph-bg svg path { fill: var(--crt-amber); }
-.glyph-bg.right {
-  width: 880px;
-  height: 880px;
-  right: -200px;
-  top: 50%;
-  transform: translateY(-50%);
+.card .art { position: absolute; z-index: 1; }
+
+/* ── Footer: amber band means fast-agent ───────────────────────────── */
+.card footer {
+  display: flex;
+  align-items: center;
+  height: 76px;
+  padding: 0 64px;
+  flex: none;
+  color: var(--petrol);
+  background: var(--amber);
+  border-top: 2px solid var(--petrol);
+  position: relative;
+  z-index: 3;
 }
-.glyph-bg.left {
-  width: 880px;
-  height: 880px;
-  left: -240px;
-  top: 50%;
-  transform: translateY(-50%);
-}
-.glyph-bg.center {
-  width: 1100px;
-  height: 1100px;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+.card footer span { white-space: nowrap; }
+.card footer .url { font: 500 24px/1 var(--font-code); }
+.card footer .repo {
+  margin-left: auto;
+  font: 700 16px/1 var(--font-read);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
 }
 
-/* ── Background-mode visibility ────────────────────────────── */
-.v-page.bg-none  .glyph-bg,
-.v-page.bg-none  .tui-bg,
-.v-page.bg-glyph .tui-bg,
-.v-page.bg-tui   .glyph-bg { display: none; }
+/* Masked marks take their colour from background-color. */
+.mark { position: absolute; display: block; mask: var(--src) center / contain no-repeat; }
+.mark.teal { background: var(--teal); }
+.mark.amber { background: var(--amber); }
+.mark.ink { background: var(--ink); }
+.mark.orange { background: var(--orange); }
 
-/* ── Optional TUI background (faint, scaled, off-edge) ─────── */
-.tui-bg {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
+/* ── design: sparkles ──────────────────────────────────────────────── */
+.d-sparkles .art { inset: 0; }
+
+/* ── design: burst ─────────────────────────────────────────────────── */
+.d-burst .body { max-width: 760px; }
+.d-burst .art { right: 56px; top: 132px; width: 360px; height: 360px; display: grid; place-items: center; }
+.d-burst .art .shout {
+  position: relative;
+  font: 400 var(--shout-size, 88px)/1 var(--font-shout);
+  color: var(--petrol);
+  transform: rotate(var(--tilt));
+  text-shadow: 3px 4px 0 var(--ivory);
+}
+
+/* ── design: presenter (framed panel of the approved pose sheet) ─── */
+/* The frame stands on the footer band, which supplies its bottom keyline. */
+.d-presenter .body { max-width: 760px; }
+.d-presenter .art {
+  right: 64px;
+  bottom: 76px;
   overflow: hidden;
-  z-index: 0;
-  font-family: var(--mono);
-  font-size: 17px;
-  line-height: 1.62;
-  color: var(--t-fg);
+  background: #fefae9;
+  border: 2px solid var(--keyline);
+  border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
-.tui-bg .inner {
-  position: absolute;
-  opacity: var(--bg-intensity, 0.10);
-  white-space: pre;
+.d-presenter .art img { position: absolute; max-width: none; }
+.d-presenter .art .patch { position: absolute; background: #fefae9; }
+.d-presenter .art .chart { position: absolute; overflow: visible; }
+.d-presenter .art + .mark { z-index: 2; }
+
+/* ── design: terminal ──────────────────────────────────────────────── */
+.d-terminal .art { right: 40px; bottom: 96px; width: 450px; }
+.d-terminal .art img { display: block; width: 100%; }
+
+/* ── design: hero ──────────────────────────────────────────────────── */
+.d-hero .hero { flex: 1; display: grid; grid-template-columns: 500px 1fr; align-items: center; padding: 0 64px 0 32px; }
+.d-hero .hero-mark { position: relative; display: grid; place-items: center; height: 470px; }
+.d-hero .hero-mark h1 {
+  position: relative;
+  margin: 0;
+  color: var(--petrol);
+  font: 900 168px/0.86 var(--font-voice);
+  font-variation-settings: var(--voice-settings);
+  letter-spacing: -0.065em;
+  text-shadow: 3px 4px 0 var(--ivory);
+  transform: rotate(-7deg);
 }
-.tui-bg .inner.bottom-right {
-  right: -20px;
-  bottom: -10px;
-  transform: scale(1.12);
-  transform-origin: bottom right;
+.d-hero .hero-copy { position: relative; z-index: 2; }
+.d-hero .hero-copy .title { --title-size: 66px; }
+.d-hero .install {
+  display: inline-block;
+  margin-top: 34px;
+  padding: 14px 22px;
+  color: var(--petrol);
+  background: var(--paper);
+  border: 2px solid var(--petrol);
+  border-radius: var(--radius-md);
+  box-shadow: 0 5px 0 var(--amber);
+  font: 500 24px/1 var(--font-code);
 }
-.tui-bg .inner.left {
-  left: -20px;
-  top: 50%;
-  transform: translateY(-50%) scale(1.18);
-  transform-origin: left center;
-}
-.tui-bg .inner.center {
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%) scale(1.55);
-  transform-origin: center;
-}
-.tui-bg .row { display: block; white-space: nowrap; }
-.tui-bg .green   { color: var(--t-green); }
-.tui-bg .cyan    { color: var(--t-cyan); }
-.tui-bg .magenta { color: var(--t-magenta); }
-.tui-bg .yellow  { color: var(--t-yellow); }
-.tui-bg .red     { color: var(--t-red); }
-.tui-bg .blue    { color: var(--t-blue); }
-.tui-bg .dimx    { color: var(--t-dim); }
-.tui-bg .bold    { font-weight: 700; }
+.d-hero .install::before { content: "$ "; color: var(--amber-ink); }

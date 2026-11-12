@@ -8,6 +8,7 @@ import pytest
 from fast_agent.batch.input import (
     _normalize_user_sql,
     _parquet_query,
+    count_parquet_input_rows,
     is_parquet_input_source,
     iter_csv_rows,
     iter_hf_rows,
@@ -564,3 +565,18 @@ def test_selection_order_is_offset_sample_restore_order_then_limit(tmp_path):
     full_sample = select_rows(rows, offset=2, sample=5, seed=7)
     assert selected == full_sample[:2]
     assert [row.row_number for row in selected] == sorted(row.row_number for row in selected)
+
+
+def test_parquet_rows_and_count_with_duckdb_engine(tmp_path):
+    duckdb = pytest.importorskip("duckdb")
+    path = tmp_path / "rows.parquet"
+    duckdb.sql(f"COPY (SELECT range AS id FROM range(5)) TO '{path}' (FORMAT parquet)")
+
+    assert count_parquet_input_rows(path) == 5
+    assert [row.row for row in iter_parquet_rows([str(path)], offset=1, limit=2)] == [
+        {"id": 1},
+        {"id": 2},
+    ]
+    assert [
+        row.row for row in iter_parquet_rows([str(path)], sql="SELECT count(*) AS n FROM input")
+    ] == [{"n": 5}]

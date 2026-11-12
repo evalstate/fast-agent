@@ -1,4 +1,4 @@
-"""Local typed models for Agent Trajectory Interchange Format v1.7."""
+"""Local typed models for Agent Trajectory Interchange Format v1.8."""
 
 from __future__ import annotations
 
@@ -19,22 +19,85 @@ class AtifToolCall(AtifModel):
     extra: dict[str, Any] | None = None
 
 
+type AtifImageMediaType = Literal["image/jpeg", "image/png", "image/gif", "image/webp"]
+type AtifAudioMediaType = Literal[
+    "audio/wav",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/aac",
+    "audio/ogg",
+    "audio/flac",
+    "audio/webm",
+    "audio/aiff",
+]
+
+_IMAGE_MEDIA_TYPES: dict[str, AtifImageMediaType] = {
+    "image/jpeg": "image/jpeg",
+    "image/png": "image/png",
+    "image/gif": "image/gif",
+    "image/webp": "image/webp",
+}
+# Canonical audio types plus the alternate spellings ATIF v1.8 asks consumers to normalize.
+_AUDIO_MEDIA_TYPES: dict[str, AtifAudioMediaType] = {
+    "audio/wav": "audio/wav",
+    "audio/x-wav": "audio/wav",
+    "audio/wave": "audio/wav",
+    "audio/vnd.wave": "audio/wav",
+    "audio/mpeg": "audio/mpeg",
+    "audio/mp3": "audio/mpeg",
+    "audio/mpga": "audio/mpeg",
+    "audio/x-mpeg": "audio/mpeg",
+    "audio/mp4": "audio/mp4",
+    "audio/x-m4a": "audio/mp4",
+    "audio/m4a": "audio/mp4",
+    "audio/aac": "audio/aac",
+    "audio/x-aac": "audio/aac",
+    "audio/ogg": "audio/ogg",
+    "audio/flac": "audio/flac",
+    "audio/x-flac": "audio/flac",
+    "audio/webm": "audio/webm",
+    "audio/aiff": "audio/aiff",
+    "audio/x-aiff": "audio/aiff",
+}
+
+
+def atif_image_media_type(mime_type: str) -> AtifImageMediaType | None:
+    """The ATIF image media type for a MIME type, or None when ATIF cannot carry it."""
+    return _IMAGE_MEDIA_TYPES.get(mime_type.lower())
+
+
+def atif_audio_media_type(mime_type: str) -> AtifAudioMediaType | None:
+    """The canonical ATIF audio media type for a MIME type (aliases normalized)."""
+    return _AUDIO_MEDIA_TYPES.get(mime_type.split(";", 1)[0].strip().lower())
+
+
 class AtifImageSource(AtifModel):
-    media_type: Literal["image/jpeg", "image/png", "image/gif", "image/webp"]
+    media_type: AtifImageMediaType
     path: str
 
 
+class AtifAudioSource(AtifModel):
+    media_type: AtifAudioMediaType
+    path: str
+    duration_sec: float | None = Field(default=None, ge=0)
+
+
 class AtifContentPart(AtifModel):
-    type: Literal["text", "image"]
+    type: Literal["text", "image", "audio"]
     text: str | None = None
-    source: AtifImageSource | None = None
+    source: AtifImageSource | AtifAudioSource | None = None
 
     @model_validator(mode="after")
     def validate_content(self) -> Self:
-        if self.type == "text" and (self.text is None or self.source is not None):
-            raise ValueError("text parts require text and forbid source")
-        if self.type == "image" and (self.source is None or self.text is not None):
-            raise ValueError("image parts require source and forbid text")
+        if self.type == "text":
+            if self.text is None or self.source is not None:
+                raise ValueError("text parts require text and forbid source")
+            return self
+        if self.text is not None:
+            raise ValueError(f"{self.type} parts forbid text")
+        expected = AtifImageSource if self.type == "image" else AtifAudioSource
+        if not isinstance(self.source, expected):
+            raise ValueError(f"{self.type} parts require a matching {self.type} source")
         return self
 
 
@@ -136,7 +199,8 @@ class AtifFinalMetrics(AtifModel):
 
 
 class AtifTrajectory(AtifModel):
-    schema_version: Literal["ATIF-v1.7"] = "ATIF-v1.7"
+    # Writes v1.8; v1.7 documents remain readable (v1.8 only adds audio content).
+    schema_version: Literal["ATIF-v1.7", "ATIF-v1.8"] = "ATIF-v1.8"
     session_id: str | None = None
     trajectory_id: str | None = None
     agent: AtifAgent

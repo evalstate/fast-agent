@@ -25,12 +25,13 @@ if TYPE_CHECKING:
     from mcp import Tool
 
     from fast_agent.llm.request_params import RequestParams
+    from fast_agent.tools.web_search import SearchResponse
 
 CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 CODEX_RESPONSES_LITE_HEADER = "x-openai-internal-codex-responses-lite"
 CODEX_RESPONSES_LITE_WS_METADATA_KEY = "ws_request_header_x_openai_internal_codex_responses_lite"
 CODEX_ROUTING_HINT_HEADER = "x-codex-routing-hint"
-CODEX_PROTOCOL_VERSION = "0.144.1"
+CODEX_PROTOCOL_VERSION = "0.153.0"
 
 
 class CodexResponsesLLM(ResponsesLLM):
@@ -38,8 +39,14 @@ class CodexResponsesLLM(ResponsesLLM):
 
     config_section: str | None = "codexresponses"
 
+    def _replays_native_compaction(self) -> bool:
+        return True
+
     def __init__(self, provider: Provider = Provider.CODEX_RESPONSES, **kwargs: Any) -> None:
         kwargs.pop("provider", None)
+        # Responses Lite is opt-in (`?lite=on`); the standard contract keeps hosted
+        # tools and parallel tool calls.
+        self._responses_lite: bool = kwargs.pop("lite", False)
         super().__init__(provider=provider, **kwargs)
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
         self._validate_codex_max_tokens(self.default_request_params)
@@ -67,6 +74,79 @@ class CodexResponsesLLM(ResponsesLLM):
             raise ModelConfigError(
                 "Provider 'codexresponses' does not support max token limits in request metadata."
             )
+
+    def _uses_codex_responses_lite(self, model_name: str | None) -> bool:
+        return self._responses_lite and self._supports_codex_responses_lite(model_name)
+
+    def standalone_web_search_enabled(self, model: str | None = None) -> bool:
+        return self.web_search_enabled and self._uses_codex_responses_lite(
+            model or self.default_request_params.model
+        )
+
+    def _append_web_search_tool(self, base_args: dict[str, Any]) -> None:
+        if not self._uses_codex_responses_lite(base_args["model"]):
+            super()._append_web_search_tool(base_args)
+
+    async def run_standalone_web_search(
+        self, session_id: str, arguments: dict[str, Any], *, model: str | None = None
+    ) -> "SearchResponse":
+        from fast_agent.llm.provider.openai.codex_oauth import get_codex_access_token
+        from fast_agent.llm.provider.openai.web_tools import resolve_web_search
+        from fast_agent.tools.web_search import (
+            SearchCommands,
+            SearchRequest,
+            SearchSettings,
+            WebSearchClient,
+            WebSearchError,
+        )
+
+        model = model or self.default_request_params.model
+        if not self.standalone_web_search_enabled(model):
+            raise ValueError("Standalone web search is not enabled for this model")
+        commands = SearchCommands.model_validate(arguments)
+        resolved = resolve_web_search(
+            self._openai_settings(), web_search_override=self._web_search_override
+        )
+        settings = resolved.settings
+        settings_payload = {
+            "search_context_size": settings.search_context_size,
+            "external_web_access": settings.external_web_access,
+            "filters": {"allowed_domains": settings.allowed_domains}
+            if settings.allowed_domains is not None
+            else None,
+            "user_location": settings.user_location.model_dump(exclude_none=True)
+            if settings.user_location is not None
+            else None,
+        }
+        request = SearchRequest(
+            id=session_id,
+            model=model or "",
+            commands=commands,
+            settings=SearchSettings.model_validate(settings_payload),
+        )
+        headers = self._build_websocket_headers()
+        for attempt in range(2):
+            try:
+                async with WebSearchClient(
+                    base_url=self._base_url() or CODEX_BASE_URL,
+                    headers=headers,
+                ) as client:
+                    return await client.search(request)
+            except WebSearchError as exc:
+                if exc.status_code != 401 or attempt:
+                    raise
+                token = get_codex_access_token(force_refresh=True)
+                account_id = parse_chatgpt_account_id(token) if token else None
+                if not token or not account_id:
+                    raise ProviderKeyError(
+                        "Codex web search authentication failed",
+                        "Run `fast-agent auth provider login codex` to reauthenticate.",
+                    ) from None
+                headers = merge_headers_case_insensitive(
+                    headers,
+                    {"Authorization": f"Bearer {token}", "chatgpt-account-id": account_id},
+                )
+        raise RuntimeError("Unreachable search retry state")
 
     def _display_model(self, model: str | None) -> str | None:
         if not model:

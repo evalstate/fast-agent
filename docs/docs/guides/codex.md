@@ -11,9 +11,11 @@ social:
 
 # Code with Codex
 
+Codex Responses includes [stable prompt-cache keys and cache-preserving Astra effort changes](responses-caching.md).
+
 Use the `codex` pack to start **fast-agent** with a coding agent, a
-Codex-optimised filesystem search sub-agent, Responses-family transport, and an
-`apply_patch` tool that matches the Codex CLI patch format.
+Codex-optimised filesystem search sub-agent, Responses-family transport, and
+model-selected filesystem editing tools.
 
 ```bash
 uvx fast-agent-mcp@latest --pack codex
@@ -26,12 +28,22 @@ This starts **fast-agent** pre-configured for a Codex-style coding workflow.
 - A `dev` coding agent for interactive software work
 - A bounded rg-first search helper backed by `codexspark`
 - WebSocket-capable transport for modern Codex/OpenAI models
-- An `apply_patch` tool with a familiar Codex CLI-style patch signature
+- Filesystem editing tools selected for the model: GPT-6/6.1 models (Astra, Sol, Terra, Luna) default to
+  `write_text_file` plus `edit_file`; patch-oriented models use `apply_patch`
 - Preconfigured MCP targets available from `/mcp attach`
 
 The coding agent has a minimal system prompt plus tools for the shell,
 filesystem and **fast-agent** services. `AGENTS.md` is included automatically if
 present. Customise the agent by editing `.fast-agent/agent-cards/dev.md`.
+
+The GPT-6 writer/editor default applies to both Responses and Codex Responses,
+including the `astra`, `sol`, `terra`, `luna` and `codexplan` aliases. To explicitly select the
+Codex-style patch interface instead:
+
+```yaml
+shell_execution:
+  write_text_file_mode: apply_patch
+```
 
 When `apply_patch` tool calls are previewed in the console, large patches are
 collapsed with a `(+N more lines)` tail. You can tune or disable that limit via
@@ -49,16 +61,56 @@ If you want to use the Codex OAuth models directly, authenticate once first:
 fast-agent auth provider login codex
 ```
 
-This stores the token in your OS keyring. After that you can use Codex OAuth
-model aliases such as:
+Login uses device auth by default: open the displayed URL in a browser and enter
+the one-time code. No local callback server is required. Only enter a code from
+a login you started yourself.
 
-- `codexplan` — GPT-5.5
+If device auth is unavailable for your account, use the existing browser callback
+flow instead:
+
+```bash
+fast-agent auth provider login codex --method browser
+```
+
+Device login failures do not automatically switch to browser login. Credentials
+are stored in your OS keyring, with a secure file fallback. After that you can use
+Codex OAuth model aliases such as:
+
+- `codexplan` — GPT-6-Astra with high reasoning
+- `sol` — GPT-6.1-Sol with high reasoning
+- `terra` — GPT-6.1-Terra with high reasoning (`terra56` retains GPT-5.6-Terra)
+- `luna` — GPT-6-Luna with high reasoning
 
 If you prefer, you can also run model setup explicitly:
 
 ```bash
 uvx fast-agent-mcp@latest model setup
 ```
+
+## Provider-requested continuation
+
+For OpenAI and Codex Responses (SSE or WebSocket), a completed response with
+explicit `end_turn: false` requests another inference, even without tool calls.
+fast-agent preserves the assistant output and continues without inventing a
+user prompt or tool result. These follow-ups share the agent's `max_iterations`
+budget with tool calls; cancellation and terminal errors still stop the turn.
+
+An absent or true `end_turn` retains normal stopping behavior. Commentary phase
+or text acknowledging unfinished work does not itself request continuation.
+Boolean `end_turn` values are retained in the `fast-agent-provider-diagnostics`
+history channel.
+
+## Web search
+
+Use `fast-agent go --model 'astra?web_search=true'` to enable hosted web search;
+use `web_search=false` to disable it. Codex OAuth models use the standard Responses
+contract by default. With `lite=on` (Codex's internal Responses Lite contract), web
+search instead uses the harness `web_run` tool, without shell access.
+In a running conversation, `/model web_search on` and `/model web_search off`
+control the same feature.
+See [standalone web search](../models/providers/openai.md#standalone-web-search-codex-lite)
+for configuration, the internal endpoint caveat, and a runnable library example
+with caller-supplied authentication.
 
 ## Installation
 

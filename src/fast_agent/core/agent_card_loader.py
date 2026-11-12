@@ -55,7 +55,7 @@ from fast_agent.tools.function_tool_config import (
     serialize_function_tools,
 )
 from fast_agent.types import RequestParams
-from fast_agent.utils.text import strip_str_to_none, strip_to_none
+from fast_agent.utils.text import split_lines, strip_str_to_none, strip_to_none
 from fast_agent.utils.type_narrowing import is_str_object_dict
 
 CardTypeSerializer = Callable[[dict[str, Any], AgentCardData, AgentConfig], None]
@@ -381,7 +381,7 @@ def _reject_remote_messages(raw: dict[str, Any], remote_source: str | None) -> N
 def _extract_body_instruction(body: str, path: Path) -> str:
     if not body:
         return ""
-    lines = body.splitlines()
+    lines = split_lines(body)
     first_non_empty = None
     for idx, line in enumerate(lines):
         if strip_to_none(line) is not None:
@@ -1462,6 +1462,10 @@ def _dump_request_params(params: RequestParams | None) -> dict[str, Any] | None:
         exclude_defaults=True,
         exclude={"messages", "systemPrompt", "use_history", "model", "batch_context"},
     )
+    if "streaming_timeout" in params.model_fields_set:
+        dump["streaming_timeout"] = params.streaming_timeout
+    else:
+        dump.pop("streaming_timeout", None)
     return dump or None
 
 

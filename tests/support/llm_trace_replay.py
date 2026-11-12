@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from anthropic.lib.streaming import ParsedBetaMessageStopEvent
 from anthropic.lib.streaming._beta_messages import ParsedBetaMessageStreamEvent
 from google.genai import types as google_types
 from openai.types.responses import Response
@@ -31,6 +32,7 @@ VALID_ASSERTION_PROFILES = {
     "web_search",
 }
 _ANTHROPIC_EVENT_ADAPTER = TypeAdapter(ParsedBetaMessageStreamEvent)
+_ANTHROPIC_MESSAGE_STOP_ADAPTER = TypeAdapter(ParsedBetaMessageStopEvent[None])
 
 
 def _read_json(path: Path) -> Any:
@@ -52,9 +54,24 @@ class AttrObjectView:
         self._data = {key: _to_attr_object(value) for key, value in data.items()}
 
     def __getattr__(self, key: str) -> Any:
+        # Copying builds the object without __init__: no _data yet, no dunder protocols.
+        if key.startswith("__") or key == "_data":
+            raise AttributeError(key)
         if key in self._data:
             return self._data[key]
         raise AttributeError(key)
+
+    def __setattr__(self, key: str, value: Any) -> None:
+        # SDK models are mutable; e.g. an empty terminal ``output`` is rebuilt in place.
+        if key == "_data":
+            object.__setattr__(self, key, value)
+        else:
+            self._data[key] = value
+
+    def __copy__(self) -> AttrObjectView:
+        copied = AttrObjectView.__new__(AttrObjectView)
+        object.__setattr__(copied, "_data", dict(self._data))
+        return copied
 
     def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         del args, kwargs
@@ -465,7 +482,7 @@ def _final_responses_payload(payloads: list[dict[str, Any]]) -> dict[str, Any]:
 def _final_anthropic_message(payloads: list[dict[str, Any]]) -> Any:
     for payload in reversed(payloads):
         if payload.get("type") == "message_stop":
-            return _ANTHROPIC_EVENT_ADAPTER.validate_python(payload).message
+            return _ANTHROPIC_MESSAGE_STOP_ADAPTER.validate_python(payload).message
 
     message_payload: dict[str, Any] | None = None
     content_by_index: dict[int, Any] = {}
@@ -506,4 +523,4 @@ def _final_anthropic_message(payloads: list[dict[str, Any]]) -> Any:
         "type": "message_stop",
         "message": message_payload,
     }
-    return _ANTHROPIC_EVENT_ADAPTER.validate_python(message_stop_payload).message
+    return _ANTHROPIC_MESSAGE_STOP_ADAPTER.validate_python(message_stop_payload).message

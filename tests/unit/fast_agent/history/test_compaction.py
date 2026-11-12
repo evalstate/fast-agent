@@ -2,14 +2,19 @@
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 from mcp_types import (
+    AudioContent,
+    BlobResourceContents,
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
+    ContentBlock,
+    EmbeddedResource,
     ImageContent,
+    ResourceLink,
     TextContent,
 )
 
@@ -17,12 +22,15 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.config import CompactionSettings, Settings, get_settings
 from fast_agent.context import Context
+from fast_agent.event_progress import ProgressAction
 from fast_agent.history.compaction import (
     _CHARS_PER_TOKEN,
+    _SUMMARY_TOKEN_ALLOWANCE,
     DEFAULT_COMPACTION_PROMPT,
     FAST_AGENT_COMPACTION_CHANNEL,
     LEGACY_SUMMARY_NOTICE,
     SUMMARY_NOTICE,
+    CompactionError,
     CompactionSkipped,
     _plan_compaction_with_budget,
     _plan_mid_turn_compaction,
@@ -36,13 +44,18 @@ from fast_agent.history.compaction import (
     resolve_compaction_prompt,
     should_auto_compact,
 )
+from fast_agent.history.turns import total_user_turns, user_turn_starts
+from fast_agent.llm.compaction_support import (
+    CompactAt,
+    CompactionStrategy,
+    CompactionSupport,
+    NativeCompaction,
+)
 from fast_agent.llm.usage_tracking import UsageAccumulator
+from fast_agent.mcp.tool_result_metadata import set_tool_result_media_preview
 from fast_agent.session import SessionManager, reset_session_manager
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
-
-if TYPE_CHECKING:
-    from fast_agent.event_progress import ProgressAction
 
 
 def _user(text: str, *, template: bool = False) -> PromptMessageExtended:
@@ -124,13 +137,21 @@ class TestPlanCompaction:
         assert [m.first_text() for m in plan.compact_region] == ["one", "1"]
         assert len(plan.retained_tail) == 2
 
-    def test_keep_zero_turns_compacts_everything(self):
-        history = _turn("one", "1") + _turn("two", "2")
+    def test_keep_zero_turns_keeps_last_prompt_and_final_reply(self):
+        history = _turn("one", "1") + _tool_turn("two")
 
         plan = plan_compaction(history, keep_turns=0)
 
+        assert [m.first_text() for m in plan.retained] == ["two", "done"]
+        assert plan.compact_region == history[:-1]
+
+    def test_keep_zero_turns_without_last_exchange_compacts_everything(self):
+        history = _turn("one", "1") + _turn("two", "2")
+
+        plan = plan_compaction(history, keep_turns=0, keep_last_exchange=False)
+
         assert len(plan.compact_region) == 4
-        assert plan.retained_tail == []
+        assert plan.retained == []
 
     def test_mid_turn_planner_keeps_three_complete_exchanges_and_pending_call(self):
         history = [_user("one")]
@@ -164,6 +185,8 @@ class TestPlanCompaction:
             "<no text>",
             "pending",
         ]
+        assert [m.first_text() for m in plan.retained_prompt] == ["one"]
+        assert plan.retained_prompt_index == 0
 
     def test_mid_turn_budget_reduces_recent_exchanges(self):
         history = [
@@ -183,6 +206,34 @@ class TestPlanCompaction:
         )
 
         assert [m.first_text() for m in plan.retained_tail] == ["pending"]
+        assert plan.retained_prompt == [history[0]]
+
+    @pytest.mark.parametrize("recent_tool_exchanges", [0, 3])
+    def test_mid_turn_budget_summarizes_oversized_prompt(self, recent_tool_exchanges):
+        template = _user("template", template=True)
+        prompt = _user("x" * 12000)
+        pending = _assistant("pending", tool_call=True)
+        history = [
+            template,
+            prompt,
+            _assistant("completed", tool_call=True),
+            _tool_result("result"),
+            pending,
+        ]
+        budget = 2500
+
+        plan = _plan_compaction_with_budget(
+            history,
+            keep_turns=0,
+            max_tokens_after=budget,
+            recent_tool_exchanges=recent_tool_exchanges,
+        )
+
+        assert plan.templates == [template]
+        assert plan.compact_region == history[1:-1]
+        assert plan.retained == [pending]
+        assert plan.messages_before == len(history)
+        assert estimate_tokens(plan.templates + plan.retained) + _SUMMARY_TOKEN_ALLOWANCE <= budget
 
     def test_mid_turn_planner_compacts_single_long_tool_turn(self):
         history = [
@@ -211,6 +262,10 @@ class TestPlanCompaction:
         plan = plan_compaction(_turn("one", "1"), keep_turns=2)
         assert len(plan.compact_region) == 2
         assert plan.retained_tail == []
+
+    def test_single_tool_turn_keeps_its_prompt_and_final_reply(self):
+        plan = plan_compaction(_tool_turn("one"), keep_turns=2)
+        assert [m.first_text() for m in plan.retained] == ["one", "done"]
 
     def test_prior_summary_is_not_counted_as_a_turn(self):
         # Regression: a leading compaction summary used to be counted as a user
@@ -370,6 +425,69 @@ class TestEstimateTokens:
 
         assert estimate_tokens([msg]) > plain + 5_000
 
+    @pytest.mark.parametrize("size", [4, 200_000])
+    @pytest.mark.parametrize("location", ["content", "tool_results", "channels"])
+    @pytest.mark.parametrize("kind", ["image", "link", "embedded"])
+    def test_fixed_image_cost(self, size: int, location: str, kind: str):
+        image = ImageContent(type="image", data="AAAA" * size, mime_type="image/png")
+        if kind == "link":
+            block = ResourceLink(
+                type="resource_link",
+                name="image",
+                mime_type="image/png",
+                uri="data:image/png;base64," + image.data,
+            )
+        elif kind == "embedded":
+            block = EmbeddedResource(
+                type="resource",
+                resource=BlobResourceContents(
+                    uri="file:///image.png",
+                    mime_type="image/png",
+                    blob=image.data,
+                ),
+            )
+        else:
+            block = image
+        msg = _user("describe this image")
+        text = TextContent(type="text", text="diagnostic text")
+        if location == "tool_results":
+            msg.tool_results = {"call_1": CallToolResult(content=[text])}
+        elif location == "channels":
+            msg.channels = {"diagnostics": [text]}
+        baseline = estimate_tokens([msg])
+        if location == "content":
+            msg.content.extend([block, block])
+        elif location == "tool_results":
+            assert msg.tool_results is not None
+            msg.tool_results["call_1"].content.extend([block, block])
+        else:
+            msg.channels = {"diagnostics": [text, block, block]}
+        assert estimate_tokens([msg]) == baseline + 4000
+
+    def test_retains_non_image_accounting(self):
+        msg = _user("first")
+        msg.content.append(TextContent(type="text", text="second"))
+        audio = AudioContent(type="audio", data="AAAA" * 100, mime_type="audio/wav")
+        link = ResourceLink(
+            type="resource_link", name="document", uri="file:///notes.txt", mime_type="text/plain"
+        )
+        msg.content.extend([audio, link])
+        result = CallToolResult(
+            content=[audio],
+            structured_content={"value": "x" * 100},
+            meta={"custom": "m" * 400, "fast_agent/display": {"exit_code": 1}},
+            is_error=True,
+        )
+        msg.tool_results = {"call_1": result}
+        msg.channels = {"diagnostics": [audio]}
+        expected_chars = len(msg.all_text()) + 2 * len(audio.model_dump_json())
+        expected_chars += len(result.model_dump_json())
+        assert estimate_tokens([msg]) == expected_chars // _CHARS_PER_TOKEN
+        set_tool_result_media_preview(
+            result, [ImageContent(type="image", data="AAAA" * 100_000, mime_type="image/png")]
+        )
+        assert estimate_tokens([msg]) == expected_chars // _CHARS_PER_TOKEN
+
     def test_does_not_double_count_text(self):
         # Text is counted once via all_text(); the per-content loop must skip it
         # (docstring: "Count text plus serialized non-text payloads").
@@ -378,6 +496,10 @@ class TestEstimateTokens:
 
 
 class _FakeLLM:
+    compaction_support = CompactionSupport.CLIENT
+    compact_at_override: CompactAt | None = None
+    default_compact_at: CompactAt | None = None
+
     def __init__(self, summary: str = "SUMMARY OF WORK") -> None:
         self.summary = summary
         self.verb: str | ProgressAction | None = None
@@ -409,6 +531,45 @@ class _FakeAgent:
 
     def load_message_history(self, messages) -> None:
         self._history = list(messages or [])
+
+
+_CHECKPOINT_CHANNEL = "provider-checkpoint"
+
+
+class _NativeLLM(_FakeLLM):
+    """An ON_DEMAND provider: an opaque checkpoint instead of a written summary."""
+
+    compaction_support = CompactionSupport.ON_DEMAND
+
+    def __init__(self, *, fail: bool = False) -> None:
+        super().__init__("client summary")
+        self.fail = fail
+        self.native_requests: list[list[PromptMessageExtended]] = []
+        self.verbs_seen: list[object] = []
+
+    async def native_compaction(self, messages):
+        self.native_requests.append(list(messages))
+        self.verbs_seen.append(self.verb)
+        if self.fail:
+            raise RuntimeError("provider rejected compaction")
+        checkpoint: list[ContentBlock] = [TextContent(type="text", text="x" * 40_000)]
+        response = PromptMessageExtended(
+            role="assistant",
+            content=[],
+            stop_reason=LlmStopReason.END_TURN,
+            channels={
+                _CHECKPOINT_CHANNEL: checkpoint,
+                "fast-agent-usage": [TextContent(type="text", text="{}")],
+            },
+        )
+        return NativeCompaction(
+            strategy=CompactionStrategy.OPENAI_COMPACTION,
+            request="compaction request",
+            response=response,
+            checkpoint_channels={_CHECKPOINT_CHANNEL: checkpoint},
+            description="opaque provider checkpoint",
+            opaque_bytes=6_144,
+        )
 
 
 @pytest.mark.unit
@@ -535,10 +696,14 @@ class TestCompactConversation:
         assert DEFAULT_COMPACTION_PROMPT in final
         assert "focus on X" in final
 
-    async def test_reduces_retained_tail_when_tail_exceeds_budget(self):
+    @pytest.mark.parametrize("image_count, messages_after", [(1, 5), (10, 1)])
+    async def test_image_tail_retention_uses_fixed_cost(
+        self, image_count: int, messages_after: int
+    ):
         huge_tail = _user("latest huge artifact")
-        huge_tail.content.append(
+        huge_tail.content.extend(
             ImageContent(type="image", data="x" * 300_000, mime_type="image/png")
+            for _ in range(image_count)
         )
         history = _turn("one", "1") + _turn("two", "2") + [huge_tail, _assistant("after huge")]
         agent = _FakeAgent(history, summary="summary including huge artifact")
@@ -547,10 +712,122 @@ class TestCompactConversation:
 
         await compact_conversation(agent, settings=settings)
 
-        assert len(agent.message_history) == 1
+        assert len(agent.message_history) == messages_after
         assert is_compaction_message(agent.message_history[0])
-        request = agent.llm.requests[0]
-        assert any(message.first_text() == "latest huge artifact" for message in request)
+        assert (huge_tail in agent.message_history) == (image_count == 1)
+
+    async def test_native_checkpoint_replaces_compact_region(self):
+        history = (
+            [_user("template", template=True)]
+            + _turn("one", "1")
+            + _turn("two", "2")
+            + _turn("three", "3")
+        )
+        agent = _FakeAgent(history)
+        llm = _NativeLLM()
+        agent.llm = llm
+
+        result = await compact_conversation(agent, settings=CompactionSettings(keep_turns=1))
+
+        # The provider saw templates + compact region, nothing retained, with checkpoint progress.
+        [request] = llm.native_requests
+        assert [m.first_text() for m in request] == ["template", "one", "1", "two", "2"]
+        assert llm.verbs_seen == [ProgressAction.COMPACTING_CHECKPOINT]
+        assert llm.verb is None
+        assert llm.requests == []
+        # Same layout as a summary: templates, checkpoint, retained tail.
+        checkpoint = agent.message_history[1]
+        assert is_compaction_message(checkpoint)
+        assert "opaque provider checkpoint" in checkpoint.first_text()
+        assert [m.first_text() for m in agent.message_history[2:]] == ["three", "3"]
+        assert checkpoint.channels is not None
+        assert _CHECKPOINT_CHANNEL in checkpoint.channels
+        metadata_block = checkpoint.channels[FAST_AGENT_COMPACTION_CHANNEL][0]
+        assert isinstance(metadata_block, TextContent)
+        metadata = json.loads(metadata_block.text)
+        assert metadata["strategy"] == CompactionStrategy.OPENAI_COMPACTION.value
+        assert metadata["prompt"] is None
+        assert metadata["summary_request"] == "compaction request"
+        # The audited call keeps usage but not a duplicate of the checkpoint payload.
+        assert _CHECKPOINT_CHANNEL not in metadata["summary_response"]["channels"]
+        assert "fast-agent-usage" in metadata["summary_response"]["channels"]
+        assert result.strategy == CompactionStrategy.OPENAI_COMPACTION.value
+        assert result.checkpoint_bytes == metadata["checkpoint_bytes"] == 6_144
+        # Visible text names the encrypted size and the archive holding the full history.
+        assert (
+            f"Encrypted size: 6.0 KB. Archive: {metadata['archive_file']}."
+            in checkpoint.first_text()
+        )
+        # The opaque payload is not estimated as 40k characters of text.
+        assert result.tokens_after_estimate < 5_000
+
+    async def test_on_start_runs_only_when_compaction_proceeds(self):
+        started: list[str] = []
+        agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"))
+
+        await compact_conversation(
+            agent,
+            settings=CompactionSettings(keep_turns=1),
+            on_start=lambda: started.append("started"),
+        )
+        with pytest.raises(CompactionSkipped):
+            await compact_conversation(
+                _FakeAgent([_user("only message")]),
+                settings=CompactionSettings(keep_turns=1),
+                on_start=lambda: started.append("skipped attempt"),
+            )
+
+        assert started == ["started"]
+
+    async def test_focus_instructions_use_a_written_summary(self):
+        agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"))
+        llm = _NativeLLM()
+        agent.llm = llm
+
+        result = await compact_conversation(
+            agent, settings=CompactionSettings(keep_turns=1), instructions="keep file paths"
+        )
+
+        assert llm.native_requests == []
+        assert result.strategy == "summary"
+        assert "client summary" in agent.message_history[0].first_text()
+
+    async def test_configured_prompt_uses_a_written_summary(self):
+        agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"))
+        llm = _NativeLLM()
+        agent.llm = llm
+
+        result = await compact_conversation(
+            agent, settings=CompactionSettings(keep_turns=1, prompt="Keep every file path.")
+        )
+
+        # A native checkpoint takes no prompt; configured requirements must not be dropped.
+        assert llm.native_requests == []
+        assert result.strategy == "summary"
+        [request] = llm.requests
+        assert request[-1].first_text() == "Keep every file path."
+
+    async def test_client_strategy_overrides_native_support(self):
+        agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"))
+        llm = _NativeLLM()
+        agent.llm = llm
+
+        await compact_conversation(
+            agent, settings=CompactionSettings(keep_turns=1, strategy="client")
+        )
+
+        assert llm.native_requests == []
+
+    async def test_native_failure_leaves_history_unchanged(self):
+        history = _turn("one", "1") + _turn("two", "2")
+        agent = _FakeAgent(history)
+        agent.llm = _NativeLLM(fail=True)
+
+        with pytest.raises(CompactionError, match="provider rejected compaction"):
+            await compact_conversation(agent, settings=CompactionSettings(keep_turns=1))
+
+        assert agent.message_history == history
+        assert agent.llm.verb is None
 
     async def test_empty_summary_leaves_history_unchanged(self):
         from fast_agent.history.compaction import CompactionError
@@ -609,6 +886,109 @@ class TestCompactConversation:
             assert archive_path.parent.parent == workspace / ".fast-agent" / "sessions"
             assert manager.current_session is not None
             assert archive_path.name not in manager.current_session.info.history_files
+            from fast_agent.history.atif_reconstruction import (
+                is_export_marker,
+                reconstruct_history,
+            )
+
+            restored = reconstruct_history(agent.message_history, archive_path.parent, agent.name)
+            assert [m for m in restored if not is_export_marker(m)] == history
+        finally:
+            reset_session_manager()
+
+    async def test_turn_count_survives_repeated_compaction(self):
+        agent = _FakeAgent(_turn("one", "1") + _turn("two", "2") + _tool_turn("three"))
+        settings = CompactionSettings(keep_turns=1)
+
+        await compact_conversation(agent, settings=settings)
+        agent.load_message_history(agent.message_history + _turn("four", "4"))
+        await compact_conversation(agent, settings=settings)
+
+        assert len(user_turn_starts(agent.message_history)) == 1
+        assert total_user_turns(agent.message_history) == 4
+
+    @pytest.mark.parametrize("oversized_prompt", [False, True])
+    async def test_mid_turn_compaction_keeps_prompt_and_reconstructs(
+        self, tmp_path, monkeypatch, oversized_prompt
+    ):
+        monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        monkeypatch.chdir(workspace)
+        reset_session_manager()
+        try:
+            history = [
+                *_turn("one", "1"),
+                _user("x" * 12000 if oversized_prompt else "two"),
+                _assistant("old", tool_call=True),
+                _tool_result("old output"),
+                _assistant("recent", tool_call=True),
+                _tool_result("recent output"),
+                _assistant("pending", tool_call=True),
+            ]
+            agent = _FakeAgent(history)
+            manager = SessionManager(
+                cwd=workspace,
+                home_override=workspace / ".fast-agent",
+                respect_env_override=False,
+            )
+            agent.context = Context(config=Settings(session_history=True), session_manager=manager)
+
+            result = await compact_conversation(
+                agent,
+                # 2500 of the fake model's 100k tokens.
+                settings=CompactionSettings(threshold=0.025),
+                recent_tool_exchanges=1,
+            )
+
+            expected_tail = (
+                ["pending"] if oversized_prompt else ["two", "recent", "<no text>", "pending"]
+            )
+            assert [m.first_text() for m in agent.message_history[1:]] == expected_tail
+            assert result.tokens_after_estimate <= 2500
+            from fast_agent.history.atif_reconstruction import (
+                is_export_marker,
+                reconstruct_history,
+            )
+
+            assert result.archive_file is not None
+            restored = reconstruct_history(
+                agent.message_history, Path(result.archive_file).parent, agent.name
+            )
+            assert [m for m in restored if not is_export_marker(m)] == history
+        finally:
+            reset_session_manager()
+
+    async def test_persists_summary_call_for_trace_accounting(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        monkeypatch.chdir(workspace)
+        reset_session_manager()
+        try:
+            agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"), summary="the summary")
+            agent.context = Context(
+                config=Settings(session_history=True),
+                session_manager=SessionManager(
+                    cwd=workspace,
+                    home_override=workspace / ".fast-agent",
+                    respect_env_override=False,
+                ),
+            )
+
+            await compact_conversation(
+                agent, settings=CompactionSettings(keep_turns=1), instructions="focus"
+            )
+
+            summary = next(m for m in agent.message_history if is_compaction_message(m))
+            block = (summary.channels or {})[FAST_AGENT_COMPACTION_CHANNEL][0]
+            assert isinstance(block, TextContent)
+            metadata = json.loads(block.text)
+            # Exactly what the summarizer received and returned.
+            assert metadata["summary_request"] == agent.llm.requests[0][-1].first_text()
+            response = PromptMessageExtended.model_validate(metadata["summary_response"])
+            assert response.role == "assistant"
+            assert response.first_text() == "the summary"
         finally:
             reset_session_manager()
 
@@ -708,3 +1088,113 @@ class TestUsageEstimateOverride:
         assert usage.summary.total == 440
         assert usage.get_summary()["current_context_tokens"] == 123
         assert usage.get_summary()["total"] == 440
+
+
+@pytest.mark.anyio
+async def test_archival_failure_preserves_original_history(tmp_path, monkeypatch):
+    from fast_agent.history.compaction import CompactionError
+
+    agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"))
+    agent.context = Context(config=Settings(session_history=True))
+    before = list(agent.message_history)
+    monkeypatch.setattr("fast_agent.history.compaction._archive_history", lambda *_: None)
+    with pytest.raises(CompactionError, match="history unchanged"):
+        await compact_conversation(agent, settings=CompactionSettings(keep_turns=1))
+    assert agent.message_history == before
+
+
+@pytest.mark.anyio
+async def test_disabled_persistence_compacts_but_cannot_claim_full_export(tmp_path):
+    from fast_agent.history.atif_reconstruction import (
+        HistoryReconstructionError,
+        reconstruct_history,
+    )
+
+    agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"))
+    agent.context = Context(config=Settings(session_history=False))
+    result = await compact_conversation(agent, settings=CompactionSettings(keep_turns=1))
+    assert result.archive_file is None
+    with pytest.raises(HistoryReconstructionError):
+        reconstruct_history(agent.message_history, tmp_path, agent.name)
+
+
+def test_archives_are_atomic_unique_and_never_overwrite(tmp_path, monkeypatch):
+    from fast_agent.history.compaction import _archive_history
+    from fast_agent.mcp.prompt_serialization import load_messages
+
+    manager = SessionManager(
+        cwd=tmp_path, home_override=tmp_path / ".fast-agent", respect_env_override=False
+    )
+    agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"))
+    agent.context = Context(config=Settings(session_history=True), session_manager=manager)
+    first = _archive_history(agent, agent.message_history)
+    second = _archive_history(agent, agent.message_history)
+    assert first and second and first != second
+    assert load_messages(first) == agent.message_history
+    assert load_messages(second) == agent.message_history
+    original = Path(first).read_bytes()
+
+    def fail_link(*args):
+        raise FileExistsError("collision")
+
+    monkeypatch.setattr("fast_agent.history.compaction.os.link", fail_link)
+    assert _archive_history(agent, agent.message_history) is None
+    assert Path(first).read_bytes() == original
+    assert not list(Path(first).parent.glob(".compaction-*"))
+    assert len(list(Path(first).parent.glob("compacted_*"))) == 2
+
+    def partial_write(messages, filename):
+        Path(filename).write_text("{")
+        raise OSError("partial write")
+
+    monkeypatch.setattr("fast_agent.mcp.prompt_serialization.save_messages", partial_write)
+    assert _archive_history(agent, agent.message_history) is None
+    assert len(list(Path(first).parent.glob("compacted_*"))) == 2
+    assert not list(Path(first).parent.glob(".compaction-*"))
+
+
+def test_llm_layer_does_not_import_harness_compaction() -> None:
+    """Providers read compaction facts from settings; harness policy stays in history/."""
+    import ast
+
+    import fast_agent.llm
+
+    root = Path(fast_agent.llm.__file__).parent
+    offenders = []
+    for path in root.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            modules = (
+                [alias.name for alias in node.names]
+                if isinstance(node, ast.Import)
+                else [node.module or ""]
+                if isinstance(node, ast.ImportFrom)
+                else []
+            )
+            if any(module.startswith("fast_agent.history.compaction") for module in modules):
+                offenders.append(str(path.relative_to(root)))
+
+    assert offenders == []
+
+
+@pytest.mark.parametrize(
+    ("prompt", "file_text", "custom"),
+    [
+        (None, None, False),
+        ("   ", None, False),
+        ("Keep every file path.", None, True),
+        ("prompt.md", "From file.", True),
+        # An empty prompt file falls back to the built-in prompt.
+        ("prompt.md", "  \n", False),
+    ],
+)
+def test_custom_prompt_flag_matches_prompt_resolution(
+    tmp_path: Path, prompt: str | None, file_text: str | None, custom: bool
+) -> None:
+    if file_text is not None:
+        (tmp_path / "prompt.md").write_text(file_text, encoding="utf-8")
+    settings = CompactionSettings(prompt=prompt)
+    settings._config_file = str(tmp_path / "fastagent.config.yaml")
+
+    assert settings.has_custom_prompt is custom
+    # The flag providers read agrees with the harness's resolved prompt.
+    assert (resolve_compaction_prompt(settings) != DEFAULT_COMPACTION_PROMPT) is custom

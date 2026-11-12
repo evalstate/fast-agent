@@ -18,6 +18,7 @@ from fast_agent.mcp.prompts.prompt_load import (
 )
 
 from .snapshot import (
+    PtcStoreProvider,
     SessionAgentSnapshot,
     SessionAttachmentRef,
     SessionRequestSettingsSnapshot,
@@ -177,6 +178,7 @@ class SessionHydrator:
         for agent_name, agent_snapshot in agent_snapshots.items():
             await self._hydrate_agent(
                 session=session,
+                snapshot=snapshot,
                 agent_name=agent_name,
                 agent_snapshot=agent_snapshot,
                 agents=agents,
@@ -235,6 +237,7 @@ class SessionHydrator:
         self,
         *,
         session: Session,
+        snapshot: SessionSnapshot,
         agent_name: str,
         agent_snapshot: SessionAgentSnapshot,
         agents: Mapping[str, AgentProtocol],
@@ -247,6 +250,9 @@ class SessionHydrator:
             return
 
         if policy.restore_runtime_state:
+            self._restore_agent_shell(
+                session, snapshot, agent, agent_name, agent_snapshot, state.warnings
+            )
             await self._restore_runtime_state(
                 agent=agent,
                 agent_name=agent_name,
@@ -258,6 +264,11 @@ class SessionHydrator:
             await self._restore_agent_transcript(
                 session, agent_name, agent, agent_snapshot, policy, state
             )
+        if policy.restore_runtime_state:
+            # After the transcript: loading history as a new conversation clears the store.
+            self._restore_agent_ptc_store(
+                session, agent, agent_name, agent_snapshot, state.warnings
+            )
         if policy.restore_prompt:
             self._restore_agent_prompt(agent_name, agent, agent_snapshot, state)
 
@@ -268,6 +279,79 @@ class SessionHydrator:
             SessionHydrationWarning(
                 code="missing-agent",
                 message=f"Persisted agent {agent_name!r} is not available in this runtime",
+                agent_name=agent_name,
+            )
+        )
+
+    @staticmethod
+    def _restore_agent_shell(
+        session: Session,
+        snapshot: SessionSnapshot,
+        agent: AgentProtocol,
+        agent_name: str,
+        agent_snapshot: SessionAgentSnapshot,
+        warnings: list[SessionHydrationWarning],
+    ) -> None:
+        if agent_snapshot.shell_enabled is not True:
+            return
+
+        from fast_agent.agents.mcp_agent import McpAgent
+
+        if not isinstance(agent, McpAgent) or agent.shell_runtime_enabled:
+            return
+        context = agent.context
+        if context is not None and context.no_shell:
+            reason = "shell access was explicitly disabled"
+        elif snapshot.continuation.lineage.acp_session_id is not None or (
+            context is not None and context.acp is not None
+        ):
+            reason = "ACP sessions require current client authorization"
+        elif (
+            session.manager is None
+            or (saved_cwd := snapshot.continuation.cwd) is None
+            or Path(saved_cwd).expanduser().resolve() != session.manager.workspace_dir
+        ):
+            reason = "the saved workspace does not match the current workspace"
+        else:
+            try:
+                agent.enable_shell()
+            except (OSError, ValueError) as exc:
+                reason = f"shell runtime could not be started ({exc})"
+            else:
+                return
+
+        warnings.append(
+            SessionHydrationWarning(
+                code="shell-restore-skipped",
+                message=f"Did not restore shell access for agent {agent_name!r}: {reason}.",
+                agent_name=agent_name,
+            )
+        )
+
+    @staticmethod
+    def _restore_agent_ptc_store(
+        session: Session,
+        agent: AgentProtocol,
+        agent_name: str,
+        agent_snapshot: SessionAgentSnapshot,
+        warnings: list[SessionHydrationWarning],
+    ) -> None:
+        filename = agent_snapshot.ptc_store_file
+        if filename is None:
+            return
+        if not isinstance(agent, PtcStoreProvider) or (store := agent.ptc_store) is None:
+            reason = "programmatic tool calling is not enabled"
+        else:
+            try:
+                store.restore((session.directory / filename).read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                reason = f"{filename} could not be read ({exc})"
+            else:
+                return
+        warnings.append(
+            SessionHydrationWarning(
+                code="ptc-store-restore-skipped",
+                message=f"Did not restore stored PTC values for agent {agent_name!r}: {reason}.",
                 agent_name=agent_name,
             )
         )
@@ -669,6 +753,8 @@ class SessionHydrator:
             else params.tool_result_mode
         )
         params.streaming_timeout = request_settings.streaming_timeout
+        if request_settings.streaming_timeout_configured is False:
+            params.model_fields_set.discard("streaming_timeout")
         params.service_tier = request_settings.service_tier
         params.system_prompt = agent.instruction
 
@@ -677,6 +763,13 @@ class SessionHydrator:
         llm = agent.llm
         if llm is not None:
             llm.default_request_params = params.model_copy(deep=True)
+
+        from fast_agent.agents.llm_decorator import LlmDecorator
+
+        if isinstance(agent, LlmDecorator):
+            agent.restore_streaming_timeout(
+                params.streaming_timeout, configured="streaming_timeout" in params.model_fields_set
+            )
 
     def _base_request_params(self, agent: AgentProtocol) -> RequestParams:
         llm = agent.llm

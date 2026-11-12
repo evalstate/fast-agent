@@ -1,0 +1,7 @@
+{
+  "family": "xai",
+  "resolved_model": "grok-4.7",
+  "transport": "http",
+  "scenario": "responses_compact",
+  "source": "scripts/openai_native_compaction_smoke.py --route xai --fixture-out"
+}

@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
@@ -14,6 +15,11 @@ from fast_agent.config import get_settings
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.tools.execution_environment import ShellExecutionResult
 from fast_agent.ui.console import rich_print
+from fast_agent.utils.text import UTF8_LOCALE_FALLBACK_ERRORS
+
+# After the shell exits, how long to keep reading output it left in the pipe. Only a
+# background job that inherited the pipe and keeps it open makes the drain wait this long.
+_PIPE_DRAIN_TIMEOUT_SECONDS = 1.0
 
 
 @dataclass(slots=True)
@@ -260,7 +266,7 @@ def _handle_pty_output_ready(
         show_output=show_output,
         tty_out_fd=targets.tty_out_fd,
     )
-    output_capture.append(data.decode(errors="replace"))
+    output_capture.append(data.decode("utf-8", errors=UTF8_LOCALE_FALLBACK_ERRORS))
     return True
 
 
@@ -326,8 +332,9 @@ def _start_pipe_shell_process(
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
         bufsize=1,
-        errors="replace",
+        errors=UTF8_LOCALE_FALLBACK_ERRORS,
         env=shell_env,
     )
 
@@ -405,15 +412,24 @@ def _run_pipe_shell_loop(
     show_output: bool,
     output_capture: _CapturedShellOutput,
 ) -> int:
-    if proc.stdout is not None:
-        for line in iter(proc.stdout.readline, ""):
+    stdout = proc.stdout
+    if stdout is None:
+        return proc.wait()
+
+    def read_output() -> None:
+        for line in iter(stdout.readline, ""):
             if show_output:
                 sys.stdout.write(line)
                 sys.stdout.flush()
             output_capture.append(line)
-            if proc.poll() is not None:
-                break
-    return proc.wait()
+
+    # Read until EOF, but return once the shell exits: a background job may hold the
+    # pipe open. Output the shell wrote before exiting is drained, not dropped.
+    reader = threading.Thread(target=read_output, name="interactive-shell-output", daemon=True)
+    reader.start()
+    return_code = proc.wait()
+    reader.join(_PIPE_DRAIN_TIMEOUT_SECONDS)
+    return return_code
 
 
 def _interrupt_shell_process(proc: subprocess.Popen[Any]) -> int:

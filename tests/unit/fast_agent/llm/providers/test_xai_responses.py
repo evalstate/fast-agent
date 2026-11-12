@@ -12,7 +12,11 @@ from openai.types.responses.response_usage import InputTokensDetails, OutputToke
 from pydantic import ValidationError
 
 from fast_agent.config import Settings, XAISettings, XAIWebSearchSettings
-from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS, OPENAI_REASONING_ENCRYPTED
+from fast_agent.constants import (
+    DEFAULT_STREAMING_TIMEOUT,
+    OPENAI_ASSISTANT_MESSAGE_ITEMS,
+    OPENAI_REASONING_ENCRYPTED,
+)
 from fast_agent.context import Context
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
@@ -192,6 +196,44 @@ async def test_xai_image_upload_reuses_public_url_across_replayed_history() -> N
 
 
 @pytest.mark.asyncio
+async def test_xai_image_upload_reports_progress_then_restores_sending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    simulator = _XAIFileAPISimulator()
+    llm = XAIResponsesLLM(
+        context=Context(
+            config=Settings(xai=XAISettings(api_key="test-key", image_upload_mode="public_url"))
+        ),
+        model="grok-4.6",
+    )
+    events: list[tuple[str, object]] = []
+    monkeypatch.setattr(
+        llm, "_log_upload_progress", lambda n, total, **_: events.append(("upload", (n, total)))
+    )
+    monkeypatch.setattr(
+        llm,
+        "_log_chat_progress",
+        lambda chat_turn=None, model=None: events.append(("sending", model)),
+    )
+    input_items = [
+        {
+            "type": "message",
+            "role": "user",
+            "content": [_inline_image_part(b"one"), _inline_image_part(b"two")],
+        }
+    ]
+
+    async with _xai_file_client(simulator) as client:
+        await llm._normalize_request_files(client, input_items, display_model="grok-4.6 [ws]")
+        assert events == [("upload", (1, 2)), ("upload", (2, 2)), ("sending", "grok-4.6 [ws]")]
+        events.clear()
+        await llm._normalize_request_files(client, input_items, display_model="grok-4.6 [ws]")
+
+    assert events == []
+    assert len(simulator.upload_bodies) == 2
+
+
+@pytest.mark.asyncio
 async def test_xai_image_upload_leaves_remote_and_unsupported_images_unchanged() -> None:
     simulator = _XAIFileAPISimulator()
     llm = XAIResponsesLLM(
@@ -324,20 +366,29 @@ def test_xai_responses_default_model_used_when_model_missing() -> None:
         model="",
     )
 
-    assert llm.default_request_params.model == DEFAULT_XAI_MODEL
+    assert llm.default_request_params.model == DEFAULT_XAI_MODEL == "grok-4.7"
+    assert llm.get_request_params().streaming_timeout == GROK_EXTENDED_STREAMING_TIMEOUT
 
 
 @pytest.mark.parametrize(
     ("model", "reasoning_effort", "expected_timeout"),
     [
         ("grok-4.5", "high", GROK_EXTENDED_STREAMING_TIMEOUT),
-        ("grok-4.5", "medium", 120.0),
-        ("grok-4.5", "low", 120.0),
+        ("grok-4.5", "medium", DEFAULT_STREAMING_TIMEOUT),
+        ("grok-4.5", "low", DEFAULT_STREAMING_TIMEOUT),
         ("grok-4.6", "high", GROK_EXTENDED_STREAMING_TIMEOUT),
+        ("grok-4.7", "high", GROK_EXTENDED_STREAMING_TIMEOUT),
+        ("grok-4.7-build-fast", "high", GROK_EXTENDED_STREAMING_TIMEOUT),
         ("grok-4.6", "xhigh", GROK_EXTENDED_STREAMING_TIMEOUT),
-        ("grok-4.6", "medium", 120.0),
-        ("grok-4.6", "low", 120.0),
-        ("grok-4.3", "high", 120.0),
+        ("grok-4.7", "xhigh", GROK_EXTENDED_STREAMING_TIMEOUT),
+        ("grok-4.7-build-fast", "xhigh", GROK_EXTENDED_STREAMING_TIMEOUT),
+        ("grok-4.6", "medium", DEFAULT_STREAMING_TIMEOUT),
+        ("grok-4.7", "medium", DEFAULT_STREAMING_TIMEOUT),
+        ("grok-4.7-build-fast", "medium", DEFAULT_STREAMING_TIMEOUT),
+        ("grok-4.6", "low", DEFAULT_STREAMING_TIMEOUT),
+        ("grok-4.7", "low", DEFAULT_STREAMING_TIMEOUT),
+        ("grok-4.7-build-fast", "low", DEFAULT_STREAMING_TIMEOUT),
+        ("grok-4.3", "high", GROK_EXTENDED_STREAMING_TIMEOUT),
     ],
 )
 def test_xai_high_reasoning_gets_extended_streaming_timeout(
@@ -351,7 +402,7 @@ def test_xai_high_reasoning_gets_extended_streaming_timeout(
         reasoning_effort=reasoning_effort,
     )
 
-    assert llm.default_request_params.streaming_timeout == expected_timeout
+    assert llm.get_request_params().streaming_timeout == expected_timeout
 
 
 @pytest.mark.parametrize(
@@ -360,7 +411,11 @@ def test_xai_high_reasoning_gets_extended_streaming_timeout(
         ("grok-4.5", "high", 45.0),
         ("grok-4.5", "high", None),
         ("grok-4.6", "xhigh", 45.0),
+        ("grok-4.7", "xhigh", 45.0),
+        ("grok-4.7-build-fast", "xhigh", 45.0),
         ("grok-4.6", "xhigh", None),
+        ("grok-4.7", "xhigh", None),
+        ("grok-4.7-build-fast", "xhigh", None),
     ],
 )
 def test_xai_explicit_streaming_timeout_overrides_high_reasoning_default(
@@ -375,7 +430,7 @@ def test_xai_explicit_streaming_timeout_overrides_high_reasoning_default(
         request_params=RequestParams(streaming_timeout=streaming_timeout),
     )
 
-    assert llm.default_request_params.streaming_timeout == streaming_timeout
+    assert llm.get_request_params().streaming_timeout == streaming_timeout
 
 
 def test_xai_implicit_request_timeout_does_not_block_high_reasoning_default() -> None:
@@ -386,7 +441,7 @@ def test_xai_implicit_request_timeout_does_not_block_high_reasoning_default() ->
         request_params=RequestParams(model="grok-4.5", use_history=False),
     )
 
-    assert llm.default_request_params.streaming_timeout == GROK_EXTENDED_STREAMING_TIMEOUT
+    assert llm.get_request_params().streaming_timeout == GROK_EXTENDED_STREAMING_TIMEOUT
 
 
 def test_xai_responses_uses_xai_config_fallback() -> None:
@@ -566,22 +621,31 @@ def test_xai_responses_flattens_stream_tool_calls_for_websocket() -> None:
     assert "extra_body" not in args
 
 
-def test_xai_responses_rejects_unverified_experimental_model() -> None:
+@pytest.mark.parametrize("model", ["grok-4.3", "grok-4.7", "grok-4.7-build-fast"])
+@pytest.mark.parametrize(
+    "settings",
+    [
+        XAISettings(api_key="test-key", stream_tool_calls=True),
+        XAISettings(api_key="test-key", reasoning_summary="concise"),
+    ],
+)
+def test_xai_responses_rejects_unverified_experimental_model(
+    model: str, settings: XAISettings
+) -> None:
     llm = XAIResponsesLLM(
-        context=Context(
-            config=Settings(xai=XAISettings(api_key="test-key", stream_tool_calls=True))
-        ),
-        model="grok-4.3",
+        context=Context(config=Settings(xai=settings)),
+        model=model,
     )
 
     with pytest.raises(ModelConfigError, match="supported only for grok-4.5, grok-4.6"):
         llm._build_response_args([], llm.default_request_params, tools=None)
 
 
-def test_xai_grok_46_builds_payload_with_xhigh_reasoning() -> None:
+@pytest.mark.parametrize("model", ["grok-4.6", "grok-4.7", "grok-4.7-build-fast"])
+def test_xai_grok_builds_payload_with_xhigh_reasoning(model: str) -> None:
     llm = XAIResponsesLLM(
         context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
-        model="grok-4.6",
+        model=model,
         reasoning_effort="xhigh",
     )
 
@@ -1012,3 +1076,70 @@ def test_xai_responses_preserves_regular_function_calls_when_x_search_enabled() 
 
     assert tool_calls is not None
     assert tool_calls["call_1"].params.name == "local_tool"
+
+
+@pytest.mark.parametrize("oauth_token", [None, "oauth-token"])
+def test_fast_uses_only_oauth_even_with_api_keys(monkeypatch, oauth_token: str | None) -> None:
+    from fast_agent.core.exceptions import ProviderKeyError
+
+    monkeypatch.setenv("XAI_API_KEY", "environment-key")
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.openai.xai_oauth.get_xai_access_token",
+        lambda: oauth_token,
+    )
+    llm = XAIResponsesLLM(
+        context=Context(config=Settings(xai=XAISettings(api_key="config-key"))),
+        model="grok-4.7-build-fast",
+        api_key="init-key",
+    )
+    assert llm._uses_oauth_credential()
+    if oauth_token is None:
+        with pytest.raises(ProviderKeyError, match="Grok Fast requires xAI OAuth"):
+            llm.validate_provider_credentials()
+    else:
+        assert llm._api_key() == oauth_token
+        assert llm._build_websocket_headers()["Authorization"] == f"Bearer {oauth_token}"
+
+
+def test_standard_grok_keeps_api_key_precedence_with_oauth(monkeypatch) -> None:
+    monkeypatch.setenv("XAI_API_KEY", "environment-key")
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.openai.xai_oauth.get_xai_access_token",
+        lambda: pytest.fail("Standard Grok must not resolve OAuth when an API key is set"),
+    )
+    llm = XAIResponsesLLM(context=Context(config=Settings()), model="grok-4.7")
+    assert llm._api_key() == "environment-key"
+    assert not llm._uses_oauth_credential()
+
+
+@pytest.mark.asyncio
+async def test_fast_refreshes_oauth_after_401_even_with_api_key(monkeypatch) -> None:
+    monkeypatch.setenv("XAI_API_KEY", "environment-key")
+    token = "initial-oauth"
+    refreshes = []
+
+    def get_token(*, force_refresh=False):
+        nonlocal token
+        if force_refresh:
+            refreshes.append(True)
+            token = "refreshed-oauth"
+        return token
+
+    monkeypatch.setattr("fast_agent.llm.provider.openai.xai_oauth.get_xai_access_token", get_token)
+    headers_seen = []
+    connection = object()
+
+    async def connect(self, url, headers, timeout_seconds):
+        headers_seen.append(headers["Authorization"])
+        if len(headers_seen) == 1:
+            raise ResponsesWebSocketError("expired token", status=401)
+        return connection
+
+    monkeypatch.setattr(ResponsesLLM, "_create_websocket_connection", connect)
+    llm = XAIResponsesLLM(context=Context(config=Settings()), model="grok-4.7-build-fast")
+    result = await llm._create_websocket_connection(
+        "wss://api.x.ai/v1/responses", llm._build_websocket_headers(), None
+    )
+    assert result is connection
+    assert refreshes == [True]
+    assert headers_seen == ["Bearer initial-oauth", "Bearer refreshed-oauth"]

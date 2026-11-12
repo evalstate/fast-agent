@@ -1,5 +1,5 @@
 ---
-title: fast-agent - Code, Build and Evaluate Agents
+title: fast-agent — The harness your model deserves
 hide:
 - navigation
 - toc
@@ -7,135 +7,69 @@ hide:
 - view
 social:
   title: fast-agent
-  tagline: Simple, extendable agents.
-  description: MCP-native agents, workflows, and servers.
-  alt: fast-agent — MCP-native agents, workflows, and servers
-  variant: hero
+  description: Code in the terminal. Build agents in Python. Connect your tools with MCP.
 ---
 
+<div class="forward-home" id="__skip" tabindex="-1">
+<div class="fa-background-sparks" aria-hidden="true"><span></span><span></span><span></span></div>
+<div class="fa-front-grid">
 
-<section class="fa-home-splash">
-  <div class="fa-home-splash__heading">
-    <div>
-      <span class="fa-home-splash__brand" aria-label="fast-agent">
-        <img class="fa-home-splash__wordmark fa-home-splash__wordmark--dark" src="assets/brand/fast-agent-anim-dark.svg" width="720" height="200" alt="fast-agent">
-        <img class="fa-home-splash__wordmark fa-home-splash__wordmark--light" src="assets/brand/fast-agent-anim-light.svg" width="720" height="200" alt="fast-agent">
-      </span>
-      <h1>The harness your model deserves.</h1>
-    </div>
-    <div>
-      <p>
-        Same model, better results. fast-agent leads on 
-        <strong>accuracy</strong> and <strong>cost efficiency</strong>.
-      </p>
-      <div class="fa-home-splash__actions">
-        <a class="fa-btn fa-btn--primary" href="guides/codex/">Try it now</a>
-        <a class="fa-btn" href="guides/migrate-automations/">Migrate your automations</a>
-      </div>
-    </div>
-  </div>
 
-  <div class="fa-benchmark" data-fa-benchmark>
-    <div class="fa-benchmark__loading">Loading Terminal-Bench comparisons…</div>
-  </div>
-  <div class="fa-benchmark-stats" data-fa-benchmark-stats aria-live="polite" aria-label="Selected comparison summary"></div>
+<header class="fa-editorial-intro fa-brand-splash">
+  <h1 aria-label="fast-agent"><span aria-hidden="true">fast-<br>agent</span></h1>
+  <p class="fa-home-deck"><span class="fa-terminal-line"><span class="fa-terminal-text">The harness your model deserves.</span><i aria-hidden="true"></i></span></p>
+</header>
+
+<section class="fa-campaign" aria-label="Accuracy and efficiency">
+  <a class="fa-atomic-campaign" href="benchmarks/" aria-label="View fast-agent accuracy and efficiency benchmarks">
+    <div class="fa-approved-character" role="img" aria-label="The 1950s-style presenter holds an illustrative Pareto frontier chart, not measured benchmark data."><img src="assets/forward/assets/illustration/presenter-approved.webp" alt="" width="450" height="500" fetchpriority="high" decoding="async"><svg class="fa-board-chart" viewBox="0 0 120 100" aria-hidden="true" focusable="false"><path d="M14 10V86H112" fill="none" stroke="#082C34" stroke-width="3" stroke-linecap="round"/><g fill="#277C80" opacity=".5"><circle cx="40" cy="72" r="4"/><circle cx="63" cy="66" r="4"/><circle cx="80" cy="48" r="4"/><circle cx="98" cy="57" r="4"/></g><path d="M26 65Q39 36 56 27T104 14" fill="none" stroke="#F45125" stroke-width="4" stroke-linecap="round"/><g fill="#FFB52E" stroke="#082C34" stroke-width="2"><circle cx="26" cy="65" r="5"/><circle cx="56" cy="27" r="5"/><circle cx="104" cy="14" r="5"/></g></svg></div>
+    <div class="fa-atomic-message"><span class="fa-live-burst">Best!</span><h2>Leading Accuracy<br>and Efficiency</h2><span class="fa-atomic-rule" aria-hidden="true"></span></div>
+    <img class="fa-atomic-spark" src="assets/forward/assets/sparkle-atomic.svg" alt="" width="48" height="48">
+  </a>
+  <div class="fa-campaign-caption"><p>See benchmark results and performance data for the newest models!</p><a href="benchmarks/">View performance data <span aria-hidden="true">↗</span></a></div>
 </section>
 
-<section class="fa-product-intro">
-  <div>
-    <p class="fa-kicker">Coding agent and development toolkit</p>
-    <h2>Simple, extendable agents.</h2>
-    <p class="fa-lede">
-      Excellent provider and local model support. Flexible context management. Terminal native and scriptable.
-    </p>
-    <div class="fa-hero__actions">
-      <a class="fa-btn" href="agents/defining/">Build an agent</a>
-      <a class="fa-btn" href="ref/go_command/">Explore the CLI</a>
+<section class="fa-start fa-start--space-age" aria-labelledby="start-title">
+  <div class="fa-start-top">
+    <a class="fa-uv-burst" href="https://docs.astral.sh/uv/" aria-label="Requires Astral uv — visit the uv documentation"><span>Requires</span><span>astral</span><strong>uv <small aria-hidden="true">↗</small></strong></a>
+    <img class="fa-start-spark" src="assets/forward/assets/sparkle-atomic.svg" alt="" width="48" height="48">
+    <div class="fa-space-workstation"><img class="fa-space-terminal" src="assets/forward/assets/illustration/space-age-terminal.webp" alt="Compact retro workstation with a CRT, amber indicator lights and ivory and orange paddle switches" width="580" height="464" decoding="async"><svg class="fa-terminal-lamps" viewBox="0 0 1402 1122" aria-hidden="true" focusable="false"><circle cx="867" cy="269" r="22" style="--lamp-delay:-0.00s;--lamp-period:3.60s"/><circle cx="937" cy="269" r="22" style="--lamp-delay:-0.73s;--lamp-period:4.17s"/><circle cx="1006" cy="269" r="22" style="--lamp-delay:-1.46s;--lamp-period:4.74s"/><circle cx="1075" cy="269" r="22" style="--lamp-delay:-2.19s;--lamp-period:5.31s"/><circle cx="1144" cy="269" r="22" style="--lamp-delay:-2.92s;--lamp-period:5.88s"/><circle cx="1214" cy="269" r="22" style="--lamp-delay:-3.65s;--lamp-period:3.60s"/><circle cx="867" cy="347" r="22" style="--lamp-delay:-4.38s;--lamp-period:4.17s"/><circle cx="937" cy="347" r="22" style="--lamp-delay:-5.11s;--lamp-period:4.74s"/><circle cx="1006" cy="347" r="22" style="--lamp-delay:-5.84s;--lamp-period:5.31s"/><circle cx="1075" cy="347" r="22" style="--lamp-delay:-6.57s;--lamp-period:5.88s"/><circle cx="1144" cy="347" r="22" style="--lamp-delay:-7.30s;--lamp-period:3.60s"/><circle cx="1214" cy="347" r="22" style="--lamp-delay:-8.03s;--lamp-period:4.17s"/><circle cx="867" cy="424" r="22" style="--lamp-delay:-8.76s;--lamp-period:4.74s"/><circle cx="937" cy="424" r="22" style="--lamp-delay:-9.49s;--lamp-period:5.31s"/><circle cx="1006" cy="424" r="22" style="--lamp-delay:-10.22s;--lamp-period:5.88s"/><circle cx="1075" cy="424" r="22" style="--lamp-delay:-10.95s;--lamp-period:3.60s"/><circle cx="1144" cy="424" r="22" style="--lamp-delay:-11.68s;--lamp-period:4.17s"/><circle cx="1214" cy="424" r="22" style="--lamp-delay:-12.41s;--lamp-period:4.74s"/></svg></div>
+    <div class="fa-start-message"><h2 id="start-title">Try today!</h2><span class="fa-atomic-rule" aria-hidden="true"></span></div>
+  </div>
+  <div class="fa-install-stage"><div class="fa-start-terminal"><p class="fa-run-caption">Run fast-agent in your terminal.</p><pre><code>uvx fast-agent-mcp@latest -x</code></pre><nav class="fa-terminal-guides" aria-label="Terminal guides"><a class="fa-space-setup" href="getting_started/installation/">Setup guide <span aria-hidden="true">↗</span></a><a class="fa-space-setup" href="guides/tui/">TUI guide <span aria-hidden="true">↗</span></a></nav></div></div>
+</section>
+
+</div>
+
+<section class="fa-editorial-cards" aria-label="Providers and protocols">
+  <section class="fa-destination fa-destination--build fa-support-card">
+    <h2>Bring your provider.<br>Use local models.</h2>
+    <div class="fa-provider-logos" aria-label="Featured providers">
+      <a href="models/providers/openai/"><img src="assets/forward/assets/providers/openai.svg" alt="" width="24" height="24">OpenAI</a>
+      <a href="models/providers/anthropic/"><img src="assets/forward/assets/providers/anthropic.svg" alt="" width="24" height="24">Anthropic</a>
+      <a href="models/providers/xai/"><img src="assets/forward/assets/providers/xai.svg" alt="" width="24" height="24">xAI</a>
+      <a href="models/providers/deepseek/"><img src="assets/forward/assets/providers/deepseek.svg" alt="" width="24" height="24">DeepSeek</a>
+      <a href="models/providers/moonshot/"><img src="assets/forward/assets/providers/moonshot.svg" alt="" width="24" height="24">Moonshot</a>
+      <a href="models/providers/zai/"><img src="assets/forward/assets/providers/zai.svg" alt="" width="24" height="24">Z.ai</a>
+      <a href="models/providers/copilot/"><img src="assets/forward/assets/providers/githubcopilot.svg" alt="" width="24" height="24">Copilot</a>
+      <a href="models/providers/huggingface/"><img src="assets/forward/assets/providers/huggingface.svg" alt="" width="24" height="24">Hugging Face</a>
+      <a href="models/llm_providers/">More providers <span aria-hidden="true">↗</span></a>
     </div>
-  </div>
-  <div class="fa-term" aria-label="fast-agent terminal quickstart">
-    <div class="fa-term__bar">
-      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-      <strong>~/projects/fast-agent</strong>
+    <div class="fa-local-models"><a class="fa-local-brand" href="https://llama.app/"><img src="assets/forward/assets/providers/llamacpp.svg" alt="" width="28" height="28">llama.cpp</a><a href="models/providers/llamacpp/">Run local models <span aria-hidden="true">↗</span></a></div>
+    <p>Native reasoning, streaming and tool use. API keys or supported OAuth and subscription logins, including Codex and Copilot.</p>
+    <a class="fa-support-link" href="models/">Explore providers &amp; login options <span aria-hidden="true">↗</span></a>
+  </section>
+  <section class="fa-destination fa-destination--migrate fa-support-card">
+    <h2>Connect your agent.</h2>
+    <div class="fa-protocol-rows" aria-label="Protocols and Agent Skills">
+      <a href="mcp/"><span class="fa-protocol-name"><img src="assets/forward/assets/providers/modelcontextprotocol.svg" alt="" width="28" height="28"><strong>MCP</strong></span><span>Tools, resources &amp; Apps.<br>Full client and server support.</span><span aria-hidden="true">↗</span></a>
+      <a href="acp/"><span class="fa-protocol-name"><img class="fa-acp-wordmark" src="assets/forward/assets/providers/acp.svg" alt="ACP" width="76" height="29"></span><span>Your agents, in your editor.</span><span aria-hidden="true">↗</span></a>
+      <a href="a2a/getting-started/"><span class="fa-protocol-name"><img src="assets/forward/assets/providers/a2a.svg" alt="" width="28" height="28"><strong>A2A</strong></span><span>Connect and serve agents.</span><span aria-hidden="true">↗</span></a>
+      <a href="guides/skills/"><span class="fa-protocol-name"><img src="assets/forward/assets/providers/agentskills.png" alt="" width="28" height="28"><strong>Agent Skills</strong></span><span>Reusable expertise.<br>Load skills on demand.</span><span aria-hidden="true">↗</span></a>
     </div>
-    <pre><code><span class="fa-muted">$</span> uvx fast-agent-mcp@latest -x
-<span class="fa-good">start</span> an interactive session with shell tools
-
-<span class="fa-muted">$</span> uv tool install -U fast-agent-mcp
-<span class="fa-good">install</span> the latest version of fast-agent
-
-<span class="fa-muted">$</span> fast-agent --pack codex
-<span class="fa-good">code</span> download configuration to use codex<span class="fa-cursor"></span></code></pre>
-  </div>
+    <a class="fa-support-link" href="mcp/">Explore MCP &amp; integrations <span aria-hidden="true">↗</span></a>
+  </section>
 </section>
 
-<!--
-
-<section id="try-it-now" class="fa-band fa-band--start">
-  <div>
-    <h2>Get started now</h2>
-  </div>
-  <div class="fa-term" aria-label="fast-agent terminal quickstart">
-    <div class="fa-term__bar">
-      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-      <strong>~/projects/fast-agent</strong>
-    </div>
-    <pre><code><span class="fa-muted">$</span> uvx fast-agent-mcp@latest -x
-<span class="fa-good">ready</span> Start an interactive agent with shell tools
-
-<span class="fa-muted">$</span> fast-agent --url https://huggingface.co/mcp --auth $HF_TOKEN
-<span class="fa-good">connected</span> Quick connect to an MCP Server
-
-<span class="fa-muted">$</span> fast-agent go --pack analyst --model haiku
-<span class="fa-good">install</span>  reusable agent card pack</code></pre>
-  </div>  
-  <pre><code>uvx fast-agent-mcp@latest -x</code></pre>
-</section>
-
--->
-
-<section class="fa-grid fa-grid--4">
-  <article class="fa-card">
-    <h3>Extensive Model Support</h3>
-    <p>
-      Native provider support for Anthropic, Google and OpenAI compatible endpoints. <br />Auto configuration for <b>llama.cpp</b> hosted models. <br />
-    </p>
-    <a href="models/">Model features</a>
-  </article>
-  <article class="fa-card">
-    <h3>MCP and ACP</h3>
-    <p>
-      Attach MCP servers from config or command line. Deploy Agents via ACP or MCP. Comprehensive support and transport diagnostics. 
-    </p>
-    <a href="mcp/">ACP guide</a> <br />
-    <a href="mcp/">MCP guide</a> 
-  </article>
-  <article class="fa-card">
-    <h3>Plugin and Extend</h3>
-    <p>
-       Write plugins and hooks with simple Python, or use directly from the API. Distribute and update configurations with Card Packs. 
-    </p>
-    <a href="agents/plugins/">Plugin docs</a>
-  </article>
-  <article class="fa-card">
-    <h3>Control your context</h3>
-    <p>
-      Template based <a href="agents/instructions">System Prompts</a>. Install and update Agent Skills, prompt files or Agent definitions.
-    </p>
-    <a href="guides/skills/">Agent Skills</a>
-  </article>
-</section>
-
-<!-- 
-
-<section class="fa-proof">
-  <h2>Why people try fast-agent first</h2>
-  <div class="fa-grid fa-grid--4">
-    <p class="fa-card"><strong>Simple commands.</strong> `uvx`, `fast-agent go`, and card packs make first contact fast.</p>
-    <p class="fa-card"><strong>MCP depth.</strong> The docs and tests cover advanced MCP behavior, not only tool calls.</p>
-    <p class="fa-card"><strong>Reusable definitions.</strong> Agent cards, workflows, skills, and config files stay editable.</p>
-    <p class="fa-card"><strong>Real deployment paths.</strong> Use the same work from CLI, Python, MCP, and ACP surfaces.</p>
-  </div>
-</section>
-
--->
+<nav class="fa-toolkit" aria-label="Toolkit documentation"><span class="fa-eyebrow">Make it yours</span><a href="models/">Models <span aria-hidden="true">↗</span></a><a href="mcp/">MCP tools <span aria-hidden="true">↗</span></a><a href="guides/skills/">Agent Skills <span aria-hidden="true">↗</span></a><a href="ref/go_command/">CLI reference <span aria-hidden="true">↗</span></a></nav>
+</div>

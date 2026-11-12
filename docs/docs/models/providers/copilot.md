@@ -1,0 +1,330 @@
+---
+title: GitHub Copilot
+description: Use Copilot models with fast-agent
+social:
+  title: GitHub Copilot
+  tagline: Use Anthropic and OpenAI models through native GitHub Copilot authentication with Messages or Responses wire formats.
+  description: Use Anthropic and OpenAI models through native GitHub Copilot authentication with Messages or Responses wire formats.
+  alt: fast-agent social card — GitHub Copilot
+---
+
+# GitHub Copilot
+
+The `copilot` provider uses native GitHub authentication and provides
+direct access to Anthropic models via Messages, and OpenAI and xAI models
+via Responses. GPT models support websockets.
+
+The native provider sends `Copilot-Integration-Id: copilot-sdk` by default on
+Messages, Responses HTTP/SSE and WebSocket requests. 
+
+## Setup
+
+```bash
+uv pip install fast-agent-mcp
+fast-agent auth provider login copilot
+fast-agent --model copilot.claude-sonnet-5
+```
+
+Alternatively, you can use `fast-agent go` and login direct from the model
+selection screen. When signed out, pressing Enter on a Copilot model starts
+the device-code login immediately. Follow the displayed GitHub URL and code;
+fast-agent waits for approval. Press Ctrl+C to cancel.
+
+NB: OAuth credentials are **not model entitlement**: your account and
+application still need access to the selected model. Routing uses the local
+curated model registry, not the remote `/models` catalog. The fast-agent public
+OAuth client ID is
+`Ov23li9BBH5sVoKopuI6`; no client secret is required.
+
+Credentials use shared provider-auth storage: the OS keyring when writable,
+otherwise `~/.fast-agent/auth.json`. Set `FAST_AGENT_AUTH_FILE` to use an explicit
+portable provider credential file. Manage the stored Copilot credential with:
+
+```bash
+fast-agent auth provider show copilot
+fast-agent auth provider token copilot
+fast-agent auth provider export copilot ./copilot.auth.json
+fast-agent auth provider logout copilot
+```
+
+`show` reports credential status. `token` prints a secret and `export` writes a
+secret-bearing file: keep both out of chat, logs and version control.
+
+### Headless authentication
+
+Supply either an exported provider file via `FAST_AGENT_AUTH_FILE` or an
+appropriately authorized `COPILOT_GITHUB_TOKEN` from your secret manager.
+`COPILOT_GITHUB_TOKEN` takes precedence over stored credentials; `GH_TOKEN` and
+`GITHUB_TOKEN` are ignored. A rejected environment credential never starts
+interactive login or silently falls back to stored credentials. Noninteractive
+inference does not launch login.
+
+
+## Configuration
+
+Optional defaults in `fast-agent.yaml`, generated from `CopilotSettings`:
+
+--8<-- "_generated/copilot_config_snippet.md"
+
+- `base_url`: HTTPS origin, default `https://api.githubcopilot.com`. No path,
+  query, credentials or fragment allowed.
+- `integration_id`: configurable routing identity, default `copilot-sdk`.
+  Validated as a safe HTTP header value and applied consistently across native
+  transports. Configure in YAML or with `COPILOT__INTEGRATION_ID` for a custom ID;
+  incidental request-header overrides cannot replace it. A valid value does not imply GitHub registration
+  or model access.
+- `runtime_timeout_seconds`: positive timeout for runtime operations.
+- `cache_mode`: Claude Messages caching policy: `auto` caches the stable prompt
+  and advances through recent conversation turns; `prompt` caches tools, system
+  instructions and prompt templates; `off` disables automatic markers.
+- `cache_ttl`: optional Claude Messages TTL override. `null` preserves the model
+  default; explicit values are `5m` and `1h`. One-hour caching has not been live
+  verified through Copilot. These cache settings do not affect GPT Responses.
+
+When migrating older configuration, rename `direct_base_url` to `base_url` and
+remove `backend`, `use_environment_token` and `cli_path`. These obsolete settings
+are rejected, not silently ignored. Remove `COPILOT__BACKEND` from runner
+configuration too.
+
+## Exact model names
+
+Use these provider-qualified names; `copilot.opus` and `copilot.opus55` select
+Opus 5.5. Unknown IDs
+are rejected rather than routed to another provider. `copilot.claude-opus5` is
+not canonical and has no alias; use `copilot.claude-opus-5`.
+
+| Model | Wire API |
+| --- | --- |
+| `copilot.claude-haiku-5.5` (`copilot.haiku`, `copilot.haiku55`) | Messages |
+| `copilot.claude-haiku-4.5` | Messages |
+| `copilot.claude-sonnet-5.5` (`copilot.sonnet`, `copilot.sonnet55`) | Messages |
+| `copilot.claude-sonnet-5` (pinned older version) | Messages |
+| `copilot.claude-opus-4-8` | Messages |
+| `copilot.claude-opus-5.5` (`copilot.opus`, `copilot.opus55`) | Messages |
+| `copilot.claude-opus-5` (pinned older version) | Messages |
+| `copilot.claude-fable-5` | Messages |
+| `copilot.claude-fable-5.1` | Messages |
+| `copilot.claude-fable-5.2` (`copilot.fable`, `copilot.fable52`, `cp.fable`) | Messages |
+| `copilot.gpt-5.6-luna` | Responses |
+| `copilot.gpt-5.6-terra` | Responses |
+| `copilot.gpt-5.6-sol` | Responses |
+| `copilot.gpt-6-astra` | Responses |
+| `copilot.gpt-6.1-sol` | Responses |
+| `copilot.gpt-6.1-terra` | Responses |
+| `copilot.gpt-6-sol` | Responses |
+| `copilot.gpt-6-luna` | Responses |
+
+Provider identity stays Copilot regardless of wire API; Anthropic/OpenAI API
+keys are not used for these models. The status bar prefixes Copilot model labels
+with `(cp)`; this does not change the model name used in configuration.
+
+## Structured output
+
+GPT-6 Astra/Sol/Luna and GPT-6.1 Sol/Terra use Responses JSON schema (`text.format`).
+Opus 5.5 and Sonnet 5.5 select Messages JSON schema (`output_config.format`)
+automatically, without direct Anthropic beta headers. Regular tools can coexist
+with the schema; explicit `structured_tool_policy` overrides remain supported.
+Legacy forced-tool output mode is rejected for Claude 5.5.
+Fable 5.1 and 5.2 also select Messages JSON schema, since Copilot rejects forced
+tool choice for them; both passed schema-only and tool-call-to-schema live smoke
+tests on November 10, 2026.
+
+Live schema-only and tool-call-to-schema smoke tests passed for all five models
+on September 28, 2026, including the Sonnet 5.5 wire ID `claude-sonnet-5.5` and
+its `reasoning=off` setting. These results confirm access for the tested account;
+availability can still vary by account. Use `structured_schema()` for the tool
+loop. See the [credentialed smoke tests](anthropic.md#structured-output-current-models).
+
+GPT-6.1 Sol (`copilot.gpt-6.1-sol`) passed the same schema-only and
+tool-call-to-schema smoke tests on September 29, 2026 (also verified on the Codex
+OAuth route via `sol`).
+
+## Claude 5.5 progress visibility
+
+Live-tested on September 28, 2026 through the normal fast-agent tool loop.
+Sonnet 5.5 and Opus 5.5 request adaptive thinking with summarized display by default,
+on both Copilot and direct Anthropic routes. No request metadata is needed.
+The live default-mode demo confirmed 412 between-tool summary characters after
+this change, with all three tool calls completing. Opus 5.5's default-mode probe
+also passed, showing 507 between-tool summary characters without request metadata.
+
+Explicit request metadata still takes precedence; for example, to keep adaptive
+thinking but suppress its summaries:
+
+```python
+from fast_agent.types import RequestParams
+
+response = await agent.probe.generate(
+    "Inspect the batch and give brief progress updates between tool calls.",
+    request_params=RequestParams(
+        max_tokens=4096,
+        metadata={"thinking": {"type": "adaptive", "display": "omitted"}},
+    ),
+)
+```
+
+Alternatively, select `copilot.sonnet55?reasoning=off`. This uses `between_tools`:
+no up-front thinking, but readable between-tool progress summaries. Do **not**
+add a `display` field to `between_tools`; the model rejects that combination.
+This alternative applies only to Sonnet: Opus 5.5 keeps adaptive thinking always on.
+
+Run the billable synthetic inspection demo:
+
+```bash
+uv run examples/copilot/sonnet_progress.py --mode all
+# Individual modes: default, summarized, omitted, between_tools
+```
+
+The demo uses three sequential local tools, renders the normal terminal output,
+and reports timestamps and stream channels. Before changing the default, one observed run produced:
+
+| Mode | Visible thinking-summary characters between tools | Ordinary text characters between tools |
+| --- | ---: | ---: |
+| Previous default (display omitted) | 0 | 0 |
+| Adaptive, display summarized | 473 | 0 |
+| between_tools | 314 | 0 |
+
+These counts describe that run, not guarantees. Retesting with Anthropic SDK
+1.9.0 also passed all three modes: 0, 369, and 337 between-tool summary characters,
+respectively. An earlier shorter-update probe returned ordinary text progress
+even without a display override. The longer
+probe reproduced the silent gaps and demonstrated summaries arriving **before**
+the next tool executed, rather than only in the final answer.
+
+The existing thinking-stream renderer already displays these summaries.
+`display: summarized` can also return up-front thinking summaries: it is not a
+progress-only channel. Only Sonnet 5.5 and Opus 5.5 defaults changed; other models are unaffected. Signed thinking blocks must
+still be replayed unchanged, including empty blocks in omitted-display mode.
+
+## Model parameters
+
+Copilot-routed models inherit the base model's local metadata parameters, so
+`copilot.claude-opus-5` gets the same `model_specific` prompt text, edit-tool
+contract, poll settings, structured-output policy and tokenizer support as
+`anthropic.claude-opus-5`. Only route-specific fields differ:
+
+- `default_provider`, `response_transports`, `response_websocket_providers`:
+  set from the curated Copilot model spec, not a remote catalog. Gateway
+  acceptance is checked only by actual inference.
+- `response_service_tiers`: cleared; Copilot rejects service-tier selection.
+- `codex_responses_lite`: off; this is a Codex-only request contract.
+- `long_context_window`: cleared; extended-context tiers are an upstream
+  billing feature the gateway does not expose.
+- `anthropic_web_search_version`, `anthropic_web_fetch_version`,
+  `anthropic_required_betas`: cleared; the gateway exposes no Anthropic
+  server-side web tools, and forwards only the beta headers fast-agent has
+  verified (see [Compaction](#compaction)).
+
+Claude Opus 5, Sonnet 5, and Fable 5/5.1/5.2 have no default file-creation advisory;
+older Claude models retain the heredoc guidance. This does not change tool availability.
+
+## Prompt caching
+
+Claude Messages uses the normal Anthropic automatic cache planner **by default**:
+markers cover the tools/system prefix and advance through recent conversation
+turns while retaining the previous cache boundary. No manual `cache_control`
+metadata is needed. The TTL is inherited from the resolved model unless
+`copilot.cache_ttl` overrides it; missing TTL metadata falls back to the standard
+Anthropic settings default, not your Anthropic account configuration.
+
+Use `copilot.cache_mode` to change this policy. Direct `anthropic.cache_mode`,
+`anthropic.cache_ttl` and diagnostic settings do not affect Copilot. Explicit
+request cache controls are still forwarded even when automatic planning is off.
+
+## Compaction
+
+Claude Messages models, except `copilot.claude-haiku-4.5`, use Anthropic's
+**server-side threshold compaction**: when a request's input reaches
+`compaction.threshold` of the context window (at least 50,000 tokens, the API
+minimum), Claude summarizes the earlier conversation into a `compaction` block and
+continues the response. fast-agent keeps the block in history and sends it back;
+the API ignores everything before it. fast-agent's own auto-compaction stands
+aside for these models, so the two never compete.
+
+- `/compact` still uses fast-agent's summary, on demand.
+- Anthropic's on-demand compaction is not available: the gateway does not forward
+  its beta header.
+- Set `compaction.strategy: client` to use fast-agent's summary instead, or
+  `compaction.auto: false` to turn automatic compaction off.
+
+GPT models use OpenAI
+[provider-native checkpoints](../../guides/compaction.md#openai-provider-native-checkpoints)
+by default (`copilot.native_compaction`, or `?compaction=client` per model). Add
+`?compaction=client` to a Claude model string to use fast-agent's summary instead of
+threshold compaction.
+
+## Transport and compatibility
+
+The GPT models default to **WebSockets**, using static curated capability
+metadata; no remote catalog is required. Select HTTP/SSE explicitly if needed:
+
+```bash
+fast-agent --model 'copilot.gpt-6-astra?transport=sse'
+```
+
+The default (and explicit `?transport=websocket`) has **no SSE fallback**.
+Explicit `?transport=auto` tries WebSocket first, with SSE fallback on early errors.
+Ordinary OpenAI/Codex Responses defaults to `auto`.
+Claude models use SSE only. The native runtime does not query `/models`.
+
+## Grok
+
+`copilot.grok-4.7` and `copilot.grok-4.6` use the Responses
+route over HTTP/SSE only; the gateway offers no WebSocket endpoint for them.
+They inherit the `xai.grok-*` model parameters (reasoning efforts, shell
+profile, compaction threshold). Verified through the gateway: streaming,
+function tools (parallel and forced), stateless replay with encrypted
+reasoning, structured outputs, inline images, prompt caching, reasoning
+summaries and `?web_search=on`.
+
+Not available on this route:
+
+- Native compaction: the gateway rejects `compaction_trigger` and has no
+  `/responses/compact`, so fast-agent's summary compaction is used.
+- PDF input: as with direct `xai.grok-*`, PDF attachments are removed before
+  sending, with a notice (the gateway rejects them).
+- Custom (freeform) tools.
+- xAI `x_search`: the gateway executes it, but fast-agent does not yet enable it
+  for Copilot.
+
+## Image attachments
+
+Copilot Messages and Responses upload inline images to GitHub's Copilot chat
+attachment service and send the returned URLs to the model. This is separate
+from the unsupported Anthropic/OpenAI Files APIs. Uploads use the broker's
+Copilot credential; upload failures fall back to inline images.
+
+The adapter retains original image data in saved history. Upload URLs are cached
+in memory per adapter and credential (up to 128 entries, refreshed after 30
+minutes), not persisted into the session. Resuming a session uploads its images
+again as needed. At most 20 image URLs are used per request, including existing
+URL images; additional inline images remain inline rather than being dropped.
+
+Messages images are proportionally resized to a maximum dimension of 2,000
+pixels before upload or inline fallback, avoiding the stricter dimension limit
+on many-image requests. JPEG stays JPEG; other resized formats become PNG
+(animated images are flattened to the first frame when resizing is necessary).
+This only changes the request representation, not the original files or history.
+It does not remove the provider's total image-count or context limits.
+
+Run the live smoke test with existing Copilot credentials (uses inference quota):
+
+```bash
+uv run examples/copilot/image_upload_probe.py
+```
+
+It checks image recognition and URL reuse through Messages/SSE and
+Responses/SSE and WebSocket, without printing credentials or attachment URLs.
+
+## Document attachments
+
+Inline PDFs are supported on Copilot Responses (SSE and WebSocket) and Claude
+Messages. Local PDF attachments, including `attach_media` results, are sent
+inline without a provider file upload. Responses wraps base64 file bytes in a
+MIME data URL; Claude uses its native inline document source. Original history
+is retained unchanged. Claude inline text/content document sources are also
+allowed.
+
+This does **not** enable the OpenAI or Anthropic Files APIs. Hosted file IDs and
+document URL references remain rejected; attach a local copy instead. Gateway
+model, file-size and context limits still apply.

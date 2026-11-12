@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import sys
 import time
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import IO, TYPE_CHECKING, Any, Protocol, TextIO, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, TextIO, cast, runtime_checkable
 
-from rich.console import Console, Group, RenderHook
+from rich.console import Console, Group
 from rich.control import Control
 from rich.file_proxy import FileProxy
 from rich.live import Live
@@ -23,12 +24,14 @@ from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.tool_activity_presentation import tool_activity_family_uses_status_body
 from fast_agent.ui import console
 from fast_agent.ui.apply_patch_preview import style_apply_patch_preview_text
+from fast_agent.ui.context_usage_display import format_compact_context_usage_percent
 from fast_agent.ui.markdown.content import prepare_markdown_content
 from fast_agent.ui.markdown.renderables import (
     build_markdown_renderable,
     close_incomplete_code_blocks,
 )
 from fast_agent.ui.markdown.truncation import MarkdownTruncator
+from fast_agent.ui.prompt.turn_input import queued_input_count
 from fast_agent.ui.streaming.plain_text import PlainTextTruncator
 from fast_agent.ui.streaming.segments import StreamSegmentAssembler
 from fast_agent.ui.streaming.viewport import StreamViewport
@@ -175,6 +178,51 @@ class _StreamCursorBlink:
 
     def reset(self, now: float) -> None:
         self.last_activity_at = now
+
+
+class _TokenRate:
+    """Smoothed tokens/sec estimate (chars/4) for the streaming header.
+
+    Arrivals are sampled every ``TICK_SECONDS`` and folded into an exponential
+    moving average so provider bursts and silent gaps ease in and out rather
+    than flicking between extremes.
+    """
+
+    TICK_SECONDS = 0.5
+    SMOOTHING_SECONDS = 2.0
+
+    def __init__(self) -> None:
+        self.total = 0.0
+        self._pending = 0.0
+        self._tick_at: float | None = None
+        self._rate: float | None = None
+
+    def record(self, chars: int, now: float) -> None:
+        if not chars:
+            return
+        if self._tick_at is None:
+            self._tick_at = now
+        self._pending += chars / 4
+        self.total += chars / 4
+
+    def label(self, now: float) -> str:
+        if self._tick_at is not None and (elapsed := now - self._tick_at) >= self.TICK_SECONDS:
+            sample = self._pending / elapsed
+            weight = 1 - math.exp(-elapsed / self.SMOOTHING_SECONDS)
+            self._rate = (
+                sample if self._rate is None else self._rate + weight * (sample - self._rate)
+            )
+            self._pending = 0.0
+            self._tick_at = now
+        return "" if self._rate is None else f"~{self._rate:.0f} tok/s"
+
+
+@dataclass(frozen=True)
+class StreamContextBaseline:
+    """Context tokens known before the stream starts, used for a live fill estimate."""
+
+    tokens: int
+    window: int
 
 
 @dataclass(frozen=True)
@@ -334,7 +382,7 @@ def _elapsed_ms(newer: object, older: object) -> float | None:
     return None
 
 
-class _DiffLive(RenderHook):
+class _DiffLive(Live):
     """Minimal live-region renderer that updates changed lines in place."""
 
     def __init__(
@@ -351,19 +399,20 @@ class _DiffLive(RenderHook):
         vertical_overflow: str = "ellipsis",
         get_renderable: Callable[[], RenderableType] | None = None,
     ) -> None:
+        # Initialize Rich's Live contract for console registration and nesting.
+        # Diff rendering owns refresh and terminal state instead of Rich's timer.
+        super().__init__(
+            renderable,
+            console=console,
+            auto_refresh=False,
+            transient=transient,
+            redirect_stdout=redirect_stdout,
+            redirect_stderr=redirect_stderr,
+            get_renderable=get_renderable,
+        )
         del screen, auto_refresh, refresh_per_second, vertical_overflow
-        self.console = console
-        self.transient = transient
-        self._renderable = renderable
-        self._get_renderable = get_renderable
-        self._started = False
         self._lines: list[_RenderedLine] = []
         self._is_interactive = self.console.is_terminal
-        self._nested = False
-        self._redirect_stdout = redirect_stdout
-        self._redirect_stderr = redirect_stderr
-        self._restore_stdout: IO[str] | None = None
-        self._restore_stderr: IO[str] | None = None
         self._console_state_active = False
         self._cursor_below_frame = False
         self._frame_truncated = False
@@ -382,9 +431,6 @@ class _DiffLive(RenderHook):
                 self._console_state_active = True
         return self
 
-    def __exit__(self, *_args: object) -> None:
-        self.stop()
-
     def update(self, renderable: RenderableType, *, refresh: bool = False) -> None:
         self._renderable = renderable
         if refresh:
@@ -394,8 +440,6 @@ class _DiffLive(RenderHook):
         if not self._started:
             self.__enter__()
         renderable = self.get_renderable()
-        if renderable is None:
-            return
         if not self._is_interactive or self._nested:
             return
         lines = self._render_lines(renderable)
@@ -439,8 +483,7 @@ class _DiffLive(RenderHook):
 
     def _print_current_renderable(self) -> None:
         renderable = self.get_renderable()
-        if renderable is not None:
-            self.console.print(renderable)
+        self.console.print(renderable)
 
     def _stop_interactive(self) -> None:
         if self._nested:
@@ -464,10 +507,7 @@ class _DiffLive(RenderHook):
         if self._frame_truncated:
             self._clear_region()
             renderable = self.get_renderable()
-            if renderable is not None:
-                self.console.print(renderable)
-            else:
-                self._write("\n")
+            self.console.print(renderable)
             return
         if not self._cursor_below_frame:
             self._write("\n")
@@ -480,11 +520,6 @@ class _DiffLive(RenderHook):
         self.console.show_cursor(True)
         self._console_state_active = False
 
-    def get_renderable(self) -> RenderableType | None:
-        if self._get_renderable is not None:
-            return self._get_renderable()
-        return self._renderable
-
     def process_renderables(
         self,
         renderables: list["ConsoleRenderable"],
@@ -492,8 +527,6 @@ class _DiffLive(RenderHook):
         if not self._is_interactive or not self._started or self._nested:
             return renderables
         renderable = self.get_renderable()
-        if renderable is None:
-            return renderables
         if isinstance(renderable, str):
             current_renderable: ConsoleRenderable = self.console.render_str(renderable)
         else:
@@ -728,6 +761,7 @@ class StreamingMessageHandle:
         use_plain_text: bool = False,
         header_left: str = "",
         header_right: str = "",
+        context_baseline: StreamContextBaseline | None = None,
         tool_header_name: str | None = None,
         tool_metadata_resolver: Callable[[str], Mapping[str, Any] | None] | None = None,
         stream_edit_previews: bool = True,
@@ -738,6 +772,7 @@ class StreamingMessageHandle:
         self._use_plain_text = use_plain_text
         self._header_left = header_left
         self._header_right = header_right
+        self._context_baseline = context_baseline
         self._tool_header_prefix: Text | None = None
         self._tool_header_prefix_plain = ""
         self._tool_header_color: str | None = None
@@ -820,7 +855,7 @@ class StreamingMessageHandle:
         self._pre_scroll_throttle_started = False
         self._scroll_indicator_visible = False
         self._scroll_indicator_pending_since: float | None = None
-        self._header_cache: dict[tuple[int, bool], Text] = {}
+        self._header_cache: dict[tuple[int, bool, str, int], Text] = {}
         self._next_render_deadline: float | None = None
 
     def _setup_async_worker(self) -> None:
@@ -861,6 +896,8 @@ class StreamingMessageHandle:
         self._finalized = False
         self._show_stream_cursor = True
         self._stream_cursor_visible = True
+        self._token_rate = _TokenRate()
+        self._rendered_live = ""
         self._stream_cursor_blink = _StreamCursorBlink()
         self._max_render_height = 0
         self._preserve_final_frame = False
@@ -923,14 +960,34 @@ class StreamingMessageHandle:
             }
             self._render_sync_if_due()
 
+    def _live_label(self) -> str:
+        """Live context fill and token rate, shown while the stream is active."""
+        if not self._show_stream_cursor:
+            return ""
+        parts: list[str] = []
+        if (baseline := self._context_baseline) is not None:
+            pct = (baseline.tokens + self._token_rate.total) / baseline.window * 100
+            parts.append(f"({format_compact_context_usage_percent(pct)})")
+        if rate := self._token_rate.label(time.monotonic()):
+            parts.append(rate)
+        return " ".join(parts)
+
     def _build_header(self) -> Text:
         width = console.console.size.width
-        cache_key = (width, self._scroll_indicator_visible)
+        live = self._rendered_live = self._live_label()
+        # Like the live label, omitted from the final (possibly preserved) frame.
+        queued = queued_input_count() if self._show_stream_cursor else 0
+        cache_key = (width, self._scroll_indicator_visible, live, queued)
         cached = self._header_cache.get(cache_key)
         if cached is not None:
             return cached
 
         right_content = self._header_right.strip()
+        if live:
+            right_content = f"{right_content} [dim]{live}[/dim]".strip()
+        if queued:
+            # Typed-ahead / hc-sent messages; transient, like the rest of the header.
+            right_content = f"{right_content} [yellow]⧗ {queued} queued[/yellow]".strip()
         if self._scroll_indicator_visible:
             indicator = "[black on blue]scrolling[/black on blue]"
             right_content = f"{right_content} {indicator}" if right_content else indicator
@@ -946,6 +1003,8 @@ class StreamingMessageHandle:
 
         display_model = resolve_model_display_name(model)
         self._header_right = f"[dim]{display_model}[/dim]" if display_model else ""
+        # The completed label carries authoritative context usage.
+        self._context_baseline = None
         self._header_cache.clear()
         if self._active and self._live_started:
             self._render_current_buffer()
@@ -1193,10 +1252,17 @@ class StreamingMessageHandle:
 
     def _handle_stream_chunk(self, chunk: StreamChunk) -> bool:
         """Process a typed stream chunk with explicit reasoning flag."""
+        self._token_rate.record(len(chunk.text), time.monotonic())
         return self._segment_assembler.handle_stream_chunk(chunk)
 
     def _handle_chunk(self, chunk: str) -> bool:
+        self._token_rate.record(len(chunk), time.monotonic())
         return self._segment_assembler.handle_text(chunk)
+
+    def _handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None) -> bool:
+        if event_type == "delta" and info:
+            self._token_rate.record(len(str(info.get("chunk") or "")), time.monotonic())
+        return self._segment_assembler.handle_tool_event(event_type, info)
 
     def _cursor_suffix(self, *, segment_index: int, total_segments: int) -> str:
         if not self._show_stream_cursor:
@@ -1215,7 +1281,7 @@ class StreamingMessageHandle:
         if not self._show_stream_cursor:
             return
         visible = self._stream_cursor_blink.visible_at(now)
-        if visible == self._stream_cursor_visible:
+        if visible == self._stream_cursor_visible and self._live_label() == self._rendered_live:
             return
         self._stream_cursor_visible = visible
         self._render_current_buffer()
@@ -1730,13 +1796,7 @@ class StreamingMessageHandle:
         if isinstance(payload, str):
             return self._handle_chunk(payload), len(payload)
         if isinstance(payload, _ToolStreamEvent):
-            return (
-                self._segment_assembler.handle_tool_event(
-                    payload.event_type,
-                    payload.info,
-                ),
-                0,
-            )
+            return self._handle_tool_stream_event(payload.event_type, payload.info), 0
         return False, 0
 
     def _stream_batch_meta(
@@ -1787,7 +1847,7 @@ class StreamingMessageHandle:
                 self._enqueue_chunk(event)
                 return
 
-            if self._segment_assembler.handle_tool_event(event_type, info):
+            if self._handle_tool_stream_event(event_type, info):
                 now = time.perf_counter()
                 self._pending_batch_meta = {
                     "batch_size": 1,
@@ -1816,6 +1876,7 @@ __all__ = [
     "PLAIN_STREAM_REFRESH_PER_SECOND",
     "PLAIN_STREAM_TARGET_RATIO",
     "NullStreamingHandle",
+    "StreamContextBaseline",
     "StreamingHandle",
     "StreamingMessageHandle",
 ]

@@ -18,10 +18,11 @@ from fast_agent.llm.usage_tracking import UsageAccumulator
 if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol
     from fast_agent.llm.request_params import RequestParams
+    from fast_agent.ptc.store import SandboxStore
     from fast_agent.session.identity import SessionSaveIdentity
     from fast_agent.session.session_manager import Session, SessionInfo
 
-SESSION_SNAPSHOT_SCHEMA_VERSION = 5
+SESSION_SNAPSHOT_SCHEMA_VERSION = 6
 
 type JsonScalar = None | bool | int | float | str
 type JsonValue = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
@@ -119,6 +120,8 @@ class SessionRequestSettingsSnapshot(BaseModel):
     max_iterations: int | None = None
     tool_result_mode: Literal["postprocess", "passthrough", "selectable"] | None = None
     streaming_timeout: float | None = None
+    streaming_timeout_configured: bool | None = None
+    """False keeps reasoning-dependent defaults; None preserves legacy snapshot values."""
     service_tier: Literal["fast", "flex"] | None = None
 
 
@@ -151,7 +154,10 @@ class SessionAgentSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    shell_enabled: bool | None = None
     history_file: str | None = None
+    # Values programmatic tool calling code kept with store(), written beside the history.
+    ptc_store_file: str | None = None
     resolved_prompt: str | None = None
     model: str | None = None
     model_spec: str | None = None
@@ -248,7 +254,7 @@ class SessionSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[5] = SESSION_SNAPSHOT_SCHEMA_VERSION
+    schema_version: Literal[6] = SESSION_SNAPSHOT_SCHEMA_VERSION
     session_id: str
     created_at: datetime
     last_activity: datetime
@@ -256,6 +262,20 @@ class SessionSnapshot(BaseModel):
     continuation: SessionContinuationSnapshot = Field(default_factory=SessionContinuationSnapshot)
     analysis: SessionAnalysisSnapshot = Field(default_factory=SessionAnalysisSnapshot)
     execution: SessionExecutionSnapshot = Field(default_factory=SessionExecutionSnapshot)
+
+
+@runtime_checkable
+class _ShellStateProvider(Protocol):
+    @property
+    def shell_runtime_enabled(self) -> bool: ...
+
+
+@runtime_checkable
+class PtcStoreProvider(Protocol):
+    """An agent whose programmatic tool calling store is saved and restored with its session."""
+
+    @property
+    def ptc_store(self) -> SandboxStore | None: ...
 
 
 @runtime_checkable
@@ -298,6 +318,9 @@ def load_session_snapshot(payload: object) -> SessionSnapshot:
         raw_schema_version = 4
     if raw_schema_version == 4:
         payload_mapping = _migrate_v4_session_snapshot(payload_mapping)
+        raw_schema_version = 5
+    if raw_schema_version == 5:
+        payload_mapping = _migrate_v5_session_snapshot(payload_mapping)
         raw_schema_version = SESSION_SNAPSHOT_SCHEMA_VERSION
     if raw_schema_version != SESSION_SNAPSHOT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported session snapshot schema version: {raw_schema_version!r}")
@@ -344,6 +367,14 @@ def _migrate_v3_session_snapshot(payload: Mapping[str, object]) -> dict[str, obj
 
 def _migrate_v4_session_snapshot(payload: Mapping[str, object]) -> dict[str, object]:
     """Add per-agent capability mode introduced with the v5 snapshot."""
+
+    migrated = dict(payload)
+    migrated["schema_version"] = 5
+    return migrated
+
+
+def _migrate_v5_session_snapshot(payload: Mapping[str, object]) -> dict[str, object]:
+    """Add the per-agent PTC store file introduced with the v6 snapshot."""
 
     migrated = dict(payload)
     migrated["schema_version"] = SESSION_SNAPSHOT_SCHEMA_VERSION
@@ -484,7 +515,7 @@ def session_info_from_snapshot(snapshot: SessionSnapshot) -> "SessionInfo":
     from fast_agent.session.session_manager import SessionInfo
 
     history_files, history_map = _history_files_from_snapshot(snapshot)
-    metadata: dict[str, JsonValue] = dict(snapshot.metadata.extras)
+    metadata = snapshot.metadata.extras.copy()
     metadata.update(_metadata_fields_from_snapshot(snapshot))
     if history_map:
         metadata["last_history_by_agent"] = history_map
@@ -940,12 +971,18 @@ def _capture_agent_snapshot(
         existing_snapshot=existing_snapshot,
     )
     return SessionAgentSnapshot(
+        shell_enabled=(
+            agent.shell_runtime_enabled
+            if isinstance(agent, _ShellStateProvider)
+            else (existing_snapshot.shell_enabled if existing_snapshot is not None else None)
+        ),
         history_file=_capture_history_file(
             session=session,
             agent_name=agent.name,
             compatibility_snapshot=compatibility_snapshot,
             existing_snapshot=existing_snapshot,
         ),
+        ptc_store_file=_capture_ptc_store_file(session=session, agent_name=agent.name),
         resolved_prompt=resolved_prompt if resolved_prompt is not None else agent.instruction,
         model=(
             llm.model_name
@@ -972,6 +1009,13 @@ def _capture_agent_snapshot(
         attachment_refs=_capture_attachment_refs(agent),
         model_overlay_refs=_capture_model_overlay_refs(agent),
     )
+
+
+def _capture_ptc_store_file(*, session: "Session", agent_name: str) -> str | None:
+    from fast_agent.session.session_manager import ptc_store_filename
+
+    filename = ptc_store_filename(agent_name)
+    return filename if (session.directory / filename).is_file() else None
 
 
 def _capture_model_spec(
@@ -1059,6 +1103,7 @@ def _request_settings_snapshot_from_params(
         max_iterations=params.max_iterations,
         tool_result_mode=params.tool_result_mode,
         streaming_timeout=params.streaming_timeout,
+        streaming_timeout_configured="streaming_timeout" in params.model_fields_set,
         service_tier=params.service_tier,
     )
     return snapshot if snapshot.model_dump(exclude_none=True) else None

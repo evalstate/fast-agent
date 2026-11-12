@@ -31,7 +31,7 @@
 | `logger.tool_display.stream_edit_previews` | `LOGGER__TOOL_DISPLAY__STREAM_EDIT_PREVIEWS` | `Literal['off', 'primary', 'all']` | `primary` | Stream apply_patch/edit_file previews for the primary agent or all agents. |
 | `logger.tool_display.aggregate_parallel` | `LOGGER__TOOL_DISPLAY__AGGREGATE_PARALLEL` | `bool` | `True` | Aggregate safe parallel generic calls when argument bodies are disabled. |
 | `logger.terminal_images.enabled` | `LOGGER__TERMINAL_IMAGES__ENABLED` | `bool` | `True` | Render image content in capable terminals. |
-| `logger.terminal_images.backend` | `LOGGER__TERMINAL_IMAGES__BACKEND` | `Literal['auto', 'textual-image', 'kitty', 'sixel', 'halfcell', 'unicode', 'none']` | `auto` | Terminal image backend; automatic Sixel rendering is fitted to the viewport. |
+| `logger.terminal_images.backend` | `LOGGER__TERMINAL_IMAGES__BACKEND` | `Literal['auto', 'textual-image', 'kitty', 'sixel', 'halfcell', 'unicode', 'none']` | `auto` | Auto uses reported terminal support, including Kitty in Herdr; use halfcell to opt out. Automatic Sixel rendering is fitted to the viewport. |
 | `logger.terminal_images.width` | `LOGGER__TERMINAL_IMAGES__WIDTH` | `TerminalImageSize` | `80%` | Image render width. |
 | `logger.terminal_images.height` | `LOGGER__TERMINAL_IMAGES__HEIGHT` | `TerminalImageSize` | `auto` | Image render height. |
 | `shell_execution.tool_profile` | `SHELL_EXECUTION__TOOL_PROFILE` | `ShellToolProfile` | `auto` | Model-specific shell/process contract. |
@@ -40,7 +40,7 @@
 | `shell_execution.interactive_use_pty` | `SHELL_EXECUTION__INTERACTIVE_USE_PTY` | `bool` | `True` | Use a PTY for interactive prompt shell commands. |
 | `shell_execution.timeout_seconds` | `SHELL_EXECUTION__TIMEOUT_SECONDS` | `int` | `90` | Maximum seconds without command output before termination. |
 | `shell_execution.warning_interval_seconds` | `SHELL_EXECUTION__WARNING_INTERVAL_SECONDS` | `int` | `30` | Show timeout warnings every N seconds. |
-| `shell_execution.process_poll_max_wait_seconds` | `SHELL_EXECUTION__PROCESS_POLL_MAX_WAIT_SECONDS` | `int` | `3600` | Maximum managed-process wait. |
+| `shell_execution.process_poll_max_wait_seconds` | `SHELL_EXECUTION__PROCESS_POLL_MAX_WAIT_SECONDS` | `int` | `260` | Maximum managed-process wait. |
 | `shell_execution.foreground_auto_await_max_seconds` | `SHELL_EXECUTION__FOREGROUND_AUTO_AWAIT_MAX_SECONDS` | `int` | `30` | Maximum total foreground runtime before returning a live process. |
 | `shell_execution.managed_process_poll_history_folding` | `SHELL_EXECUTION__MANAGED_PROCESS_POLL_HISTORY_FOLDING` | `Literal['auto', 'on', 'off']` | `auto` | Fold repetitive quiet managed-process polling. |
 | `tui.completion_menu_reserved_lines` | `TUI__COMPLETION_MENU_RESERVED_LINES` | `int` | `6` | Prompt-toolkit lines reserved below the input for completion menus. |

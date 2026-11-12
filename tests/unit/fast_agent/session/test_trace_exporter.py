@@ -242,7 +242,7 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     assert records[8]["payload"]["last_agent_message"] == "done"
 
 
-def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
+def test_session_trace_exporter_writes_atif_v18_with_tool_observation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -258,6 +258,8 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
             content=[
                 TextContent(type="text", text="check Alice's directory"),
                 ImageContent(type="image", data="aW1hZ2U=", mime_type="image/png"),
+                AudioContent(type="audio", data="YXVkaW8=", mime_type="audio/mp3"),
+                AudioContent(type="audio", data="YXVkaW8=", mime_type="audio/x-unknown"),
             ],
         ),
         PromptMessageExtended(
@@ -466,7 +468,7 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
 
     payload = json.loads(result.output_path.read_text(encoding="utf-8"))
     assert result.output_path.name == f"{session_id}__dev__atif.json"
-    assert payload["schema_version"] == "ATIF-v1.7"
+    assert payload["schema_version"] == "ATIF-v1.8"
     assert payload["session_id"] == session_id
     assert payload["agent"]["model_name"] == "codexresponses.gpt-5.4?reasoning=high"
     assert [step["source"] for step in payload["steps"]] == [
@@ -476,10 +478,16 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
         "agent",
     ]
     assert payload["steps"][0]["message"] == "You are dev."
-    assert payload["steps"][1]["message"][1] == {
-        "type": "image",
-        "source": {"media_type": "image/png", "path": "data:image/png;base64,aW1hZ2U="},
-    }
+    assert payload["steps"][1]["message"][1:] == [
+        {
+            "type": "image",
+            "source": {"media_type": "image/png", "path": "data:image/png;base64,aW1hZ2U="},
+        },
+        {
+            "type": "audio",
+            "source": {"media_type": "audio/mpeg", "path": "data:audio/mpeg;base64,YXVkaW8="},
+        },
+    ]
     tool_step = payload["steps"][2]
     assert tool_step["reasoning_effort"] == "high"
     assert tool_step["extra"] == {"duration_ms": 1200, "ttft_ms": 150}
@@ -521,6 +529,12 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
     assert child_reads == 1
     assert tool_step["metrics"]["cached_tokens"] == 7
     assert tool_step["metrics"]["extra"] == {
+        "observed_prompt_tokens_lower_bound": 35,
+        "observed_completion_tokens_lower_bound": 8,
+        "observed_cached_tokens_lower_bound": 7,
+        "observed_reasoning_tokens_lower_bound": 3,
+        "observed_tool_use_prompt_tokens_lower_bound": 2,
+        "observed_cost_usd_lower_bound": 0.01,
         "provider": "codexresponses",
         "usage_schema": "openai-responses",
         "model": "gpt-5.4",
@@ -740,6 +754,16 @@ def test_atif_final_metrics_require_complete_llm_step_usage() -> None:
     assert trajectory.final_metrics.extra["llm_usage_expected_call_count"] == 2
     assert trajectory.final_metrics.extra["llm_usage_observed_call_count"] == 1
     assert trajectory.final_metrics.extra["llm_usage_call_coverage_ratio"] == 0.5
+    assert trajectory.final_metrics.extra["accounting"] == {
+        "schema": "fast-agent.accounting/v1",
+        "scope": "observed",
+        "provider_usage_complete": False,
+        "observed_token_availability": {
+            "prompt_tokens": True,
+            "completion_tokens": True,
+            "cached_tokens": True,
+        },
+    }
     assert trajectory.final_metrics.extra["llm_usage_calls_complete"] is False
     assert trajectory.final_metrics.extra["observed_prompt_tokens_lower_bound"] == 10
     assert trajectory.final_metrics.extra["observed_completion_tokens_lower_bound"] == 2
@@ -854,6 +878,16 @@ def test_atif_retry_with_missing_attempt_keeps_known_usage_as_lower_bound() -> N
     assert trajectory.final_metrics.extra is not None
     assert trajectory.final_metrics.extra["llm_usage_expected_call_count"] == 2
     assert trajectory.final_metrics.extra["llm_usage_observed_call_count"] == 1
+    assert trajectory.final_metrics.extra["accounting"] == {
+        "schema": "fast-agent.accounting/v1",
+        "scope": "observed",
+        "provider_usage_complete": False,
+        "observed_token_availability": {
+            "prompt_tokens": True,
+            "completion_tokens": True,
+            "cached_tokens": True,
+        },
+    }
     assert trajectory.final_metrics.extra["llm_usage_calls_complete"] is False
     assert trajectory.final_metrics.extra["observed_prompt_tokens_lower_bound"] == 10
     assert trajectory.final_metrics.extra["observed_completion_tokens_lower_bound"] == 2
@@ -973,6 +1007,16 @@ def test_atif_fanout_propagates_missing_usage_and_known_lower_bounds() -> None:
     assert trajectory.final_metrics.extra is not None
     assert trajectory.final_metrics.extra["llm_usage_expected_call_count"] == 2
     assert trajectory.final_metrics.extra["llm_usage_observed_call_count"] == 1
+    assert trajectory.final_metrics.extra["accounting"] == {
+        "schema": "fast-agent.accounting/v1",
+        "scope": "observed",
+        "provider_usage_complete": False,
+        "observed_token_availability": {
+            "prompt_tokens": True,
+            "completion_tokens": True,
+            "cached_tokens": True,
+        },
+    }
     assert trajectory.final_metrics.extra["llm_usage_calls_complete"] is False
     assert trajectory.final_metrics.extra["observed_prompt_tokens_lower_bound"] == 10
     assert trajectory.final_metrics.extra["observed_completion_tokens_lower_bound"] == 2
@@ -2761,3 +2805,96 @@ def test_session_trace_exporter_uploads_trace_to_hugging_face_dataset(tmp_path: 
     assert result.upload is not None
     assert result.upload.repo_id == "owner/dataset"
     assert result.upload.path_in_repo == "exports/trace.jsonl"
+
+
+def test_session_atif_reconstructs_archives_not_previous_snapshot(tmp_path: Path) -> None:
+    from tests.unit.fast_agent.history.test_atif_reconstruction import (
+        _checkpoint,
+        _exchange,
+        _message,
+    )
+
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    current = _checkpoint(session_dir, [_message(0), *_exchange(1), _message(2)])
+    save_json(current + _exchange(3), str(session_dir / "history_agent.json"))
+    # Previous is an overlapping checkpoint, never an additional source.
+    save_json(current, str(session_dir / "history_agent.previous.json"))
+    _write_session_snapshot(
+        session_dir,
+        session_id="session",
+        active_agent="agent",
+        agents={"agent": SessionAgentSnapshot(history_file="history_agent.json")},
+    )
+    output = tmp_path / "atif.json"
+    exporter = SessionTraceExporter(session_manager=_build_manager(tmp_path))
+    exporter.export(
+        ExportRequest(target=session_dir, agent_name="agent", format="atif", output_path=output)
+    )
+    payload = json.loads(output.read_text())
+    assert [
+        call["tool_call_id"]
+        for step in _original_steps(payload)
+        for call in step.get("tool_calls", [])
+    ] == ["call-1", "call-3"]
+    assert [
+        result["content"]
+        for step in _original_steps(payload)
+        for result in step.get("observation", {}).get("results", [])
+    ] == ["output 1\n", "output 3\n"]
+
+    before = output.read_bytes()
+    next(session_dir.glob("compacted_*.json")).unlink()
+    with pytest.raises(SessionExportReadError, match="archive"):
+        exporter.export(
+            ExportRequest(target=session_dir, agent_name="agent", format="atif", output_path=output)
+        )
+    assert output.read_bytes() == before
+
+
+def _original_steps(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Audit view: original interactions, without boundaries or copied context."""
+    steps = payload["steps"]
+    assert isinstance(steps, list)
+    return [
+        step for step in steps if step["source"] != "system" and not step.get("is_copied_context")
+    ]
+
+
+def test_atif_records_why_a_model_call_failed_as_codes() -> None:
+    """A provider error ends the turn in an error reply; ATIF has no error field, so
+    the status and error type go to the step's `extra.provider_error` (no message
+    text). Without retry records (a 413 isn't retried) this is the only place a trace
+    reader finds the status."""
+    import httpx2
+    from openai import APIStatusError
+
+    from fast_agent.llm.provider.error_utils import build_stream_failure_response
+
+    request = httpx2.Request("POST", "https://router.huggingface.co/v1/chat/completions")
+    error = APIStatusError(
+        "Error code: 413 - {'error': 'request entity too large'}",
+        response=httpx2.Response(413, request=request),
+        body=None,
+    )
+    message = build_stream_failure_response("hf", error, "deepseek-ai/DeepSeek-V4.1-Flash")
+
+    trajectory = build_atif_trajectory(
+        AtifRunSource(
+            session_id="session",
+            agent_name="agent",
+            model_name="model",
+            provider="hf",
+            history=[message],
+            message_timestamps=(None,),
+        )
+    )
+
+    step = trajectory.steps[0]
+    assert step.extra is not None
+    assert step.extra["provider_error"] == {
+        "schema": "fast-agent.provider-error/v1",
+        "error_type": "APIStatusError",
+        "status": 413,
+    }
+    assert "entity too large" not in json.dumps(step.extra["provider_error"])

@@ -1,0 +1,98 @@
+{
+ "frozen": "2026-09-26",
+ "note": "What the subset was chosen from. rows: leaderboard rows published by the freeze date; anything later is out-of-sample. digests: the task revisions we pin. excluded: tasks ruled out by their task packages (task.toml GPUs, docker-compose sidecars); safety-refusal exclusions are derived from the frozen rows' trials.",
+ "rows": [
+  "03fe4f10-b683-427b-a820-61e38145d28b",
+  "06850434-507d-4dbd-b74a-09d52519ee35",
+  "0b2908ee-3035-447c-9876-e68fecb3f413",
+  "0e349bde-b264-494d-a853-fada9c696192",
+  "0eed5a0d-96b6-491b-aeb7-cd5e4700c2d7",
+  "14f4da14-b86a-4dca-92d7-11178d4fe064",
+  "16db8ad5-84aa-4588-b660-1ce68c0d45e2",
+  "26354542-edc0-40cd-8f8d-9fe6fbe92ac3",
+  "3475050c-bf5e-4261-a3f6-0af5350af13f",
+  "36c077e0-4879-4444-b315-8532d66401d6",
+  "4643b23c-53e8-47ae-a3bd-9abc900e9588",
+  "51c6d76e-5baa-48c1-97b3-88656c620eef",
+  "5c537be4-7fc3-449b-8bfc-ceb9061c2535",
+  "8180b9e4-4990-43d0-b906-cd8b43adaaa2",
+  "83e6bf7e-aeb4-4116-9f30-ca8de96603fb",
+  "84b39f56-fe3c-46c3-919f-3b67b73f9b49",
+  "8c102a88-0789-4ce7-b503-bd39e84e157b",
+  "952b4217-421f-4d14-849b-9968fcb2063b",
+  "9e1c5e11-748f-4f2e-911a-070a396d5bf8",
+  "b3ad58f3-b311-4d4d-875b-3158cf0309d6",
+  "c741608e-c94e-417d-b7a8-e67111a0c887",
+  "d71ac3d0-da36-49cb-89d9-323136e77111",
+  "d72e8775-f4f1-4313-99e7-35b1cb499f24",
+  "e18d02ab-0973-4d86-872f-a353c8a7f344",
+  "e53da412-5e92-408c-b369-c767924c7c1c",
+  "f3c3d5a6-6424-4acb-bfcc-615c3f79f6dd",
+  "f7844abc-3109-4d5f-91ad-481df7b9fac2"
+ ],
+ "digests": {
+  "atrx-vep-crispr": "4ebe9e13de8cbd39ee2f9e14a9d7b1233c047ae43fba238ebc6274465697be3a",
+  "cad-model": "037b83651678230c04217bc7bd077c9e2c3d5a383bb368cdeb19e88a2202f644",
+  "cargo-flight-dispatch": "18a1c2670ce4be0e6752f48ed6c750281d7f97db025f5e74edc6c8728f62f5b5",
+  "fin-saccr-rwa": "bd0ee47169986cfdd4b0ccc98f461382c612e1301dd75f98d1381015eb25398a",
+  "gsea-proteomics": "7c0512e617cd4c0a0b595ebfb81258495d7e4a12c003cd0592c1137aa986a85d",
+  "hof-topology-interpenetration": "2534e62c5ab3c8592f4e0de3dee14ff07a5c1c9434164e7f80e2f564273de014",
+  "html-js-filter": "f211960f1f7c66ace91c3d079db073ed0f841d458db4cad1f2f943cba6cc79f3",
+  "mvcc-lsm-compaction": "370406dd79cc164e50b73568de37c34eba1b0e30782d7dc03f87c38c68123137",
+  "photonic-waveguide-routing": "31cd14c817cd8b05f7fce5492bf8c44777b6bfc7c0e0057e482d18164d28423e",
+  "production-planning": "1958ac51553517b79e3a642ed4f3bd9affb5b42166dcbacaa4c32f4b040edaff",
+  "react-lead-form": "790af6a6308be694896fa5258c3f3c1b536dfa75acdb9936799a4344a3e4573b",
+  "satb-audio-transcription": "2b1bf5dcc71458a7e378f84468959993a304a8e89e51381ac0f78163e6e60f14",
+  "session-window-debug": "f7e05e0d4c0e90d7050445fd158db514158272c50aafa1b2446ef3f68bd01182",
+  "sound-change-cascade": "6214ceb80aaa657d72658a6f39a44fa11ea51f443822b6a1212eef1ba65bf91d",
+  "telecom-entity-resolution": "f818fa0aabaa916c35966e67e611e06d2bed372555d4f16b0e147726d382d1ad",
+  "vba-userform-port": "38f141630a3803538908de5080d4a38e87fa3ce77a9fbbaad284cb7f9e89fe22",
+  "vllm-deepseek-streaming": "cb78aec591411780aedf133b95ca829584ba48768bbc437487fa773afbde321d",
+  "vpp-loss-divergence": "6db99a33495fcd7489072a4753a365e0cb4db9ea64c2b3f85a8b44db984fd0d3",
+  "wal-recovery-ordering": "8eb700419711e0d5eba317b8f6dec41aa3411e03e320e82b8da8070974ff3aae"
+ },
+ "excluded": {
+  "ctr-optimization": [
+   "multi-container"
+  ],
+  "cumulative-layout-shift": [
+   "multi-container"
+  ],
+  "fp8-rmsnorm-gemm": [
+   "gpu"
+  ],
+  "freight-dispatch-shift": [
+   "multi-container"
+  ],
+  "heat-pump-warranty": [
+   "multi-container"
+  ],
+  "intrastat-meldung": [
+   "multi-container"
+  ],
+  "jax-speedrun-gpu": [
+   "gpu"
+  ],
+  "kv-live-surgery": [
+   "multi-container"
+  ],
+  "legacy-utility-triage": [
+   "multi-container"
+  ],
+  "live-database-cutover": [
+   "multi-container"
+  ],
+  "math-eval-grader": [
+   "gpu"
+  ],
+  "medical-claims-processing": [
+   "multi-container"
+  ],
+  "nextjs-performance": [
+   "multi-container"
+  ],
+  "payments-pipeline-fix": [
+   "multi-container"
+  ]
+ }
+}

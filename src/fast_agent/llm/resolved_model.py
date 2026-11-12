@@ -82,6 +82,14 @@ class ResolvedModelSpec:
         model_params = self.model_params
         return model_params.structured_tool_policy if model_params is not None else None
 
+    def resolve_ptc_enabled(self, configured: bool | None = None) -> bool:
+        """Apply a model-string override, then config, then the catalog default."""
+        if self.model_config.ptc is not None:
+            return self.model_config.ptc
+        if configured is not None:
+            return configured
+        return self.model_params.ptc_enabled if self.model_params is not None else False
+
     @property
     def reasoning_mode(self) -> str | None:
         model_params = self.model_params
@@ -216,11 +224,18 @@ class ResolvedModelSpec:
             kwargs["long_context"] = True
         if config.transport:
             kwargs["transport"] = config.transport
+        if config.lite is not None and self.provider == Provider.CODEX_RESPONSES:
+            kwargs["lite"] = config.lite
+        if config.compaction is not None:
+            kwargs["compaction"] = config.compaction
+        if config.compact_at is not None:
+            kwargs["compact_at"] = config.compact_at
         if config.web_search is not None and self.provider in {
             *_ANTHROPIC_WEB_SEARCH_PROVIDERS,
             Provider.RESPONSES,
             Provider.OPENRESPONSES,
             Provider.CODEX_RESPONSES,
+            Provider.COPILOT,
             Provider.XAI,
             Provider.META_AI,
             Provider.DEEPSEEK,
@@ -229,7 +244,7 @@ class ResolvedModelSpec:
             kwargs["web_search"] = config.web_search
         if config.x_search is not None and self.provider == Provider.XAI:
             kwargs["x_search"] = config.x_search
-        if config.web_fetch is not None and self.provider == Provider.ANTHROPIC:
+        if config.web_fetch is not None and self.provider in {Provider.ANTHROPIC, Provider.COPILOT}:
             kwargs["web_fetch"] = config.web_fetch
         if config.task_budget_configured and self.provider in {
             Provider.ANTHROPIC,
@@ -242,6 +257,9 @@ class ResolvedModelSpec:
     def build_model_info(self, *, context_window_override: int | None = None) -> "ModelInfo | None":
         """Return effective model info for UI/reporting."""
         from fast_agent.llm.model_info import ModelInfo
+
+        if context_window_override is None and self.model_config.long_context:
+            context_window_override = self.long_context_window
 
         model_params = self.model_params
         if model_params is None:

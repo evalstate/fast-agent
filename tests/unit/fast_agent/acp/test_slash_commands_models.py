@@ -10,12 +10,14 @@ import pytest
 from fast_agent.acp.acp_aware_mixin import ACPCommand
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.core.fastagent import AgentInstance
+from fast_agent.llm.compaction_support import CompactAt, CompactionSupport
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.llm.usage_tracking import UsageAccumulator
 
 
 class _Agent:
@@ -54,6 +56,10 @@ class _UppercaseCommandAgent(_Agent):
 
 
 class _FastModeLlm:
+    compaction_support = CompactionSupport.CLIENT
+    compact_at_override: CompactAt | None = None
+    default_compact_at: CompactAt | None = None
+    usage_accumulator: UsageAccumulator | None = None
     service_tier_supported = True
     available_service_tiers: tuple[str, ...] = ("fast", "flex")
     task_budget_supported = False

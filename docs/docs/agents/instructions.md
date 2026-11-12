@@ -28,11 +28,14 @@ The following variables are available in System Prompt templates:
 | <nobr>`{{agentType}}`</nobr> | Current agent type |  |
 | <nobr>`{{agentCardPath}}`</nobr> | Source AgentCard path | `(internal)` when not loaded from a card |
 | <nobr>`{{agentCardDir}}`</nobr> | Directory containing the source AgentCard | `(internal)` when not loaded from a card |
+| <nobr>`{{modelName}}`</nobr> | Active resolved model ID | Without provider prefix or query options; empty before an LLM is attached |
+| <nobr>`{{modelProvider}}`</nobr> | Active provider route | Config name such as `responses`, `copilot`, or `anthropic`; empty before an LLM is attached |
 | <nobr>`{{modelReferences}}`</nobr> | Model references | Includes `$system.default` when one resolves. Useful for instructing CLI-based subagents |
 | <nobr>`{{model_specific}}`</nobr> | Model-specific prompt guidance from the resolved model catalog entry or model overlay | Empty when the selected model has no model-specific guidance |
 | <nobr>`{{hostPlatform}}`</nobr> | Host platform information |  |
 | <nobr>`{{pythonVer}}`</nobr> | Python version |  |
 | <nobr>`{{env}}`</nobr> | Formatted environment block with all environment details |  |
+| <nobr>`{{herdrInstructions}}`</nobr> | Concise fast-agent/herdr-core coordination guidance | Empty unless hc terminal identity is present, the active execution environment is local, and the agent has shell access |
 | <nobr>`{{currentDate}}`</nobr> | Current date in long format |  |
 
 **Example `{{env}}` output:**
@@ -57,10 +60,19 @@ You are a helpful AI Agent.
 {{agentSkills}}
 {{file_silent:AGENTS.md}}
 {{env}}
+{{herdrInstructions}}
 {{model_specific}}
 
 The current date is {{currentDate}}.
 ```
+
+`{{herdrInstructions}}` is included in the default prompt; custom AgentCards can include or
+omit it explicitly. It points agents to `hc --skill` for the installed version's manual
+without running hc during prompt construction. Detection uses non-empty
+`HC_TERMINAL_ID` and `HC_TERMINAL_SOCKET`, not `TERM_PROGRAM`. The guidance is omitted
+when the execution environment is unknown, remote, or container-based, or shell access
+is disabled. Environment refreshes recalculate it, so host identity is not carried into
+another execution environment. The bundled wording lives in `resources/shared/herdr.md`.
 
 You can also include only the AgentCard guidance section inside your own instruction template:
 
@@ -70,6 +82,17 @@ You are a safety-focused assistant.
 Always confirm before destructive operations.
 ```
 
+
+Use the active model's identity in an instruction:
+
+```text
+You are running as {{modelName}} via {{modelProvider}}.
+```
+
+These values follow the agent's attached model, including model switches and
+subagent model overrides. `{{modelReferences}}` describes configured references,
+and `{{model_specific}}` supplies model-specific guidance; neither is the current
+model's identity.
 
 ## Using Instructions
 

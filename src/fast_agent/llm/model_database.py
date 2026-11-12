@@ -5,7 +5,8 @@ This module provides a centralized lookup for model parameters including
 context windows, max output tokens, and supported tokenization types.
 """
 
-from typing import ClassVar, Literal
+from dataclasses import replace
+from typing import ClassVar, Final, Literal
 
 from pydantic import BaseModel, Field
 
@@ -14,9 +15,15 @@ from fast_agent.constants import (
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
 )
 from fast_agent.llm.model_mime_support import ResourceSource, tokenizes_support_mime
+from fast_agent.llm.provider.copilot.models import (
+    COPILOT_MODELS,
+    CopilotModelSpec,
+    get_copilot_model,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
     AUTO_REASONING,
+    ReasoningEffortLevel,
     ReasoningEffortSetting,
     ReasoningEffortSpec,
 )
@@ -61,6 +68,10 @@ class ModelParameters(BaseModel):
     )
     """Optional model-specific default for model-facing shell output previews."""
 
+    compaction_trigger_tokens: int | None = Field(default=None, ge=1_000)
+    """Default auto-compaction trigger in input tokens, e.g. below a long-context price
+    tier. ``compact_at`` and ``compaction.threshold`` override it."""
+
     shell_tool_name: str | None = Field(default=None, pattern=r"^[A-Za-z][A-Za-z0-9_-]*$")
     """Optional model-facing name for the minimal-process shell tool."""
 
@@ -72,6 +83,22 @@ class ModelParameters(BaseModel):
 
     shell_tool_profile: ResolvedShellToolProfile | None = None
     """Optional model-specific shell contract selected when shell tool profile is auto."""
+
+    ptc_enabled: bool = False
+    """Default programmatic tool calling policy; explicit CLI/model/config settings win."""
+
+    ptc_tool_format: Literal["json", "freeform"] | None = None
+    """Default input format of the programmatic tool calling code tool when
+    ``ptc.tool_format`` is auto. ``None`` means JSON."""
+
+    ptc_output_guidance: Literal["off", "print", "helpers"] | None = None
+    """Default shell output guidance of the programmatic tool calling code tool when
+    ``ptc.output_guidance`` is auto. ``None`` means helpers."""
+
+    tool_input_stream_delta_limit: int | None = Field(default=None, ge=1)
+    """Abort and retry a Responses stream attempt when one tool call's streamed input
+    exceeds this many delta events (about one token each); guards against runaway
+    tool input. ``None`` disables the guard."""
 
     reasoning: None | str = None
     """Reasoning output style. 'tags' if enclosed in <thinking> tags, 'none' if not used"""
@@ -104,7 +131,11 @@ class ModelParameters(BaseModel):
     """Supported service_tier values for the native Google API."""
 
     codex_responses_lite: bool = False
-    """Whether Codex uses the internal Responses Lite request contract."""
+    """Whether the Codex internal Responses Lite request contract is available.
+
+    Lite is opt-in with the ``lite=on`` model query; requests use the standard
+    Responses contract (hosted tools, parallel tool calls) by default.
+    """
 
     anthropic_web_search_version: str | None = None
     """Anthropic built-in web_search tool version, if supported by the model."""
@@ -123,6 +154,20 @@ class ModelParameters(BaseModel):
 
     anthropic_thinking_disable_supported: bool = False
     """Whether the model accepts thinking: {type: "disabled"}."""
+
+    anthropic_thinking_display_supported: bool = False
+    """Whether adaptive thinking accepts ``display``; fast-agent requests "summarized".
+
+    These models default to "omitted", which streams thinking blocks with empty text.
+    """
+
+    anthropic_thinking_prefix_binding: bool = False
+    """Whether thinking blocks are bound to the conversation prefix (system, tools, history).
+
+    fast-agent requests ``prefix_mismatch_behavior: "drop_block"`` for these models so
+    mid-conversation tool or system prompt changes (e.g. ``/connect``) drop stale
+    thinking instead of failing every later request.
+    """
 
     google_search_supported: bool = False
     """Whether Grounding with Google Search is supported for this model."""
@@ -143,6 +188,26 @@ class ModelParameters(BaseModel):
 def _with_fast(params: ModelParameters) -> ModelParameters:
     """Return a model variant marked as fast."""
     return params.model_copy(update={"fast": True})
+
+
+def _with_default_effort(
+    params: ModelParameters,
+    effort: ReasoningEffortLevel,
+    *,
+    context_window: int | None = None,
+) -> ModelParameters:
+    """Return a model variant with a different default effort (and optionally window)."""
+    spec = params.reasoning_effort_spec
+    if spec is None or effort not in (spec.allowed_efforts or ()):
+        raise ValueError(f"Default effort {effort!r} is not allowed for this model")
+    update: dict[str, object] = {
+        "reasoning_effort_spec": replace(
+            spec, default=ReasoningEffortSetting(kind="effort", value=effort)
+        )
+    }
+    if context_window is not None:
+        update["context_window"] = context_window
+    return params.model_copy(update=update)
 
 
 def _with_long_context(params: ModelParameters, window: int) -> ModelParameters:
@@ -294,6 +359,19 @@ class ModelDatabase:
         kind="effort",
         allowed_efforts=["none", "low", "medium", "high", "xhigh", "max"],
         default=ReasoningEffortSetting(kind="effort", value="high"),
+    )
+
+    OPENAI_GPT_6_ASTRA_REASONING = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh", "max"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    # Verified against Responses via Codex OAuth: `minimal` and `ultra` are rejected.
+    OPENAI_GPT_6_SOL_LUNA_REASONING = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["none", "low", "medium", "high", "xhigh", "max"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
     )
 
     OPENAI_GPT_5_CODEX_CLASS_REASONING = ReasoningEffortSpec(
@@ -610,7 +688,58 @@ class ModelDatabase:
             "context_window": 400_000,
             "codex_responses_lite": True,
             "shell_tool_profile": "luna_exec",
+            "shell_edit_tool": "write_text_file",
         }
+    )
+
+    OPENAI_GPT_6_ASTRA = ModelParameters(
+        # PTC is on by default for the current Astra/Sol/Terra/Luna generation.
+        ptc_enabled=True,
+        json_mode="schema",
+        structured_tool_policy="always",
+        context_window=272_000,
+        max_output_tokens=128_000,
+        tokenizes=OPENAI_MULTIMODAL,
+        reasoning="openai",
+        reasoning_effort_spec=OPENAI_GPT_6_ASTRA_REASONING,
+        shell_tool_name="shell",
+        # GPT-6 writes shell commands as raw text through the freeform
+        # (Responses custom-grammar) contract named "shell".
+        shell_tool_profile="freeform_shell",
+        shell_edit_tool="write_text_file",
+        # Like the shell, PTC code is sent as raw Python through a custom-grammar tool.
+        ptc_tool_format="freeform",
+        text_verbosity_spec=TextVerbositySpec(default="low"),
+        response_transports=("sse", "websocket"),
+        response_websocket_providers=(Provider.RESPONSES, Provider.CODEX_RESPONSES),
+        response_service_tiers=("fast", "flex"),
+        codex_responses_lite=True,
+        default_provider=Provider.RESPONSES,
+        model_specific=GPT_53_PLUS_MODEL_SPECIFIC,
+        managed_process_poll_folding=True,
+        process_poll_default_wait_seconds=240,
+    )
+
+    OPENAI_GPT_6_SOL_LUNA = OPENAI_GPT_6_ASTRA.model_copy(
+        update={"reasoning_effort_spec": OPENAI_GPT_6_SOL_LUNA_REASONING}
+    )
+
+    # Superseded by GPT-6.1 Sol, so it keeps PTC opt-in.
+    OPENAI_GPT_6_SOL = OPENAI_GPT_6_SOL_LUNA.model_copy(update={"ptc_enabled": False})
+
+    # GPT-6.1 Sol keeps the GPT-6 Sol tool/transport layout but, like Astra, rejects
+    # `none`/`minimal` effort (verified on Codex OAuth and Copilot Responses).
+    OPENAI_GPT_61_SOL = OPENAI_GPT_6_ASTRA
+
+    # Terra supports none through max effort, with medium as the API default.
+    # https://developers.openai.com/api/docs/models/gpt-6.1-terra
+    OPENAI_GPT_61_TERRA = _with_fast(OPENAI_GPT_6_SOL_LUNA)
+
+    # Freeform shell comes from Astra. The runaway-input limit is about 1.8x the
+    # largest observed legitimate GPT-6 Luna tool input (35,438 tokens); observed
+    # runaways streamed whitespace for 25-73 minutes.
+    OPENAI_GPT_6_LUNA = OPENAI_GPT_6_SOL_LUNA.model_copy(
+        update={"tool_input_stream_delta_limit": 64_000}
     )
 
     OPENAI_GPT_CODEX_SPARK = ModelParameters(
@@ -671,6 +800,7 @@ class ModelDatabase:
         update={
             "reasoning_effort_spec": ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC_OPUS47,
             "anthropic_task_budget_supported": True,
+            "anthropic_thinking_display_supported": True,
         }
     )
     ANTHROPIC_OPUS_48 = ANTHROPIC_OPUS_47.model_copy(
@@ -680,17 +810,51 @@ class ModelDatabase:
     )
     ANTHROPIC_OPUS_5 = ANTHROPIC_OPUS_48.model_copy(
         update={
+            "model_specific": None,
             "anthropic_thinking_field_required": False,
             "anthropic_thinking_disable_supported": True,
             "anthropic_web_fetch_version": None,
         }
     )
+    # https://platform.claude.com/docs/en/build-with-claude/effort
+    ANTHROPIC_OPUS_55 = ANTHROPIC_OPUS_5.model_copy(
+        update={
+            "json_mode": "schema",
+            "structured_tool_policy": "always",
+            "reasoning_effort_spec": ReasoningEffortSpec(
+                kind="effort",
+                allowed_efforts=["low", "medium", "high", "xhigh", "max"],
+                allow_auto=True,
+                default=ReasoningEffortSetting(kind="effort", value="medium"),
+            ),
+            "anthropic_thinking_disable_supported": False,
+            "anthropic_task_budget_supported": False,
+            "anthropic_thinking_prefix_binding": True,
+        }
+    )
+
     ANTHROPIC_FABLE_5 = ANTHROPIC_OPUS_48.model_copy(
         update={
+            "model_specific": None,
             "reasoning_effort_spec": ANTHROPIC_ALWAYS_ON_ADAPTIVE_THINKING_EFFORT_SPEC,
             "anthropic_thinking_field_required": False,
         }
     )
+
+    ANTHROPIC_FABLE_51 = ANTHROPIC_FABLE_5.model_copy(
+        update={
+            "reasoning_effort_spec": ReasoningEffortSpec(
+                kind="effort",
+                allowed_efforts=["low", "medium", "high", "xhigh", "max"],
+                allow_auto=True,
+                default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
+            ),
+            "anthropic_thinking_prefix_binding": True,
+        }
+    )
+    # https://platform.claude.com/docs/en/models/fable-5-2/migration-guide
+    # Same API surface as Fable 5.1; pricing and thinking-binding differences only.
+    ANTHROPIC_FABLE_52 = ANTHROPIC_FABLE_51
 
     ANTHROPIC_OPUS_4_LEGACY = ModelParameters(
         context_window=200000,
@@ -739,10 +903,37 @@ class ModelDatabase:
     )
     ANTHROPIC_SONNET_5 = ANTHROPIC_SONNET_46.model_copy(
         update={
+            "model_specific": None,
             "max_output_tokens": 128000,
             "reasoning_effort_spec": ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC_OPUS47,
             "anthropic_thinking_field_required": False,
             "anthropic_thinking_disable_supported": True,
+            "anthropic_thinking_display_supported": True,
+        }
+    )
+
+    # https://platform.claude.com/docs/en/models/haiku-5-5/overview
+    ANTHROPIC_HAIKU_55 = ANTHROPIC_SONNET_5.model_copy(
+        update={
+            "anthropic_task_budget_supported": True,
+            "anthropic_thinking_prefix_binding": True,
+        }
+    )
+
+    ANTHROPIC_SONNET_55 = ANTHROPIC_SONNET_5.model_copy(
+        update={
+            "json_mode": "schema",
+            "structured_tool_policy": "always",
+            # reasoning=off uses between_tools, not the unsupported disabled mode.
+            "anthropic_thinking_disable_supported": False,
+            "anthropic_thinking_prefix_binding": True,
+            "reasoning_effort_spec": ReasoningEffortSpec(
+                kind="effort",
+                allowed_efforts=["low", "medium", "high", "xhigh", "max"],
+                allow_toggle_disable=True,
+                allow_auto=True,
+                default=ReasoningEffortSetting(kind="effort", value="high"),
+            ),
         }
     )
 
@@ -784,8 +975,15 @@ class ModelDatabase:
         }
     )
     DEEPSEEK_V4_PRO = DEEPSEEK_V4_FLASH
-    DEEPSEEK_V4_FLASH_VISION = DEEPSEEK_V4_FLASH.model_copy(
+    DEEPSEEK_V41_FLASH = DEEPSEEK_V4_FLASH.model_copy(
         update={"tokenizes": [*OPENAI_VISION, "image/gif"]}
+    )
+
+    DEEPSEEK_V41_FLASH_HF = DEEPSEEK_V41_FLASH.model_copy(
+        update={
+            "reasoning": "reasoning_content",
+            "default_provider": Provider.HUGGINGFACE,
+        }
     )
 
     DEEPSEEK_V_32 = ModelParameters(
@@ -843,6 +1041,9 @@ class ModelDatabase:
             "shell_edit_tool": "write_text_file",
         }
     )
+
+    # Gemini 3.8 retains the documented 3.7 limits, thinking levels, and Flex support.
+    GEMINI_38_FLASH = GEMINI_37_FLASH.model_copy()
 
     GEMINI_2_FLASH = ModelParameters(
         context_window=1_048_576,
@@ -932,6 +1133,10 @@ class ModelDatabase:
         }
     )
 
+    # K3.1 keeps K3's API limits and reasoning contract; PTC is validated on both routes.
+    KIMI_K31 = KIMI_K3.model_copy(update={"ptc_enabled": True})
+    KIMI_K31_HF = KIMI_K3_HF.model_copy(update={"ptc_enabled": True})
+
     MUSE_GLIMMER_HF = ModelParameters(
         context_window=131_072,
         max_output_tokens=128_000,
@@ -981,6 +1186,11 @@ class ModelDatabase:
         update={"reasoning_effort_spec": XAI_GROK_46_REASONING_EFFORT_SPEC}
     )
 
+    # Grok 4.7 doubles its rates above 200k context: compact at 190k, leaving headroom
+    # for the next message and tool results before the next request.
+    GROK_47 = GROK_46.model_copy(update={"compaction_trigger_tokens": 190_000})
+    GROK_47_FAST = GROK_47.model_copy(update={"fast": True})
+
     MUSE_SPARK = ModelParameters(
         context_window=1_048_576,
         max_output_tokens=65535,
@@ -991,6 +1201,7 @@ class ModelDatabase:
         reasoning_effort_spec=MUSE_SPARK_REASONING_EFFORT_SPEC,
         default_provider=Provider.META_AI,
         response_transports=("sse",),
+        model_specific="You have vision capabilities.",
     )
 
     # H U G G I N G F A C E - max output tokens are not documented, using 16k as a reasonable default
@@ -1046,6 +1257,7 @@ class ModelDatabase:
     )
 
     GLM_5_3_FLASH = ModelParameters(
+        ptc_enabled=True,
         context_window=1_000_000,
         max_output_tokens=131072,
         tokenizes=ZAI_GLM_53_FLASH_MULTIMODAL,
@@ -1269,6 +1481,11 @@ class ModelDatabase:
         "gpt-5.6-sol": OPENAI_GPT_56,
         "gpt-5.6-terra": _with_fast(OPENAI_GPT_56),
         "gpt-5.6-luna": _with_fast(OPENAI_GPT_56_LUNA),
+        "gpt-6-astra": OPENAI_GPT_6_ASTRA,
+        "gpt-6.1-sol": OPENAI_GPT_61_SOL,
+        "gpt-6.1-terra": OPENAI_GPT_61_TERRA,
+        "gpt-6-sol": OPENAI_GPT_6_SOL,
+        "gpt-6-luna": _with_fast(OPENAI_GPT_6_LUNA),
         "gpt-5.4-mini": OPENAI_GPT_54_SMALL.model_copy(
             update={"model_specific": GPT_53_PLUS_MODEL_SPECIFIC}
         ),
@@ -1307,6 +1524,7 @@ class ModelDatabase:
         ),
         "claude-sonnet-4-6": ANTHROPIC_SONNET_46,
         "claude-sonnet-5": ANTHROPIC_SONNET_5,
+        "claude-sonnet-5-5": ANTHROPIC_SONNET_55,
         "claude-opus-4-0": ANTHROPIC_OPUS_4_LEGACY,
         "claude-opus-4-1": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-5": ANTHROPIC_OPUS_4_VERSIONED,
@@ -1314,15 +1532,22 @@ class ModelDatabase:
         "claude-opus-4-7": ANTHROPIC_OPUS_47,
         "claude-opus-4-8": ANTHROPIC_OPUS_48,
         "claude-opus-5": ANTHROPIC_OPUS_5,
+        "claude-opus-5-5": ANTHROPIC_OPUS_55,
         "claude-fable-5": ANTHROPIC_FABLE_5,
+        "claude-fable-5-1": ANTHROPIC_FABLE_51,
+        "claude-fable-5-2": ANTHROPIC_FABLE_52,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),
+        "claude-haiku-5-5": _with_fast(ANTHROPIC_HAIKU_55),
         # DeepSeek Models
-        "deepseek-v4-flash": _with_fast(DEEPSEEK_V4_FLASH),
-        "deepseek-v4-flash-vision-exp": _with_fast(DEEPSEEK_V4_FLASH_VISION),
+        "deepseek-flash": _with_fast(DEEPSEEK_V41_FLASH),
+        # Retired native IDs redirect to V4.1 Flash; HF snapshots above stay historical.
+        "deepseek-v4-flash": _with_fast(DEEPSEEK_V41_FLASH),
+        "deepseek-v4-flash-vision-exp": _with_fast(DEEPSEEK_V41_FLASH),
         "deepseek-v4-pro": DEEPSEEK_V4_PRO,
         "deepseek-ai/deepseek-v4-flash-0731": _with_fast(DEEPSEEK_V4_FLASH_HF),
+        "deepseek-ai/deepseek-v4.1-flash": _with_fast(DEEPSEEK_V41_FLASH_HF),
         # Z.ai models
         "glm-5.2": GLM_5_2.model_copy(update={"default_provider": Provider.ZAI}),
         "glm-5.3": GLM_5_3,
@@ -1331,6 +1556,7 @@ class ModelDatabase:
         "gemini-2.0-flash": _with_fast(GEMINI_2_FLASH),
         "gemini-2.5-pro": GEMINI_25_STANDARD,
         "gemini-2.5-flash": _with_fast(GEMINI_25_STANDARD),
+        "gemini-3.8-flash": _with_fast(GEMINI_38_FLASH),
         "gemini-3.7-flash": _with_fast(GEMINI_37_FLASH),
         "gemini-3.5-flash": _with_fast(GEMINI_STANDARD_STRUCTURED),
         "gemini-3-pro-preview": GEMINI_STANDARD,
@@ -1341,8 +1567,12 @@ class ModelDatabase:
         "grok-4.3": GROK_43,
         "grok-4.5": GROK_45,
         "grok-4.6": GROK_46,
+        "grok-4.7": GROK_47,
+        "grok-4.7-build-fast": GROK_47_FAST,
         "muse-spark-1.2": MUSE_SPARK,
         "muse-spark-1.2-contributor": MUSE_SPARK,
+        "muse-spark-1.3": MUSE_SPARK,
+        "muse-spark-1.3-contributor": MUSE_SPARK,
         "muse-spark-1.1": MUSE_SPARK,
         "moonshotai/kimi-k2": _with_fast(KIMI_MOONSHOT_INSTRUCT),
         "moonshotai/kimi-k2-instruct-0905": _with_fast(KIMI_MOONSHOT_INSTRUCT),
@@ -1351,8 +1581,10 @@ class ModelDatabase:
         "moonshotai/kimi-k2.6": KIMI_MOONSHOT_26,
         "moonshotai/kimi-k2.7-code": KIMI_MOONSHOT_27_CODE,
         "moonshotai/kimi-k3": KIMI_K3_HF,
+        "moonshotai/kimi-k3.1-pro": KIMI_K31_HF,
         "meta-models/muse-glimmer-30b": MUSE_GLIMMER_HF,
         "kimi-k3": KIMI_K3,
+        "kimi-k3.1-pro": KIMI_K31,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony
         "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,  # tool/reasoning interleave guidance
@@ -1364,6 +1596,14 @@ class ModelDatabase:
         ),
         "zai-org/glm-5.2": _with_fast(
             GLM_5_2.model_copy(update={"structured_tool_policy": "no_tools"})
+        ),
+        "zai-org/glm-5.3": GLM_5_3.model_copy(update={"default_provider": Provider.HUGGINGFACE}),
+        "zai-org/glm-5.3-flash": GLM_5_3_FLASH.model_copy(
+            update={
+                "default_provider": Provider.HUGGINGFACE,
+                # Only image input is verified through HF, not native Z.ai PDF/video.
+                "tokenizes": ["text/plain", "image/jpeg", "image/png"],
+            }
         ),
         "minimaxai/minimax-m2": GLM_46,
         "minimaxai/minimax-m2.1": MINIMAX_21,
@@ -1391,6 +1631,37 @@ class ModelDatabase:
             ("gpt-5.6-luna", _with_fast(OPENAI_GPT_56_LUNA)),
         )
     }
+    # GPT-6 extended windows are opt-in and route-specific.
+    _PROVIDER_MODEL_OVERRIDES.update(
+        {
+            (provider, model): _with_long_context(params, window)
+            for model, params in (
+                ("gpt-6-astra", OPENAI_GPT_6_ASTRA),
+                ("gpt-6.1-sol", OPENAI_GPT_61_SOL),
+                ("gpt-6.1-terra", OPENAI_GPT_61_TERRA),
+                ("gpt-6-sol", OPENAI_GPT_6_SOL),
+                ("gpt-6-luna", _with_fast(OPENAI_GPT_6_LUNA)),
+            )
+            for provider, window in (
+                (Provider.RESPONSES, 1_050_000),
+                (Provider.CODEX_RESPONSES, 872_000),
+            )
+        }
+    )
+    # Codex Responses defaults Astra, GPT-6.1 Sol/Terra and Luna to high effort, and serves
+    # GPT-6.1 Sol with a 500k base window (the opt-in long-context window is unchanged).
+    for _model, _window in (
+        ("gpt-6-astra", None),
+        ("gpt-6.1-sol", 500_000),
+        ("gpt-6.1-terra", None),
+        ("gpt-6-luna", None),
+    ):
+        _PROVIDER_MODEL_OVERRIDES[(Provider.CODEX_RESPONSES, _model)] = _with_default_effort(
+            _PROVIDER_MODEL_OVERRIDES[(Provider.CODEX_RESPONSES, _model)],
+            "high",
+            context_window=_window,
+        )
+    del _model, _window
     _PROVIDER_MODEL_OVERRIDES[(Provider.ZAI, "glm-5.2")] = GLM_5_2.model_copy(
         update={
             "default_provider": Provider.ZAI,
@@ -1404,8 +1675,18 @@ class ModelDatabase:
                 ("grok-4.3", GROK_43),
                 ("grok-4.5", GROK_45),
                 ("grok-4.6", GROK_46),
+                ("grok-4.7", GROK_47),
             )
         }
+    )
+    # Atlas Cloud's OpenAI-compatible gateway advertises Qwen3.8 Max with a 1M context
+    # window, 131072 max output tokens and text/image/video input (GET /v1/models).
+    _PROVIDER_MODEL_OVERRIDES[(Provider.ATLASCLOUD, "qwen/qwen3.8-max")] = ModelParameters(
+        context_window=1_000_000,
+        max_output_tokens=131_072,
+        tokenizes=QWEN38_MULTIMODAL,
+        json_mode="object",
+        default_provider=Provider.ATLASCLOUD,
     )
     _PROVIDER_WIRE_MODEL_NAMES: ClassVar[dict[tuple[Provider, str], str]] = {
         (Provider.HUGGINGFACE, "qwen/qwen3.8-27b"): "Qwen/Qwen3.8-27B",
@@ -1423,6 +1704,12 @@ class ModelDatabase:
             return None
 
         effective_provider = provider or cls.get_default_provider(model)
+        if effective_provider == Provider.COPILOT:
+            model_spec = cls._strip_model_query(model)
+            model_spec = cls._preset_for_model_name(model_spec) or model_spec
+            model_id = cls._model_name_without_explicit_prefix(cls._strip_model_query(model_spec))
+            spec = get_copilot_model(model_id)
+            return cls._PROVIDER_MODEL_OVERRIDES.get((Provider.COPILOT, spec.model_id))
         normalized = cls.normalize_model_name(model)
         if normalized in cls.REMOVED_MODEL_NAMES:
             return None
@@ -1693,15 +1980,25 @@ class ModelDatabase:
         return params.long_context_window if params else None
 
     @classmethod
-    def get_response_transports(cls, model: str) -> tuple[Literal["sse", "websocket"], ...] | None:
+    def get_response_transports(
+        cls, model: str, *, provider: Provider | None = None
+    ) -> tuple[Literal["sse", "websocket"], ...] | None:
         """Get supported Responses transports for a model, if explicitly defined."""
-        params = cls.get_model_params(model)
+        if (provider or cls.get_default_provider(model)) == Provider.COPILOT:
+            model_id = cls._model_name_without_explicit_prefix(cls._strip_model_query(model))
+            return get_copilot_model(model_id).transports
+        params = cls.get_model_params(model, provider=provider)
         return params.response_transports if params else None
 
     @classmethod
-    def get_response_websocket_providers(cls, model: str) -> tuple[Provider, ...] | None:
+    def get_response_websocket_providers(
+        cls, model: str, *, provider: Provider | None = None
+    ) -> tuple[Provider, ...] | None:
         """Get providers that may use websocket transport for this model."""
-        params = cls.get_model_params(model)
+        if (provider or cls.get_default_provider(model)) == Provider.COPILOT:
+            transports = cls.get_response_transports(model, provider=Provider.COPILOT)
+            return (Provider.COPILOT,) if transports and "websocket" in transports else ()
+        params = cls.get_model_params(model, provider=provider)
         return params.response_websocket_providers if params else None
 
     @classmethod
@@ -1717,9 +2014,9 @@ class ModelDatabase:
         return params.google_service_tiers if params else ()
 
     @classmethod
-    def uses_codex_responses_lite(cls, model: str) -> bool:
-        """Return whether Codex uses the Responses Lite contract for a model."""
-        params = cls.get_model_params(model)
+    def supports_codex_responses_lite(cls, model: str, provider: Provider | None = None) -> bool:
+        """Return whether the Codex Responses Lite contract is available for a model."""
+        params = cls.get_model_params(model, provider=provider)
         return params.codex_responses_lite if params else False
 
     @classmethod
@@ -1745,14 +2042,14 @@ class ModelDatabase:
 
     @classmethod
     def supports_response_transport(
-        cls, model: str, transport: Literal["sse", "websocket"]
+        cls, model: str, transport: Literal["sse", "websocket"], *, provider: Provider | None = None
     ) -> bool | None:
         """Return transport support for a model, or None when unconstrained.
 
         A `None` return means the model has no explicit transport metadata and callers
         may apply provider-level defaults.
         """
-        transports = cls.get_response_transports(model)
+        transports = cls.get_response_transports(model, provider=provider)
         if transports is None:
             return None
         return transport in transports
@@ -1760,7 +2057,7 @@ class ModelDatabase:
     @classmethod
     def supports_response_websocket_provider(cls, model: str, provider: Provider) -> bool | None:
         """Return websocket provider support for a model, or None when unconstrained."""
-        providers = cls.get_response_websocket_providers(model)
+        providers = cls.get_response_websocket_providers(model, provider=provider)
         if providers is None:
             return None
         return provider in providers
@@ -2035,3 +2332,51 @@ ModelDatabase._PROVIDER_MODEL_OVERRIDES.update(
         if params.default_provider == Provider.ANTHROPIC
     }
 )
+
+
+# Copilot routes inherit the full base catalog entry so the same model behaves the same
+# regardless of provider route. Only fields that describe the provider route (not the model)
+# are overridden:
+#   default_provider / response_transports / response_websocket_providers: set from the
+#     Copilot model spec (the gateway decides which transports are offered).
+#   response_service_tiers: Copilot rejects service_tier selection.
+#   codex_responses_lite: Codex-specific request contract; not part of the Copilot gateway.
+#   long_context_window: extended-context tiers are an upstream billing feature that the
+#     gateway does not expose.
+#   anthropic_web_search_version / anthropic_web_fetch_version / anthropic_required_betas:
+#     the gateway exposes no Anthropic server-side web tools or beta headers.
+# Unknown models stay unknown.
+def _copilot_route_overrides(spec: CopilotModelSpec) -> dict[str, object]:
+    return {
+        "default_provider": Provider.COPILOT,
+        "response_transports": spec.transports,
+        "response_websocket_providers": (
+            (Provider.COPILOT,) if "websocket" in spec.transports else ()
+        ),
+        "response_service_tiers": (),
+        "codex_responses_lite": False,
+        "long_context_window": None,
+        "anthropic_web_search_version": None,
+        "anthropic_web_fetch_version": None,
+        "anthropic_required_betas": None,
+    }
+
+
+COPILOT_ROUTE_OVERRIDE_FIELDS: Final[frozenset[str]] = frozenset(
+    _copilot_route_overrides(next(iter(COPILOT_MODELS.values())))
+)
+
+for _copilot_spec in COPILOT_MODELS.values():
+    _base_name = {
+        "claude-haiku-4.5": "claude-haiku-4-5",
+        "claude-fable-5.1": "claude-fable-5-1",
+        "claude-fable-5.2": "claude-fable-5-2",
+        "claude-opus-5.5": "claude-opus-5-5",
+        "claude-sonnet-5.5": "claude-sonnet-5-5",
+        "claude-haiku-5.5": "claude-haiku-5-5",
+    }.get(_copilot_spec.model_id, _copilot_spec.model_id)
+    _base_params = ModelDatabase.MODELS.get(_base_name)
+    if _base_params is not None:
+        ModelDatabase._PROVIDER_MODEL_OVERRIDES[(Provider.COPILOT, _copilot_spec.model_id)] = (
+            _base_params.model_copy(update=_copilot_route_overrides(_copilot_spec))
+        )

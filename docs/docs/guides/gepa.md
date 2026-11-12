@@ -295,7 +295,32 @@ Artifact evals often benefit from subprocess isolation. A failed candidate
 should usually produce side-info and artifacts, not corrupt the working tree or
 abort the optimization without evidence.
 
-## Make Trackio the default dashboard
+## Trackio dashboard
+
+Install GEPA and Trackio together in the environment where fast-agent runs:
+
+```bash
+uv pip install 'fast-agent-mcp[gepa]'
+```
+
+The `gepa` extra includes `trackio>=0.44.0`. Trackio 0.44.0 permits Pillow <14,
+compatible with fast-agent's security requirement of `pillow>=13.0.0`.
+For batch monitoring without GEPA, use `uv pip install 'fast-agent-mcp[trackio]'`.
+
+The fast-agent Trackio helpers disable automatic CPU/system and GPU metrics
+by default. Pass `auto_log_cpu=True` or `auto_log_gpu=True` to
+`gepa_trackio_init_kwargs()` to opt in.
+
+!!! warning "GEPA API compatibility"
+
+    Installing Trackio does not add Trackio support to GEPA's API. PyPI GEPA
+    0.1.4 lacks Trackio options in `optimize_anything.TrackingConfig` and
+    `gepa.api.optimize()`. The dashboard helpers and optimizer metrics below
+    require a GEPA version whose API supports those options. Check your GEPA
+    version's docs or code before using `make_gepa_trackio_dashboard()`,
+    `make_gepa_tracking_config()`, or `gepa_api_trackio_kwargs()`.
+    With GEPA 0.1.4, omit those calls and their tracking arguments; use local
+    evaluation artifacts or batch Trackio monitoring instead.
 
 GEPA runs can be long-lived. [Trackio](https://github.com/gradio-app/trackio) is
 recommended to provide a live view of optimizer progress, reflection cost, batch
@@ -355,21 +380,16 @@ Good Trackio screenshots for this guide would show:
 
 ## Call fast-agent from GEPA
 
-Install GEPA and Trackio support with the `gepa` optional dependency:
+Install GEPA with the `gepa` optional dependency:
 
 ```bash
-uv add "fast-agent-mcp[gepa]"
+uv pip install 'fast-agent-mcp[gepa]'
 ```
 
-PyPI packages cannot declare direct Git dependencies in extras, so the published
-extra depends on the latest PyPI GEPA release plus Trackio. Trackio-specific GEPA
-helpers require a GEPA release with Trackio support; until that support is
-available on PyPI, install the integration branch in your application
-environment:
-
-```bash
-uv add "gepa @ git+https://github.com/evalstate/gepa.git@feat/trackio"
-```
+This extra installs PyPI GEPA and `trackio>=0.44.0`. Trackio dashboard calls
+in the examples below also require GEPA API support, which PyPI GEPA 0.1.4
+lacks. See the [compatibility caveat above](#trackio-dashboard); omit those
+calls and their tracking arguments when using GEPA 0.1.4.
 
 See the [Extension Reference](../ref/extension_reference/#gepa) for the exact
 dependency set and adapter class signatures.

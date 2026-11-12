@@ -1,13 +1,14 @@
 """Codex OAuth helpers for ChatGPT/Codex tokens.
 
-Implements the OAuth PKCE flow used by the Codex CLI, including keyring
-storage and refresh. Access tokens are used as API keys when calling the
-Codex responses endpoint.
+Implements device authorization and browser OAuth PKCE login, including
+keyring storage and refresh. Access tokens are used as API keys when calling
+the Codex responses endpoint.
 """
 
 from __future__ import annotations
 
 import base64
+import functools
 import hashlib
 import json
 import os
@@ -17,13 +18,14 @@ from contextlib import suppress
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field, ValidationError
 
 from fast_agent.auth.credentials import (
+    AuthSource,
     OAuthCredential,
     configured_auth_path,
     credential_refresh_lock,
@@ -260,7 +262,7 @@ def _load_codex_cli_tokens() -> CodexOAuthTokens | None:
     except OSError:
         return None
     try:
-        payload = json.loads(auth_path.read_text())
+        payload = json.loads(auth_path.read_text(encoding="utf-8"))
     except Exception:
         return None
     if not isinstance(payload, dict):
@@ -275,10 +277,25 @@ def _load_codex_cli_tokens() -> CodexOAuthTokens | None:
         if not normalized or not normalized.get("access_token"):
             continue
         try:
-            return CodexOAuthTokens.model_validate(normalized)
+            tokens = CodexOAuthTokens.model_validate(normalized)
         except Exception:
             continue
+        if tokens.expires_at is None:
+            # Codex CLI auth.json stores no expiry; the access token JWT carries it.
+            tokens.expires_at = _jwt_expiry(tokens.access_token)
+        return tokens
     return None
+
+
+def _jwt_expiry(access_token: str) -> float | None:
+    try:
+        payload = json.loads(_base64url_decode(access_token.split(".")[1]))
+    except (IndexError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    exp = payload.get("exp")
+    return float(exp) if isinstance(exp, (int, float)) else None
 
 
 def _tokens_from_credential(credential: OAuthCredential) -> CodexOAuthTokens:
@@ -325,7 +342,19 @@ def _warn_about_legacy_codex_keyring_credentials() -> None:
     )
 
 
-def _load_codex_tokens_with_source() -> tuple[CodexOAuthTokens | None, str | None]:
+@functools.cache
+def _warn_codex_cli_token_expired(source: AuthSource) -> None:
+    store = "keyring" if source == "keyring" else "auth file"
+    console.ensure_blocking_console()
+    console.error_console.print(
+        f"Codex CLI token has expired, falling back to fast-agent {store}",
+        style="yellow",
+    )
+
+
+def _load_codex_tokens_with_source(
+    *, prefer_fast_agent_store: bool = False
+) -> tuple[CodexOAuthTokens | None, str | None]:
     # FAST_AGENT_AUTH_FILE is an explicit, authoritative credential source. Do not
     # silently fall back to a developer's local Codex CLI account when it is set.
     if configured_auth_path() is not None:
@@ -334,26 +363,33 @@ def _load_codex_tokens_with_source() -> tuple[CodexOAuthTokens | None, str | Non
             (_tokens_from_credential(stored.credential), stored.source) if stored else (None, None)
         )
 
-    # Codex CLI credentials are external and read-only. Prefer them before touching
-    # the fast-agent credential store so an existing auth.json is sufficient on its own.
-    tokens = _load_codex_cli_tokens()
-    if tokens:
-        return tokens, "auth.json"
+    # Codex CLI credentials are external and read-only. Prefer a live auth.json token
+    # before touching the fast-agent credential store so it is sufficient on its own,
+    # but fall back to the fast-agent store (e.g. after `fast-agent auth provider login
+    # codex`) once the auth.json token has expired or been rejected.
+    cli_tokens = _load_codex_cli_tokens()
+    if cli_tokens and not prefer_fast_agent_store and not cli_tokens.is_expired():
+        return cli_tokens, "auth.json"
 
     stored = load_oauth_credential("codex")
     if stored:
+        if cli_tokens and cli_tokens.is_expired():
+            _warn_codex_cli_token_expired(stored.source)
         return _tokens_from_credential(stored.credential), stored.source
+
+    if cli_tokens:
+        return cli_tokens, "auth.json"
 
     _warn_about_legacy_codex_keyring_credentials()
     return None, None
 
 
-def load_codex_tokens() -> CodexOAuthTokens | None:
-    tokens, source = _load_codex_tokens_with_source()
+def load_codex_tokens(*, prefer_fast_agent_store: bool = False) -> CodexOAuthTokens | None:
+    tokens, source = _load_codex_tokens_with_source(prefer_fast_agent_store=prefer_fast_agent_store)
     if tokens and source == "auth.json":
         logger.info(
-            "codex_cli_tokens",
             "Loaded Codex OAuth tokens from auth.json",
+            name="codex_cli_tokens",
             data={"path": str(_resolve_codex_cli_auth_path())},
         )
     return tokens
@@ -393,13 +429,15 @@ def build_authorization_url(code_challenge: str, state: str) -> str:
     return f"{CODEX_AUTHORIZE_URL}?{urlencode(params)}"
 
 
-def exchange_code_for_tokens(code: str, code_verifier: str) -> CodexOAuthTokens:
+def exchange_code_for_tokens(
+    code: str, code_verifier: str, *, redirect_uri: str = CODEX_REDIRECT_URI
+) -> CodexOAuthTokens:
     payload = {
         "grant_type": "authorization_code",
         "client_id": CODEX_CLIENT_ID,
         "code": code,
         "code_verifier": code_verifier,
-        "redirect_uri": CODEX_REDIRECT_URI,
+        "redirect_uri": redirect_uri,
     }
     return _token_request(payload)
 
@@ -419,10 +457,14 @@ def get_codex_access_token(*, force_refresh: bool = False) -> str | None:
         return None
     if force_refresh or tokens.is_expired():
         with credential_refresh_lock("codex"):
-            tokens = load_codex_tokens()
-            if not tokens:
+            # A forced refresh means the current token was rejected: switch to the
+            # fast-agent store when it holds a different credential before refreshing.
+            reloaded = load_codex_tokens(prefer_fast_agent_store=force_refresh)
+            if not reloaded:
                 return None
-            if force_refresh or tokens.is_expired():
+            switched = reloaded.access_token != tokens.access_token
+            tokens = reloaded
+            if tokens.is_expired() or (force_refresh and not switched):
                 if not tokens.refresh_token:
                     raise ProviderKeyError(
                         "Codex OAuth token expired",
@@ -465,7 +507,7 @@ def parse_chatgpt_account_id(access_token: str) -> str | None:
         return None
 
 
-def login_codex_oauth(timeout_seconds: int = 300) -> CodexOAuthTokens:
+def login_codex_browser_oauth(timeout_seconds: int = 300) -> CodexOAuthTokens:
     verifier = _pkce_verifier()
     challenge = _pkce_challenge(verifier)
     state = secrets.token_urlsafe(16)
@@ -498,7 +540,11 @@ def login_codex_oauth(timeout_seconds: int = 300) -> CodexOAuthTokens:
             style="bold",
         )
         console.ensure_blocking_console()
-        pasted = console.console.input("Callback URL: ")
+        from fast_agent.integrations.herdr_lifecycle import herdr_blocked
+        from fast_agent.ui.prompt.turn_input import suspend_turn_input
+
+        with herdr_blocked(kind="auth"), suspend_turn_input():
+            pasted = console.console.input("Callback URL: ")
         parsed = urlparse(pasted)
         params = parse_qs(parsed.query)
         code = params.get("code", [None])[0]
@@ -519,3 +565,103 @@ def login_codex_oauth(timeout_seconds: int = 300) -> CodexOAuthTokens:
     tokens = exchange_code_for_tokens(code, verifier)
     save_codex_tokens(tokens)
     return tokens
+
+
+class _DeviceUserCode(BaseModel):
+    device_auth_id: Annotated[str, Field(min_length=1)]
+    user_code: Annotated[
+        str, Field(min_length=1, validation_alias=AliasChoices("user_code", "usercode"))
+    ]
+    interval: Annotated[str, Field(pattern=r"^\s*[0-9]+\s*$")] = "5"
+
+
+class _DeviceAuthorization(BaseModel):
+    authorization_code: Annotated[str, Field(min_length=1)]
+    code_verifier: Annotated[str, Field(min_length=1)]
+
+
+def _device_login_error(detail: str) -> ProviderKeyError:
+    return ProviderKeyError(
+        "Codex device login failed",
+        f"{detail} Retry login or use `fast-agent auth provider login codex --method browser`.",
+    )
+
+
+def login_codex_device_oauth(timeout_seconds: int = 900) -> CodexOAuthTokens:
+    """Authorize with a user-entered device code; never fall back automatically."""
+    deadline = time.monotonic() + min(timeout_seconds, 900)
+
+    def remaining() -> float:
+        seconds = deadline - time.monotonic()
+        if seconds <= 0:
+            raise _device_login_error("Device authorization timed out.")
+        return seconds
+
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(
+                "https://auth.openai.com/api/accounts/deviceauth/usercode",
+                json={"client_id": CODEX_CLIENT_ID},
+                timeout=min(30.0, remaining()),
+            )
+            if not response.is_success:
+                raise _device_login_error(
+                    f"Unable to request a device code (HTTP {response.status_code}). "
+                    "Ensure device code login is enabled for your account."
+                )
+            device = _DeviceUserCode.model_validate_json(response.content)
+            interval = max(1, int(device.interval))
+            console.ensure_blocking_console()
+            console.console.print(
+                "Open https://auth.openai.com/codex/device and enter this one-time code:",
+                markup=False,
+            )
+            console.console.print(device.user_code, markup=False)
+            console.console.print(
+                "Continue only if you started this login. If a website or another person "
+                "gave you this code, cancel.",
+                markup=False,
+            )
+            while True:
+                response = client.post(
+                    "https://auth.openai.com/api/accounts/deviceauth/token",
+                    json={"device_auth_id": device.device_auth_id, "user_code": device.user_code},
+                    timeout=min(30.0, remaining()),
+                )
+                remaining()
+                if response.is_success:
+                    authorization = _DeviceAuthorization.model_validate_json(response.content)
+                    break
+                if response.status_code not in (403, 404):
+                    raise _device_login_error(
+                        f"Device authorization failed (HTTP {response.status_code})."
+                    )
+                time.sleep(min(interval, remaining()))
+        try:
+            tokens = exchange_code_for_tokens(
+                authorization.authorization_code,
+                authorization.code_verifier,
+                redirect_uri="https://auth.openai.com/deviceauth/callback",
+            )
+        except ProviderKeyError:
+            raise _device_login_error("Device authorization token exchange failed.") from None
+    except (httpx.HTTPError, ValidationError, ValueError):
+        # Do not expose response bodies, validation inputs, or token exchange errors.
+        raise _device_login_error(
+            "Device authorization could not be completed (request failed, invalid response, "
+            "or authorization timed out)."
+        ) from None
+    save_codex_tokens(tokens)
+    return tokens
+
+
+def login_codex_oauth(
+    timeout_seconds: int | None = None, *, method: Literal["device", "browser"] = "device"
+) -> CodexOAuthTokens:
+    if method == "device":
+        return login_codex_device_oauth(900 if timeout_seconds is None else timeout_seconds)
+    if method == "browser":
+        return login_codex_browser_oauth(300 if timeout_seconds is None else timeout_seconds)
+    raise ProviderKeyError(
+        "Codex OAuth login failed", "Unknown login method. Use device or browser."
+    )

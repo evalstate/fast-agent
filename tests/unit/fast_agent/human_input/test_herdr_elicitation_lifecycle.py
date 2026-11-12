@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import contextmanager
 
 import pytest
@@ -13,18 +14,27 @@ async def test_elicitation_reports_blocked_only_while_waiting(monkeypatch) -> No
     events: list[str] = []
 
     @contextmanager
-    def blocked_scope():
-        events.append("blocked")
+    def blocked_scope(*, kind=None):
+        events.append(f"blocked:{kind}")
         try:
             yield
         finally:
             events.append("working")
+
+    @contextmanager
+    def suspend_scope():
+        events.append("suspend")
+        try:
+            yield
+        finally:
+            events.append("resume")
 
     async def prompt_for_elicitation(**_kwargs) -> str:
         events.append("waiting")
         return "answer"
 
     monkeypatch.setattr(elicitation_handler, "herdr_blocked", blocked_scope)
+    monkeypatch.setattr(elicitation_handler, "suspend_turn_input", suspend_scope)
     monkeypatch.setattr(
         elicitation_handler,
         "_prompt_for_elicitation",
@@ -36,7 +46,8 @@ async def test_elicitation_reports_blocked_only_while_waiting(monkeypatch) -> No
     )
 
     assert response.response == "answer"
-    assert events == ["blocked", "waiting", "working"]
+    # The form owns the terminal: queued turn input is suspended around it.
+    assert events == ["blocked:question", "suspend", "waiting", "resume", "working"]
 
 
 @pytest.mark.asyncio
@@ -44,7 +55,7 @@ async def test_disabled_elicitation_does_not_report_blocked(monkeypatch) -> None
     entered = False
 
     @contextmanager
-    def blocked_scope():
+    def blocked_scope(**_kwargs):
         nonlocal entered
         entered = True
         yield
@@ -62,3 +73,45 @@ async def test_disabled_elicitation_does_not_report_blocked(monkeypatch) -> None
 
     assert response.response == "__CANCELLED__"
     assert entered is False
+
+
+@pytest.mark.asyncio
+async def test_concurrent_elicitations_prompt_one_at_a_time(monkeypatch) -> None:
+    active = 0
+    overlapped = False
+    prompted: list[str] = []
+
+    async def prompt_for_elicitation(*, request: HumanInputRequest, server_name: str, **_kw) -> str:
+        nonlocal active, overlapped
+        active += 1
+        overlapped |= active > 1
+        prompted.append(request.request_id or "")
+        await asyncio.sleep(0.01)
+        active -= 1
+        if request.request_id == "second":
+            # The user picks "disable server" in the second form.
+            elicitation_handler.elicitation_state.disable_server(server_name)
+        return "answer"
+
+    monkeypatch.setattr(elicitation_handler, "_prompt_for_elicitation", prompt_for_elicitation)
+
+    try:
+        responses = await asyncio.gather(
+            *(
+                elicitation_handler.elicitation_input_callback(
+                    HumanInputRequest(request_id=request_id, prompt="Continue?"),
+                    server_name="server",
+                )
+                for request_id in ("first", "second", "third")
+            )
+        )
+    finally:
+        elicitation_handler.elicitation_state.clear_all()
+
+    assert not overlapped
+    assert prompted == ["first", "second"]
+    assert [response.response for response in responses] == [
+        "answer",
+        "answer",
+        "__CANCELLED__",
+    ]

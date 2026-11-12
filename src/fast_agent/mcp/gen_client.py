@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from fast_agent.core.logging.logger import get_logger
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
 
     from fast_agent.config import MCPServerSettings
     from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
@@ -25,7 +25,7 @@ async def gen_client(
     publish_capabilities: bool = True,
     callback_runtime: MCPClientCallbackRuntime | None = None,
     trigger_oauth: bool | None = None,
-) -> AsyncIterator[MCPClientConnection]:
+) -> AsyncGenerator[MCPClientConnection]:
     """
     Create an on-demand high-level client for the specified server.
     Handles server startup through the public high-level ``mcp.client.Client``.

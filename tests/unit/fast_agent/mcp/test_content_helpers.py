@@ -4,6 +4,7 @@ import base64
 
 from mcp_types import CallToolResult, ImageContent, TextContent
 
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import (
     audio_link,
     canonicalize_tool_result_content_for_llm,
@@ -97,3 +98,18 @@ def test_resource_link_mime_inference_preserves_query_value_case() -> None:
     link = resource_link("https://example.com/download?format=image%2FPNG")
 
     assert link.mime_type == "image/png"
+
+
+def test_canonicalize_tool_result_accepts_runtime_logger() -> None:
+    result = CallToolResult(
+        content=[TextContent(type="text", text="first"), TextContent(type="text", text="second")],
+        structured_content={"fresh": True},
+    )
+
+    canonical = canonicalize_tool_result_content_for_llm(
+        result, logger=get_logger(__name__), source="test.helper"
+    )
+
+    assert len(canonical) == 1
+    assert isinstance(canonical[0], TextContent)
+    assert canonical[0].text == '{"fresh":true}'

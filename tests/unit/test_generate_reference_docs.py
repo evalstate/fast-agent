@@ -120,7 +120,7 @@ def test_compaction_snippets_use_compaction_settings_defaults() -> None:
     table = generator.generate_compaction_settings_reference()
 
     assert re.search(rf"auto:\s+{str(defaults.auto).lower()}\b", snippet)
-    assert re.search(rf"threshold:\s+{defaults.threshold}\b", snippet)
+    assert re.search(r"# threshold:\s+null\b", snippet)
     assert re.search(rf"keep_turns:\s+{defaults.keep_turns}\b", snippet)
     assert re.search(r"prompt:\s+null\b", snippet)
 

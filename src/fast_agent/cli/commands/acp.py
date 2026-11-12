@@ -226,9 +226,7 @@ def run_acp(
 
 def main() -> None:
     """Console script entrypoint for `fast-agent-acp`."""
-    import click
-
-    click.exceptions.UsageError.exit_code = 1
+    from typer._click.exceptions import ClickException, UsageError
 
     normalize_convenience_flag_args(sys.argv, start_index=1)
     args = sys.argv[1:]
@@ -239,11 +237,14 @@ def main() -> None:
         return
     try:
         app(standalone_mode=False)
-    except click.ClickException as exc:
+    except typer.TyperException as exc:
         try:
             import typer.rich_utils as rich_utils
 
-            rich_utils.rich_format_error(exc)
+            if isinstance(exc, ClickException):
+                rich_utils.rich_format_error(exc)
+            else:
+                typer.echo(f"Error: {exc.format_message()}", err=True)
         except Exception:
-            exc.show(file=sys.stderr)
-        sys.exit(getattr(exc, "exit_code", 1))
+            typer.echo(f"Error: {exc.format_message()}", err=True)
+        sys.exit(1 if isinstance(exc, UsageError) else exc.exit_code)

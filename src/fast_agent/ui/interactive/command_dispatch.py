@@ -11,7 +11,6 @@ from rich.text import Text
 
 from fast_agent.a2a.config import A2AAgentConfig
 from fast_agent.a2a.connect import parse_a2a_connect_arguments
-from fast_agent.a2a.remote_agent import A2ARemoteAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.command_actions import (
     PluginCommandActionContext,
@@ -126,6 +125,7 @@ from .mcp_connect_flow import handle_mcp_connect
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fast_agent.a2a.remote_agent import A2ARemoteAgent
     from fast_agent.command_actions.models import PluginCommandAgentProtocol
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.session.session_manager import SessionManager
@@ -157,6 +157,7 @@ class DispatchResult:
     shell_execute_cmd: str | None = None
     shell_execute_local: bool = False
     shell_execute_interactive: bool = False
+    shell_output_to_prompt: bool = False
     should_return: bool = False
     available_agents: list[str] | None = None
     available_agents_set: set[str] | None = None
@@ -619,15 +620,44 @@ async def _dispatch_local_ui_payload(
             return _dispatch_simple_local_ui_payload(payload)
 
 
+def _unknown_command_message(command: str) -> str:
+    """Explain an absolute path (often a pasted file) mistaken for a command."""
+    import shlex
+    from pathlib import Path
+
+    from fast_agent.ui.prompt.pasted_paths import pasted_image_paths
+
+    candidate = command.strip()
+    try:
+        is_file = Path(candidate).is_file()
+    except (OSError, ValueError):
+        is_file = False
+    if not is_file:
+        return f"Command not found: {command}"
+    attach = f"/attach {shlex.quote(candidate)}"
+    if pasted_image_paths(candidate):
+        return (
+            f"{candidate} is an image file, not a command. Use {attach} to attach it "
+            "(the model must support images; change it with /model)."
+        )
+    return f"{candidate} is a file, not a command. Use {attach} to attach it."
+
+
 def _dispatch_simple_local_ui_payload(payload: CommandPayload) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
-        case ShellCommand(command=shell_cmd, local=local, interactive=interactive):
+        case ShellCommand(
+            command=shell_cmd,
+            local=local,
+            interactive=interactive,
+            output_to_prompt=output_to_prompt,
+        ):
             result.shell_execute_cmd = shell_cmd
             result.shell_execute_local = local
             result.shell_execute_interactive = interactive
+            result.shell_output_to_prompt = output_to_prompt
         case UnknownCommand(command=command):
-            _print_styled(f"Command not found: {command}", "red")
+            _print_styled(_unknown_command_message(command), "red")
         case CommandError(message=message):
             _print_styled(message, "red")
         case _:
@@ -787,6 +817,8 @@ async def _dispatch_a2a_payload(
         )
 
     if payload.action in {"status", "tasks", "card", "reset", "transport"}:
+        from fast_agent.a2a.remote_agent import A2ARemoteAgent
+
         target = payload.argument or agent
         remote_agent = owner._get_agent_or_warn(prompt_provider, target)
         if remote_agent is None:
@@ -821,6 +853,8 @@ async def _dispatch_a2a_connect_payload(
     if name in available_agents_set:
         rich_print(f"[red]Agent '{name}' already exists. Choose --name NAME.[/red]")
         return result
+
+    from fast_agent.a2a.remote_agent import A2ARemoteAgent
 
     remote_agent = A2ARemoteAgent(
         config=AgentConfig(name=name, agent_type=AgentType.A2A, use_history=True),

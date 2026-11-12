@@ -12,22 +12,38 @@ Used by the ``/compact`` command and the automatic post-turn trigger
 
 from __future__ import annotations
 
+import hashlib
 import json
-from dataclasses import dataclass
+import os
+import tempfile
+import uuid
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Final, Protocol, cast
 
-from mcp_types import TextContent
+from mcp_types import ContentBlock, EmbeddedResource, ImageContent, ResourceLink, TextContent
 
 from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
+from fast_agent.history.turns import is_user_prompt, total_user_turns, user_turn_starts
+from fast_agent.llm.compaction_support import (
+    CompactionStrategy,
+    CompactionSupport,
+    compaction_trigger_tokens,
+    resolve_compaction_support,
+)
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt import Prompt
+from fast_agent.mcp.tool_result_metadata import tool_result_media_preview_exclusion
 from fast_agent.types.llm_stop_reason import LlmStopReason
+from fast_agent.utils.count_display import format_bytes
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Generator, Mapping
+
     from fast_agent.config import CompactionSettings
     from fast_agent.context import Context
     from fast_agent.interfaces import FastAgentLLMProtocol
@@ -54,6 +70,13 @@ current declarations.
 Be concise, structured, and focused on helping the next LLM seamlessly continue the work. \
 Respond with the summary only."""
 
+
+def resolve_compaction_prompt(settings: "CompactionSettings | None") -> str:
+    """Resolve the active summarization prompt (config override or built-in)."""
+    configured = settings.configured_prompt() if settings else None
+    return configured or DEFAULT_COMPACTION_PROMPT
+
+
 LEGACY_SUMMARY_NOTICE = (
     "Earlier conversation history was compacted into the checkpoint summary below. "
     "Treat it as authoritative context for the work completed so far."
@@ -66,6 +89,7 @@ SUMMARY_NOTICE = (
 )
 
 _CHARS_PER_TOKEN = 4
+_IMAGE_TOKENS: Final = 2000
 _MIN_COMPACTABLE_MESSAGES = 2
 _SUMMARY_TOKEN_ALLOWANCE = 2048
 MID_TURN_RECENT_TOOL_EXCHANGES = 3
@@ -107,6 +131,15 @@ class CompactionPlan:
     templates: list[PromptMessageExtended]
     compact_region: list[PromptMessageExtended]
     retained_tail: list[PromptMessageExtended]
+    retained_prompt: list[PromptMessageExtended] = field(default_factory=list)
+    """Prompt of the turn the tail continues: summarised, and also kept verbatim."""
+    retained_prompt_index: int = 0
+    """Index of ``retained_prompt`` in the planned history."""
+
+    @property
+    def retained(self) -> list[PromptMessageExtended]:
+        """Messages kept after the summary, in order."""
+        return self.retained_prompt + self.retained_tail
 
     @property
     def messages_before(self) -> int:
@@ -125,6 +158,22 @@ class CompactionResult:
     tokens_after_estimate: int
     context_window: int | None
     archive_file: str | None
+    strategy: CompactionStrategy = CompactionStrategy.SUMMARY
+    """``summary`` for fast-agent's own summary, or the provider-native strategy."""
+    checkpoint_bytes: int | None = None
+    """Encrypted size of a provider-native checkpoint; unset for summaries."""
+
+    @property
+    def is_native(self) -> bool:
+        return self.strategy != CompactionStrategy.SUMMARY
+
+
+def describe_provider_checkpoint(
+    description: str, *, opaque_bytes: int, archive_file: str | None
+) -> str:
+    """Visible text of a provider-native checkpoint: what it is, its size, its archive."""
+    archive = archive_file or "none (session history disabled)"
+    return f"{description}\nEncrypted size: {format_bytes(opaque_bytes)}. Archive: {archive}."
 
 
 def is_compaction_message(message: PromptMessageExtended) -> bool:
@@ -142,83 +191,62 @@ def normalize_compaction_notice(message: PromptMessageExtended) -> None:
             return
 
 
-def resolve_compaction_prompt(settings: "CompactionSettings | None") -> str:
-    """Resolve the active summarization prompt (config override or built-in)."""
-    configured = settings.prompt if settings else None
-    if not configured or not configured.strip():
-        return DEFAULT_COMPACTION_PROMPT
-    candidate = configured.strip()
-    if len(candidate) < 1024 and "\n" not in candidate:
-        try:
-            path = Path(candidate).expanduser()
-            if not path.is_absolute() and settings is not None and settings._config_file:
-                path = Path(settings._config_file).expanduser().resolve().parent / path
-            if path.is_file():
-                return path.read_text(encoding="utf-8").strip() or DEFAULT_COMPACTION_PROMPT
-        except OSError:
-            pass
-    return configured
-
-
 def should_auto_compact(
     usage: "UsageAccumulator | None",
     settings: "CompactionSettings",
     *,
+    llm: "FastAgentLLMProtocol | None" = None,
     projected_context_tokens: int | None = None,
 ) -> bool:
-    """True when observed or projected context usage crossed the configured threshold."""
+    """True when observed or projected context usage crossed the compaction trigger."""
     if not settings.auto or usage is None:
         return False
-    window = usage.context_window_size
-    if not window or window <= 0:
-        return False
+    trigger = compaction_trigger_tokens(llm, settings, usage.context_window_size)
     current = (
         projected_context_tokens
         if projected_context_tokens is not None
         else usage.current_context_tokens
     )
-    if current is None or current <= 0:
+    if trigger is None or current is None or current <= 0:
         return False
-    return (current / window) >= settings.threshold
+    return current >= trigger
 
 
-def _turn_start_indices(messages: list[PromptMessageExtended]) -> list[int]:
-    """Indices where real user turns start.
-
-    A turn start is a user message that is neither a tool result nor a prior
-    compaction summary. Summaries from earlier compactions look like user
-    messages but must not be counted as turns, otherwise ``keep_turns`` protects
-    them and the recent real turns, leaving nothing to compact.
-    """
-    return [
-        index
-        for index, message in enumerate(messages)
-        if message.role == "user"
-        and not message.tool_results
-        and not is_compaction_message(message)
-    ]
+def _is_image(content: ContentBlock) -> bool:
+    if isinstance(content, ImageContent):
+        return True
+    if isinstance(content, ResourceLink):
+        return bool(content.mime_type and content.mime_type.startswith("image/"))
+    if isinstance(content, EmbeddedResource):
+        mime_type = content.resource.mime_type
+        return bool(mime_type and mime_type.startswith("image/"))
+    return False
 
 
 def estimate_tokens(messages: list[PromptMessageExtended]) -> int:
-    """Rough token estimate for a message list.
+    """Estimate text and serialized non-image payloads, plus 2000 tokens per image.
 
-    Count text plus serialized non-text payloads. Compaction relies on this
-    estimate after replacing history; ignoring image/data blocks or diagnostic
-    channels can make a compacted history look small while still replaying a
-    provider-sized payload.
+    Image cost is a provider-independent placeholder, not a tokenizer estimate.
+    Never count image base64 or image resource URLs as text, including in tool
+    results and channels. Display-only tool result media previews are excluded.
     """
     chars = 0
+    images = 0
     for message in messages:
-        chars += len(message.all_text())
+        texts: list[str] = []
         for content in message.content:
-            if get_text(content) is not None:
-                # Text is already counted via all_text() above; only serialize
-                # non-text payloads here (matches the "non-text" docstring).
+            if _is_image(content):
+                images += 1
+                continue
+            text = get_text(content)
+            if text is not None:
+                texts.append(text)
                 continue
             try:
                 chars += len(content.model_dump_json())
             except Exception:
                 chars += 64
+        chars += len("\n".join(texts))
         if message.tool_calls:
             for call in message.tool_calls.values():
                 try:
@@ -227,18 +255,32 @@ def estimate_tokens(messages: list[PromptMessageExtended]) -> int:
                     chars += 64
         if message.tool_results:
             for result in message.tool_results.values():
+                image_indices = {
+                    index for index, content in enumerate(result.content) if _is_image(content)
+                }
+                images += len(image_indices)
                 try:
-                    chars += len(result.model_dump_json())
+                    chars += len(
+                        result.model_dump_json(
+                            exclude={
+                                "content": image_indices,
+                                **tool_result_media_preview_exclusion(),
+                            }
+                        )
+                    )
                 except Exception:
                     chars += 64
         if message.channels:
             for blocks in message.channels.values():
                 for block in blocks:
+                    if _is_image(block):
+                        images += 1
+                        continue
                     try:
                         chars += len(block.model_dump_json())
                     except Exception:
                         chars += 64
-    return max(1, chars // _CHARS_PER_TOKEN)
+    return max(1, chars // _CHARS_PER_TOKEN + images * _IMAGE_TOKENS)
 
 
 def _plan_compaction_with_budget(
@@ -266,30 +308,32 @@ def _plan_compaction_with_budget(
             except CompactionSkipped:
                 continue
             projected = (
-                estimate_tokens(candidate.templates + candidate.retained_tail)
-                + _SUMMARY_TOKEN_ALLOWANCE
+                estimate_tokens(candidate.templates + candidate.retained) + _SUMMARY_TOKEN_ALLOWANCE
             )
             if projected <= max_tokens_after:
                 return candidate
             plan = candidate
         if plan is not None:
-            return plan
+            # The zero-exchange candidate still retains the current prompt. If it
+            # exceeds the budget, summarize that prompt and keep only the pending call.
+            return replace(plan, retained_prompt=[], retained_prompt_index=0)
         raise CompactionSkipped("No older tool-loop history to compact.")
 
     plan = plan_compaction(history, keep_turns=keep_turns)
     if max_tokens_after is None or max_tokens_after <= 0:
         return plan
 
-    for candidate_keep in range(max(keep_turns, 0), -1, -1):
-        candidate = plan_compaction(history, keep_turns=candidate_keep)
-        projected = (
-            estimate_tokens(candidate.templates + candidate.retained_tail)
-            + _SUMMARY_TOKEN_ALLOWANCE
+    candidates = [
+        *(plan_compaction(history, keep_turns=keep) for keep in range(max(keep_turns, 0), -1, -1)),
+        plan_compaction(history, keep_turns=0, keep_last_exchange=False),
+    ]
+    for candidate in candidates:
+        projected = estimate_tokens(candidate.templates + candidate.retained) + (
+            _SUMMARY_TOKEN_ALLOWANCE
         )
         if projected <= max_tokens_after:
             return candidate
-        plan = candidate
-    return plan
+    return candidates[-1]
 
 
 def _plan_mid_turn_compaction(
@@ -342,10 +386,33 @@ def _plan_mid_turn_compaction(
     if len(compact_region) < _MIN_COMPACTABLE_MESSAGES:
         raise CompactionSkipped("No older tool-loop history to compact.")
 
+    return _plan(templates, body, tail_start)
+
+
+def _is_final_reply(message: PromptMessageExtended) -> bool:
+    return message.role == "assistant" and message.stop_reason != LlmStopReason.TOOL_USE
+
+
+def _plan(
+    templates: list[PromptMessageExtended], body: list[PromptMessageExtended], tail_start: int
+) -> CompactionPlan:
+    """Compact ``body[:tail_start]``; a tail that starts mid-turn also keeps that turn's prompt.
+
+    The tail always starts at a user prompt or at an assistant message, so a mid-turn
+    tail never begins with a tool result or another prompt.
+    """
+    starts = [start for start in user_turn_starts(body) if start <= tail_start]
+    prompt_start = starts[-1] if starts else tail_start
+    prompt_end = prompt_start
+    if tail_start < len(body):
+        while prompt_end < tail_start and is_user_prompt(body[prompt_end]):
+            prompt_end += 1
     return CompactionPlan(
         templates=templates,
-        compact_region=compact_region,
+        compact_region=body[:tail_start],
         retained_tail=body[tail_start:],
+        retained_prompt=body[prompt_start:prompt_end],
+        retained_prompt_index=len(templates) + prompt_start,
     )
 
 
@@ -353,13 +420,15 @@ def plan_compaction(
     history: list[PromptMessageExtended],
     *,
     keep_turns: int,
+    keep_last_exchange: bool = True,
 ) -> CompactionPlan:
     """
     Split history into (templates, compact region, retained tail).
 
     Leading template messages are always preserved. The retained tail starts at a
     user-turn boundary so assistant tool calls stay paired with their results.
-    At least the first turn is always eligible for compaction.
+    At least the first turn is always eligible for compaction. When no whole turn
+    is kept, ``keep_last_exchange`` keeps the last prompt and its final reply.
     """
     template_count = 0
     for message in history:
@@ -374,40 +443,52 @@ def plan_compaction(
     if len(body) < _MIN_COMPACTABLE_MESSAGES:
         raise CompactionSkipped("Not enough conversation history to compact.")
 
-    turn_starts = _turn_start_indices(body)
+    turn_starts = user_turn_starts(body)
     if not turn_starts:
         raise CompactionSkipped("No completed user turns to compact.")
 
     effective_keep = min(max(keep_turns, 0), len(turn_starts) - 1)
-    tail_start = turn_starts[-effective_keep] if effective_keep > 0 else len(body)
+    if effective_keep > 0:
+        tail_start = turn_starts[-effective_keep]
+    elif (
+        keep_last_exchange
+        and _is_final_reply(body[-1])
+        and len(body) - 1 >= _MIN_COMPACTABLE_MESSAGES
+    ):
+        tail_start = len(body) - 1
+    else:
+        tail_start = len(body)
 
-    compact_region = body[:tail_start]
-    if len(compact_region) < _MIN_COMPACTABLE_MESSAGES:
+    if tail_start < _MIN_COMPACTABLE_MESSAGES:
         raise CompactionSkipped(
             "Recent turns already cover the whole conversation; nothing older to compact."
         )
 
-    return CompactionPlan(
-        templates=templates,
-        compact_region=compact_region,
-        retained_tail=body[tail_start:],
-    )
+    return _plan(templates, body, tail_start)
 
 
 def build_summary_message(
     summary_text: str,
     *,
-    prompt_text: str,
+    strategy: CompactionStrategy = CompactionStrategy.SUMMARY,
+    provider_channels: Mapping[str, list[ContentBlock]] | None = None,
+    prompt_text: str | None,
     instructions: str | None,
     messages_compacted: int,
     tokens_before: int | None,
     context_window: int | None,
     model: str | None,
+    archive_metadata: dict[str, object] | None = None,
 ) -> PromptMessageExtended:
-    """Build the checkpoint summary as a user message with a typed compaction channel."""
+    """Build the checkpoint as a user message with a typed compaction channel.
+
+    Provider-native checkpoints also carry ``provider_channels``; their provider
+    replays those instead of the visible text, which other providers receive.
+    """
     visible = f"[COMPACTED HISTORY]\n{SUMMARY_NOTICE}\n\n{summary_text}"
     metadata = {
         "compacted_at": datetime.now(timezone.utc).isoformat(),
+        "strategy": strategy,
         "messages_compacted": messages_compacted,
         "tokens_before": tokens_before,
         "context_window": context_window,
@@ -415,11 +496,14 @@ def build_summary_message(
         "prompt": prompt_text,
         "instructions": instructions,
     }
+    if archive_metadata is not None:
+        metadata.update(archive_metadata)
     message = Prompt.user(visible)
     message.channels = {
+        **(provider_channels or {}),
         FAST_AGENT_COMPACTION_CHANNEL: [
             TextContent(type="text", text=json.dumps(metadata, ensure_ascii=False))
-        ]
+        ],
     }
     return message
 
@@ -481,9 +565,18 @@ def _archive_history(
 
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         safe_agent = "".join(c if c.isalnum() or c in "-_" else "_" for c in agent.name)
-        filename = f"compacted_{stamp}_{safe_agent}.json"
+        filename = f"compacted_{stamp}_{uuid.uuid4().hex}_{safe_agent}.json"
         filepath = session.directory / filename
-        save_messages(history, str(filepath))
+        with tempfile.NamedTemporaryFile(
+            dir=session.directory, prefix=".compaction-", suffix=".json", delete=False
+        ) as handle:
+            temporary = Path(handle.name)
+        try:
+            save_messages(history, str(temporary))
+            # Publish only complete bytes, without overwriting an existing archive.
+            os.link(temporary, filepath)
+        finally:
+            temporary.unlink(missing_ok=True)
         manager.set_current_session(session)
         return str(filepath)
     except RuntimeError as exc:
@@ -518,6 +611,115 @@ def _resolved_path(raw_path: object | None) -> Path | None:
     return Path(str(raw_path)).expanduser().resolve()
 
 
+@contextmanager
+def _compacting(
+    llm: FastAgentLLMProtocol, action: ProgressAction = ProgressAction.COMPACTING
+) -> Generator[None]:
+    """Temporarily label side-channel model progress as compaction."""
+    previous_verb = llm.verb
+    llm.verb = action
+    try:
+        yield
+    finally:
+        llm.verb = previous_verb
+
+
+@dataclass(frozen=True, slots=True)
+class _CheckpointContent:
+    """Uniform content for publishing a summary or provider checkpoint."""
+
+    text: str
+    strategy: CompactionStrategy
+    request_text: str
+    prompt_text: str | None
+    response: PromptMessageExtended
+    provider_channels: Mapping[str, list[ContentBlock]]
+    checkpoint_bytes: int | None
+
+    def visible_text(self, archive_name: str | None) -> str:
+        if self.checkpoint_bytes is None:
+            return self.text
+        return describe_provider_checkpoint(
+            self.text, opaque_bytes=self.checkpoint_bytes, archive_file=archive_name
+        )
+
+
+async def _client_summary(
+    llm: "FastAgentLLMProtocol",
+    summary_source: list[PromptMessageExtended],
+    request_text: str,
+    prompt_text: str,
+) -> _CheckpointContent:
+    """Summarize with a side-channel call to the agent's own model (no tools)."""
+    with _compacting(llm):
+        response = await llm.generate(
+            summary_source + [Prompt.user(request_text)], None, tools=None
+        )
+    summary_text = (response.last_text() or "").strip()
+    if not summary_text:
+        raise CompactionError("Compaction model returned an empty summary; history unchanged.")
+    return _CheckpointContent(
+        text=summary_text,
+        strategy=CompactionStrategy.SUMMARY,
+        request_text=request_text,
+        prompt_text=prompt_text,
+        response=response,
+        provider_channels={},
+        checkpoint_bytes=None,
+    )
+
+
+def uses_native_compaction(
+    llm: "FastAgentLLMProtocol | None",
+    settings: "CompactionSettings",
+    *,
+    instructions: str | None = None,
+) -> bool:
+    """Whether compaction produces a provider-native checkpoint.
+
+    Native checkpoints take no prompt: a custom ``compaction.prompt`` or focus
+    instructions ask for a written summary, so either selects fast-agent's summary.
+    """
+    if resolve_compaction_support(llm, settings) is not CompactionSupport.ON_DEMAND:
+        return False
+    return not settings.has_custom_prompt and not (instructions and instructions.strip())
+
+
+async def _native_checkpoint(
+    llm: "FastAgentLLMProtocol",
+    summary_source: list[PromptMessageExtended],
+) -> _CheckpointContent:
+    """Ask the provider for an opaque checkpoint of the compact region."""
+    with _compacting(llm, ProgressAction.COMPACTING_CHECKPOINT):
+        try:
+            native = await llm.native_compaction(summary_source)
+        except Exception as exc:
+            raise CompactionError(f"Provider compaction failed; history unchanged: {exc}") from exc
+    return _CheckpointContent(
+        text=native.description,
+        strategy=native.strategy,
+        request_text=native.request,
+        prompt_text=None,
+        response=_without_channels(native.response, native.checkpoint_channels),
+        provider_channels=native.checkpoint_channels,
+        checkpoint_bytes=native.opaque_bytes,
+    )
+
+
+def _without_channels(
+    message: PromptMessageExtended, names: Mapping[str, object]
+) -> PromptMessageExtended:
+    channels = {
+        name: blocks for name, blocks in (message.channels or {}).items() if name not in names
+    }
+    return message.model_copy(update={"channels": channels or None})
+
+
+def _audit_response(response: PromptMessageExtended) -> dict[str, object]:
+    """Serialize the call for exports; native content already excludes checkpoint payloads."""
+    return response.model_dump(by_alias=True, mode="json", exclude_none=True)
+
+
 async def compact_conversation(
     agent: CompactableAgent,
     *,
@@ -525,6 +727,7 @@ async def compact_conversation(
     instructions: str | None = None,
     recent_tool_exchanges: int | None = None,
     pending_context_tokens: int = 0,
+    on_start: Callable[[], None] | None = None,
 ) -> CompactionResult:
     """
     Compact the agent's history into a checkpoint summary plus recent turns.
@@ -548,11 +751,8 @@ async def compact_conversation(
         tokens_before = None
 
     history = list(agent.message_history)
-    max_tokens_after = (
-        max(int(context_window * settings.threshold) - pending_context_tokens, 1)
-        if context_window is not None and context_window > 0
-        else None
-    )
+    trigger = compaction_trigger_tokens(llm, settings, context_window)
+    max_tokens_after = max(trigger - pending_context_tokens, 1) if trigger is not None else None
     plan = _plan_compaction_with_budget(
         history,
         keep_turns=settings.keep_turns,
@@ -567,35 +767,63 @@ async def compact_conversation(
             f"{prompt_text}\n\nAdditional focus for this summary:\n{instructions.strip()}"
         )
 
+    if on_start is not None:
+        # Planning succeeded: compaction will now call the model.
+        on_start()
     summary_source = plan.templates + plan.compact_region
-    previous_verb = llm.verb
-    llm.verb = ProgressAction.COMPACTING
-    try:
-        response = await llm.generate(
-            summary_source + [Prompt.user(request_text)], None, tools=None
-        )
-    finally:
-        llm.verb = previous_verb
-    summary_text = (response.last_text() or "").strip()
-    if not summary_text:
-        raise CompactionError("Compaction model returned an empty summary; history unchanged.")
+    if uses_native_compaction(llm, settings, instructions=instructions):
+        checkpoint = await _native_checkpoint(llm, summary_source)
+    else:
+        checkpoint = await _client_summary(llm, summary_source, request_text, prompt_text)
 
     archive_file = _archive_history(agent, history)
+    if archive_file is None and _session_persistence_enabled(agent):
+        raise CompactionError("Compaction archive failed; history unchanged.")
+    archive_name = Path(archive_file).name if archive_file else None
+    summary_text = checkpoint.visible_text(archive_name)
 
     summary_message = build_summary_message(
         summary_text,
-        prompt_text=prompt_text,
+        strategy=checkpoint.strategy,
+        provider_channels=checkpoint.provider_channels,
+        prompt_text=checkpoint.prompt_text,
         instructions=instructions,
         messages_compacted=len(plan.compact_region),
         tokens_before=tokens_before,
         context_window=context_window,
         model=usage.model if usage else None,
+        archive_metadata={
+            "archive_file": archive_name,
+            "archive_sha256": (
+                hashlib.sha256(Path(archive_file).read_bytes()).hexdigest()
+                if archive_file
+                else None
+            ),
+            "template_messages": len(plan.templates),
+            "retained_messages": len(plan.retained),
+            "retained_prompt_index": plan.retained_prompt_index,
+            "retained_prompt_messages": len(plan.retained_prompt),
+            # Keeps the conversation's turn count stable across compaction.
+            "turns_compacted": total_user_turns(history)
+            - total_user_turns(plan.templates + plan.retained),
+            "checkpoint_bytes": checkpoint.checkpoint_bytes,
+            # The summarization call is a real model call: keep its request and
+            # response (with usage/timing channels) so exports can account for it.
+            "summary_request": checkpoint.request_text,
+            "summary_response": _audit_response(checkpoint.response),
+        },
     )
 
-    new_history = plan.templates + [summary_message] + plan.retained_tail
+    new_history = plan.templates + [summary_message] + plan.retained
     agent.load_message_history(new_history)
 
-    tokens_after_estimate = estimate_tokens(new_history) + pending_context_tokens
+    # Opaque checkpoint payloads are far smaller in tokens than their encrypted text.
+    estimate_history = (
+        plan.templates
+        + [_without_channels(summary_message, checkpoint.provider_channels)]
+        + plan.retained
+    )
+    tokens_after_estimate = estimate_tokens(estimate_history) + pending_context_tokens
     if usage is not None:
         usage.set_context_estimate(tokens_after_estimate)
 
@@ -620,6 +848,8 @@ async def compact_conversation(
         tokens_after_estimate=tokens_after_estimate,
         context_window=context_window,
         archive_file=archive_file,
+        strategy=checkpoint.strategy,
+        checkpoint_bytes=checkpoint.checkpoint_bytes,
     )
 
 

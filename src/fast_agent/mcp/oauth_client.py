@@ -875,7 +875,7 @@ OAuthClientProvider = _ProtectedResourceDiscoveryOAuthClientProvider
 def keyring_token_present(identity: str, service: str = "fast-agent-mcp") -> bool:
     """Return True when a stored OAuth token exists for the given identity."""
     try:
-        maybe_print_keyring_access_notice(purpose="checking stored MCP OAuth tokens")
+        maybe_print_keyring_access_notice(purpose="checking MCP OAuth tokens")
         import keyring
 
         token_key = f"oauth:tokens:{identity}"
@@ -1120,13 +1120,17 @@ async def _capture_pasted_oauth_callback(
     try:
         if context.emit_console_output:
             _safe_stderr_write("Paste the full callback URL after authorization:")
-        callback_url = (
-            await run_in_thread(
-                _read_callback_url_with_abort,
-                "Callback URL:",
-                context.abort_event,
-            )
-        ).strip()
+        from fast_agent.integrations.herdr_lifecycle import herdr_blocked
+        from fast_agent.ui.prompt.turn_input import suspend_turn_input
+
+        with herdr_blocked(kind="auth"), suspend_turn_input():
+            callback_url = (
+                await run_in_thread(
+                    _read_callback_url_with_abort,
+                    "Callback URL:",
+                    context.abort_event,
+                )
+            ).strip()
     except OAuthFlowCancelledError:
         await _emit_oauth_error(context, "OAuth authorization cancelled.")
         raise
@@ -1309,7 +1313,7 @@ def list_keyring_tokens(service: str = "fast-agent-mcp") -> list[str]:
     Returns only identities that currently have a corresponding token entry.
     """
     try:
-        maybe_print_keyring_access_notice(purpose="listing stored MCP OAuth tokens")
+        maybe_print_keyring_access_notice(purpose="listing MCP OAuth tokens")
         import keyring
 
         identities = _read_index(service)
@@ -1326,7 +1330,7 @@ def list_keyring_tokens(service: str = "fast-agent-mcp") -> list[str]:
 def list_keyring_credentials(service: str = "fast-agent-mcp") -> list[str]:
     """List indexed resources containing tokens or OAuth client registration."""
     try:
-        maybe_print_keyring_access_notice(purpose="listing stored MCP OAuth credentials")
+        maybe_print_keyring_access_notice(purpose="listing MCP OAuth credentials")
         import keyring
 
         present: list[str] = []
@@ -1343,7 +1347,7 @@ def list_keyring_credentials(service: str = "fast-agent-mcp") -> list[str]:
 def keyring_credential_present(resource: str, service: str = "fast-agent-mcp") -> bool:
     """Return whether a resource has tokens or OAuth client registration."""
     try:
-        maybe_print_keyring_access_notice(purpose="checking stored MCP OAuth credentials")
+        maybe_print_keyring_access_notice(purpose="checking MCP OAuth credentials")
         import keyring
 
         return bool(
@@ -1361,7 +1365,7 @@ def clear_keyring_token(identity: str, service: str = "fast-agent-mcp") -> bool:
     """
     removed = False
     try:
-        maybe_print_keyring_access_notice(purpose="clearing stored MCP OAuth tokens")
+        maybe_print_keyring_access_notice(purpose="clearing MCP OAuth tokens")
         import keyring
 
         tok_key = f"oauth:tokens:{identity}"

@@ -3,11 +3,13 @@
 
 The site build only checks that these committed PNGs exist. Regeneration is a
 local authoring step because Cloudflare Pages may not have Chrome available.
+Cards are drawn from the brand tokens and assets in docs/docs/assets/forward.
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
 import html
 import os
 import re
@@ -15,9 +17,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal, get_args
 
 import yaml
 from PIL import Image
@@ -25,17 +27,46 @@ from PIL import Image
 DOCS_DIR = Path(__file__).resolve().parent
 CONTENT_DIR = DOCS_DIR / "docs"
 OUTPUT_DIR = CONTENT_DIR / "assets" / "social"
+FORWARD_DIR = CONTENT_DIR / "assets" / "forward"
 SOCIAL_CARDS_DIR = DOCS_DIR / "social_cards"
 TEMPLATE_PATH = SOCIAL_CARDS_DIR / "template.html"
 STYLES_PATH = SOCIAL_CARDS_DIR / "styles.css"
 THEMES_PATH = SOCIAL_CARDS_DIR / "themes.yml"
 CONTACT_SHEET_PATH = SOCIAL_CARDS_DIR / "contact-sheet.html"
 PREVIEWS_DIR = SOCIAL_CARDS_DIR / "previews"
-WORDMARK_PATH = SOCIAL_CARDS_DIR / "wordmark.svg"
-PROJECT_ROOT = DOCS_DIR.parent
 WIDTH = 1200
 HEIGHT = 630
 MAX_BYTES = 1_000_000
+REPO = "github.com/evalstate/fast-agent"
+INSTALL = "uvx fast-agent-mcp@latest -x"
+
+Design = Literal["hero", "sparkles", "burst", "presenter", "terminal"]
+Scheme = Literal["ivory", "petrol"]
+Pose = Literal["board", "palm"]
+DESIGNS: tuple[Design, ...] = get_args(Design)
+SCHEMES: tuple[Scheme, ...] = get_args(Scheme)
+POSE_NAMES: tuple[Pose, ...] = get_args(Pose)
+
+type Box = tuple[int, int, int, int]
+
+POSE_SHEET = "illustration/presenter-approved-poses.png"
+POSE_SHEET_WIDTH = 1536
+# Crops (x0, y0, x1, y1) of the 3×2 approved pose sheet; `patch` hides the panel letter.
+POSES: dict[Pose, tuple[Box, Box | None]] = {
+    "board": ((58, 8, 508, 508), None),
+    "palm": ((532, 8, 1018, 508), (532, 8, 600, 88)),
+}
+BOARD: Box = (287, 218, 458, 353)
+PRESENTER_HEIGHT = 410
+# Illustrative frontier on the presenter's board (same as the homepage): no data, no claim.
+BOARD_CHART = (
+    '<path d="M14 10V86H112" fill="none" stroke="#082C34" stroke-width="3" stroke-linecap="round"/>'
+    '<g fill="#277C80" opacity=".5"><circle cx="40" cy="72" r="4"/><circle cx="63" cy="66" r="4"/>'
+    '<circle cx="80" cy="48" r="4"/><circle cx="98" cy="57" r="4"/></g>'
+    '<path d="M26 65Q39 36 56 27T104 14" fill="none" stroke="#F45125" stroke-width="4" '
+    'stroke-linecap="round"/><g fill="#FFB52E" stroke="#082C34" stroke-width="2">'
+    '<circle cx="26" cy="65" r="5"/><circle cx="56" cy="27" r="5"/><circle cx="104" cy="14" r="5"/></g>'
+)
 
 
 @dataclass(frozen=True)
@@ -46,13 +77,10 @@ class PageCard:
     description: str
     section: str
     badge: str
-    accent: str
-    accent_soft: str
-    motif: str
-    variant: str
-    background: str
-    glyph_position: str
-    bg_intensity: str
+    design: Design
+    scheme: Scheme
+    pose: Pose
+    burst: str
     tagline: str
 
     @property
@@ -96,17 +124,19 @@ def _theme_value(
     return fallback
 
 
+def _choice[T: str](theme: dict[str, object], key: str, options: tuple[T, ...], rel: Path) -> T:
+    value = _theme_value(theme, key, options[0])
+    for option in options:
+        if option == value:
+            return option
+    raise ValueError(f"{rel}: social {key} {value!r} is not one of {', '.join(options)}")
+
+
 def load_themes() -> dict[str, object]:
     if not THEMES_PATH.exists():
         return {}
     themes = yaml.safe_load(THEMES_PATH.read_text(encoding="utf-8")) or {}
     return themes if isinstance(themes, dict) else {}
-
-
-def project_version() -> str:
-    pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    project = _mapping(pyproject.get("project"))
-    return "v" + _theme_value(project, "version", "0.0.0")
 
 
 def _card_theme(themes: dict[str, object], rel: Path, meta: dict[str, object]) -> dict[str, object]:
@@ -162,33 +192,26 @@ def discover_cards() -> list[PageCard]:
             or _description_from_body(body)
         )
         section = "fast-agent" if len(rel.parts) == 1 else rel.parts[0].replace("_", " ")
-        is_section_index = rel.name == "index.md" and rel.parent != Path(".")
-        default_variant = (
-            "hero" if rel == Path("index.md") else "section" if is_section_index else "doc"
-        )
         if rel.name == "index.md":
             output_rel = (
                 Path("index.png") if rel.parent == Path(".") else rel.parent.with_suffix(".png")
             )
         else:
             output_rel = rel.with_suffix(".png")
-        output = OUTPUT_DIR / output_rel
+        badge = _theme_value(theme, "badge", section.upper())
         cards.append(
             PageCard(
-                source,
-                output,
-                title,
-                description,
-                section,
-                _theme_value(theme, "section") or _theme_value(theme, "badge", section.upper()),
-                _theme_value(theme, "accent", "#f5a400"),
-                _theme_value(theme, "accent_soft", "#ffcf5a"),
-                _theme_value(theme, "motif", "protocol-grid"),
-                _theme_value(theme, "variant", default_variant),
-                _theme_value(theme, "background", "glyph"),
-                _theme_value(theme, "glyph_position"),
-                _theme_value(theme, "bg_intensity", "12"),
-                _theme_value(theme, "tagline", description, allow_blank=True),
+                source=source,
+                output=OUTPUT_DIR / output_rel,
+                title=title,
+                description=description,
+                section=section,
+                badge=badge,
+                design=_choice(theme, "design", DESIGNS, rel),
+                scheme=_choice(theme, "scheme", SCHEMES, rel),
+                pose=_choice(theme, "pose", POSE_NAMES, rel),
+                burst=_theme_value(theme, "burst", badge),
+                tagline=_theme_value(theme, "tagline", description, allow_blank=True),
             )
         )
     return cards
@@ -211,135 +234,127 @@ def _route(card: PageCard) -> str:
     return "fast-agent.ai/" + route
 
 
-def _glyph_position(card: PageCard) -> str:
-    if card.glyph_position:
-        return card.glyph_position
-    if card.variant == "hero":
-        return "center"
-    if card.variant == "section":
-        return "left"
-    return "right"
+def _asset(name: str) -> str:
+    return (FORWARD_DIR / "assets" / name).as_uri()
 
 
-def _background_html(card: PageCard) -> str:
-    glyph_position = html.escape(_glyph_position(card))
+def _mark(name: str, colour: str, style: str) -> str:
+    # CSS masks are CORS-fetched, which file:// pages can't do; inline the SVG instead.
+    svg = base64.b64encode((FORWARD_DIR / "assets" / name).read_bytes()).decode()
+    src = f"url('data:image/svg+xml;base64,{svg}')"
+    return f'<span class="mark {colour}" style="--src: {src}; {style}"></span>'
+
+
+def _sparkle(colour: str, size: int, style: str) -> str:
+    return _mark("sparkle-atomic.svg", colour, f"width:{size}px;height:{size}px;{style}")
+
+
+def _presenter_html(pose: Pose) -> str:
+    (x0, y0, x1, y1), patch = POSES[pose]
+    scale = PRESENTER_HEIGHT / (y1 - y0)
+
+    def rect(box: Box) -> str:
+        left, top, right, bottom = box
+        return (
+            f"left:{(left - x0) * scale:.1f}px;top:{(top - y0) * scale:.1f}px;"
+            f"width:{(right - left) * scale:.1f}px;height:{(bottom - top) * scale:.1f}px"
+        )
+
+    extras = f'<span class="patch" style="{rect(patch)}"></span>' if patch else ""
+    if pose == "board":
+        extras += (
+            f'<svg class="chart" viewBox="0 0 120 100" style="{rect(BOARD)}">{BOARD_CHART}</svg>'
+        )
     return f"""
-  <div class="glyph-bg {glyph_position}">
-    <svg viewBox="0 0 256 256" aria-hidden="true">
-      <path d="M94.340 208L131.300 208L161 128.140L131.300 47.400L94.340 47.400L124.040 127.700L94.340 208Z" />
-    </svg>
+  <div class="art" style="width:{(x1 - x0) * scale:.0f}px;height:{PRESENTER_HEIGHT}px">
+    <img src="{_asset(POSE_SHEET)}" alt="" style="width:{POSE_SHEET_WIDTH * scale:.1f}px;left:{-x0 * scale:.1f}px;top:{-y0 * scale:.1f}px">
+    {extras}
   </div>
-  <div class="tui-bg">
-    <div class="inner {glyph_position if glyph_position in {"left", "center"} else "bottom-right"}">
-<span class="row dimx">~/research → <span class="cyan bold">gpt-5</span> ⇔ (22.1%)</span>
-<span class="row"><span class="green bold">▸ commentary</span></span>
-<span class="row dimx">  Found the MCP spec — fetching tool list…</span>
-<span class="row"><span class="magenta bold">▾ tool call</span> · <span class="cyan">fetch__get_page</span></span>
-<span class="row dimx">  ✓ 200 OK · 14.2 KB · 412ms</span>
-<span class="row dimx">┌─ MCP ──────────────────  req  resp  notif</span>
-<span class="row">│ <span class="blue">◀</span> GET  (SSE)   <span class="dimx">·······</span>  -   12    8</span>
-<span class="row">│ <span class="red">▶</span> POST (JSON)  <span class="dimx">·······</span>  3    3    0</span>
-<span class="row">│ <span class="green">●</span> HEALTH       <span class="dimx">·······</span>  <span class="green">ok</span></span>
-<span class="row dimx">└</span>
-    </div>
-  </div>
-"""
+  {_sparkle("amber", 64, "right:470px;top:150px;transform:rotate(12deg)")}"""
 
 
-def _content_html(card: PageCard, brand_uri: str, version: str) -> str:
-    title = html.escape(card.title)
-    section = html.escape(card.badge.upper())
+def _art_html(card: PageCard) -> str:
+    match card.design:
+        case "sparkles":
+            return f"""
+  <div class="art">
+    {_sparkle("teal", 230, "right:110px;top:150px;transform:rotate(12deg)")}
+    {_sparkle("amber", 96, "right:380px;top:150px")}
+    {_sparkle("ink", 54, "right:84px;top:430px;transform:rotate(-12deg)")}
+    {_sparkle("teal", 40, "right:360px;top:430px")}
+  </div>"""
+        case "burst":
+            size = 92 if len(card.burst) <= 3 else 80 if len(card.burst) <= 6 else 54
+            return f"""
+  <div class="art">
+    {_mark("burst-score.svg", "amber", "inset:0;transform:rotate(28deg)")}
+    <span class="shout" style="--shout-size:{size}px">{html.escape(card.burst)}</span>
+  </div>
+  {_sparkle("teal", 56, "right:470px;top:440px")}"""
+        case "presenter":
+            return _presenter_html(card.pose)
+        case "terminal":
+            return f"""
+  <div class="art"><img src="{_asset("illustration/space-age-terminal-paddles.png")}" alt=""></div>
+  {_sparkle("teal", 64, "right:440px;top:140px;transform:rotate(12deg)")}"""
+        case "hero":
+            return ""
+
+
+def _title_size(title: str) -> int:
+    n = len(title)
+    return 88 if n <= 16 else 76 if n <= 28 else 64 if n <= 44 else 54
+
+
+def _content_html(card: PageCard) -> str:
+    tile = "icon-tile-amber.svg" if card.scheme == "petrol" else "icon-tile.svg"
     tagline = html.escape(card.tagline)
     lede = f'<p class="lede">{tagline}</p>' if tagline else ""
-    hero_tagline = f'<p class="hero-tagline">{tagline}</p>' if tagline else ""
-    url = html.escape(_route(card))
-    version = html.escape(version)
-    if card.variant == "hero":
+    route = _route(card)
+    repo = f'<span class="repo">{REPO}</span>' if len(route) <= 48 else ""
+    footer = f"""
+<footer><span class="url">{html.escape(route)}</span>{repo}</footer>"""
+    if card.design == "hero":
         return f"""
-  <div class="topstrip">
-    <span class="section"><span class="acc">·</span>{section}</span>
+<div class="hero">
+  <div class="hero-mark">
+    {_mark("burst-score.svg", "amber", "inset:0;transform:rotate(28deg)")}
+    <h1>fast-<br>agent</h1>
   </div>
-  <div class="body hero-body">
-    <img class="brand-hero phosphor-img subtle" src="{brand_uri}" alt="fast-agent">
-    {hero_tagline}
+  <div class="hero-copy">
+    <p class="title">{tagline}</p>
+    <p class="lede">{html.escape(card.description)}</p>
+    <code class="install">{INSTALL}</code>
   </div>
-  <div class="bottomstrip center">
-    <span class="url"><span class="slash">/</span>{url}</span>
-    <span class="meta">github.com/evalstate/fast-agent</span>
-    <span class="version">{version}</span>
-  </div>
-"""
-    if card.variant == "section":
-        return f"""
-  <div class="topstrip">
-    <span class="section-eyebrow"><span class="bar"></span>{section}</span>
-    <img class="brand phosphor-img subtle" src="{brand_uri}" alt="fast-agent" style="margin-left:auto">
-  </div>
-  <div class="body">
-    <h1 class="title">{title}</h1>
-    {lede}
-  </div>
-  <div class="bottomstrip">
-    <span class="url"><span class="slash">/</span>{url}</span>
-    <span class="spacer"></span>
-    <span class="version">{version}</span>
-  </div>
-"""
+  {_sparkle("teal", 44, "left:60px;top:70px")}
+  {_sparkle("teal", 34, "left:470px;top:420px;transform:rotate(-12deg)")}
+</div>{footer}"""
+    label = (
+        ""
+        if card.design == "burst"
+        else f'<span class="label"><i></i>{html.escape(card.badge.upper())}</span>'
+    )
     return f"""
-  <div class="topstrip">
-    <img class="brand phosphor-img subtle" src="{brand_uri}" alt="fast-agent">
-    <span class="section"><span class="acc">/</span>{section}</span>
-  </div>
-  <div class="body">
-    <h1 class="title">{title}</h1>
-    {lede}
-  </div>
-  <div class="bottomstrip">
-    <span class="url"><span class="slash">/</span>{url}</span>
-    <span class="spacer"></span>
-    <span class="version">{version}</span>
-  </div>
-"""
+<header>
+  <img class="tile" src="{_asset(tile)}" alt="">
+  <span class="wordmark">fast-agent</span>
+  {label}
+</header>
+<div class="body">
+  <h1 class="title" style="--title-size:{_title_size(card.title)}px">{html.escape(card.title)}</h1>
+  {lede}
+</div>{_art_html(card)}{footer}"""
 
 
-def _bg_intensity(value: str) -> str:
-    try:
-        number = float(value)
-    except ValueError:
-        number = 12
-    if number > 1:
-        number = number / 100
-    return str(max(0, min(number, 0.3)))
-
-
-def _card_html(
-    card: PageCard,
-    *,
-    stylesheet_uri: str | None = None,
-    brand_uri: str | None = None,
-) -> str:
-    variant = card.variant if card.variant in {"doc", "hero", "section"} else "doc"
-    background = card.background if card.background in {"glyph", "tui", "none"} else "glyph"
-    brand_uri = brand_uri or WORDMARK_PATH.resolve().as_uri()
-    version = project_version()
+def _card_html(card: PageCard) -> str:
     return _render_template(
         TEMPLATE_PATH.read_text(encoding="utf-8"),
         {
-            "accent": card.accent,
-            "accent_soft": card.accent_soft,
-            "background_html": _background_html(card),
-            "badge": html.escape(card.badge.upper()),
-            "bg_intensity": _bg_intensity(card.bg_intensity),
-            "brand_uri": brand_uri,
-            "card_class": f"card v-page v-{variant} bg-{background}",
-            "content_html": _content_html(card, brand_uri, version),
-            "description": html.escape(card.description),
-            "motif": html.escape(card.motif),
-            "route": html.escape(_route(card)),
-            "section": html.escape(card.section.upper()),
-            "stylesheet_uri": stylesheet_uri or STYLES_PATH.resolve().as_uri(),
+            "assets_uri": FORWARD_DIR.as_uri(),
+            "card_class": f"card d-{card.design} scheme-{card.scheme}",
+            "content_html": _content_html(card),
+            "stylesheet_uri": STYLES_PATH.resolve().as_uri(),
             "title": html.escape(card.title),
-            "variant": html.escape(card.variant),
         },
     )
 
@@ -373,112 +388,78 @@ def render(cards: list[PageCard]) -> int:
                     "--disable-gpu",
                     "--no-sandbox",
                     "--hide-scrollbars",
+                    "--virtual-time-budget=10000",
                     f"--window-size={WIDTH},{HEIGHT}",
                     f"--screenshot={card.output}",
                     html_path.as_uri(),
                 ],
                 cwd=DOCS_DIR,
+                capture_output=True,
                 check=False,
             )
             if result.returncode != 0:
+                sys.stderr.write(result.stderr.decode(errors="replace"))
                 return result.returncode
-            image = Image.open(card.output)
-            image.quantize(colors=160).save(card.output, optimize=True)
+            with Image.open(card.output) as image:
+                quantized = image.convert("RGB").quantize(colors=256)
+            quantized.save(card.output, optimize=True)
     return 0
 
 
-def write_variant_previews(cards: list[PageCard]) -> None:
+def write_design_previews(cards: list[PageCard]) -> None:
+    """Write one HTML preview per design × scheme, for choosing themes."""
     PREVIEWS_DIR.mkdir(parents=True, exist_ok=True)
-    sample = next((card for card in cards if card.source_rel == Path("index.md")), cards[0])
-    variants = ["doc", "hero", "section"]
-    stylesheet_uri = os.path.relpath(STYLES_PATH, PREVIEWS_DIR)
-    brand_uri = os.path.relpath(WORDMARK_PATH, PREVIEWS_DIR)
+    by_rel = {card.source_rel.as_posix(): card for card in cards}
+    samples: dict[Design, PageCard] = {
+        "hero": by_rel["index.md"],
+        "sparkles": by_rel["agents/index.md"],
+        "burst": by_rel["mcp/index.md"],
+        "presenter": by_rel["benchmarks/index.md"],
+        "terminal": by_rel["getting_started.md"],
+    }
+    variants = [
+        replace(card, design=design, scheme=scheme, pose=pose)
+        for design, card in samples.items()
+        for pose in (POSE_NAMES if design == "presenter" else (card.pose,))
+        for scheme in SCHEMES
+    ]
     links = []
-    for variant in variants:
-        card = PageCard(
-            sample.source,
-            sample.output,
-            sample.title,
-            sample.description,
-            sample.section,
-            sample.badge,
-            sample.accent,
-            sample.accent_soft,
-            sample.motif,
-            variant,
-            "glyph",
-            "",
-            "7" if variant == "hero" else "12",
-            "Simple, extendable agents." if variant == "hero" else sample.description,
+    for card in variants:
+        name = (
+            f"{card.design}-{card.pose}-{card.scheme}"
+            if card.design == "presenter"
+            else (f"{card.design}-{card.scheme}")
         )
-        path = PREVIEWS_DIR / f"{variant}.html"
-        path.write_text(
-            _card_html(card, stylesheet_uri=stylesheet_uri, brand_uri=brand_uri), encoding="utf-8"
-        )
+        path = PREVIEWS_DIR / f"{name}.html"
+        path.write_text(_card_html(card), encoding="utf-8")
         links.append(
-            f"""
-            <article>
-              <div class="preview">
-                <iframe src="{html.escape(path.name)}"></iframe>
-              </div>
-              <h2>{html.escape(variant)}</h2>
-              <a href="{html.escape(path.name)}">open full size</a>
-            </article>
-            """
+            f'<article><div class="preview"><iframe src="{path.name}"></iframe></div>'
+            f"<h2>{html.escape(name)}</h2></article>"
         )
-    (PREVIEWS_DIR / "crt-variants.html").write_text(
+    index = PREVIEWS_DIR / "designs.html"
+    index.write_text(
         f"""<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>fast-agent social card variants</title>
+  <title>fast-agent social card designs</title>
   <style>
-    body {{
-      margin: 0;
-      padding: 40px;
-      background: #080b11;
-      color: #eef4ff;
-      font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    }}
-    h1 {{ margin: 0 0 28px; }}
-    .grid {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
-      gap: 24px;
-    }}
-    article {{
-      padding: 16px;
-      border: 1px solid rgba(238,244,255,.16);
-      border-radius: 18px;
-      background: #101722;
-    }}
-    .preview {{
-      container-type: inline-size;
-      aspect-ratio: 1200 / 630;
-      overflow: hidden;
-      border-radius: 12px;
-      background: #000;
-    }}
-    iframe {{
-      width: 1200px;
-      height: 630px;
-      border: 0;
-      transform: scale(calc(100cqw / 1200));
-      transform-origin: 0 0;
-    }}
-    h2 {{ margin: 14px 0 4px; color: #f5a400; }}
-    a {{ color: #9ed2ff; }}
+    body {{ margin: 0; padding: 40px; background: #F4EAD5; color: #082C34; font: 15px/1.5 system-ui, sans-serif; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); gap: 24px; }}
+    .preview {{ container-type: inline-size; aspect-ratio: 1200 / 630; overflow: hidden; border: 2px solid #082C34; border-radius: 14px; }}
+    iframe {{ width: 1200px; height: 630px; border: 0; transform: scale(calc(100cqw / 1200)); transform-origin: 0 0; }}
+    h2 {{ margin: 10px 0 0; font-size: 16px; }}
   </style>
 </head>
 <body>
-  <h1>Social card variants</h1>
+  <h1>Social card designs</h1>
   <div class="grid">{"".join(links)}</div>
 </body>
 </html>
 """,
         encoding="utf-8",
     )
-    print(f"Wrote {(PREVIEWS_DIR / 'crt-variants.html').relative_to(DOCS_DIR)}")
+    print(f"Wrote {index.relative_to(DOCS_DIR)}")
 
 
 def _image_status(path: Path) -> tuple[str, str, str]:
@@ -510,7 +491,7 @@ def write_contact_sheet(cards: list[PageCard]) -> None:
             output = html.escape(card.output.relative_to(DOCS_DIR).as_posix())
             title = html.escape(card.title)
             badge = html.escape(card.badge)
-            theme = html.escape(f"{card.variant} / {card.motif}")
+            theme = html.escape(f"{card.design} / {card.scheme}")
             thumb = (
                 f'<img src="{image_src}" alt="{title}">'
                 if card.output.exists()
@@ -551,25 +532,21 @@ def write_contact_sheet(cards: list[PageCard]) -> None:
   <title>fast-agent social cards</title>
   <style>
     :root {{
-      color-scheme: dark;
-      --bg: #080b11;
-      --panel: #101722;
-      --panel-2: #151e2c;
-      --text: #eef4ff;
-      --muted: #9da9ba;
-      --line: rgba(238, 244, 255, .14);
-      --accent: #f5a400;
-      --warn: #fb7185;
+      --bg: #F4EAD5;
+      --panel: #FFFCF4;
+      --text: #082C34;
+      --muted: rgba(8, 44, 52, .72);
+      --line: #082C34;
+      --accent: #8A5A00;
+      --warn: #F45125;
     }}
     * {{ box-sizing: border-box; }}
     body {{
       margin: 0;
       padding: 48px;
-      background:
-        radial-gradient(circle at top right, rgba(245, 164, 0, .18), transparent 34rem),
-        linear-gradient(135deg, #080b11, #0d121b);
+      background: var(--bg);
       color: var(--text);
-      font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font: 15px/1.5 system-ui, sans-serif;
     }}
     header {{
       display: flex;
@@ -577,7 +554,7 @@ def write_contact_sheet(cards: list[PageCard]) -> None:
       gap: 24px;
       align-items: end;
       margin-bottom: 40px;
-      border-bottom: 1px solid var(--line);
+      border-bottom: 2px solid var(--line);
       padding-bottom: 24px;
     }}
     h1, h2, h3 {{ margin: 0; line-height: 1.05; }}
@@ -592,17 +569,15 @@ def write_contact_sheet(cards: list[PageCard]) -> None:
     }}
     .card {{
       overflow: hidden;
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      background: linear-gradient(180deg, var(--panel), var(--panel-2));
-      box-shadow: 0 18px 44px rgba(0,0,0,.25);
+      border: 2px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
     }}
     .card.warn, .card.missing {{ border-color: color-mix(in srgb, var(--warn), transparent 35%); }}
     .thumb {{
       display: block;
       aspect-ratio: 1200 / 630;
-      background: #06090f;
-      border-bottom: 1px solid var(--line);
+      border-bottom: 2px solid var(--line);
       color: inherit;
       text-decoration: none;
     }}
@@ -720,7 +695,9 @@ def main() -> int:
         "--contact-sheet", action="store_true", help="only write the HTML contact sheet"
     )
     parser.add_argument(
-        "--variant-previews", action="store_true", help="write CRT design variant previews"
+        "--variant-previews",
+        action="store_true",
+        help="write HTML previews of each card design and scheme",
     )
     parser.add_argument("--page", help="render/check one page, e.g. guides/codex.md")
     args = parser.parse_args()
@@ -734,7 +711,7 @@ def main() -> int:
         write_contact_sheet(all_cards)
         return 0
     if args.variant_previews:
-        write_variant_previews(all_cards)
+        write_design_previews(all_cards)
         return 0
     if args.check:
         return check(cards, check_stale=args.page is None)

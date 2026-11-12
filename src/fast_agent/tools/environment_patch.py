@@ -36,13 +36,9 @@ async def apply_patch_to_environment_filesystem(
         await _sync_patch_outputs(
             filesystem,
             base,
-            affected.added + affected.modified,
-            affected.deleted,
+            list(dict.fromkeys(_hunk_paths(transformed_hunks))),
             path_map,
         )
-        for hunk in hunks:
-            if hunk.kind == "update" and hunk.move_path is not None:
-                await filesystem.remove(str(hunk.path))
 
     stdout = io.StringIO()
     print_summary(path_map.restore_affected(affected), stdout)
@@ -93,17 +89,25 @@ async def _stage_patch_inputs(
 async def _sync_patch_outputs(
     filesystem: "EnvironmentFilesystem",
     base: Path,
-    changed: list[Path],
-    deleted: list[Path],
+    touched: list[Path],
     path_map: _PatchPathMap,
 ) -> None:
-    for local_path in changed:
+    # A path can be created, moved, deleted, and recreated in one patch.
+    # The engine's final state, not its operation summary, owns the outcome.
+    deleted: list[Path] = []
+    for local_path in touched:
         remote_path = path_map.to_remote(local_path)
-        content = (base / local_path).read_text(encoding="utf-8")
-        await filesystem.write_text(str(remote_path), content)
-    for local_path in deleted:
-        remote_path = path_map.to_remote(local_path)
-        await filesystem.remove(str(remote_path))
+        staged_path = base / local_path
+        if staged_path.exists():
+            content = staged_path.read_text(encoding="utf-8")
+            await filesystem.write_text(str(remote_path), content)
+        else:
+            deleted.append(remote_path)
+    # Preserve move sources until all destination writes have succeeded.
+    for remote_path in deleted:
+        # Intermediate patch files may never have existed in the environment.
+        if await filesystem.exists(str(remote_path)):
+            await filesystem.remove(str(remote_path))
 
 
 def _transform_hunk(hunk: "Hunk", path_map: _PatchPathMap) -> "Hunk":
@@ -117,9 +121,15 @@ def _transform_hunk(hunk: "Hunk", path_map: _PatchPathMap) -> "Hunk":
 
 def _input_paths(hunks: list["Hunk"]) -> list[Path]:
     paths: list[Path] = []
+    touched: set[Path] = set()
     for hunk in hunks:
-        if hunk.kind in {"delete", "update"}:
+        if hunk.kind in {"delete", "update"} and hunk.path not in touched:
             paths.append(hunk.path)
+        # Never reload a path whose state is already determined by the patch,
+        # including deleted paths: the engine must reject invalid later reads.
+        touched.add(hunk.path)
+        if hunk.kind == "update" and hunk.move_path is not None:
+            touched.add(hunk.move_path)
     return paths
 
 

@@ -30,6 +30,7 @@ from fast_agent.ui.progress.process_poll import (
     render_process_monitor_stats,
 )
 from fast_agent.ui.progress.subagent_table import render_subagent_table
+from fast_agent.ui.prompt.turn_input import queued_input_count
 from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.utils.text import collapse_whitespace
 from fast_agent.utils.time import format_process_elapsed
@@ -138,6 +139,10 @@ class _MonitoringProgress(Progress):
                 yield self.make_tasks_table(tasks)
         elif not subagents:
             yield self.make_tasks_table(())
+        # Only beside visible rows: pausing hides every task first, so the
+        # final (stopped) frame never leaves this line in scrollback.
+        if (subagents or generic) and (queued := queued_input_count()):
+            yield Text(f"⧗ {queued} queued", style="yellow")
 
 
 def _ensure_spinners() -> None:
@@ -156,6 +161,7 @@ def _process_poll_blink_next(elapsed_seconds: float) -> bool:
 
 
 _ACTION_DESCRIPTION_ICONS = {
+    ProgressAction.UPLOADING: "▲",
     ProgressAction.SENDING: "▶",
     ProgressAction.CALLING_TOOL: "◀",
     ProgressAction.READING_RESOURCE: "◀",
@@ -167,10 +173,13 @@ _ACTION_STYLES = {
     ProgressAction.CONNECTING: "bold yellow",
     ProgressAction.LOADED: "dim green",
     ProgressAction.INITIALIZED: "dim green",
+    ProgressAction.UPLOADING: "blue",
     ProgressAction.SENDING: "blue",
     ProgressAction.STREAMING: "green",  # Assistant Colour
     ProgressAction.THINKING: "yellow",  # Assistant Colour
     ProgressAction.COMPACTING: "cyan",
+    ProgressAction.COMPACTING_IN_REQUEST: "cyan",
+    ProgressAction.COMPACTING_CHECKPOINT: "cyan",
     ProgressAction.ROUTING: "blue",
     ProgressAction.PLANNING: "blue",
     ProgressAction.MONITORING: "blue",
@@ -877,7 +886,12 @@ class RichProgressDisplay:
             "is_process_poll": is_process_poll,
             "is_subagent_monitor": event.tool_event == "subagent_monitor",
             "agent_name": event.agent_name,
-            "is_compacting": event.action == ProgressAction.COMPACTING,
+            "is_compacting": event.action
+            in (
+                ProgressAction.COMPACTING,
+                ProgressAction.COMPACTING_IN_REQUEST,
+                ProgressAction.COMPACTING_CHECKPOINT,
+            ),
         }
         if event.subagent_monitor is not None:
             update_kwargs["subagent_monitor"] = event.subagent_monitor

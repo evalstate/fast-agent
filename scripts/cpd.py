@@ -33,7 +33,7 @@ from xml.etree import ElementTree
 
 # Tool versions and URLs
 JRE_VERSION = "17.0.9+9"
-PMD_VERSION = "7.26.0"
+PMD_VERSION = "7.27.0"
 
 TOOLS_DIR = Path.home() / "tools"
 JRE_DIR = TOOLS_DIR / f"jdk-{JRE_VERSION}-jre"
@@ -86,6 +86,9 @@ class CPDFinding:
 
 def parse_cpd_findings(xml_output: str, src_dir: Path) -> frozenset[CPDFinding]:
     root = ElementTree.fromstring(xml_output)
+    expected_root = f"{{{CPD_XML_NAMESPACE['cpd']}}}pmd-cpd"
+    if root.tag != expected_root:
+        raise ValueError(f"Expected CPD report root {expected_root!r}, got {root.tag!r}")
     findings: set[CPDFinding] = set()
     for duplication in root.findall("cpd:duplication", CPD_XML_NAMESPACE):
         paths = tuple(
@@ -152,12 +155,13 @@ def download_file(url: str, dest: Path, desc: str) -> None:
 
 def ensure_jre() -> Path:
     """Ensure Java JRE is available, downloading if necessary."""
-    java_bin = JRE_DIR / "bin" / "java"
+    java_home = JRE_DIR / "Contents/Home" if SYSTEM == "darwin" else JRE_DIR
+    java_bin = java_home / "bin" / "java"
     if SYSTEM == "windows":
         java_bin = java_bin.with_suffix(".exe")
 
     if java_bin.exists():
-        return JRE_DIR
+        return java_home
 
     # Check system Java
     system_java = shutil.which("java")
@@ -196,7 +200,7 @@ def ensure_jre() -> Path:
                 extracted_dir = d
                 break
 
-    return extracted_dir
+    return extracted_dir / "Contents/Home" if SYSTEM == "darwin" else extracted_dir
 
 
 def ensure_pmd() -> Path:

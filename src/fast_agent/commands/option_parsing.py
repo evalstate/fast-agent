@@ -206,3 +206,26 @@ def read_value_option(
             next_index=parsed.next_index,
         )
     return ParsedValueOption(next_index=index)
+
+
+def first_shell_token_end(text: str) -> int:
+    """Locate the first token boundary without unquoting the remaining arguments."""
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(text):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and quote != "'":
+            escaped = True
+            continue
+        if quote is not None:
+            if char == quote:
+                quote = None
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            continue
+        if char.isspace():
+            return index
+    return len(text)

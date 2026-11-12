@@ -18,10 +18,13 @@ Built-in placeholders (automatically resolved):
 Context placeholders (set by caller):
     {{workspaceRoot}} - Working directory
     {{env}} - Environment description
+    {{herdrInstructions}} - Conditional herdr-core coordination guidance
     {{agentName}} - Current agent name
     {{agentType}} - Current agent type
     {{agentCardPath}} - Source AgentCard path (if available)
     {{agentCardDir}} - Source AgentCard directory (if available)
+    {{modelName}} - Active resolved model ID (without provider prefix or query options)
+    {{modelProvider}} - Active provider route (e.g., responses, copilot)
     {{modelReferences}} - Configured model references and resolved default, if any
     {{serverInstructions}} - MCP server instructions
     {{agentSkills}} - Agent skill descriptions

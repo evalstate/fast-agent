@@ -39,9 +39,82 @@ of the stdin interpreter. This includes direct interpreters such as
 TypeScript executed with `pnpm exec tsx -` (including `pnpm -C <dir> exec`).
 Highlighting is applied while the heredoc is still streaming.
 
+## Terminal program status (OSC 7501)
+
+Interactive fast-agent sessions emit the
+[Program Status Protocol (OSC 7501)](https://www.superlogical.com/rex/docs/build/program-status)
+by default. Supporting terminals and managers, including herdr-core and the new
+Herdr app, can show when fast-agent is idle, working, or waiting for human input.
+The report includes a session title and a compact context/model and cost summary
+(or token counts when pricing is unavailable). Metadata changes retain the current
+state; exiting clears the report.
+
+This is independent of OSC 133 scrollback markers and `logger.enable_prompt_marks`.
+No Herdr installation, environment detection, or capability query is required.
+Unsupported terminals normally ignore these sequences; multiplexers such as tmux
+may discard them rather than forward them.
+
+To disable OSC 7501 output, set this environment variable before starting fast-agent:
+
+```bash
+export FAST_AGENT_DISABLE_PROGRAM_STATUS=1
+```
+
+In PowerShell:
+
+```powershell
+$env:FAST_AGENT_DISABLE_PROGRAM_STATUS = "1"
+```
+
+Values `1`, `true`, `yes`, and `on` disable reporting (case-insensitive). There is
+no YAML setting. The opt-out does not disable OSC 133 or the legacy Herdr TUI's
+socket integration.
+
+Status output is restricted to interactive prompt sessions with terminal stdout;
+it is skipped for redirected output and `TERM=dumb`. ACP/MCP protocol sessions
+do not activate it. Raw terminal recordings may retain the reports, including
+session titles derived from prompts; base64 encoding is not encryption.
+
+The new Herdr app recognizes agents from their status reports. Displaying the
+usage summary in its agents panel requires a custom mod reading the terminal's
+`report.msg`; the old Herdr TUI's `$context`/`$cost` row configuration does not
+carry over.
+
+## Terminal images
+
+Image rendering automatically uses reported terminal graphics support, including
+Kitty graphics inside Herdr. Herdr can report Kitty support even when the outer
+terminal cannot display it. For Herdr inside Foot or Windows Terminal, select
+half-cell rendering:
+
+```yaml
+logger:
+  terminal_images:
+    backend: halfcell
+```
+
+Alternatively, select it for a terminal environment:
+
+```bash
+export LOGGER__TERMINAL_IMAGES__BACKEND=halfcell
+```
+
+In PowerShell:
+
+```powershell
+$env:LOGGER__TERMINAL_IMAGES__BACKEND = "halfcell"
+```
+
+Explicit configuration takes precedence over this environment variable; leave
+`backend` unset in YAML to select it via the environment. Restart fast-agent
+after changing these settings. With Herdr inside Ghostty or Kitty, leave the
+backend at its automatic default or explicitly select `kitty`.
+
 ## Shell Integration
 
 You can run a shell command with `!` - for example `! git status`. When the active agent uses a local shell environment, commands run attached to your terminal, so interactive programs such as `! nano` work as expected. If the active agent uses a remote or sandbox environment, `!` runs in that environment; use `!!` to force a local shell command instead.
+
+Use `!!!` to run a command in the active agent environment and insert its output into the next prompt, where you can edit it before sending.
 
 You can enter an interactive shell by typing `!` ++return++ (`!!` ++return++ for a local shell). Child shells get `FAST_AGENT_SHELL_CHILD=1`. Type `exit` to return to `fast-agent`.
 
@@ -174,7 +247,148 @@ You can attach images and documents using `/attach` or by using the `^<uri|file>
 
 You can paste images directly with ++alt+v++. In terminals that reserve that chord, ++ctrl+alt+v++ is also bound.
 
+In Herdr app, **Ctrl+V** in a terminal on another machine uploads a clipboard image
+to that machine and pastes its path. fast-agent recognizes a paste containing only
+existing absolute image paths and adds attachments automatically when the model
+supports images. When it does not, the path is inserted as text with a hint to
+switch models with `/model`; submitting a file path on its own explains how to
+`/attach` it instead of reporting an unknown command.
+This also works in Herdr-managed remote terminals: run an updated fast-agent on
+the remote machine. Ordinary text pastes and paths inside slash/shell commands
+remain unchanged. Alt+V / Ctrl+Alt+V instead reads the clipboard on the machine
+running fast-agent; it does not forward your desktop clipboard over SSH.
+
+Automatic image rendering supports Herdr's Kitty graphics, including terminals
+that return their graphics capability reply after their general terminal reply.
+`logger.terminal_images.backend: kitty` remains an explicit override; `halfcell`
+opts into lower-resolution character-cell graphics.
+
 Local image attachments, including pasted clipboard images, are displayed inline after your message when terminal image rendering is enabled. Remote image URLs remain as links.
+
+## Terminal integration diagnostics
+
+```bash
+fast-agent check terminal           # Probe capabilities on an interactive terminal
+fast-agent check terminal --image   # Also draw a portable resolution test chart
+fast-agent check terminal --json    # Scriptable report; no terminal probes or graphics
+```
+
+The check reports TTY availability, configured image backend, the actual selected
+renderer, reported Kitty/Sixel support, cell-pixel geometry, Herdr core terminal ID
+when supplied, and eligibility for OSC 7501 status reporting. `TERM_PROGRAM` is
+shown only as a hint, not treated as proof of capabilities. A cell size can be a
+library fallback if the terminal supplies none.
+
+`--image` uses the configured renderer and a viewport-fitted chart of small text,
+fine stripes and a gradient, without system font dependencies. It requires an
+interactive terminal and cannot be combined with `--json`. Images are not drawn
+by default. No model calls, clipboard access, uploads or lifecycle status writes
+are performed; model vision support is explicitly left unchecked. In redirected
+output and JSON mode, active graphics probing is skipped and unknown fields are null.
+
+### Agent lifecycle status
+
+Interactive fast-agent reports OSC 7501 status to compatible terminals, including
+herdr-core. A turn or direct shell command starts as `working`. Human elicitation
+uses `blocked` (`kind=question`; OAuth callback pastes use `kind=auth`) and restores
+the previous state when it ends. Successful completion reports `idle`; Herdr decides
+whether to show its unseen-completion `done` indicator.
+
+Questions asked before the first prompt (the one-time recommended-plugins offer,
+the startup model picker, and missing shell directory creation) also report
+`blocked`, so an agent started with `hc run` shows that it is waiting for a person
+instead of reporting no status. Once answered, the record is withdrawn until the
+prompt reports `idle`.
+
+Uncaught turn failures, exhausted-retry system errors, assistant `ERROR`/`TIMEOUT`
+stop reasons, and nonzero direct-shell exits report `error`. The error remains while
+waiting at the next prompt, including metadata/cost refreshes, and the next operation
+clears it. Ctrl+C and task cancellation return to `idle`; conventional interrupt or
+termination statuses (130, 143, -2 and -15) are treated as cancellation. A failed
+individual tool call does not fail an agent turn that continues running. Token/iteration
+limits and safety stops are not automatically classified as execution errors.
+
+`hc wait` returns on either failure or completion; inspect its `status` rather than
+assuming a returned wait means success. The old Herdr socket protocol has no error
+state and retains its previous idle behavior; the richer status travels over OSC 7501.
+
+### Typing ahead and messages sent while working
+
+While a turn is running, fast-agent holds terminal input instead of echoing it into
+the output. Submitted text is queued in arrival order, using the active prompt mode:
+Enter submits in normal mode; in multiline mode (Ctrl+T), Enter inserts a newline
+and Ctrl+J submits. Plain messages are consumed at the next tool-loop
+continuation, after the complete tool batch and before the next model call.
+This lets the agent read a worker report after `hc wait` returns, without first
+finishing its answer. Consumed messages remain part of the current conversation
+turn and are not replayed into the next prompt.
+
+Commands (`/`, `!`, `@`, `#`), resource/attachment mentions and pasted image paths
+stay on the normal prompt path after the turn ends. Later messages cannot overtake
+these deferred inputs. Text without the active submit key remains a draft. Messages
+arriving after the last continuation boundary become the next turn; `hc wait` returning
+`reason: message` does not guarantee that all message bytes have arrived yet.
+
+`hc send` pastes text and presses Enter, so it assumes normal input mode. With
+multiline mode enabled, its message remains a draft. Multiline message content
+still works in normal mode through paste or Ctrl+J newlines followed by Enter.
+
+While input is held, only the count (`⧗ 1 queued`) appears in the live streaming
+header or progress display and the OSC 7501 status message. Submitted input
+remaining at turn completion keeps the status working through the prompt handoff;
+an unfinished draft does not. Consumed messages appear before the next model response.
+
+Press ++escape++ (or Ctrl+C) to cancel the current turn; `hc interrupt` sends
+Escape. Messages already queued are still sent after the cancellation. Forms such as
+elicitation receive input normally while they are open.
+
+This applies to interactive POSIX terminals. To keep the previous behavior, set:
+
+```bash
+export FAST_AGENT_DISABLE_TURN_INPUT=1
+```
+
+During a terminal's first 10 seconds, `hc 0.1.17` requires 800 ms of quiet output
+before sending, waiting at most 5 seconds per attempt. Continuous progress redraws
+can therefore cause “still starting: its output has not settled” even after the
+agent has accepted an earlier turn. This startup check happens before input reaches
+fast-agent and is bypassed once the terminal is 10 seconds old; it is not a
+restriction on established sessions. `--quiet` avoids this startup interaction.
+See [hc's startup check](https://github.com/herdrdev/herdr-core/blob/v0.1.17/crates/herdr-core/src/input.rs#L215-L246).
+
+The opt-in real-terminal regression suite covers this separately from input queueing:
+
+```bash
+FAST_AGENT_TEST_HC=1 uv run pytest tests/integration/ui/test_hc_queued_input.py -v -rx
+```
+
+### Starting fast-agent with `hc`
+
+fast-agent does not take its first message as a positional argument
+(`hc run --bg fast-agent "task"` fails with an explanation). Either start it and
+send the task once it reports `idle`:
+
+```bash
+hc run --bg --name helper fast-agent
+hc wait helper
+hc send helper "Review src/x.py and report with hc send $HC_TERMINAL_ID"
+```
+
+or use an `hc` template (`~/.config/herdr-core/templates/<name>.md`) whose
+`command` starts fast-agent; `hc` waits for `idle` and sends the template body plus
+your task as the first message:
+
+```markdown
+---
+name: fa-reviewer
+description: fast-agent code reviewer
+command: fast-agent go --model sonnet
+---
+Review the requested files. Read-only.
+```
+
+`hc run` starts programs with herdr-core's environment, not your shell's: use an
+absolute path to run a development or virtual-environment build.
 
 ## Agent and Model Feature Toggles
 

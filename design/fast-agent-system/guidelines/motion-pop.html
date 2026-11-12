@@ -1,0 +1,15 @@
+<!-- @dsCard group="Motion" viewport="700x180" subtitle="Enter: scale .55 → 1, spin −26° → −8°, overshoot" name="Burst pop" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+body{margin:0;background:var(--ivory);color:var(--petrol);font-family:var(--font-read);-webkit-font-smoothing:antialiased;}
+.w{padding:20px 24px;box-sizing:border-box;min-height:180px;}
+.lab{font-size:11px;font-weight:800;letter-spacing:var(--track-label);text-transform:uppercase;}
+.voice{font-family:var(--font-voice);font-weight:900;font-variation-settings:var(--voice-settings);letter-spacing:var(--track-voice);}
+.pop{animation:fa-pop var(--dur-pop) var(--ease-pop) infinite alternate;animation-duration:1.6s;--tilt:-8deg}
+</style></head><body><div class="w">
+
+<div style="display:flex;align-items:center;gap:36px">
+<img src="../assets/burst-capsule-amber.svg" width="120" class="pop">
+<div style="font-size:13px;line-height:1.6"><b>--ease-pop</b> cubic-bezier(.34,1.56,.64,1) · 420ms<br>Plays once, when a score or release burst enters the viewport. It lands on the resting tilt.<br>Reduced motion: fade only.</div>
+</div>
+</div></body></html>

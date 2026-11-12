@@ -21,7 +21,7 @@ from fast_agent.config import Settings, get_settings, update_global_settings
 from fast_agent.constants import FAST_AGENT_RUNTIME_HOME
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
     from pathlib import Path
 
     from openai.types.chat import ChatCompletionToolParam
@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.exceptions import ModelConfigError
+from fast_agent.core.instruction_utils import build_agent_instruction_context
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import (
@@ -43,6 +44,7 @@ from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.types import RequestParams
 from fast_agent.ui.model_picker_common import build_snapshot
 
@@ -64,7 +66,7 @@ def _isolated_overlay_environment(
     home: Path | None,
     *,
     cleanup_base: Path,
-) -> Iterator[None]:
+) -> Generator[None]:
     env_keys = ("FAST_AGENT_HOME", "FAST_AGENT_HOME", FAST_AGENT_RUNTIME_HOME)
     previous = {key: os.environ.get(key) for key in env_keys}
 
@@ -198,6 +200,40 @@ metadata:
     assert overridden.process_poll_default_wait_seconds == 45
     assert overridden.model_params is not None
     assert overridden.model_params.process_poll_default_wait_seconds == 30
+
+
+@pytest.mark.asyncio
+async def test_overlay_sets_the_compaction_trigger(tmp_path: Path) -> None:
+    from fast_agent.config import CompactionSettings
+    from fast_agent.context import Context
+    from fast_agent.llm.compaction_support import CompactAt, resolve_compact_at
+
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "compact-at.yaml",
+        """
+name: compact-at
+provider: openresponses
+model: overlay-tests/Compact-At
+connection:
+  base_url: http://localhost:8080/v1
+  auth: none
+metadata:
+  context_window: 65536
+  max_output_tokens: 4096
+  compaction_trigger_tokens: 40000
+""".strip(),
+    )
+
+    triggers: list[CompactAt] = []
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        for spec in ("compact-at", "compact-at?compact_at=50%"):
+            agent = LlmAgent(AgentConfig(name="test"), context=Context(config=Settings()))
+            await agent.attach_llm(ModelFactory.create_factory(spec))
+            triggers.append(resolve_compact_at(agent.llm, CompactionSettings()))
+
+    assert triggers == [CompactAt(tokens=40_000), CompactAt(fraction=0.5)]
 
 
 def test_overlay_configures_shell_output_byte_limit(tmp_path: Path) -> None:
@@ -650,6 +686,31 @@ def test_overlay_serialization_preserves_reasoning_field() -> None:
     assert "reasoning_api" not in serialized
 
 
+def test_overlay_empty_model_specific_suppresses_catalog_prompt_text(tmp_path: Path) -> None:
+    """An explicit empty metadata.model_specific wins over the attached model's catalog text."""
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "quiet-opus.yaml",
+        """
+name: quiet-opus
+provider: copilot
+model: claude-opus-4-8
+metadata:
+  model_specific: ""
+""".strip(),
+    )
+    assert ModelDatabase.get_model_specific("copilot.claude-opus-4-8")
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        # The agent config names the catalog model; only the attached LLM carries the overlay.
+        agent = LlmAgent(AgentConfig(name="quiet", model="copilot.claude-opus-4-8"))
+        agent._llm = ModelFactory.create_factory("quiet-opus")(agent)
+        context = build_agent_instruction_context(agent)
+
+    assert context["model_specific"] == ""
+
+
 def test_overlay_presets_resolve_overlay_metadata_and_picker_entries(tmp_path: Path) -> None:
     home = tmp_path / ".fast-agent"
     _write_overlay(
@@ -751,6 +812,10 @@ defaults:
 
     assert default_llm.default_request_params.streaming_timeout == 45.5
     assert overridden_llm.default_request_params.streaming_timeout is None
+    for llm in (default_llm, overridden_llm):
+        llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value="high"))
+    assert default_llm.get_request_params().streaming_timeout == 45.5
+    assert overridden_llm.get_request_params().streaming_timeout is None
 
 
 def test_overlay_streaming_timeout_none_disables_enforcement(tmp_path: Path) -> None:
@@ -776,6 +841,8 @@ defaults:
         )
 
     assert llm.default_request_params.streaming_timeout is None
+    llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value="high"))
+    assert llm.get_request_params().streaming_timeout is None
 
 
 @pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), True, "soon"])
@@ -1308,3 +1375,42 @@ metadata:
     assert by_name["valid-numeric-strings"].manifest.defaults.temperature == 0.4
     assert by_name["valid-numeric-strings"].manifest.defaults.top_k == 20
     assert by_name["valid-numeric-strings"].manifest.metadata.context_window == 8192
+
+
+def test_astra_long_overlay_inherits_document_mime_without_changing_defaults(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "astra-long.yaml",
+        """
+name: astra-long
+provider: codexresponses
+model: gpt-6-astra
+defaults:
+  reasoning: low
+metadata:
+  context_window: 872000
+""".strip(),
+    )
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        resolved = ModelFactory.resolve_model_spec("astra-long")
+        assert resolved.source == "overlay"
+        assert resolved.provider is Provider.CODEX_RESPONSES
+        assert resolved.wire_model_name == "gpt-6-astra"
+        assert resolved.model_config.reasoning_effort is not None
+        assert resolved.model_config.reasoning_effort.value == "low"
+        assert resolved.context_window == 872_000
+        info = resolved.build_model_info()
+        assert info is not None
+        assert info.context_window == 872_000
+        assert resolved.model_params is not None
+        assert "application/pdf" in resolved.model_params.tokenizes
+
+        for alias in ("astra", "gpt-6-astra"):
+            builtin = ModelFactory.resolve_model_spec(alias)
+            assert builtin.context_window == 272_000
+            assert builtin.model_params is not None
+            assert resolved.model_params.tokenizes == builtin.model_params.tokenizes

@@ -537,18 +537,16 @@ def _read_parquet_records_with_python_duckdb(
     limit: int | None = None,
     sql: str | None = None,
 ) -> list[dict[str, Any]]:
-    try:
-        duckdb = importlib.import_module("duckdb")
-    except ImportError:
-        raise
+    duckdb = importlib.import_module("duckdb")
+    user_query = _normalize_user_sql(sql) if sql is not None else None
 
     connection = duckdb.connect()
     try:
         for statement in _duckdb_secret_statements():
             connection.execute(statement)
-        if sql is not None:
+        if user_query is not None:
             connection.execute(_parquet_view_query(sources))
-            relation = connection.sql(_normalize_user_sql(sql))
+            relation = connection.sql(user_query)
         else:
             relation = connection.sql(_parquet_query(sources, offset=offset, limit=limit))
         columns = tuple(column[0] for column in relation.description)
@@ -559,19 +557,13 @@ def _read_parquet_records_with_python_duckdb(
 
 
 def _count_parquet_records_with_python_duckdb(sources: list[str]) -> int:
-    try:
-        duckdb = importlib.import_module("duckdb")
-    except ImportError:
-        raise
-
+    duckdb = importlib.import_module("duckdb")
     connection = duckdb.connect()
     try:
         for statement in _duckdb_secret_statements():
             connection.execute(statement)
-        row = connection.sql(_parquet_count_query(sources)).fetchone()
-        if row is None:
-            return 0
-        return int(row[0])
+        [(count,)] = connection.execute(_parquet_count_query(sources)).fetchall()
+        return int(count)
     finally:
         connection.close()
 
@@ -619,6 +611,7 @@ def _run_duckdb_cli_json(
         input="\n".join([*setup, query + ";"]),
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=False,
     )
     if result.returncode != 0:
@@ -837,14 +830,9 @@ def _skip_sql_block_comment(query: str, index: int) -> int:
 
 
 def _duckdb_secret_statements() -> list[str]:
-    token = os.getenv("HF_TOKEN")
-    if not token:
-        try:
-            from huggingface_hub.utils import get_token
+    from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
 
-            token = get_token()
-        except Exception:
-            token = None
+    token = get_huggingface_hub_token()
     if not token:
         return []
     escaped = token.replace("'", "''")

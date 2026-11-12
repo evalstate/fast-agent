@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Final, cast
 
 from fast_agent.constants import REASONING
 from fast_agent.core.exceptions import ModelConfigError
+from fast_agent.llm.provider.openai.deepseek_images import prepare_deepseek_images
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.web_tools import (
     ResolvedOpenAIWebSearch,
@@ -23,10 +24,12 @@ if TYPE_CHECKING:
     from fast_agent.types import RequestParams
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
+DEFAULT_DEEPSEEK_MODEL = "deepseek-flash"
+# Intentionally stronger than the provider default of high.
 DEFAULT_DEEPSEEK_REASONING_EFFORT = "max"
 SUPPORTED_DEEPSEEK_MODELS: Final = (
     DEFAULT_DEEPSEEK_MODEL,
+    "deepseek-v4-flash",
     "deepseek-v4-flash-vision-exp",
     "deepseek-v4-pro",
 )
@@ -50,10 +53,14 @@ class DeepSeekResponsesLLM(ResponsesLLM):
             )
 
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
-        return self._initialize_default_params_with_model_fallback(
+        params = self._initialize_default_params_with_model_fallback(
             kwargs,
             DEFAULT_DEEPSEEK_MODEL,
         )
+        # Let the provider choose its output allowance rather than reserving the
+        # model's maximum output capacity against every request's context.
+        params.max_tokens = None
+        return params
 
     def _provider_config_fallback_sections(self) -> tuple[str, ...]:
         return ()
@@ -124,6 +131,7 @@ class DeepSeekResponsesLLM(ResponsesLLM):
         tools: list[Tool] | None,
     ) -> dict[str, Any]:
         args = super()._build_response_args(input_items, request_params, tools)
+        args["input"] = prepare_deepseek_images(args["input"], self.logger)
         # DeepSeek is stateless and silently ignores these OpenAI-only controls.
         for field in ("include", "parallel_tool_calls", "service_tier", "store"):
             args.pop(field, None)

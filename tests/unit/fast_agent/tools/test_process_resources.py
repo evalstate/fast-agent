@@ -76,6 +76,48 @@ def test_resource_observation_reports_large_disk_decline_once() -> None:
     assert repeated is None
 
 
+def test_shared_host_disk_with_ample_free_space_is_silent() -> None:
+    # HF sandboxes see a shared multi-terabyte host filesystem: under 20% free and
+    # gigabyte-scale swings from other tenants, yet hundreds of GiB available.
+    state = ProcessResourceObservationState()
+    observe_resource_changes(state, _snapshot(disk_total=1700 * GIB, disk_free=280 * GIB))
+
+    low_ratio = observe_resource_changes(
+        state,
+        _snapshot(sampled_at=2.0, disk_total=1700 * GIB, disk_free=272 * GIB, cpu=1.2),
+    )
+    large_decline = observe_resource_changes(
+        state,
+        _snapshot(sampled_at=3.0, disk_total=1700 * GIB, disk_free=250 * GIB, cpu=1.4),
+    )
+
+    assert low_ratio is None
+    assert large_decline is None
+    assert "disk" not in state.active_warnings
+
+
+def test_disk_pressure_below_ample_free_space_still_reports_and_recovers() -> None:
+    state = ProcessResourceObservationState()
+    observe_resource_changes(state, _snapshot(disk_total=1000 * GIB, disk_free=30 * GIB))
+
+    low = observe_resource_changes(
+        state,
+        _snapshot(sampled_at=2.0, disk_total=1000 * GIB, disk_free=15 * GIB, cpu=1.2),
+    )
+    recovered = observe_resource_changes(
+        state,
+        _snapshot(sampled_at=3.0, disk_total=1000 * GIB, disk_free=25 * GIB, cpu=1.4),
+    )
+    low_again = observe_resource_changes(
+        state,
+        _snapshot(sampled_at=4.0, disk_total=1000 * GIB, disk_free=15 * GIB, cpu=1.6),
+    )
+
+    assert low is not None and "disk free 15.0 GiB/1000.0 GiB (2%" in low
+    assert recovered is None
+    assert low_again is not None and "disk free 15.0 GiB/1000.0 GiB" in low_again
+
+
 def test_resource_observation_reports_pressure_and_high_cpu() -> None:
     state = ProcessResourceObservationState()
     observe_resource_changes(state, _snapshot())

@@ -40,7 +40,7 @@ def load_template_text(filename: str) -> str:
     res_name = _template_resource_name(filename)
     resource_path = files("fast_agent").joinpath("resources").joinpath("setup").joinpath(res_name)
     if resource_path.is_file():
-        return resource_path.read_text()
+        return resource_path.read_text(encoding="utf-8")
 
     raise RuntimeError(
         f"Setup template missing: '{filename}'.\n"

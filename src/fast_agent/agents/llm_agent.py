@@ -10,11 +10,10 @@ This class extends LlmDecorator with LLM-specific interaction behaviors includin
 
 import json
 import os
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
-from a2a.types import AgentCapabilities
 from mcp import Tool
 from mcp_types import ContentBlock
 from rich.text import Text
@@ -59,6 +58,7 @@ from fast_agent.ui.message_display_helpers import (
     tool_use_requests_process_poll,
     tool_use_requests_shell_access,
 )
+from fast_agent.ui.streaming import StreamContextBaseline
 from fast_agent.utils.count_display import format_count
 from fast_agent.utils.type_narrowing import is_str_object_dict
 from fast_agent.workflow_telemetry import (
@@ -74,7 +74,6 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-DEFAULT_CAPABILITIES = AgentCapabilities(streaming=False, push_notifications=False)
 STOP_REASON_ADDITIONAL_MESSAGES: tuple[tuple[LlmStopReason, str, str], ...] = (
     (
         LlmStopReason.MAX_TOKENS,
@@ -212,7 +211,7 @@ class LlmAgent(LlmDecorator):
         self._last_turn_history_state = None
 
     @contextmanager
-    def _turn_indicator_scope(self) -> Iterator[None]:
+    def _turn_indicator_scope(self) -> Generator[None]:
         if self._turn_indicator_scope_depth == 0:
             self._websocket_turn_indicators.clear()
         self._turn_indicator_scope_depth += 1
@@ -222,7 +221,7 @@ class LlmAgent(LlmDecorator):
             self._turn_indicator_scope_depth -= 1
 
     @contextmanager
-    def defer_hook_status_messages(self, bucket: str = "default") -> Iterator[None]:
+    def defer_hook_status_messages(self, bucket: str = "default") -> Generator[None]:
         """Buffer hook status lines until the current hook boundary finishes."""
         self._deferred_hook_status_bucket_stack.append(bucket)
         try:
@@ -371,7 +370,7 @@ class LlmAgent(LlmDecorator):
     ) -> list[Text]:
         segments: list[Text] = []
         stop_reason = message.stop_reason
-        if stop_reason in (None, LlmStopReason.END_TURN):
+        if stop_reason in (None, LlmStopReason.END_TURN, LlmStopReason.CONTINUE):
             return segments
         if stop_reason == LlmStopReason.TOOL_USE:
             tool_use_message = build_tool_use_additional_message(
@@ -538,6 +537,15 @@ class LlmAgent(LlmDecorator):
                 display_model = f"{display_model} ({context_label})"
 
         return display_model
+
+    def _stream_context_baseline(self) -> StreamContextBaseline | None:
+        usage = self.usage_accumulator
+        if usage is None:
+            return None
+        tokens, window = usage.current_context_tokens, usage.context_window_size
+        if tokens is None or not window:
+            return None
+        return StreamContextBaseline(tokens=tokens, window=window)
 
     def _resolve_websocket_turn_indicator(
         self,
@@ -841,7 +849,7 @@ class LlmAgent(LlmDecorator):
         *,
         request_params: RequestParams | None,
     ) -> None:
-        if messages[-1].role != "user":
+        if not messages or messages[-1].role != "user":
             return
 
         trailing_users: list[PromptMessageExtended] = []
@@ -891,6 +899,7 @@ class LlmAgent(LlmDecorator):
                 name=display_name,
                 model=display_model,
                 tool_metadata_resolver=self.resolve_stream_tool_metadata,
+                context_baseline=self._stream_context_baseline(),
             ) as stream_handle:
                 self._active_stream_handle = stream_handle
                 write_interactive_trace(

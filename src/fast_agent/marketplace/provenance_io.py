@@ -253,6 +253,28 @@ def normalize_relative_repo_path(path: str, *, allow_current_dir: bool = False) 
     return normalized
 
 
+def normalize_install_dir_name(name: str) -> str | None:
+    raw = name.replace("\\", "/")
+    if not raw or "\0" in raw or re.match(r"^[A-Za-z]:", raw):
+        return None
+    posix_path = PurePosixPath(raw)
+    if posix_path.is_absolute() or raw != posix_path.name or posix_path.name in {".", ".."}:
+        return None
+    return name
+
+
+def resolve_managed_install_dir(destination_root: Path, name: str) -> Path:
+    install_dir_name = normalize_install_dir_name(name)
+    if install_dir_name is None:
+        raise ValueError(f"Invalid marketplace install directory name: {name!r}")
+
+    destination_root = destination_root.resolve()
+    install_dir = (destination_root / install_dir_name).resolve()
+    if install_dir.parent != destination_root:
+        raise ValueError("Marketplace install path is outside of the managed directory.")
+    return install_dir
+
+
 def repo_subdir_for_manifest_path(repo_path: str, manifest_filename: str) -> str:
     path_value = (
         normalize_relative_repo_path(repo_path, allow_current_dir=True) or repo_path.strip()

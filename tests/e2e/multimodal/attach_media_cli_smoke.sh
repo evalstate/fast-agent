@@ -2,7 +2,7 @@
 set -euo pipefail
 
 KEEP_TMP="${KEEP_TMP:-0}"
-MODELS="${MODELS:-gpt-5.5 opus kimi gemini31pro}"
+MODELS="${MODELS:-gpt-5.5 astra opus kimi gemini31pro}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
@@ -32,7 +32,7 @@ for MODEL in $MODELS; do
     gemini*|google.gemini*)
       SCENARIOS="image pdf youtube"
       ;;
-    gpt-*|responses.*|openai.*|opus|opus*|claude-*|anthropic.*)
+    astra|astra\?*|gpt6astra|gpt6astra\?*|codexresponses.gpt-6-astra*|gpt-*|responses.*|openai.*|opus|opus*|claude-*|anthropic.*)
       SCENARIOS="image pdf"
       ;;
   esac
@@ -81,7 +81,8 @@ EOF
     echo "[attach-media-cli] prompt-file: $PROMPT_PATH"
     (
       cd "$REPO_ROOT"
-      FAST_AGENT_LLM_TRACE=1 "$PYTHON_BIN" -m fast_agent.cli go \
+      # Assert attachment receipts, even when the default compact UI hides result bodies.
+      LOGGER__TOOL_DISPLAY__RESULTS=all FAST_AGENT_LLM_TRACE=1 "$PYTHON_BIN" -m fast_agent.cli go \
         --no-home \
         -x \
         --model "$MODEL" \

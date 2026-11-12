@@ -39,8 +39,8 @@ from a2a.types import (
     TaskState,
     TaskStatus,
 )
-from fastapi import FastAPI
 from google.protobuf.json_format import ParseDict
+from starlette.applications import Starlette
 
 if TYPE_CHECKING:
     from a2a.server.agent_execution.context import RequestContext
@@ -216,7 +216,7 @@ class FakeAgentExecutor(AgentExecutor):
             return
 
 
-def build_app(host: str, port: int) -> FastAPI:
+def build_app(host: str, port: int) -> Starlette:
     base_url = f"http://{host}:{port}"
     card = AgentCard(
         name="fast-agent fake A2A server",
@@ -255,7 +255,7 @@ def build_app(host: str, port: int) -> FastAPI:
         task_store=InMemoryTaskStore(),
         agent_card=card,
     )
-    app = FastAPI()
+    app = Starlette()
     app.routes.extend(create_agent_card_routes(agent_card=card))
     app.routes.extend(
         create_jsonrpc_routes(request_handler=request_handler, rpc_url="/a2a/jsonrpc")

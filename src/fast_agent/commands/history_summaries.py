@@ -5,15 +5,17 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import TYPE_CHECKING
 
 from fast_agent.commands.summary_utils import json_object
 from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_TOOL_TIMING, FAST_AGENT_USAGE
 from fast_agent.history.tool_activities import message_tool_call_count, message_tool_error_count
+from fast_agent.history.turns import is_user_prompt, user_turn_starts
 from fast_agent.llm.usage_tracking import UsageReport
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types.conversation_summary import ConversationSummary
-from fast_agent.utils.numeric import nonnegative_int_or_none, nonnegative_number_or_none
+from fast_agent.utils.numeric import nonnegative_number_or_none
 from fast_agent.utils.text import collapse_whitespace
 
 if TYPE_CHECKING:
@@ -90,19 +92,8 @@ class HistoryTurn:
     messages: list["PromptMessageExtended"]
 
     @property
-    def first_message(self) -> "PromptMessageExtended | None":
-        return self.messages[0] if self.messages else None
-
-    @property
-    def first_user_message(self) -> "PromptMessageExtended | None":
-        first = self.first_message
-        if first is None or first.role != "user" or first.tool_results:
-            return None
-        return first
-
-    @property
-    def is_user_turn(self) -> bool:
-        return self.first_user_message is not None
+    def prompt(self) -> "PromptMessageExtended":
+        return self.messages[0]
 
 
 @dataclass(slots=True)
@@ -115,6 +106,8 @@ class _TurnMetricAccumulator:
     saw_tool_time: bool = False
     output_tokens: int = 0
     saw_output_tokens: bool = False
+    timed_output_tokens: int = 0
+    generation_time_ms: float = 0.0
     ttft_ms: float | None = None
     response_ms: float | None = None
     first_start: float | None = None
@@ -135,10 +128,6 @@ class _ReportMetricAccumulator:
     known_tps: list[float] = field(default_factory=list)
 
 
-def _extract_message_text(message: "PromptMessageExtended") -> str:
-    return message.all_text()
-
-
 def _preview_text(value: str | None, *, limit: int = 60) -> str:
     normalized = collapse_whitespace(value)
     if not normalized:
@@ -151,10 +140,6 @@ def _preview_text(value: str | None, *, limit: int = 60) -> str:
 def _coerce_float(value: object) -> float | None:
     numeric_value = nonnegative_number_or_none(value)
     return float(numeric_value) if numeric_value is not None else None
-
-
-def _coerce_int(value: object) -> int | None:
-    return nonnegative_int_or_none(value)
 
 
 def _json_object_or_none(value: object) -> JsonObject | None:
@@ -298,45 +283,15 @@ def extract_message_response_ms(message: "PromptMessageExtended") -> float | Non
     )
 
 
-def _is_user_turn_start(message: "PromptMessageExtended") -> bool:
-    return message.role == "user" and not message.tool_results
-
-
-def group_history_turns(
-    messages: list["PromptMessageExtended"],
-) -> list[HistoryTurn]:
-    turns: list[HistoryTurn] = []
-    current: list[PromptMessageExtended] = []
-    current_start = 0
-    saw_assistant = False
-
-    for idx, message in enumerate(messages):
-        if _is_user_turn_start(message):
-            if saw_assistant:
-                turns.append(HistoryTurn(start_index=current_start, messages=current))
-                current = []
-
-            if not current:
-                current_start = idx
-                saw_assistant = False
-            current.append(message)
-            continue
-
-        if not current:
-            continue
-
-        current.append(message)
-        saw_assistant = saw_assistant or message.role == "assistant"
-
-    if current:
-        turns.append(HistoryTurn(start_index=current_start, messages=current))
-    return turns
-
-
 def collect_user_turns(
     messages: list["PromptMessageExtended"],
 ) -> list[HistoryTurn]:
-    return [turn for turn in group_history_turns(messages) if turn.is_user_turn]
+    """Group history into user turns; messages before the first prompt are not a turn."""
+    bounds = [*user_turn_starts(messages), len(messages)]
+    return [
+        HistoryTurn(start_index=start, messages=messages[start:end])
+        for start, end in pairwise(bounds)
+    ]
 
 
 def _summarize_turn_messages(
@@ -346,8 +301,8 @@ def _summarize_turn_messages(
     assistant_parts: list[str] = []
 
     for message in turn:
-        text = _extract_message_text(message)
-        if message.role == "user" and not message.tool_results:
+        text = message.all_text()
+        if is_user_prompt(message):
             normalized = collapse_whitespace(text)
             if normalized:
                 user_parts.append(normalized)
@@ -368,17 +323,11 @@ def _calculate_tokens_per_second(
     *,
     output_tokens: int | None,
     llm_time_ms: float | None,
-    response_ms: float | None,
 ) -> float | None:
     if output_tokens is None or output_tokens <= 0 or llm_time_ms is None or llm_time_ms <= 0:
         return None
 
-    effective_ms = llm_time_ms
-    if response_ms is not None and 0 < response_ms < llm_time_ms:
-        effective_ms = llm_time_ms - response_ms
-    if effective_ms <= 0:
-        return None
-    return output_tokens / (effective_ms / 1000.0)
+    return output_tokens / (llm_time_ms / 1000.0)
 
 
 def _record_message_tool_metrics(
@@ -431,8 +380,18 @@ def _record_message_assistant_metrics(
         metrics.output_tokens += output_tokens
         metrics.saw_output_tokens = True
 
+    ttft_ms = extract_message_ttft_ms(message)
+    if output_tokens is not None and duration_ms is not None and duration_ms > 0:
+        # Completion totals include reasoning: subtract first activity, not the
+        # first visible response. Match tokens and timing per call before summing.
+        generation_ms = duration_ms
+        if ttft_ms is not None and 0 < ttft_ms < duration_ms:
+            generation_ms -= ttft_ms
+        metrics.timed_output_tokens += output_tokens
+        metrics.generation_time_ms += generation_ms
+
     if metrics.ttft_ms is None:
-        metrics.ttft_ms = extract_message_ttft_ms(message)
+        metrics.ttft_ms = ttft_ms
     if metrics.response_ms is None:
         metrics.response_ms = extract_message_response_ms(message)
 
@@ -484,9 +443,8 @@ def _build_turn_summary(
         tool_time_ms=tool_time_value,
     )
     tps = _calculate_tokens_per_second(
-        output_tokens=output_tokens_value,
-        llm_time_ms=llm_time_value,
-        response_ms=metrics.response_ms,
+        output_tokens=metrics.timed_output_tokens,
+        llm_time_ms=metrics.generation_time_ms,
     )
 
     return (
@@ -576,7 +534,7 @@ def build_history_overview(
         recent_messages.extend(
             HistoryMessageSnippet(
                 role=str(message.role),
-                snippet=_preview_text(_extract_message_text(message)),
+                snippet=_preview_text(message.all_text()),
             )
             for message in messages[-recent_count:]
         )

@@ -1,11 +1,13 @@
 import httpx2
+import pytest
 from anthropic import BadRequestError as AnthropicBadRequestError
 from anthropic import RequestTooLargeError as AnthropicRequestTooLargeError
 from openai import APIError as OpenAIAPIError
 from openai import BadRequestError as OpenAIBadRequestError
 
-from fast_agent.core.exceptions import ProviderKeyError
+from fast_agent.core.exceptions import ModelConfigError, ProviderKeyError
 from fast_agent.llm.fastagent_llm import FastAgentLLM
+from fast_agent.llm.provider.openai.responses_websocket import ResponsesWebSocketError
 
 
 def test_provider_key_errors_with_retryable_terms_are_not_fatal() -> None:
@@ -16,6 +18,12 @@ def test_provider_key_errors_with_retryable_terms_are_not_fatal() -> None:
 
 def test_provider_key_errors_without_retryable_terms_are_fatal() -> None:
     error = ProviderKeyError("Missing API key")
+
+    assert FastAgentLLM._is_fatal_retry_error(error) is True
+
+
+def test_model_config_errors_are_fatal() -> None:
+    error = ModelConfigError("Set model directly in metadata, not extra_body")
 
     assert FastAgentLLM._is_fatal_retry_error(error) is True
 
@@ -56,7 +64,7 @@ def test_openai_api_error_with_non_string_code_is_not_fatal() -> None:
         body={"code": 429},
     )
 
-    assert error.code == 429
+    # The SDK may normalize numeric response codes; classification must remain retryable.
     assert FastAgentLLM._is_fatal_retry_error(error) is False
 
 
@@ -95,3 +103,55 @@ def test_openai_api_error_subclass_outside_sdk_module_is_classified() -> None:
     )
 
     assert FastAgentLLM._is_fatal_retry_error(error) is True
+
+
+@pytest.mark.parametrize(
+    ("code", "status"),
+    [("model_not_supported", None), ("context_length_exceeded", None), (None, 400)],
+)
+def test_websocket_request_errors_are_fatal(code: str | None, status: int | None) -> None:
+    error = ResponsesWebSocketError("Request rejected", error_code=code, status=status)
+
+    assert FastAgentLLM._is_fatal_retry_error(error) is True
+
+
+@pytest.mark.parametrize("status", [None, 429, 500, 503])
+def test_websocket_transient_errors_remain_retryable(status: int | None) -> None:
+    error = ResponsesWebSocketError("Temporarily unavailable", status=status)
+
+    assert FastAgentLLM._is_fatal_retry_error(error) is False
+
+
+def test_openai_unsupported_model_is_fatal() -> None:
+    error = OpenAIAPIError(
+        "The requested model is not supported.",
+        httpx2.Request("POST", "https://api.openai.com/v1/responses"),
+        body={"code": "model_not_supported"},
+    )
+
+    assert FastAgentLLM._is_fatal_retry_error(error) is True
+
+
+@pytest.mark.parametrize(
+    ("status", "too_large"), [(413, True), (400, False), (429, False), (None, False)]
+)
+def test_request_too_large_is_recognised_from_its_status(
+    status: int | None, too_large: bool
+) -> None:
+    assert (
+        FastAgentLLM._is_request_too_large(ResponsesWebSocketError("rejected", status=status))
+        is too_large
+    )
+
+
+def test_request_too_large_is_not_fatal() -> None:
+    """413 skips retries but keeps the provider's error response (not a raise)."""
+    from openai import APIStatusError
+
+    request = httpx2.Request("POST", "https://router.huggingface.co/v1/chat/completions")
+    error = APIStatusError(
+        "Error code: 413", response=httpx2.Response(413, request=request), body=None
+    )
+
+    assert FastAgentLLM._is_request_too_large(error) is True
+    assert FastAgentLLM._is_fatal_retry_error(error) is False

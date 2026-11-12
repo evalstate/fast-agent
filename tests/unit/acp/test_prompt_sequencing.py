@@ -235,7 +235,9 @@ async def test_prompt_message_id_is_acknowledged_in_response_without_user_echo()
     )
 
     assert response.stop_reason == "end_turn"
-    assert response.user_message_id == message_id
+    assert response.field_meta is not None
+    assert response.field_meta["user_message_id"] == message_id
+    assert response.model_dump(by_alias=True)["_meta"]["user_message_id"] == message_id
 
     assert len(connection.notifications) == 1
     agent_update = connection.notifications[0]["update"]

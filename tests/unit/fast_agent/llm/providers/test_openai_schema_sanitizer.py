@@ -1,9 +1,11 @@
 from copy import deepcopy
 
+import pytest
 from openai.lib._pydantic import _ensure_strict_json_schema, to_strict_json_schema
 from pydantic import BaseModel
 
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.schema_sanitizer import (
     sanitize_response_format_schema,
     sanitize_tool_input_schema,
@@ -82,7 +84,10 @@ def test_sanitize_response_format_schema_matches_openai_sdk_strictifier() -> Non
     assert schema["required"] == ["name", "tags"]
 
 
-def test_openai_response_format_uses_strict_schema_for_raw_structured_schema() -> None:
+@pytest.mark.parametrize("llm_type", [OpenAILLM, ResponsesLLM])
+def test_openai_response_format_uses_strict_schema_for_raw_structured_schema(
+    llm_type: type[OpenAILLM] | type[ResponsesLLM],
+) -> None:
     schema = {
         "type": "object",
         "properties": {
@@ -95,8 +100,9 @@ def test_openai_response_format_uses_strict_schema_for_raw_structured_schema() -
         "required": ["value"],
     }
 
-    llm = OpenAILLM(Provider.OPENAI, model="gpt-5-mini")
+    llm = llm_type(model="gpt-5-mini")
     response_format = llm.schema_to_response_format(schema)
+    assert response_format == llm_type.schema_to_response_format(schema)
     strict_schema = response_format["json_schema"]["schema"]
 
     assert strict_schema["required"] == ["value", "context"]
@@ -148,3 +154,20 @@ def test_adjust_schema_strips_defaults_for_kimi25_variants() -> None:
     seed_schema = adjusted["properties"]["seed"]
     assert "default" not in seed_schema
     assert seed_schema["type"] == "integer"
+
+
+@pytest.mark.parametrize("llm_type", [OpenAILLM, ResponsesLLM])
+def test_non_strict_response_format_preserves_schema_and_name(
+    llm_type: type[OpenAILLM] | type[ResponsesLLM],
+) -> None:
+    schema = StructuredSample.model_json_schema()
+    original = deepcopy(schema)
+
+    response_format = llm_type.schema_to_response_format(schema, name="sample", strict=False)
+
+    assert response_format["json_schema"] == {
+        "name": "sample",
+        "strict": False,
+        "schema": original,
+    }
+    assert schema == original

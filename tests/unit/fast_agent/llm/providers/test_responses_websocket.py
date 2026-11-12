@@ -7,8 +7,10 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pytest
+import pytest_asyncio
 from aiohttp import WSMsgType
 from mcp_types import CallToolResult, TextContent
+from openai import omit
 from openai.types.beta.beta_responses_server_event import (
     BetaResponseWsError,
     BetaResponseWsErrorError,
@@ -16,14 +18,18 @@ from openai.types.beta.beta_responses_server_event import (
 from websockets.exceptions import ConnectionClosedError
 from websockets.frames import Close
 
+from fast_agent.config import Settings
 from fast_agent.constants import (
     FAST_AGENT_ERROR_CHANNEL,
     FAST_AGENT_RETRY,
-    FAST_AGENT_SAFETY_DETAILS,
 )
-from fast_agent.core.exceptions import ProviderSafetyBufferingError
+from fast_agent.context import Context
+from fast_agent.core.exceptions import ModelConfigError
+from fast_agent.core.logging.events import EventFilter
+from fast_agent.core.logging.transport import AsyncEventBus, FileTransport
 from fast_agent.llm.provider.openai.codex_responses import (
     CODEX_RESPONSES_LITE_HEADER,
+    CODEX_RESPONSES_LITE_WS_METADATA_KEY,
     CODEX_ROUTING_HINT_HEADER,
     CodexResponsesLLM,
 )
@@ -51,6 +57,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
 from fast_agent.llm.provider.openai.streaming_utils import (
     validate_incomplete_tool_entries,
 )
+from fast_agent.llm.provider.openai.xai_responses import XAIResponsesLLM
 from fast_agent.llm.provider.streaming_timeouts import (
     StreamIdleTimeoutError,
     StreamTiming,
@@ -64,6 +71,9 @@ from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types import LlmStopReason
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+    from pathlib import Path
+
     from mcp import Tool
 
     from fast_agent.core.logging.logger import Logger
@@ -215,8 +225,9 @@ class _FakeResponsesClient:
         del exc_type, exc, tb
 
 
-class _ReleaseTrackingConnectionManager:
+class _ReleaseTrackingConnectionManager(WebSocketConnectionManager):
     def __init__(self, connection: ManagedWebSocketConnection) -> None:
+        super().__init__()
         self.connection = connection
         self.release_keep_values: list[bool] = []
 
@@ -242,8 +253,9 @@ class _ReleaseTrackingConnectionManager:
         self.release_keep_values.append(keep)
 
 
-class _SequenceConnectionManager:
+class _SequenceConnectionManager(WebSocketConnectionManager):
     def __init__(self, connections: list[ManagedWebSocketConnection]) -> None:
+        super().__init__()
         self._connections = connections
         self.acquire_calls = 0
         self.release_keep_values: list[bool] = []
@@ -1479,7 +1491,7 @@ class _TimeoutLifecycleHarness(_ConnectionLifecycleHarness):
 
 
 class _SafetyBufferingLifecycleHarness(_ConnectionLifecycleHarness):
-    def __init__(self) -> None:
+    def __init__(self, *, refusal: bool = False) -> None:
         super().__init__()
         websocket = _FakeWebSocket(
             messages=[
@@ -1496,7 +1508,39 @@ class _SafetyBufferingLifecycleHarness(_ConnectionLifecycleHarness):
                             },
                         }
                     ),
-                )
+                ),
+                SimpleNamespace(
+                    type=WSMsgType.TEXT,
+                    data=json.dumps(
+                        {
+                            "type": "response.completed",
+                            "response": {
+                                "id": "resp_1",
+                                "status": "completed",
+                                "output": [
+                                    {
+                                        "type": "message",
+                                        "id": "msg_1",
+                                        "role": "assistant",
+                                        "status": "completed",
+                                        "content": [
+                                            {
+                                                "type": "refusal",
+                                                "refusal": "I cannot help with that.",
+                                            }
+                                            if refusal
+                                            else {
+                                                "type": "output_text",
+                                                "text": "hello world",
+                                                "annotations": [],
+                                            }
+                                        ],
+                                    }
+                                ],
+                            },
+                        }
+                    ),
+                ),
             ]
         )
         connection = ManagedWebSocketConnection(session=_FakeSession(), websocket=websocket)
@@ -1592,6 +1636,10 @@ class _ContinuationConnectionLifecycleHarness(CodexResponsesLLM):
 
 
 class _CodexRoutingContextHarness(_ContinuationConnectionLifecycleHarness):
+    def __init__(self) -> None:
+        super().__init__()
+        self._responses_lite = True
+
     def _build_response_args(
         self,
         input_items: list[dict[str, Any]],
@@ -1627,8 +1675,9 @@ class _TimeoutContinuationConnectionLifecycleHarness(_ContinuationConnectionLife
         return await super()._process_stream(stream, model, capture_filename)
 
 
-class _PlannedAcquireConnectionManager:
+class _PlannedAcquireConnectionManager(WebSocketConnectionManager):
     def __init__(self, planned_connections: list[tuple[ManagedWebSocketConnection, bool]]) -> None:
+        super().__init__()
         self._planned_connections = planned_connections
         self.release_keep_values: list[bool] = []
 
@@ -1714,6 +1763,35 @@ async def test_codex_websocket_context_includes_per_request_routing_headers(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "extra_body", [None, {"client_metadata": {"custom": "value"}, "temperature": omit}]
+)
+async def test_websocket_normalizes_sdk_body_before_provider_metadata(
+    extra_body: dict[str, Any] | None,
+) -> None:
+    harness = _CodexRoutingContextHarness()
+    context = await harness._responses_ws_context(
+        input_items=_ws_input_items("hello"),
+        request_params=RequestParams(
+            model="gpt-5.6-luna",
+            metadata={"temperature": 0.2, "extra_body": extra_body},
+        ),
+        tools=None,
+        model_name="gpt-5.6-luna",
+    )
+    socket = _FakeWebSocket()
+    await send_response_request(socket, harness._new_ws_request_planner().plan(context.arguments))
+    body = json.loads(socket.sent_payloads[0])
+    assert "extra_body" not in body
+    assert body["client_metadata"][CODEX_RESPONSES_LITE_WS_METADATA_KEY] == "true"
+    if extra_body is None:
+        assert body["temperature"] == 0.2
+    else:
+        assert "temperature" not in body
+        assert body["client_metadata"]["custom"] == "value"
+
+
+@pytest.mark.asyncio
 async def test_websocket_completion_ws_uses_create_on_first_turn() -> None:
     harness = _ContinuationConnectionLifecycleHarness()
     params = RequestParams(model="gpt-5.3-codex")
@@ -1767,7 +1845,7 @@ async def test_websocket_completion_ws_records_phase_diagnostics() -> None:
 def test_successful_sse_stream_timing_is_attached_to_diagnostics_channel() -> None:
     harness = _TransportHarness(name="transport-harness", transport="sse")
     harness._last_transport_used = "sse"
-    harness._record_successful_stream_timing(
+    harness._record_stream_outcome(
         StreamTiming(
             events_received=3,
             first_event_wait_seconds=1.25,
@@ -1775,7 +1853,9 @@ def test_successful_sse_stream_timing_is_attached_to_diagnostics_channel() -> No
             inter_event_waits_over_threshold=0,
             timed_out_wait_seconds=None,
         ),
+        error=None,
         model="gpt-5.3-codex",
+        timeout_seconds=150.0,
         transport="sse",
     )
 
@@ -1807,18 +1887,25 @@ def test_successful_stream_warns_once_for_exceptional_inter_event_gap() -> None:
         timed_out_wait_seconds=None,
     )
 
-    harness._record_successful_stream_timing(
+    harness._record_stream_outcome(
         timing,
+        error=None,
         model="gpt-5.3-codex",
+        timeout_seconds=150.0,
         transport="websocket",
     )
 
     assert harness._capturing_logger.warning_messages == [
-        "Responses stream observed extended inter-event gap"
+        "Provider stream observed extended inter-event gap"
     ]
     assert harness._capturing_logger.warning_data == [
         {
             "model": "gpt-5.3-codex",
+            "phase": "stream",
+            "timeout_seconds": 150.0,
+            "call": 0,
+            "attempt": 1,
+            "max_attempts": 1,
             "transport": "websocket",
             "stream_timing": {
                 "events_received": 4,
@@ -1834,7 +1921,7 @@ def test_successful_stream_warns_once_for_exceptional_inter_event_gap() -> None:
 def test_slow_first_event_does_not_trigger_inter_event_gap_warning() -> None:
     harness = _ConnectionLifecycleHarness()
 
-    harness._record_successful_stream_timing(
+    harness._record_stream_outcome(
         StreamTiming(
             events_received=2,
             first_event_wait_seconds=35.0,
@@ -1842,7 +1929,9 @@ def test_slow_first_event_does_not_trigger_inter_event_gap_warning() -> None:
             inter_event_waits_over_threshold=0,
             timed_out_wait_seconds=None,
         ),
+        error=None,
         model="gpt-5.3-codex",
+        timeout_seconds=150.0,
         transport="websocket",
     )
 
@@ -2355,7 +2444,9 @@ async def test_websocket_streaming_timeout_releases_reusable_connection() -> Non
         )
 
     assert harness._release_manager.release_keep_values == [False]
-    timeout_data = harness._capturing_logger.error_data[-1]
+    timeout_data = harness._capturing_logger.error_data[
+        harness._capturing_logger.error_messages.index("Provider stream attempt failed")
+    ]
     assert timeout_data is not None
     assert timeout_data["transport"] == "websocket"
     assert timeout_data["stream_timing"]["events_received"] == 0
@@ -2364,50 +2455,35 @@ async def test_websocket_streaming_timeout_releases_reusable_connection() -> Non
 
 
 @pytest.mark.asyncio
-async def test_websocket_safety_buffering_stops_without_reconnect_or_wrapping() -> None:
-    harness = _SafetyBufferingLifecycleHarness()
+@pytest.mark.parametrize("refusal", [False, True])
+async def test_websocket_safety_buffering_continues_without_reconnect(refusal: bool) -> None:
+    harness = _SafetyBufferingLifecycleHarness(refusal=refusal)
     params = RequestParams(model="gpt-5.3-codex")
 
-    with pytest.raises(ProviderSafetyBufferingError) as exc_info:
-        await harness._responses_completion_ws(
-            input_items=_ws_input_items("hello"),
-            request_params=params,
-            tools=None,
-            model_name="gpt-5.3-codex",
-        )
-
-    assert exc_info.value.retry_model == "gpt-5.3-codex-spark"
-    assert harness._sequence_manager.acquire_calls == 1
-    assert len(harness.websocket.sent_payloads) == 1
-    assert harness._sequence_manager.release_keep_values == [False]
-
-
-@pytest.mark.asyncio
-async def test_safety_buffering_during_empty_response_retry_is_terminal() -> None:
-    harness = _TransportHarness(name="transport-harness", transport="sse")
-    harness.sse_errors = [None, ProviderSafetyBufferingError("gpt-test", "gpt-test-fast")]
-    harness.sse_texts = [None]
-
-    response = await harness._responses_completion(
+    chunks: list[Any] = []
+    harness.add_stream_listener(chunks.append)
+    response, _, _ = await harness._responses_completion_ws(
         input_items=_ws_input_items("hello"),
-        request_params=RequestParams(model="gpt-test"),
+        request_params=params,
+        tools=None,
+        model_name="gpt-5.3-codex",
     )
 
-    assert response.stop_reason == LlmStopReason.SAFETY
-    assert "gpt-test-fast" in (response.last_text() or "")
-    assert response.channels is not None
-    [details_block] = response.channels[FAST_AGENT_SAFETY_DETAILS]
-    assert isinstance(details_block, TextContent)
-    assert json.loads(details_block.text) == {
-        "provider": "codexresponses",
-        "category": "safety_buffering",
-        "model": "gpt-test",
-        "reasons": None,
-        "use_cases": None,
-        "retry_model": "gpt-test-fast",
-    }
-    assert harness.sse_calls == 2
-    assert harness.ws_calls == 0
+    assert response.status == "completed"
+    [content] = harness._responses_content_blocks(response)
+    assert isinstance(content, TextContent)
+    assert content.text == ("I cannot help with that." if refusal else "hello world")
+    assert harness._map_response_stop_reason(response) == (
+        LlmStopReason.SAFETY if refusal else LlmStopReason.END_TURN
+    )
+    assert chunks[0].is_reasoning
+    assert "Waiting for the original stream" in chunks[0].text
+    warning_data = harness._capturing_logger.warning_data[0]
+    assert warning_data is not None
+    assert warning_data["reasons"] == ["policy-check"]
+    assert harness._sequence_manager.acquire_calls == 1
+    assert len(harness.websocket.sent_payloads) == 1
+    assert harness._sequence_manager.release_keep_values == [True]
 
 
 @pytest.mark.asyncio
@@ -2595,3 +2671,1013 @@ async def test_websocket_retries_on_recoverable_server_error_codes(error_code: s
     assert not any(
         "WebSocket reconnected" in message for message in harness._capturing_display.status_messages
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [False, True])
+async def test_connect_websocket_owns_supplied_client(
+    monkeypatch: pytest.MonkeyPatch, failure: bool
+) -> None:
+    from unittest.mock import AsyncMock, Mock
+
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(api_key="isolated", organization="", project="")
+    manager = Mock()
+    manager.enter = AsyncMock(side_effect=RuntimeError("dial failed") if failure else None)
+    manager.__aexit__ = AsyncMock()
+    connect = Mock(return_value=manager)
+    monkeypatch.setattr(client.responses, "connect", connect)
+    if failure:
+        with pytest.raises(RuntimeError, match="dial failed"):
+            await connect_websocket(
+                url="wss://example.test/v1/responses?q=1", headers={}, client=client
+            )
+    else:
+        connection = await connect_websocket(
+            url="wss://example.test/v1/responses?q=1", headers={}, client=client
+        )
+        assert not client.is_closed()
+        await connection.session.close()
+    assert client.is_closed()
+    manager.__aexit__.assert_awaited_once()
+    assert str(client.websocket_base_url) == "wss://example.test/v1?q=1"
+
+
+@pytest.mark.asyncio
+async def test_connect_websocket_dials_responses_path_with_query() -> None:
+    from websockets.asyncio.server import ServerConnection, serve
+
+    paths: list[str] = []
+
+    async def handler(websocket: ServerConnection) -> None:
+        assert websocket.request is not None
+        paths.append(websocket.request.path)
+        await websocket.wait_closed()
+
+    async with serve(handler, "127.0.0.1", 0) as server:
+        port = next(iter(server.sockets)).getsockname()[1]
+        connection = await connect_websocket(
+            url=f"ws://127.0.0.1:{port}/v1/responses?api-version=x&a=1&a=2",
+            headers={"Authorization": "Bearer test"},
+        )
+        await connection.session.close()
+
+    assert paths == ["/v1/responses?api-version=x&a=1&a=2"]
+
+
+@dataclass
+class _ProviderLifetimeClock:
+    now: float = 1.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _mock_provider_websocket(
+    monkeypatch: pytest.MonkeyPatch, *, xai: bool = True
+) -> tuple[ResponsesLLM, _ProviderLifetimeClock, list[ManagedWebSocketConnection]]:
+    llm = (
+        XAIResponsesLLM(context=Context(config=Settings()), model="grok-4.3")
+        if xai
+        else ResponsesLLM(
+            context=Context(config=Settings()), model="gpt-4.1", transport="websocket"
+        )
+    )
+    clock = _ProviderLifetimeClock()
+    # Keep the provider-created manager (and its configured lifetimes); replace only time/I/O.
+    monkeypatch.setattr(llm._ws_connections, "_clock", clock)
+    monkeypatch.setattr(llm, "_responses_client", _FakeResponsesClient)
+    monkeypatch.setattr(llm, "_build_websocket_headers", lambda: {})
+    connections: list[ManagedWebSocketConnection] = []
+
+    async def connect(
+        url: str, headers: dict[str, str], timeout_seconds: float | None
+    ) -> ManagedWebSocketConnection:
+        connection = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
+        connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(llm, "_create_websocket_connection", connect)
+    return llm, clock, connections
+
+
+def _ws_event(event: dict[str, Any]) -> SimpleNamespace:
+    return SimpleNamespace(type=WSMsgType.TEXT, data=json.dumps(event))
+
+
+def _ws_completed() -> SimpleNamespace:
+    return _ws_event(
+        {
+            "type": "response.completed",
+            "response": {"id": "resp_test", "status": "completed", "output": []},
+        }
+    )
+
+
+def _ws_tool_history() -> list[dict[str, Any]]:
+    return [
+        *_ws_input_items("Read the file"),
+        {"type": "function_call", "call_id": "call_read", "name": "read_file", "arguments": "{}"},
+        {
+            "type": "function_call_output",
+            "call_id": "call_read",
+            "output": "retained file contents",
+        },
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("xai", [True, False], ids=["xai-20-minutes", "openai-55-minutes"])
+async def test_provider_websocket_lifetime_rotation_preserves_history(
+    monkeypatch: pytest.MonkeyPatch, xai: bool
+) -> None:
+    llm, clock, connections = _mock_provider_websocket(monkeypatch, xai=xai)
+    history = _ws_tool_history()
+    model = "grok-4.3" if xai else "gpt-4.1"
+
+    async def receive(self: _FakeWebSocket, timeout: float | None = None) -> SimpleNamespace:
+        return _ws_completed()
+
+    monkeypatch.setattr(_FakeWebSocket, "receive", receive)
+    try:
+        for age, expected_connections in [
+            (0, 1),
+            (1199, 1),
+            (1200, 2 if xai else 1),
+            (2399, 2 if xai else 1),
+            (3299, 3 if xai else 1),
+            (3300, 3 if xai else 2),
+        ]:
+            clock.now = 1.0 + age
+            history.extend(_ws_input_items(f"Continue at {age}"))
+            _, _, normalized = await llm._responses_completion_ws(
+                input_items=history,
+                request_params=RequestParams(model=model),
+                tools=None,
+                model_name=model,
+            )
+            assert normalized == history
+            assert len(connections) == expected_connections
+            payload = json.loads(_sent_payloads(connections[-1])[-1])
+            if xai or age == 3300:
+                assert payload["input"] == history
+                assert "previous_response_id" not in payload
+            assert all(c.websocket.closed and c.session.closed for c in connections[:-1])
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("partial", [None, "text", "tool"])
+@pytest.mark.parametrize("repeated", [False, True])
+async def test_xai_connection_limit_recovery_is_bounded_and_never_replays_partial_output(
+    monkeypatch: pytest.MonkeyPatch, partial: str | None, repeated: bool
+) -> None:
+    llm, _, connections = _mock_provider_websocket(monkeypatch)
+    error = _ws_event(
+        {
+            "type": "error",
+            "error": {
+                "code": "websocket_connection_limit_reached",
+                "message": "Connection lifetime exceeded",
+            },
+        }
+    )
+    initial_events = [_ws_event({"type": "response.created", "response": {"id": "resp_test"}})]
+    if partial == "text":
+        initial_events.append(_ws_event({"type": "response.output_text.delta", "delta": "hello"}))
+    elif partial == "tool":
+        initial_events.append(
+            _ws_event(
+                {
+                    "type": "response.output_item.added",
+                    "output_index": 0,
+                    "item": {
+                        "type": "function_call",
+                        "id": "fc_1",
+                        "call_id": "call_1",
+                        "name": "read_file",
+                        "arguments": "",
+                    },
+                }
+            )
+        )
+    initial_events.append(error)
+
+    async def receive(self: _FakeWebSocket, timeout: float | None = None) -> SimpleNamespace:
+        if self is connections[0].websocket:
+            return initial_events.pop(0)
+        return error if repeated else _ws_completed()
+
+    monkeypatch.setattr(_FakeWebSocket, "receive", receive)
+    history = _ws_tool_history()
+    try:
+        request = llm._responses_completion_ws(
+            input_items=history,
+            request_params=RequestParams(model="grok-4.3"),
+            tools=None,
+            model_name="grok-4.3",
+        )
+        if partial or repeated:
+            with pytest.raises(ResponsesWebSocketError) as excinfo:
+                await request
+            assert excinfo.value.stream_started is bool(partial)
+            assert excinfo.value.error_code == "websocket_connection_limit_reached"
+        else:
+            await request
+        assert len(connections) == (1 if partial else 2)
+        for connection in connections:
+            payloads = _sent_payloads(connection)
+            assert len(payloads) == 1
+            assert json.loads(payloads[0])["input"] == history
+            assert "previous_response_id" not in json.loads(payloads[0])
+        assert connections[0].websocket.closed
+        assert connections[0].session.closed
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+async def test_xai_aged_busy_websocket_is_closed_only_after_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    llm, clock, connections = _mock_provider_websocket(monkeypatch)
+    manager = llm._ws_connections
+
+    async def connect() -> ManagedWebSocketConnection:
+        return await llm._create_websocket_connection("wss://example.test/responses", {}, None)
+
+    try:
+        busy, reusable = await manager.acquire(connect)
+        clock.now += 20 * 60
+        temporary, temp_reusable = await manager.acquire(connect)
+        assert not temp_reusable
+        assert temporary is not busy
+        assert not busy.websocket.closed
+        await manager.release(temporary, reusable=temp_reusable, keep=True)
+        await manager.release(busy, reusable=reusable, keep=True)
+        assert busy.websocket.closed and busy.session.closed
+        fresh, _ = await manager.acquire(connect)
+        assert fresh is not busy
+        assert len(connections) == 3
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+async def test_xai_websocket_cancellation_closes_connection_without_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    llm, clock, connections = _mock_provider_websocket(monkeypatch)
+
+    async def receive(self: _FakeWebSocket, timeout: float | None = None) -> SimpleNamespace:
+        clock.now += 20 * 60
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(_FakeWebSocket, "receive", receive)
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await llm._responses_completion_ws(
+                input_items=_ws_tool_history(),
+                request_params=RequestParams(model="grok-4.3"),
+                tools=None,
+                model_name="grok-4.3",
+            )
+        assert len(connections) == 1
+        assert len(_sent_payloads(connections[0])) == 1
+        assert connections[0].websocket.closed and connections[0].session.closed
+    finally:
+        await llm.close()
+
+
+@pytest_asyncio.fixture
+async def websocket_failure_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[Path]:
+    """Exercise the real logger -> bus -> filtered JSONL transport, not a log spy."""
+    path = tmp_path / "telemetry.jsonl"
+    bus = AsyncEventBus(FileTransport(path, event_filter=EventFilter(min_level="error")))
+    monkeypatch.setattr(AsyncEventBus, "_instance", bus)
+    await bus.start()
+    try:
+        yield path
+    finally:
+        # Logger schedules emit tasks; let them run before stopping the bus.
+        await asyncio.sleep(0)
+        await bus.stop()
+
+
+def _persisted_websocket_failures(path: Path) -> list[dict[str, Any]]:
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    return [row["data"] for row in rows if row["message"] == "Responses websocket attempt failed"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reused", [False, True])
+@pytest.mark.parametrize("known_age", [False, True])
+@pytest.mark.parametrize(
+    ("code", "partial", "repeat"),
+    [
+        ("invalid_request_error", False, False),
+        ("websocket_connection_limit_reached", False, False),
+        ("websocket_connection_limit_reached", False, True),
+        ("websocket_connection_limit_reached", True, False),
+        ("secret_code_abcdefghijklmnopqrstuvwxyz", False, False),
+        ("https://secret.invalid/?token=private\n" + "x" * 1000, False, False),
+    ],
+)
+async def test_websocket_failures_persist_safe_bounded_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+    websocket_failure_log: Path,
+    reused: bool,
+    known_age: bool,
+    code: str,
+    partial: bool,
+    repeat: bool,
+) -> None:
+    llm, clock, connections = _mock_provider_websocket(monkeypatch)
+    llm._stream_attempt = (7, 2, 4)
+    if not known_age:
+        # Legacy/untracked sockets must report null, not invent age zero.
+        def mark_untracked(connection: ManagedWebSocketConnection, reuse_key: str | None) -> None:
+            connection.reuse_key = reuse_key
+
+        monkeypatch.setattr(llm._ws_connections, "_mark_created", mark_untracked)
+    failing = False
+    first_failure_connection: ManagedWebSocketConnection | None = None
+    emitted_partial = False
+
+    async def receive(self: _FakeWebSocket, timeout: float | None = None) -> SimpleNamespace:
+        nonlocal emitted_partial
+        if not failing:
+            return _ws_completed()
+        if partial and not emitted_partial:
+            emitted_partial = True
+            return _ws_event({"type": "response.output_text.delta", "delta": "private-prompt"})
+        if repeat or (first_failure_connection and self is first_failure_connection.websocket):
+            clock.now += 3.0
+            return _ws_event(
+                {
+                    "type": "error",
+                    "stream_id": "private-stream-id",
+                    "error": {
+                        "code": code,
+                        "message": "private-error-body",
+                        "param": "private-param",
+                        "headers": {"Authorization": "Bearer private-auth"},
+                    },
+                }
+            )
+        return _ws_completed()
+
+    monkeypatch.setattr(_FakeWebSocket, "receive", receive)
+    original_acquire = llm._ws_connections.acquire
+
+    async def acquire(*args: Any, **kwargs: Any) -> tuple[ManagedWebSocketConnection, bool]:
+        nonlocal first_failure_connection
+        result = await original_acquire(*args, **kwargs)
+        if failing and first_failure_connection is None:
+            first_failure_connection = result[0]
+        return result
+
+    monkeypatch.setattr(llm._ws_connections, "acquire", acquire)
+
+    async def request() -> None:
+        await llm._responses_completion_ws(
+            input_items=_ws_input_items("private-prompt"),
+            request_params=RequestParams(model="grok-4.3"),
+            tools=None,
+            model_name="grok-4.3",
+        )
+
+    try:
+        if reused:
+            await request()
+            clock.now += 10.0
+        failing = True
+        eligible = not partial and (reused or code == "websocket_connection_limit_reached")
+        if not eligible or repeat:
+            with pytest.raises(ResponsesWebSocketError):
+                await request()
+        else:
+            await request()
+        await asyncio.sleep(0)
+        failures = _persisted_websocket_failures(websocket_failure_log)
+        assert len(failures) == (2 if eligible and repeat else 1)
+        first = failures[0]
+        assert first == {
+            "schema": "fast-agent.responses-websocket-failure/v2",
+            "transport": "websocket",
+            "error_code": code
+            if code in {"invalid_request_error", "websocket_connection_limit_reached"}
+            else "unknown",
+            "stream_started": partial,
+            "connection_age_at_request_start_seconds": (10.0 if reused else 0.0)
+            if known_age
+            else None,
+            "connection_age_at_failure_seconds": (13.0 if reused else 3.0) if known_age else None,
+            "reused_connection": reused,
+            "reconnect_eligible": eligible,
+            "websocket_attempt": 1,
+            "websocket_max_attempts": 2,
+            "call": 7,
+            "attempt": 2,
+            "max_attempts": 4,
+            "close_kind": None,
+            "close_code": None,
+            "events_seen": None,
+            "last_event_types": None,
+            "seconds_since_request": None,
+            "seconds_since_last_frame": None,
+        }
+        if len(failures) == 2:
+            second = failures[1]
+            assert second["websocket_attempt"] == 2
+            assert second["reconnect_eligible"] is False
+            assert second["reused_connection"] is False
+            assert second["connection_age_at_request_start_seconds"] == (0.0 if known_age else None)
+            assert second["connection_age_at_failure_seconds"] == (3.0 if known_age else None)
+        persisted = websocket_failure_log.read_text()
+        for secret in ("private-", "secret_code_", "secret.invalid", "Authorization"):
+            assert secret not in persisted
+        assert len(connections) == (2 if eligible else 1)
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_kind", ["acquire", "send", "timeout"])
+async def test_websocket_non_payload_failures_are_persisted(
+    monkeypatch: pytest.MonkeyPatch, websocket_failure_log: Path, failure_kind: str
+) -> None:
+    llm, clock, connections = _mock_provider_websocket(monkeypatch)
+
+    async def fail(*_args: Any, **_kwargs: Any) -> Any:
+        clock.now += 2.0
+        if failure_kind == "timeout":
+            raise TimeoutError("private-timeout-message")
+        raise RuntimeError("private-exception-message")
+
+    if failure_kind == "acquire":
+        monkeypatch.setattr(llm, "_create_websocket_connection", fail)
+    elif failure_kind == "send":
+        monkeypatch.setattr(_FakeWebSocket, "send_str", fail)
+    else:
+        monkeypatch.setattr(llm, "_process_responses_ws_stream", fail)
+    expected = {"acquire": RuntimeError, "send": ResponsesWebSocketError, "timeout": TimeoutError}
+    try:
+        with pytest.raises(expected[failure_kind]):
+            await llm._responses_completion_ws(
+                input_items=[],
+                request_params=RequestParams(model="grok-4.3"),
+                tools=None,
+                model_name="grok-4.3",
+            )
+        await asyncio.sleep(0)
+        (failure,) = _persisted_websocket_failures(websocket_failure_log)
+        assert failure["error_code"] is None
+        assert failure["stream_started"] is False
+        assert failure["reconnect_eligible"] is False
+        assert failure["connection_age_at_request_start_seconds"] == (
+            None if failure_kind == "acquire" else 0.0
+        )
+        assert failure["connection_age_at_failure_seconds"] == (
+            None if failure_kind == "acquire" else 2.0
+        )
+        assert "private-" not in websocket_failure_log.read_text()
+        assert all(connection.websocket.closed for connection in connections)
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("code", "persisted_code"),
+    [
+        ("invalid_request_error", "invalid_request_error"),
+        ("websocket_connection_limit_reached", "websocket_connection_limit_reached"),
+        ("https://secret.invalid/?token=private\n" + "x" * 1000, "unknown"),
+    ],
+)
+async def test_nested_response_failure_persists_code_without_enabling_reconnect(
+    monkeypatch: pytest.MonkeyPatch,
+    websocket_failure_log: Path,
+    code: str,
+    persisted_code: str,
+) -> None:
+    llm, _clock, connections = _mock_provider_websocket(monkeypatch)
+
+    async def receive(self: _FakeWebSocket, timeout: float | None = None) -> SimpleNamespace:
+        return _ws_event(
+            {
+                "type": "response.failed",
+                "response": {
+                    "error": {"code": code, "message": "private-error-body"},
+                },
+            }
+        )
+
+    monkeypatch.setattr(_FakeWebSocket, "receive", receive)
+    try:
+        with pytest.raises(ResponsesWebSocketError) as raised:
+            await llm._responses_completion_ws(
+                input_items=[],
+                request_params=RequestParams(model="grok-4.3"),
+                tools=None,
+                model_name="grok-4.3",
+            )
+        assert raised.value.error_code == code
+        assert raised.value.diagnostic_error_code == code
+        assert raised.value.response_failed
+        assert str(raised.value) == "private-error-body"
+        await asyncio.sleep(0)
+        (failure,) = _persisted_websocket_failures(websocket_failure_log)
+        assert failure["error_code"] == persisted_code
+        assert failure["reused_connection"] is False
+        assert failure["stream_started"] is False
+        assert failure["reconnect_eligible"] is False
+        assert failure["websocket_attempt"] == 1
+        assert len(connections) == 1
+        persisted = websocket_failure_log.read_text()
+        assert "private" not in persisted
+        assert "secret.invalid" not in persisted
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_class", [ResponsesLLM, CodexResponsesLLM])
+async def test_websocket_end_turn_false_follows_up_with_retained_assistant_history(
+    monkeypatch: pytest.MonkeyPatch,
+    provider_class: type[ResponsesLLM],
+) -> None:
+    from fast_agent.agents.agent_types import AgentConfig
+    from fast_agent.agents.tool_agent import ToolAgent
+
+    frames = []
+    for index in (1, 2):
+        item = {
+            "type": "message",
+            "id": f"msg_{index}",
+            "role": "assistant",
+            "status": "completed",
+            "phase": "commentary" if index == 1 else "final_answer",
+            "content": [{"type": "output_text", "text": f"step-{index}", "annotations": []}],
+        }
+        frames.extend(
+            [
+                _ws_event({"type": "response.output_item.done", "output_index": 0, "item": item}),
+                _ws_event(
+                    {
+                        "type": "response.completed",
+                        "response": {
+                            "id": f"resp_{index}",
+                            "status": "completed",
+                            "output": [],
+                            "end_turn": index == 2,
+                        },
+                    }
+                ),
+            ]
+        )
+    socket = _FakeWebSocket(frames)
+    llm = provider_class(
+        context=Context(config=Settings()), model="gpt-5.3-codex", transport="websocket"
+    )
+    monkeypatch.setattr(llm, "_responses_client", _FakeResponsesClient)
+    monkeypatch.setattr(llm, "_build_websocket_headers", lambda: {})
+
+    async def connect(
+        url: str, headers: dict[str, str], timeout_seconds: float | None
+    ) -> ManagedWebSocketConnection:
+        return ManagedWebSocketConnection(session=_FakeSession(), websocket=socket)
+
+    monkeypatch.setattr(llm, "_create_websocket_connection", connect)
+    agent = ToolAgent(AgentConfig("ws-continuation"), [])
+    agent._llm = llm
+    try:
+        result = await agent.generate("go", RequestParams(max_iterations=2))
+        assert result.last_text() == "step-2"
+        assert result.stop_reason == LlmStopReason.END_TURN
+        assert len(socket.sent_payloads) == 2
+        # The planner conservatively uses full history when no new client item
+        # remains after replayed assistant output; that is a valid continuation.
+        followup = json.loads(socket.sent_payloads[1])
+        assert [i.get("role") for i in followup["input"]] == ["user", "assistant"]
+        assert followup["input"][-1]["content"][0]["text"] == "step-1"
+        assert [m.role for m in agent.message_history] == ["user", "assistant", "assistant"]
+    finally:
+        await llm.close()
+
+
+_COPILOT_HEADERS_FRAME = {
+    "headers": {
+        "X-Copilot-API-Exp-Assignment-Context": "private-assignment-" + "x" * 400,
+        "X-Request-Id": "abc123:def-456",
+        "X-GitHub-Request-Id": "private value with spaces",
+        "Content-Type": "application/json",
+    }
+}
+
+
+class _DroppingConnection:
+    """SDK connection that delivers frames, then drops without a close frame."""
+
+    def __init__(self, frames: list[dict[str, Any]]) -> None:
+        self._frames = [json.dumps(frame).encode() for frame in frames]
+
+    async def recv_bytes(self) -> bytes:
+        if self._frames:
+            return self._frames.pop(0)
+        raise ConnectionClosedError(rcvd=None, sent=None)
+
+    async def send_raw(self, data: bytes | str) -> None:
+        del data
+
+    async def close(self, *, code: int = 1000, reason: str = "") -> None:
+        del code, reason
+
+
+async def _drain_until_error(stream: WebSocketResponsesStream) -> ResponsesWebSocketError:
+    with pytest.raises(ResponsesWebSocketError) as excinfo:
+        while True:
+            await stream.__anext__()
+    return excinfo.value
+
+
+@pytest.mark.asyncio
+async def test_websocket_drop_without_close_frame_reports_frames_and_timing() -> None:
+    stream = WebSocketResponsesStream(
+        _SdkWebSocket(
+            _DroppingConnection(
+                [_COPILOT_HEADERS_FRAME, {"type": "response.created", "response": {"id": "r"}}]
+            )
+        )
+    )
+
+    error = await _drain_until_error(stream)
+
+    message = str(error)
+    assert "received_close=none" in message
+    assert "ws_exception=ConnectionClosedError" in message
+    assert "events_seen=2" in message
+    assert "seconds_since_request=" in message
+    assert "seconds_since_last_frame=" in message
+    # Header names and strictly-shaped request ids, never other header values.
+    assert "X-Copilot-API-Exp-Assignment-Context" in message
+    assert "X-Request-Id=abc123:def-456" in message
+    assert "private-assignment-" not in message
+    assert "private value with spaces" not in message
+    assert message.endswith("| response.created])")
+    assert error.close_snapshot is not None
+    assert error.close_snapshot["close_kind"] == "no_close_frame"
+    assert error.close_snapshot["close_code"] is None
+    assert error.close_snapshot["events_seen"] == 2
+    assert error.close_snapshot["last_event_types"] == ["headers", "response.created"]
+    assert error.last_frame is not None and "response.created" in error.last_frame
+
+
+@pytest.mark.asyncio
+async def test_websocket_close_without_code_is_reported() -> None:
+    stream = WebSocketResponsesStream(
+        _FakeWebSocket(
+            [
+                _ws_event({"type": "response.created", "response": {"id": "r"}}),
+                SimpleNamespace(type=WSMsgType.CLOSED, data=None),
+            ]
+        )
+    )
+
+    error = await _drain_until_error(stream)
+
+    assert "close_code=none" in str(error)
+    assert error.close_snapshot is not None
+    assert error.close_snapshot["close_kind"] == "no_close_code"
+    assert error.close_snapshot["last_event_types"] == ["response.created"]
+
+
+@pytest.mark.asyncio
+async def test_websocket_unknown_event_types_are_not_echoed_into_snapshot() -> None:
+    stream = WebSocketResponsesStream(
+        _FakeWebSocket(
+            [
+                _ws_event({"type": "private-event-name"}),
+                _ws_event({"something": "private-untyped"}),
+                SimpleNamespace(type=WSMsgType.CLOSED, data=1011),
+            ]
+        )
+    )
+
+    error = await _drain_until_error(stream)
+
+    assert error.close_snapshot is not None
+    assert error.close_snapshot["close_kind"] == "close_code"
+    assert error.close_snapshot["close_code"] == 1011
+    assert error.close_snapshot["last_event_types"] == ["other", "untyped"]
+    assert "private-" not in str(error)
+
+
+@pytest.mark.asyncio
+async def test_websocket_close_without_completion_persists_safe_v2_fields(
+    monkeypatch: pytest.MonkeyPatch, websocket_failure_log: Path
+) -> None:
+    llm, _clock, _connections = _mock_provider_websocket(monkeypatch)
+    frames = [
+        _ws_event(_COPILOT_HEADERS_FRAME),
+        _ws_event({"type": "response.created", "response": {"id": "r"}}),
+        SimpleNamespace(type=WSMsgType.CLOSED, data=None),
+    ]
+
+    async def receive(self: _FakeWebSocket, timeout: float | None = None) -> SimpleNamespace:
+        del timeout
+        return frames.pop(0) if frames else SimpleNamespace(type=WSMsgType.CLOSED, data=None)
+
+    monkeypatch.setattr(_FakeWebSocket, "receive", receive)
+    try:
+        with pytest.raises(ResponsesWebSocketError):
+            await llm._responses_completion_ws(
+                input_items=_ws_input_items("private-prompt"),
+                request_params=RequestParams(model="grok-4.3"),
+                tools=None,
+                model_name="grok-4.3",
+            )
+        await asyncio.sleep(0)
+        (failure,) = _persisted_websocket_failures(websocket_failure_log)
+        assert failure["schema"] == "fast-agent.responses-websocket-failure/v2"
+        assert failure["close_kind"] == "no_close_code"
+        assert failure["close_code"] is None
+        assert failure["events_seen"] == 2
+        assert failure["last_event_types"] == ["headers", "response.created"]
+        assert isinstance(failure["seconds_since_request"], float)
+        assert isinstance(failure["seconds_since_last_frame"], float)
+        persisted = websocket_failure_log.read_text()
+        for private in ("private-", "abc123", "X-Request-Id", "Copilot"):
+            assert private not in persisted
+    finally:
+        await llm.close()
+
+
+class _FailureFramesHarness(ResponsesLLM):
+    """Real Responses stream/retry path with an in-memory WebSocket peer."""
+
+    def __init__(self, frames: list[dict[str, Any]], *, transport: str = "websocket") -> None:
+        super().__init__(
+            context=Context(config=Settings()),
+            model="gpt-test",
+            transport=transport,
+        )
+        self.frames = frames
+        self.sockets: list[_FakeWebSocket] = []
+        self.retry_count = 3
+        self.retry_backoff_seconds = 0
+
+    def _responses_client(self) -> Any:
+        return _FakeResponsesClient()
+
+    def _build_websocket_headers(self) -> dict[str, str]:
+        return {}
+
+    async def _create_websocket_connection(
+        self,
+        url: str,
+        headers: dict[str, str],
+        timeout_seconds: float | None,
+    ) -> ManagedWebSocketConnection:
+        socket = _FakeWebSocket([_ws_event(frame) for frame in self.frames])
+        self.sockets.append(socket)
+        return ManagedWebSocketConnection(session=_FakeSession(), websocket=socket)
+
+
+def _failure_frame(code: str | None, message: str, *, nested: bool) -> dict[str, Any]:
+    error = {"code": code, "message": message}
+    if nested:
+        return {"type": "response.failed", "response": {"error": error}}
+    return {"type": "error", "error": error}
+
+
+def _channel_payload(message: PromptMessageExtended, name: str) -> dict[str, Any]:
+    block = (message.channels or {})[name][0]
+    assert isinstance(block, TextContent)
+    payload = json.loads(block.text)
+    assert isinstance(payload, dict)
+    return payload
+
+
+async def _generate_and_persist_failure(
+    llm: ResponsesLLM,
+    path: Path,
+    *,
+    attempts: int,
+    stop_reason: LlmStopReason,
+) -> PromptMessageExtended:
+    from fast_agent.agents.agent_types import AgentConfig
+    from fast_agent.agents.tool_agent import ToolAgent
+    from fast_agent.mcp.prompt_serialization import load_messages, save_messages
+    from fast_agent.session.trace_export_atif import AtifRunSource, build_atif_trajectory
+
+    agent = ToolAgent(AgentConfig("failure-regression"), [])
+    agent._llm = llm
+    result = await agent.generate("Synthetic request", RequestParams(max_iterations=1))
+    assert result.stop_reason == stop_reason
+    assert [message.role for message in agent.message_history] == ["user", "assistant"]
+    save_messages(agent.message_history, str(path))
+    history = load_messages(str(path))
+    response = history[-1]
+    assert response.stop_reason == stop_reason
+    assert FAST_AGENT_ERROR_CHANNEL in (response.channels or {})
+    if attempts > 1:
+        retry = _channel_payload(response, FAST_AGENT_RETRY)
+        assert retry["provider_attempts"] == attempts
+        assert len(retry["retries"]) == attempts - 1
+        assert [r["attempt"] for r in retry["retries"]] == list(range(1, attempts))
+        assert all(r["boundary"]["kind"] == "user_message" for r in retry["retries"])
+    else:
+        assert FAST_AGENT_RETRY not in (response.channels or {})
+
+    trajectory = build_atif_trajectory(
+        AtifRunSource(
+            session_id="synthetic",
+            agent_name=agent.name,
+            model_name="gpt-test",
+            provider="responses",
+            history=history,
+            message_timestamps=tuple(None for _ in history),
+        )
+    )
+    metrics = trajectory.final_metrics
+    assert metrics is not None
+    assert sum(step.llm_call_count or 0 for step in trajectory.steps) == attempts
+    assert metrics.extra is not None
+    assert metrics.extra["accounting"]["provider_usage_complete"] is False
+    return response
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("nested", [False, True])
+async def test_exhausted_websocket_failure_survives_history_and_export(
+    tmp_path: Path, nested: bool
+) -> None:
+    llm = _FailureFramesHarness(
+        [_failure_frame("server_error", "Synthetic provider unavailable", nested=nested)]
+    )
+    try:
+        response = await _generate_and_persist_failure(
+            llm, tmp_path / "history.json", attempts=4, stop_reason=LlmStopReason.ERROR
+        )
+        assert len(llm.sockets) == 4
+        assert all(len(socket.sent_payloads) == 1 for socket in llm.sockets)
+        assert all(socket.closed for socket in llm.sockets)
+        (detail,) = (response.channels or {})[FAST_AGENT_ERROR_CHANNEL]
+        assert isinstance(detail, TextContent)
+        assert "Synthetic provider unavailable" in detail.text
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [TimeoutError("Synthetic start timeout"), StreamIdleTimeoutError(0.1, events_received=2)],
+)
+async def test_exhausted_responses_timeout_survives_history_and_export(
+    tmp_path: Path, error: Exception
+) -> None:
+    llm = _TransportHarness(transport="sse", context=Context(config=Settings()))
+    llm.retry_count = 3
+    llm.retry_backoff_seconds = 0
+    llm.sse_errors = [error] * 4
+    try:
+        await _generate_and_persist_failure(
+            llm, tmp_path / "history.json", attempts=4, stop_reason=LlmStopReason.ERROR
+        )
+        assert llm.sse_calls == 4
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("code", ["cyber_policy", None])
+async def test_websocket_policy_refusal_is_not_reconnected_retried_or_fallen_back(
+    tmp_path: Path, nested: bool, code: str | None
+) -> None:
+    from fast_agent.constants import FAST_AGENT_PROVIDER_ERROR
+
+    detail = (
+        "Synthetic request denied by provider."
+        if code
+        else "This content was flagged for possible cybersecurity risk."
+    )
+    frame = _failure_frame(code, detail, nested=nested)
+    frame["status"] = 400
+    llm = _FailureFramesHarness([frame], transport="auto")
+    # Exercise the reused-socket recovery branch without sending a model request.
+    connection, reusable = await llm._ws_connections.acquire(
+        lambda: llm._create_websocket_connection("wss://example.invalid", {}, None),
+        reuse_key=websocket_reuse_key(resolve_responses_ws_url(llm._base_responses_url()), {}),
+    )
+    await llm._ws_connections.release(connection, reusable=reusable, keep=True)
+    try:
+        response = await _generate_and_persist_failure(
+            llm, tmp_path / "history.json", attempts=1, stop_reason=LlmStopReason.SAFETY
+        )
+        assert len(llm.sockets) == 1
+        assert len(llm.sockets[0].sent_payloads) == 1
+        (error_block,) = (response.channels or {})[FAST_AGENT_ERROR_CHANNEL]
+        assert isinstance(error_block, TextContent)
+        assert detail in error_block.text
+        metadata = _channel_payload(response, FAST_AGENT_PROVIDER_ERROR)
+        assert metadata["policy_code"] == "cyber_policy"
+        assert metadata["error_type"] == "ResponsesWebSocketError"
+        assert metadata["status"] == 400
+        if code:
+            assert metadata["code"] == code
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_request", [False, True])
+async def test_api_policy_refusal_precedes_fatal_bad_request_and_is_persisted(
+    tmp_path: Path, bad_request: bool
+) -> None:
+    import httpx2
+    from openai import APIError, BadRequestError
+
+    request = httpx2.Request("POST", "https://example.invalid/responses")
+    body = {"code": "cyber_policy"}
+    error = (
+        BadRequestError(
+            "Synthetic policy refusal", response=httpx2.Response(400, request=request), body=body
+        )
+        if bad_request
+        else APIError("Synthetic policy refusal", request, body=body)
+    )
+    llm = _TransportHarness(transport="sse", context=Context(config=Settings()))
+    llm.retry_count = 3
+    llm.retry_backoff_seconds = 0
+    llm.sse_errors = [error] * 4
+    try:
+        await _generate_and_persist_failure(
+            llm, tmp_path / "history.json", attempts=1, stop_reason=LlmStopReason.SAFETY
+        )
+        assert llm.sse_calls == 1
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [
+        ResponsesWebSocketError("Synthetic context overflow", error_code="context_length_exceeded"),
+        ResponsesWebSocketError("Synthetic invalid request", status=400),
+        ModelConfigError("Synthetic invalid configuration"),
+    ],
+)
+async def test_fatal_responses_errors_still_raise_without_retry(error: Exception) -> None:
+    llm = _TransportHarness(transport="sse", context=Context(config=Settings()))
+    llm.retry_count = 3
+    llm.sse_errors = [error] * 4
+    try:
+        with pytest.raises(type(error)):
+            await llm.generate([Prompt.user("Synthetic request")])
+        assert llm.sse_calls == 1
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+async def test_responses_does_not_convert_programming_errors_to_provider_responses() -> None:
+    llm = _TransportHarness(transport="sse", context=Context(config=Settings()))
+    llm.retry_count = 0
+    llm.sse_errors = [TypeError("Synthetic programming error")]
+    try:
+        with pytest.raises(TypeError, match="Synthetic programming error"):
+            await llm.generate([Prompt.user("Synthetic request")])
+    finally:
+        await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("code", "message"),
+    [
+        ("server_error", "Cybersecurity content processing timed out."),
+        (None, "Unable to parse cybersecurity content."),
+        ("server_error", "This content was flagged for possible cybersecurity risk."),
+    ],
+)
+async def test_security_terms_do_not_turn_transport_or_content_errors_into_refusals(
+    tmp_path: Path, code: str | None, message: str
+) -> None:
+    llm = _FailureFramesHarness([_failure_frame(code, message, nested=True)])
+    llm.retry_count = 1
+    try:
+        await _generate_and_persist_failure(
+            llm, tmp_path / "history.json", attempts=2, stop_reason=LlmStopReason.ERROR
+        )
+        assert len(llm.sockets) == 2
+    finally:
+        await llm.close()

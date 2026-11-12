@@ -21,6 +21,7 @@ class Provider(Enum):
         """Return the provider's config name (typed accessor for _value_)."""
         return self._value_
 
+    COPILOT = ("copilot", "GitHub Copilot")
     ANTHROPIC = ("anthropic", "Anthropic")
     ANTHROPIC_VERTEX = ("anthropic-vertex", "Anthropic (Vertex)")
     DEEPSEEK = ("deepseek", "DeepSeek")

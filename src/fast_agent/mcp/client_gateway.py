@@ -30,7 +30,7 @@ from fast_agent.utils.transports import uses_mcp_remote_transport
 
 if TYPE_CHECKING:
     import threading
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
     from pathlib import Path
 
     from mcp.client import Transport
@@ -188,7 +188,7 @@ async def open_request_scoped_client(
     callback_runtime: MCPClientCallbackRuntime,
     trigger_oauth: bool | None = None,
     hooks: MCPClientHooks | None = None,
-) -> AsyncIterator[MCPClientConnection]:
+) -> AsyncGenerator[MCPClientConnection]:
     """Open a fresh client, escalating an automatic startup once at most."""
     oauth_mode = resolve_oauth_mode(config, trigger_oauth=trigger_oauth)
     response_signal = AuthChallengeSignal()
@@ -233,17 +233,15 @@ async def open_request_scoped_client(
             if not can_escalate:
                 raise
             logger.info(
-                "%s: Received authentication challenge; retrying with OAuth enabled",
-                server_name,
+                f"{server_name}: Received authentication challenge; retrying with OAuth enabled"
             )
             continue
 
         try:
             yield connection
         except BaseException as exc:
-            suppressed = await connection.__aexit__(type(exc), exc, exc.__traceback__)
-            if not suppressed:
-                raise
+            await connection.__aexit__(type(exc), exc, exc.__traceback__)
+            raise
         else:
             await connection.__aexit__(None, None, None)
         return
@@ -350,7 +348,6 @@ def _create_transport(
         headers=prepared_auth.headers,
         auth=prepared_auth.oauth_provider,
         timeout=_http_timeout(config),
-        follow_redirects=True,
         event_hooks=_http_diagnostic_hooks(server_name, hooks),
     )
     return _managed_http_transport_context(
@@ -370,7 +367,7 @@ def _transport_metrics_hook(
         try:
             metrics.record_event(event)
         except Exception:
-            logger.debug("%s: transport metrics hook failed", server_name, exc_info=True)
+            logger.debug(f"{server_name}: transport metrics hook failed", exc_info=True)
 
     return record
 
@@ -429,7 +426,7 @@ def _http_diagnostic_hooks(
                         )
                     )
         except Exception:
-            logger.debug("%s: HTTP diagnostics hook failed", server_name, exc_info=True)
+            logger.debug(f"{server_name}: HTTP diagnostics hook failed", exc_info=True)
 
     async def capture_response(response: httpx2.Response) -> None:
         try:
@@ -479,7 +476,7 @@ def _http_diagnostic_hooks(
                 elif is_discovery:
                     metrics.record_discovery_response(response.status_code)
         except Exception:
-            logger.debug("%s: HTTP diagnostics hook failed", server_name, exc_info=True)
+            logger.debug(f"{server_name}: HTTP diagnostics hook failed", exc_info=True)
 
     response_handlers.append(capture_response)
     return {

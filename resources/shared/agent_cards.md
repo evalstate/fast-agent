@@ -136,11 +136,14 @@ You can insert these in the **body** or `instruction:`.
 | `\{{executionEnvironmentProvider}}` | Active environment provider (`docker`, `huggingface`, `wslc`, etc.) |
 | `\{{executionEnvironmentShell}}` | Shell used by the active environment |
 | `\{{executionEnvironmentCwd}}` | Working directory inside the active environment, if known |
+| `\{{herdrInstructions}}` | Herdr-core coordination guidance; empty outside a detected hc terminal with local execution and shell access |
 | `\{{env}}` | Environment summary (host workspace, active execution environment, client and process ID, fast-agent Python runtime, client host platform) |
 | `\{{agentName}}` | Current agent name |
 | `\{{agentType}}` | Current agent type |
 | `\{{agentCardPath}}` | Source AgentCard path (if loaded from card) |
 | `\{{agentCardDir}}` | Directory containing the source AgentCard |
+| `\{{modelName}}` | Active resolved model ID, without provider prefix or query options; follows model switches and subagent overrides |
+| `\{{modelProvider}}` | Active provider route (config name, e.g. `responses` or `copilot`) |
 | `\{{modelReferences}}` | Configured model references, including `$system.default` when resolved |
 | `\{{model_specific}}` | Model-specific prompt guidance from the resolved model catalog entry or model overlay |
 | `\{{serverInstructions}}` | MCP server instructions (if any) |
@@ -172,6 +175,7 @@ use_history: true
 You are a concise assistant.
 
 \{{env}}
+\{{herdrInstructions}}
 \{{currentDate}}
 \{{file:docs/house-style.md}}
 ```

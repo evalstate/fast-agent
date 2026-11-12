@@ -241,8 +241,9 @@ async def test_cwd_parameter_is_trimmed() -> None:
     assert create_params["cwd"] == "/home/testuser"
 
 
+@pytest.mark.parametrize("command", ["git status --short", "git\tstatus  --short"])
 @pytest.mark.asyncio
-async def test_command_string_is_split_into_structured_acp_command_and_args():
+async def test_command_string_is_split_into_structured_acp_command_and_args(command: str):
     runtime, conn = build_runtime(
         responses=[
             {"terminalId": "terminal-1"},
@@ -252,7 +253,7 @@ async def test_command_string_is_split_into_structured_acp_command_and_args():
         ]
     )
 
-    await runtime.execute({"command": "git status --short"})
+    await runtime.execute({"command": command})
 
     _, create_params = conn.calls[0]
     assert create_params["command"] == "git"
@@ -295,8 +296,9 @@ async def test_shell_syntax_is_wrapped_for_acp_terminal_requests():
     assert_shell_wrapped(create_params, command)
 
 
+@pytest.mark.parametrize("code", ["print(1)", "print(1)\nprint(2)"])
 @pytest.mark.asyncio
-async def test_quoted_shell_metacharacters_do_not_force_shell_wrapper() -> None:
+async def test_quoted_shell_metacharacters_do_not_force_shell_wrapper(code: str) -> None:
     runtime, conn = build_runtime(
         responses=[
             {"terminalId": "terminal-1"},
@@ -306,11 +308,11 @@ async def test_quoted_shell_metacharacters_do_not_force_shell_wrapper() -> None:
         ]
     )
 
-    await runtime.execute({"command": 'python -c "print(1)"'})
+    await runtime.execute({"command": f'python -c "{code}"'})
 
     _, create_params = conn.calls[0]
     assert create_params["command"] == "python"
-    assert create_params["args"] == ["-c", "print(1)"]
+    assert create_params["args"] == ["-c", code]
 
 
 @pytest.mark.asyncio
@@ -344,6 +346,9 @@ async def test_unquoted_shell_operator_still_forces_shell_wrapper() -> None:
         "ls ~/work",
         "sleep 1 &",
         "echo primary || echo fallback",
+        "touch build.log # ci-marker",
+        "# just a comment",
+        "printf first\nprintf second",
     ],
 )
 @pytest.mark.asyncio
@@ -363,8 +368,30 @@ async def test_common_shell_syntax_uses_shell_wrapper(command: str) -> None:
     assert_shell_wrapped(create_params, command)
 
 
+@pytest.mark.parametrize(
+    ("command", "expected_command", "expected_args"),
+    [
+        ("echo a#b", "echo", ["a#b"]),
+        ("curl https://example.com/p#frag", "curl", ["https://example.com/p#frag"]),
+        ('echo "#"', "echo", ["#"]),
+        pytest.param(
+            "echo '#'",
+            "echo",
+            ["#"],
+            marks=pytest.mark.skipif(os.name == "nt", reason="cmd.exe has no single quotes"),
+        ),
+        pytest.param(
+            "echo \\#",
+            "echo",
+            ["#"],
+            marks=pytest.mark.skipif(os.name == "nt", reason="cmd.exe has no backslash escapes"),
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_explicit_args_bypass_shell_wrapper_for_shell_like_text() -> None:
+async def test_hash_inside_word_or_quotes_does_not_force_shell_wrapper(
+    command: str, expected_command: str, expected_args: list[str]
+) -> None:
     runtime, conn = build_runtime(
         responses=[
             {"terminalId": "terminal-1"},
@@ -374,11 +401,30 @@ async def test_explicit_args_bypass_shell_wrapper_for_shell_like_text() -> None:
         ]
     )
 
-    await runtime.execute({"command": "echo", "args": ["$HOME"]})
+    await runtime.execute({"command": command})
+
+    _, create_params = conn.calls[0]
+    assert create_params["command"] == expected_command
+    assert create_params["args"] == expected_args
+
+
+@pytest.mark.parametrize("argument", ["$HOME", "first\nsecond"])
+@pytest.mark.asyncio
+async def test_explicit_args_bypass_shell_wrapper_for_shell_like_text(argument: str) -> None:
+    runtime, conn = build_runtime(
+        responses=[
+            {"terminalId": "terminal-1"},
+            {"exitCode": 0, "signal": None},
+            {"output": "ok", "truncated": False, "exitCode": 0},
+            {},
+        ]
+    )
+
+    await runtime.execute({"command": "echo", "args": [argument]})
 
     _, create_params = conn.calls[0]
     assert create_params["command"] == "echo"
-    assert create_params["args"] == ["$HOME"]
+    assert create_params["args"] == [argument]
 
 
 @pytest.mark.asyncio

@@ -327,7 +327,10 @@ async def test_file_harness_persistence_removes_empty_session_on_cancellation(
 
 
 @pytest.mark.asyncio
-async def test_harness_close_releases_persisted_session_owner(tmp_path: "Path") -> None:
+@pytest.mark.parametrize("close_one", [False, True], ids=["close_all", "close"])
+async def test_harness_close_releases_persisted_session_owner(
+    tmp_path: "Path", close_one: bool
+) -> None:
     from fast_agent.context import Context
     from fast_agent.core.harness_persistence import FileHarnessSessionPersistence
     from fast_agent.session import SessionBusyError, SessionManager
@@ -357,7 +360,10 @@ async def test_harness_close_releases_persisted_session_owner(tmp_path: "Path") 
     with pytest.raises(SessionBusyError):
         contender.load_session(live.id)
 
-    await sessions.close_all()
+    if close_one:
+        await sessions.close(live.id)
+    else:
+        await sessions.close_all()
 
     loaded = contender.load_session(live.id)
     assert loaded is not None
@@ -1039,6 +1045,7 @@ async def test_harness_session_compact_passes_settings_and_persists(monkeypatch)
     session = await sessions.create("demo", agent_name="support")
     # The target agent carries config that compaction should pick up.
     agent = session._resolve_agent("support")
+    assert isinstance(agent, FakeAgent)
     agent.context = Context(config=Settings(compaction=CompactionSettings(keep_turns=4)))
 
     captured: dict[str, Any] = {}

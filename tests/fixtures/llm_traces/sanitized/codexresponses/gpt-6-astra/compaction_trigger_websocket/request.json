@@ -1,0 +1,60 @@
+{
+  "include": [
+    "reasoning.encrypted_content"
+  ],
+  "instructions": "You are terse.",
+  "model": "gpt-6-astra",
+  "parallel_tool_calls": true,
+  "prompt_cache_key": "fixture-cache-key",
+  "reasoning": {
+    "summary": "auto",
+    "effort": "medium"
+  },
+  "store": false,
+  "text": {
+    "verbosity": "medium"
+  },
+  "tool_choice": "auto",
+  "input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Call read_notes, then reply only OK."
+        }
+      ]
+    },
+    {
+      "type": "function_call",
+      "id": "fc_e51e8a1dfb10423eae58c467108582b9",
+      "call_id": "call_e51e8a1dfb10423eae58c467108582b9",
+      "name": "read_notes",
+      "arguments": "{}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_e51e8a1dfb10423eae58c467108582b9",
+      "output": "Deployment codeword: PINEAPPLE-42.\nline 0: the quick brown fox jumps over the lazy dog. line 1: the quick brown fox jump\u2026[truncated for fixture]"
+    },
+    {
+      "type": "message",
+      "id": "msg_09d788d17cc74d38016acc88875fc08191854591cf42214e8c",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "OK",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    },
+    {
+      "type": "compaction_trigger"
+    }
+  ]
+}

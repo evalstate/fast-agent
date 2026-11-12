@@ -255,6 +255,7 @@ Template details:
 
 - `{{field_name}}` inserts a top-level field from the row.
 - `{{row_json}}` inserts the complete row as pretty-printed JSON.
+- `row_json` is reserved for the complete row, even when an input column has that name.
 - String values are inserted as-is.
 - Non-string values are JSON encoded before insertion.
 - Missing fields produce a row-level `MissingTemplateField` error.
@@ -432,8 +433,22 @@ Use these outputs together:
 
 ## 8. Monitor expensive batches with Trackio
 
-Trackio monitoring is explicit opt-in. Install `fast-agent-mcp[trackio]` or
-`fast-agent-mcp[gepa]`, then pass a project:
+Install the `trackio` optional dependency in the environment where fast-agent
+runs:
+
+```bash
+uv pip install 'fast-agent-mcp[trackio]'
+```
+
+The extra installs `trackio>=0.44.0`; the `gepa` extra also includes it.
+Trackio 0.44.0 permits Pillow <14, compatible with fast-agent's security
+requirement of `pillow>=13.0.0`.
+
+Monitoring is opt-in: set `--project` (alias `--trackio-project`) to enable it.
+Omit these options or pass `--no-trackio` to use local monitoring only via
+`--telemetry-output` and `--summary-output`.
+
+For example:
 
 ```bash
 fast-agent batch run \
@@ -456,7 +471,9 @@ fast-agent batch run \
 Batch Trackio logs aggregate progress, timing, token usage, and provider cache
 behavior under `batch/` metric names. Charts use processed rows as the natural
 step, so cumulative token counters and cache/rate percentages can be compared
-across repeated runs.
+across repeated runs. Automatic CPU/system and GPU metric collection is disabled.
+Once monitoring is enabled, Trackio also honors `TRACKIO_SPACE_ID` and
+`TRACKIO_SERVER_URL`; leave these unset for local-only Trackio storage.
 
 Useful charts include:
 

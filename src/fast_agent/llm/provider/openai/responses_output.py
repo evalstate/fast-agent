@@ -10,6 +10,7 @@ from pydantic_core import from_json
 
 from fast_agent.core.logging.json_serializer import snapshot_json_value
 from fast_agent.event_progress import ProgressAction
+from fast_agent.llm.provider.openai.compaction_replay import capture_compaction_replay
 from fast_agent.llm.provider.openai.reasoning_replay import capture_reasoning_replay
 from fast_agent.llm.provider.openai.tool_event_helpers import (
     first_nonempty_string,
@@ -50,6 +51,7 @@ class ResponsesOutputMixin:
         def _finalize_turn_usage(
             self,
             usage: TurnUsage,
+            /,
             *,
             requested_service_tier: Literal["fast", "flex"] | None = None,
         ) -> None: ...
@@ -431,12 +433,24 @@ class ResponsesOutputMixin:
             )
 
     def _map_response_stop_reason(self, response: Any) -> LlmStopReason:
+        for item in getattr(response, "output", []) or []:
+            if getattr(item, "type", None) == "message" and any(
+                getattr(part, "type", None) == "refusal"
+                for part in getattr(item, "content", []) or []
+            ):
+                return LlmStopReason.SAFETY
         status = getattr(response, "status", None)
         if status == "incomplete":
             details = getattr(response, "incomplete_details", None)
             reason = getattr(details, "reason", None) if details else None
+            if reason == "content_filter":
+                return LlmStopReason.SAFETY
             if reason == "max_output_tokens":
                 return LlmStopReason.MAX_TOKENS
+        # Provider extension: response completion need not finish the agent turn.
+        # Use identity, not truthiness: malformed values (e.g. 0) must not continue.
+        if status in (None, "completed") and getattr(response, "end_turn", None) is False:
+            return LlmStopReason.CONTINUE
         return LlmStopReason.END_TURN
 
     def _extract_reasoning_summary(
@@ -490,6 +504,24 @@ class ResponsesOutputMixin:
                 )
             )
         return encrypted_blocks
+
+    def _capture_compaction_blocks(self, response: Any, *, origin: str) -> list[ContentBlock]:
+        blocks: list[ContentBlock] = []
+        # Dispatch on the wire discriminator, not the SDK class: the WebSocket transport
+        # yields attribute views over the raw JSON, not typed SDK output items.
+        for output_item in getattr(response, "output", []) or []:
+            if getattr(output_item, "type", None) != "compaction":
+                continue
+            payload = capture_compaction_replay(output_item, origin=origin)
+            if payload is None:
+                continue
+            blocks.append(
+                TextContent(
+                    type="text",
+                    text=json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                )
+            )
+        return blocks
 
     @staticmethod
     def _web_citation_dedupe_key(

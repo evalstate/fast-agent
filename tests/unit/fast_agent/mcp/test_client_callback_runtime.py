@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 from typing import Any
 
 import pytest
@@ -260,3 +261,55 @@ async def test_runtime_records_progress_on_bound_transport_channel(
     assert channel is not None
     assert channel.notification_count == 1
     assert channel.last_message_summary == "notify notifications/progress"
+
+
+def _queue(runtime: MCPClientCallbackRuntime, url: str) -> None:
+    runtime.queue_url_elicitation(message="Sign in", url=url, elicitation_id=url)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_requests_keep_their_own_url_elicitations() -> None:
+    runtime = MCPClientCallbackRuntime(server_name="identity", server_config=None)
+    a_queued = asyncio.Event()
+    b_failed = asyncio.Event()
+
+    async def request_a() -> list[str]:
+        with runtime.url_elicitation_scope() as scope:
+            _queue(runtime, "https://a.test")
+            a_queued.set()
+            await b_failed.wait()
+            return [item.url for item in runtime.consume_url_elicitations(scope)]
+
+    async def request_b_fails() -> None:
+        await a_queued.wait()
+        try:
+            with runtime.url_elicitation_scope():
+                _queue(runtime, "https://b.test")
+                raise RuntimeError("request failed")
+        except RuntimeError:
+            b_failed.set()
+
+    a_urls, _ = await asyncio.gather(request_a(), request_b_fails())
+
+    assert a_urls == ["https://a.test"]
+
+
+@pytest.mark.asyncio
+async def test_uncorrelated_url_elicitations_attach_to_next_completed_request() -> None:
+    runtime = MCPClientCallbackRuntime(server_name="identity", server_config=None)
+    _queue(runtime, "https://stale.test")
+
+    with runtime.url_elicitation_scope() as first:
+        with runtime.url_elicitation_scope() as second:
+            # Legacy server requests arrive on the receive loop, outside any request scope.
+            async def receive_loop() -> None:
+                _queue(runtime, "https://x.test")
+
+            await asyncio.get_running_loop().create_task(
+                receive_loop(), context=contextvars.Context()
+            )
+            first_urls = [item.url for item in runtime.consume_url_elicitations(first)]
+        second_urls = [item.url for item in runtime.consume_url_elicitations(second)]
+
+    assert first_urls == ["https://x.test"]
+    assert second_urls == []

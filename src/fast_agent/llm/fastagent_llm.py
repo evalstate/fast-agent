@@ -9,6 +9,8 @@ from abc import abstractmethod
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import nullcontext
 from contextvars import ContextVar
+from copy import deepcopy
+from dataclasses import replace
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -27,16 +29,32 @@ from fast_agent.constants import (
     CONTROL_MESSAGE_SAVE_HISTORY,
 )
 from fast_agent.context_dependent import ContextDependent
-from fast_agent.core.exceptions import AgentConfigError, ProviderKeyError, ServerConfigError
+from fast_agent.core.exceptions import (
+    AgentConfigError,
+    ModelConfigError,
+    ProviderKeyError,
+    ServerConfigError,
+)
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import (
     FastAgentLLMProtocol,
     ModelT,
 )
+from fast_agent.llm.compaction_support import (
+    CompactAt,
+    CompactionMode,
+    CompactionSupport,
+    NativeCompaction,
+)
 from fast_agent.llm.memory import Memory, SimpleMemory
 from fast_agent.llm.model_database import ModelDatabase, ModelParameters
-from fast_agent.llm.provider.streaming_timeouts import StreamTiming
+from fast_agent.llm.provider.error_utils import EmptyCompletionError, provider_policy_code
+from fast_agent.llm.provider.streaming_timeouts import (
+    StreamIdleTimeoutError,
+    StreamTiming,
+    stream_timing_payload,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
     ReasoningEffortSetting,
@@ -45,6 +63,7 @@ from fast_agent.llm.reasoning_effort import (
     validate_reasoning_setting,
 )
 from fast_agent.llm.request_param_resolution import (
+    apply_reasoning_streaming_timeout,
     get_provider_config,
     initialize_base_default_params,
     merge_request_params,
@@ -74,7 +93,7 @@ from fast_agent.llm.text_verbosity import (
     TextVerbositySpec,
     validate_text_verbosity,
 )
-from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
+from fast_agent.llm.usage_tracking import InferenceTiming, TurnUsage, UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.provider_management import ProviderManagedMCPState
@@ -96,6 +115,7 @@ _RETRYABLE_PROVIDER_KEY_ERROR_TERMS = (
     "timeout",
 )
 _NON_RETRYABLE_CONTEXT_ERROR_CODES = ("context_length_exceeded",)
+_NON_RETRYABLE_REQUEST_ERROR_CODES = (*_NON_RETRYABLE_CONTEXT_ERROR_CODES, "model_not_supported")
 
 # Forward reference for type annotations
 if TYPE_CHECKING:
@@ -186,6 +206,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # Pop long_context before passing kwargs to ContextDependent;
         # subclasses (e.g. AnthropicLLM) may pop it first for their own handling.
         long_context_requested = kwargs.pop("long_context", False)
+        self._compaction_mode: CompactionMode | None = kwargs.pop("compaction", None)
+        self._compact_at: CompactAt | None = kwargs.pop("compact_at", None)
         super().__init__(context=context, **kwargs)
         self.logger = get_logger(__name__)
         self.executor = self.context.executor
@@ -212,6 +234,14 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # Set by providers when a streaming attempt fails part-way through, so
         # retry telemetry can report how far the stream got (provider-neutral).
         self._stream_failure_events_received: int | None = None
+        # Trial-local (call, attempt, max_attempts) for the attempt currently running under
+        # _execute_with_retry, so per-attempt stream logs can be told apart from retries.
+        self._stream_call_sequence = 0
+        self._stream_attempt: tuple[int, int, int] | None = None
+        # Where the current call's retries resume (for retries a provider makes itself).
+        self._retry_boundary = retry_boundary(None)
+        # Timing of the most recent successful stream, attached to provider diagnostics.
+        self._last_stream_timing: dict[str, int | float | bool | None] | None = None
 
         # Reasoning effort configuration (provider-neutral)
         self._reasoning_effort: ReasoningEffortSetting | None = None
@@ -274,11 +304,22 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         return self._merge_request_params(default_params, self._init_request_params)
 
     def _ensure_resolved_model_spec(self, provider: Provider) -> None:
-        if self._resolved_model_spec is not None:
-            return
-
         from fast_agent.llm.model_factory import ModelConfig
         from fast_agent.llm.resolved_model import ResolvedModelSpec, resolve_base_model_params
+
+        spec = self._resolved_model_spec
+        if spec is not None:
+            if not spec.wire_model_name and self._model_name:
+                # Provider-only selections ("moonshot", "hf") pick their model here;
+                # hydrate its catalog metadata while keeping the selection's overrides.
+                self._resolved_model_spec = replace(
+                    spec,
+                    wire_model_name=self._model_name,
+                    model_params=resolve_base_model_params(
+                        provider=provider, model_name=self._model_name
+                    ),
+                )
+            return
 
         fallback_model_name = self._model_name or ""
         fallback_model_config = ModelConfig(
@@ -461,7 +502,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         params = self._get_model_params(model_name)
         return params.response_service_tiers if params is not None else None
 
-    def _uses_codex_responses_lite(self, model_name: str | None) -> bool:
+    def _supports_codex_responses_lite(self, model_name: str | None) -> bool:
         params = self._get_model_params(model_name)
         return params.codex_responses_lite if params is not None else False
 
@@ -484,6 +525,14 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _get_model_anthropic_thinking_field_required(self, model_name: str | None) -> bool:
         params = self._get_model_params(model_name)
         return params.anthropic_thinking_field_required if params is not None else True
+
+    def _get_model_anthropic_thinking_display_supported(self, model_name: str | None) -> bool:
+        params = self._get_model_params(model_name)
+        return bool(params.anthropic_thinking_display_supported) if params is not None else False
+
+    def _get_model_anthropic_thinking_prefix_binding(self, model_name: str | None) -> bool:
+        params = self._get_model_params(model_name)
+        return bool(params.anthropic_thinking_prefix_binding) if params is not None else False
 
     def _get_model_anthropic_thinking_disable_supported(self, model_name: str | None) -> bool:
         params = self._get_model_params(model_name)
@@ -599,6 +648,33 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         if value is not None and not self.service_tier_supported:
             raise ValueError("Current model does not support service tier configuration.")
 
+    @property
+    def compaction_support(self) -> CompactionSupport:
+        """How this LLM can compact history; providers override for native compaction."""
+        return CompactionSupport.CLIENT
+
+    @property
+    def compact_at_override(self) -> CompactAt | None:
+        """The model string's ``compact_at``, which wins over ``compaction.threshold``."""
+        return self._compact_at
+
+    @property
+    def default_compact_at(self) -> CompactAt | None:
+        """The model's auto-compaction trigger, used when config leaves it unset."""
+        params = self._get_model_params(self.default_request_params.model or self._model_name)
+        tokens = params.compaction_trigger_tokens if params is not None else None
+        return CompactAt(tokens=tokens) if tokens is not None else None
+
+    @property
+    def compaction_mode(self) -> CompactionMode | None:
+        """The model string's ``compaction=`` override, if any."""
+        return self._compaction_mode
+
+    async def native_compaction(self, messages: list[PromptMessageExtended]) -> NativeCompaction:
+        """Compact ``messages`` into a provider checkpoint (``ON_DEMAND`` providers only)."""
+        del messages
+        raise NotImplementedError(f"{type(self).__name__} has no provider-native compaction")
+
     def _get_provider_config(self) -> Any | None:
         """Return provider-specific config section when available."""
         return get_provider_config(
@@ -689,16 +765,27 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         last_error = None
         retry_records: list[ProviderRetry] = []
         boundary = retry_boundary(args[0] if args else None)
+        self._retry_boundary = boundary
+        self._stream_call_sequence += 1
 
         for attempt in range(retries + 1):
             self._stream_failure_events_received = None
+            self._last_stream_timing = None
+            self._stream_attempt = (self._stream_call_sequence, attempt + 1, retries + 1)
             try:
                 result = await func(*args, **kwargs)
             except Exception as e:
+                # A policy refusal is a terminal response, including when the SDK
+                # represents it as a generic fatal BadRequestError.
+                if provider_policy_code(e):
+                    last_error = e
+                    break
                 if self._is_fatal_retry_error(e):
                     raise
 
                 last_error = e
+                if self._is_request_too_large(e):
+                    break  # resending the same request can't help; report it once
                 if attempt < retries:
                     self._notify_stream_listeners(StreamChunk(event="rollback"))
                     wait_seconds = self._retry_wait_seconds(attempt)
@@ -727,9 +814,60 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # This line satisfies Pylance that we never implicitly return None
         raise RuntimeError("Retry loop finished without success or exception")
 
+    def _empty_completion_retry(self) -> ProviderRetry:
+        """Telemetry for a provider asking once more after an empty completion."""
+        return provider_retry(
+            EmptyCompletionError(),
+            attempt=1,
+            max_attempts=2,
+            wait_seconds=0.0,
+            boundary=self._retry_boundary,
+        )
+
     def _record_stream_failure(self, timing: StreamTiming) -> None:
         """Record how far a failed provider stream got, for retry telemetry."""
         self._stream_failure_events_received = timing.events_received
+
+    def _record_stream_outcome(
+        self,
+        timing: StreamTiming | None,
+        *,
+        error: BaseException | None,
+        model: str,
+        timeout_seconds: float | None,
+        **data: Any,
+    ) -> None:
+        """Persist one streaming attempt's timing.
+
+        Failures (including the last attempt when retries exhaust) are logged with
+        trial-local call/attempt identifiers. ``timing`` is ``None`` when the stream
+        never started, which distinguishes start failures from idle established streams.
+        Successful timing is kept for the provider diagnostics channel.
+        """
+        established = timing is not None
+        timing = timing or StreamTiming(0, None, None, 0, None)
+        timed_out = isinstance(error, StreamIdleTimeoutError if established else TimeoutError)
+        payload = stream_timing_payload(timing, timed_out=timed_out)
+        call, attempt, max_attempts = self._stream_attempt or (0, 1, 1)
+        data = {
+            "model": model,
+            "phase": "stream" if established else "start",
+            "timeout_seconds": timeout_seconds,
+            "call": call,
+            "attempt": attempt,
+            "max_attempts": max_attempts,
+            "stream_timing": payload,
+            **data,
+        }
+        if error is not None:
+            if established:
+                self._record_stream_failure(timing)
+            data["error_type"] = type(error).__name__
+            self.logger.error("Provider stream attempt failed", data=data)
+            return
+        self._last_stream_timing = payload
+        if timing.inter_event_waits_over_threshold:
+            self.logger.warning("Provider stream observed extended inter-event gap", data=data)
 
     @staticmethod
     def _append_retry_telemetry(result: Any, retries: list[ProviderRetry]) -> None:
@@ -745,9 +883,43 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                     return
 
     @staticmethod
+    def _is_request_too_large(error: Exception) -> bool:
+        """HTTP 413: the provider refused the request body as too large.
+
+        The same request fails the same way, so it isn't retried, but unlike a fatal
+        error it still ends in the provider's normal error response.
+        """
+        from fast_agent.llm.provider.openai.responses_websocket import ResponsesWebSocketError
+
+        if isinstance(error, ResponsesWebSocketError):
+            return error.status == 413
+        exception_module_roots = {
+            exception_type.__module__.partition(".")[0] for exception_type in type(error).__mro__
+        }
+        if "openai" in exception_module_roots:
+            from openai import APIStatusError as OpenAIAPIStatusError
+
+            return isinstance(error, OpenAIAPIStatusError) and error.status_code == 413
+        return False
+
+    @staticmethod
     def _is_fatal_retry_error(error: Exception) -> bool:
-        if isinstance(error, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
+        if isinstance(
+            error, (KeyboardInterrupt, AgentConfigError, ModelConfigError, ServerConfigError)
+        ):
             return True
+
+        # Deferred: this module must stay importable without the OpenAI/WebSocket SDKs.
+        from fast_agent.llm.provider.openai.responses_websocket import ResponsesWebSocketError
+
+        if isinstance(error, ResponsesWebSocketError):
+            if error.status == 400:
+                return True
+            if (
+                error.error_code
+                and casefold_text(error.error_code) in _NON_RETRYABLE_REQUEST_ERROR_CODES
+            ):
+                return True
 
         exception_module_roots = {
             exception_type.__module__.partition(".")[0] for exception_type in type(error).__mro__
@@ -767,7 +939,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 return True
             if isinstance(error, OpenAIAPIError) and isinstance(error.code, str):
                 code = casefold_text(error.code)
-                if code in _NON_RETRYABLE_CONTEXT_ERROR_CODES:
+                if code in _NON_RETRYABLE_REQUEST_ERROR_CODES:
                     return True
 
         message = casefold_text(str(error))
@@ -966,14 +1138,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         finally:
             _mcp_metadata_var.reset(mcp_metadata_token)
             cleanup_timing_capture()
-        end_time = time.perf_counter()
-        self._add_timing_channel(
-            assistant_response,
-            timing_capture.start_time,
-            end_time,
-            ttft_ms=timing_capture.ttft_ms,
-            time_to_response_ms=timing_capture.time_to_response_ms,
-        )
+        self._record_request_timing(assistant_response, timing_capture, usage_start_index)
 
         self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
         self._append_usage_channel(assistant_response, start_index=usage_start_index)
@@ -1007,6 +1172,29 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             end_time,
             ttft_ms=ttft_ms,
             time_to_response_ms=time_to_response_ms,
+        )
+
+    def _record_request_timing(
+        self,
+        response: PromptMessageExtended,
+        capture: RequestTimingCapture,
+        usage_start_index: int,
+    ) -> None:
+        end_time = time.perf_counter()
+        self._add_timing_channel(
+            response,
+            capture.start_time,
+            end_time,
+            ttft_ms=capture.ttft_ms,
+            time_to_response_ms=capture.time_to_response_ms,
+        )
+        self.usage_accumulator.record_timing(
+            InferenceTiming(
+                duration_ms=round((end_time - capture.start_time) * 1000, 2),
+                ttft_ms=capture.ttft_ms,
+                time_to_response_ms=capture.time_to_response_ms,
+            ),
+            start_index=usage_start_index,
         )
 
     def _start_request_timing_capture(self) -> tuple[RequestTimingCapture, Callable[[], None]]:
@@ -1083,14 +1271,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         else:
             result, assistant_response = result_or_response
 
-        end_time = time.perf_counter()
-        self._add_timing_channel(
-            assistant_response,
-            timing_capture.start_time,
-            end_time,
-            ttft_ms=timing_capture.ttft_ms,
-            time_to_response_ms=timing_capture.time_to_response_ms,
-        )
+        self._record_request_timing(assistant_response, timing_capture, usage_start_index)
 
         self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
         self._append_usage_channel(assistant_response, start_index=usage_start_index)
@@ -1148,9 +1329,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         Returns:
             Provider-agnostic schema representation or NotGiven if conversion fails
         """
-        from openai.lib._parsing import type_to_response_format_param as _type_to_response_format
+        from openai.lib import type_to_response_format_param
 
-        return _type_to_response_format(model)
+        return type_to_response_format_param(model)
 
     @staticmethod
     def model_to_schema_str(
@@ -1332,8 +1513,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         # Finally, add any metadata fields as a last layer of overrides
         # This ensures metadata can override anything previously set if keys conflict.
+        # Deep-copied so provider request shaping never mutates caller metadata.
         if request_params.metadata:
-            arguments.update(request_params.metadata)
+            arguments.update(deepcopy(request_params.metadata))
 
         return arguments
 
@@ -1355,11 +1537,15 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 If unspecified, self.default_request_params will be used.
         """
 
-        # If user provides overrides, merge them with defaults
-        if request_params:
-            return self._merge_request_params(self.default_request_params, request_params)
-
-        return self.default_request_params.model_copy()
+        resolved = (
+            self._merge_request_params(self.default_request_params, request_params)
+            if request_params is not None
+            else self.default_request_params.model_copy()
+        )
+        reasoning = self.reasoning_effort
+        if reasoning is None and self.reasoning_effort_spec is not None:
+            reasoning = self.reasoning_effort_spec.default
+        return apply_reasoning_streaming_timeout(resolved, reasoning)
 
     @classmethod
     def convert_message_to_message_param(
@@ -1392,6 +1578,21 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             "chat_turn": chat_turn if chat_turn is not None else None,
         }
         self.logger.debug("Chat in progress", data=data)
+
+    def _log_upload_progress(
+        self, uploaded: int, total: int, *, model: str | None, noun: str = "attachment"
+    ) -> None:
+        """Log an attachment upload step (``uploaded`` of ``total``) before a request."""
+        self.logger.debug(
+            "Uploading attachments",
+            data={
+                "progress_action": ProgressAction.UPLOADING,
+                "model": model,
+                "agent_name": self.name,
+                "chat_turn": self.chat_turn(),
+                "details": f"{noun} {uploaded}/{total}",
+            },
+        )
 
     def _update_streaming_progress(self, content: str, model: str, estimated_tokens: int) -> int:
         """Update streaming progress with token estimation and formatting.
@@ -1669,7 +1870,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _provider_api_key(self):
         from fast_agent.llm.provider_key_manager import ProviderKeyManager
 
-        assert self.provider
         return ProviderKeyManager.get_api_key(self.provider.config_name, self.context.config)
 
     def _base_url(self) -> str | None:

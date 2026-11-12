@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from prompt_toolkit.formatted_text import to_formatted_text
 
 if TYPE_CHECKING:
     from prompt_toolkit import PromptSession
@@ -112,3 +113,36 @@ async def test_get_argument_input_escapes_markup(
     assert getattr(prompts[0], "value", "") == (
         "Enter value for <ansibrightcyan>name &lt;draft&gt; [local]</ansibrightcyan> (required): "
     )
+
+
+@pytest.mark.parametrize(
+    ("agent_names", "show_name"),
+    [(None, False), ([], False), (["dev"], False), (["dev", "review"], True)],
+)
+def test_toolbar_shows_agent_name_only_when_agents_can_be_switched(
+    monkeypatch: pytest.MonkeyPatch, agent_names: list[str] | None, show_name: bool
+) -> None:
+    # A previous multi-agent prompt must not leave a stale identity in a new one.
+    monkeypatch.setattr(prompt_input, "available_agents", {"dev", "previous"})
+    monkeypatch.setattr(prompt_input, "agent_histories", {})
+    monkeypatch.setattr(prompt_input, "in_multiline_mode", False)
+    prompt_input._initialize_prompt_input_state(
+        agent_name="dev",
+        multiline=False,
+        available_agent_names=agent_names,
+        agent_provider=None,
+    )
+    session = _FakeSession()
+    toolbar = prompt_input._build_toolbar(
+        agent_name="dev",
+        toolbar_color="ansiblue",
+        agent_provider=None,
+        shell_context=prompt_input.ShellInputContext(),
+        session_factory=lambda: cast("PromptSession[Any]", session),
+    )
+
+    text = "".join(fragment[1] for fragment in to_formatted_text(toolbar()))
+
+    assert ("dev" in text) is show_name
+    assert "NRM" in text
+    assert "fast-agent" in text
