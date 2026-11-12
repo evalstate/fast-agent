@@ -77,6 +77,10 @@ from fast_agent.mcp.events_extension import (
     PollEventsResult,
     server_supports_mcp_events,
 )
+from fast_agent.mcp.events_subscriptions import (
+    EventSubscriptionManager,
+    format_event_messages,
+)
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.interfaces import ServerRegistryProtocol
@@ -619,6 +623,7 @@ class MCPAggregator(ContextDependent):
 
         self._app_integration_configs: dict[str, AppServerConfig] = {}
         self._mcp_skill_registries: dict[str, McpSkillRegistry] = {}
+        self._events: EventSubscriptionManager | None = None
 
         # Cache for capabilities discovered by on-demand clients.
         self._capabilities_cache: dict[str, ServerCapabilities] = {}
@@ -729,6 +734,8 @@ class MCPAggregator(ContextDependent):
             if self._closed:
                 return
             self._closed = True
+            if self._events is not None:
+                await self._events.aclose()
             try:
                 if (
                     self.connection_persistence
@@ -3968,6 +3975,19 @@ class MCPAggregator(ContextDependent):
             method_name="get_skill",
             method_args={"uri": uri},
         )
+
+    @property
+    def events(self) -> EventSubscriptionManager:
+        """Event subscriptions held for this aggregator's servers (SEP-3415)."""
+        if self._events is None:
+            self._events = EventSubscriptionManager(self)
+        return self._events
+
+    def take_event_messages(self) -> list[str]:
+        """Drain delivered events as text for the next model call."""
+        if self._events is None or self._events.pending_count == 0:
+            return []
+        return [format_event_messages(self._events.take())]
 
     async def supports_events(self, server_name: str) -> bool:
         """Whether a server declared the SEP-3415 Events extension."""
