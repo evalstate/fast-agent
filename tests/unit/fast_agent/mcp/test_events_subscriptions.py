@@ -108,7 +108,7 @@ async def test_poll_loop_delivers_events_and_follows_server_pacing() -> None:
     sleeps = _Sleeps()
     manager = _manager(poller, sleeps)
     arrivals: list[int] = []
-    manager.add_listener(lambda: arrivals.append(manager.pending_count))
+    manager.add_listener(lambda item: arrivals.append(manager.pending_count))
 
     subscription = await manager.subscribe("demo", EVENT, ARGS)
     await poller.exhausted.wait()

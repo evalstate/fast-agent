@@ -78,6 +78,7 @@ from fast_agent.mcp.events_extension import (
     server_supports_mcp_events,
 )
 from fast_agent.mcp.events_subscriptions import (
+    EventInboxItem,
     EventSubscriptionManager,
     format_event_messages,
 )
@@ -140,6 +141,12 @@ _CONNECTION_ERROR_REPLAY_SAFE_METHODS = frozenset(
         "read_resource",
     }
 )
+
+
+def _note_event_arrival(item: EventInboxItem) -> None:
+    from fast_agent.ui import notification_tracker
+
+    notification_tracker.add_mcp_event(item.server_name)
 
 
 def _display_tool_id(tool_id: str | None) -> str:
@@ -3981,6 +3988,7 @@ class MCPAggregator(ContextDependent):
         """Event subscriptions held for this aggregator's servers (SEP-3415)."""
         if self._events is None:
             self._events = EventSubscriptionManager(self)
+            self._events.add_listener(_note_event_arrival)
         return self._events
 
     def take_event_messages(self) -> list[str]:

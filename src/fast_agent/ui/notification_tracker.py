@@ -21,9 +21,10 @@ class EventDisplay:
 
 
 # Display metadata for toolbar summaries (singular, plural, compact label)
-_EVENT_ORDER = ("tool_update", "sampling", "elicitation", "warning")
+_EVENT_ORDER = ("tool_update", "mcp_event", "sampling", "elicitation", "warning")
 _EVENT_DISPLAY = {
     "tool_update": EventDisplay("tool update", "tool updates", "tool"),
+    "mcp_event": EventDisplay("event", "events", "evt"),
     "sampling": EventDisplay("sample", "samples", "samp"),
     "elicitation": EventDisplay("elicitation", "elicitations", "elic"),
     "warning": EventDisplay("warning", "warnings", "warn"),
@@ -53,6 +54,12 @@ def add_tool_update(server_name: str) -> None:
         server_name: Name of the server that had tools updated
     """
     notifications.append(_notification("tool_update", server=server_name))
+
+
+def add_mcp_event(server_name: str) -> None:
+    """Add a notification for an MCP event waiting for the next model call."""
+    notifications.append(_notification("mcp_event", server=server_name))
+    _invalidate_prompt()
 
 
 def add_warning(

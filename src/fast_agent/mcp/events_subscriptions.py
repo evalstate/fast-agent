@@ -205,7 +205,7 @@ class EventSubscriptionManager:
         self._running: dict[str, _Running] = {}
         self._terminated: dict[str, EventSubscription] = {}
         self._inbox: list[EventInboxItem] = []
-        self._listeners: list[Callable[[], None]] = []
+        self._listeners: list[Callable[[EventInboxItem], None]] = []
 
     def subscriptions(self) -> list[EventSubscription]:
         active = [state.subscription for state in self._running.values()]
@@ -215,8 +215,8 @@ class EventSubscriptionManager:
     def pending_count(self) -> int:
         return len(self._inbox)
 
-    def add_listener(self, listener: Callable[[], None]) -> None:
-        """Call ``listener`` whenever new items reach the inbox."""
+    def add_listener(self, listener: Callable[[EventInboxItem], None]) -> None:
+        """Call ``listener`` with each item that reaches the inbox."""
         self._listeners.append(listener)
 
     async def list_event_types(self, server_name: str) -> list[EventDescriptor]:
@@ -446,19 +446,18 @@ class EventSubscriptionManager:
         detail: str | None = None,
     ) -> None:
         subscription = state.subscription
-        self._inbox.append(
-            EventInboxItem(
-                kind=kind,
-                subscription_key=subscription.key,
-                server_name=subscription.server_name,
-                name=subscription.name,
-                occurrence=occurrence,
-                detail=detail,
-            )
+        item = EventInboxItem(
+            kind=kind,
+            subscription_key=subscription.key,
+            server_name=subscription.server_name,
+            name=subscription.name,
+            occurrence=occurrence,
+            detail=detail,
         )
+        self._inbox.append(item)
         for listener in self._listeners:
             try:
-                listener()
+                listener(item)
             except Exception:
                 logger.warning("Event inbox listener failed", exc_info=True)
 
