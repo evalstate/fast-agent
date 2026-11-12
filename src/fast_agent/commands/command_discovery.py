@@ -505,6 +505,37 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
             ],
         },
         {
+            "name": "events",
+            "summary": "Subscribe to MCP server events",
+            "usage": (
+                "/events [list [server]|subscribe <server> <event> [key=value ...]|"
+                "unsubscribe <id>|unsubscribe all]"
+            ),
+            "actions": [
+                {
+                    "name": "list",
+                    "summary": "show the event types attached servers offer",
+                    "usage": "/events list [server]",
+                },
+                {
+                    "name": "subscribe",
+                    "summary": "poll a server for an event type",
+                    "usage": "/events subscribe <server> <event> [key=value ...]",
+                },
+                {
+                    "name": "unsubscribe",
+                    "summary": "stop a subscription",
+                    "usage": "/events unsubscribe <id>|all",
+                },
+            ],
+            "examples": [
+                "/events",
+                "/events list",
+                "/events subscribe jobs job.status_changed job_id=abc123",
+                "/events unsubscribe 3f9a1c2b7d10",
+            ],
+        },
+        {
             "name": "mcp",
             "summary": "Runtime MCP control",
             "usage": "/mcp [list|status|attach|connect|disconnect|reconnect] [args]",
