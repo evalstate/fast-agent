@@ -619,6 +619,10 @@ class McpAgent(ABC, ToolAgent):
         """Drain MCP events delivered since the last model call."""
         return self._aggregator.take_event_messages()
 
+    async def wait_for_event_wake(self) -> None:
+        """Return once an MCP event from a subscription with ``wake`` set is waiting."""
+        await self._aggregator.events.wait_for_wake()
+
     async def get_server_status(self) -> dict[str, ServerStatus]:
         """Expose server status details for UI and diagnostics consumers."""
         if not self._aggregator:

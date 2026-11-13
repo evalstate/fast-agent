@@ -208,6 +208,35 @@ async def test_events_subscribe_status_and_unsubscribe() -> None:
 
 
 @pytest.mark.asyncio
+async def test_events_subscribe_with_wake_and_poll() -> None:
+    agent = _Agent()
+    context = _context(agent)
+    manager = agent.aggregator.events
+
+    subscribed = _text(
+        await handle_events(
+            context,
+            agent_name="main",
+            argument="subscribe jobs job.status_changed --wake job_id=abc",
+        )
+    )
+    assert "start a turn" in subscribed
+    [subscription] = manager.subscriptions()
+    assert subscription.wake
+    assert subscription.arguments == {"job_id": "abc"}
+    assert "| yes | active |" in _text(await handle_events(context, agent_name="main"))
+
+    polled = _text(
+        await handle_events(context, agent_name="main", argument=f"poll {subscription.key}")
+    )
+    assert f"Polling `{subscription.key}` now" in polled
+
+    missing = await handle_events(context, agent_name="main", argument="poll nope")
+    assert missing.messages[0].channel == "error"
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
 async def test_events_subscribe_reports_rejections_and_bad_usage() -> None:
     agent = _Agent()
     context = _context(agent)

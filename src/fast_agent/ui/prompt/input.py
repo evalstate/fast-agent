@@ -89,7 +89,7 @@ from fast_agent.ui.prompt.status_bar.service_tier import cycle_service_tier
 from fast_agent.utils.env import env_flag
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Awaitable, Callable, Iterable
     from pathlib import Path
 
     from fast_agent.agents.agent_types import AgentType
@@ -808,6 +808,7 @@ async def get_enhanced_input(
     no_home_mode: bool = False,
     pre_populate_buffer: str = "",
     session_manager: "SessionManager | None" = None,
+    wait_for_wake: "Callable[[], Awaitable[None]] | None" = None,
 ) -> str | CommandPayload:
     """
     Enhanced input with advanced prompt_toolkit features.
@@ -826,6 +827,7 @@ async def get_enhanced_input(
         no_home_mode: Whether session operations should be disabled for --no-home mode
         pre_populate_buffer: Text to pre-populate in the input buffer for editing (one-off)
         session_manager: Optional session manager for session completions
+        wait_for_wake: Optional awaitable that ends the prompt with an EventWakeCommand
 
     Returns:
         User input string or parsed command payload
@@ -947,6 +949,7 @@ async def get_enhanced_input(
                 default_buffer=buffer_default,
                 resolve_prompt_text=resolve_prompt_text,
                 parse_special_input=parse_special_input,
+                wait_for_wake=wait_for_wake,
             )
     finally:
         await cleanup_prompt_session(
