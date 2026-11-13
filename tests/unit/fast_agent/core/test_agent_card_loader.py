@@ -220,6 +220,48 @@ def test_mcp_connect_mapping_roundtrip_preserves_canonical_form(tmp_path: Path) 
     assert roundtripped.mcp_connect == config.mcp_connect
 
 
+def test_mcp_connect_events_roundtrip_and_reach_server_settings(tmp_path: Path) -> None:
+    card_path = tmp_path / "events_agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: events_agent",
+                "mcp_connect:",
+                "  jobs:",
+                '    target: "https://demo.hf.space"',
+                "    events:",
+                "      - name: job.status_changed",
+                "        arguments:",
+                "          job_id: job-1",
+                "        wake: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)[0]
+    [entry] = loaded.agent_data["config"].mcp_connect
+    [event] = entry.materialize(source_path="mcp_connect.jobs").events or []
+    assert (event.name, event.arguments, event.wake) == (
+        "job.status_changed",
+        {"job_id": "job-1"},
+        True,
+    )
+
+    dumped = dump_agent_to_string("events_agent", loaded.agent_data, as_yaml=True)
+    assert yaml.safe_load(dumped)["mcp_connect"]["jobs"]["events"] == [
+        {"name": "job.status_changed", "arguments": {"job_id": "job-1"}, "wake": True}
+    ]
+
+    card_path.write_text(
+        "name: events_agent\nmcp_connect:\n  jobs:\n    target: https://demo.hf.space\n"
+        "    events: job.status_changed\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(AgentConfigError, match="mcp_connect"):
+        load_agent_cards(card_path)
+
+
 def test_mcp_connect_list_roundtrip_preserves_compatibility_form(tmp_path: Path) -> None:
     card_path = tmp_path / "mcp_agent.yaml"
     card_path.write_text(

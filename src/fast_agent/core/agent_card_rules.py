@@ -206,6 +206,7 @@ MCP_CONNECT_ALLOWED_KEYS = frozenset(
         "defer_loading",
         "auth",
         "protocol_mode",
+        "events",
     }
 )
 
