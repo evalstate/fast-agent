@@ -843,7 +843,6 @@ class InteractivePrompt:
         if isinstance(user_input, str):
             user_input = parse_special_input(user_input)
         elif isinstance(user_input, EventWakeCommand):
-            # Hand back what the user was typing when the event ended the prompt.
             next_buffer_prefill = user_input.buffer_text
 
         if not isinstance(user_input, InterruptCommand):
