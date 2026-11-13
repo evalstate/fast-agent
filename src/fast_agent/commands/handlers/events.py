@@ -18,9 +18,10 @@ if TYPE_CHECKING:
     from fast_agent.mcp.events_subscriptions import EventSubscriptionManager
 
 EVENTS_USAGE = (
-    "Usage: /events [list [server]|subscribe <server> <event> [key=value ...]|"
-    "unsubscribe <id>|unsubscribe all]"
+    "Usage: /events [list [server]|subscribe <server> <event> [key=value ...] [--wake]|"
+    "poll <id>|unsubscribe <id>|unsubscribe all]"
 )
+WAKE_FLAG = "--wake"
 
 
 class _EventsAggregator(Protocol):
@@ -96,15 +97,26 @@ async def handle_events(
             text = await _render_event_types(aggregator, rest[0] if rest else None)
             _add_markdown(outcome, text, "events list")
         elif action == "subscribe" and len(rest) >= 2:
+            wake = WAKE_FLAG in rest
+            arguments = [token for token in rest[2:] if token != WAKE_FLAG]
             subscription = await aggregator.events.subscribe(
-                rest[0], rest[1], parse_event_arguments(rest[2:])
+                rest[0], rest[1], parse_event_arguments(arguments), wake=wake
+            )
+            delivery = (
+                "Events start a turn when the prompt is idle."
+                if wake
+                else "Events are added to the next model call."
             )
             _add_markdown(
                 outcome,
                 f"Subscribed to `{subscription.name}` on `{subscription.server_name}` "
-                f"as `{subscription.key}`. Events are added to the next model call.",
+                f"as `{subscription.key}`. {delivery}",
                 "events subscribe",
             )
+        elif action == "poll" and len(rest) == 1:
+            if not aggregator.events.poll_now(rest[0]):
+                raise ValueError(f"No active subscription with id '{rest[0]}'")
+            _add_markdown(outcome, f"Polling `{rest[0]}` now.", "events poll")
         elif action == "unsubscribe" and len(rest) == 1:
             _add_markdown(outcome, await _unsubscribe(aggregator, rest[0]), "events unsubscribe")
         else:
@@ -125,8 +137,8 @@ def _render_status(aggregator: _EventsAggregator) -> str:
         return "No event subscriptions. Use `/events list` to see what servers offer."
 
     lines = [
-        "| id | server | event | arguments | status | delivered |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| id | server | event | arguments | wake | status | delivered |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for subscription in subscriptions:
         status = subscription.status
@@ -138,6 +150,7 @@ def _render_status(aggregator: _EventsAggregator) -> str:
             f"| {escape_markdown_table_cell(subscription.server_name)} "
             f"| {escape_markdown_table_cell(subscription.name)} "
             f"| {escape_markdown_table_cell(markdown_code_span(arguments))} "
+            f"| {'yes' if subscription.wake else 'no'} "
             f"| {escape_markdown_table_cell(status)} "
             f"| {subscription.delivered} |"
         )

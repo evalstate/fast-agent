@@ -486,6 +486,14 @@ class EOFCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class EventWakeCommand(CommandBase):
+    """Represents an MCP event that ended an idle prompt to start a turn."""
+
+    buffer_text: str = ""
+    kind: Literal["event_wake"] = "event_wake"
+
+
+@dataclass(frozen=True, slots=True)
 class UnknownCommand(CommandBase):
     command: str
     kind: Literal["unknown_command"] = "unknown_command"
@@ -561,6 +569,7 @@ CommandPayload = (
     | ModelSwitchCommand
     | InterruptCommand
     | EOFCommand
+    | EventWakeCommand
     | CommandError
     | UnknownCommand
 )
