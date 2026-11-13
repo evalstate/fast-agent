@@ -179,8 +179,11 @@ async def main() -> None:
             cleared.extend(agent.message_history)
             agent.clear()
 
-        if args.start:
-            await turn(args.start, with_skill=True)
+        if args.start and not await turn(args.start, with_skill=True):
+            # Nothing the opening turn was meant to set up exists, so no event would arrive.
+            _log("the opening turn failed, exiting")
+            await manager.aclose()
+            raise SystemExit(1)
 
         turns = 0
         while (not args.stop_kind or stops_seen < args.stop_count) and (
