@@ -232,6 +232,38 @@ async def test_transport_errors_back_off_and_keep_the_cursor() -> None:
 
 
 @pytest.mark.asyncio
+async def test_poll_now_ends_an_error_backoff_and_keeps_the_cursor() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(cursor="c0", next_poll_ms=1_000),
+            ConnectionError("down"),
+            PollEventsResult(events=[_occurrence("COMPLETED")], cursor="c1"),
+        ]
+    )
+    backing_off = asyncio.Event()
+
+    async def sleep(seconds: float) -> None:
+        if seconds == 30.0:
+            backing_off.set()
+            await asyncio.Event().wait()
+        await asyncio.sleep(0)
+
+    manager = EventSubscriptionManager(poller, sleep=sleep)
+    subscription = await manager.subscribe("demo", EVENT, ARGS)
+    await backing_off.wait()
+    assert subscription.last_error == "down"
+
+    assert manager.poll_now(subscription.key)
+    while not manager.pending_count:
+        await asyncio.sleep(0)
+
+    assert poller.cursors == [None, "c0", "c0"]
+    assert subscription.last_error is None
+    assert not manager.poll_now("missing")
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
 async def test_store_keeps_the_consumed_cursor_and_restores_from_it(tmp_path: Path) -> None:
     store = JsonEventSubscriptionStore(tmp_path / "events" / "subscriptions.json")
     poller = _Poller(
