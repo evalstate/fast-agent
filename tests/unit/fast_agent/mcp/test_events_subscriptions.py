@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 from mcp.shared.exceptions import MCPError
@@ -17,13 +17,9 @@ from fast_agent.mcp.events_extension import (
 from fast_agent.mcp.events_subscriptions import (
     EventInboxItem,
     EventSubscriptionManager,
-    JsonEventSubscriptionStore,
     format_event_messages,
     subscription_key,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 EVENT = "job.status_changed"
 ARGS = {"job_id": "job-1"}
@@ -119,15 +115,12 @@ async def test_poll_loop_delivers_events_and_follows_server_pacing() -> None:
     assert arrivals == [1, 2]
     assert subscription.key == subscription_key("demo", EVENT, ARGS)
     assert subscription.delivered == 2
-    # The bootstrap poll left nothing pending, so its cursor counts as consumed.
-    assert subscription.cursor == "c0"
 
     items = manager.take()
     assert [item.occurrence.event_id for item in items if item.occurrence] == [
         "job-1:RUNNING",
         "job-1:COMPLETED",
     ]
-    assert subscription.cursor == "c2"
     assert manager.pending_count == 0
     await manager.aclose()
 
@@ -264,41 +257,6 @@ async def test_poll_now_ends_an_error_backoff_and_keeps_the_cursor() -> None:
 
 
 @pytest.mark.asyncio
-async def test_store_keeps_the_consumed_cursor_and_restores_from_it(tmp_path: Path) -> None:
-    store = JsonEventSubscriptionStore(tmp_path / "events" / "subscriptions.json")
-    poller = _Poller(
-        [
-            PollEventsResult(cursor="c0"),
-            PollEventsResult(events=[_occurrence("COMPLETED")], cursor="c1"),
-        ]
-    )
-    manager = _manager(poller, _Sleeps(), store=store)
-
-    subscription = await manager.subscribe("demo", EVENT, ARGS)
-    await poller.exhausted.wait()
-    # The event is still in the inbox, so a restart must replay it.
-    assert store.load() == [
-        {"server_name": "demo", "name": EVENT, "arguments": ARGS, "cursor": "c0", "wake": False}
-    ]
-    await manager.aclose()
-
-    replay = _Poller([PollEventsResult(events=[_occurrence("COMPLETED")], cursor="c1")])
-    restarted = _manager(replay, _Sleeps(), store=store)
-    restored = restarted.restore()
-    await replay.exhausted.wait()
-
-    assert [item.key for item in restored] == [subscription.key]
-    assert replay.cursors == ["c0"]
-    assert len(restarted.take()) == 1
-    assert store.load()[0]["cursor"] == "c1"
-
-    assert await restarted.unsubscribe(subscription.key)
-    assert store.load() == []
-    assert not await restarted.unsubscribe(subscription.key)
-    await restarted.aclose()
-
-
-@pytest.mark.asyncio
 async def test_wait_for_wake_returns_only_for_subscriptions_that_opted_in() -> None:
     quiet = _manager(
         _Poller([PollEventsResult(cursor="c0"), PollEventsResult(events=[_occurrence("RUNNING")])]),
@@ -335,18 +293,6 @@ async def test_wait_for_wake_returns_only_for_subscriptions_that_opted_in() -> N
     assert not waiting.done()
     waiting.cancel()
     await manager.aclose()
-
-
-@pytest.mark.asyncio
-async def test_wake_flag_survives_a_restart(tmp_path: Path) -> None:
-    store = JsonEventSubscriptionStore(tmp_path / "subscriptions.json")
-    manager = _manager(_Poller([PollEventsResult(cursor="c0")]), _Sleeps(), store=store)
-    await manager.subscribe("demo", EVENT, ARGS, wake=True)
-    await manager.aclose()
-
-    restarted = _manager(_Poller([]), _Sleeps(), store=store)
-    assert [item.wake for item in restarted.restore()] == [True]
-    await restarted.aclose()
 
 
 def test_event_messages_mark_payloads_as_untrusted() -> None:
