@@ -355,6 +355,8 @@ mcp_connect:
 - `protocol_mode` (optional): `auto`, `modern`, or `legacy`.
 - `headers` (optional): structured HTTP headers.
 - `auth` (optional): structured auth settings, for example `oauth: true`.
+- `events` (optional): [MCP Events](../../mcp/events.md) subscriptions to start
+  when the server is attached, each with `name`, `arguments` and `wake`.
 - Process fields (`command`, `args`, `env`, and `cwd`) are not permitted in
   AgentCards. Declare a trusted `target`; fast-agent materializes process
   settings from that target.
