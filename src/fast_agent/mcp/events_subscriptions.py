@@ -297,6 +297,20 @@ class EventSubscriptionManager:
         self._save()
         return True
 
+    def poll_now(self, key: str) -> bool:
+        """Poll a subscription at once, from the cursor it already holds.
+
+        Ends the wait between polls, including an error backoff. Returns False
+        when no active subscription has this key.
+        """
+        state = self._running.get(key)
+        if state is None:
+            return False
+        if state.task is not None:
+            state.task.cancel()
+        self._start(state, 0)
+        return True
+
     def restore(self) -> list[EventSubscription]:
         """Resume the subscriptions recorded in the store from their saved cursors."""
         if self._store is None:
