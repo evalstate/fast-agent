@@ -11,3 +11,7 @@ mcp:
       url: http://127.0.0.1:3085/mcp
       transport: http
       protocol_mode: modern
+
+ptc:
+  # Programmatic tool calling is a model default on POSIX. Off here so tools are called directly.
+  enabled: false
