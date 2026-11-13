@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, TextIO, cast
 
 import pytest
 
-from fast_agent.ui.command_payloads import EOFCommand
+from fast_agent.ui.command_payloads import EOFCommand, EventWakeCommand
 from fast_agent.ui.prompt import input_runtime
 from fast_agent.ui.prompt.keybindings import PromptInputInterrupt
 
 if TYPE_CHECKING:
     from prompt_toolkit import PromptSession
+    from prompt_toolkit.buffer import Buffer
 
 
 class _FakeStream:
@@ -127,3 +129,44 @@ async def test_run_prompt_once_converts_eof_to_eof_command() -> None:
     )
 
     assert isinstance(result, EOFCommand)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("typed", ["", "half typed"])
+async def test_run_prompt_once_ends_on_event_wake_and_keeps_typed_text(typed: str) -> None:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    wake = asyncio.Event()
+
+    async def wait_for_wake() -> None:
+        await wake.wait()
+
+    def note_typed(buffer: Buffer) -> None:
+        if buffer.text == typed:
+            wake.set()
+
+    with create_pipe_input() as pipe:
+        session: PromptSession[str] = PromptSession(input=pipe, output=DummyOutput())
+        if typed:
+            session.default_buffer.on_text_changed += note_typed
+            pipe.send_text(typed)
+        else:
+            # Already waiting before the prompt opens.
+            wake.set()
+
+        result = await asyncio.wait_for(
+            input_runtime.run_prompt_once(
+                session=session,
+                agent_name="agent",
+                default_agent_name="agent",
+                default_buffer="",
+                resolve_prompt_text=lambda: "❯ ",
+                parse_special_input=lambda value: value,
+                wait_for_wake=wait_for_wake,
+            ),
+            timeout=5,
+        )
+
+    assert result == EventWakeCommand(buffer_text=typed)
