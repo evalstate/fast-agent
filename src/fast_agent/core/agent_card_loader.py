@@ -1218,6 +1218,8 @@ def _optional_mcp_connect_fields(entry: MCPConnectTarget) -> dict[str, Any]:
         fields["auth"] = dict(entry.auth)
     if entry.protocol_mode is not None:
         fields["protocol_mode"] = entry.protocol_mode
+    if entry.events is not None:
+        fields["events"] = [dict(event) for event in entry.events]
     return fields
 
 

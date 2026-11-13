@@ -84,6 +84,7 @@ class MCPServerDeclaration(BaseModel):
     defer_loading: bool | None = None
     auth: dict[str, Any] | None = None
     protocol_mode: Literal["auto", "modern", "legacy"] | None = None
+    events: list[dict[str, Any]] | None = None
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 

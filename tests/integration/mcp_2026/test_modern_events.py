@@ -1,20 +1,18 @@
 import asyncio
 import os
 import subprocess
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 import pytest
 
+from fast_agent.config import MCPEventSubscriptionSettings, MCPServerSettings
 from fast_agent.mcp.events_subscriptions import EventSubscriptionManager
 from fast_agent.mcp.helpers.content_helpers import get_text
 
 
-@pytest.mark.integration
-@pytest.mark.asyncio
-async def test_polled_event_reaches_the_next_model_call(
-    fast_agent,
-    mcp_test_ports,
-    wait_for_port,
-) -> None:
+@asynccontextmanager
+async def _events_server(port: int, wait_for_port) -> AsyncGenerator[None]:
     process = subprocess.Popen(
         ["uv", "run", "events_server.py"],
         cwd=os.path.dirname(__file__),
@@ -24,7 +22,21 @@ async def test_polled_event_reaches_the_next_model_call(
         text=True,
     )
     try:
-        await wait_for_port("127.0.0.1", mcp_test_ports["http"], process=process, timeout=15.0)
+        await wait_for_port("127.0.0.1", port, process=process, timeout=15.0)
+        yield
+    finally:
+        process.terminate()
+        process.communicate(timeout=5)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_polled_event_reaches_the_next_model_call(
+    fast_agent,
+    mcp_test_ports,
+    wait_for_port,
+) -> None:
+    async with _events_server(mcp_test_ports["http"], wait_for_port):
 
         @fast_agent.agent(name="probe", model="passthrough", servers=["modern_http"])
         async def run_probe() -> None:
@@ -80,6 +92,54 @@ async def test_polled_event_reaches_the_next_model_call(
                 assert await manager.unsubscribe(subscription.key)
 
         await run_probe()
-    finally:
-        process.terminate()
-        process.communicate(timeout=5)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_configured_subscriptions_start_when_a_server_is_attached(
+    fast_agent,
+    mcp_test_ports,
+    wait_for_port,
+) -> None:
+    port = mcp_test_ports["http"]
+    async with _events_server(port, wait_for_port):
+
+        @fast_agent.agent(name="probe", model="passthrough", servers=["modern_http_events"])
+        async def run_probe() -> None:
+            async with fast_agent.run() as app:
+                manager = app.probe._aggregator.events
+                [configured] = manager.subscriptions()
+                assert configured.server_name == "modern_http_events"
+                assert configured.arguments == {"job_id": "job-1"}
+                assert configured.wake
+
+                await app.attach_mcp_server(
+                    "probe",
+                    "runtime_events",
+                    MCPServerSettings(
+                        url=f"http://127.0.0.1:{port}/mcp",
+                        transport="http",
+                        events=[
+                            MCPEventSubscriptionSettings(
+                                name="job.status_changed", arguments={"job_id": "job-2"}
+                            ),
+                            MCPEventSubscriptionSettings(name="job.deleted"),
+                        ],
+                    ),
+                )
+                # The event type the server does not offer is skipped.
+                [_, attached] = manager.subscriptions()
+                assert attached.server_name == "runtime_events"
+                assert not attached.wake
+
+                await app.probe.call_tool(
+                    "modern_http_events__set_job_stage", {"job_id": "job-1", "stage": "RUNNING"}
+                )
+                assert manager.poll_now(configured.key)
+                await asyncio.wait_for(app.probe.wait_for_event_wake(), timeout=10)
+
+                [text] = app.probe.take_event_messages()
+                assert 'server="modern_http_events"' in text
+                assert '"stage": "RUNNING"' in text
+
+        await run_probe()
