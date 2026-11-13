@@ -13,6 +13,7 @@ import json
 from collections import OrderedDict
 from contextlib import suppress
 from dataclasses import dataclass, field
+from html import escape
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from mcp.shared.exceptions import MCPError
@@ -102,24 +103,25 @@ def format_event_messages(items: list[EventInboxItem]) -> str:
     """Render inbox items as one user message for the model."""
     blocks: list[str] = [EVENT_MESSAGE_PREAMBLE]
     for item in items:
-        attributes = f'server="{item.server_name}" name="{item.name}"'
+        attributes = f'server="{escape(item.server_name)}" name="{escape(item.name)}"'
         if item.kind == "event" and item.occurrence is not None:
             occurrence = item.occurrence
-            body = json.dumps(occurrence.data, indent=2, sort_keys=True)
+            # Server text must not be able to close the wrapper or add attributes.
+            body = json.dumps(occurrence.data, indent=2, sort_keys=True).replace("</", "<\\/")
             blocks.append(
-                f'<mcp-event {attributes} id="{occurrence.event_id}" '
-                f'timestamp="{occurrence.timestamp}">\n{body}\n</mcp-event>'
+                f'<mcp-event {attributes} id="{escape(occurrence.event_id)}" '
+                f'timestamp="{escape(occurrence.timestamp)}">\n{body}\n</mcp-event>'
             )
         elif item.kind == "gap":
             blocks.append(
                 f"<mcp-event-gap {attributes}>\n"
-                f"{item.detail or 'Some events may have been skipped.'}\n"
+                f"{escape(item.detail or 'Some events may have been skipped.')}\n"
                 "</mcp-event-gap>"
             )
         else:
             blocks.append(
                 f"<mcp-event-terminated {attributes}>\n"
-                f"{item.detail or 'The subscription has ended.'}\n"
+                f"{escape(item.detail or 'The subscription has ended.')}\n"
                 "</mcp-event-terminated>"
             )
     return "\n\n".join(blocks)
