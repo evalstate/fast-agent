@@ -681,6 +681,21 @@ class MCPRootSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class MCPEventSubscriptionSettings(BaseModel):
+    """An MCP Events subscription started when its server is attached."""
+
+    name: str
+    """The event type to subscribe to."""
+
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    """Subscription arguments, as described by the event type's input schema."""
+
+    wake: bool = False
+    """Whether an arrival starts a turn in an idle agent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class MCPServerSettings(BaseModel):
     """
     Represents the configuration for an individual server.
@@ -770,6 +785,9 @@ class MCPServerSettings(BaseModel):
     """
 
     implementation: Implementation | None = None
+
+    events: list[MCPEventSubscriptionSettings] | None = None
+    """MCP Events subscriptions to start when this server is attached."""
 
     defer_loading: bool = False
     """Provider-managed OpenAI Responses hint to defer remote tool loading."""

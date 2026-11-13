@@ -35,3 +35,11 @@ mcp:
     modern_http:
       url: http://127.0.0.1:${FAST_AGENT_TEST_HTTP_PORT}/mcp
       transport: http
+    modern_http_events:
+      url: http://127.0.0.1:${FAST_AGENT_TEST_HTTP_PORT}/mcp
+      transport: http
+      events:
+        - name: job.status_changed
+          arguments:
+            job_id: job-1
+          wake: true

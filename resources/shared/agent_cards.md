@@ -31,6 +31,7 @@
     with optional `name` remain compatible.
   - target forms: `https://...`, `@scope/pkg`, `npx ...`, `uvx ...`, or stdio command.
   - `protocol_mode` optionally selects `auto`, `modern`, or `legacy`.
+  - `events` optionally lists MCP Events subscriptions to start on attach, each with `name`, `arguments`, and `wake`.
   - process fields `command`, `args`, `env`, and `cwd` are rejected; process
     settings are materialized from the trusted target parser.
   - provider-managed remote MCP may add: `management: provider`, `description`, `access_token`, `defer_loading`.

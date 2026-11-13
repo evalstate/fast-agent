@@ -900,6 +900,24 @@ class MCPAggregator(ContextDependent):
         self._display_startup_state()
 
         self.initialized = True
+        for server_name in list(self._attached_server_names):
+            await self._subscribe_configured_events(server_name)
+
+    async def _subscribe_configured_events(self, server_name: str) -> None:
+        """Start the event subscriptions a server's settings declare."""
+        config = self._attachment_configs.get(server_name)
+        if config is None or not config.events:
+            return
+        for declared in config.events:
+            try:
+                await self.events.subscribe(
+                    server_name, declared.name, declared.arguments, wake=declared.wake
+                )
+            except (ValueError, MCPError) as exc:
+                logger.warning(
+                    f"Could not subscribe to event '{declared.name}' on server "
+                    f"'{server_name}': {exc}"
+                )
 
     async def _reset_runtime_indexes(self) -> None:
         async with self._lifecycle_lock:
@@ -1011,11 +1029,15 @@ class MCPAggregator(ContextDependent):
             if self._closed:
                 raise RuntimeError("MCP aggregator is closed")
             async with self._attachment_locks.setdefault(server_name, Lock()):
-                return await self._attach_server_locked(
+                result = await self._attach_server_locked(
                     server_name=server_name,
                     server_config=server_config,
                     options=options,
                 )
+        # load_servers subscribes for the servers it attaches once it has finished.
+        if self.initialized:
+            await self._subscribe_configured_events(server_name)
+        return result
 
     async def _attach_server_locked(
         self,

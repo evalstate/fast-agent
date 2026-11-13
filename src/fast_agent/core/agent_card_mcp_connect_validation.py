@@ -108,6 +108,15 @@ def _protocol_mode(
     return value
 
 
+def _events(value: Any, field_path: str, errors: list[str]) -> list[dict[str, Any]] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list) or not all(is_str_object_dict(item) for item in value):
+        errors.append(f"'{field_path}.events' must be a list of mappings")
+        return None
+    return [item.copy() for item in value]
+
+
 def _management_mode(
     value: Any,
     field_path: str,
@@ -166,6 +175,7 @@ def _parse_entry(
         ),
         auth=_auth(raw_entry.get("auth"), field_path, errors),
         protocol_mode=_protocol_mode(raw_entry.get("protocol_mode"), field_path, errors),
+        events=_events(raw_entry.get("events"), field_path, errors),
     )
     return entry if len(errors) == error_count else None
 
