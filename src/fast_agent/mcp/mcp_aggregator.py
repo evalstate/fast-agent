@@ -1432,7 +1432,12 @@ class MCPAggregator(ContextDependent):
         server_name = self._resolve_server_key(server_name)
         async with self._lifecycle_lock:
             async with self._attachment_locks.setdefault(server_name, Lock()):
-                return await self._detach_server_locked(server_name)
+                result = await self._detach_server_locked(server_name)
+        if result.detached and self._events is not None:
+            for subscription in self._events.subscriptions():
+                if subscription.server_name in (server_name, result.server_name):
+                    await self._events.unsubscribe(subscription.key)
+        return result
 
     async def _detach_server_locked(self, server_name: str) -> MCPDetachResult:
         display_name = self.server_display_name(server_name)

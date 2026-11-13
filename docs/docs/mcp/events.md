@@ -105,7 +105,8 @@ mcp:
 The same `events` list is accepted on an AgentCard `mcp_connect` entry, and on
 `MCPServerSettings` passed to `attach_mcp_server` at runtime. Every agent that
 attaches the server gets its own subscriptions. A declared event type the server
-does not offer is logged as a warning and skipped.
+does not offer is logged as a warning and skipped. Detaching a server ends its
+subscriptions, declared or not.
 
 ## From code
 
