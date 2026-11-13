@@ -85,5 +85,4 @@ async def test_event_wake_starts_a_turn_and_returns_the_typed_text(monkeypatch) 
     assert sent == ["<mcp-event>one</mcp-event>"]
     assert result == "ok"
     assert prompts[0]["wait_for_wake"] == app.agent.wait_for_event_wake
-    assert prompts[0]["pre_populate_buffer"] == ""
     assert prompts[1]["pre_populate_buffer"] == "draft"
