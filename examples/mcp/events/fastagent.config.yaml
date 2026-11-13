@@ -6,11 +6,16 @@ logger:
 
 mcp:
   servers:
-    # forge-mcp-server over Streamable HTTP. Events need the 2026-07-28 protocol.
-    forge:
-      url: http://127.0.0.1:3085/mcp
-      transport: http
+    # The server beside this file. Events need the 2026-07-28 protocol.
+    jobs:
+      command: uv
+      args: [run, job_events_server.py]
       protocol_mode: modern
+      events:
+        - name: job.status_changed
+          arguments:
+            job_id: job-1
+          wake: true
 
 ptc:
   # Programmatic tool calling is a model default on POSIX. Off here so tools are called directly.
