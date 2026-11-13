@@ -1,6 +1,5 @@
-"""A poll-only MCP Events (SEP-3415) server for integration tests."""
+"""A poll-only MCP Events (SEP-3415) server with one event type, job.status_changed."""
 
-import os
 from datetime import UTC, datetime
 from typing import Any
 
@@ -20,7 +19,7 @@ from fast_agent.mcp.events_extension import (
 )
 
 EVENT_NAME = "job.status_changed"
-POLL_INTERVAL_MS = 50
+POLL_INTERVAL_MS = 1_000
 
 # job_id -> [(stage, timestamp)], oldest first. The cursor is an index into this list.
 job_history: dict[str, list[tuple[str, str]]] = {}
@@ -95,8 +94,4 @@ def set_job_stage(job_id: str, stage: str) -> str:
 
 
 if __name__ == "__main__":
-    server.run(
-        transport="streamable-http",
-        host="127.0.0.1",
-        port=int(os.environ["FAST_AGENT_TEST_HTTP_PORT"]),
-    )
+    server.run(transport="stdio")
