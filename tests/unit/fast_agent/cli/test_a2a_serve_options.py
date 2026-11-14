@@ -124,6 +124,7 @@ def test_serve_a2a_warns_for_remote_shell_server(monkeypatch) -> None:
             "--host",
             "0.0.0.0",
             "--shell",
+            "--allow-remote-shell",
             "--model",
             "passthrough",
             "--no-home",

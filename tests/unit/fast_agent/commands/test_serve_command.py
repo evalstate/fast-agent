@@ -4,6 +4,7 @@ import pytest
 import typer
 from typer._click.core import ParameterSource
 from typer.core import TyperCommand
+from typer.testing import CliRunner, Result
 
 from fast_agent.cli.commands import go as go_command
 from fast_agent.cli.commands import serve as serve_command
@@ -343,3 +344,87 @@ def test_resolve_instance_scope_rejects_explicit_request_for_acp() -> None:
             transport=serve_command.ServeTransport.ACP,
             instance_scope=serve_command.InstanceScope.REQUEST,
         )
+
+
+def _invoke_serve(monkeypatch: pytest.MonkeyPatch, args: list[str]) -> tuple[Result, list[object]]:
+    captured: list[object] = []
+    monkeypatch.setattr(serve_command, "run_request", lambda request: captured.append(request))
+    return CliRunner().invoke(serve_command.app, args), captured
+
+
+def test_serve_refuses_remote_shell_without_authentication(monkeypatch) -> None:
+    monkeypatch.delenv("FAST_AGENT_SERVE_OAUTH", raising=False)
+
+    result, captured = _invoke_serve(
+        monkeypatch,
+        ["--transport", "http", "--host", "0.0.0.0", "--shell", "--no-home"],
+    )
+    message = result.output + result.stderr
+
+    assert result.exit_code == 2
+    assert "FAST_AGENT_SERVE_OAUTH" in message
+    assert "--allow-remote-shell" in message
+    assert captured == []
+
+
+def test_serve_a2a_refuses_remote_shell_without_authentication(monkeypatch) -> None:
+    monkeypatch.delenv("FAST_AGENT_SERVE_OAUTH", raising=False)
+
+    result, captured = _invoke_serve(
+        monkeypatch,
+        [
+            "a2a",
+            "--host",
+            "0.0.0.0",
+            "--shell",
+            "--model",
+            "passthrough",
+            "--no-home",
+        ],
+    )
+    message = result.output + result.stderr
+
+    assert result.exit_code == 2
+    assert "FAST_AGENT_SERVE_OAUTH" in message
+    assert captured == []
+
+
+def test_serve_allows_remote_shell_with_explicit_override(monkeypatch) -> None:
+    monkeypatch.delenv("FAST_AGENT_SERVE_OAUTH", raising=False)
+
+    result, captured = _invoke_serve(
+        monkeypatch,
+        [
+            "--transport",
+            "http",
+            "--host",
+            "0.0.0.0",
+            "--shell",
+            "--allow-remote-shell",
+            "--no-home",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert len(captured) == 1
+
+
+def test_serve_allows_remote_shell_with_authenticated_provider(monkeypatch) -> None:
+    monkeypatch.setenv("FAST_AGENT_SERVE_OAUTH", "huggingface")
+
+    result, captured = _invoke_serve(
+        monkeypatch,
+        ["--transport", "http", "--host", "0.0.0.0", "--shell", "--no-home"],
+    )
+
+    assert result.exit_code == 0
+    assert len(captured) == 1
+
+
+def test_serve_allows_loopback_shell_without_authentication(monkeypatch) -> None:
+    monkeypatch.delenv("FAST_AGENT_SERVE_OAUTH", raising=False)
+
+    result, captured = _invoke_serve(monkeypatch, ["--transport", "http", "--shell", "--no-home"])
+
+    assert result.exit_code == 0
+    assert len(captured) == 1
