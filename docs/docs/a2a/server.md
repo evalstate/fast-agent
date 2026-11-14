@@ -41,7 +41,10 @@ advertising the bind wildcard or the server's loopback address.
 
 `fast-agent serve a2a` warns for remote binds. It also warns whenever `--shell`
 is enabled, with stronger wording when shell access is exposed to remote
-callers.
+callers. When `--shell` would be reachable by remote, unauthenticated clients and
+no authentication provider is configured, `serve a2a` refuses to start; bind a
+loopback `--host`, set `FAST_AGENT_SERVE_OAUTH=huggingface`, or pass
+`--allow-remote-shell` to accept the exposure explicitly.
 
 ## Card Recording
 
