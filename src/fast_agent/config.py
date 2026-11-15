@@ -723,7 +723,7 @@ class MCPRootSettings(BaseModel):
 
 
 class MCPEventSubscriptionSettings(BaseModel):
-    """An MCP Events subscription started when its server is attached."""
+    """An MCP Events subscription started when an agent first uses its server."""
 
     name: str
     """The event type to subscribe to."""
@@ -828,7 +828,7 @@ class MCPServerSettings(BaseModel):
     implementation: Implementation | None = None
 
     events: list[MCPEventSubscriptionSettings] | None = None
-    """MCP Events subscriptions to start when this server is attached."""
+    """MCP Events subscriptions to start when an agent first uses this server."""
 
     defer_loading: bool = False
     """Provider-managed OpenAI Responses hint to defer remote tool loading."""

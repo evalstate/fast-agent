@@ -631,6 +631,8 @@ class MCPAggregator(ContextDependent):
         self._app_integration_configs: dict[str, AppServerConfig] = {}
         self._mcp_skill_registries: dict[str, McpSkillRegistry] = {}
         self._events: EventSubscriptionManager | None = None
+        self._configured_events_started = False
+        self._configured_events_lock = Lock()
 
         # Cache for capabilities discovered by on-demand clients.
         self._capabilities_cache: dict[str, ServerCapabilities] = {}
@@ -900,8 +902,22 @@ class MCPAggregator(ContextDependent):
         self._display_startup_state()
 
         self.initialized = True
-        for server_name in list(self._attached_server_names):
-            await self._subscribe_configured_events(server_name)
+        if self._configured_events_started:
+            for server_name in list(self._attached_server_names):
+                await self._subscribe_configured_events(server_name)
+
+    async def start_configured_events(self) -> None:
+        """Start the event subscriptions server settings declare.
+
+        Called when the agent is first used, so an agent that is loaded and
+        never used does not poll. Servers attached later subscribe on attach.
+        """
+        async with self._configured_events_lock:
+            if self._configured_events_started:
+                return
+            for server_name in list(self._attached_server_names):
+                await self._subscribe_configured_events(server_name)
+            self._configured_events_started = True
 
     async def _subscribe_configured_events(self, server_name: str) -> None:
         """Start the event subscriptions a server's settings declare."""
@@ -1035,7 +1051,7 @@ class MCPAggregator(ContextDependent):
                     options=options,
                 )
         # load_servers subscribes for the servers it attaches once it has finished.
-        if self.initialized:
+        if self.initialized and self._configured_events_started:
             await self._subscribe_configured_events(server_name)
         return result
 
