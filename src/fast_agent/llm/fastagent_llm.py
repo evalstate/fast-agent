@@ -49,7 +49,11 @@ from fast_agent.llm.compaction_support import (
 )
 from fast_agent.llm.memory import Memory, SimpleMemory
 from fast_agent.llm.model_database import ModelDatabase, ModelParameters
-from fast_agent.llm.provider.error_utils import EmptyCompletionError, provider_policy_code
+from fast_agent.llm.provider.error_utils import (
+    EmptyCompletionDiagnostics,
+    EmptyCompletionError,
+    provider_policy_code,
+)
 from fast_agent.llm.provider.streaming_timeouts import (
     StreamIdleTimeoutError,
     StreamTiming,
@@ -814,10 +818,12 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # This line satisfies Pylance that we never implicitly return None
         raise RuntimeError("Retry loop finished without success or exception")
 
-    def _empty_completion_retry(self) -> ProviderRetry:
+    def _empty_completion_retry(
+        self, diagnostics: EmptyCompletionDiagnostics | None = None
+    ) -> ProviderRetry:
         """Telemetry for a provider asking once more after an empty completion."""
         return provider_retry(
-            EmptyCompletionError(),
+            EmptyCompletionError((diagnostics,) if diagnostics is not None else ()),
             attempt=1,
             max_attempts=2,
             wait_seconds=0.0,

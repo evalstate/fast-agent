@@ -1029,6 +1029,21 @@ def test_glimmer_alias_uses_together_with_recommended_sampling() -> None:
     assert config.top_k == 64
 
 
+@pytest.mark.parametrize(
+    ("alias", "model_name"),
+    (
+        ("inkling", "thinkingmachines/Inkling-2-Small:deepinfra"),
+        ("Inkling 2 Small (together)", "thinkingmachines/Inkling-2-Small:together"),
+    ),
+)
+def test_inkling_aliases_pin_backend_without_sampling_defaults(alias: str, model_name: str) -> None:
+    config = ModelFactory.parse_model_string(alias)
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == model_name
+    assert config.temperature is None
+
+
 def test_builtin_glm_alias_uses_glm_53_default() -> None:
     config = ModelFactory.parse_model_string("glm")
     assert config.provider == Provider.HUGGINGFACE

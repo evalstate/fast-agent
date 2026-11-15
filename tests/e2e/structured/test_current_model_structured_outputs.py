@@ -20,6 +20,8 @@ class ArithmeticResult(BaseModel):
 @pytest.mark.parametrize(
     "model_name",
     [
+        "inkling",
+        "Inkling 2 Small (together)",
         "responses.gpt-6-astra",
         "responses.gpt-6.1-sol",
         "responses.gpt-6-sol",

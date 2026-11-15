@@ -521,6 +521,13 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
+    # Inkling 2: "none" is a soft minimum; reasoning can still appear on long prompts.
+    INKLING_2_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+        default=ReasoningEffortSetting(kind="effort", value="high"),
+    )
+
     ANTHROPIC_WEB_SEARCH_LEGACY = "web_search_20250305"
     ANTHROPIC_WEB_FETCH_LEGACY = "web_fetch_20250910"
     ANTHROPIC_WEB_SEARCH_46 = "web_search_20260209"
@@ -1150,6 +1157,18 @@ class ModelDatabase:
         model_specific="You have image understanding capabilities.",
     )
 
+    # No published output ceiling: 128K is a nominal budget; the route omits max_tokens.
+    INKLING_2_SMALL_HF = ModelParameters(
+        context_window=1_048_576,
+        max_output_tokens=128_000,
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        structured_tool_policy="defer",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=INKLING_2_REASONING_EFFORT_SPEC,
+        default_provider=Provider.HUGGINGFACE,
+    )
+
     GROK_43 = ModelParameters(
         context_window=1_000_000,
         max_output_tokens=65535,
@@ -1583,6 +1602,7 @@ class ModelDatabase:
         "moonshotai/kimi-k3": KIMI_K3_HF,
         "moonshotai/kimi-k3.1-pro": KIMI_K31_HF,
         "meta-models/muse-glimmer-30b": MUSE_GLIMMER_HF,
+        "thinkingmachines/inkling-2-small": INKLING_2_SMALL_HF,
         "kimi-k3": KIMI_K3,
         "kimi-k3.1-pro": KIMI_K31,
         "qwen/qwen3-32b": QWEN3_REASONER,
@@ -1681,6 +1701,9 @@ class ModelDatabase:
     )
     _PROVIDER_WIRE_MODEL_NAMES: ClassVar[dict[tuple[Provider, str], str]] = {
         (Provider.HUGGINGFACE, "qwen/qwen3.8-27b"): "Qwen/Qwen3.8-27B",
+        (Provider.HUGGINGFACE, "thinkingmachines/inkling-2-small"): (
+            "thinkingmachines/Inkling-2-Small"
+        ),
     }
 
     @classmethod

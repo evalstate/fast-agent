@@ -1,6 +1,6 @@
 import os
 from dataclasses import replace
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from openai import APIStatusError
@@ -262,6 +262,12 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
             setting=self.reasoning_effort,
             spec=spec,
         )
+
+    def _get_model_stream_mode(self, model_name: str | None) -> Literal["openai", "manual"]:
+        profile = self._route_profile(model_name)
+        if profile and profile.stream_mode:
+            return profile.stream_mode
+        return super()._get_model_stream_mode(model_name)
 
     def _preserves_raw_reasoning_history(self, model: str) -> bool:
         profile = self._route_profile(model)

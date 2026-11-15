@@ -207,6 +207,109 @@ Fast-agent does not advertise structured JSON support for `glimmer`. Prompted
 JSON and tool-assisted JSON can succeed, but native Pydantic structured output
 was not reliable in live testing.
 
+## Inkling 2 Small
+
+`inkling` routes [Inkling 2 Small](https://huggingface.co/thinkingmachines/Inkling-2-Small)
+from Thinking Machines through the Hugging Face Inference Providers router using
+DeepInfra:
+
+```bash
+fast-agent --model inkling
+fast-agent --model "inkling?reasoning=max"
+```
+
+The preset resolves to `hf.thinkingmachines/Inkling-2-Small:deepinfra` and does
+not set sampling defaults; the provider's defaults apply. The HF picker lists it
+as `Inkling 2 Small (deepinfra)`. DeepInfra is the maintainer-selected default;
+Together remains available (see [Together route](#together-route)). In two
+small, separate agentic benchmark probes (15 trials per mode on each backend,
+run with different fast-agent builds, scheduling and times of day), DeepInfra
+completed 30 of 30 trials and Together 28 of 30. These are observations from
+non-matched runs, not a reliability or speed comparison between the backends.
+
+Inkling 2 Small supports text and image input (JPEG, PNG and WebP) with text
+output and a 1,048,576-token context window. PDF, audio and video attachments
+are not supported by fast-agent for this model; fast-agent removes them from the
+request and shows a warning. No output maximum is published. Fast-agent omits `max_tokens` by
+default, so the provider default applies, and uses a nominal 128,000-token
+output budget for its own accounting. Use `inkling?max_tokens=...` to send an
+explicit output cap.
+
+DeepInfra ends every response at 65,536 output tokens, reasoning included,
+whatever `max_tokens` or `max_completion_tokens` requests (verified November
+14, 2026), and fast-agent clamps explicit values to that. A turn that spends
+the whole allowance on reasoning returns no answer. Together has no such cap:
+use `Inkling 2 Small (together)` for work that needs longer single responses.
+
+Reasoning is controlled by the top-level `reasoning_effort` field. Fast-agent
+accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max`, sends the
+value unchanged, and defaults to `high`. `none` is a soft minimum, not
+reasoning off, on either backend: short prompts may use no reasoning tokens,
+but reasoning can still appear, especially with long prompts. On DeepInfra the
+model can also write its working into the visible answer instead of the
+reasoning channel, most visibly on short prompts without a system prompt.
+`inkling?reasoning=off` sends `none`. Reasoning content is replayed unchanged
+in conversation history.
+
+Structured output uses the standard `json_schema` response format. When tools
+are available, fast-agent runs a tool phase first and then requests the
+schema-only final answer without tools, because the schema can stop the model
+from calling a tool. DeepInfra streams tool-call continuation fragments with a
+`null` type, so fast-agent accumulates this route's streams manually.
+
+On DeepInfra the model sometimes ends a turn with reasoning only and no answer
+when no tools are declared; in a probe, a tool-free follow-up turn (a question
+about a removed PDF) returned empty replies in most attempts. fast-agent
+retries an empty completion once; a turn can still fail. This was not seen on
+Together in the same test.
+
+Programmatic tool calling is off by default for this model; enable it with
+`inkling?ptc=on` or `--ptc`.
+
+Live fast-agent testing on November 14, 2026 verified streaming, every
+reasoning effort including `off`, shell and function tool loops with parallel
+calls, multi-turn reasoning replay, JPEG, PNG and WebP image input, image tool
+results, and schema output (direct and after a tool call) through
+`hf.thinkingmachines/Inkling-2-Small:deepinfra`.
+
+### Together route
+
+Together also serves the model. Pin it with the `Inkling 2 Small (together)`
+preset or the full model string:
+
+```bash
+fast-agent --model "Inkling 2 Small (together)"
+fast-agent --model "hf.thinkingmachines/Inkling-2-Small:together?reasoning=low"
+```
+
+The context window, image input, reasoning efforts and default, omitted
+`max_tokens`, reasoning replay, programmatic tool calling default and the
+tool-phase-first handling of schema output are the same as on DeepInfra. What
+differs:
+
+- Together rejects the standard `json_schema` response format for this route,
+  so structured-output requests use the legacy `json_object` envelope with a
+  `schema` field.
+- Together rejects PDF input. (DeepInfra accepts it, but fast-agent does not
+  advertise PDF for this model, so PDF attachments are removed on both routes.)
+- Streams use the standard OpenAI SDK stream path rather than manual
+  accumulation.
+
+Live fast-agent onboarding on November 14, 2026 verified streaming, every
+reasoning effort including `off`, shell and function tool loops, multi-turn
+reasoning replay, JPEG, PNG and WebP image input, and schema output (direct and
+after a tool call) through `hf.thinkingmachines/Inkling-2-Small:together`.
+
+### Un-pinned route
+
+`hf.thinkingmachines/Inkling-2-Small` without a backend lets the router choose
+(DeepInfra at the time of testing). fast-agent provisionally applies the
+DeepInfra settings to this un-pinned route, but the router may serve it from
+any backend: if it selects Together, structured (schema) output fails with an
+error. Pin a backend (`:deepinfra` or `:together`) for schema output and for
+predictable behaviour. Other explicitly selected backends and custom endpoints
+get no Inkling-specific settings and are untested.
+
 ## Kimi instant mode
 
 Kimi models that support instant mode can disable reasoning with the `instant` query parameter:

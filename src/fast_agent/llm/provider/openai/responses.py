@@ -36,8 +36,11 @@ from fast_agent.llm.compaction_support import (
 )
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider.error_utils import (
+    EmptyCompletionDiagnostics,
     EmptyCompletionError,
+    attach_empty_completion_diagnostics,
     build_stream_failure_response,
+    empty_completion_diagnostics,
     is_empty_completion,
     provider_policy_code,
 )
@@ -1465,7 +1468,7 @@ class ResponsesLLM(
             )
         self.history.set(result.input_items)
 
-        return PromptMessageExtended(
+        message = PromptMessageExtended(
             role="assistant",
             content=self._responses_content_blocks(response),
             tool_calls=tool_calls,
@@ -1473,6 +1476,37 @@ class ResponsesLLM(
             stop_reason=(LlmStopReason.TOOL_USE if tool_calls else stop_reason),
             phase=message_phase,
         )
+
+        if is_empty_completion(message):
+            usage = response.usage
+            attach_empty_completion_diagnostics(
+                message,
+                EmptyCompletionDiagnostics(
+                    finish_reason=(
+                        response.incomplete_details.reason
+                        if response.status == "incomplete"
+                        and response.incomplete_details is not None
+                        else response.status
+                    ),
+                    completion_tokens=usage.output_tokens if usage is not None else None,
+                    reasoning_tokens=(
+                        usage.output_tokens_details.reasoning_tokens
+                        if usage is not None and usage.output_tokens_details is not None
+                        else None
+                    ),
+                    reasoning_chars=(
+                        sum(len(part) for part in result.streamed_summary)
+                        if result.streamed_summary
+                        else sum(
+                            len(block.text)
+                            for block in (channels or {}).get(REASONING, ())
+                            if isinstance(block, TextContent)
+                        )
+                    ),
+                    streamed=True,
+                ),
+            )
+        return message
 
     @staticmethod
     def _is_empty_responses_completion(message: PromptMessageExtended) -> bool:
@@ -1482,10 +1516,11 @@ class ResponsesLLM(
         self,
         *,
         context: _ResponsesCompletionContext,
+        attempts: tuple[EmptyCompletionDiagnostics, ...] = (),
         retry_error: Exception | None = None,
     ) -> PromptMessageExtended:
         if retry_error is None:
-            error: Exception = EmptyCompletionError()
+            error: Exception = EmptyCompletionError(attempts)
         else:
             error = RuntimeError(
                 f"OpenAI Responses retry after an empty response failed: {retry_error}"
@@ -1495,6 +1530,7 @@ class ResponsesLLM(
             data={
                 "model": context.model_name,
                 "transport": self._last_transport_used or "unknown",
+                "empty_completion_attempts": [asdict(a) for a in attempts],
             },
         )
         return build_stream_failure_response(self.provider, error, context.model_name)
@@ -1524,11 +1560,13 @@ class ResponsesLLM(
         if not self._is_empty_responses_completion(message):
             return message
 
+        diagnostics = empty_completion_diagnostics(message)
         self.logger.warning(
             "OpenAI Responses returned no assistant content or tool calls; retrying once",
             data={
                 "model": context.model_name,
                 "transport": self._last_transport_used or "unknown",
+                "empty_completion": asdict(diagnostics),
             },
         )
         self._reset_responses_transport_diagnostics()
@@ -1550,8 +1588,11 @@ class ResponsesLLM(
             context=context,
         )
         if self._is_empty_responses_completion(retry_message):
-            retry_message = self._empty_responses_error(context=context)
-        append_retry_channel(retry_message, [self._empty_completion_retry()])
+            retry_message = self._empty_responses_error(
+                context=context,
+                attempts=(diagnostics, empty_completion_diagnostics(retry_message)),
+            )
+        append_retry_channel(retry_message, [self._empty_completion_retry(diagnostics)])
         return retry_message
 
     async def _normalize_request_files(

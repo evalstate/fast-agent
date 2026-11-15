@@ -184,6 +184,10 @@ class ModelSelectionCatalog:
                 display_label="Muse Glimmer 30B (together)",
             ),
             _builtin_entry(
+                "inkling",
+                display_label="Inkling 2 Small (deepinfra)",
+            ),
+            _builtin_entry(
                 "Kimi K3.1 Pro (together)",
                 display_label="Kimi K3.1 Pro (together)",
                 description="image-only HF route",

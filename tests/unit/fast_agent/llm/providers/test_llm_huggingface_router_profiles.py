@@ -174,6 +174,255 @@ def test_muse_glimmer_other_backend_omits_default_max_tokens() -> None:
 @pytest.mark.parametrize(
     ("model", "reasoning_effort"),
     (
+        ("Inkling 2 Small (together)", "high"),
+        ("Inkling 2 Small (together)?reasoning=low", "low"),
+        ("Inkling 2 Small (together)?reasoning=none", "none"),
+        ("Inkling 2 Small (together)?reasoning=off", "none"),
+        ("hf.thinkingmachines/Inkling-2-Small:together?reasoning=max", "max"),
+        ("hf.thinkingmachines/inkling-2-small:together", "high"),
+    ),
+)
+def test_inkling_together_request_contract(model: str, reasoning_effort: str) -> None:
+    request = _factory_request(model)
+
+    assert request["model"] == "thinkingmachines/Inkling-2-Small:together"
+    assert "max_tokens" not in request
+    assert request["reasoning_effort"] == reasoning_effort
+    assert "extra_body" not in request
+
+
+_INKLING_SCHEMA = {
+    "type": "object",
+    "properties": {"answer": {"type": "string"}},
+    "required": ["answer"],
+    "additionalProperties": False,
+}
+
+
+def test_inkling_together_preserves_explicit_max_tokens() -> None:
+    request = _factory_request("Inkling 2 Small (together)?max_tokens=4096")
+
+    assert request["max_tokens"] == 4096
+
+
+def test_inkling_together_uses_legacy_schema_envelope() -> None:
+    llm = HuggingFaceLLM(
+        context=Context(config=Settings()),
+        model="thinkingmachines/Inkling-2-Small:together",
+    )
+    params = llm.default_request_params.model_copy(
+        update={"response_format": llm.schema_to_response_format(_INKLING_SCHEMA)}
+    )
+
+    request = llm._prepare_api_request([{"role": "user", "content": "hello"}], None, params)
+
+    assert request["response_format"] == {"type": "json_object", "schema": _INKLING_SCHEMA}
+
+
+@pytest.mark.parametrize(
+    ("model", "wire_model", "reasoning_effort"),
+    (
+        ("inkling", "thinkingmachines/Inkling-2-Small:deepinfra", "high"),
+        ("inkling?reasoning=off", "thinkingmachines/Inkling-2-Small:deepinfra", "none"),
+        (
+            "hf.thinkingmachines/Inkling-2-Small:deepinfra",
+            "thinkingmachines/Inkling-2-Small:deepinfra",
+            "high",
+        ),
+        (
+            "hf.thinkingmachines/Inkling-2-Small:deepinfra?reasoning=low",
+            "thinkingmachines/Inkling-2-Small:deepinfra",
+            "low",
+        ),
+        (
+            "hf.thinkingmachines/Inkling-2-Small:deepinfra?reasoning=off",
+            "thinkingmachines/Inkling-2-Small:deepinfra",
+            "none",
+        ),
+        (
+            "hf.thinkingmachines/Inkling-2-Small:deepinfra?reasoning=max",
+            "thinkingmachines/Inkling-2-Small:deepinfra",
+            "max",
+        ),
+        ("hf.thinkingmachines/Inkling-2-Small", "thinkingmachines/Inkling-2-Small", "high"),
+        (
+            "hf.thinkingmachines/Inkling-2-Small?reasoning=none",
+            "thinkingmachines/Inkling-2-Small",
+            "none",
+        ),
+    ),
+)
+def test_inkling_deepinfra_and_unpinned_request_contract(
+    model: str,
+    wire_model: str,
+    reasoning_effort: str,
+) -> None:
+    request = _factory_request(model)
+
+    assert request["model"] == wire_model
+    assert "max_tokens" not in request
+    assert request["reasoning_effort"] == reasoning_effort
+    assert "extra_body" not in request
+
+
+@pytest.mark.parametrize(
+    "model",
+    (
+        "inkling?max_tokens=4096",
+        "hf.thinkingmachines/Inkling-2-Small:deepinfra?max_tokens=4096",
+        "hf.thinkingmachines/Inkling-2-Small?max_tokens=4096",
+    ),
+)
+def test_inkling_deepinfra_and_unpinned_preserve_explicit_max_tokens(model: str) -> None:
+    request = _factory_request(model)
+
+    assert request["max_tokens"] == 4096
+
+
+def test_inkling_deepinfra_clamps_max_tokens_to_the_backend_output_cap() -> None:
+    """DeepInfra stops at 65,536 output tokens whatever is requested; Together does not."""
+    assert _factory_request("inkling?max_tokens=100000")["max_tokens"] == 65_536
+    together = _factory_request("Inkling 2 Small (together)?max_tokens=100000")
+    assert together["max_tokens"] == 100_000
+
+
+def test_inkling_configured_backend_selects_route_profile() -> None:
+    settings = Settings(hf=HuggingFaceSettings(default_provider="together"))
+    llm = HuggingFaceLLM(
+        context=Context(config=settings),
+        model="thinkingmachines/Inkling-2-Small",
+    )
+    params = llm.default_request_params.model_copy(
+        update={"response_format": llm.schema_to_response_format(_INKLING_SCHEMA)}
+    )
+
+    request = llm._prepare_api_request([{"role": "user", "content": "hello"}], None, params)
+
+    assert request["model"] == "thinkingmachines/Inkling-2-Small:together"
+    assert request["response_format"] == {"type": "json_object", "schema": _INKLING_SCHEMA}
+
+
+@pytest.mark.parametrize(
+    ("model", "settings", "has_inkling_profile"),
+    (
+        # Un-pinned router request: provisional DeepInfra fallback.
+        ("thinkingmachines/Inkling-2-Small", Settings(), True),
+        # Explicit untested backend: unchanged generic behaviour.
+        ("thinkingmachines/Inkling-2-Small:fireworks-ai", Settings(), False),
+        # Dedicated endpoint without a backend suffix: unchanged generic behaviour.
+        (
+            "thinkingmachines/Inkling-2-Small",
+            Settings(hf=HuggingFaceSettings(base_url="https://dedicated.example.test/v1")),
+            False,
+        ),
+    ),
+)
+def test_inkling_unpinned_fallback_is_scoped_to_router_choice(
+    model: str,
+    settings: Settings,
+    has_inkling_profile: bool,
+) -> None:
+    llm = HuggingFaceLLM(context=Context(config=settings), model=model)
+
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert request["model"] == model
+    assert ("max_tokens" not in request) is has_inkling_profile
+    assert ("reasoning_effort" in request) is has_inkling_profile
+    assert llm._preserves_raw_reasoning_history(model) is has_inkling_profile
+    assert llm._get_model_stream_mode(model) == ("manual" if has_inkling_profile else "openai")
+
+
+@pytest.mark.parametrize(
+    ("model", "stream_mode"),
+    (
+        ("thinkingmachines/Inkling-2-Small:together", "openai"),
+        ("thinkingmachines/Inkling-2-Small:deepinfra", "manual"),
+    ),
+)
+def test_inkling_stream_path_is_selected_per_route(model: str, stream_mode: str) -> None:
+    llm = HuggingFaceLLM(context=Context(config=Settings()), model=model)
+
+    assert llm._get_model_stream_mode(model) == stream_mode
+
+
+@pytest.mark.parametrize(
+    ("alias", "wire_model", "stream_mode"),
+    (
+        # Maintainer decision: DeepInfra is the default Inkling backend.
+        ("inkling", "thinkingmachines/Inkling-2-Small:deepinfra", "manual"),
+        ("Inkling 2 Small (together)", "thinkingmachines/Inkling-2-Small:together", "openai"),
+    ),
+)
+def test_inkling_aliases_select_backend_and_stream_path(
+    alias: str, wire_model: str, stream_mode: str
+) -> None:
+    agent = LlmAgent(AgentConfig(name="router-profile-test"))
+    llm = ModelFactory.create_factory(alias)(agent=agent)
+    assert isinstance(llm, HuggingFaceLLM)
+
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}], None, llm.default_request_params
+    )
+
+    assert request["model"] == wire_model
+    assert llm._get_model_stream_mode(llm.default_request_params.model) == stream_mode
+
+
+@pytest.mark.parametrize(
+    "model",
+    (
+        "thinkingmachines/Inkling-2-Small:deepinfra",
+        "thinkingmachines/Inkling-2-Small",
+    ),
+)
+def test_inkling_deepinfra_and_unpinned_use_standard_schema_envelope(model: str) -> None:
+    llm = HuggingFaceLLM(context=Context(config=Settings()), model=model)
+    response_format = llm.schema_to_response_format(_INKLING_SCHEMA)
+    params = llm.default_request_params.model_copy(update={"response_format": response_format})
+
+    request = llm._prepare_api_request([{"role": "user", "content": "hello"}], None, params)
+
+    assert request["response_format"] == response_format
+    assert request["response_format"]["type"] == "json_schema"
+    assert request["response_format"]["json_schema"]["schema"] == _INKLING_SCHEMA
+
+
+@pytest.mark.parametrize(
+    "model",
+    (
+        "thinkingmachines/Inkling-2-Small:together",
+        "thinkingmachines/Inkling-2-Small:deepinfra",
+        "thinkingmachines/Inkling-2-Small",
+    ),
+)
+def test_inkling_replays_raw_reasoning_chunks(model: str) -> None:
+    llm = HuggingFaceLLM(context=Context(config=Settings()), model=model)
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="answer")],
+        channels={
+            REASONING: [
+                TextContent(type="text", text="first "),
+                TextContent(type="text", text="second"),
+            ]
+        },
+    )
+
+    converted = llm._convert_extended_messages_to_provider([message])
+
+    assert converted == [
+        {"role": "assistant", "content": "answer", "reasoning_content": "first second"}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("model", "reasoning_effort"),
+    (
         ("qwen/qwen3.8-27b", "medium"),
         ("qwen/qwen3.8-27b?reasoning=low", "low"),
         ("qwen/qwen3.8-27b?reasoning=xhigh", "xhigh"),
@@ -330,6 +579,115 @@ async def test_muse_glimmer_manual_stream_reassembles_together_tool_fragments() 
     assert message.tool_calls[0].id == "chatcmpl-tool-glimmer"
     assert message.tool_calls[0].function.name == "bash"
     assert message.tool_calls[0].function.arguments == ('{"command":"printf glimmer-tool-ok"}')
+
+
+def _deepinfra_tool_fragment(
+    index: int,
+    *,
+    call_id: str | None = None,
+    name: str | None = None,
+    arguments: str = "",
+    finish_reason: str | None = None,
+) -> ChatCompletionChunk:
+    # Sanitized DeepInfra shape: role/content placeholders and explicit nulls on continuations.
+    return ChatCompletionChunk.model_validate(
+        {
+            "id": "deepinfra-chunk",
+            "created": 0,
+            "model": "thinkingmachines/Inkling-2-Small",
+            "object": "chat.completion.chunk",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "role": None,
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "index": index,
+                                "id": call_id,
+                                "type": "function" if call_id else None,
+                                "function": {"name": name, "arguments": arguments},
+                            }
+                        ],
+                    },
+                    "logprobs": None,
+                    "finish_reason": finish_reason,
+                }
+            ],
+        }
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model",
+    (
+        "thinkingmachines/Inkling-2-Small:deepinfra",
+        "thinkingmachines/Inkling-2-Small",
+    ),
+)
+async def test_inkling_deepinfra_stream_reassembles_null_placeholder_tool_fragments(
+    model: str,
+) -> None:
+    llm = HuggingFaceLLM(context=Context(config=Settings()), model=model)
+    chunks = [
+        ChatCompletionChunk.model_validate(
+            {
+                "id": "deepinfra-chunk",
+                "created": 0,
+                "model": "thinkingmachines/Inkling-2-Small",
+                "object": "chat.completion.chunk",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": "", "reasoning_content": "Two."},
+                        "finish_reason": None,
+                    }
+                ],
+            }
+        ),
+    ]
+    for index, (call_id, city) in enumerate((("call-paris", "Paris"), ("call-tokyo", "Tokyo"))):
+        chunks += [
+            _deepinfra_tool_fragment(index, call_id=call_id, name="get_weather"),
+            _deepinfra_tool_fragment(index),
+            _deepinfra_tool_fragment(
+                index,
+                arguments=f'{{"city":"{city}"}}',
+                finish_reason="tool_calls" if index == 1 else None,
+            ),
+        ]
+    chunks.append(
+        ChatCompletionChunk.model_validate(
+            {
+                "id": "deepinfra-chunk",
+                "created": 0,
+                "model": "thinkingmachines/Inkling-2-Small",
+                "object": "chat.completion.chunk",
+                "choices": [],
+                "usage": {"prompt_tokens": 118, "completion_tokens": 96, "total_tokens": 214},
+            }
+        )
+    )
+
+    completion, reasoning = await llm._process_stream(
+        _stream_chunks(chunks),
+        "thinkingmachines/Inkling-2-Small",
+    )
+
+    message = completion.choices[0].message
+    assert reasoning == ["Two."]
+    assert completion.choices[0].finish_reason == "tool_calls"
+    assert completion.usage.prompt_tokens == 118
+    assert message.tool_calls is not None
+    assert [
+        (call.id, call.type, call.function.name, call.function.arguments)
+        for call in message.tool_calls
+    ] == [
+        ("call-paris", "function", "get_weather", '{"city":"Paris"}'),
+        ("call-tokyo", "function", "get_weather", '{"city":"Tokyo"}'),
+    ]
 
 
 @pytest.mark.parametrize(

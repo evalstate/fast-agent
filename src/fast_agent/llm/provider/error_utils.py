@@ -1,13 +1,16 @@
 """Utility functions for LLM provider error handling."""
 
 import json
+from dataclasses import asdict, dataclass
 
 from mcp_types import TextContent
 
 from fast_agent.constants import (
+    FAST_AGENT_EMPTY_COMPLETION,
     FAST_AGENT_ERROR_CHANNEL,
     FAST_AGENT_PROVIDER_ERROR,
     OPENAI_COMPACTION_ITEMS,
+    REASONING,
 )
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.helpers.content_helpers import text_content
@@ -18,11 +21,53 @@ from fast_agent.utils.text import strip_str_to_none
 PROVIDER_ERROR_SCHEMA = "fast-agent.provider-error/v1"
 
 
+@dataclass(frozen=True, slots=True)
+class EmptyCompletionDiagnostics:
+    """Counts only: never retain discarded reasoning text.
+
+    Responses uses its raw terminal status (or incomplete reason) as finish_reason.
+    A missing field is unknown, not zero.
+    """
+
+    finish_reason: str | None = None
+    completion_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    reasoning_chars: int | None = None
+    streamed: bool | None = None
+
+
+def attach_empty_completion_diagnostics(
+    message: PromptMessageExtended, diagnostics: EmptyCompletionDiagnostics
+) -> None:
+    """Carry attempt-local metadata from normalization to the empty-reply retry."""
+    if is_empty_completion(message):
+        message.channels = {
+            **(message.channels or {}),
+            FAST_AGENT_EMPTY_COMPLETION: [text_content(json.dumps(asdict(diagnostics)))],
+        }
+
+
+def empty_completion_diagnostics(message: PromptMessageExtended) -> EmptyCompletionDiagnostics:
+    for block in (message.channels or {}).get(FAST_AGENT_EMPTY_COMPLETION, ()):
+        if isinstance(block, TextContent):
+            return EmptyCompletionDiagnostics(**json.loads(block.text))
+    # Providers overriding finalization may not supply raw response metadata.
+    reasoning = (message.channels or {}).get(REASONING)
+    return EmptyCompletionDiagnostics(
+        reasoning_chars=(
+            sum(len(block.text) for block in reasoning if isinstance(block, TextContent))
+            if reasoning is not None
+            else None
+        )
+    )
+
+
 class EmptyCompletionError(RuntimeError):
     """The model ended its turn with no content and no tool call, again after a retry."""
 
-    def __init__(self) -> None:
+    def __init__(self, attempts: tuple[EmptyCompletionDiagnostics, ...] = ()) -> None:
         super().__init__("Completion returned no assistant content or tool calls after one retry.")
+        self.attempts = attempts
 
 
 def _status(error: Exception) -> int | None:
@@ -133,12 +178,14 @@ def build_stream_failure_response(
     assistant_block = text_content(assistant_text)
     error_block = text_content(message)
 
-    # Codes only (no message text), for trace exports: why this call failed.
-    provider_error = {
+    # Codes and count-only diagnostics (no message text), for trace exports.
+    provider_error: dict[str, object] = {
         "schema": PROVIDER_ERROR_SCHEMA,
         "error_type": type(error).__name__,
         "status": status,
     }
+    if isinstance(error, EmptyCompletionError) and error.attempts:
+        provider_error["empty_completion_attempts"] = [asdict(item) for item in error.attempts]
     if code:
         provider_error["code"] = code
     if policy_code:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Literal, Mapping, Protocol
 
 from fast_agent.llm.router_profiles import RouterProfileRegistry, RouterProfileRule
@@ -235,6 +235,8 @@ class HuggingFaceRouteProfile:
     structured_json_mode: Literal["schema", "object"] | None = None
     # Together's legacy schema envelope avoids HF's incompatible json_schema flattening.
     use_legacy_json_schema: bool = False
+    # Backend-specific tool-call fragments the SDK accumulator rejects (explicit null type).
+    stream_mode: Literal["openai", "manual"] | None = None
     omit_default_max_tokens: bool = False
     max_output_tokens: int | None = None
     default_max_tokens: int | None = None
@@ -250,6 +252,7 @@ _KIMI_K3 = "moonshotai/kimi-k3"
 _GEMMA_4 = "google/gemma-4-31b-it"
 _MUSE_GLIMMER = "meta-models/muse-glimmer-30b"
 _QWEN_38 = "qwen/qwen3.8-27b"
+_INKLING_2_SMALL = "thinkingmachines/inkling-2-small"
 _MUSE_GLIMMER_PROMPT_CONTEXT_WINDOW = 131_072 - 32_768
 
 _DEEPSEEK_REASONING = TopLevelReasoningEffort(default_effort="max")
@@ -292,6 +295,22 @@ _GEMMA_4_CEREBRAS_REASONING = TopLevelReasoningEffort(
     cleanup_extra_body=frozenset({"chat_template_kwargs"}),
 )
 _MUSE_GLIMMER_REASONING = ChatTemplateReasoningStrength(default_strength="high")
+# No hard off on either backend: reasoning=off maps to "none" (soft minimum on Together;
+# DeepInfra may then write the working into visible content).
+_INKLING_2_REASONING = TopLevelReasoningEffort(
+    default_effort="high",
+    allowed_efforts=frozenset({"none", "minimal", "low", "medium", "high", "xhigh", "max"}),
+)
+_INKLING_2_PROFILE = HuggingFaceRouteProfile(
+    reasoning=_INKLING_2_REASONING,
+    preserve_raw_reasoning=True,
+    omit_default_max_tokens=True,
+)
+# DeepInfra continuation fragments send "type": null, which the OpenAI SDK accumulator rejects.
+# It also ends every response at 65,536 output tokens whatever max_tokens asks for.
+_INKLING_2_DEEPINFRA_PROFILE = replace(
+    _INKLING_2_PROFILE, stream_mode="manual", max_output_tokens=65_536
+)
 _QWEN_38_REASONING = TopLevelReasoningEffort(
     default_effort="medium",
     allowed_efforts=frozenset({"low", "medium", "xhigh"}),
@@ -431,6 +450,26 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
                 omit_default_max_tokens=True,
                 prompt_context_window=_MUSE_GLIMMER_PROMPT_CONTEXT_WINDOW,
             ),
+        ),
+        RouterProfileRule(
+            model=_INKLING_2_SMALL,
+            backends=frozenset({"together"}),
+            profile=replace(_INKLING_2_PROFILE, use_legacy_json_schema=True),
+        ),
+        RouterProfileRule(
+            model=_INKLING_2_SMALL,
+            backends=frozenset({"deepinfra"}),
+            profile=_INKLING_2_DEEPINFRA_PROFILE,
+        ),
+        # PROVISIONAL: un-pinned router requests only (no backend suffix, default router
+        # URL). The router may serve these from any backend; DeepInfra was selected when
+        # tested, so they get its profile. If the router picks Together, standard schema
+        # output fails with HTTP 400. Explicit untested backends and custom endpoints get
+        # no Inkling profile.
+        RouterProfileRule(
+            model=_INKLING_2_SMALL,
+            backends=frozenset({None}),
+            profile=_INKLING_2_DEEPINFRA_PROFILE,
         ),
         RouterProfileRule(
             model="moonshotai/kimi-k2.5",

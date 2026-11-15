@@ -86,6 +86,7 @@
 | `hf.minimaxai/minimax-m2` | `hf` | Text | `json` (schema) | — | — | — |
 | `hf.qwen/qwen3-next-80b-a3b-instruct` | `hf` | Text | `json` (schema) | — | — | — |
 | `hf.zai-org/glm-4.6` | `hf` | Text | `json` (schema) | — | — | — |
+| `inkling` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `inkling?reasoning=high` | — | — |
 | `kimi25` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `kimi25?reasoning=off` | — | — |
 | `kimi26` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `kimi26?reasoning=off` | — | — |
 | `kimi27` | `hf` | Text, Vision | `json` (schema) | — | — | — |
