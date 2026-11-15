@@ -108,6 +108,7 @@ print(len(results))
     [observation] = step.observation.results
     assert observation.extra is not None
     assert observation.extra["ptc_calls_schema"] == "fast-agent.ptc-calls/v1"
+    assert observation.extra["ptc_vocabulary"] == 1
     records = observation.extra["ptc_calls"]
     assert [
         {key: record[key] for key in ("id", "tool", "arguments")} for record in records
@@ -122,6 +123,7 @@ print(len(results))
         ]
         assert [record["is_error"] for record in records] == [False, False, True]
         assert all(record["status"] == "completed" for record in records)
+        assert all(record["function"] == record["tool"] for record in records)
     # Neither metadata nor observation content dumps the nested results.
     assert "RAW_FILTERED_FILE_CONTENT" not in json.dumps(trajectory.to_json_dict())
     visible = json.dumps([block.model_dump(mode="json") for block in result.content])

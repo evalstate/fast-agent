@@ -28,6 +28,7 @@ from fast_agent.constants import (
     FAST_AGENT_PTC_VALUE,
     FAST_AGENT_SUBAGENT_RESULT_METADATA,
 )
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.tool_result_metadata import (
     add_url_elicitation_required_payloads,
     url_elicitation_required_payloads,
@@ -43,6 +44,13 @@ from fast_agent.ptc.store import STORE_STUBS, SandboxStore
 from fast_agent.ptc.stubs import PtcFunction, build_functions, render_stubs, tool_ptc_options
 from fast_agent.ptc.syntax import describe_syntax_error
 from fast_agent.ptc.values import MediaStore, render_value, tool_result_to_value
+from fast_agent.ptc.vocabulary import (
+    LEGACY_FUNCTIONS,
+    PTC_VOCABULARY_META,
+    PTC_VOCABULARY_VERSION,
+    is_builtin_tool,
+    legacy_name_hint,
+)
 from fast_agent.tools.apply_patch_tool import (
     APPLY_PATCH_INPUT_FIELD as FREEFORM_TOOL_INPUT_FIELD,
 )
@@ -60,7 +68,6 @@ from fast_agent.utils.text import summarize_command
 from fast_agent.utils.tool_names import (
     POLL_PROCESS_TOOL_NAME,
     PROCESS_TOOL_NAME,
-    is_shell_command_tool_name,
 )
 
 if TYPE_CHECKING:
@@ -282,21 +289,26 @@ class _NestedCalls:
     # long since have discarded, so keeping them all would grow host memory with fetched data.
     tasks: set[asyncio.Task[CallToolResult]] = field(default_factory=set)
 
-    async def call(self, tool_name: str, arguments: dict[str, Any]) -> CallToolResult:
-        task = asyncio.create_task(self._run(tool_name, arguments))
+    async def call(
+        self, tool_name: str, arguments: dict[str, Any], *, function_name: str | None = None
+    ) -> CallToolResult:
+        task = asyncio.create_task(self._run(tool_name, arguments, function_name or tool_name))
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
         # Own dispatch lifetime independently of Monty's callback tasks. Script errors
         # drain these tasks; turn cancellation explicitly cancels and settles them.
         return await asyncio.shield(task)
 
-    async def _run(self, tool_name: str, arguments: dict[str, Any]) -> CallToolResult:
+    async def _run(
+        self, tool_name: str, arguments: dict[str, Any], function_name: str
+    ) -> CallToolResult:
         stats = self.stats
         stats.started += 1
         call_id = f"{self.call_prefix}{stats.started}"
         # Snapshot before dispatch: tools may mutate arguments, and parallel calls may
         # finish out of order. This ledger is metadata, never model-visible output.
         record = _started_call_record(call_id, tool_name, arguments)
+        record["function"] = function_name
         stats.calls.append(record)
         try:
             with programmatic_tool_call(call_id):
@@ -306,10 +318,10 @@ class _NestedCalls:
             raise
         except Exception:
             record.update(status="raised", is_error=True)
-            stats.failed.append(tool_name)
+            stats.failed.append(function_name)
             raise
         record.update(_call_record(call_id, tool_name, result), status="completed")
-        (stats.failed if result.is_error else stats.completed).append(tool_name)
+        (stats.failed if result.is_error else stats.completed).append(function_name)
         stats.track_process(arguments, result)
         stats.url_elicitations.extend(url_elicitation_required_payloads(result))
         return result
@@ -345,6 +357,8 @@ class ProgrammaticToolRuntime:
         # The name avoids "python": models treat a Python-named tool as the machine's Python.
         self.tool_name = PTC_TOOL_NAME
         self._functions: dict[str, PtcFunction] = {}
+        self._direct_patterns = list(settings.direct_tools)
+        self._warned_patterns: set[str] = set()
         self._nested_tools: dict[str, Tool] = {}
         # Functions whose tools the model can also call directly.
         self._shared_functions: tuple[str, ...] = ()
@@ -401,6 +415,20 @@ class ProgrammaticToolRuntime:
         shell output guidance.
         """
         self._tool_format = tool_format
+        names = {tool.name for tool in tools}
+        builtin_names = {tool.name for tool in tools if is_builtin_tool(tool)}
+        self._direct_patterns = []
+        for pattern in self._settings.direct_tools:
+            replacement = LEGACY_FUNCTIONS.get(pattern)
+            if self.vocabulary == 1 and pattern not in names and replacement in builtin_names:
+                self._direct_patterns.append(replacement)
+                if pattern not in self._warned_patterns:
+                    get_logger(__name__).warning(
+                        f"ptc.direct_tools: '{pattern}' is now '{replacement}'; update your config."
+                    )
+                    self._warned_patterns.add(pattern)
+            else:
+                self._direct_patterns.append(pattern)
         direct = [tool for tool in tools if self._direct_reason(tool) is not None]
         nested = [tool for tool in tools if self._is_nested(tool)]
         local_shell = any(_returns_shell_output(tool) for tool in nested)
@@ -410,20 +438,20 @@ class ProgrammaticToolRuntime:
             nested,
             reserved_names=OUTPUT_HELPER_NAMES if self._output_guidance != "off" else frozenset(),
         )
+        self._nested_tools = {tool.name: tool for tool in nested}
         self._shell_function = next(
             (
                 function
                 for function in self._functions.values()
-                if is_shell_command_tool_name(function.tool_name)
+                if _returns_shell_output(self._nested_tools[function.tool_name])
             ),
             None,
         )
         self._direct_shell_tool = next(
-            (tool.name for tool in direct if is_shell_command_tool_name(tool.name)), None
+            (tool.name for tool in direct if _returns_shell_output(tool)), None
         )
         self._file_read = file_read
         self._file_write = file_write
-        self._nested_tools = {tool.name: tool for tool in nested}
         direct_names = {tool.name for tool in direct}
         self._shared_functions = tuple(
             function.python_name
@@ -464,6 +492,7 @@ class ProgrammaticToolRuntime:
             tools=(*exposed, *nested),
             programmatic=ProgrammaticSurface(
                 tool_name=self.tool_name,
+                vocabulary=self.vocabulary,
                 tool_format=self._tool_format,
                 instructions=self._instructions(),
                 type_check=self._settings.type_check,
@@ -471,6 +500,11 @@ class ProgrammaticToolRuntime:
                 max_memory_mb=self._settings.max_memory_mb,
             ),
         )
+
+    @property
+    def vocabulary(self) -> int:
+        """Zero identifies the temporary per-model profile arm, one the canonical surface."""
+        return PTC_VOCABULARY_VERSION if self._settings.function_names == "canonical" else 0
 
     def _instructions(self) -> str:
         shared = ", ".join(f"`{name}`" for name in self._shared_functions)
@@ -493,11 +527,17 @@ class ProgrammaticToolRuntime:
         if not self._functions:
             return ""
         example = self._example_function()
-        return _FUNCTIONS_NOTE.format(
+        note = _FUNCTIONS_NOTE.format(
             only_code="" if self._shared_functions else ", and code is the only way to call them",
             tool=example.tool_name,
             call=f"{example.example_call()}",
         )
+        if self.vocabulary == 1 and self._shell_function is not None:
+            note += (
+                " Instructions may call the shell `bash`, `Shell`, `exec` or `execute`; "
+                "in code it is `shell`."
+            )
+        return note
 
     def _shell_output_note(self) -> str:
         if self._output_guidance == "off":
@@ -570,11 +610,7 @@ class ProgrammaticToolRuntime:
         return f"Call the functions from this code instead, e.g. {examples}."
 
     def _example_function(self) -> PtcFunction:
-        functions = list(self._functions.values())
-        shell = (
-            function for function in functions if is_shell_command_tool_name(function.tool_name)
-        )
-        return next(shell, functions[0])
+        return self._shell_function or next(iter(self._functions.values()))
 
     def _direct_io_hint(self, detail: str) -> str:
         """Point code that tried to do I/O itself at the tool functions that can."""
@@ -598,11 +634,14 @@ class ProgrammaticToolRuntime:
 
     def unavailable_tool_hint(self, name: str) -> str | None:
         """Explain how to reach a tool the model called directly that only code can call."""
+        lookup_name = name
+        if self.vocabulary == 1 and name not in self._functions:
+            lookup_name = LEGACY_FUNCTIONS.get(name, name)
         function = next(
             (
                 function
                 for function in self._functions.values()
-                if name in (function.tool_name, function.python_name)
+                if lookup_name in (function.tool_name, function.python_name)
                 and function.python_name not in self._shared_functions
             ),
             None,
@@ -617,7 +656,10 @@ class ProgrammaticToolRuntime:
 
     def tool_meta(self) -> dict[str, Any]:
         """Display metadata for the code tool in its current input format."""
-        return dict(_FREEFORM_TOOL_META if self._tool_format == "freeform" else PTC_TOOL_META)
+        return {
+            **(_FREEFORM_TOOL_META if self._tool_format == "freeform" else PTC_TOOL_META),
+            PTC_VOCABULARY_META: self.vocabulary,
+        }
 
     def tool(self) -> Tool:
         stubs = "\n\n".join(
@@ -650,6 +692,23 @@ class ProgrammaticToolRuntime:
         )
 
     async def execute(
+        self,
+        arguments: Mapping[str, Any],
+        dispatch: ToolDispatcher,
+        *,
+        parent_call_id: str | None = None,
+        cwd: str | None = None,
+    ) -> CallToolResult:
+        """Run model code; nested call ids derive from ``parent_call_id`` when it is known.
+
+        ``cwd`` is the tools' working directory, against which sandbox code resolves relative
+        file paths; it must be an absolute POSIX path.
+        """
+        result = await self._execute(arguments, dispatch, parent_call_id=parent_call_id, cwd=cwd)
+        result.meta = {**(result.meta or {}), PTC_VOCABULARY_META: self.vocabulary}
+        return result
+
+    async def _execute(
         self,
         arguments: Mapping[str, Any],
         dispatch: ToolDispatcher,
@@ -746,7 +805,10 @@ class ProgrammaticToolRuntime:
         return report
 
     def _error_hints(self, detail: str) -> str:
-        return self._direct_io_hint(detail) or self._sandbox_gap_hint(detail)
+        hint = self._direct_io_hint(detail) or self._sandbox_gap_hint(detail)
+        if self.vocabulary == 1:
+            hint += legacy_name_hint(detail, self._functions)
+        return hint
 
     def _sandbox_gap_hint(self, detail: str) -> str:
         """Point code that hit a missing built-in method or module at the system Python."""
@@ -781,7 +843,7 @@ class ProgrammaticToolRuntime:
         """Return why ``tool`` stays directly callable, or None when only code can call it."""
         if tool.name == self.tool_name:
             return None
-        pattern = _matching_pattern(tool, self._settings.direct_tools)
+        pattern = _matching_pattern(tool, self._direct_patterns)
         if pattern is not None:
             return f'ptc.direct_tools "{pattern}"'
         if _matching_pattern(tool, self._settings.nested_tools) is not None:
@@ -797,7 +859,7 @@ class ProgrammaticToolRuntime:
         """Return whether sandbox code can call ``tool``; ``ptc.direct_tools`` excludes it."""
         if tool.name == self.tool_name:
             return False
-        if _matching_pattern(tool, self._settings.direct_tools) is not None:
+        if _matching_pattern(tool, self._direct_patterns) is not None:
             return False
         if _matching_pattern(tool, self._settings.nested_tools) is not None:
             return True
@@ -809,7 +871,11 @@ class ProgrammaticToolRuntime:
         async def call(*args: Any, **kwargs: Any) -> Any:
             if args:
                 raise TypeError(f"{function.python_name}() accepts keyword arguments only")
-            result = await calls.call(function.tool_name, function.bind_arguments(kwargs))
+            result = await calls.call(
+                function.tool_name,
+                function.bind_arguments(kwargs),
+                function_name=function.python_name,
+            )
             return tool_result_to_value(result, self._media, name=function.python_name)
 
         return call

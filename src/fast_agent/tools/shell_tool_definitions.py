@@ -511,6 +511,16 @@ def build_luna_exec_tool(*, shell_name: str, tool_name: str = LUNA_EXEC_TOOL_NAM
     )
 
 
+def build_ptc_shell_tool(*, shell_name: str) -> Tool:
+    """Canonical PTC command contract, independent of direct-mode model profiles."""
+    tool = build_luna_exec_tool(shell_name=shell_name, tool_name="shell")
+    return tool.model_copy(
+        update={
+            "description": (tool.description or "").replace("background=true", "background=True")
+        }
+    )
+
+
 FREEFORM_SHELL_PRAGMA = "# @shell:"
 FREEFORM_SHELL_GRAMMAR = r"""
 start: pragma_source | plain_source

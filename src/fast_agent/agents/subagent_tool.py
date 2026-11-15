@@ -453,7 +453,8 @@ def install_subagent_tool(
     if existing is not None:
         if existing.meta == SUBAGENT_TOOL_METADATA:
             return True
-        raise AgentConfigError(f"Tool name '{SUBAGENT_TOOL_NAME}' is reserved by fast-agent")
+        if not (isinstance(agent, McpAgent) and agent.reserve_ptc_builtin_name(SUBAGENT_TOOL_NAME)):
+            raise AgentConfigError(f"Tool name '{SUBAGENT_TOOL_NAME}' is reserved by fast-agent")
 
     logger.info(
         "Enabled built-in subagent tool",

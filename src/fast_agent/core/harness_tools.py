@@ -13,6 +13,7 @@ from mcp_types import (
     TextResourceContents,
 )
 
+from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.internal_resources import read_internal_resource
@@ -124,6 +125,8 @@ def set_harness_tools(agent: object, enabled: bool | None = None) -> bool:
     for name in HARNESS_TOOL_NAMES:
         existing = agent._execution_tools.get(name)
         if existing is not None and not _is_harness_tool(agent, name):
+            if isinstance(agent, McpAgent) and agent.reserve_ptc_builtin_name(name):
+                continue
             raise AgentConfigError(f"Tool name '{name}' is reserved by fast-agent")
 
     agent.config.harness_tools = True

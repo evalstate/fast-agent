@@ -12,10 +12,11 @@ import json
 import keyword
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from fast_agent.ptc.store import STORE_FUNCTION_NAMES, STORE_STUBS
+from fast_agent.ptc.vocabulary import is_builtin_tool
 
 if TYPE_CHECKING:
     from mcp_types import Tool
@@ -85,6 +86,7 @@ class PtcFunction:
     returns: str
     returns_shape: str | None = None
     """Compact rendering of the output schema, e.g. ``{id: str, tags?: list[str]}``."""
+    builtin: bool = False
 
     def bind_arguments(self, kwargs: Mapping[str, Any]) -> dict[str, Any]:
         """Map supplied keywords to schema names, preserving explicit null values."""
@@ -135,7 +137,7 @@ class PtcFunction:
 
     def _docstring(self) -> str:
         parts: list[str] = []
-        if self.tool_name != self.python_name:
+        if self.tool_name != self.python_name and not self.builtin:
             parts.append(f"Tool `{self.tool_name}`.")
         if self.description:
             parts.append(self.description.strip())
@@ -177,9 +179,20 @@ def build_functions(
     ``reserved_names`` are other sandbox globals that tool functions must not shadow.
     """
     functions: dict[str, PtcFunction] = {}
-    for tool in tools:
+    for tool in sorted(tools, key=lambda tool: (not is_builtin_tool(tool), tool.name)):
         python_name = _unique(_global_identifier(tool.name, reserved_names), functions)
         functions[python_name] = _build_function(tool, python_name)
+    renamed = {
+        f.tool_name: f.python_name
+        for f in functions.values()
+        if f.builtin and f.tool_name != f.python_name
+    }
+    for name, function in functions.items():
+        if function.builtin:
+            description = function.description
+            for old, new in renamed.items():
+                description = re.sub(rf"\b{re.escape(old)}\b", new, description)
+            functions[name] = replace(function, description=description)
     return functions
 
 
@@ -254,6 +267,7 @@ def _build_function(tool: Tool, python_name: str) -> PtcFunction:
     return PtcFunction(
         python_name=python_name,
         tool_name=tool.name,
+        builtin=is_builtin_tool(tool),
         description=description if isinstance(description, str) else tool.description or "",
         parameters=tuple(parameters),
         accepts_extra=accepts_extra,

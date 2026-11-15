@@ -118,6 +118,7 @@ from fast_agent.tools.shell_tool_definitions import (
     build_minimal_bash_tool,
     build_minimal_process_tool,
     build_poll_process_tool,
+    build_ptc_shell_tool,
     build_terminate_process_tool,
     parse_execute_arguments,
     parse_freeform_shell_input,
@@ -273,6 +274,7 @@ class ShellRuntime:
         foreground_auto_await_max_seconds: float | None = None,
         durable_process_root: Path | None = None,
         session_id_provider: Callable[[], str | None] | None = None,
+        canonical_ptc: bool = False,
     ) -> None:
         self._working_directory = str(working_directory) if working_directory is not None else None
         self._environment = shell_environment or LocalShellExecutor(
@@ -385,6 +387,7 @@ class ShellRuntime:
             configured_profile,
             model_profile=model_tool_profile,
             model_shell_tool_name=model_shell_tool_name,
+            canonical_ptc=canonical_ptc,
         )
         process_readback_supported = (
             self._minimal_process_profile or self._grok_shell_profile or self._luna_exec_profile
@@ -467,6 +470,7 @@ class ShellRuntime:
         *,
         model_profile: ResolvedShellToolProfile | None = None,
         model_shell_tool_name: str | None = None,
+        canonical_ptc: bool = False,
     ) -> None:
         """Replace model-facing shell tools using config and model metadata.
 
@@ -474,6 +478,8 @@ class ShellRuntime:
         name. The luna_exec contract adopts it when present and otherwise keeps
         its historical ``exec`` name.
         """
+        if canonical_ptc:
+            profile, model_shell_tool_name = "luna_exec", "shell"
         resolved_profile = resolve_shell_tool_profile(profile, model_profile)
         self._luna_exec_tool_name = model_shell_tool_name or LUNA_EXEC_TOOL_NAME
         self._minimal_process_profile = resolved_profile == "minimal_process"
@@ -488,8 +494,12 @@ class ShellRuntime:
             return
         shell_name = self.runtime_info().name
         if self._grok_shell_profile or self._luna_exec_profile:
-            luna_exec_tool = build_luna_exec_tool(
-                shell_name=shell_name, tool_name=self._luna_exec_tool_name
+            luna_exec_tool = (
+                build_ptc_shell_tool(shell_name=shell_name)
+                if canonical_ptc
+                else build_luna_exec_tool(
+                    shell_name=shell_name, tool_name=self._luna_exec_tool_name
+                )
             )
             shell_tool = (
                 (

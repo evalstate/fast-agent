@@ -447,7 +447,7 @@ def build_tools_listing(agent: object, surface: ToolSurface) -> ToolsListing:
 
 
 def ptc_settings_label(ptc: ProgrammaticSurface) -> str:
-    parts = ["Programmatic tool calling: on"]
+    parts = ["Programmatic tool calling: on", f"vocabulary: {ptc.vocabulary}"]
     if ptc.tool_format == "freeform":
         parts.append("freeform input")
     if ptc.type_check:
