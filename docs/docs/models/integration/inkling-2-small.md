@@ -8,7 +8,7 @@ How fast-agent onboarded Inkling 2 Small: stage status, checks, decisions and th
 name: Inkling 2 Small
 vendor: Thinking Machines
 id: thinkingmachines/Inkling-2-Small
-route: hf.thinkingmachines/Inkling-2-Small:together
+route: hf.thinkingmachines/Inkling-2-Small:deepinfra
 class: flagship
 source: https://huggingface.co/thinkingmachines/Inkling-2-Small
 ```
@@ -23,10 +23,10 @@ Track: full; class: flagship
 | Wire contract | passed |
 | Catalog and provider integration | passed |
 | Harness conformance | passed |
-| Tool preference | pending |
-| Programmatic tool calling | blocked |
+| Tool preference | passed |
+| Programmatic tool calling | passed |
 | Documentation and product surfaces | passed |
-| Release readiness | pending |
+| Release readiness | reported |
 | Release | pending |
 | Benchmark | pending |
 
@@ -70,29 +70,29 @@ Track: full; class: flagship
 | conformance | Usage and context accounting | pass | 1 pass |
 | conformance | Raw request and stream traces inspected | pass | Requests/chunks inspected; route, reasoning order/replay, tool IDs/fragments, finishes and usage verified; raw traces deleted |
 | conformance | Picker, effort cycling and check commands | pass | Picker, all seven efforts, off, invalid-value rejection and full F6 wrap verified; seven distinct renderer styles; 106 unit tests pass |
-| preference | Shell, process and edit tool names and arguments used with none declared | missing |  |
-| preference | First choice among declared equivalent tools | missing |  |
-| preference | Background start, poll, wait and stop with the default contract | missing |  |
-| preference | Edit tool reliability with the default contract | missing |  |
-| preference | Shell profile, shell name and edit tool recommendation | missing |  |
-| preference | Resolved recommendation applied to the catalog; affected conformance checks rerun | missing |  |
+| preference | Shell, process and edit tool names and arguments used with none declared | warn | Reused Together panel; act/declare differ, 28/4 unparsed rows, native protocol syntax; invented-result count unavailable. |
+| preference | First choice among declared equivalent tools | warn | Reused Together panel: 763/768 valid first choices; structural preferences and position bias; standalone forced-process panel absent. |
+| preference | Background start, poll, wait and stop with the default contract | warn | 10/10 scratch tasks complete, no leaks; two retained-output errors preserved; Docker phase explicitly skipped. |
+| preference | Edit tool reliability with the default contract | warn | 8/8 fixtures correct: five edit_file changes, three bash changes; write_text_file unused. |
+| preference | Shell profile, shell name and edit tool recommendation | pass | Keep maintainer-selected common contract and PTC off; preference alone does not support a change. |
+| preference | Resolved recommendation applied to the catalog; affected conformance checks rerun | pass | Read-only catalog confirms DeepInfra alias, unset contract overrides and PTC off; no code change or affected conformance delta. |
 | ptc | PTC evals pass with and without PTC | pass | Real CLI: all 7 PTC answer/path checks and all 7 direct answer checks pass. |
 | ptc | Functions are called from code; no direct-call confusion | warn | Corrected structured fixture 5/5 with nested calls; original scalar fixture 1/5 retained as product-boundary finding. Shell ledger 2/3; recovered unsupported imports. Supervisor-approved interpretation. |
 | ptc | Canonical function names; no mangled or model-specific names | pass | Live traces and offline render agree: common bash in both modes; no mangled or model-specific names. |
-| ptc | Matched direct and PTC benchmark probe | skip | prepared, awaiting supervisor launch |
-| ptc | Sandbox-sensitive probe before PTC becomes the default | skip | prepared, awaiting supervisor launch |
-| ptc | PTC default recommendation | pass | D9 resolved: retain PTC off pending the authorized matched probes and uptake follow-up. |
-| ptc | Resolved PTC default applied to the catalog; affected conformance checks rerun | pass | Existing catalog default False retained per resolved D9; direct tool-loop 3/3, corrected PTC 5/5 and related unit tests 221/221 pass. |
+| ptc | Matched direct and PTC benchmark probe | warn | Together direct 15/15 vs PTC 13/15; DeepInfra 15/15 each, sequential. Real nested uptake; no equivalence claim. |
+| ptc | Sandbox-sensitive probe before PTC becomes the default | warn | Together PTC 35/80 as run, 14 unreplaced setup failures; direct 46/80 after 16 replacements. Original executed 37/64 vs 35/66; mteb-retrieve 6/8 vs 0/8. PTC remains off. |
+| ptc | PTC default recommendation | pass | D11 resolved: DeepInfra default, PTC off; results do not justify enabling PTC. |
+| ptc | Resolved PTC default applied to the catalog; affected conformance checks rerun | pass | Existing catalog False retained per D11; offline alias/default checks and 75 policy tests pass. Earlier live conformance remains historical. |
 | surfaces | Provider page section with dated verification note | pass | New "Inkling 2 Small via Together" section on huggingface.md with alias, route, limits, modalities, reasoning ladder, structured stance, PTC off, caveats and dated verification note; provisional on D1-D5, D7 |
 | surfaces | Generated references regenerated without unrelated drift | pass | docs.py generate changed only model_aliases_hf.md and models_reference.md; no generation warnings; no unrelated drift |
 | surfaces | Provider default, setup template and examples | pass | HF default unchanged (no decision moves it); setup template names no HF current models; check models hf lists inkling; no predecessor to replace |
 | surfaces | PTC default lists in docs and examples | skip | PTC stage still running; left for a follow-up run. Today inkling resolves PTC off and appears in no list; all copies match resolution for kimi/glm53flash/astra/glimmer except the pre-existing stale setup-template comment |
 | surfaces | Strict docs build | pass | uv run scripts/docs.py build exit 0 (social cards + zensical build --strict) |
-| review | Independent audit of the whole change; blockers resolved | missing |  |
-| review | Final format, lint, typecheck and unit tests | missing |  |
-| review | Live smoke through the public alias | missing |  |
-| review | No traces, credentials or unrelated changes | missing |  |
-| review | Integration report compiled and published to the docs site | missing |  |
+| review | Independent audit of the whole change; blockers resolved | pass | Independent GPT-family audit of Claude-authored Inkling change; zero open blockers; output-length wording corrected; one nonblocking generic test nit. |
+| review | Final format, lint, typecheck and unit tests | pass | Final head format/lint/typecheck/CPD/resources green; unit 10709 passed, 9 skipped; integration 446 passed, 16 skipped; focused 547 passed. Diff check uses ignore-submodules for pre-existing broken submodule pointer. |
+| review | Live smoke through the public alias | pass | Both public aliases: pinned upstream, one real bash call, exit 0, result/final marker and endTurn; four provider turns, no retries; reported raw usage cost $0.001711768. |
+| review | No traces, credentials or unrelated changes | pass | No trace files, credential or signed-URL matches; sources ignored. Empty capture directory from offline unit tests disclosed. Worker changes only published report pages in fast-agent. |
+| review | Integration report compiled and published to the docs site | pass | Compiled and published integration Markdown locally; strict docs build green, existing social cards present. PR drafted only; no push, PR opening or release. |
 | release | Pull request raised with green checks | missing |  |
 | release | Version published | missing |  |
 | benchmark | Benchmark, route, reasoning, PTC mode and published version stated | missing |  |
@@ -169,12 +169,16 @@ Why: tb21-probe3 observations from small separate probes (15 trials per mode per
 - contract/structured: City schema validates via legacy envelope; standard schema rejected and legacy auto-tool cases skip the tool
 - integration/quality-gate: lint, typecheck, cpd, unit (10673 passed) and diff-check pass; format --check fails only on an untouched file owned by other work (onboarding/notes/ptc-function-naming.md)
 - conformance/reasoning-efforts: 7 pass, 1 warn
+- preference/unprompted-prior: Reused Together panel; act/declare differ, 28/4 unparsed rows, native protocol syntax; invented-result count unavailable.
+- preference/matched-choice: Reused Together panel: 763/768 valid first choices; structural preferences and position bias; standalone forced-process panel absent.
+- preference/lifecycle: 10/10 scratch tasks complete, no leaks; two retained-output errors preserved; Docker phase explicitly skipped.
+- preference/edit-tool: 8/8 fixtures correct: five edit_file changes, three bash changes; write_text_file unused.
 - ptc/uptake: Corrected structured fixture 5/5 with nested calls; original scalar fixture 1/5 retained as product-boundary finding. Shell ledger 2/3; recovered unsupported imports. Supervisor-approved interpretation.
+- ptc/bench-probe: Together direct 15/15 vs PTC 13/15; DeepInfra 15/15 each, sequential. Real nested uptake; no equivalence claim.
+- ptc/bench-sandbox: Together PTC 35/80 as run, 14 unreplaced setup failures; direct 46/80 after 16 replacements. Original executed 37/64 vs 35/66; mteb-retrieve 6/8 vs 0/8. PTC remains off.
 
 ## Not tested
 
-- ptc/bench-probe: prepared, awaiting supervisor launch
-- ptc/bench-sandbox: prepared, awaiting supervisor launch
 - surfaces/ptc-lists: PTC stage still running; left for a follow-up run. Today inkling resolves PTC off and appears in no list; all copies match resolution for kimi/glm53flash/astra/glimmer except the pre-existing stale setup-template comment
 
 ## Documentation and access
@@ -564,6 +568,315 @@ Existing D1–D4 remain open; this report updates the evidence rather than resol
 | Cache hits observed, no retention/polling experiment | usage-cache (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/contract-usage-cache.json`) | ModelParameters.cache_ttl; process_poll_default_wait_seconds | None; retain model default 0 (no override) |
 | Exact wire ID is mixed case | methodology (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/methodology.json`) | ModelDatabase._PROVIDER_WIRE_MODEL_NAMES | (Provider.HUGGINGFACE, "thinkingmachines/inkling-2-small") → "thinkingmachines/Inkling-2-Small"; preserve :together suffix in routing |
 | Configured byte budget is conservative, exact cap unknown | context-limit (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/contract-context-limit.json`) | HuggingFaceSettings.max_request_bytes | Retain 4718592 — **provisional D8**, no global change |
+
+## Wire contract: deepinfra
+
+Report date: 2026-11-14; author: inkling-deepinfra worker (fast-agent session); fast-agent: f7fe88388
+
+### Outcome
+
+**DeepInfra contract complete: 6 pass, 5 warn, 0 fail.** Direct-wire evidence
+for `thinkingmachines/Inkling-2-Small:deepinfra` at
+`https://router.huggingface.co/v1/chat/completions` on 2026-11-14. Every
+response that reached a backend carried `x-inference-provider: deepinfra`;
+router 413s carried no provider header. Nothing here is a harness claim; see
+`fast-agent-model-lab/onboarding/models/inkling-2-small/reports/04-conformance-deepinfra.md` for that.
+
+This report fills the gaps left by the one-or-two-request
+DeepInfra comparison (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/deepinfra-comparison.md`) and sits beside
+the registered Together contract report (`fast-agent-model-lab/onboarding/models/inkling-2-small/reports/02-contract.md`). It is not
+registered with `scripts/onboard.py`.
+
+The route profile DeepInfra needs is **the Together profile minus the legacy
+schema envelope, plus manual stream accumulation**: DeepInfra's tool-call
+continuation fragments carry `"type": null`, which makes the OpenAI SDK's
+stream accumulator raise `AssertionError` in fast-agent's normal stream path
+(reproduced live through `fast-agent go --shell` before the fix). Two further
+behaviours differ in ways users can see and are carried as caveats: `none` (and `off`) often puts the model's working into the visible
+answer, and DeepInfra accepts PDF input that the model catalog does not
+advertise.
+
+Spend: **128 requests, $0.1723** usage estimate ($0.30/M input, $1/M output,
+cached input not discounted); DeepInfra's own `estimated_cost` sums to
+$0.1615. 22 error responses carried no usage. Hard limit $3. Evidence:
+`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/contract-deepinfra-method.json`
+(body hashes, tooling, spend).
+
+#### Method
+
+Shared helpers from `onboarding/stages/contract/`: `probe.py` through a thin
+wrapper that hooks its `_chunk`/`_non_stream` to keep full content in scratch
+(for schema validation and final-answer checks), reconstruct tool calls and
+record event order; `replay.py` unchanged; `summarize.py` for the ladder.
+Bodies and full outputs are under `/tmp/onb-inkling-2-small/deepinfra/contract/`
+(never committed). No automatic retries. Token read into the process
+environment only.
+
+```bash
+D=/tmp/onb-inkling-2-small/deepinfra/contract
+uv run python onboarding/stages/contract/probe.py "$D/body-ladder-none.json" 3
+ONB_MODEL='thinkingmachines/Inkling-2-Small:deepinfra' uv run python onboarding/stages/contract/replay.py
+uv run python onboarding/stages/contract/summarize.py "$D" 64
+```
+
+#### reasoning-ladder
+
+**Evidence:** `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/contract-deepinfra-reasoning-ladder.json`.
+
+Divisor prompt (answer 64), streamed, `include_usage`, `max_tokens: 32768`.
+
+| Setting (top-level `reasoning_effort` unless noted) | HTTP | Reasoning tokens | Final answer 64 | Working in visible content |
+|---|---|---|---|---|
+| none (streamed) | 200 | 0 ×7 | 7/7 | 7/7 |
+| none (non-streamed) | 200 | 0 ×3 | 3/3 | 3/3 |
+| minimal | 200 | 195 / 195 / 190 | 3/3 | 0/3 |
+| low | 200 | 226 / 178 / 184 | 3/3 | 0/3 |
+| medium | 200 | 217 / 180 / 222 | 3/3 | 0/3 |
+| high | 200 | 169 / 172 / 175 | 3/3 | 0/3 |
+| xhigh | 200 | 186 / 133 / 175 | 3/3 | 0/3 |
+| max | 200 | 177 / 160 / 189 | 3/3 | 0/3 |
+| omitted | 200 | 179 / 182 / 190 | 3/3 | 0/3 |
+| `reasoning: {enabled: false}` | 200 | 193 / 193 / 0 / 0 / 0 / 0 | 6/6 | 4/6 |
+| `chat_template_kwargs.reasoning_effort: none` | 200 | 115 / 185 / 0 / 0 | 4/4 | 2/4 |
+| `chat_template_kwargs.reasoning_effort: max` | 200 | 185 / 168 | 2/2 | 0/2 |
+| bogus | **422** | – | – | – |
+
+- Every documented effort and omission is accepted and answered. Adjacent
+  efforts overlap on this prompt; no monotonic budget claim.
+- **`none` behaves differently from Together.** On Together `none` was a soft
+  minimum that still filled `reasoning_content`. On DeepInfra top-level `none`
+  reported 0 reasoning tokens in 10/10 divisor runs and the model wrote its
+  working ("Factor 7560 … Need final only number.64") into `content`. The
+  prompt renders 2 tokens shorter at `none` (29 vs 31), so the template is
+  applied; the reasoning parser then finds no reasoning block. On a prose
+  prompt `none` gave a clean answer (2/2), with tools it still produced a
+  short `reasoning_content` and a correct call (2/2), and in the 6K cache pair
+  one `none` request leaked and one did not. `reasoning.enabled=false` renders
+  like `none` (29 prompt tokens) and leaked 4/6. This is a **warn**: the answer
+  is still right, but users who pick `none`/`off` on DeepInfra should expect
+  visible working on problems that need it.
+- The unknown value is rejected by DeepInfra's request validation (`422`,
+  "Input should be 'none', 'minimal', … or 'max'"), not by the template.
+  fast-agent validates locally anyway.
+- Default: omission behaves like the explicit efforts (prompt 31 tokens,
+  reasoning in `reasoning_content`); the template default is `high`.
+
+#### reasoning-transport
+
+**Evidence:** `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/contract-deepinfra-reasoning-transport.json`.
+
+Streamed deltas and non-streamed messages both use `reasoning_content`;
+reasoning preceded content or tool calls in every reasoning-bearing stream.
+`replay.py` got a real `get_code` call; replaying the reasoning as
+`reasoning`, as `reasoning_content`, and omitting it all returned 200 with the
+correct code. Both replay fields added the same 36 prompt tokens (165 vs 129),
+so the template consumes the replayed reasoning. Replay is supported, not
+shown to be required; the Together profile's `preserve_raw_reasoning=True`
+applies unchanged.
+
+#### output-limit
+
+**Evidence:** `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/contract-deepinfra-output-limit.json`.
+
+| Probe | Result |
+|---|---|
+| Omitted, playbook prompt (integers 1–20000) | Model wrote a code snippet: 632 tokens, `stop`. Not informative. |
+| Omitted, "output the numbers themselves" | **60593** completion tokens (1586 reasoning), `stop`, ended at `20000` |
+| `max_tokens: 64`, divisor prompt | 64 tokens, `length`, no visible content |
+| `max_completion_tokens: 64` | 64 tokens, `length`, no visible content |
+| `max_tokens` 131072 / 262144 / 524288 / 1000000 / 1048576 / 2000000 | all 200 `stop` |
+
+Omission does not truncate normal or long answers: keep
+`omit_default_max_tokens=True`. DeepInfra does not validate `max_tokens`
+against the window (Together rejected 1048576 plus prompt), so the ceiling is
+not discoverable and stays `null` (**warn**). Large explicit values are
+accepted and are only reservations.
+
+#### context-limit
+
+**Evidence:** `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/contract-deepinfra-context-limit.json`.
+
+- Window: dense ` a` filler bodies between 4.4 and 5.24 MB reached DeepInfra
+  and were rejected with HTTP 400 "maximum context length is 1048576 tokens.
+  However, your prompt contains 2199955 input tokens …". Enforced window
+  1048576. (The playbook's 1.1× window at 4 chars/token would exceed 4 MiB, so
+  it is not separable from the body cap.)
+- **Large prompt:** a 287050-token prompt (1.3 MB body, effort low) returned
+  200 and recalled a needle placed mid-text. Full 1M-token success not tested.
+- **Body cap:** bisection on `Content-Length` (httpx's compact JSON): **5242880
+  bytes accepted, 5242881 rejected with 413** `request entity too large`, no
+  provider header. The router cap is exactly 5 MiB of body, independent of
+  backend (the Together report's 5243044-byte 413 is consistent).
+  `HuggingFaceSettings.max_request_bytes` (4718592) leaves 512 KiB of headroom
+  and stays (D8). **warn** only because the cap differs from the configured
+  budget, as the playbook asks.
+
+#### streaming
+
+**Evidence:** `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/contract-deepinfra-streaming.json`.
+
+67 successful streams: finishes `stop`, `length`, `tool_calls`; `[DONE]`
+always sent; usage only with `include_usage`, in its own chunk with
+`choices: []`; none without it. Every delta carries `role` (null after the
+first) and `content: ""` alongside `reasoning_content` or `tool_calls`.
+Observed sequences: reasoning > content > finish > usage, reasoning > tools >
+finish > usage, content > finish > usage (none), tools-only; in some runs the
+final content rides on the finish chunk. Observations, not a fixed order.
+
+#### tool-calls
+
+**Evidence:** `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/contract-deepinfra-tool-calls.json`.
+
+| Case | HTTP | Calls | Finish |
+|---|---|---|---|
+| single | 200 | get_weather(Paris) | tool_calls |
+| parallel, `parallel_tool_calls: true` | 200 | Paris, Tokyo (index 0, 1) | tool_calls |
+| parallel, flag omitted | 200 | Paris, Tokyo | tool_calls |
+| forced `required`, "Say hello." | 200 | get_weather(Paris) | tool_calls |
+| forced named | 200 | get_weather(London) | tool_calls |
+| forced named at `none` | 200 | get_weather(Paris), 0 reasoning tokens | tool_calls |
+| single at `none` | 200 ×2 | get_weather(Paris), 16/18 reasoning tokens | tool_calls |
+| continuation with tool result | 200 | "Paris is currently sunny and 21°C." | stop |
+
+Fragment shape per call: a header (`index`, `id`, `type: function`, `name`,
+`arguments: ""`), an empty placeholder (`id`, `type`, `name` explicitly
+`null`, `arguments: ""`), then the full arguments in one fragment. Parallel
+calls arrive sequentially by index; `finish_reason` rides the last argument
+fragment.
+
+**Through fast-agent's normal stream path this shape fails.** The OpenAI SDK
+accumulator (`ChatCompletionStreamState`) copies `type` verbatim, so the
+explicit `null` overwrites `"function"` and the SDK asserts
+`new_tool.type == "function"`. A live `fast-agent go --shell` turn on
+`hf.thinkingmachines/Inkling-2-Small:deepinfra` at f7fe88388 (no route
+profile, model `stream_mode="openai"`) died with that `AssertionError`; a
+replay of the sanitized capture through `_process_stream` failed the same way.
+This is the Glimmer/Together failure in a different form (there `type` was
+omitted). The route needs manual accumulation (**warn**). Because
+`stream_mode` is a per-model `ModelParameters` field and the Together route is
+verified on the SDK path, the proposal is a route-level `stream_mode` on the
+HF route profile rather than a model-wide change.
+
+#### structured
+
+**Evidence:** `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/contract-deepinfra-structured.json`.
+
+| Mode | Valid | Tool called |
+|---|---|---|
+| `json_schema` strict | 2/2 | – |
+| `json_schema` non-strict | 2/2 | – |
+| `json_schema` strict, streamed | 2/2 | – |
+| `json_schema` at `max` | 2/2 | – |
+| `json_object` + schema in prompt | 2/2 | – |
+| legacy `{"type": "json_object", "schema": …}` | 1/2 (plus 0/1 in the comparison) | – |
+| `json_schema` + get_weather | 2/2 | **0/2** |
+| `json_schema` + get_weather, streamed | 2/2 | **0/2** |
+
+The standard nested envelope is the right form here; the legacy envelope is
+accepted but does not enforce the schema (one answer was prose). With a
+schema and an auto tool the model answers from memory without calling the
+tool, as on Together: keep `structured_tool_policy="defer"`. Graded **warn**
+per the contract playbook because of the skipped tool; the harness `defer`
+policy is assessed separately in conformance.
+
+#### media
+
+**Evidence:** `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/contract-deepinfra-media.json`.
+
+| Modality | Transport | HTTP | Correct |
+|---|---|---|---|
+| PNG / JPEG / WebP | `image_url` data URI | 200 | evalstate ×3 |
+| PNG, "what word is written" | `image_url` | 200 | evalstate |
+| HTTPS image | `image_url` URL | 200 | "Cat" |
+| PDF | `file` part, data URI | 200 | fast-agent (2/2), llmindset (1/1) |
+| MP4 | `video_url` | 400 "does not accept video input" | – |
+| audio | `input_audio` | 400 "does not accept audio input" | – |
+| image inside a `tool` message | `image_url` part | **422** "Input should be a valid string" | – |
+
+PDF is a real positive on DeepInfra (about 525 prompt tokens for the sample,
+so likely text extraction) and a negative on Together. `ModelParameters.tokenizes`
+is per model, so PDF stays unadvertised and fast-agent keeps removing PDFs
+for Inkling; raised for the maintainer below. The tool-message image
+rejection does not affect fast-agent, which sends tool-result images as a
+following user message (`convert_tool_result_to_openai`).
+
+#### sampling
+
+**Evidence:** `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/contract-deepinfra-sampling.json`.
+
+`temperature` 0.7, `top_p` 0.9, `top_k` 40, `min_p` 0.05,
+`presence_penalty` 0.5, `frequency_penalty` 0.5, `repetition_penalty` 1.05,
+`seed` 17: all 200 with "BLUE". `stop: ["BLUE"]`: 200, `stop`, empty visible
+text (honoured). Acceptance only; documented ranges and recommendations are
+model-level and copied from the Together evidence. No alias sampling defaults.
+
+#### usage-cache
+
+**Evidence:** `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/contract-deepinfra-usage-cache.json`.
+
+Fields: `prompt_tokens`, `completion_tokens`, `total_tokens`,
+`estimated_cost`, `prompt_tokens_details.cached_tokens`,
+`prompt_tokens_details.cache_write_tokens` (always null),
+`completion_tokens_details.reasoning_tokens`. No audio/prediction or image
+token fields (Together had the audio/prediction ones). A fresh ~6K-token
+prefix with a nonce, sent twice with different final lines: **0 cached
+(cold), then 6144 cached** (64-token blocks). No retention cohorts; no TTL
+claim; `process_poll_default_wait_seconds` unchanged.
+
+#### Decisions and questions for the maintainer
+
+Not raised with `onboard.py` (this route is not in the record); listed here.
+
+| Question | Options | Recommendation |
+|---|---|---|
+| Public alias for the DeepInfra route | `inkling-deepinfra`; none (users type `hf.thinkingmachines/Inkling-2-Small:deepinfra`) | none until the maintainer wants a picker entry; `inkling` stays on Together |
+| `none`/`off` on DeepInfra | pass through (working may appear in the answer); map `none` to `minimal` on this route | pass through and document; mapping would silently change the user's choice |
+| PDF on DeepInfra | keep unadvertised; add per-route modality support | keep unadvertised (needs a route-level `tokenizes`, which does not exist) |
+| Un-pinned route | provisional DeepInfra profile on un-pinned router requests only (applied); no profile (status quo drops `?reasoning=`, sends `max_tokens: 128000` and crashes on DeepInfra tool calls) | provisional DeepInfra profile, scoped to no backend suffix on the default router URL; explicit other backends and custom endpoints unchanged |
+| Where the stream fix lives | route-level `stream_mode` (applied); model-wide `stream_mode="manual"` (also changes the verified Together path); normalise null `type` in the shared OpenAI stream path (benefits every provider, wider change) | route-level now; the shared normalisation is worth a separate change |
+
+#### proposed-profile
+
+**Evidence:** `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/contract-deepinfra-proposed-profile.json`.
+`ModelParameters` are per model and shared with Together; none change.
+
+| Observation | Evidence file | Target field | Value |
+|---|---|---|---|
+| 1048576 window enforced; 287K prompt answered | context-limit | `ModelParameters.context_window`; route `context_window` | 1048576 (unchanged); route None |
+| Omission generates 60593 tokens; no ceiling | output-limit | route `omit_default_max_tokens`, `default_max_tokens`, `max_output_tokens`; `prompt_context_window` | True; None; None; None |
+| Ceiling not discoverable | output-limit | `ModelParameters.max_output_tokens` | 128000 nominal (unchanged, D1) |
+| Images pass; PDF passes on this route only | media | `ModelParameters.tokenizes` | unchanged (text, png, jpeg, webp) |
+| Standard schema valid 8/8; legacy unreliable | structured | route `use_legacy_json_schema`; `structured_json_mode` | **False**; None (model `json_mode="schema"`) |
+| Schema with tools skips the tool | structured | `ModelParameters.structured_tool_policy` | defer (unchanged) |
+| Seven efforts accepted, default high, `bogus` 422 | reasoning-ladder | `ModelParameters.reasoning_effort_spec` | unchanged |
+| Top-level `reasoning_effort` drives the template | reasoning-ladder | route `reasoning` | `TopLevelReasoningEffort(default_effort="high", allowed_efforts=seven)` (same object as Together; `off` → `none`) |
+| `reasoning_content`; all replay forms accepted | reasoning-transport | `ModelParameters.reasoning`; route `preserve_raw_reasoning` | reasoning_content; True |
+| Explicit-null continuation fragments break the SDK accumulator | tool-calls, streaming | `ModelParameters.stream_mode`; route `stream_mode` (new field) | openai (unchanged, Together); **manual** on the DeepInfra and un-pinned router routes |
+| Sampling accepted, no recommendation | sampling | `default_temperature`; alias query | None; none |
+| Cache hits reported, no retention test | usage-cache | `cache_ttl`; polling | None; unchanged |
+| Router body cap 5242880 | context-limit | `HuggingFaceSettings.max_request_bytes` | 4718592 unchanged (D8) |
+
+**Difference from Together:** `use_legacy_json_schema` (True on Together,
+False on DeepInfra) and the new route `stream_mode` (unset on Together, manual
+on DeepInfra). Everything else in the route profile is the same; the behavioural differences (`none` leaking working into content, 422
+vs 400 errors, PDF, tool-message images, explicit-null stream placeholders,
+no `max_tokens` window validation) need no profile field.
+
+**Un-pinned route — provisional** (`hf.thinkingmachines/Inkling-2-Small` with
+no backend suffix on the default router URL; the router chooses, DeepInfra
+when tested): a rule matching only routes with no backend reuses the
+DeepInfra profile. This is a provisional product choice, not compatibility
+established by the two pinned routes: the router may serve the request from
+any backend. The reasoning adapter, `preserve_raw_reasoning` and
+`omit_default_max_tokens` are shared with Together, and manual accumulation
+handles both fragment shapes (it is what the Glimmer Together route uses).
+Structured output is **not** compatible with Together: if the router selects
+Together, the standard schema envelope fails with HTTP 400 (preferable to the
+legacy envelope's silent schema-invalid 200 on DeepInfra, but still a
+failure). Pin a backend for schema output. Explicitly pinned untested
+backends (for example `:fireworks-ai`) and custom endpoints get no Inkling
+profile, as before this change; a future third backend on the un-pinned route
+is unverified.
 
 ## Catalog and provider integration
 
@@ -997,36 +1310,512 @@ After code changes:
 No production integration code was changed. No campaigns, release actions,
 commits or new agent workers were started. All probe terminals were removed.
 
-## Programmatic tool calling
+## Harness conformance: deepinfra
 
-Report date: 2026-11-14T00:00:00; author: codexresponses.gpt-6-astra?reasoning=high; fast-agent: 380e9d75387dbe0bc81bcf78476b9189a2ee9559 (local wheel 0.10.54)
+Report date: 2026-11-14; author: inkling-deepinfra worker (fast-agent session); fast-agent: 383c2f55d (0.10.54 + DeepInfra route profile)
 
 ### Outcome
 
-**Keep PTC off pending the matched campaign probes.** Checks: **4 pass, 1 warn,
-0 fail, 2 skip**. The model is now **flagship**, so both benchmark panels are required.
-The report remains **blocked awaiting supervisor launch**. Preparation is complete;
-benchmarking has not started.
+**Conformance complete on `hf.thinkingmachines/Inkling-2-Small:deepinfra`:
+6 pass, 3 warn, 0 fail**, at 383c2f55d. Live through fast-agent: streamed
+text, all seven efforts plus `off`, shell and function tool loops (including
+two parallel calls), history and reasoning replay, schema output with and
+without tools, PNG/JPEG/WebP images, MCP tool-result images, usage accounting.
 
-PTC works on all seven standard CLI evals, including images and concurrent subagents.
-The corrected structured-result fixture passes 5/5 with actual nested function calls.
-The original scalar-string fixture remains 1/5: that product boundary was not fixed.
-The shell panel still misses the strict every-run nested-ledger criterion; its warning
-disposition is an explicit supervisor-approved exception, not a claim that criterion passed.
+**Before the integration fix this route did not work with tools.** At
+f7fe88388 (no DeepInfra profile) the first shell turn died in the OpenAI SDK
+stream accumulator (`AssertionError: new_tool.type == "function"`), because
+DeepInfra sends `"type": null` on tool-call continuation fragments. The
+route-level `stream_mode="manual"` added in integration fixes it; every tool
+result below is on the fixed code. Evidence:
+`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/conformance-deepinfra-manual.json`
+key `pre_fix`.
 
-The human authorized both matched panels and resolved D1–D10. D9 retains the off
-default pending results; D10 authorizes the pinned campaign. The human supplied the
-pricing catalog and token file, and the supervisor authorized four prepare/checks and
-one wheel preflight per mode. Those are complete. Both benchmark checks are now
-**skip — prepared, awaiting supervisor launch**. No worker campaign launch is permitted.
+**New caveat — empty completions on DeepInfra.** Asked "What product is this
+document about?" with the (unsupported, correctly removed) PDF and no tools
+declared, the model reasoned that it should list the workspace files and
+DeepInfra returned HTTP 200, `finish_reason: stop`, reasoning only, no content
+and no tool call, with 33–63 completion tokens unaccounted for. That happened
+in 6 of 8 completed attempts across 4 runs; fast-agent's one empty-completion
+retry recovered 2 runs and 2 ended in an error. The same command on Together
+answered 3/3. This is the dropped-undeclared-tool shape from
+`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/empty-completion-probe.md`, which the
+DeepInfra comparison (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/deepinfra-comparison.md`) did not reproduce
+(0/51) with its synthetic prompts. It is recorded under `media` because that is
+where it surfaced; it is a route behaviour, not a media defect.
 
-The corrected four-cohort plan (`fast-agent-model-lab/onboarding/models/inkling-2-small/plans/2026-11-14-ptc-bench-probe.md`) pins the real
-bench-run environment, retries, deadlines, pricing and artifact; it records executed
-preparation/preflights and exact unexecuted launch/dashboard commands. No production
-runtime, pricing catalog, shared resources or user docs were manually changed.
-The earlier supervisor-approved suite correction and its evidence remain below.
+Spend for this stage: about **$0.03** (suite $0.0044; traced manual runs
+$0.0147 including $0.0004 on Together and $0.0015 on the unpinned route;
+untraced `check structured`, the pre-fix reproduction and two e2e tests
+estimated under $0.01). Together with the contract stage: about **$0.20** of
+the $3 limit.
 
-#### Preparation handoff — 2026-11-14
+#### Evidence and check matrix
+
+- Suite: `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/conformance-deepinfra.json`,
+  from the worktree root:
+  `ONBOARD_MODEL='hf.thinkingmachines/Inkling-2-Small:deepinfra' ONBOARD_TRACK=full ONBOARD_EVIDENCE=onboarding/models/inkling-2-small/evidence/conformance-deepinfra.json uv run pytest tests/e2e/onboarding -m e2e -q -rs`
+  → 19 passed. `ptc/uptake` passed (one `exec_sandbox` call, two nested
+  `lookup_value` calls); it belongs to the PTC stage and is not in the front
+  matter.
+- Manual: `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/conformance-deepinfra-manual.json`,
+  one key per check. Scratch histories and logs:
+  `/tmp/onb-inkling-2-small/deepinfra/conformance/`; raw traces deleted.
+
+| Check | Command / probe | Result | Manual key |
+|---|---|---|---|
+| text-stream | Suite + traced `go --message 'Reply with exactly: ONB-TEXT-OK'` | pass: marker, `endTurn`, `stream: true`, 14 chunks | `text_stream` |
+| reasoning-efforts | Suite + traced divisor prompt at the seven efforts and `off` (`max_tokens=8192`); `?reasoning=bogus` | warn (suite: reasoning at `none`): all eight answered 64; wire `reasoning_effort` equals the request, `off` → `none`, default `high`; `bogus` rejected locally | `reasoning_efforts` |
+| tool-loop | Suite + `go --shell` `printf ONB-TOOL-OK` at default and `max` | pass: call, execution, continuation, final marker; parallel calls observed in the suite | `tool_loop` |
+| multi-turn | Suite + `--home` then `--resume` codeword | pass: AMBER-91 recalled; `reasoning_content` replayed exactly | `multi_turn` |
+| structured | Suite + `--json-schema` direct and with `--shell` + `check structured --mode all` | pass: both CLI outputs schema-valid; direct, pydantic and tools modes pass | `structured` |
+| media | Suite + `--attach` PNG/JPEG/WebP/PDF + `test_llm_e2e.py -k "vision or pdf or mcp_tool_result"` | warn: images 3/3 and MCP tool-result image pass; PDF removed with a clear message, then empty stops | `media` |
+| usage | Suite + history `fast-agent-usage` vs final usage chunk | pass: 7 attempts match input, output, reasoning and cached tokens | `usage` |
+| trace-review | Normalised requests and chunks for every manual run | pass | `trace_review` |
+| interactive | `check models hf`, 106 UI/model-handler unit tests, offline spec | warn: static only | `interactive` |
+
+#### Reasoning
+
+| Requested | Wire `reasoning_effort` | Answer | Reasoning tokens |
+|---|---|---|---|
+| none | none | 64 | 186 |
+| minimal | minimal | 64 | 183 |
+| low | low | 64 | 178 |
+| medium | medium | 64 | 160 |
+| high | high | 64 | 152 |
+| xhigh | xhigh | 64 | 188 |
+| max | max | 64 | 198 |
+| off | none | 64 | 175 |
+
+All values reach the wire unchanged; no remap. With fast-agent's system prompt
+`none` and `off` still filled `reasoning_content` (1/1 each, and in the suite),
+so the bare-prompt leak of working into visible content seen in the
+contract (`fast-agent-model-lab/onboarding/models/inkling-2-small/reports/02-contract-deepinfra.md`) did not show up through
+the harness. Both remain soft minimums, not reasoning-off.
+
+#### Structured output
+
+The direct schema turn sent the standard
+`{"type": "json_schema", "json_schema": {..., "strict": true}}` envelope (no
+legacy rewrite on this route). With `--shell`, the first request carried the
+tools and no `response_format`; after the tool result the follow-up carried
+the schema and no tools (`defer`). Both outputs validated against the city
+schema. Suite defect noted, not patched: `fast-agent check structured --json`
+writes the console transcript to stdout ahead of the JSON array, so the
+redirected file is not parseable as a whole.
+
+#### Trace review
+
+- Wire fields: `model` with the `:deepinfra` suffix, `reasoning_effort` on
+  every request, `stream` plus `stream_options.include_usage`,
+  `parallel_tool_calls` only with tools, `max_tokens` only when the model
+  string sets it, standard `response_format` for schema output, no
+  `extra_body`. Each field is explained.
+- `reasoning_content` precedes content or tool calls; the final content often
+  arrives on the finish chunk.
+- Tool calls: a header fragment (id, `type: function`, name, empty
+  arguments), one to three placeholders with `id`/`type`/`name` null, then the
+  whole argument string. IDs are stable and match the follow-up `tool`
+  message. Covered by the new replay test
+  `test_inkling_deepinfra_stream_reassembles_null_placeholder_tool_fragments`.
+- Finishes `stop` and `tool_calls`; usage in its own chunk with `choices: []`.
+- One provider-side `TransferEncodingError` mid-stream (PDF repeat 2); the
+  harness retried after 10 s. No error chunks otherwise.
+- Follow-up requests replay the exact streamed reasoning in
+  `reasoning_content` next to the tool call, and in resumed history.
+- Traces deleted: `find /tmp/onb-inkling-2-small/deepinfra/conformance -name stream-debug` prints nothing; no traces in the worktree.
+
+#### Usage
+
+For the text turn and both two-request shell loops, provider input, output,
+reasoning and cached tokens equal the history's `fast-agent-usage` values;
+`upstream_provider` is `deepinfra`. `uncached`, `cache_write`, `tool_use` stay
+null. DeepInfra reports `usage.estimated_cost`, but fast-agent records
+`cost_usd: null` (not mapped; left as is). Context window 1048576.
+
+#### Unpinned route
+
+One shell turn on `hf.thinkingmachines/Inkling-2-Small` (two requests,
+$0.0015) exercised the provisional un-pinned profile: `reasoning_effort: high`, no
+`max_tokens`, manual accumulation of null-placeholder fragments, exact
+reasoning replay, correct final answer. Usage reports no upstream provider on
+this route; the fragment shape matches DeepInfra. This route was not in the
+task's authorized list; the two requests are disclosed here.
+
+#### Open questions for the maintainer
+
+1. **Empty completions on DeepInfra** when no tools are declared and the model
+   wants one. Options: accept as a caveat (current fast-agent retries once);
+   make the empty-completion recovery policy route-aware; avoid recommending
+   the DeepInfra route for tool-free agents until measured at scale.
+2. **Alias:** none added. Options: `inkling-deepinfra` (picker entry
+   "Inkling 2 Small (deepinfra)"), or none.
+3. **Stream fix placement:** route-level `stream_mode` (applied) versus a
+   shared normalisation of null tool-call `type` in the OpenAI stream path,
+   which would protect every provider.
+4. **PDF:** DeepInfra answers PDFs; the catalog cannot express per-route
+   modalities, so PDFs are still removed for Inkling.
+5. **Cost:** map DeepInfra's `usage.estimated_cost` into `cost_usd`?
+
+## Tool preference
+
+Report date: 2026-11-15T00:00:00; author: codexresponses.gpt-6-astra?reasoning=high; fast-agent: 0.10.54 / 98449459555fc4cfea69ac76b6dc2465d70c7c59
+
+### Outcome
+
+**Keep the common tool contract; PTC stays off.** This confirms the maintainer's
+decision, not a new adoption claim. The current catalog agrees. New live
+DeepInfra/high probes completed **10/10 lifecycle tasks** with no leftovers and
+produced **8/8 correct edit fixtures**. Two real readback errors and three
+shell-based mutations remain in the analysis.
+
+The existing **Together/high** preference panel is reused, not rerun or silently
+treated as DeepInfra evidence. Its canonical sources are
+panel report (`fast-agent-model-lab/reports/inkling-2-small-preference-panel-v2.md`) and
+panel JSON (`fast-agent-model-lab/reports/inkling-2-small-preference-panel-v2.json`).
+The two byte-identical copies formerly in this record's evidence directory were
+removed after equality checks; canonical reports and raw runs remain unchanged.
+
+Evidence mode: **exploratory onboarding**. No alternative contract, Docker
+campaign, benchmark screen, confirmation, upload, code modification or commit
+was performed.
+
+#### Identity, plan and accounting
+
+Prelaunch plan (`fast-agent-model-lab/onboarding/models/inkling-2-small/plans/2026-11-15-preference-harness.md`);
+accounting (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/preference-accounting.json`).
+
+- Model: Thinking Machines Inkling 2 Small, HF router **DeepInfra**, reasoning
+  **high**, explicit route (not this older wheel's alias):
+  `hf.thinkingmachines/Inkling-2-Small:deepinfra?reasoning=high&ptc=off&max_tokens=4096&streaming_timeout=180`.
+- fast-agent **0.10.54**, source
+  `98449459555fc4cfea69ac76b6dc2465d70c7c59`, wheel SHA-256
+  `1cdf9baf518eeb8e60e2497d119e3c38168dcbbb6e791681abc49ba91cd74363`.
+- Local Linux/WSL2, CPython 3.14.6; isolated wheel runtime and one workspace /
+  process registry / CLI process per sample; `--no-home`; no checkout runtime.
+- One common-contract arm, one provider worker, zero Docker containers;
+  two samples per scenario; zero LLM retries and zero harness retries.
+  Provider sampling defaults; explicit 4,096-token ceiling, 180-second stream
+  start/idle timeout, 300-second sample deadline; shell defaults unchanged.
+- First service sample passed the mechanical recording/route/cleanup sentinel.
+  All fixed remaining coverage was retained; no reward-based selection.
+- **18 planned = 18 raw provider-running attempts = 18 analysis attempts**;
+  **0 invalidations, replacements or reruns**. There were **73 provider turns**,
+  **175,545 input / 7,355 output tokens**, **59 recorded tool calls**, and
+  **2 tool errors**. All 18 histories and trajectories exist; all tool-call IDs
+  match observations. Per-sample elapsed time totals **319.175 seconds**;
+  whole-campaign elapsed time is not independently recorded.
+- HF/DeepInfra reports **USD 0.018078823** in per-turn `raw_usage.cost`, below
+  the **USD 3** ceiling. This is reported usage cost, not a token-rate estimate
+  or independently verified account bill. Historical panel cost remains null
+  where its provider omitted it.
+- One local preparation failure (missing `psutil`) occurred before inference or
+  fixture creation. `/proc` enumeration replaced that dependency; no model trial
+  was invalidated or repeated. Setup diagnostics are separate from outcomes.
+
+Raw histories, request traces, fixture contents and logs remain only under
+`/tmp/onb-inkling-2-small/preference/`. Durable evidence carries allowlisted
+metadata, not command bodies or provider responses. External auth was supplied
+as `HF_TOKEN` per child only; no credential copies or exports were written.
+
+#### Unprompted prior — Together only
+
+Evidence (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/preference-unprompted-prior.json`). The 42 scenarios ×
+10 samples × two framings yielded 840 rows. Do not pool act and declare.
+Each category below has 30 rows per framing; modal keys summarize **all parsed
+calls**, not just calls with the modal name. Full names, shapes, per-scenario
+stability and distributions remain in the canonical JSON.
+
+| Category | Act modal first name | Declare modal first name | Declare modal key set |
+|---|---|---|---|
+| background-service | `shell` 26/30 (3 unparsed) | `bash` 23/30 (0 unparsed) | `command` |
+| create-file | `shell` 30/30 (0 unparsed) | `write_file` 27/30 (0 unparsed) | `content, path` |
+| finite-command | `shell` 27/30 (1 unparsed) | `bash` 26/30 (0 unparsed) | `command` |
+| multi-site-edit | `shell` 28/30 (0 unparsed) | `read_file` 16/30 (0 unparsed) | `path` |
+| process-list | `shell` 25/30 (5 unparsed) | `list_jobs` 18/30 (0 unparsed) | `command` |
+| process-output | `shell` 26/30 (3 unparsed) | `get_job_output` 8/30 (1 unparsed) | `job_id` |
+| process-status | `shell` 29/30 (1 unparsed) | `get_task_status` 17/30 (0 unparsed) | `handle` |
+| process-stop | `shell` 28/30 (1 unparsed) | `list_jobs` 8/30 (0 unparsed) | `(none)` |
+| process-wait | `shell` 27/30 (3 unparsed) | `wait_for_task` 18/30 (0 unparsed) | `task_id, timeout_seconds` |
+| read-file | `shell` 24/30 (6 unparsed) | `read_file` 20/30 (0 unparsed) | `path` |
+| search-files | `shell` 27/30 (3 unparsed) | `bash` 22/30 (0 unparsed) | `command` |
+| small-edit | `shell` 30/30 (0 unparsed) | `read_file` 20/30 (3 unparsed) | `path` |
+| timeout | `shell` 28/30 (2 unparsed) | `bash` 21/30 (0 unparsed) | `command` |
+| working-directory | `shell` 29/30 (0 unparsed) | `bash` 26/30 (0 unparsed) | `command` |
+
+Act emits `shell(command)` as first parsed call in **384/420** rows, with
+**28/420** unparsed. Native control-token JSON dominates (416 extracted
+native-JSON records; records are not necessarily distinct rows). Declare
+parses **416/420**, usually naming `bash` for shell tasks but using native
+directory/deadline keys rather than the minimal contract's keys. File creation
+names `write_file`; modification often reaches for `read_file` first.
+The response framing changes what is elicited, so there is no universal prior.
+
+The archived analysis does not quantify fabricated-result rows: that count is
+**null**, not zero. No-tools syntax is not evidence that anything executed.
+Unparsed rows and native protocol residue remain caveats, not exclusions.
+
+#### Matched choice — Together only
+
+Evidence (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/preference-matched-choice.json`). **763/768** rows have a
+valid first choice. Five missing choices (four wait, one output), all in
+unified-first orders, remain in the planned denominators. The full panel also
+contains a programmatic arm; it is not pooled into these claims.
+
+| Comparison | Valid first choices | Interpretation |
+|---|---|---|
+| Equivalent shell names | bash 172, shell 137, exec 45, execute 30 / 384 | First-listed 229/384 (59.6%); strong position effect |
+| Process structure | Operation-specific 198/235, unified 37/235; 240 planned | Structural, operation-restricted comparison; not full-inventory naming |
+| Edit structure | str_replace 118, edit_file 23, apply_patch 3 / 144 | Structural; multi-site str_replace 68/72; first-listed 52/144 |
+
+Operation-specific wins: list **37/48**, status **47/48**, wait **35/44**,
+output **39/47**, stop **40/48**. Missingness and order sensitivity prevent
+a universal process-contract conclusion. Full order cells and descriptive
+Wilson intervals are in the canonical report; repeated scenario draws are
+not independent task-level evidence.
+
+The local recorder has **950 calls, 947 valid and 3 rejected**, with complete
+allowlisted metadata. Provider telemetry reports only **24** tool calls: it
+omits local function tools and is not authoritative here. A separate count of
+calls absent from the recorder cannot be reconstructed, so `unrecorded` is
+**null**, not an asserted zero or a contamination finding.
+
+A standalone forced-unified-process compatibility run is **not present** among
+the nine full-panel runs. It was not rerun under this brief. Live unified-process
+usage below supplies narrower **DeepInfra** compatibility evidence, not a
+retroactive Together forced-panel pass.
+
+#### Executable lifecycle — DeepInfra
+
+Evidence and per-call metadata (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/preference-lifecycle.json`).
+
+| Scenario | Sample 1 process actions | Sample 2 process actions | Result |
+|---|---|---|---|
+| finite-working-directory | finite bash | finite bash | verified; no leftovers |
+| list | list ×2, stop ×1, status ×1 | list ×2, stop ×1 | verified; no leftovers |
+| quiet-foreground | wait ×1, read_output ×1 | wait ×1, read_output ×1 | marker + completion; readback error in both |
+| serve | stop ×1 | stop ×1, status ×1 | verified; no leftovers |
+| wait | wait ×1 | wait ×1 | verified; no leftovers |
+
+All process IDs referenced existing handles, no shell detachment occurred, and
+all recorded child PIDs and workspace-owned processes were absent after
+shutdown. Both servers were independently confirmed not listening.
+Three `pgrep`/`ps` checks in the list scenarios were **post-stop inspection**;
+neither replaced managed stop with shell `kill`, `pkill`, or a guessed PID.
+Background tasks were classified persistent; foreground tasks session-scoped.
+Both finite commands confirmed the actual working directory containing spaces.
+Minimal `bash` has no native cwd argument: this tests native process cwd,
+not an absent parameter.
+
+Both quiet samples yielded at the **30-second foreground auto-await cap**,
+then `process(wait)` returned the expected marker after about 65 seconds.
+Both correctly shaped `process(read_output)` calls then returned
+**retained output unavailable**. The pinned runtime's
+`tools/shell_runtime.py` retains full output only after model-facing truncation;
+these short outputs never triggered retention. This is a genuine harness/tool
+outcome, not a fabricated completion or a schema incompatibility. The request
+explicitly asked for readback, so it is not evidence of an unprompted model
+tendency. Successful readback of genuinely retained/truncated output remains
+**untested**; no corrective repeat was launched.
+
+Shutdown cleanup was audited after every sample. Deliberately abandoning a
+running temporary session to test shutdown cleanup was **not** a separate
+fixture here; persistent server survival was exercised between tool calls,
+not across agent shutdown.
+
+**Docker lifecycle phase: skipped**, explicitly directed by the supervisor.
+The maintainer ships the common contract, so no change is being gated. The
+supervisor also cites 220 existing direct-mode default-contract benchmark
+trials across tb21-probe3/tb21-probe-sandbox8 and both backends as prior process
+exercise. This report does not independently re-audit those trials or claim
+scratch checks equal the full deterministic Docker suite.
+
+#### Executable edits — DeepInfra
+
+Evidence (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/preference-edit-tool.json`). Fresh four-line fixture per
+attempt; exact file-content verifier, including unchanged lines and final newline.
+
+| Task | Sample 1 mutation tool | Sample 2 mutation tool | Correct |
+|---|---|---|---|
+| create | bash | bash | 2/2 |
+| delete-line | edit_file | edit_file | 2/2 |
+| replace-repeated | bash | edit_file | 2/2 |
+| replace-unique | edit_file | edit_file | 2/2 |
+
+`edit_file` made five successful changes. Both creations and one multi-site
+rename used shell writes instead. Reads and verification also used shell tools.
+The repeated edit changes the `beta` binding and reference while preserving
+the distinct `beta_check` identifier. No damaged files, rejected edits, or edit
+loops occurred. `write_text_file` was declared but unused: this does **not**
+prove it incompatible. Hence **warn**, despite 8/8 executable correctness.
+
+#### Recommendation, applied state, and revisiting the decision
+
+Recommendation (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/preference-recommendation.json`);
+read-only catalog snapshot (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/preference-applied.json`).
+
+The maintainer selected the common contract, and **D11** resolves DeepInfra
+default plus PTC off. Catalog inspection at shared-checkout HEAD
+`3479bcd03fde74e7b6f35c468b327d368fa3fc05` finds:
+
+- `inkling` resolves to `hf.thinkingmachines/Inkling-2-Small:deepinfra`;
+- no Inkling override for `shell_tool_profile`, `shell_tool_name`, or
+  `shell_edit_tool`;
+- inherited `ptc_enabled=False`; auto shell resolves `minimal_process`,
+  named `bash`, with unified `process` and `write_text_file` + `edit_file`.
+
+Actual pinned-wheel tool declarations match the common contract. No catalog
+change was needed, so there is no affected conformance delta to rerun.
+The live probes exercise the pinned wheel, **not** the newer shared working
+tree. No code or tests there were modified. No new product decision was opened.
+
+If revisited, the panel supports **hypotheses**, chiefly the structural
+`str_replace` preference and operation-specific process choices, not adoption.
+Shell renaming has substantial order bias; current `edit_file` already works.
+First inspect complete DeepInfra default-contract trajectories for a relevant
+mechanism, then request a route-specific, one-variable matched executable gate.
+Only after that passes should a fresh matched benchmark screen be authorized;
+confirmation needs its own explicit approval. No follow-up is launched by this
+report, and PTC findings remain separate from tool preference.
+
+#### Claims and verification boundary
+
+1. **Preference:** Together/high simulated choices and priors, with stated noise.
+2. **Compatibility:** new DeepInfra/high common-contract calls, including five
+   successful edit_file calls and valid process actions; two readback availability
+   errors retained. No standalone Together forced-panel pass claimed.
+3. **Executable correctness:** 10 scratch lifecycle completions and 8 exact edit
+   fixtures; scoped coverage limitations above.
+4. **Benchmark outcome:** no new benchmark experiment in this stage.
+5. **Full benchmark score:** none.
+
+Validation: exact 18-attempt coverage; 18 histories/trajectories; 59 matching
+call/observation IDs; all output verifiers; cleanup audit; evidence envelopes
+and null preservation; `git diff --check`; `uv run onboard check`.
+No provider request is made by report registration or validation.
+
+## Programmatic tool calling
+
+Report date: 2026-11-15T00:00:00; author: codexresponses.gpt-6-astra?reasoning=high; fast-agent: ae1f3befa324aa01287d4161b76d7dd19910ec5d
+
+### Outcome
+
+**D11: DeepInfra is the default backend; PTC stays off, already the catalog value.**
+Checks: **4 pass, 3 warn, 0 fail, 0 skip**. The stage analysis is complete;
+it is not blocked awaiting launches. No product choice was made by this worker.
+
+This 2026-11-15 rework used the existing benchmark analyses and a read-only audit of
+the specified Together PTC sandbox8 job. It made **no provider calls, launches,
+resumes, repairs, replacements, uploads or bench-run changes**. Current offline
+catalog verification used fast-agent `ae1f3befa324aa01287d4161b76d7dd19910ec5d`.
+Benchmark artifacts remain the exact earlier local 0.10.54 wheels:
+Together `380e9d75387dbe0bc81bcf78476b9189a2ee9559`; DeepInfra `98449459555fc4cfea69ac76b6dc2465d70c7c59`. Do not read the report's current revision
+as the artifact used for all earlier probes.
+
+PTC works on the seven CLI evals and the corrected structured-result fixture
+(5/5 with real nested calls). The original scalar-string fixture remains 1/5;
+the shell panel's every-run nested-ledger caveat remains a warning. These are
+executable compatibility observations, not a benchmark-equivalence claim.
+
+##### Completed bench-probe: warn overall; DeepInfra pair passes with caveats
+
+| Backend | Direct | PTC | Known configured inference cost, off / on | Disposition |
+|---|---:|---:|---:|---|
+| Together | 15/15 | 13/15 | $0.924 / $0.944 | warn |
+| DeepInfra | 15/15 | 15/15 | $0.795 / $1.096 | pass, sequential |
+
+Together's two losses are finalized empty-completion non-zero exits on
+polyglot-rust-c, not infrastructure exclusions. Its 13 passing PTC trials made
+221 nested calls from 390 scripts. DeepInfra made 300 nested calls from 471
+scripts in 14/15 trials; the remaining passing trial used sandbox filesystem
+operations alone. Infrastructure errors: zero in all four arms.
+
+Together's arms ran concurrently (5+5); DeepInfra ran PTC then direct at five
+workers. Wheels, time and route load differ between backends. The DeepInfra pair
+therefore is not a contemporaneous matched confirmation, nor are these pairs a
+matched backend experiment. PTC cost is about 1.02× direct on Together and 1.38×
+on DeepInfra. Together direct usage is a lower bound after one lost stream
+attempt. Fifteen trials per mode cannot establish equivalence.
+
+Sources: Together analysis (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/ptc-bench-probe-analysis.md`),
+DeepInfra analysis (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/ptc-bench-probe-deepinfra-analysis.md`).
+
+##### Completed bench-sandbox: warn, with a clear mteb task-local failure
+
+| Arm | Raw attempts | Passes in reported set | Setup replacements | Original passes / executed |
+|---|---:|---:|---:|---:|
+| Together direct | 96 (80 + 16) | 46/80 | 16; replacements 9/16 | 37/64 |
+| Together PTC | 80 | 35/80 as run | none; 14 setup failures unreplaced | 35/66 |
+| DeepInfra direct, backend context only | 80 | 44/80 | none | see backend analysis |
+
+The 14 PTC setup failures are agent-install write timeouts before inference;
+their reward/token/cost fields remain **null**, not zero. The 66 executed PTC
+trials include **one non-zero agent exit and one agent timeout**, both retained
+as model/harness outcomes. The 35/80 figure is passes/raw attempts, not a mean
+with missing rewards imputed. Together direct also retains one sandbox
+`RemoteProtocolError` without a verifier result.
+
+These are **exploratory onboarding** results, with raw attempts and replacement
+outcomes kept separate. Direct-only replacements and unequal executed coverage
+prevent a clean aggregate PTC comparison. There is no DeepInfra sandbox8 PTC-on
+arm. In original task-count comparisons PTC has four wins, three losses and one
+tie, not a broad all-task collapse; these are not attempt-paired wins/losses.
+Nevertheless, the no-persistent-per-task-deficit criterion is not met:
+
+- **mteb-retrieve: direct 6/8 versus PTC 0/8 among executed original trials.**
+  All eight PTC runs actually executed host Python and wrote the same wrong
+  HumanEval document instead of MTEB. Their final mteb encoding scripts omit
+  query/passage `prompt_type`. In retained trial `yBQBc9u`, step 12 explicitly
+  computes both variants: query/passage prompts yield MTEB at rank five;
+  no prompts yield HumanEval. Step 16 chooses the latter. This identifies the
+  proximate embedding-prompt mechanism, not a failure to invoke nested tools
+  or proof of a Monty runtime defect. Why PTC chose that pipeline more often
+  than direct remains unproven.
+- **Non-zero exit — chess-best-move__DeCxacU:** first model turn returns no
+  content/tools, one retry is also empty, fast-agent exits, and the verifier
+  finds no output file. No tool call occurred. Retained as an outcome.
+- **Timeout — chess-best-move__CeRgw49:** last recorded step awaits host Python
+  running Stockfish (depth 20, then depth 18 with five variations), via nested
+  `bash(check=True)`. No tool result or later model turn is recorded. Harbor
+  reaches the 21,600-second agent deadline; output is missing. Only 3,410 output
+  tokens are recorded, so this is stalled execution, not six hours of reasoning.
+  The artifacts do not distinguish engine, shell or transport cause.
+  The missing final nested-call history is not counted as zero nested work.
+
+Local records establish 5,306 outer sandbox calls and at least 4,142 nested calls
+in 64 trials. Filesystem passthrough and the timeout's missing history limit
+ledger completeness. The audit preserves every finalized model/harness outcome;
+nothing was selected for rerun.
+
+Sources: backend comparison (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/sandbox8-backend-comparison.md`),
+new PTC audit (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/ptc-bench-sandbox-together-analysis.md`),
+allowlisted per-trial evidence (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/ptc-bench-sandbox-together-analysis.json`).
+
+##### Actual cost and evidence limits
+
+**The three sandbox8 arms cost about $141 against a $3.4–5.3 planning estimate.**
+Recorded configured inference totals: Together direct with replacements $50.6942,
+Together PTC $45.9462, DeepInfra direct $44.1435; total **$140.7839**.
+The historical estimate covered the original four Together probe3/sandbox8
+cohorts, not a measured model forecast; sandbox8 alone is roughly 27–41× that
+estimate. Missing usage/cost, preflights and HF compute are not included, and
+provider-reported costs differ slightly. This is not complete billed spend,
+nor a retrospective assertion that an extra budget was approved.
+
+Preference, schema compatibility, executable correctness, diagnostic panel
+outcomes and full benchmark scores remain separate. These enriched panels are
+not a full benchmark score, a symmetric confirmation or evidence of equivalence.
+The backend analysis additionally found DeepInfra's then-implicit 65,536-token
+output cap, cache weakness and slower decoding under higher load; the small
+probe's speed advantage must not be generalized. D11 remains the human default
+decision; this rework neither changes it nor authorizes the analyses' suggested
+follow-up campaigns.
+
+#### Historical preparation handoff — 2026-11-14
+
+The following records the earlier preparation-only worker stage, **before** the
+supervisor's completed campaigns above. Its launch-pending statements describe
+that handoff, not the current status.
 
 - Built from clean committed HEAD `380e9d75387dbe0bc81bcf78476b9189a2ee9559`:
   `uv build --wheel --out-dir /tmp/onb-inkling-2-small/ptc/wheel-380e9d753`.
@@ -1093,7 +1882,7 @@ mismatch explicitly retained; they do not establish benchmark performance.
 
 #### Evidence
 
-All live work selected `inkling` on
+The earlier CLI/fixture live work selected `inkling` on
 `hf.thinkingmachines/Inkling-2-Small:together`. CLI comparisons explicitly selected
 `reasoning=high` and `ptc=on|off` plus the corresponding CLI flag. Exact conformance repeats
 use the suite's explicit PTC override and catalog high; captured requests confirm high.
@@ -1103,9 +1892,9 @@ use the suite's explicit PTC override and catalog high; captured requests confir
 | evals | `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/ptc-evals.json` | PTC 7/7, direct 7/7 |
 | uptake | `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/ptc-uptake.json` | Structured fixture 5/5; original 1/5, shell-ledger caveat and product-boundary reproduction retained |
 | naming | `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/ptc-naming.json` | Same common names in live requests and offline runtime |
-| bench-probe | `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/ptc-bench-probe.json` | Prepared/checked, awaiting supervisor launch; benchmark costs/results null |
-| bench-sandbox | `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/ptc-bench-sandbox.json` | Flagship panel required; prepared/checked, awaiting supervisor launch; benchmark costs/results null |
-| recommendation | `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/ptc-recommendation.json` | False per D9, pending matched results |
+| bench-probe | `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/ptc-bench-probe.json` | Together warn; DeepInfra pass with scheduling caveat; real nested use |
+| bench-sandbox | `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/ptc-bench-sandbox.json` | warn: asymmetric coverage and mteb task collapse; costs/results recorded |
+| recommendation | `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/ptc-recommendation.json` | False per resolved D11 after benchmark analysis |
 | applied | `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/ptc-applied.json` | Existing False; direct function/shell conformance and policy tests pass |
 
 #### Evals
@@ -1208,7 +1997,7 @@ pass-through operations, not entries in `fast-agent-ptc-calls`. As documented in
 ledger is **not** proof the model did no work. Under the supervisor's clarified
 interpretation, this is a **warning**, alongside recovered unsupported imports, rather
 than a model uptake failure. The strict playbook ledger condition remains unmet and is
-not silently reclassified as a pass. PTC stays off pending the matched campaign.
+not silently reclassified as a pass. PTC stays off per D11 after the completed campaign analyses.
 
 #### Naming
 
@@ -1226,6 +2015,13 @@ vocabulary. No rename was introduced. Inspected raw naming traces were deleted;
 only whitelisted names/model/effort observations were retained.
 
 #### Default and checks
+
+On 2026-11-15, offline checks confirm the `inkling` alias points at DeepInfra and
+PTC defaults to False for the alias and both explicit backend routes. The PTC
+policy unit selection was rerun: **75 passed, 8 deprecation warnings**. No code
+change or new live conformance run was made; the earlier live checks below remain
+historical. Two initial offline inspector snippets used non-existent attributes/
+exports and were corrected; the final explicit assertions pass.
 
 The catalog still inherits `ptc_enabled=False`. No additional catalog mapping or new test
 literal was needed for an unchanged default. After the PTC investigation:
@@ -1285,18 +2081,20 @@ Known recorded usage for repeats, paired diagnostics and the applied rerun total
 **51,408 prompt / 5,671 completion tokens**, estimated **$0.0210934** using uncached
 vendor input pricing. CLI eval/shell/naming histories lack usage totals, so their
 cost remains **null**, not zero; this is not a complete billed-spend claim.
-Earlier-stage spend is in `evidence/spend.json`. The two new wheel preflights lack
-numeric usage and their cost remains null; this is not zero spend. No benchmark
-campaign was launched.
+Earlier-stage spend is in `evidence/spend.json`. The two historical wheel preflights lack
+numeric usage and their cost remains null; this is not zero spend. This paragraph accounts only for the
+historical CLI/fixture work; completed benchmark spend is reported above.
 
 #### Follow-up
 
-A reviewer should rerun one CLI eval per mode and summarize a retained shell history,
-including the pass-through-versus-nested distinction. Preserve both original and corrected
-fixture observations and the explicit supervisor-approved warning disposition.
-Revisit the scalar-result boundary
-in a separately scoped runtime task, and hand the prepared matched probes to the supervisor, who owns the remaining
-launch-shell readiness/capacity and budget gates in the corrected plan. Small probes cannot justify enabling PTC by default.
+D11 is applied without changing the already-off PTC catalog value. No launch,
+replacement or confirmation is requested implicitly. Any fresh matched study,
+DeepInfra PTC-on sandbox8 arm or causal embedding-prompt investigation needs
+its own explicit authorization and realistic budget. Preserve the original
+scalar-result product finding, corrected-fixture observations, setup diagnostics
+and all finalized errors/timeouts. Re-registration invalidates the previous
+review; the reviewer should assess this updated evidence without treating the
+historical live checks as newly rerun.
 
 ## Documentation and product surfaces
 
@@ -1459,3 +2257,243 @@ were updated as follows:
   report links for publication, both cards are committed, the integration
   index is in the Models nav, and `uv run scripts/docs.py build --strict`
   exits 0.
+
+## Release readiness
+
+Report date: 2026-11-15T00:00:00; author: codexresponses.gpt-6-astra?reasoning=high; fast-agent: 0.10.54 / 175446d82eb41a7cece08a6598ceef3d1b2a3da4 (final gates); alias smokes at 3479bcd03fde74e7b6f35c468b327d368fa3fc05
+
+### Outcome
+
+**Ready for the independent review-stage verdict and subsequent authorized release,
+with the documented limitations below.** The implementation audit has no open
+blockers. **D11 remains the human decision: DeepInfra default, PTC off, common
+tool contract.** This worker has not authorized or performed a release.
+
+Checks: **5 pass, 0 warn, 0 fail, 0 skip**. Check success does not erase historical
+model/harness warnings. Evidence: `fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/review.json` and
+independent implementation audit (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/review-audit.json`).
+
+#### Scope, identity and audit
+
+Auditor: `codexresponses.gpt-6-astra?reasoning=high`, a different model family from
+the integration author, `copilot.claude-opus-5.5`. No other agent was started.
+
+The branch point is `c551658338782a5fd7feb161902504c8cf429e6d`. Audited Inkling
+implementation `b6de6b8ff842616468277838a24e87b0e58eed88`, supporting conformance
+suite/pages `ae1f3befa324aa01287d4161b76d7dd19910ec5d`, and the review correction
+`175446d82eb41a7cece08a6598ceef3d1b2a3da4`. Later dead-route, DeepSeek and
+Gemma/wizard changes (`146a72df8`, `2d28ac01d`, `3479bcd03`) are **out of the
+Inkling audit scope**, but the final quality gate includes the whole branch head.
+
+Read all stage reports 01–07, their additional DeepInfra contract/conformance
+reports, retained evidence and prior `deepinfra.review.md` /
+`default-backend.review.md`. Important precedence:
+
+- Reports 01–04 were originally registered against **Together**. Their old
+  `inkling` resolution is historical, not today's public default.
+- The `-deepinfra` supplements establish the DeepInfra contract/conformance;
+  D11 and the surfaces addendum establish the default change.
+- The older DeepInfra output-limit proposal said the ceiling was unknown.
+  Later output-cap evidence (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/contract-deepinfra-output-cap.json`)
+  supersedes it: three long completions stopped with `length` at **65,536**,
+  under omission, `max_tokens=128000`, and `max_completion_tokens=128000`.
+  Two one-token empty stops are also preserved. The current profile clamps
+  explicit caps; omission remains the default.
+- Backend analysis (`fast-agent-model-lab/onboarding/models/inkling-2-small/evidence/sandbox8-backend-comparison.md`) and its JSON
+  record an **82,475-token single completion on Together**. That proves a
+  larger observed response, not an unlimited or measured Together ceiling.
+
+The audit checked the route-specific schema and stream paths, default effort,
+soft `none`/`off`, casing, raw reasoning replay, output omission/clamp, alias/picker
+resolution, third-backend/custom-endpoint boundaries, shared registry semantics,
+and shared empty-completion telemetry. The latter records counts/nulls rather
+than discarded reasoning and leaves recovery policy unchanged. Focused tests
+cover replay of explicit-null stream fragments, successful/error retry metadata,
+ATIF export and null preservation.
+
+##### Finding disposition
+
+- **R1 resolved:** provider docs said Together “has no such cap.” The supervisor
+  supplied the separate 82,475-token evidence and committed qualified wording
+  in `175446d82` (`huggingface.md:308–312`). The ceiling remains unpublished
+  and unmeasured. No code change or new product decision was needed.
+- **N1 nonblocking:** `tests/e2e/onboarding/test_conformance.py:35` asks 2+2 in
+  its transport/usage smoke but checks nonempty output rather than the value 4.
+  Do not read that test alone as answer correctness. Historical manual markers
+  and the independent executable marker checks below support the actual claims.
+  No fixture changes were made by this worker.
+
+#### Final quality gate
+
+All fast-agent tooling ran in `/home/ssmith/source/fast-agent-onboarding`.
+Final source revision: **175446d82**, version **0.10.54**; project uv environment
+**CPython 3.15.1**. This is the editable checkout, not a published release wheel.
+
+| Check | Result |
+| --- | --- |
+| `uv run scripts/format.py --check` | pass |
+| `uv run scripts/lint.py` | pass |
+| `uv run scripts/typecheck.py` | pass |
+| `uv run scripts/cpd.py --check` | pass; 7 approved structural findings |
+| `uv run scripts/check_internal_resources.py` | pass; 4 resources |
+| `uv run pytest tests/unit -n auto -q` | **10709 passed, 9 skipped**, 48 warnings |
+| `uv run pytest tests/integration -n 2 --dist loadfile -q` | **446 passed, 16 skipped**, 2 warnings |
+| Focused registry/factory/HF-profile/empty-completion tests | **547 passed**, 1 warning, at 3479bcd03 |
+| `git -c diff.ignoreSubmodules=all diff --check` | pass |
+| `uv run scripts/docs.py build` | pass; strict build, “No issues found” |
+| Lab `uv run onboard check` | pass |
+
+The unit/integration commands additionally put caches and basetemp under
+`/tmp/onb-inkling-2-small/review/`; complete offline logs remain there.
+The initial full gate at 3479bcd03 also passed. The full gate was rerun at
+175446d82 after the supervisor's documentation correction.
+
+Plain `git status` and `git diff --check` encounter a pre-existing broken
+`skills-repo` submodule gitdir and exit 128. The supervisor approved
+`--ignore-submodules=all`; the checkout was not repaired and this is not
+reported as a product-test failure.
+
+#### Authorized live alias smoke
+
+Evidence mode: **exploratory onboarding**, not a preference or benchmark comparison.
+The supervisor confirmed the maintainer's authorization for **one sample per
+route, $0.50 total**. The plan was stated before launch:
+
+- Same Inkling model, HF router; `inkling` → DeepInfra, then
+  `Inkling 2 Small (together)` → Together.
+- Reasoning **high** from the catalog, PTC **off**, unchanged common tools.
+- fast-agent **0.10.54**, exact source
+  `3479bcd03fde74e7b6f35c468b327d368fa3fc05`.
+- One scenario per route: run `printf ONB-SMOKE-OK` with the shell and report
+  the output. No control/treatment arms.
+- Sequential CLI processes, one provider worker total, zero Docker containers;
+  isolated scratch directories, local Linux/WSL2, `--no-home`.
+- General LLM retries **0** (`FAST_AGENT_RETRIES=0`); existing internal
+  one-empty-completion retry unchanged; harness retries **0**.
+- Explicit 4,096-token cap, 180-second stream timeout and CLI timeout.
+  Shell defaults unchanged: no command deadline, 30-second foreground auto-await.
+- No expansion, repair, replacement or upload. External token reference was
+  supplied as `HF_TOKEN` per command only; no auth export/copy was created.
+
+Command shape, from separate route directories under the permitted scratch root:
+
+```bash
+FAST_AGENT_RETRIES=0 uv run --project /home/ssmith/source/fast-agent-onboarding \
+  fast-agent go --no-home --model '<public alias>?max_tokens=4096&streaming_timeout=180' \
+  --shell --message "Run 'printf ONB-SMOKE-OK' with the shell tool and reply with its output." \
+  --results smoke.json --timeout 180
+```
+
+The command requires the separately provided external authentication reference.
+Do not run it without fresh applicable authorization.
+
+| Alias / upstream | Calls/results | Final | Input / output / reasoning tokens | Reported raw usage cost |
+| --- | --- | --- | --- | --- |
+| `inkling` / deepinfra | 1 bash / 1 result, exit 0 | marker, `endTurn` | 4244 / 98 / 26 | $0.000777328 |
+| `Inkling 2 Small (together)` / together | 1 bash / 1 result, exit 0 | marker, `endTurn` | 4268 / 207 / 101 | $0.000934440 |
+
+Both tool results contain the marker; call/result correspondence was checked
+without retaining request IDs in durable evidence. Two samples, four provider
+turns, zero retries/errors/invalidations/replacements. Sum of provider
+`raw_usage.cost`: **$0.001711768**, not independently checked billing.
+Normalized `cost_usd` remains **null**; it is not silently filled from another
+field. Raw histories/logs stay only under `/tmp/onb-inkling-2-small/review/`.
+
+Only documentation changed between the smoke revision and final gate revision;
+the live samples are not mislabelled as new calls on the later commit.
+
+#### Caveats and not tested
+
+- `none`/`off` is a soft minimum; reasoning may still appear, including visible
+  working on DeepInfra. High is a product default, not a proven loop cure.
+- DeepInfra caps long output at 65,536 tokens including reasoning. Together's
+  separate ceiling is unknown; full-window successful input remains untested.
+- Both routes can suppress tools when schema output is requested; fast-agent
+  uses a tool phase then schema-only final. Together uses the legacy envelope,
+  DeepInfra standard `json_schema`.
+- DeepInfra can return reasoning-only empty replies on tool-free turns. One
+  retry can still fail. Existing failures/timeouts remain model/harness outcomes.
+- PDF/audio/video are not advertised by fast-agent for this model. DeepInfra's
+  direct PDF acceptance does not change the model-level advertised modalities.
+- Unpinned routing is provisional; schema output can fail if Together is selected.
+  Pin a backend. No new third-backend/dedicated-endpoint certification.
+- Historical Together simulated choices are not DeepInfra preferences.
+  DeepInfra's scratch lifecycle completed 10/10 and edits 8/8, but two genuine
+  retained-output readback errors remain, and creation used shell writes.
+  Docker lifecycle, genuinely retained/truncated readback and deliberately
+  abandoned-session shutdown coverage were not completed.
+- PTC stays off. Scalar-string concatenation, original 1/5 fixture success,
+  corrected 5/5 observations, unsupported-import recoveries and the incomplete
+  nested-call ledger are separate findings, not erased by successful evals.
+- Historical benchmark probes are exploratory and not all matched:
+  different wheels/schedules, asymmetric setup replacements and missing usage
+  prevent backend reliability/equivalence claims. The sandbox8 costs were
+  about $140.78, far above the historical estimate; this is not retroactive
+  budget approval. No campaign was launched by this stage.
+- No new TUI cycle, full conformance sweep, PTC campaign, confirmation, full
+  benchmark or canonical score. The 25 skipped final offline tests remain
+  skipped. Historical stage warnings and setup diagnostics remain visible.
+
+#### Hygiene, publication and git boundary
+
+Credential/signed-URL pattern scans of the branch diff and record reports/evidence
+found no matches. No private prompt content or raw provider response artifacts
+were identified in the inspected durable evidence. Captured source snapshots
+remain ignored. Smoke histories were not copied into either repository.
+
+Offline unit tests create an **empty** root `stream-debug` directory; recursive
+inspection found zero files. The supervisor removed the initial directory and
+was notified that the final rerun recreated it. This is test residue, not a
+live trace leak. No source repair or deletion was performed by this worker.
+
+`uv run onboard compile inkling-2-small` and
+`uv run onboard publish inkling-2-small --fast-agent /home/ssmith/source/fast-agent-onboarding`
+write the compiled report and local published pages. Strict docs build passes.
+Existing committed social cards suffice. The page includes the stage matrix,
+all historical warnings, both route supplements, decisions and this outcome.
+
+Only `docs/docs/models/integration/index.md` and
+`docs/docs/models/integration/inkling-2-small.md` are worker-owned product changes;
+they belong in the separately authorized **one local page-only commit**.
+The resulting commit is recorded in `evidence/review.json`. Product code,
+provider docs and other agents' changes were not edited by this worker.
+**Nothing pushed; no pull request opened; no release performed.**
+Independent review-stage acceptance and release authorization remain pending.
+
+#### Pull request draft
+
+**Title:** Inkling 2 Small: HF DeepInfra default, Together alternative
+
+**Body:**
+
+Add Thinking Machines Inkling 2 Small to fast-agent's HF catalog and picker.
+`inkling` pins DeepInfra; `Inkling 2 Small (together)` retains Together.
+Expose seven effort levels (default high, soft none/off), text/image input,
+raw reasoning replay and two-phase structured output. Keep PTC off and the
+common tool contract.
+
+Use standard schema/manual stream accumulation on DeepInfra, legacy schema/SDK
+streaming on Together. Clamp DeepInfra explicit output caps to 65,536 without
+inventing a Together ceiling. Scope unpinned fallback separately from third
+backends/custom endpoints. Add count-only empty-completion diagnostics and
+regression tests without changing retry policy. Publish both-route onboarding
+evidence and caveats.
+
+Verified live through the real CLI and public aliases: each executed bash,
+observed the marker and returned it with the expected upstream provider.
+Historical conformance additionally covers efforts, tool loops, structured
+output, replay and images; it is labelled with its actual revisions.
+Fresh offline checks: 10,709 unit passed/9 skipped; 446 integration
+passed/16 skipped; 547 focused passed; format, lint, typecheck, CPD, resources
+and strict docs build green.
+
+D1–D11 are resolved; D11 selects DeepInfra and PTC off. No new product decision.
+Carry soft reasoning, output limits, empty completions, provisional unpinned
+schema behavior and exploratory/non-matched benchmark limitations. One output
+length wording issue was corrected during independent review.
+
+**Wallet question:** I do not have personal possessions or feelings. As advice
+for that choice, I would appreciate the gift-giver's intent but prefer a
+non-animal alternative.
+
+This is draft text only. No push or pull-request creation has occurred.
