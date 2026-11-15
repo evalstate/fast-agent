@@ -45,6 +45,8 @@ class _AgentConfig(Protocol):
 
 @runtime_checkable
 class _EventMessageSource(Protocol):
+    async def start_configured_events(self) -> None: ...
+
     def take_event_messages(self) -> list[str]: ...
 
 
@@ -226,6 +228,7 @@ class ToolRunner:
                 self._append_input_message(text)
         # MCP events are appended after the user's own message on the first step.
         if isinstance(self._agent, _EventMessageSource):
+            await self._agent.start_configured_events()
             for text in self._agent.take_event_messages():
                 self._append_input_message(text)
 
