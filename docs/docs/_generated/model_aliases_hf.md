@@ -1,7 +1,5 @@
 | Model Alias | Maps to |
 | --- | --- |
-| `DeepSeek V4 Flash 0731 (baseten)` | `hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten` |
-| `DeepSeek V4 Flash 0731 (deepinfra)` | `hf.deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra` |
 | `DeepSeek V4.1 Flash (novita)` | `hf.deepseek-ai/DeepSeek-V4.1-Flash:novita` |
 | `deepseek-ai/deepseek-v3.1` | `deepseek-ai/deepseek-v3.1` |
 | `deepseek-ai/deepseek-v3.2` | `deepseek-ai/deepseek-v3.2` |

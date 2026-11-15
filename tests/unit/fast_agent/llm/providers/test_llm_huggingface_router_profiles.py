@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 from mcp import Tool
-from mcp.types import CallToolResult, TextContent
+from mcp.types import CallToolResult, ImageContent, TextContent
 from openai.types.chat import ChatCompletionChunk
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -50,43 +50,18 @@ def _request_with_extra_body(model: str) -> dict[str, object]:
 
 
 @pytest.mark.parametrize(
-    ("alias", "wire_model", "max_tokens"),
-    (
-        (
-            "DeepSeek V4 Flash 0731 (baseten)",
-            "deepseek-ai/DeepSeek-V4-Flash-0731:baseten",
-            384_000,
-        ),
-        (
-            "DeepSeek V4 Flash 0731 (deepinfra)",
-            "deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra",
-            131_072,
-        ),
-    ),
+    ("backend", "max_tokens"),
+    (("baseten", 384_000), ("deepinfra", 131_072)),
 )
-def test_deepseek_picker_aliases_apply_route_profiles(
-    alias: str,
-    wire_model: str,
-    max_tokens: int,
+@pytest.mark.parametrize(("query", "effort"), (("", "max"), ("?reasoning=none", "none")))
+def test_deepseek_0731_routes_by_model_id_apply_route_profiles(
+    backend: str, max_tokens: int, query: str, effort: str
 ) -> None:
-    request = _factory_request(alias)
+    request = _factory_request(f"hf.deepseek-ai/DeepSeek-V4-Flash-0731:{backend}{query}")
 
-    assert request["model"] == wire_model
+    assert request["model"] == f"deepseek-ai/DeepSeek-V4-Flash-0731:{backend}"
     assert request["max_tokens"] == max_tokens
-    assert request["reasoning_effort"] == "max"
-
-
-@pytest.mark.parametrize(
-    "alias",
-    (
-        "DeepSeek V4 Flash 0731 (baseten)",
-        "DeepSeek V4 Flash 0731 (deepinfra)",
-    ),
-)
-def test_deepseek_picker_aliases_apply_reasoning_override(alias: str) -> None:
-    request = _factory_request(f"{alias}?reasoning=none")
-
-    assert request["reasoning_effort"] == "none"
+    assert request["reasoning_effort"] == effort
 
 
 @pytest.mark.parametrize(
@@ -1013,21 +988,25 @@ def test_deepseek_f1017_novita_explicit_output_override() -> None:
 
 
 @pytest.mark.parametrize(
-    ("alias", "deferred"),
+    ("model", "deferred", "max_tokens"),
     (
-        ("deepseek-hf", True),
-        ("deepseek-hf?structured_tools=always", False),
-        ("deepseek41-hf", True),
-        ("deepseek-v41-hf", True),
-        ("deepseek41-hf?structured_tools=always", False),
+        ("deepseek-hf", True, None),
+        ("deepseek-hf?structured_tools=always", False, None),
+        ("deepseek41-hf", True, None),
+        ("deepseek-v41-hf", True, None),
+        ("deepseek41-hf?structured_tools=always", False, None),
+        # The unlisted 0731 checkpoint shares the defer default; route limits still apply.
+        ("hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten", True, 384_000),
+        ("hf.deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra", True, 131_072),
+        ("hf.deepseek-ai/DeepSeek-V4-Flash-0731:scaleway?structured_tools=always", False, 32_768),
     ),
 )
 @pytest.mark.parametrize("after_tool", (False, True))
-def test_deepseek_v41_flash_hf_structured_request_phases(
-    alias: str, deferred: bool, after_tool: bool
+def test_deepseek_flash_hf_structured_request_phases(
+    model: str, deferred: bool, max_tokens: int | None, after_tool: bool
 ) -> None:
     agent = LlmAgent(AgentConfig(name="router-profile-test"))
-    llm = ModelFactory.create_factory(alias)(agent=agent)
+    llm = ModelFactory.create_factory(model)(agent=agent)
     assert isinstance(llm, HuggingFaceLLM)
     params = llm.default_request_params.model_copy(update={"structured_schema": _INKLING_SCHEMA})
     tools = [
@@ -1079,7 +1058,48 @@ def test_deepseek_v41_flash_hf_structured_request_phases(
         assert request["tools"][0]["function"]["name"] == "lookup"
     assert params.structured_schema == _INKLING_SCHEMA
     assert params.response_format is None
-    assert "max_tokens" not in request
+    assert request.get("max_tokens") == max_tokens
+    assert request["reasoning_effort"] == "max"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model", "image_sent"),
+    (
+        ("hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten", False),
+        ("hf.deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra", False),
+        ("deepseek-hf", True),
+    ),
+)
+async def test_deepseek_flash_hf_image_input_reaches_wire_only_from_v41(
+    model: str, image_sent: bool
+) -> None:
+    agent = LlmAgent(AgentConfig(name="router-profile-test"))
+    llm = await agent.attach_llm(ModelFactory.create_factory(model))
+    assert isinstance(llm, HuggingFaceLLM)
+    message = PromptMessageExtended(
+        role="user",
+        content=[
+            TextContent(type="text", text="describe"),
+            ImageContent(type="image", data="iVBORw0KGgo=", mime_type="image/png"),
+        ],
+    )
+
+    sanitized, removed = agent._sanitize_messages_for_llm([message])
+    request = llm._openai_completion_request(
+        llm._convert_extended_messages_to_provider(sanitized),
+        llm.default_request_params,
+        None,
+    ).arguments
+    [user_message] = [m for m in request["messages"] if m["role"] == "user"]
+    content = user_message["content"]
+    image_on_wire = isinstance(content, list) and any(
+        part["type"] == "image_url" for part in content
+    )
+
+    assert image_on_wire is image_sent
+    assert (removed is None) is image_sent
+    assert request["reasoning_effort"] == "max"
 
 
 @pytest.mark.asyncio

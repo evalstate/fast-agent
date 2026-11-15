@@ -232,14 +232,6 @@ class ModelSelectionCatalog:
                 fast=True,
             ),
             _builtin_entry(
-                "DeepSeek V4 Flash 0731 (baseten)",
-                display_label="DeepSeek V4 Flash 0731 (baseten)",
-            ),
-            _builtin_entry(
-                "DeepSeek V4 Flash 0731 (deepinfra)",
-                display_label="DeepSeek V4 Flash 0731 (deepinfra)",
-            ),
-            _builtin_entry(
                 "deepseek-hf",
                 display_label="DeepSeek V4.1 Flash (novita)",
                 description="1017 checkpoint",

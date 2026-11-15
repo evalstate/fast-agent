@@ -238,6 +238,24 @@ payload reliably. This policy performs one tool-gathering phase followed by a
 schema-only final phase; workflows that require sequential dependent tool
 rounds should gather those results before requesting the structured final.
 
+## Gemma 4 31B
+
+`hf.google/gemma-4-31B-it` (with or without a backend suffix) exposes reasoning
+as an on/off toggle, sent as `chat_template_kwargs.enable_thinking`. Effort
+levels such as `reasoning=medium` have no wire representation on these routes.
+
+Fast-agent now sends `enable_thinking: false` explicitly by default. Earlier
+versions sent no thinking control unless `reasoning=off` was selected, so the
+backend's own default applied. This is a wire change: on a backend whose
+template or deployment previously enabled thinking by default, requests now
+disable it. Fast-agent has not verified each backend's default, so the new
+default should not be read as equivalent to the provider default. Use
+`?reasoning=on` to request thinking:
+
+```bash
+fast-agent --model "hf.google/gemma-4-31B-it?reasoning=on"
+```
+
 ## Muse Glimmer via Together
 
 `glimmer` routes [Muse Glimmer 30B](https://huggingface.co/meta-models/Muse-Glimmer-30B)
@@ -403,11 +421,19 @@ fast-agent --model "hf.moonshotai/Kimi-K2.5?instant=off" # thinking enabled
 
 ## DeepSeek V4 Flash 0731 route limits
 
-`hf.deepseek-ai/DeepSeek-V4-Flash-0731:<provider>` uses the model's default
-reasoning profile unless a backend-specific profile applies. Baseten caps output
-at 384,000 tokens; Scaleway caps output at 32,768 tokens. Fast-agent applies these
-route limits to defaults and clamps larger explicit `max_tokens` values before
-sending a request. Smaller explicit budgets are preserved.
+The earlier `deepseek-ai/DeepSeek-V4-Flash-0731` checkpoint is no longer listed
+in the model picker or as an alias, but it can still be selected by model ID,
+for example `hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten`. It uses the same
+model profile as [DeepSeek V4.1 Flash](#deepseek-v41-flash): reasoning defaults
+to `max` (top-level `reasoning_effort`, `reasoning=off` sends `none`), reasoning
+history is replayed as `reasoning_content`, and structured output with tools
+uses the two-phase `defer` policy. Unlike V4.1, the 0731 checkpoint is text-only;
+image attachments are removed before the request is sent.
+
+Backend-specific limits still apply. Baseten caps output at 384,000 tokens;
+Scaleway caps output at 32,768 tokens. Fast-agent applies these route limits to
+defaults and clamps larger explicit `max_tokens` values before sending a request.
+Smaller explicit budgets are preserved.
 
 Scaleway exposes a 262,144-token context window; context display and automatic
 compaction use this route-specific window, not the model-wide 1M window.
@@ -418,7 +444,7 @@ tokens because omission still reserves 384,000 tokens on that backend. Explicit
 The V4.1 Flash Novita route also omits the default output limit while preserving
 explicit overrides. Other routes retain the model-wide output budget.
 
-These limits apply to raw model strings, picker aliases, and routes selected with
+These limits apply to raw model strings and routes selected with
 `hf.default_provider`; no `?max_tokens=...` workaround is needed for Baseten.
 
 ## Inline images and the request size limit

@@ -119,8 +119,6 @@ BUILTIN_MODEL_ALIASES: Final[dict[str, str]] = {
     "deepseek41-hf": "hf.deepseek-ai/DeepSeek-V4.1-Flash:novita",
     "deepseek-v41-hf": "hf.deepseek-ai/DeepSeek-V4.1-Flash:novita",
     "DeepSeek V4.1 Flash (novita)": "hf.deepseek-ai/DeepSeek-V4.1-Flash:novita",
-    "DeepSeek V4 Flash 0731 (baseten)": "hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten",
-    "DeepSeek V4 Flash 0731 (deepinfra)": "hf.deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra",
     "kimi26": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
     "kimi26instant": ("hf.moonshotai/Kimi-K2.6:novita?temperature=0.6&top_p=0.95&reasoning=off"),
     "kimi-2.6": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",

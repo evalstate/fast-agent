@@ -67,10 +67,10 @@
 | `moonshotai/kimi-k2` | `groq` | Text | `json` (schema) | — | — | — |
 | `qwen3-32b` | `groq` | Text | `json` (object) | — | — | — |
 | `qwen3.6-27b` | `groq` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen3.6-27b?reasoning=off` | — | — |
-| `DeepSeek V4 Flash 0731 (baseten)` | `hf` | Text | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `DeepSeek V4 Flash 0731 (baseten)?reasoning=max` | — | — |
 | `Kimi K3 (together)` | `hf` | Text, Vision | `json` (schema) | effort: `low`, `high`, `max`<br>Example: `Kimi K3 (together)?reasoning=max` | — | — |
 | `deepseek-ai/deepseek-v3.1` | `hf` | Text | `json` (schema) | — | — | — |
 | `deepseek-ai/deepseek-v3.2` | `hf` | Text | `json` (schema) | — | — | — |
+| `deepseek-ai/deepseek-v4-flash-0731` | `hf` | Text | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseek-ai/deepseek-v4-flash-0731?reasoning=max` | — | — |
 | `deepseek-ai/deepseek-v4-pro` | `hf` | Text | `json` (schema) | — | — | — |
 | `deepseek-hf` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseek-hf?reasoning=max` | — | — |
 | `deepseek41-hf` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseek41-hf?reasoning=max` | — | — |

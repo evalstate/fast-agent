@@ -976,18 +976,12 @@ class ModelDatabase:
         shell_tool_name="Shell",
         shell_edit_tool="write_text_file",
     )
-    DEEPSEEK_V4_FLASH_HF = DEEPSEEK_V4_FLASH.model_copy(
-        update={
-            "reasoning": "reasoning_content",
-            "default_provider": Provider.HUGGINGFACE,
-        }
-    )
     DEEPSEEK_V4_PRO = DEEPSEEK_V4_FLASH
     DEEPSEEK_V41_FLASH = DEEPSEEK_V4_FLASH.model_copy(
         update={"tokenizes": [*OPENAI_VISION, "image/gif"]}
     )
 
-    # Shared by both HF checkpoints (10 September and 1017). Combined schema+tools
+    # Shared by the HF V4.1 Flash checkpoints (10 September and 1017). Combined schema+tools
     # requests intermittently failed validation on Novita, so structured output defers.
     DEEPSEEK_V41_FLASH_HF = DEEPSEEK_V41_FLASH.model_copy(
         update={
@@ -996,6 +990,8 @@ class ModelDatabase:
             "structured_tool_policy": "defer",
         }
     )
+    # The unlisted 0731 checkpoint shares the HF block; vision arrived with V4.1.
+    DEEPSEEK_V4_FLASH_HF = DEEPSEEK_V41_FLASH_HF.model_copy(update={"tokenizes": TEXT_ONLY})
 
     DEEPSEEK_V_32 = ModelParameters(
         context_window=65536,
