@@ -522,10 +522,10 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
-    # Inkling 2: "none" is a soft minimum; reasoning can still appear on long prompts.
+    # Inkling 2: reasoning is mandatory on the HF OpenRouter routes.
     INKLING_2_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
-        allowed_efforts=["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+        allowed_efforts=["minimal", "low", "medium", "high", "xhigh", "max"],
         default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
@@ -992,6 +992,18 @@ class ModelDatabase:
     )
     # The unlisted 0731 checkpoint shares the HF block; vision arrived with V4.1.
     DEEPSEEK_V4_FLASH_HF = DEEPSEEK_V41_FLASH_HF.model_copy(update={"tokenizes": TEXT_ONLY})
+    # The 10 September checkpoint cannot disable reasoning on HF. Keep 1017 and
+    # the unprobed 0731 checkpoint's specs separate. Efforts are accepted, but
+    # showed no measurable effect in the 2026-11-15 probes.
+    DEEPSEEK_V41_FLASH_SEPT_HF = DEEPSEEK_V41_FLASH_HF.model_copy(
+        update={
+            "reasoning_effort_spec": replace(
+                DEEPSEEK_REASONING_EFFORT_SPEC,
+                allowed_efforts=["low", "high", "max"],
+                allow_toggle_disable=False,
+            )
+        }
+    )
 
     DEEPSEEK_V_32 = ModelParameters(
         context_window=65536,
@@ -1303,7 +1315,6 @@ class ModelDatabase:
         json_mode="schema",
         structured_tool_policy="no_tools",
         reasoning="reasoning_content",
-        reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
         stream_mode="manual",
     )
     MINIMAX_27 = ModelParameters(
@@ -1566,7 +1577,7 @@ class ModelDatabase:
         "deepseek-v4-flash-vision-exp": _with_fast(DEEPSEEK_V41_FLASH),
         "deepseek-v4-pro": DEEPSEEK_V4_PRO,
         "deepseek-ai/deepseek-v4-flash-0731": _with_fast(DEEPSEEK_V4_FLASH_HF),
-        "deepseek-ai/deepseek-v4.1-flash": _with_fast(DEEPSEEK_V41_FLASH_HF),
+        "deepseek-ai/deepseek-v4.1-flash": _with_fast(DEEPSEEK_V41_FLASH_SEPT_HF),
         "deepseek-ai/deepseek-v4.1-flash-1017": _with_fast(DEEPSEEK_V41_FLASH_HF),
         # Z.ai models
         "glm-5.2": GLM_5_2.model_copy(update={"default_provider": Provider.ZAI}),

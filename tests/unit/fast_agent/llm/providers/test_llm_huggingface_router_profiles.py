@@ -37,6 +37,7 @@ def _request_with_extra_body(model: str) -> dict[str, object]:
                 "extra_body": {
                     "preserved": True,
                     "thinking": {"legacy": True},
+                    "disable_reasoning": True,
                     "chat_template_kwargs": {"legacy": True},
                 }
             }
@@ -70,9 +71,11 @@ def test_deepseek_0731_routes_by_model_id_apply_route_profiles(
         ("glimmer", "high"),
         ("glimmer?reasoning=low", "low"),
         ("glimmer?reasoning=xhigh", "xhigh"),
+        ("glimmer?reasoning=medium", "medium"),
+        ("glimmer?reasoning=high", "high"),
     ),
 )
-def test_muse_glimmer_together_applies_chat_template_contract(
+def test_muse_glimmer_together_applies_top_level_effort(
     model: str,
     reasoning_strength: str,
 ) -> None:
@@ -83,14 +86,8 @@ def test_muse_glimmer_together_applies_chat_template_contract(
     assert request["temperature"] == 1.0
     assert request["top_p"] == 0.95
     assert "max_tokens" not in request
-    assert "reasoning_effort" not in request
-    assert isinstance(extra_body, dict)
-    assert extra_body == {
-        "top_k": 64,
-        "chat_template_kwargs": {
-            "reasoning_strength": reasoning_strength,
-        },
-    }
+    assert request["reasoning_effort"] == reasoning_strength
+    assert extra_body == {"top_k": 64}
 
 
 def test_muse_glimmer_together_uses_effective_prompt_context_window() -> None:
@@ -152,8 +149,7 @@ def test_muse_glimmer_other_backend_omits_default_max_tokens() -> None:
     (
         ("Inkling 2 Small (together)", "high"),
         ("Inkling 2 Small (together)?reasoning=low", "low"),
-        ("Inkling 2 Small (together)?reasoning=none", "none"),
-        ("Inkling 2 Small (together)?reasoning=off", "none"),
+        ("Inkling 2 Small (together)?reasoning=minimal", "minimal"),
         ("hf.thinkingmachines/Inkling-2-Small:together?reasoning=max", "max"),
         ("hf.thinkingmachines/inkling-2-small:together", "high"),
     ),
@@ -199,7 +195,7 @@ def test_inkling_together_uses_legacy_schema_envelope() -> None:
     ("model", "wire_model", "reasoning_effort"),
     (
         ("inkling", "thinkingmachines/Inkling-2-Small:deepinfra", "high"),
-        ("inkling?reasoning=off", "thinkingmachines/Inkling-2-Small:deepinfra", "none"),
+        ("inkling?reasoning=minimal", "thinkingmachines/Inkling-2-Small:deepinfra", "minimal"),
         (
             "hf.thinkingmachines/Inkling-2-Small:deepinfra",
             "thinkingmachines/Inkling-2-Small:deepinfra",
@@ -211,9 +207,9 @@ def test_inkling_together_uses_legacy_schema_envelope() -> None:
             "low",
         ),
         (
-            "hf.thinkingmachines/Inkling-2-Small:deepinfra?reasoning=off",
+            "hf.thinkingmachines/Inkling-2-Small:deepinfra?reasoning=minimal",
             "thinkingmachines/Inkling-2-Small:deepinfra",
-            "none",
+            "minimal",
         ),
         (
             "hf.thinkingmachines/Inkling-2-Small:deepinfra?reasoning=max",
@@ -222,9 +218,9 @@ def test_inkling_together_uses_legacy_schema_envelope() -> None:
         ),
         ("hf.thinkingmachines/Inkling-2-Small", "thinkingmachines/Inkling-2-Small", "high"),
         (
-            "hf.thinkingmachines/Inkling-2-Small?reasoning=none",
+            "hf.thinkingmachines/Inkling-2-Small?reasoning=minimal",
             "thinkingmachines/Inkling-2-Small",
-            "none",
+            "minimal",
         ),
     ),
 )
@@ -844,15 +840,15 @@ def test_deepseek_custom_endpoint_uses_nested_hf_base_url_environment(
     (
         (
             "deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra",
-            {"preserved", "thinking", "chat_template_kwargs"},
+            {"preserved", "thinking", "chat_template_kwargs", "disable_reasoning"},
         ),
         (
             "moonshotai/Kimi-K3:together",
-            {"preserved"},
+            {"preserved", "disable_reasoning"},
         ),
         (
             "zai-org/GLM-5.2:deepinfra",
-            {"preserved", "chat_template_kwargs"},
+            {"preserved", "chat_template_kwargs", "disable_reasoning"},
         ),
     ),
 )
@@ -881,7 +877,7 @@ def test_glm_53_routes_fall_back_to_model_profile(
 
     assert request["model"] == wire_model
     assert request["reasoning_effort"] == effort
-    assert request["extra_body"] == {"thinking": {"type": "enabled", "clear_thinking": False}}
+    assert "extra_body" not in request
 
 
 @pytest.mark.parametrize("model", ("GLM-5.3", "GLM-5.3-Flash"))
@@ -938,8 +934,8 @@ def test_configured_baseten_backend_uses_route_output_limit() -> None:
     (
         ("", "", "max"),
         (":novita", "?reasoning=max", "max"),
-        (":fireworks-ai", "?reasoning=off", "none"),
-        (":other-backend", "?reasoning=none", "none"),
+        (":fireworks-ai", "?reasoning=off", "max"),
+        (":other-backend", "?reasoning=none", "max"),
         ("", "?reasoning=low", "low"),
         (":novita", "?reasoning=high", "high"),
     ),
@@ -1176,10 +1172,10 @@ async def test_deepseek_f1017_novita_image_stream_cumulative_usage() -> None:
     "alias", ("deepseek41-hf", "deepseek-v41-hf", "DeepSeek V4.1 Flash (novita)")
 )
 def test_deepseek_v41_hf_alias_request(alias: str) -> None:
-    request = _factory_request(f"{alias}?reasoning=off&max_tokens=128")
+    request = _factory_request(f"{alias}?reasoning=low&max_tokens=128")
 
     assert request["model"] == "deepseek-ai/DeepSeek-V4.1-Flash:novita"
-    assert request["reasoning_effort"] == "none"
+    assert request["reasoning_effort"] == "low"
     assert request["max_tokens"] == 128
 
 
@@ -1253,3 +1249,124 @@ def test_deepseek_route_defaults_preserve_per_call_output_override(model: str) -
     params = llm.get_request_params(RequestParams(max_tokens=393216))
     request = llm._prepare_api_request([{"role": "user", "content": "hello"}], None, params)
     assert request["max_tokens"] == 393216
+
+
+@pytest.mark.parametrize("model", ("kimi25", "kimi26", "glm5", "qwen35", "qwen36"))
+@pytest.mark.parametrize("setting", (None, "on", "off"))
+def test_routed_toggles_use_only_top_level_effort(model: str, setting: str | None) -> None:
+    request = _factory_request(model + (f"?reasoning={setting}" if setting else ""))
+    assert request.get("reasoning_effort") == ("none" if setting == "off" else None)
+    extra = request.get("extra_body", {})
+    assert isinstance(extra, dict)
+    assert not {"thinking", "chat_template_kwargs", "disable_reasoning"} & (
+        request.keys() | extra.keys()
+    )
+
+
+@pytest.mark.parametrize(
+    "model",
+    (
+        "glm52",
+        "glimmer",
+        "inkling",
+        "Inkling 2 Small (together)",
+        "deepseek41-hf",
+        "hf.zai-org/GLM-5.3:zai-org",
+        "hf.zai-org/GLM-5.3-Flash:zai-org",
+    ),
+)
+def test_routed_effort_ladders_reach_wire_without_backend_controls(model: str) -> None:
+    llm = ModelFactory.create_factory(model)(agent=LlmAgent(AgentConfig(name="effort-contract")))
+    spec = llm.reasoning_effort_spec
+    assert spec is not None and spec.allowed_efforts and spec.default
+    for setting in (None, *spec.allowed_efforts):
+        request = _factory_request(model + (f"?reasoning={setting}" if setting else ""))
+        expected = setting or spec.default.value
+        if model == "glm52" and expected == "minimal":
+            expected = "none"
+        assert request["reasoning_effort"] == expected
+        extra = request.get("extra_body", {})
+        assert isinstance(extra, dict)
+        assert not {"thinking", "chat_template_kwargs", "disable_reasoning"} & (
+            request.keys() | extra.keys()
+        )
+
+
+@pytest.mark.parametrize("setting", ("none", "minimal", "off"))
+def test_glm52_disabled_efforts_use_none(setting: str) -> None:
+    request = _factory_request(f"glm52?reasoning={setting}")
+    assert request["reasoning_effort"] == "none"
+    assert "extra_body" not in request
+
+
+@pytest.mark.parametrize("model", ("inkling", "Inkling 2 Small (together)", "deepseek41-hf"))
+@pytest.mark.parametrize("setting", ("none", "off"))
+def test_mandatory_reasoning_rejects_disable_settings(model: str, setting: str) -> None:
+    from fast_agent.llm.reasoning_effort import parse_reasoning_setting
+
+    llm = ModelFactory.create_factory(model)(agent=LlmAgent(AgentConfig(name="mandatory")))
+    spec = llm.reasoning_effort_spec
+    assert spec is not None and "none" not in (spec.allowed_efforts or [])
+    assert not spec.allow_toggle_disable
+    with pytest.raises(ValueError):
+        llm.set_reasoning_effort(parse_reasoning_setting(setting))
+    # Model query validation follows the existing warn-and-use-default convention.
+    request = _factory_request(f"{model}?reasoning={setting}")
+    assert spec.default is not None
+    assert request["reasoning_effort"] == spec.default.value
+
+
+def test_minimax_direct_route_has_no_reasoning_control() -> None:
+    llm = ModelFactory.create_factory("minimax2.5")(agent=LlmAgent(AgentConfig(name="direct")))
+    assert llm.reasoning_effort_spec is None
+    for query in ("", "?reasoning=off", "?reasoning=on"):
+        request = _factory_request(f"minimax2.5{query}")
+        assert "reasoning_effort" not in request
+        extra = request.get("extra_body", {})
+        assert isinstance(extra, dict)
+        assert not {"thinking", "chat_template_kwargs", "disable_reasoning"} & extra.keys()
+
+
+@pytest.mark.parametrize(
+    "model",
+    (
+        "moonshotai/Kimi-K2.5:novita",
+        "moonshotai/Kimi-K2.6:novita",
+        "zai-org/GLM-5:novita",
+        "zai-org/GLM-5.2:zai-org",
+        "Qwen/Qwen3.5-397B-A17B:novita",
+        "Qwen/Qwen3.6-35B-A3B:deepinfra",
+        "meta-models/Muse-Glimmer-30B:together",
+    ),
+)
+def test_routed_profiles_strip_legacy_controls_from_metadata(model: str) -> None:
+    request = _request_with_extra_body(model)
+    assert request["extra_body"] == {"preserved": True}
+
+
+@pytest.mark.parametrize(
+    "model, extra_body",
+    (
+        ("moonshotai/Kimi-K2.5", {"thinking": {"type": "disabled"}}),
+        ("moonshotai/Kimi-K2.6", {"chat_template_kwargs": {"thinking": False}}),
+        ("Qwen/Qwen3.5-397B-A17B", {"chat_template_kwargs": {"enable_thinking": False}}),
+        ("Qwen/Qwen3.6-35B-A3B", {"chat_template_kwargs": {"enable_thinking": False}}),
+        ("zai-org/GLM-5", {"disable_reasoning": True}),
+        ("zai-org/GLM-5.2", {"thinking": {"type": "disabled"}}),
+    ),
+)
+def test_dedicated_endpoints_keep_direct_reasoning_controls(
+    model: str, extra_body: dict[str, object]
+) -> None:
+    llm = HuggingFaceLLM(
+        context=Context(
+            config=Settings(hf=HuggingFaceSettings(base_url="https://endpoint.test/v1"))
+        ),
+        model=model,
+        reasoning_effort=False,
+    )
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}], None, llm.default_request_params
+    )
+    assert request["extra_body"] == extra_body
+    assert "reasoning_effort" not in request

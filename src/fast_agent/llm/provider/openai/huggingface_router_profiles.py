@@ -51,7 +51,7 @@ def _set_chat_template_kwarg(
 
 @dataclass(frozen=True, slots=True)
 class TopLevelReasoningEffort:
-    default_effort: str
+    default_effort: str | None
     allowed_efforts: frozenset[str] | None = None
     disabled_efforts: frozenset[str] = frozenset()
     effort_map: Mapping[str, str] | None = None
@@ -92,9 +92,12 @@ class TopLevelReasoningEffort:
 
         if disabled:
             effort = "none"
-        elif self.effort_map:
+        elif self.effort_map and effort is not None:
             effort = self.effort_map.get(effort, effort)
-        arguments["reasoning_effort"] = effort
+        if effort is None:
+            arguments.pop("reasoning_effort", None)
+        else:
+            arguments["reasoning_effort"] = effort
 
         if self.chat_template_kwargs:
             extra_body = _extra_body(arguments)
@@ -184,31 +187,6 @@ class ChatTemplateReasoningToggle:
 
 
 @dataclass(frozen=True, slots=True)
-class ChatTemplateReasoningStrength:
-    default_strength: str
-
-    def apply(
-        self,
-        arguments: dict[str, Any],
-        *,
-        setting: ReasoningEffortSetting | None,
-        spec: ReasoningEffortSpec | None,
-    ) -> None:
-        effective = _effective_setting(setting, spec)
-        strength = self.default_strength
-        if (
-            effective is not None
-            and effective.kind == "effort"
-            and isinstance(effective.value, str)
-        ):
-            strength = effective.value
-
-        extra_body = _extra_body(arguments)
-        _set_chat_template_kwarg(extra_body, "reasoning_strength", strength)
-        arguments["extra_body"] = extra_body
-
-
-@dataclass(frozen=True, slots=True)
 class GenericDisableReasoningToggle:
     def apply(
         self,
@@ -257,6 +235,14 @@ _QWEN_38 = "qwen/qwen3.8-27b"
 _INKLING_2_SMALL = "thinkingmachines/inkling-2-small"
 _MUSE_GLIMMER_PROMPT_CONTEXT_WINDOW = 131_072 - 32_768
 
+# The HF router now forwards these routes through OpenRouter (2026-11-15).
+_ROUTED_CLEANUP = frozenset({"thinking", "chat_template_kwargs", "disable_reasoning"})
+_ROUTED_TOGGLE = TopLevelReasoningEffort(default_effort=None, cleanup_extra_body=_ROUTED_CLEANUP)
+_DEEPSEEK_V41_REASONING = TopLevelReasoningEffort(
+    default_effort="max",
+    allowed_efforts=frozenset({"low", "high", "max"}),
+    toggle_disable=False,
+)
 _DEEPSEEK_REASONING = TopLevelReasoningEffort(default_effort="max")
 # Both V4.1 Flash checkpoints on Novita: backend output default instead of max_tokens.
 _DEEPSEEK_NOVITA_PROFILE = HuggingFaceRouteProfile(
@@ -270,7 +256,7 @@ _KIMI_K3_REASONING = TopLevelReasoningEffort(
     cleanup_extra_body=frozenset({"thinking", "chat_template_kwargs"}),
 )
 # GLM-5.3 and Flash share the common low/high/max effort contract.
-# Together preserves reasoning via chat_template_kwargs, not Z.ai's thinking object.
+# Retain Together's clear_thinking until its multi-turn effect is established.
 _GLM_53_TOGETHER_REASONING = TopLevelReasoningEffort(
     default_effort="max",
     allowed_efforts=frozenset({"low", "high", "max"}),
@@ -285,19 +271,28 @@ _GLM_53_NOVITA_REASONING = TopLevelReasoningEffort(
     toggle_disable=False,
     cleanup_extra_body=frozenset({"thinking"}),
 )
-_GLM_52_REASONING = ThinkingWithReasoningEffort()
+_GLM_52_REASONING = TopLevelReasoningEffort(
+    default_effort="max",
+    disabled_efforts=frozenset({"none", "minimal"}),
+    cleanup_extra_body=_ROUTED_CLEANUP,
+)
 _GLM_52_DEEPINFRA_REASONING = TopLevelReasoningEffort(
     default_effort="max",
     disabled_efforts=frozenset({"none", "minimal"}),
     effort_map={"max": "xhigh"},
     cleanup_extra_body=frozenset({"thinking"}),
 )
-_MUSE_GLIMMER_REASONING = ChatTemplateReasoningStrength(default_strength="high")
-# No hard off on either backend: reasoning=off maps to "none" (soft minimum on Together;
-# DeepInfra may then write the working into visible content).
+_MUSE_GLIMMER_REASONING = TopLevelReasoningEffort(
+    default_effort="high",
+    allowed_efforts=frozenset({"low", "medium", "high", "xhigh"}),
+    toggle_disable=False,
+    cleanup_extra_body=_ROUTED_CLEANUP,
+)
+# OpenRouter requires reasoning on both Inkling routes; "none" is rejected.
 _INKLING_2_REASONING = TopLevelReasoningEffort(
     default_effort="high",
-    allowed_efforts=frozenset({"none", "minimal", "low", "medium", "high", "xhigh", "max"}),
+    allowed_efforts=frozenset({"minimal", "low", "medium", "high", "xhigh", "max"}),
+    toggle_disable=False,
 )
 _INKLING_2_PROFILE = HuggingFaceRouteProfile(
     reasoning=_INKLING_2_REASONING,
@@ -318,6 +313,28 @@ _QWEN_38_REASONING = TopLevelReasoningEffort(
 
 HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
     (
+        # Dedicated endpoints retain their direct-backend contracts.
+        *(
+            RouterProfileRule(
+                model=model,
+                backends=frozenset({HUGGINGFACE_CUSTOM_ENDPOINT_BACKEND}),
+                profile=HuggingFaceRouteProfile(reasoning=reasoning, preserve_raw_reasoning=raw),
+            )
+            for model, reasoning, raw in (
+                ("moonshotai/kimi-k2.5", ProviderDefaultReasoningToggle("thinking"), False),
+                (
+                    "moonshotai/kimi-k2.6",
+                    ProviderDefaultReasoningToggle("chat_template_thinking"),
+                    False,
+                ),
+                ("qwen/qwen3.5-397b-a17b", ChatTemplateReasoningToggle("enable_thinking"), False),
+                ("qwen/qwen3.6-35b-a3b", ChatTemplateReasoningToggle("enable_thinking"), False),
+                ("zai-org/glm-5", GenericDisableReasoningToggle(), False),
+                (_GLM_52, ThinkingWithReasoningEffort(), True),
+                ("zai-org/glm-5.3", ThinkingWithReasoningEffort(), True),
+                ("zai-org/glm-5.3-flash", ThinkingWithReasoningEffort(), True),
+            )
+        ),
         RouterProfileRule(
             model=_DEEPSEEK_V41_FLASH_1017,
             backends=frozenset({"novita"}),
@@ -359,7 +376,7 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
         RouterProfileRule(
             model=_DEEPSEEK_V41_FLASH,
             backends=frozenset({"novita"}),
-            profile=_DEEPSEEK_NOVITA_PROFILE,
+            profile=replace(_DEEPSEEK_NOVITA_PROFILE, reasoning=_DEEPSEEK_V41_REASONING),
         ),
         RouterProfileRule(
             model=_DEEPSEEK_V4_FLASH,
@@ -369,7 +386,7 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
         # V4.1's raw-weights numeric effort is not an API effort mapping.
         RouterProfileRule(
             model=_DEEPSEEK_V41_FLASH,
-            profile=HuggingFaceRouteProfile(reasoning=_DEEPSEEK_REASONING),
+            profile=HuggingFaceRouteProfile(reasoning=_DEEPSEEK_V41_REASONING),
         ),
         RouterProfileRule(
             model=_GLM_52,
@@ -378,7 +395,7 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
         ),
         RouterProfileRule(
             model=_GLM_52,
-            # Requests clear_thinking=False, so prior reasoning must replay verbatim.
+            # Preserve reasoning replay while changing the routed control field.
             profile=HuggingFaceRouteProfile(
                 reasoning=_GLM_52_REASONING, preserve_raw_reasoning=True
             ),
@@ -395,12 +412,12 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
                 ("novita", _GLM_53_NOVITA_REASONING),
             )
         ),
-        # Z.ai and unspecified/auto routes retain the existing thinking contract.
+        # Z.ai and auto routes use the same effort contract as Novita.
         *(
             RouterProfileRule(
                 model=model,
                 profile=HuggingFaceRouteProfile(
-                    reasoning=ThinkingWithReasoningEffort(), preserve_raw_reasoning=True
+                    reasoning=_GLM_53_NOVITA_REASONING, preserve_raw_reasoning=True
                 ),
             )
             for model in ("zai-org/glm-5.3", "zai-org/glm-5.3-flash")
@@ -461,27 +478,19 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
             backends=frozenset({None}),
             profile=_INKLING_2_DEEPINFRA_PROFILE,
         ),
-        RouterProfileRule(
-            model="moonshotai/kimi-k2.5",
-            profile=HuggingFaceRouteProfile(reasoning=ProviderDefaultReasoningToggle("thinking")),
-        ),
-        RouterProfileRule(
-            model="moonshotai/kimi-k2.6",
-            profile=HuggingFaceRouteProfile(
-                reasoning=ProviderDefaultReasoningToggle("chat_template_thinking")
-            ),
-        ),
-        RouterProfileRule(
-            model="qwen/qwen3.5-397b-a17b",
-            profile=HuggingFaceRouteProfile(
-                reasoning=ChatTemplateReasoningToggle("enable_thinking")
-            ),
-        ),
-        RouterProfileRule(
-            model="qwen/qwen3.6-35b-a3b",
-            profile=HuggingFaceRouteProfile(
-                reasoning=ChatTemplateReasoningToggle("enable_thinking")
-            ),
+        *(
+            RouterProfileRule(
+                model=model,
+                profile=HuggingFaceRouteProfile(reasoning=_ROUTED_TOGGLE),
+            )
+            for model in (
+                "moonshotai/kimi-k2.5",
+                "moonshotai/kimi-k2.6",
+                "zai-org/glm-5",
+                # Provisional: Qwen 3.5 was rate-limited; use the Qwen 3.6 contract.
+                "qwen/qwen3.5-397b-a17b",
+                "qwen/qwen3.6-35b-a3b",
+            )
         ),
         RouterProfileRule(
             model=_QWEN_38,

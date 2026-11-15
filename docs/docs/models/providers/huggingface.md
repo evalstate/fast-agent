@@ -39,6 +39,33 @@ See [Moonshot](moonshot.md) for the native route and model details.
 
 Curated aliases such as `kimi`, `deepseek-hf`, `glm`, and `qwen35` include provider choices and request defaults. Capabilities and supported parameters vary by backing provider; see the route-specific notes below.
 
+## Hugging Face routing update — 15 November 2026
+
+Most catalog routes now pass through OpenRouter, even with an explicit backend
+suffix. Backend-specific `thinking`, chat-template reasoning controls and
+`disable_reasoning` are silently ignored there; fast-agent uses top-level
+`reasoning_effort` instead. Kimi K2.5/K2.6, GLM 5, GLM 5.2 on Z.ai and
+Qwen 3.6 can again disable reasoning with `none`. Qwen 3.5 provisionally uses
+the same control as Qwen 3.6: upstream rate limits prevented the initial
+investigation, but a post-change smoke check confirmed off returns zero
+reasoning tokens and text. Kimi K2.6 off returns no reasoning text, but still
+reported one reasoning token in both post-change checks.
+
+Inkling 2 Small requires reasoning on both routes: its ladder now starts at
+`minimal` (default `high`), and `none` is rejected upstream. DeepSeek V4.1 Flash
+10 September (`deepseek41-hf`) exposes only `low`, `high`, `max`; these are
+accepted but showed no measurable effort difference. Its 1017 successor
+(`deepseek-hf`) still supports `none`/off. The unprobed 0731 checkpoint is
+unchanged. MiniMax M2.5 on Novita is still served directly and cannot disable
+reasoning; no toggle is offered.
+
+Muse Glimmer now sends top-level effort, retaining `low`, `medium`, `high`,
+`xhigh` and default `high`. GLM 5.3/Flash remain always-on (`low`, `high`, `max`);
+probes distinguished `max`, but not `low` from `high`. Kimi K3/K3.1 Pro and
+GLM 5.2 DeepInfra settings are unchanged. Reasoning streaming and replay remain
+unchanged. Together's GLM `clear_thinking` field is retained pending a multi-turn
+check of its effect.
+
 ## GLM-5.3 and GLM-5.3-Flash
 
 `glm` and `glm53` select `hf.zai-org/GLM-5.3:zai-org`; `glm53flash` selects
@@ -74,7 +101,7 @@ reasoning are ignored with a warning. Each route sends top-level
 | --- | --- |
 | Together | `chat_template_kwargs.clear_thinking: false` ([guide](https://docs.together.ai/docs/glm-5.3-quickstart)) |
 | Novita | None ([model page](https://novita.ai/models/model-detail/zai-org-glm-5.3)) |
-| Z.ai (`zai-org`) | `thinking: {type: enabled, clear_thinking: false}` ([thinking guide](https://docs.z.ai/guides/capabilities/thinking-mode)) |
+| Z.ai (`zai-org`) | None |
 
 Streamed reasoning is preserved exactly and replayed as `reasoning_content` on
 later turns and tool-result continuations.
@@ -154,7 +181,7 @@ by this fast-agent conformance result.
 
 ```bash
 fast-agent --model deepseek41-hf
-fast-agent --model "hf.deepseek-ai/DeepSeek-V4.1-Flash:novita?reasoning=off"
+fast-agent --model "hf.deepseek-ai/DeepSeek-V4.1-Flash:novita?reasoning=low"
 fast-agent --model "hf.deepseek-ai/DeepSeek-V4.1-Flash:fireworks-ai"
 ```
 
@@ -170,19 +197,16 @@ may differ. Reasoning history is replayed as `reasoning_content`. Structured
 output with tools uses the same two-phase `defer` policy as `deepseek-hf`: the
 combined schema+tools request failed validation intermittently on Novita.
 
-For compatibility with the existing HF DeepSeek profile, requests send top-level
-`reasoning_effort`: `max` by default, `low`/`high`/`max` when selected, and `none`
-for `reasoning=off` or `reasoning=none`. No numeric effort conversion is made:
-the model README's raw-weights range of 1–100 does not establish API semantics.
-HF's maintained [Novita adapter](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/inference/_providers/novita.py)
-uses the [shared chat parameter passthrough](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/inference/_providers/_common.py)
-without an effort mapping. Other backends may differ in which effort values they honor.
+Requests send top-level `reasoning_effort`: `max` by default, with `low`,
+`high`, and `max` available. As of 15 November 2026, this checkpoint cannot
+disable reasoning: `none` and off are no longer offered. The accepted efforts
+showed no measurable difference in the probes. No numeric effort conversion is
+made; the README's raw-weights range of 1–100 does not establish API semantics.
+The 1017 checkpoint retains working `none`/off support.
 
-As of September 11, 2026, HF lists Novita and Fireworks as live routes. Local
-request-shaping tests cover default/max/off and backend profile fallback. Live
-fast-agent harness tests on Novita passed default/max/off reasoning, a tool-call
-roundtrip, and synthetic image recognition. Reasoning appeared for default/max
-and was absent for off. Low/high effort and other backends remain unverified live.
+Earlier September harness checks passed a tool-call roundtrip and synthetic
+image recognition. Their off result predates the OpenRouter routing change
+and no longer describes the current route.
 
 For a credential-free, explicitly opt-in synthetic harness smoke script, run
 `uv run examples/huggingface-novita-smoke.py --live` from the repository with
@@ -271,9 +295,9 @@ Meta's recommended sampling defaults: `temperature=1.0`, `top_p=0.95`, and
 `top_k=64`.
 
 Muse Glimmer supports text and image input with text output and a 131,072-token
-context window. Its reasoning control is a chat-template setting rather than an
-OpenAI `reasoning_effort` field. Fast-agent maps `low`, `medium`, `high`, and
-`xhigh` to `chat_template_kwargs.reasoning_strength`; the default is `high`.
+context window. Fast-agent sends `low`, `medium`, `high`, and `xhigh` as
+top-level `reasoning_effort`; the default is `high`. The former chat-template
+`reasoning_strength` field has no effect through OpenRouter.
 The model advertises a 128,000-token output capability, but fast-agent omits
 `max_tokens` by default so the serving backend can account for the serialized
 input. Glimmer routes reserve 32,768 output tokens when that field is omitted,
@@ -329,14 +353,11 @@ ceiling is not published or measured. Use `Inkling 2 Small (together)` for
 work that needs longer single responses.
 
 Reasoning is controlled by the top-level `reasoning_effort` field. Fast-agent
-accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max`, sends the
-value unchanged, and defaults to `high`. `none` is a soft minimum, not
-reasoning off, on either backend: short prompts may use no reasoning tokens,
-but reasoning can still appear, especially with long prompts. On DeepInfra the
-model can also write its working into the visible answer instead of the
-reasoning channel, most visibly on short prompts without a system prompt.
-`inkling?reasoning=off` sends `none`. Reasoning content is replayed unchanged
-in conversation history.
+accepts `minimal`, `low`, `medium`, `high`, `xhigh` and `max`, sends the
+value unchanged, and defaults to `high`. Reasoning is mandatory on both routes:
+`none` now returns HTTP 400, rather than the pre-switch soft minimum. Neither
+`none` nor off is offered. Reasoning content is replayed unchanged in
+conversation history.
 
 Structured output uses the standard `json_schema` response format. When tools
 are available, fast-agent runs a tool phase first and then requests the
@@ -354,8 +375,8 @@ Programmatic tool calling is off by default for this model; enable it with
 `inkling?ptc=on` or `--ptc`.
 
 Live fast-agent testing on November 14, 2026 verified streaming, every
-reasoning effort including `off`, shell and function tool loops with parallel
-calls, multi-turn reasoning replay, JPEG, PNG and WebP image input, image tool
+reasoning effort (including the then-supported `off`), shell and function tool
+loops with parallel calls, multi-turn reasoning replay, JPEG, PNG and WebP image input, image tool
 results, and schema output (direct and after a tool call) through
 `hf.thinkingmachines/Inkling-2-Small:deepinfra`.
 
@@ -383,8 +404,8 @@ differs:
   accumulation.
 
 Live fast-agent onboarding on November 14, 2026 verified streaming, every
-reasoning effort including `off`, shell and function tool loops, multi-turn
-reasoning replay, JPEG, PNG and WebP image input, and schema output (direct and
+reasoning effort (including the then-supported `off`), shell and function tool
+loops, multi-turn reasoning replay, JPEG, PNG and WebP image input, and schema output (direct and
 after a tool call) through `hf.thinkingmachines/Inkling-2-Small:together`.
 
 ### Un-pinned route

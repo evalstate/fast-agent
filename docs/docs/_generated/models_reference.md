@@ -73,7 +73,7 @@
 | `deepseek-ai/deepseek-v4-flash-0731` | `hf` | Text | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseek-ai/deepseek-v4-flash-0731?reasoning=max` | — | — |
 | `deepseek-ai/deepseek-v4-pro` | `hf` | Text | `json` (schema) | — | — | — |
 | `deepseek-hf` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseek-hf?reasoning=max` | — | — |
-| `deepseek41-hf` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseek41-hf?reasoning=max` | — | — |
+| `deepseek41-hf` | `hf` | Text, Vision | `json` (schema) | effort: `low`, `high`, `max`<br>Example: `deepseek41-hf?reasoning=max` | — | — |
 | `glimmer` | `hf` | Text, Vision | — | effort: `low`, `medium`, `high`, `xhigh`<br>Example: `glimmer?reasoning=high` | — | — |
 | `glm52` | `hf` | Text | `json` (object) | effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `glm52?reasoning=max` | — | — |
 | `glm53flash` | `hf` | Text, Vision | `json` (object) | effort: `low`, `high`, `max`<br>Example: `glm53flash?reasoning=max` | — | — |
@@ -90,11 +90,11 @@
 | `hf.zai-org/glm-4.6` | `hf` | Text | `json` (schema) | — | — | — |
 | `hf.zai-org/glm-4.7` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `hf.zai-org/glm-4.7?reasoning=off` | — | — |
 | `hf.zai-org/glm-5.1` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `hf.zai-org/glm-5.1?reasoning=off` | — | — |
-| `inkling` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `inkling?reasoning=high` | — | — |
+| `inkling` | `hf` | Text, Vision | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`, `max`<br>Example: `inkling?reasoning=high` | — | — |
 | `kimi25` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `kimi25?reasoning=off` | — | — |
 | `kimi26` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `kimi26?reasoning=off` | — | — |
 | `kimi` | `hf` | Text, Vision | `json` (schema) | effort: `low`, `high`, `max`<br>Example: `kimi?reasoning=max` | — | — |
-| `minimax2.5` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `minimax2.5?reasoning=off` | — | — |
+| `minimax2.5` | `hf` | Text | `json` (schema) | — | — | — |
 | `moonshotai/kimi-k2.7-code` | `hf` | Text, Vision | `json` (schema) | — | — | — |
 | `qwen/qwen3.8-27b` | `hf` | Text, Vision, Video | `json` (object) | effort: `low`, `medium`, `xhigh`, `off`<br>Example: `qwen/qwen3.8-27b?reasoning=medium` | — | — |
 | `qwen35` | `hf` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen35?reasoning=off` | — | — |

@@ -1395,7 +1395,7 @@ def test_hf_sampling_overrides_route_non_openai_fields_to_extra_body() -> None:
     assert extra_body["top_k"] == 20
     assert extra_body["min_p"] == 0.0
     assert extra_body["repetition_penalty"] == 1.0
-    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+    assert "chat_template_kwargs" not in extra_body
 
 
 @pytest.mark.parametrize("field", ("reasoning_api", "reasoning_field"))
@@ -1423,7 +1423,7 @@ def test_hf_omits_empty_tools_for_router_compatibility() -> None:
     assert "tool_choice" not in args
 
 
-def test_hf_qwen36_instruct_alias_disables_thinking_via_chat_template_kwargs() -> None:
+def test_hf_qwen36_instruct_alias_disables_thinking_via_reasoning_effort() -> None:
     factory = ModelFactory.create_factory("qwen36instruct")
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
@@ -1438,10 +1438,11 @@ def test_hf_qwen36_instruct_alias_disables_thinking_via_chat_template_kwargs() -
 
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert args["reasoning_effort"] == "none"
+    assert "chat_template_kwargs" not in extra_body
 
 
-def test_hf_qwen35_instruct_alias_disables_thinking_via_chat_template_kwargs() -> None:
+def test_hf_qwen35_instruct_alias_disables_thinking_via_reasoning_effort() -> None:
     factory = ModelFactory.create_factory("qwen35instruct")
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
@@ -1456,7 +1457,8 @@ def test_hf_qwen35_instruct_alias_disables_thinking_via_chat_template_kwargs() -
 
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert args["reasoning_effort"] == "none"
+    assert "chat_template_kwargs" not in extra_body
 
 
 def test_hf_kimi25_alias_does_not_emit_thinking_override_for_thinking_mode() -> None:
@@ -1482,7 +1484,7 @@ def test_hf_kimi25_alias_does_not_emit_thinking_override_for_thinking_mode() -> 
         assert extra_body is None
 
 
-def test_hf_kimi25instant_alias_disables_thinking_via_extra_body() -> None:
+def test_hf_kimi25instant_alias_disables_thinking_via_reasoning_effort() -> None:
     factory = ModelFactory.create_factory("kimi25instant")
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
@@ -1498,9 +1500,8 @@ def test_hf_kimi25instant_alias_disables_thinking_via_extra_body() -> None:
     assert args["temperature"] == 0.6
     assert args["top_p"] == 0.95
 
-    extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
-    assert extra_body["thinking"] == {"type": "disabled"}
+    assert args["reasoning_effort"] == "none"
+    assert "extra_body" not in args
 
 
 def test_hf_kimi26_alias_does_not_emit_thinking_override_for_thinking_mode() -> None:
@@ -1526,7 +1527,7 @@ def test_hf_kimi26_alias_does_not_emit_thinking_override_for_thinking_mode() -> 
         assert extra_body is None
 
 
-def test_hf_kimi26instant_alias_disables_thinking_via_chat_template_kwargs() -> None:
+def test_hf_kimi26instant_alias_disables_thinking_via_reasoning_effort() -> None:
     factory = ModelFactory.create_factory("kimi26instant")
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
@@ -1542,9 +1543,8 @@ def test_hf_kimi26instant_alias_disables_thinking_via_chat_template_kwargs() -> 
     assert args["temperature"] == 0.6
     assert args["top_p"] == 0.95
 
-    extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {"thinking": False}
+    assert args["reasoning_effort"] == "none"
+    assert "extra_body" not in args
 
 
 @pytest.mark.parametrize(
