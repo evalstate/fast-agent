@@ -89,7 +89,8 @@ nav = [
     { "Model Overlays" = "models/model_overlays.md" },
     { "Models Reference" = "models/models_reference.md" },
     { "Internal Models" = "models/internal_models.md" },
-    ]}
+    ]},
+    { "Integration Reports" = "models/integration/index.md" },
   ] },
   { "ACP" = [
     {"Agent Client Protocol"  = [

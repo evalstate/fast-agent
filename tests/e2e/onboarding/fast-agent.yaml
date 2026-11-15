@@ -1,0 +1,8 @@
+default_model: passthrough
+llm_retries: 0
+logger:
+  type: none
+  progress_display: false
+  show_chat: false
+  show_tools: false
+  show_usage: false
