@@ -37,7 +37,7 @@ Its structured-output requests use Together's legacy schema-bearing envelope
 to work around HF router translation; output is validated locally.
 See [Moonshot](moonshot.md) for the native route and model details.
 
-Curated aliases such as `kimi`, `deepseek-hf`, `glm`, and `minimax` include provider choices and request defaults. Capabilities and supported parameters vary by backing provider; see the route-specific notes below.
+Curated aliases such as `kimi`, `deepseek41-hf`, `glm`, and `qwen35` include provider choices and request defaults. Capabilities and supported parameters vary by backing provider; see the route-specific notes below.
 
 ## GLM-5.3 and GLM-5.3-Flash
 
@@ -54,8 +54,8 @@ Together, Novita, and Z.ai, replacing its GLM-5.2 entries:
 | `GLM 5.3 Flash (novita)` | `hf.zai-org/GLM-5.3-Flash:novita` |
 | `GLM 5.3 Flash (zai-org)` | `hf.zai-org/GLM-5.3-Flash:zai-org` |
 
-The explicit `glm52` and `GLM 5.2 (zai-org)`, `GLM 5.2 (fireworks-ai)`, and
-`GLM 5.2 (deepinfra)` aliases remain available. For the native provider, see
+The explicit `glm52`, `GLM 5.2 (zai-org)`, and `GLM 5.2 (deepinfra)` aliases
+remain available. For the native provider, see
 [Z.ai](zai.md).
 
 ```bash
@@ -317,23 +317,6 @@ Kimi models that support instant mode can disable reasoning with the `instant` q
 ```bash
 fast-agent --model "hf.moonshotai/Kimi-K2.5?instant=on"  # thinking disabled
 fast-agent --model "hf.moonshotai/Kimi-K2.5?instant=off" # thinking enabled
-```
-
-## Gemma thinking mode
-
-`gemma4` routes Gemma 4 31B through Hugging Face Inference Providers on Cerebras:
-
-```bash
-fast-agent --model gemma4
-fast-agent --model "hf.google/gemma-4-31B-it:cerebras?temperature=1.0&top_p=0.95"
-```
-
-Gemma 4 reasoning is disabled by default on Cerebras. Enable it with `reasoning_effort`
-values through fast-agent's `reasoning` query parameter:
-
-```bash
-fast-agent --model "gemma4?reasoning=medium" # sends reasoning_effort=medium
-fast-agent --model "gemma4?reasoning=none"   # sends reasoning_effort=none
 ```
 
 ## Hugging Face MCP authentication

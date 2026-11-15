@@ -34,11 +34,6 @@ CURATED_MODELS: list[CuratedModel] = [
         description="ZAI GLM-5: Superior Agentic, Reasoning and Coding Capabilities",
     ),
     CuratedModel(
-        id="minimax",
-        display_name="MiniMax M2.1",
-        description="MiniMax-M2.1, Optimized specifically for robustness in coding, tool use, instruction following, and long-horizon planning.",
-    ),
-    CuratedModel(
         id="deepseek4pro",
         display_name="DeepSeek V4 Pro",
         description="DeepSeek-V4-Pro via Fireworks AI, with a 1M token context window and native reasoning stream output.",

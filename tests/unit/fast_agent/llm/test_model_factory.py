@@ -402,16 +402,6 @@ def test_kimi_alias_matches_current_promoted_kimi_defaults() -> None:
     )
 
 
-def test_kimi27code_alias_sets_thinking_sampling_defaults() -> None:
-    config = ModelFactory.parse_model_string("kimi27code")
-
-    assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "moonshotai/Kimi-K2.7-Code:fireworks-ai"
-    assert config.temperature == 1.0
-    assert config.top_p == 0.95
-    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
-
-
 def test_kimithink_alias_maps_to_current_kimi_defaults() -> None:
     assert ModelFactory.parse_model_string("kimithink") == ModelFactory.parse_model_string("kimi")
 
@@ -453,16 +443,6 @@ def test_kimi26instant_alias_sets_instant_sampling_defaults() -> None:
     assert config.temperature == 0.6
     assert config.top_p == 0.95
     assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=False)
-
-
-def test_minimax25_alias_sets_sampling_defaults() -> None:
-    config = ModelFactory.parse_model_string("minimax25")
-
-    assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "MiniMaxAI/MiniMax-M2.5:fireworks-ai"
-    assert config.temperature == 1.0
-    assert config.top_p == 0.95
-    assert config.top_k == 40
 
 
 def test_model_query_transport_websocket_alias():
@@ -1129,11 +1109,11 @@ def test_hf_routed_gpt_oss_alias_resolves_model_metadata():
     assert resolved.max_output_tokens == 32766
 
 
-def test_gemma4_alias_resolves_to_hf_cerebras_vision_model():
-    resolved = ModelFactory.resolve_model_spec("gemma4")
+def test_gemma4_model_id_resolves_to_hf_vision_model_without_alias():
+    resolved = ModelFactory.resolve_model_spec("hf.google/gemma-4-31B-it")
 
     assert resolved.provider == Provider.HUGGINGFACE
-    assert resolved.wire_model_name == "google/gemma-4-31B-it:cerebras"
+    assert resolved.wire_model_name == "google/gemma-4-31B-it"
     assert resolved.context_window == 131_000
     assert resolved.max_output_tokens == 40_000
 

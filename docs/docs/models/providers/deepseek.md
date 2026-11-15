@@ -182,7 +182,7 @@ required history on each stateless request.
 
 ## Hugging Face routes are separate
 
-Aliases such as `deepseek-hf`, `deepseek4-hf`, and `deepseek4pro-hf` use
+Aliases such as `deepseek41-hf` and `deepseek-v41-hf` use
 [Hugging Face Inference Providers](huggingface.md), not the native DeepSeek API.
 They use `HF_TOKEN`, provider-specific routing, and their own capability
 metadata.

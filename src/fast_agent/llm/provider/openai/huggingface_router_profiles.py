@@ -285,15 +285,6 @@ _GLM_52_DEEPINFRA_REASONING = TopLevelReasoningEffort(
     effort_map={"max": "xhigh"},
     cleanup_extra_body=frozenset({"thinking"}),
 )
-_GLM_52_FIREWORKS_REASONING = TopLevelReasoningEffort(
-    default_effort="max",
-    disabled_efforts=frozenset({"none", "minimal"}),
-    cleanup_extra_body=frozenset({"thinking"}),
-)
-_GEMMA_4_CEREBRAS_REASONING = TopLevelReasoningEffort(
-    default_effort="none",
-    cleanup_extra_body=frozenset({"chat_template_kwargs"}),
-)
 _MUSE_GLIMMER_REASONING = ChatTemplateReasoningStrength(default_strength="high")
 # No hard off on either backend: reasoning=off maps to "none" (soft minimum on Together;
 # DeepInfra may then write the working into visible content).
@@ -378,11 +369,6 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
         ),
         RouterProfileRule(
             model=_GLM_52,
-            backends=frozenset({"fireworks-ai"}),
-            profile=HuggingFaceRouteProfile(reasoning=_GLM_52_FIREWORKS_REASONING),
-        ),
-        RouterProfileRule(
-            model=_GLM_52,
             # Requests clear_thinking=False, so prior reasoning must replay verbatim.
             profile=HuggingFaceRouteProfile(
                 reasoning=_GLM_52_REASONING, preserve_raw_reasoning=True
@@ -428,11 +414,6 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
         RouterProfileRule(
             model=_KIMI_K3,
             profile=HuggingFaceRouteProfile(reasoning=_KIMI_K3_REASONING),
-        ),
-        RouterProfileRule(
-            model=_GEMMA_4,
-            backends=frozenset({"cerebras"}),
-            profile=HuggingFaceRouteProfile(reasoning=_GEMMA_4_CEREBRAS_REASONING),
         ),
         RouterProfileRule(
             model=_MUSE_GLIMMER,

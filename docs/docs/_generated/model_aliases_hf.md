@@ -8,18 +8,11 @@
 | `deepseek-ai/deepseek-v4-flash-0731` | `deepseek-ai/deepseek-v4-flash-0731` |
 | `deepseek-ai/deepseek-v4-pro` | `deepseek-ai/deepseek-v4-pro` |
 | `deepseek-ai/deepseek-v4.1-flash` | `deepseek-ai/deepseek-v4.1-flash` |
-| `deepseek-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `deepseek-v41-hf` | `hf.deepseek-ai/DeepSeek-V4.1-Flash:novita` |
-| `deepseek32` | `hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai` |
-| `deepseek4-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `deepseek41-hf` | `hf.deepseek-ai/DeepSeek-V4.1-Flash:novita` |
-| `deepseek4pro-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
-| `deepseekv4pro-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
-| `gemma4` | `hf.google/gemma-4-31B-it:cerebras?temperature=1.0&top_p=0.95` |
 | `glimmer` | `hf.meta-models/Muse-Glimmer-30B:together?temperature=1.0&top_p=0.95&top_k=64` |
 | `glm` | `hf.zai-org/GLM-5.3:zai-org` |
 | `GLM 5.2 (deepinfra)` | `hf.zai-org/GLM-5.2:deepinfra` |
-| `GLM 5.2 (fireworks-ai)` | `hf.zai-org/GLM-5.2:fireworks-ai` |
 | `GLM 5.2 (zai-org)` | `hf.zai-org/GLM-5.2:zai-org` |
 | `GLM 5.3 (novita)` | `hf.zai-org/GLM-5.3:novita` |
 | `GLM 5.3 (together)` | `hf.zai-org/GLM-5.3:together` |
@@ -27,9 +20,7 @@
 | `GLM 5.3 Flash (novita)` | `hf.zai-org/GLM-5.3-Flash:novita` |
 | `GLM 5.3 Flash (together)` | `hf.zai-org/GLM-5.3-Flash:together` |
 | `GLM 5.3 Flash (zai-org)` | `hf.zai-org/GLM-5.3-Flash:zai-org` |
-| `glm47` | `hf.zai-org/GLM-4.7:cerebras` |
 | `glm5` | `hf.zai-org/GLM-5:novita` |
-| `glm51` | `hf.zai-org/GLM-5.1:together` |
 | `glm52` | `hf.zai-org/GLM-5.2:zai-org` |
 | `glm53` | `hf.zai-org/GLM-5.3:zai-org` |
 | `glm53flash` | `hf.zai-org/GLM-5.3-Flash:zai-org` |
@@ -48,16 +39,9 @@
 | `kimi25instant` | `hf.moonshotai/Kimi-K2.5:novita?temperature=0.6&top_p=0.95&reasoning=off` |
 | `kimi26` | `hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on` |
 | `kimi26instant` | `hf.moonshotai/Kimi-K2.6:novita?temperature=0.6&top_p=0.95&reasoning=off` |
-| `kimi27` | `hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on` |
-| `kimi27code` | `hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on` |
 | `kimithink` | `hf.moonshotai/Kimi-K3.1-Pro:together` |
 | `meta-models/muse-glimmer-30b` | `meta-models/muse-glimmer-30b` |
-| `minimax` | `hf.MiniMaxAI/MiniMax-M3:together?temperature=1.0&top_p=0.95&top_k=40` |
 | `minimax2.5` | `hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40` |
-| `minimax21` | `hf.MiniMaxAI/MiniMax-M2.1:novita` |
-| `minimax25` | `hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40` |
-| `minimax27` | `hf.MiniMaxAI/MiniMax-M2.7:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40` |
-| `minimax3` | `hf.MiniMaxAI/MiniMax-M3:together?temperature=1.0&top_p=0.95&top_k=40` |
 | `moonshotai/kimi-k2` | `moonshotai/kimi-k2` |
 | `moonshotai/kimi-k2-instruct-0905` | `moonshotai/kimi-k2-instruct-0905` |
 | `moonshotai/kimi-k2-thinking` | `moonshotai/kimi-k2-thinking` |

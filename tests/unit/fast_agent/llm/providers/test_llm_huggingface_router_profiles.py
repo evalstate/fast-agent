@@ -850,10 +850,6 @@ def test_deepseek_custom_endpoint_uses_nested_hf_base_url_environment(
             "zai-org/GLM-5.2:deepinfra",
             {"preserved", "chat_template_kwargs"},
         ),
-        (
-            "google/gemma-4-31B-it:cerebras",
-            {"preserved", "thinking"},
-        ),
     ),
 )
 def test_hf_route_profiles_preserve_route_specific_cleanup(

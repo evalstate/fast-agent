@@ -37,7 +37,7 @@ The previous `kimik3` alias and `moonshot.kimi-k3` route remain unchanged.
 K3.1 Pro access requires a successful Moonshot top-up (minimum $1).
 
 The unversioned `kimi` and `kimithink` aliases now select K3.1 Pro through
-HF/Together. Versioned aliases (`kimik3`, `kimi27code`, `kimi26`, etc.) retain
+HF/Together. Versioned aliases (`kimik3`, `kimi26`, etc.) retain
 their original models; K3 is marked legacy in the picker.
 
 ### Hugging Face Inference Providers

@@ -895,7 +895,7 @@ def test_huggingface_deepseek_v4_flash_routes_disable_reasoning():
 
 
 def test_huggingface_glm52_routes_use_json_object_structured_mode():
-    for provider in ("zai-org", "together", "deepinfra", "novita", "fireworks-ai"):
+    for provider in ("zai-org", "together", "deepinfra", "novita"):
         llm = _make_hf_llm(f"zai-org/glm-5.2:{provider}")
 
         assert llm._structured_json_mode(llm.default_request_params) == "object"
@@ -920,31 +920,6 @@ def test_huggingface_glm52_deepinfra_xhigh_reasoning_effort():
 
 def test_huggingface_glm52_deepinfra_disable_reasoning_uses_none_effort():
     llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:deepinfra", reasoning=False)
-
-    args = _hf_request_args(llm)
-    assert args["reasoning_effort"] == "none"
-    assert "extra_body" not in args
-
-
-def test_huggingface_glm52_fireworks_default_uses_reasoning_effort_only():
-    llm = _make_hf_llm("zai-org/glm-5.2:fireworks-ai")
-
-    args = _hf_request_args(llm)
-    assert args["model"] == "zai-org/glm-5.2:fireworks-ai"
-    assert args["reasoning_effort"] == "max"
-    assert "extra_body" not in args
-
-
-def test_huggingface_glm52_fireworks_passes_requested_reasoning_effort():
-    llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:fireworks-ai", reasoning="low")
-
-    args = _hf_request_args(llm)
-    assert args["reasoning_effort"] == "low"
-    assert "extra_body" not in args
-
-
-def test_huggingface_glm52_fireworks_disable_reasoning_uses_none_effort():
-    llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:fireworks-ai", reasoning=False)
 
     args = _hf_request_args(llm)
     assert args["reasoning_effort"] == "none"
@@ -1027,29 +1002,6 @@ def test_huggingface_qwen35_reasoning_toggle_uses_chat_template_kwargs_enabled()
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
     assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
-
-
-def test_huggingface_gemma4_cerebras_reasoning_effort_enabled():
-    llm = _make_hf_llm_with_reasoning("google/gemma-4-31B-it:cerebras", reasoning="medium")
-
-    args = _hf_request_args(llm)
-    assert args["reasoning_effort"] == "medium"
-    assert args["model"] == "google/gemma-4-31B-it:cerebras"
-    assert "extra_body" not in args
-
-
-def test_huggingface_gemma4_cerebras_reasoning_effort_disabled():
-    llm = _make_hf_llm_with_reasoning("google/gemma-4-31B-it:cerebras", reasoning="none")
-
-    args = _hf_request_args(llm)
-    assert args["reasoning_effort"] == "none"
-
-
-def test_huggingface_gemma4_cerebras_default_reasoning_is_disabled():
-    llm = _make_hf_llm("google/gemma-4-31B-it:cerebras")
-
-    args = _hf_request_args(llm)
-    assert args["reasoning_effort"] == "none"
 
 
 def test_huggingface_chat_template_reasoning_preserves_existing_values() -> None:

@@ -119,8 +119,8 @@ def test_curated_scope_hides_non_current_catalog_entries(tmp_path: Path) -> None
     curated_tokens = {option.preset_token for option in curated_options}
     all_tokens = {option.preset_token for option in all_options}
 
-    assert "glm47" not in curated_tokens
-    assert "glm47" in all_tokens
+    assert "glm5" not in curated_tokens
+    assert "glm5" in all_tokens
 
 
 def test_huggingface_provider_is_active_when_hub_token_is_present(
@@ -519,7 +519,6 @@ def test_huggingface_picker_supersedes_glm52_with_glm53_routes() -> None:
         ("glm53flash", "hf.zai-org/GLM-5.3-Flash:zai-org"),
         ("glm52", "hf.zai-org/GLM-5.2:zai-org"),
         ("GLM 5.2 (zai-org)", "hf.zai-org/GLM-5.2:zai-org"),
-        ("GLM 5.2 (fireworks-ai)", "hf.zai-org/GLM-5.2:fireworks-ai"),
         ("GLM 5.2 (deepinfra)", "hf.zai-org/GLM-5.2:deepinfra"),
         ("zaiglm", "zai.glm-5.3"),
         ("zaiglm52", "zai.glm-5.2"),

@@ -70,31 +70,31 @@
 | `DeepSeek V4 Flash 0731 (baseten)` | `hf` | Text | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `DeepSeek V4 Flash 0731 (baseten)?reasoning=max` | — | — |
 | `Kimi K3 (together)` | `hf` | Text, Vision | `json` (schema) | effort: `low`, `high`, `max`<br>Example: `Kimi K3 (together)?reasoning=max` | — | — |
 | `deepseek-ai/deepseek-v3.1` | `hf` | Text | `json` (schema) | — | — | — |
-| `deepseek-hf` | `hf` | Text | `json` (schema) | — | — | — |
-| `deepseek32` | `hf` | Text | `json` (schema) | — | — | — |
+| `deepseek-ai/deepseek-v3.2` | `hf` | Text | `json` (schema) | — | — | — |
+| `deepseek-ai/deepseek-v4-pro` | `hf` | Text | `json` (schema) | — | — | — |
 | `deepseek41-hf` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseek41-hf?reasoning=max` | — | — |
-| `gemma4` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `gemma4?reasoning=none` | — | — |
 | `glimmer` | `hf` | Text, Vision | — | effort: `low`, `medium`, `high`, `xhigh`<br>Example: `glimmer?reasoning=high` | — | — |
-| `glm47` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm47?reasoning=off` | — | — |
-| `glm51` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm51?reasoning=off` | — | — |
 | `glm52` | `hf` | Text | `json` (object) | effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `glm52?reasoning=max` | — | — |
 | `glm53flash` | `hf` | Text, Vision | `json` (object) | effort: `low`, `high`, `max`<br>Example: `glm53flash?reasoning=max` | — | — |
 | `glm5` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm5?reasoning=off` | — | — |
 | `glm` | `hf` | Text | `json` (object) | effort: `low`, `high`, `max`<br>Example: `glm?reasoning=max` | — | — |
+| `google/gemma-4-31b-it` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `google/gemma-4-31b-it?reasoning=none` | — | — |
 | `gpt-oss-20b` | `hf` | Text | `json` (schema) | — | — | — |
 | `gpt-oss` | `hf` | Text | `json` (schema) | — | — | — |
+| `hf.minimaxai/minimax-m2.1` | `hf` | Text | `json` (schema) | — | — | — |
+| `hf.minimaxai/minimax-m2.7` | `hf` | Text | `json` (schema) | — | — | — |
 | `hf.minimaxai/minimax-m2` | `hf` | Text | `json` (schema) | — | — | — |
+| `hf.minimaxai/minimax-m3` | `hf` | Text, Vision | `json` (schema) | — | — | — |
 | `hf.qwen/qwen3-next-80b-a3b-instruct` | `hf` | Text | `json` (schema) | — | — | — |
 | `hf.zai-org/glm-4.6` | `hf` | Text | `json` (schema) | — | — | — |
+| `hf.zai-org/glm-4.7` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `hf.zai-org/glm-4.7?reasoning=off` | — | — |
+| `hf.zai-org/glm-5.1` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `hf.zai-org/glm-5.1?reasoning=off` | — | — |
 | `inkling` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `inkling?reasoning=high` | — | — |
 | `kimi25` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `kimi25?reasoning=off` | — | — |
 | `kimi26` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `kimi26?reasoning=off` | — | — |
-| `kimi27` | `hf` | Text, Vision | `json` (schema) | — | — | — |
 | `kimi` | `hf` | Text, Vision | `json` (schema) | effort: `low`, `high`, `max`<br>Example: `kimi?reasoning=max` | — | — |
-| `minimax21` | `hf` | Text | `json` (schema) | — | — | — |
-| `minimax25` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `minimax25?reasoning=off` | — | — |
-| `minimax27` | `hf` | Text | `json` (schema) | — | — | — |
-| `minimax` | `hf` | Text, Vision | `json` (schema) | — | — | — |
+| `minimax2.5` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `minimax2.5?reasoning=off` | — | — |
+| `moonshotai/kimi-k2.7-code` | `hf` | Text, Vision | `json` (schema) | — | — | — |
 | `qwen/qwen3.8-27b` | `hf` | Text, Vision, Video | `json` (object) | effort: `low`, `medium`, `xhigh`, `off`<br>Example: `qwen/qwen3.8-27b?reasoning=medium` | — | — |
 | `qwen35` | `hf` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen35?reasoning=off` | — | — |
 | `qwen36` | `hf` | Text | — | toggle: `on`, `off`<br>Example: `qwen36?reasoning=off` | — | — |

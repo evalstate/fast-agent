@@ -336,7 +336,6 @@ async def test_glm52_preserved_thinking_replays_raw_reasoning(backend: str) -> N
     "model",
     (
         "zai-org/GLM-5.2:deepinfra",
-        "zai-org/GLM-5.2:fireworks-ai",
         "zai-org/GLM-5",
         "moonshotai/Kimi-K2.5:novita",
     ),
