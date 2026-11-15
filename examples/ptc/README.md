@@ -35,6 +35,21 @@ there until adapters are available.
 For example, `--ptc --shell` exposes the local shell as `await shell(...)`. Configure limits
 and directly exposed tools under `ptc:` in `fast-agent.yaml`.
 
+PTC vocabulary **v1** is model-independent: `shell(command=..., working_directory=...,
+background=..., timeout=..., check=...)`, unified `process`, and the file trio
+`read_text_file` / `write_text_file` / `edit_file` (no `apply_patch`).
+Enabled `subagent`, `attach_media`, and `get_resource` keep their names.
+Direct-mode model profiles and return values are unchanged.
+
+Use `ptc.direct_tools: ["shell"]` for the canonical direct shell in hybrid mode.
+The temporary `ptc.function_names: profile` switch restores the previous per-model
+PTC vocabulary for a matched comparison; the default is `canonical`. For example,
+`uv run evals.py --function-names profile --list` prints the profile-arm commands
+without calling a provider. Evals check the vocabulary recorded in each code result.
+`/tools` and result metadata identify vocabulary `1` (canonical) or `0` (profile).
+See the [vocabulary and migration reference](../../docs/docs/ref/config_file.md#programmatic-tool-calling-ptc)
+for collisions, legacy-name hints, signatures and settings.
+
 When local shell or filesystem access is enabled, Python file functions pass through to the host
 filesystem in the agent's working directory. They do not invoke tools or tool permission prompts;
 this is not a filesystem sandbox. Reads are bounded to 512 KB binary or 4 MB text; even `read(n)`
@@ -46,7 +61,7 @@ The expected answer is Stark (C006) with $9,703.40, and the runner-up is Apertur
 
 ATIF exports keep the parent program and include a `ptc_calls` ledger in the
 `exec_sandbox` observation's `extra` (`ptc_calls_schema: fast-agent.ptc-calls/v1`).
-It records dispatched tool names, IDs, resolved argument snapshots, and outcomes
+It records dispatched tool names, Python function names, IDs, resolved argument snapshots, and outcomes
 in invocation order, without adding them to model-visible text or dumping filtered
 nested results. Arguments may contain sensitive file contents or secrets.
 Direct Python filesystem pass-through is **not** intercepted or recorded in this

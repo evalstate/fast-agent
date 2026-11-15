@@ -34,7 +34,7 @@
 | `logger.terminal_images.backend` | `LOGGER__TERMINAL_IMAGES__BACKEND` | `Literal['auto', 'textual-image', 'kitty', 'sixel', 'halfcell', 'unicode', 'none']` | `auto` | Auto uses reported terminal support, including Kitty in Herdr; use halfcell to opt out. Automatic Sixel rendering is fitted to the viewport. |
 | `logger.terminal_images.width` | `LOGGER__TERMINAL_IMAGES__WIDTH` | `TerminalImageSize` | `80%` | Image render width. |
 | `logger.terminal_images.height` | `LOGGER__TERMINAL_IMAGES__HEIGHT` | `TerminalImageSize` | `auto` | Image render height. |
-| `shell_execution.tool_profile` | `SHELL_EXECUTION__TOOL_PROFILE` | `ShellToolProfile` | `auto` | Model-specific shell/process contract. |
+| `shell_execution.tool_profile` | `SHELL_EXECUTION__TOOL_PROFILE` | `ShellToolProfile` | `auto` | Direct-mode shell/process contract; canonical PTC uses shell/process. |
 | `shell_execution.output_display_lines` | `SHELL_EXECUTION__OUTPUT_DISPLAY_LINES` | `int \| None` | `5` | Maximum shell/read_text_file lines to display. |
 | `shell_execution.show_bash` | `SHELL_EXECUTION__SHOW_BASH` | `bool` | `True` | Show shell command output on the console. |
 | `shell_execution.interactive_use_pty` | `SHELL_EXECUTION__INTERACTIVE_USE_PTY` | `bool` | `True` | Use a PTY for interactive prompt shell commands. |

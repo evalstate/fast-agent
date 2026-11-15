@@ -258,7 +258,7 @@ Use `reasoning=xhigh` when maximum deliberation matters more than throughput.
 reasoning is replayed as `reasoning_content`, preserving the model's default
 multi-turn thinking behavior.
 
-Qwen3.8 uses the `grok_shell` execution profile by default. It exposes `shell`
+In direct mode, Qwen3.8 uses the `grok_shell` execution profile by default. It exposes `shell`
 with explicit timeout, background, and working-directory fields alongside the
 unified `process` tool. Set `shell_execution.tool_profile` explicitly to
 override automatic model selection.

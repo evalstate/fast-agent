@@ -110,7 +110,7 @@ Appending and de-duplicating result rows into a Hugging Face dataset is not impl
 | `--var NAME=VALUE`          | AgentCard template variable value. May be repeated.                                                   |
 | `--var-file NAME=PATH`      | AgentCard template variable loaded from a file. May be repeated.                                      |
 | `--vars-json PATH`          | JSON object containing AgentCard template variables.                                                  |
-| `--shell`, `-x`            | Enable a local shell runtime and expose the execute tool.                                             |
+| `--shell`, `-x`            | Enable a local shell runtime and expose shell tools (canonical `shell` under PTC).                                             |
 
 ### Input selection
 

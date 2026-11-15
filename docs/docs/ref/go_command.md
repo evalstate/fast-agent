@@ -75,7 +75,7 @@ not need to inspect Fast-Agent session files or private message channels.
 - `--stdio "<command> <options>"`: Run the command to attach a STDIO server (enclose arguments in quotes)
 - `--npx "@package/name <options>"`: Run an NPX package as a STDIO server (enclose arguments in quotes)
 - `--uvx "@package/name <options>"`: Run an UVX package as a STDIO server (enclose arguments in quotes)
-- `--shell`, `-x`: Enable a local shell runtime and expose the execute tool (bash or pwsh)
+- `--shell`, `-x`: Enable a local shell runtime and expose shell tools (canonical `shell` under PTC) (bash or pwsh)
 - `-xx`: Enable both local shell access and built-in subagents
 - `--no-shell`: Disable local shell/filesystem tools, even when skills or agent config request them
 - `--ptc` / `--no-ptc`: Enable or disable [programmatic tool calling](config_file.md#programmatic-tool-calling-ptc), overriding the model string, YAML configuration and model default. When omitted, GLM-5.3-Flash, GPT-6 Astra, GPT-6.1 Sol, GPT-6.1 Terra, GPT-6 Luna and Kimi K3.1 Pro default to PTC on; other models default to off. Local POSIX environments only.
