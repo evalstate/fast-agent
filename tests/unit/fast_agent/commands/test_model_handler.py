@@ -419,6 +419,37 @@ async def test_model_status_shows_effective_compaction(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("value", ("none", "off"))
+@pytest.mark.parametrize(
+    "model, expected",
+    [
+        ("inkling", ReasoningEffortSetting(kind="effort", value="minimal")),
+        ("hf.Qwen/Qwen3.8-27B", ReasoningEffortSetting(kind="toggle", value=False)),
+    ],
+)
+async def test_model_reasoning_hf_disable_reports_effective_setting(
+    value: str, model: str, expected: ReasoningEffortSetting
+) -> None:
+    settings = Settings()
+    agent = LlmAgent(AgentConfig(name="test"), context=Context(config=settings))
+    await agent.attach_llm(ModelFactory.create_factory(model))
+    ctx = CommandContext(
+        agent_provider=_StubAgentProvider(agent),
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=settings,
+    )
+
+    outcome = await handle_model_reasoning(ctx, agent_name="test", value=value)
+
+    assert agent.llm is not None
+    assert agent.llm.reasoning_effort == expected
+    label = "disabled" if expected.kind == "toggle" else "effort=minimal"
+    assert any(label in str(message.text) for message in outcome.messages)
+    assert all(message.channel != "error" for message in outcome.messages)
+
+
+@pytest.mark.asyncio
 async def test_model_reasoning_includes_shell_budget_details() -> None:
     llm = _StubLLM("claude-opus-4-6")
     provider = _StubAgentProvider(_StubAgent(llm, shell_limit=21120))

@@ -884,7 +884,7 @@ def test_glm_53_routes_fall_back_to_model_profile(
 def test_glm_53_hf_keeps_required_reasoning_enabled(model: str) -> None:
     request = _factory_request(f"hf.zai-org/{model}:together?reasoning=none")
 
-    assert request["reasoning_effort"] == "max"
+    assert request["reasoning_effort"] == "low"
 
 
 @pytest.mark.parametrize(
@@ -934,8 +934,8 @@ def test_configured_baseten_backend_uses_route_output_limit() -> None:
     (
         ("", "", "max"),
         (":novita", "?reasoning=max", "max"),
-        (":fireworks-ai", "?reasoning=off", "max"),
-        (":other-backend", "?reasoning=none", "max"),
+        (":fireworks-ai", "?reasoning=off", "low"),
+        (":other-backend", "?reasoning=none", "low"),
         ("", "?reasoning=low", "low"),
         (":novita", "?reasoning=high", "high"),
     ),
@@ -1299,27 +1299,46 @@ def test_glm52_disabled_efforts_use_none(setting: str) -> None:
     assert "extra_body" not in request
 
 
-@pytest.mark.parametrize("model", ("inkling", "Inkling 2 Small (together)", "deepseek41-hf"))
+@pytest.mark.parametrize(
+    "model, lowest",
+    (
+        ("inkling", "minimal"),
+        ("Inkling 2 Small (together)", "minimal"),
+        ("hf.thinkingmachines/Inkling-2-Small", "minimal"),
+        ("deepseek41-hf", "low"),
+        ("glm53", "low"),
+        ("glm53flash", "low"),
+        ("kimi", "low"),
+        ("glimmer", "low"),
+    ),
+)
 @pytest.mark.parametrize("setting", ("none", "off"))
-def test_mandatory_reasoning_rejects_disable_settings(model: str, setting: str) -> None:
+def test_mandatory_reasoning_uses_lowest_effort(model: str, lowest: str, setting: str) -> None:
+    request = _factory_request(f"{model}?reasoning={setting}")
+    assert request["reasoning_effort"] == lowest
+
+
+def test_mandatory_reasoning_adjustment_is_logged_once(monkeypatch: pytest.MonkeyPatch) -> None:
     from fast_agent.llm.reasoning_effort import parse_reasoning_setting
 
-    llm = ModelFactory.create_factory(model)(agent=LlmAgent(AgentConfig(name="mandatory")))
-    spec = llm.reasoning_effort_spec
-    assert spec is not None and "none" not in (spec.allowed_efforts or [])
-    assert not spec.allow_toggle_disable
-    with pytest.raises(ValueError):
+    llm = ModelFactory.create_factory("inkling")(agent=LlmAgent(AgentConfig(name="mandatory")))
+    assert isinstance(llm, HuggingFaceLLM)
+    warnings: list[str] = []
+    monkeypatch.setattr(llm.logger, "warning", warnings.append)
+    for setting in ("none", "off"):
         llm.set_reasoning_effort(parse_reasoning_setting(setting))
-    # Model query validation follows the existing warn-and-use-default convention.
-    request = _factory_request(f"{model}?reasoning={setting}")
-    assert spec.default is not None
-    assert request["reasoning_effort"] == spec.default.value
+        llm._prepare_api_request(
+            [{"role": "user", "content": "hello"}], None, llm.default_request_params
+        )
+    assert len(warnings) == 1
+    assert "cannot be disabled" in warnings[0]
+    assert "minimal" in warnings[0]
 
 
 def test_minimax_direct_route_has_no_reasoning_control() -> None:
     llm = ModelFactory.create_factory("minimax2.5")(agent=LlmAgent(AgentConfig(name="direct")))
     assert llm.reasoning_effort_spec is None
-    for query in ("", "?reasoning=off", "?reasoning=on"):
+    for query in ("", "?reasoning=none", "?reasoning=off", "?reasoning=on"):
         request = _factory_request(f"minimax2.5{query}")
         assert "reasoning_effort" not in request
         extra = request.get("extra_body", {})
@@ -1370,3 +1389,47 @@ def test_dedicated_endpoints_keep_direct_reasoning_controls(
     )
     assert request["extra_body"] == extra_body
     assert "reasoning_effort" not in request
+
+
+@pytest.mark.parametrize("model", ("zai-org/GLM-5.3", "zai-org/GLM-5.3-Flash"))
+@pytest.mark.parametrize("effort", ("low", "max"))
+def test_dedicated_glm53_endpoints_keep_thinking_and_effort(model: str, effort: str) -> None:
+    llm = HuggingFaceLLM(
+        context=Context(
+            config=Settings(hf=HuggingFaceSettings(base_url="https://endpoint.test/v1"))
+        ),
+        model=model,
+        reasoning_effort=effort,
+    )
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}], None, llm.default_request_params
+    )
+    assert request["reasoning_effort"] == effort
+    assert request["extra_body"] == {"thinking": {"type": "enabled", "clear_thinking": False}}
+
+
+@pytest.mark.parametrize(
+    "model",
+    ("hf.Qwen/Qwen3.8-27B", "hf.moonshotai/Kimi-K2.6:novita"),
+)
+@pytest.mark.parametrize("setting", ("none", "off"))
+def test_disable_capable_hf_routes_keep_reasoning_disabled(
+    model: str, setting: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, parse_reasoning_setting
+
+    llm = ModelFactory.create_factory(model)(agent=LlmAgent(AgentConfig(name="toggle")))
+    assert isinstance(llm, HuggingFaceLLM)
+    warnings: list[str] = []
+    monkeypatch.setattr(llm.logger, "warning", warnings.append)
+    llm.set_reasoning_effort(parse_reasoning_setting(setting))
+    assert llm.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=False)
+    assert warnings == []
+
+    request = _factory_request(f"{model}?reasoning={setting}")
+    if model.startswith("hf.Qwen/"):
+        assert "reasoning_effort" not in request
+        assert request["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+    else:
+        assert request["reasoning_effort"] == "none"
+        assert "extra_body" not in request

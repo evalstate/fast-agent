@@ -45,8 +45,10 @@ Most catalog routes now pass through OpenRouter, even with an explicit backend
 suffix. Backend-specific `thinking`, chat-template reasoning controls and
 `disable_reasoning` are silently ignored there; fast-agent uses top-level
 `reasoning_effort` instead. Kimi K2.5/K2.6, GLM 5, GLM 5.2 on Z.ai and
-Qwen 3.6 can again disable reasoning with `none`. Qwen 3.5 provisionally uses
-the same control as Qwen 3.6: upstream rate limits prevented the initial
+Qwen 3.6 can again disable reasoning with `?reasoning=off` or `?reasoning=none`,
+both sent as `reasoning_effort: "none"`.
+Qwen 3.5 provisionally uses the same control as Qwen 3.6: upstream rate limits
+prevented the initial
 investigation, but a post-change smoke check confirmed off returns zero
 reasoning tokens and text. Kimi K2.6 off returns no reasoning text, but still
 reported one reasoning token in both post-change checks.
@@ -64,7 +66,23 @@ Muse Glimmer now sends top-level effort, retaining `low`, `medium`, `high`,
 probes distinguished `max`, but not `low` from `high`. Kimi K3/K3.1 Pro and
 GLM 5.2 DeepInfra settings are unchanged. Reasoning streaming and replay remain
 unchanged. Together's GLM `clear_thinking` field is retained pending a multi-turn
-check of its effect.
+check of its effect. Z.ai's `thinking` object, including `clear_thinking: false`,
+was dropped on single-turn evidence; a post-change tool loop confirmed replay
+still works, but did not establish the field's multi-turn effect.
+
+For Hugging Face effort-based models that cannot disable reasoning, saved or typed
+`?reasoning=none` / `?reasoning=off` now maps to the lowest exposed effort,
+not the default. This adjustment is logged once per model instance; model-string
+adjustments have no separate console notification. `/model reasoning` reports
+the effective effort when changed interactively. Reasoning remains enabled.
+This fallback is Hugging Face-only; other providers keep their existing behavior.
+HF models with a disable control still disable for both `none` and `off`.
+
+The DeepSeek 10 September and MiniMax capability changes are model-wide,
+including unprobed backends and dedicated endpoints. Dedicated endpoint wire
+adapters are retained, but their exposed settings are not wholly unchanged.
+MiniMax has no exposed effort ladder or reasoning control; saved `reasoning=none`
+or `reasoning=off` has no effect (there is no lowest effort to select).
 
 ## GLM-5.3 and GLM-5.3-Flash
 
@@ -94,8 +112,9 @@ fast-agent --model "hf.zai-org/GLM-5.3-Flash:novita?reasoning=max"
 
 Reasoning is always on, with `low`, `high`, and `max` effort levels (default
 `max`). `minimal` maps to `low` and `medium` to `high`; requests to disable
-reasoning are ignored with a warning. Each route sends top-level
-`reasoning_effort`, plus backend-specific preserved-thinking controls:
+reasoning (`none`/off) map to `low` with a one-time logged warning. Each route
+sends top-level `reasoning_effort`, plus backend-specific preserved-thinking
+controls:
 
 | Backend | Additional request fields |
 | --- | --- |
@@ -199,8 +218,10 @@ combined schema+tools request failed validation intermittently on Novita.
 
 Requests send top-level `reasoning_effort`: `max` by default, with `low`,
 `high`, and `max` available. As of 15 November 2026, this checkpoint cannot
-disable reasoning: `none` and off are no longer offered. The accepted efforts
-showed no measurable difference in the probes. No numeric effort conversion is
+disable reasoning: `none` and off are no longer offered. Saved or typed
+`?reasoning=none` / `?reasoning=off` maps to `low`, not the default `max`,
+with a one-time logged warning. The accepted efforts showed no measurable
+difference in the probes. No numeric effort conversion is
 made; the README's raw-weights range of 1–100 does not establish API semantics.
 The 1017 checkpoint retains working `none`/off support.
 
@@ -356,8 +377,13 @@ Reasoning is controlled by the top-level `reasoning_effort` field. Fast-agent
 accepts `minimal`, `low`, `medium`, `high`, `xhigh` and `max`, sends the
 value unchanged, and defaults to `high`. Reasoning is mandatory on both routes:
 `none` now returns HTTP 400, rather than the pre-switch soft minimum. Neither
-`none` nor off is offered. Reasoning content is replayed unchanged in
-conversation history.
+`none` nor off is offered. Saved or typed `?reasoning=none` / `?reasoning=off`
+maps to `minimal`, not the default `high`, with a one-time logged warning.
+Reasoning content is replayed unchanged in conversation history.
+
+**15 November 2026:** `none` was removed after the routing change. This
+supersedes the "soft minimum" description in the dated
+[Inkling 2 Small integration report](../integration/inkling-2-small.md).
 
 Structured output uses the standard `json_schema` response format. When tools
 are available, fast-agent runs a tool phase first and then requests the
@@ -445,7 +471,8 @@ fast-agent --model "hf.moonshotai/Kimi-K2.5?instant=off" # thinking enabled
 The earlier `deepseek-ai/DeepSeek-V4-Flash-0731` checkpoint is no longer listed
 in the model picker or as an alias, but it can still be selected by model ID,
 for example `hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten`. It uses the same
-model profile as [DeepSeek V4.1 Flash](#deepseek-v41-flash): reasoning defaults
+model profile as the 1017 [DeepSeek V4.1 Flash](#deepseek-v41-flash) checkpoint,
+not the original `deepseek41-hf` checkpoint: reasoning defaults
 to `max` (top-level `reasoning_effort`, `reasoning=off` sends `none`), reasoning
 history is replayed as `reasoning_content`, and structured output with tools
 uses the two-phase `defer` policy. Unlike V4.1, the 0731 checkpoint is text-only;

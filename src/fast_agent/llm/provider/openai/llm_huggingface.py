@@ -26,7 +26,7 @@ from fast_agent.llm.provider.openai.request_images import (
     request_bytes,
 )
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
+from fast_agent.llm.reasoning_effort import EFFORT_LEVELS, ReasoningEffortSetting
 from fast_agent.llm.router_profiles import RouterRoute
 from fast_agent.types import RequestParams
 
@@ -42,6 +42,7 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
     def __init__(self, **kwargs) -> None:
         explicit_reasoning_effort = "reasoning_effort" in kwargs
+        self._reasoning_disable_warning_emitted = False
         self._hf_provider_suffix: str | None = None
         self._image_fitter = ChatRequestImageFitter()
         kwargs.pop("provider", None)
@@ -53,6 +54,34 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
             # or preset supplied reasoning explicitly, use the model metadata
             # default during request shaping.
             self.set_reasoning_effort(None)
+
+    def set_reasoning_effort(self, setting: ReasoningEffortSetting | None) -> None:
+        spec = self.reasoning_effort_spec
+        if (
+            setting is not None
+            and spec is not None
+            and (setting.value == "none" or setting.value is False)
+        ):
+            if spec.kind == "toggle" or spec.allow_toggle_disable:
+                setting = ReasoningEffortSetting(kind="toggle", value=False)
+            elif spec.kind == "effort" and "none" not in (spec.allowed_efforts or []):
+                lowest = next(
+                    (
+                        effort
+                        for effort in EFFORT_LEVELS[2:]
+                        if effort in (spec.allowed_efforts or [])
+                    ),
+                    None,
+                )
+                if lowest is not None:
+                    setting = ReasoningEffortSetting(kind="effort", value=lowest)
+                    if not self._reasoning_disable_warning_emitted:
+                        self.logger.warning(
+                            f"Reasoning cannot be disabled for '{self._model_name}'; "
+                            f"using lowest supported effort '{lowest}'."
+                        )
+                        self._reasoning_disable_warning_emitted = True
+        super().set_reasoning_effort(setting)
 
     def _apply_prompt_context_window(self) -> None:
         profile = self._route_profile(self.default_request_params.model)

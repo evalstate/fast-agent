@@ -257,6 +257,8 @@ _KIMI_K3_REASONING = TopLevelReasoningEffort(
 )
 # GLM-5.3 and Flash share the common low/high/max effort contract.
 # Retain Together's clear_thinking until its multi-turn effect is established.
+# Z.ai's thinking object (including clear_thinking) was dropped on single-turn
+# evidence; replay still worked in a post-change tool loop.
 _GLM_53_TOGETHER_REASONING = TopLevelReasoningEffort(
     default_effort="max",
     allowed_efforts=frozenset({"low", "high", "max"}),
@@ -487,7 +489,7 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
                 "moonshotai/kimi-k2.5",
                 "moonshotai/kimi-k2.6",
                 "zai-org/glm-5",
-                # Provisional: Qwen 3.5 was rate-limited; use the Qwen 3.6 contract.
+                # Provisional: Qwen 3.5 has one post-change off check; use the Qwen 3.6 contract.
                 "qwen/qwen3.5-397b-a17b",
                 "qwen/qwen3.6-35b-a3b",
             )
