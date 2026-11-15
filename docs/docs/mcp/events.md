@@ -133,8 +133,8 @@ them before its first turn. `manager.poll_now(key)` polls a
 subscription immediately and keeps its cursor. A provider failure comes back
 from `send` as a reply on the error channel after the events have been drained,
 so a host that must not lose them should check for that and retry.
-`examples/mcp/events/event_loop.py` is a complete driver with retries and
-transcript export.
+`examples/mcp/events/event_loop.py` is a complete driver with retries, token
+usage and transcript export.
 
 ## Current scope
 
