@@ -140,6 +140,7 @@ async def main() -> None:
             _log(f"read {args.skill} ({len(skill)} characters)")
 
         # Subscribe before the opening turn so nothing it causes is missed.
+        await agent.start_configured_events()
         for spec in args.event:
             name, arguments = _event_spec(spec)
             await manager.subscribe(args.server, name, arguments, wake=True)

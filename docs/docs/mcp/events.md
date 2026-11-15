@@ -86,8 +86,8 @@ wake-up turn carries no other request.
 
 ## Declaring subscriptions
 
-Subscriptions can be declared on a server entry so they start whenever an agent
-attaches that server:
+Subscriptions can be declared on a server entry so they start for each agent
+that uses that server:
 
 ```yaml
 mcp:
@@ -103,10 +103,12 @@ mcp:
 ```
 
 The same `events` list is accepted on an AgentCard `mcp_connect` entry, and on
-`MCPServerSettings` passed to `attach_mcp_server` at runtime. Every agent that
-attaches the server gets its own subscriptions. A declared event type the server
-does not offer is logged as a warning and skipped. Detaching a server ends its
-subscriptions, declared or not.
+`MCPServerSettings` passed to `attach_mcp_server` at runtime. Declared
+subscriptions start when the agent is first used: at its first turn, or when its
+prompt first waits for input. An agent that is loaded and never used does not
+poll. Every agent that uses the server gets its own subscriptions. A declared
+event type the server does not offer is logged as a warning and skipped.
+Detaching a server ends its subscriptions, declared or not.
 
 ## From code
 
@@ -125,7 +127,9 @@ async with fast.run() as app:
 ```
 
 `wait_for_event_wake()` returns while an event from a subscription with wake set
-is still in the inbox, and the turn drains it. `manager.poll_now(key)` polls a
+is still in the inbox, and the turn drains it. It also starts the declared
+subscriptions, as `agent.start_configured_events()` does for a host that needs
+them before its first turn. `manager.poll_now(key)` polls a
 subscription immediately and keeps its cursor. A provider failure comes back
 from `send` as a reply on the error channel after the events have been drained,
 so a host that must not lose them should check for that and retry.

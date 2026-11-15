@@ -63,6 +63,8 @@ async def test_configured_subscriptions_follow_server_attach_and_detach(fast_age
     async def run_probe() -> None:
         async with fast_agent.run() as app:
             manager = app.probe.aggregator.events
+            assert manager.subscriptions() == []
+            await app.probe.start_configured_events()
             [configured] = manager.subscriptions()
             assert configured.arguments == {"job_id": "job-1"}
             assert configured.wake
@@ -99,5 +101,21 @@ async def test_configured_subscriptions_follow_server_attach_and_detach(fast_age
 
             await app.detach_mcp_server("probe", "runtime_events")
             assert manager.subscriptions() == [configured]
+
+    await run_probe()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_configured_subscriptions_start_only_for_the_agent_in_use(fast_agent) -> None:
+    @fast_agent.agent(name="probe", model="passthrough", servers=["job_events_configured"])
+    @fast_agent.agent(name="unused", model="passthrough", servers=["job_events_configured"])
+    async def run_probe() -> None:
+        async with fast_agent.run() as app:
+            await app.probe.send("hello")
+
+            [configured] = app.probe.aggregator.events.subscriptions()
+            assert configured.name == "job.status_changed"
+            assert app.unused.aggregator.events.subscriptions() == []
 
     await run_probe()
