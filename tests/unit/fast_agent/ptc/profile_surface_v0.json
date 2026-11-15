@@ -1,0 +1,365 @@
+{
+  "commit": "146a72df8",
+  "rows": [
+    {
+      "model": "passthrough",
+      "profile": "auto",
+      "extras": false,
+      "sha256": "b61d0d456075e458ead0881e7462098a1dadec55410cb8170b9d0d1a6c106076"
+    },
+    {
+      "model": "passthrough",
+      "profile": "auto",
+      "extras": true,
+      "sha256": "0a2315f0429ec37dac472bbc90c650dc78034dbc68ebd4740fc54435b11d97f0"
+    },
+    {
+      "model": "passthrough",
+      "profile": "minimal_process",
+      "extras": false,
+      "sha256": "b61d0d456075e458ead0881e7462098a1dadec55410cb8170b9d0d1a6c106076"
+    },
+    {
+      "model": "passthrough",
+      "profile": "minimal_process",
+      "extras": true,
+      "sha256": "0a2315f0429ec37dac472bbc90c650dc78034dbc68ebd4740fc54435b11d97f0"
+    },
+    {
+      "model": "passthrough",
+      "profile": "grok_shell",
+      "extras": false,
+      "sha256": "7ddab00feda97b70a8c4871d91c20b314f36cae411b0c646700c9e954de93c19"
+    },
+    {
+      "model": "passthrough",
+      "profile": "grok_shell",
+      "extras": true,
+      "sha256": "853b6e9d051b93367f2962b879c85f3422f0aea79a24390901660d17bf179d33"
+    },
+    {
+      "model": "passthrough",
+      "profile": "luna_exec",
+      "extras": false,
+      "sha256": "53445b410c8ff965012c2b07093f0bc460419ee2fae99289da695e68d66722a8"
+    },
+    {
+      "model": "passthrough",
+      "profile": "luna_exec",
+      "extras": true,
+      "sha256": "3f42e8d8082a7166dc4f37add666db065abac753aef822a394d9b33dd8f8fef9"
+    },
+    {
+      "model": "passthrough",
+      "profile": "freeform_shell",
+      "extras": false,
+      "sha256": "53445b410c8ff965012c2b07093f0bc460419ee2fae99289da695e68d66722a8"
+    },
+    {
+      "model": "passthrough",
+      "profile": "freeform_shell",
+      "extras": true,
+      "sha256": "3f42e8d8082a7166dc4f37add666db065abac753aef822a394d9b33dd8f8fef9"
+    },
+    {
+      "model": "passthrough",
+      "profile": "native",
+      "extras": false,
+      "sha256": "f88bbb59cae549ef166c609bba19ff4e9d8c811508def7d14d896f94c714ce57"
+    },
+    {
+      "model": "passthrough",
+      "profile": "native",
+      "extras": true,
+      "sha256": "ea8a2c0d88ae81978a5d5c7b2e54de10da6cac1f0fa726c3e599a1c498b2d9dd"
+    },
+    {
+      "model": "opus55",
+      "profile": "auto",
+      "extras": false,
+      "sha256": "63f383b9c8c7d84534eaea2144b15392cd7e880b9eb4cc27c34d687a996ca3d4"
+    },
+    {
+      "model": "opus55",
+      "profile": "auto",
+      "extras": true,
+      "sha256": "e3888a51c1ca8a8328900a3f4045fe4be8e10d6eaba1f07b91946c6737685607"
+    },
+    {
+      "model": "opus55",
+      "profile": "minimal_process",
+      "extras": false,
+      "sha256": "63f383b9c8c7d84534eaea2144b15392cd7e880b9eb4cc27c34d687a996ca3d4"
+    },
+    {
+      "model": "opus55",
+      "profile": "minimal_process",
+      "extras": true,
+      "sha256": "e3888a51c1ca8a8328900a3f4045fe4be8e10d6eaba1f07b91946c6737685607"
+    },
+    {
+      "model": "opus55",
+      "profile": "grok_shell",
+      "extras": false,
+      "sha256": "9905e90f6c01f43dab51786d86ce18965be93256fcbfceee992891adefb49433"
+    },
+    {
+      "model": "opus55",
+      "profile": "grok_shell",
+      "extras": true,
+      "sha256": "bcee11a6eeb45530058c91f21ec85f130fa1aedd3ea175c36f762bfec5f1935d"
+    },
+    {
+      "model": "opus55",
+      "profile": "luna_exec",
+      "extras": false,
+      "sha256": "2ea6c40515a2f5277fa81f59a360a32f1e48e84ddcd4a54fcd4bb617fdefa821"
+    },
+    {
+      "model": "opus55",
+      "profile": "luna_exec",
+      "extras": true,
+      "sha256": "441ba9927492332bf1dc28247b08b041bc2df7ddac30bc69339b5f25f9b48d06"
+    },
+    {
+      "model": "opus55",
+      "profile": "freeform_shell",
+      "extras": false,
+      "sha256": "2ea6c40515a2f5277fa81f59a360a32f1e48e84ddcd4a54fcd4bb617fdefa821"
+    },
+    {
+      "model": "opus55",
+      "profile": "freeform_shell",
+      "extras": true,
+      "sha256": "441ba9927492332bf1dc28247b08b041bc2df7ddac30bc69339b5f25f9b48d06"
+    },
+    {
+      "model": "opus55",
+      "profile": "native",
+      "extras": false,
+      "sha256": "aa95e7d1e54bc1a9cc025de0dab299b449e6436b0286f1652ebe9728e2ae404e"
+    },
+    {
+      "model": "opus55",
+      "profile": "native",
+      "extras": true,
+      "sha256": "a7e2ee130a3b4323b509240c58599cb55e3685d45ff2d8b06ef24e69b4b09a0b"
+    },
+    {
+      "model": "gpt-6-astra",
+      "profile": "auto",
+      "extras": false,
+      "sha256": "f4c0fac325ed767360c403f8294328b1b376e036d49b9570bb49411a87e08c37"
+    },
+    {
+      "model": "gpt-6-astra",
+      "profile": "auto",
+      "extras": true,
+      "sha256": "7b48b7883b7b6b3869e0e8c2387a80953078508d38518e181c4c06a87f8dd7c8"
+    },
+    {
+      "model": "gpt-6-astra",
+      "profile": "minimal_process",
+      "extras": false,
+      "sha256": "85b3ac88bf0ce98ac28c0b75c0c0d9c8a21b17ea16222de126609c041e3d88be"
+    },
+    {
+      "model": "gpt-6-astra",
+      "profile": "minimal_process",
+      "extras": true,
+      "sha256": "40ba7b6f7945e86f82d073ce59e8c509f2db122777c808c3990097eb3bb462cd"
+    },
+    {
+      "model": "gpt-6-astra",
+      "profile": "grok_shell",
+      "extras": false,
+      "sha256": "3fb60503bea23254b00ec646961ded653994b5756b64125d6b5d88761d54db52"
+    },
+    {
+      "model": "gpt-6-astra",
+      "profile": "grok_shell",
+      "extras": true,
+      "sha256": "0ced788b1647ba44c67fcea1a23f6e68243cad7dfde97ecba18ef4a40d301f85"
+    },
+    {
+      "model": "gpt-6-astra",
+      "profile": "luna_exec",
+      "extras": false,
+      "sha256": "f4c0fac325ed767360c403f8294328b1b376e036d49b9570bb49411a87e08c37"
+    },
+    {
+      "model": "gpt-6-astra",
+      "profile": "luna_exec",
+      "extras": true,
+      "sha256": "7b48b7883b7b6b3869e0e8c2387a80953078508d38518e181c4c06a87f8dd7c8"
+    },
+    {
+      "model": "gpt-6-astra",
+      "profile": "freeform_shell",
+      "extras": false,
+      "sha256": "f4c0fac325ed767360c403f8294328b1b376e036d49b9570bb49411a87e08c37"
+    },
+    {
+      "model": "gpt-6-astra",
+      "profile": "freeform_shell",
+      "extras": true,
+      "sha256": "7b48b7883b7b6b3869e0e8c2387a80953078508d38518e181c4c06a87f8dd7c8"
+    },
+    {
+      "model": "gpt-6-astra",
+      "profile": "native",
+      "extras": false,
+      "sha256": "1c31929c8ccea9e3089bc75431c2f5d22f292c479b75b26c6d7d3695f35a7a72"
+    },
+    {
+      "model": "gpt-6-astra",
+      "profile": "native",
+      "extras": true,
+      "sha256": "760442f5deb39d6cf8f9e971e41b9b62ed7979b0647a0e5635e462f9169fe805"
+    },
+    {
+      "model": "codexresponses.gpt-5.6-luna",
+      "profile": "auto",
+      "extras": false,
+      "sha256": "a3395313942f16dcca342128514d74e5cbce3d8fe700d7a9c884a22cde7ddcbb"
+    },
+    {
+      "model": "codexresponses.gpt-5.6-luna",
+      "profile": "auto",
+      "extras": true,
+      "sha256": "7f75e14c8d9c8b1ec8024f9eaa6072d7613487aad65b12bc6464e80e19518531"
+    },
+    {
+      "model": "codexresponses.gpt-5.6-luna",
+      "profile": "minimal_process",
+      "extras": false,
+      "sha256": "c24ec02bb818e712618f4614cf769cadb881905f7c768b500c6da79ddb6586ba"
+    },
+    {
+      "model": "codexresponses.gpt-5.6-luna",
+      "profile": "minimal_process",
+      "extras": true,
+      "sha256": "a6dacf59667df5c1a199f187efbed1e3b8b5c1fb46ff4928d739f9bd3f4970ff"
+    },
+    {
+      "model": "codexresponses.gpt-5.6-luna",
+      "profile": "grok_shell",
+      "extras": false,
+      "sha256": "eff8c8b9490c7230426d2322e121d50e1e58a190dd96728a67cae40f85154408"
+    },
+    {
+      "model": "codexresponses.gpt-5.6-luna",
+      "profile": "grok_shell",
+      "extras": true,
+      "sha256": "ad7fcc32dfd82001e22d91265eaab9d9017f08d9c92827998b82dd4a56dc957f"
+    },
+    {
+      "model": "codexresponses.gpt-5.6-luna",
+      "profile": "luna_exec",
+      "extras": false,
+      "sha256": "a3395313942f16dcca342128514d74e5cbce3d8fe700d7a9c884a22cde7ddcbb"
+    },
+    {
+      "model": "codexresponses.gpt-5.6-luna",
+      "profile": "luna_exec",
+      "extras": true,
+      "sha256": "7f75e14c8d9c8b1ec8024f9eaa6072d7613487aad65b12bc6464e80e19518531"
+    },
+    {
+      "model": "codexresponses.gpt-5.6-luna",
+      "profile": "freeform_shell",
+      "extras": false,
+      "sha256": "a3395313942f16dcca342128514d74e5cbce3d8fe700d7a9c884a22cde7ddcbb"
+    },
+    {
+      "model": "codexresponses.gpt-5.6-luna",
+      "profile": "freeform_shell",
+      "extras": true,
+      "sha256": "7f75e14c8d9c8b1ec8024f9eaa6072d7613487aad65b12bc6464e80e19518531"
+    },
+    {
+      "model": "codexresponses.gpt-5.6-luna",
+      "profile": "native",
+      "extras": false,
+      "sha256": "f88bbb59cae549ef166c609bba19ff4e9d8c811508def7d14d896f94c714ce57"
+    },
+    {
+      "model": "codexresponses.gpt-5.6-luna",
+      "profile": "native",
+      "extras": true,
+      "sha256": "ea8a2c0d88ae81978a5d5c7b2e54de10da6cac1f0fa726c3e599a1c498b2d9dd"
+    },
+    {
+      "model": "grok",
+      "profile": "auto",
+      "extras": false,
+      "sha256": "eff8c8b9490c7230426d2322e121d50e1e58a190dd96728a67cae40f85154408"
+    },
+    {
+      "model": "grok",
+      "profile": "auto",
+      "extras": true,
+      "sha256": "ad7fcc32dfd82001e22d91265eaab9d9017f08d9c92827998b82dd4a56dc957f"
+    },
+    {
+      "model": "grok",
+      "profile": "minimal_process",
+      "extras": false,
+      "sha256": "4f7d2c197e274e74af74448bcd4501894de0e4e4c4eaaad76b36194e0d7d71b0"
+    },
+    {
+      "model": "grok",
+      "profile": "minimal_process",
+      "extras": true,
+      "sha256": "6a0bca2ccc607d64ce940b6555394d77a51f4f0a4d608ce4ec3c702fe5e8d47a"
+    },
+    {
+      "model": "grok",
+      "profile": "grok_shell",
+      "extras": false,
+      "sha256": "eff8c8b9490c7230426d2322e121d50e1e58a190dd96728a67cae40f85154408"
+    },
+    {
+      "model": "grok",
+      "profile": "grok_shell",
+      "extras": true,
+      "sha256": "ad7fcc32dfd82001e22d91265eaab9d9017f08d9c92827998b82dd4a56dc957f"
+    },
+    {
+      "model": "grok",
+      "profile": "luna_exec",
+      "extras": false,
+      "sha256": "a3395313942f16dcca342128514d74e5cbce3d8fe700d7a9c884a22cde7ddcbb"
+    },
+    {
+      "model": "grok",
+      "profile": "luna_exec",
+      "extras": true,
+      "sha256": "7f75e14c8d9c8b1ec8024f9eaa6072d7613487aad65b12bc6464e80e19518531"
+    },
+    {
+      "model": "grok",
+      "profile": "freeform_shell",
+      "extras": false,
+      "sha256": "a3395313942f16dcca342128514d74e5cbce3d8fe700d7a9c884a22cde7ddcbb"
+    },
+    {
+      "model": "grok",
+      "profile": "freeform_shell",
+      "extras": true,
+      "sha256": "7f75e14c8d9c8b1ec8024f9eaa6072d7613487aad65b12bc6464e80e19518531"
+    },
+    {
+      "model": "grok",
+      "profile": "native",
+      "extras": false,
+      "sha256": "f88bbb59cae549ef166c609bba19ff4e9d8c811508def7d14d896f94c714ce57"
+    },
+    {
+      "model": "grok",
+      "profile": "native",
+      "extras": true,
+      "sha256": "ea8a2c0d88ae81978a5d5c7b2e54de10da6cac1f0fa726c3e599a1c498b2d9dd"
+    }
+  ]
+}

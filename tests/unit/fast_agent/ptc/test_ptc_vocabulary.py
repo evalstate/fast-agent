@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
+from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import pytest
 import pytest_asyncio
-from mcp_types import TextContent, Tool
+from mcp_types import CallToolResult, TextContent, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
@@ -97,6 +99,13 @@ async def test_catalog_ptc_contract(model: str, profile: ShellToolProfile) -> No
         assert all(t.python_name == t.tool.name for t in functions.values())
         assert surface.programmatic is not None
         assert surface.programmatic.vocabulary == PTC_VOCABULARY_VERSION == 1
+        instructions = surface.programmatic.instructions
+        assert ".- " not in instructions
+        assert all(
+            line.startswith("- ")
+            for line in instructions[instructions.index("- Sandbox") :].splitlines()
+            if line.strip()
+        )
         # Ignore f/g placeholders in the generic gather example.
         called = set(re.findall(r"await (\w+)\(", surface.programmatic.instructions))
         assert called <= functions.keys() | {"name", "store", "load", "stored", "settle"}
@@ -149,8 +158,10 @@ async def test_temporary_switch_and_profile_diagnostics(
         assert command.python_name == name
         process = surface.find("process")
         assert process is not None
-        assert f"returned by {name}" in (process.stub or "")
-        assert "Tool `exec`" not in (command.stub or "")
+        # ptc-vocab-v0: the comparison arm deliberately retains parent prose.
+        description_name = name if mode == "canonical" else "exec"
+        assert f"returned by {description_name}" in (process.stub or "")
+        assert ("Tool `exec`" not in (command.stub or "")) == (mode == "canonical")
         result = await agent.call_tool(
             "exec_sandbox",
             {
@@ -173,7 +184,7 @@ async def test_temporary_switch_and_profile_diagnostics(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("old", LEGACY_FUNCTIONS)
+@pytest.mark.parametrize("old", [name for name in LEGACY_FUNCTIONS if name != "exec"])
 async def test_legacy_names_fail_before_side_effects_with_hint(old: str, tmp_path: Path) -> None:
     agent = McpAgent(
         AgentConfig(name="history", servers=[], shell=True, model="passthrough"),
@@ -337,5 +348,184 @@ async def test_file_values_are_deliberately_unchanged(tmp_path: Path) -> None:
         )
         assert not result.is_error
         assert "Successfully wrote" in str(result.content)
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code",
+    [
+        """await shell(command='bash -c "exit 3"', check=True)""",
+        "raise ValueError('could not execute step')",
+        """raise ValueError('ptc.py:1:7: error[unresolved-reference] Name `bash` used when not defined')""",
+        "print('bash')\nawait missing_function()",
+        "await shell(command=123) # bash",
+        "await exec(command='true')",  # Python builtin, not an undefined identifier.
+    ],
+)
+async def test_legacy_hints_ignore_command_text_and_unrelated_errors(code: str) -> None:
+    agent = McpAgent(
+        AgentConfig(name="hints", servers=[], shell=True, model="passthrough"),
+        context=Context(config=Settings(), ptc_enabled=True),
+    )
+    try:
+        await agent.list_tools()
+        result = await agent.call_tool("exec_sandbox", {"code": code})
+        assert result.is_error
+        text = "\n".join(b.text for b in result.content if isinstance(b, TextContent))
+        assert "is `shell` here" not in text
+        if code.startswith("raise"):
+            assert "ValueError:" in text and "Type check failed" not in text
+        if "exit 3" in code:
+            assert "exit code 3" in text and "Type check failed" not in text
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_route_names_override_config_and_rebuild_on_switch() -> None:
+    agent = McpAgent(
+        AgentConfig(
+            name="route", servers=[], shell=True, model="passthrough?ptc=on&ptc_names=profile"
+        ),
+        context=Context(config=Settings(), server_registry=ServerRegistry()),
+    )
+    try:
+        surface = await agent.tool_surface()
+        assert surface.programmatic is not None and surface.programmatic.vocabulary == 0
+        assert surface.find("bash") is not None
+        await agent.initialize()
+        for mode, version, shell_name in [("canonical", 1, "shell"), ("profile", 0, "bash")]:
+            await agent.attach_llm(
+                ModelFactory.create_factory(f"passthrough?ptc=on&ptc_names={mode}")
+            )
+            surface = await agent.tool_surface()
+            assert surface.programmatic is not None and surface.programmatic.vocabulary == version
+            assert surface.find(shell_name) is not None
+        await agent.attach_llm(
+            ModelFactory.create_factory("passthrough?ptc=off&ptc_names=canonical")
+        )
+        surface = await agent.tool_surface()
+        assert surface.programmatic is None and surface.find("bash") is not None
+    finally:
+        await agent.shutdown()
+
+
+# Full definitions, instruction prose, function order, signatures and stubs captured
+# offline from git archive 146a72df8, using the same interpreter/resources. Only the
+# additive vocabulary marker is excluded; no names, descriptions or schemas are normalized.
+PARENT_SURFACES = [
+    (mode, row)
+    for mode in ("direct", "profile")
+    for row in json.loads(Path(__file__).with_name(f"{mode}_surface_v0.json").read_text())["rows"]
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("mode", "baseline"), PARENT_SURFACES)
+async def test_full_surface_matches_parent(mode: str, baseline: dict) -> None:
+    enabled = mode == "profile"
+    agent = McpAgent(
+        AgentConfig(
+            name="t",
+            instruction="x",
+            servers=[],
+            shell=True,
+            model=baseline["model"],
+            subagents=baseline["extras"],
+        ),
+        context=Context(
+            config=Settings(
+                shell_execution=ShellSettings(
+                    tool_profile=baseline["profile"], enable_attach_media="on"
+                ),
+                ptc=ProgrammaticToolCallingSettings(function_names="profile"),
+            ),
+            ptc_enabled=enabled,
+        ),
+    )
+    try:
+        if baseline["extras"]:
+            install_subagent_tool(agent)
+            set_harness_tools(agent, True)
+        tools = [
+            tool.model_dump(mode="json", by_alias=True, exclude_none=True)
+            for tool in (await agent.list_tools()).tools
+        ]
+        for tool in tools:
+            tool.get("_meta", {}).pop(PTC_VOCABULARY_META, None)
+        record = {"tools": tools}
+        if enabled:
+            surface = await agent.tool_surface()
+            assert surface.programmatic is not None
+            programmatic = asdict(surface.programmatic)
+            programmatic.pop("vocabulary")
+            record["programmatic"] = programmatic
+            record["functions"] = [
+                (entry.python_name, entry.tool.name, entry.signature, entry.stub)
+                for entry in surface.exposed(ToolExposure.PROGRAMMATIC)
+            ]
+        digest = hashlib.sha256(
+            json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        assert digest == baseline["sha256"], (mode, baseline)
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_mcp_collision_dispatches_alias_back_to_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = McpAgent(
+        AgentConfig(name="mcp-collision", servers=[], shell=True, model="passthrough"),
+        context=Context(config=Settings(), ptc_enabled=True),
+    )
+    seen: list[str] = []
+
+    async def list_tools() -> list[Tool]:
+        # Adversarial prefiltered boundary: normal MCP names include server__ and
+        # cannot collide with these built-ins. Verify the alias route if one does.
+        return [Tool(name="shell", input_schema={"type": "object"})]
+
+    async def call_tool(name: str, arguments: dict, *args, **kwargs) -> CallToolResult:
+        seen.append(name)
+        return CallToolResult(content=[TextContent(type="text", text="from MCP")])
+
+    monkeypatch.setattr(agent, "_get_filtered_mcp_tools", list_tools)
+    monkeypatch.setattr(agent._aggregator, "call_tool", call_tool)
+    try:
+        await agent.list_tools()
+        result = await agent.call_tool("exec_sandbox", {"code": "await shell_tool()"})
+        assert not result.is_error and "from MCP" in str(result.content)
+        assert seen == ["shell"]
+        result = await agent.call_tool(
+            "exec_sandbox", {"code": "await shell(command='printf local')"}
+        )
+        assert not result.is_error and "local" in str(result.content)
+        assert seen == ["shell"]
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_profile_keeps_parent_reserved_name_rejection() -> None:
+    from fast_agent.core.exceptions import AgentConfigError
+    from fast_agent.tools.function_tool_loader import build_default_function_tool
+
+    def user_tool() -> str:
+        return "user"
+
+    agent = McpAgent(
+        AgentConfig(
+            name="profile-collision", servers=[], model="passthrough?ptc=on&ptc_names=profile"
+        ),
+        tools=[build_default_function_tool(user_tool, name="get_resource")],
+        context=Context(config=Settings()),
+    )
+    try:
+        with pytest.raises(AgentConfigError, match="reserved"):
+            set_harness_tools(agent, True)
     finally:
         await agent.shutdown()

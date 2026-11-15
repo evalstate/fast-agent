@@ -354,6 +354,8 @@ class ProgrammaticToolRuntime:
 
     def __init__(self, settings: ProgrammaticToolCallingSettings) -> None:
         self._settings = settings
+        # ptc-vocab-v0: route override can change without resetting the sandbox store.
+        self.function_names = settings.function_names
         # The name avoids "python": models treat a Python-named tool as the machine's Python.
         self.tool_name = PTC_TOOL_NAME
         self._functions: dict[str, PtcFunction] = {}
@@ -418,6 +420,7 @@ class ProgrammaticToolRuntime:
         names = {tool.name for tool in tools}
         builtin_names = {tool.name for tool in tools if is_builtin_tool(tool)}
         self._direct_patterns = []
+        # ptc-vocab-v0: remove direct-selector migration after matched rollout.
         for pattern in self._settings.direct_tools:
             replacement = LEGACY_FUNCTIONS.get(pattern)
             if self.vocabulary == 1 and pattern not in names and replacement in builtin_names:
@@ -436,6 +439,7 @@ class ProgrammaticToolRuntime:
         self._result_byte_limit = result_byte_limit
         self._functions = build_functions(
             nested,
+            profile_names=self.vocabulary == 0,
             reserved_names=OUTPUT_HELPER_NAMES if self._output_guidance != "off" else frozenset(),
         )
         self._nested_tools = {tool.name: tool for tool in nested}
@@ -504,7 +508,7 @@ class ProgrammaticToolRuntime:
     @property
     def vocabulary(self) -> int:
         """Zero identifies the temporary per-model profile arm, one the canonical surface."""
-        return PTC_VOCABULARY_VERSION if self._settings.function_names == "canonical" else 0
+        return PTC_VOCABULARY_VERSION if self.function_names == "canonical" else 0
 
     def _instructions(self) -> str:
         shared = ", ".join(f"`{name}`" for name in self._shared_functions)
@@ -532,10 +536,11 @@ class ProgrammaticToolRuntime:
             tool=example.tool_name,
             call=f"{example.example_call()}",
         )
+        # ptc-vocab-v0: remove the migration bridge after matched rollout.
         if self.vocabulary == 1 and self._shell_function is not None:
-            note += (
+            note = note.rstrip("\n") + (
                 " Instructions may call the shell `bash`, `Shell`, `exec` or `execute`; "
-                "in code it is `shell`."
+                "in code it is `shell`.\n"
             )
         return note
 
@@ -634,6 +639,7 @@ class ProgrammaticToolRuntime:
 
     def unavailable_tool_hint(self, name: str) -> str | None:
         """Explain how to reach a tool the model called directly that only code can call."""
+        # ptc-vocab-v0: remove legacy direct-call lookup after matched rollout.
         lookup_name = name
         if self.vocabulary == 1 and name not in self._functions:
             lookup_name = LEGACY_FUNCTIONS.get(name, name)
@@ -716,11 +722,7 @@ class ProgrammaticToolRuntime:
         parent_call_id: str | None = None,
         cwd: str | None = None,
     ) -> CallToolResult:
-        """Run model code; nested call ids derive from ``parent_call_id`` when it is known.
-
-        ``cwd`` is the tools' working directory, against which sandbox code resolves relative
-        file paths; it must be an absolute POSIX path.
-        """
+        """Execute validated code and collect nested calls."""
         # Accept both input formats: history can contain calls made before a model switch.
         code = arguments.get("code", arguments.get(_FREEFORM_CODE_ARG))
         if not isinstance(code, str) or not code.strip():
@@ -783,6 +785,8 @@ class ProgrammaticToolRuntime:
                     "Type check failed; the code was NOT executed. Fix it and retry.\n"
                     + detail
                     + self._error_hints(detail)
+                    # ptc-vocab-v0: remove undefined-name hints after matched rollout.
+                    + (legacy_name_hint(detail, self._functions) if self.vocabulary == 1 else "")
                 )
             except MontySyntaxError as exc:
                 return _syntax_error_result(self._describe_syntax_error(code) or exc.display())
@@ -805,10 +809,7 @@ class ProgrammaticToolRuntime:
         return report
 
     def _error_hints(self, detail: str) -> str:
-        hint = self._direct_io_hint(detail) or self._sandbox_gap_hint(detail)
-        if self.vocabulary == 1:
-            hint += legacy_name_hint(detail, self._functions)
-        return hint
+        return self._direct_io_hint(detail) or self._sandbox_gap_hint(detail)
 
     def _sandbox_gap_hint(self, detail: str) -> str:
         """Point code that hit a missing built-in method or module at the system Python."""

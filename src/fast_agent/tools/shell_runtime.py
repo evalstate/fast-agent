@@ -38,6 +38,7 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.tool_result_metadata import (
     update_tool_result_display_metadata,
 )
+from fast_agent.ptc.vocabulary import PTC_SHELL_FUNCTION
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_INPUT_FIELD as FREEFORM_TOOL_INPUT_FIELD
 from fast_agent.tools.durable_processes import (
     DurableProcessError,
@@ -478,8 +479,9 @@ class ShellRuntime:
         name. The luna_exec contract adopts it when present and otherwise keeps
         its historical ``exec`` name.
         """
+        # ptc-vocab-v0: remove profile fallback after matched rollout (direct mode stays).
         if canonical_ptc:
-            profile, model_shell_tool_name = "luna_exec", "shell"
+            profile, model_shell_tool_name = "luna_exec", PTC_SHELL_FUNCTION
         resolved_profile = resolve_shell_tool_profile(profile, model_profile)
         self._luna_exec_tool_name = model_shell_tool_name or LUNA_EXEC_TOOL_NAME
         self._minimal_process_profile = resolved_profile == "minimal_process"

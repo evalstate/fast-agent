@@ -13,12 +13,12 @@ from mcp_types import (
     TextResourceContents,
 )
 
-from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.internal_resources import read_internal_resource
 from fast_agent.mcp.helpers.content_helpers import get_text, text_content
 from fast_agent.mcp.mime_utils import is_image_mime_type
+from fast_agent.ptc.vocabulary import PtcBuiltinNameReserver
 from fast_agent.tools.function_tool_loader import build_default_function_tool
 
 SLASH_COMMAND_TOOL_NAME = "slash_command"
@@ -125,7 +125,7 @@ def set_harness_tools(agent: object, enabled: bool | None = None) -> bool:
     for name in HARNESS_TOOL_NAMES:
         existing = agent._execution_tools.get(name)
         if existing is not None and not _is_harness_tool(agent, name):
-            if isinstance(agent, McpAgent) and agent.reserve_ptc_builtin_name(name):
+            if isinstance(agent, PtcBuiltinNameReserver) and agent.reserve_ptc_builtin_name(name):
                 continue
             raise AgentConfigError(f"Tool name '{name}' is reserved by fast-agent")
 

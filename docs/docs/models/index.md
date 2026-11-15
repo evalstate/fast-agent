@@ -265,13 +265,17 @@ provider.model_name[?reasoning=value][&query=value...]
 `ptc=on|true|off|false` (any provider) enables or disables
 [programmatic tool calling](../ref/config_file.md#programmatic-tool-calling-ptc).
 For example, `glm53flash?ptc=off` disables the GLM-5.3-Flash default, while
-Canonical PTC uses the same `shell`, `process`, and file functions for every model;
-model-specific shell names, profiles, and edit preferences apply only to direct mode.
-See the [PTC vocabulary and temporary comparison switch](../ref/config_file.md#programmatic-tool-calling-ptc).
-
 `glm53?ptc=on` enables PTC for GLM-5.3. GPT-6 Astra, GPT-6.1 Sol/Terra, GPT-6 Luna and
 Kimi K3.1 Pro also default to on (`luna?ptc=off` to disable). The CLI flags `--ptc` / `--no-ptc`
 take precedence over the model string.
+
+Canonical PTC uses the same `shell`, `process`, and file functions for every model;
+model-specific shell names, profiles, and edit preferences apply only to direct mode.
+For temporary matched comparisons, `ptc_names=profile|canonical` overrides
+`ptc.function_names` without an environment variable, for example
+`kimi?ptc=on&ptc_names=profile`. It does not enable PTC by itself and is scheduled
+for removal after the naming evaluation.
+See the [PTC vocabulary and temporary comparison switch](../ref/config_file.md#programmatic-tool-calling-ptc).
 
 `compact_at` (any provider) sets when auto-compaction fires for this model: input tokens
 (`grok?compact_at=150k`) or a context-window fraction (`sonnet?compact_at=0.7`, `70%`).

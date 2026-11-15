@@ -257,7 +257,17 @@ async def run_case(
     if process.returncode != 0 or not results.exists():
         return False, f"run failed (exit {process.returncode}): {text[-800:]}", elapsed
 
-    history: History = json.loads(results.read_text(encoding="utf-8"))["messages"]
+    document = json.loads(results.read_text(encoding="utf-8"))
+    history: History = document["messages"]
+    metadata = document.get("metadata") or {}
+    actual = metadata.get(PTC_VOCABULARY_META)
+    names = metadata.get("ptc_functions", [])
+    observed = f"vocabulary={actual}, functions={','.join(names)}"
+    print(f"{case.name}: {observed}", flush=True)
+    vocabulary = PTC_VOCABULARY_VERSION if function_names == "canonical" else 0
+    if actual != vocabulary or not names:
+        return False, f"expected PTC vocabulary {vocabulary}; observed {observed}", elapsed
+
     answer = next(
         (
             " ".join(block.get("text", "") for block in message["content"])
@@ -269,7 +279,6 @@ async def run_case(
     missing = [word for word in case.expect if word not in answer.lower()]
     if missing:
         return False, f"answer lacks {missing}: {answer.strip()[:300]!r}", elapsed
-    vocabulary = PTC_VOCABULARY_VERSION if function_names == "canonical" else 0
     if any(
         (result.get("_meta") or {}).get(PTC_VOCABULARY_META) != vocabulary
         for result in code_results(history)

@@ -45,7 +45,13 @@ Use `ptc.direct_tools: ["shell"]` for the canonical direct shell in hybrid mode.
 The temporary `ptc.function_names: profile` switch restores the previous per-model
 PTC vocabulary for a matched comparison; the default is `canonical`. For example,
 `uv run evals.py --function-names profile --list` prints the profile-arm commands
-without calling a provider. Evals check the vocabulary recorded in each code result.
+without calling a provider. Evals print and check the actual vocabulary and
+rendered function names from the JSON results header, as well as every code result.
+The card is vocabulary-neutral. The example leaves `function_names` commented so
+the eval arm's environment setting is not overridden by YAML.
+Benchmark routes can instead carry the temporary model query
+`?ptc=on&ptc_names=profile` (or `canonical`), overriding YAML without a new
+environment variable. This is a whole-contract comparison, not a names-only test.
 `/tools` and result metadata identify vocabulary `1` (canonical) or `0` (profile).
 See the [vocabulary and migration reference](../../docs/docs/ref/config_file.md#programmatic-tool-calling-ptc)
 for collisions, legacy-name hints, signatures and settings.

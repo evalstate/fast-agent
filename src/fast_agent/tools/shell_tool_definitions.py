@@ -7,6 +7,7 @@ from typing import Any, Literal, TypeAlias, cast
 from mcp_types import Tool
 
 from fast_agent.constants import MAX_PROCESS_OUTPUT_QUERY_CHARS, MAX_TERMINAL_OUTPUT_BYTE_LIMIT
+from fast_agent.ptc.vocabulary import PTC_SHELL_FUNCTION
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_INPUT_FIELD as FREEFORM_TOOL_INPUT_FIELD
 from fast_agent.tools.apply_patch_tool import OPENAI_RESPONSES_CUSTOM_TOOL_META_KEY
 from fast_agent.tools.filesystem_tool_args import (
@@ -513,12 +514,7 @@ def build_luna_exec_tool(*, shell_name: str, tool_name: str = LUNA_EXEC_TOOL_NAM
 
 def build_ptc_shell_tool(*, shell_name: str) -> Tool:
     """Canonical PTC command contract, independent of direct-mode model profiles."""
-    tool = build_luna_exec_tool(shell_name=shell_name, tool_name="shell")
-    return tool.model_copy(
-        update={
-            "description": (tool.description or "").replace("background=true", "background=True")
-        }
-    )
+    return build_luna_exec_tool(shell_name=shell_name, tool_name=PTC_SHELL_FUNCTION)
 
 
 FREEFORM_SHELL_PRAGMA = "# @shell:"

@@ -15,7 +15,7 @@ mcp:
 ptc:
   enabled: false
   # Temporary matched-benchmark switch: canonical (default) | profile.
-  function_names: canonical
+  # function_names: canonical
   # Tools (fnmatch patterns) that stay directly callable next to exec_sandbox.
   direct_tools: []
   # Tools (fnmatch patterns) callable only from code, overriding tools that declare direct

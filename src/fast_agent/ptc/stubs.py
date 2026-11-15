@@ -172,16 +172,26 @@ def tool_ptc_options(tool: Tool) -> Mapping[str, Any]:
 
 
 def build_functions(
-    tools: Sequence[Tool], *, reserved_names: frozenset[str] = frozenset()
+    tools: Sequence[Tool],
+    *,
+    reserved_names: frozenset[str] = frozenset(),
+    profile_names: bool = False,
 ) -> dict[str, PtcFunction]:
     """Build sandbox functions keyed by Python name, resolving name collisions.
 
     ``reserved_names`` are other sandbox globals that tool functions must not shadow.
     """
     functions: dict[str, PtcFunction] = {}
-    for tool in sorted(tools, key=lambda tool: (not is_builtin_tool(tool), tool.name)):
+    # ptc-vocab-v0: preserve the parent rendering exactly in the comparison arm.
+    ordered = (
+        tools
+        if profile_names
+        else sorted(tools, key=lambda tool: (not is_builtin_tool(tool), tool.name))
+    )
+    for tool in ordered:
         python_name = _unique(_global_identifier(tool.name, reserved_names), functions)
-        functions[python_name] = _build_function(tool, python_name)
+        function = _build_function(tool, python_name)
+        functions[python_name] = replace(function, builtin=False) if profile_names else function
     renamed = {
         f.tool_name: f.python_name
         for f in functions.values()

@@ -109,7 +109,7 @@ from fast_agent.mcp.tool_result_truncation import (
 )
 from fast_agent.paths import resolve_home_paths
 from fast_agent.ptc import ProgrammaticToolRuntime
-from fast_agent.ptc.vocabulary import is_builtin_tool
+from fast_agent.ptc.vocabulary import PtcFunctionNames, is_builtin_tool
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_TOOL_NAME
@@ -1747,27 +1747,50 @@ class McpAgent(ABC, ToolAgent):
         if self._context.ptc_enabled is not None:
             return _PtcSelection(self._context.ptc_enabled, explicit=True)
         configured = self._context.config.ptc.enabled
-        resolved = resolve_resolved_model(llm) if llm is not None else None
-        if not isinstance(resolved, ResolvedModelSpec):
-            # Initialization can build instructions/tools before an LLM is attached.
-            from fast_agent.core.model_resolution import (
-                get_context_cli_model_override,
-                resolve_model_spec,
-            )
-            from fast_agent.llm.model_factory import ModelFactory
-
-            model = resolve_model_spec(
-                self._context,
-                model=self.config.model,
-                cli_model=get_context_cli_model_override(self._context),
-            ).model
-            if not model:
-                return _PtcSelection(bool(configured), explicit=configured is not None)
-            resolved = ModelFactory.resolve_model_spec(model)
+        resolved = self._ptc_resolved_model(llm)
+        if resolved is None:
+            return _PtcSelection(bool(configured), explicit=configured is not None)
         return _PtcSelection(
             resolved.resolve_ptc_enabled(configured),
             explicit=configured is not None or resolved.model_config.ptc is not None,
         )
+
+    def _ptc_model_reference(self) -> str | None:
+        from fast_agent.core.model_resolution import (
+            get_context_cli_model_override,
+            resolve_model_spec,
+        )
+
+        assert self._context is not None
+        return resolve_model_spec(
+            self._context,
+            model=self.config.model,
+            cli_model=get_context_cli_model_override(self._context),
+        ).model
+
+    def _ptc_resolved_model(self, llm: FastAgentLLMProtocol | None) -> ResolvedModelSpec | None:
+        from fast_agent.llm.model_factory import ModelFactory
+
+        resolved = resolve_resolved_model(llm) if llm is not None else None
+        if isinstance(resolved, ResolvedModelSpec):
+            return resolved
+        # Initialization can build instructions/tools before an LLM is attached.
+        model = self._ptc_model_reference()
+        return ModelFactory.resolve_model_spec(model) if model else None
+
+    # ptc-vocab-v0: remove the temporary naming selection after matched rollout.
+    def _ptc_function_names(self, llm: FastAgentLLMProtocol | None = None) -> PtcFunctionNames:
+        from fast_agent.llm.model_factory import resolve_model_query_overrides
+
+        assert self._context is not None and self._context.config is not None
+        active_llm = llm or self._llm
+        resolved = resolve_resolved_model(active_llm) if active_llm is not None else None
+        if isinstance(resolved, ResolvedModelSpec):
+            override = resolved.model_config.ptc_names
+        else:
+            model = self._ptc_model_reference()
+            override = resolve_model_query_overrides(model).ptc_names if model else None
+        return override or self._context.config.ptc.function_names
 
     def _ptc_enabled_for(self, llm: FastAgentLLMProtocol | None) -> bool:
         """Whether PTC is enabled for ``llm``; raises if explicitly selected but unservable."""
@@ -1792,9 +1815,9 @@ class McpAgent(ABC, ToolAgent):
         if self._context is None or self._context.config is None:
             return False
         return (
-            self._context.config.ptc.function_names == "canonical"
-            and self._ptc_environment_supported()
+            self._ptc_environment_supported()
             and self._ptc_selection(llm or self._llm).enabled
+            and self._ptc_function_names(llm) == "canonical"
         )
 
     def _programmatic_tool_runtime(self) -> ProgrammaticToolRuntime | None:
@@ -1804,6 +1827,7 @@ class McpAgent(ABC, ToolAgent):
         assert self._context is not None and self._context.config is not None
         if self._ptc_runtime is None:
             self._ptc_runtime = ProgrammaticToolRuntime(self._context.config.ptc)
+        self._ptc_runtime.function_names = self._ptc_function_names()
         return self._ptc_runtime
 
     def _ptc_environment_supported(self) -> bool:
@@ -3011,7 +3035,8 @@ class McpAgent(ABC, ToolAgent):
         ptc_runtime = self._programmatic_tool_runtime()
         mcp_tools = await self._get_filtered_mcp_tools()
         local_tools = await self._additional_runtime_tools()
-        if ptc_runtime is not None:
+        # ptc-vocab-v0: preserve parent merging/order for the profile comparison arm.
+        if ptc_runtime is not None and ptc_runtime.vocabulary == 1:
             merged_tools = self._merge_ptc_tools(mcp_tools, local_tools)
         else:
             # Preserve direct-mode precedence and names.
@@ -3052,8 +3077,8 @@ class McpAgent(ABC, ToolAgent):
         return ptc_runtime.surface(model_tools)
 
     def reserve_ptc_builtin_name(self, name: str) -> bool:
-        """Move an installed user function aside before installing a PTC built-in."""
-        if not self._ptc_enabled_for(self._llm):
+        """Move an installed user function aside before installing a canonical PTC built-in."""
+        if not self._canonical_ptc_for(self._llm):
             return False
         tool = self._execution_tools[name]
         alias = f"{name}_tool"

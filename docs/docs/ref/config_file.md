@@ -94,9 +94,17 @@ With local shell access, every model gets the same keyword-only functions:
 Return values are unchanged, including text/JSON auto-conversion for file reads.
 Built-ins keep their names on collision; user/MCP tools receive a `_tool` suffix
 and a warning. Other Python identifier collisions are resolved deterministically.
+A user function moved aside when installing `subagent` or harness tools retains
+that installed alias for the lifetime of the agent, including a later switch to
+direct mode; a fresh direct-mode agent still rejects reserved-name conflicts.
 
 **Temporary comparison switch:** `ptc.function_names: profile` restores the previous
 per-model PTC vocabulary for matched benchmarks; `canonical` is the default.
+The temporary model query `ptc_names=profile|canonical` takes precedence over this
+setting (for example `kimi?ptc=on&ptc_names=profile`), so benchmark routes can select
+an arm without adding an environment variable. It does not enable PTC itself.
+Profile mode retains the parent instruction/stub ordering and prose, including
+historical `exec_tool` diagnostics; canonical fixes those diagnostics.
 This switch is scheduled for removal after the naming evaluation, not a permanent
 compatibility option. Direct mode is unaffected. For two or three releases, old
 PTC names such as `bash`, `Shell`, `exec_tool`, `execute`, `poll_process`,
@@ -109,7 +117,19 @@ An old exact `["bash"]` selector is migrated to `shell` with a warning.
 Use `/tools` to inspect the vocabulary version: `1` for canonical, `0` for the
 temporary profile arm. Code-tool and result metadata carry
 `fast-agent-ptc-vocabulary`; nested call records also carry `function` alongside
-the dispatched `tool` name.
+the dispatched `tool` name. JSON `--results` headers also record the actual
+vocabulary and `ptc_functions`, including runs with no code calls.
+
+This comparison measures the whole v1 contract, not names alone: non-GPT-6
+profiles gain `working_directory` and hard `timeout`, `background` replaces
+`run_in_background`, minimal-profile `description` is removed, and Grok/Qwen
+adopt the aligned shell guidance. GPT-5.6/Sol/Terra lose extended shell/process
+verification guidance and `apply_patch`; native profiles lose `cwd`,
+`yield_after_idle_sec`, and `output_byte_limit`. Process lifecycle, default
+auto-await behavior and program-facing return values are unchanged.
+ACP local-shell users with persisted allows for old names will be prompted
+once for `shell`; hooks still see the outer code tool. MCP tools merely named
+`bash`/`Shell` no longer receive local-shell dict-result guidance.
 
 !!! warning "Local POSIX only"
     PTC does not yet support Docker, remote, ACP-owned terminal/filesystem, custom

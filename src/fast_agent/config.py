@@ -2003,6 +2003,7 @@ class ProgrammaticToolCallingSettings(BaseModel):
     """Expose tools through the Python code tool; null uses the model default.
     Override with `--ptc` / `--no-ptc` or the `ptc` model query. Local POSIX only."""
 
+    # ptc-vocab-v0: remove the temporary comparison setting after matched rollout.
     function_names: Literal["canonical", "profile"] = "canonical"
     """Temporary benchmark comparison switch: canonical PTC vocabulary v1 (default), or
     previous per-model profiles. Remove after the matched naming evaluation; not a permanent
