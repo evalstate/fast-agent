@@ -29,11 +29,15 @@ from typing import TYPE_CHECKING
 
 from fast_agent import FastAgent
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.llm.usage_tracking import summarize_usage
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt_serialization import save_messages
 from fast_agent.session.session_manager import get_session_manager
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from fast_agent.llm.usage_tracking import TurnUsage, UsageSummary
     from fast_agent.mcp.events_subscriptions import EventInboxItem
     from fast_agent.types import PromptMessageExtended
 
@@ -91,6 +95,11 @@ def _parse_args() -> argparse.Namespace:
         "messages, as fast-agent JSON for a .json path. Otherwise it is the session trace from "
         "`fast-agent export`: ATIF for a .json path, Codex JSONL for anything else.",
     )
+    parser.add_argument(
+        "--usage",
+        default="",
+        help="Write token usage here as JSON when the loop stops, per turn and in total.",
+    )
     parser.add_argument("--max-turns", type=int, default=0, help="Stop after this many wake-ups.")
     parser.add_argument(
         "--retries", type=int, default=4, help="Attempts per turn before giving up."
@@ -110,6 +119,14 @@ def _log(text: str) -> None:
     print(f"[{datetime.now():%H:%M:%S}] {text}", flush=True)
 
 
+def _usage_text(summary: UsageSummary) -> str:
+    return (
+        f"input {summary.prompt.total}, cached {summary.prompt.cache_read}, "
+        f"output {summary.completion.total}, {summary.provider_attempts} model calls, "
+        f"{summary.tool_calls} tool calls"
+    )
+
+
 args = _parse_args()
 fast = FastAgent("event-loop", parse_cli_args=False, quiet=True, config_path=args.config)
 
@@ -123,6 +140,9 @@ async def main() -> None:
         stop_key, _, stop_value = args.stop_on.partition("=")
         stops_seen = 0
         cleared: list[PromptMessageExtended] = []
+        # Kept here because clearing the conversation resets the agent's own count.
+        model_calls: list[TurnUsage] = []
+        turn_usage: list[UsageSummary] = []
 
         def note(item: EventInboxItem) -> None:
             nonlocal stops_seen
@@ -151,9 +171,20 @@ async def main() -> None:
             raise SystemExit("Nothing to wake on: declare events in the config or pass --event.")
         _log(f"waking on {', '.join(waking)}")
 
+        def record_usage(first: int) -> None:
+            usage = agent.usage_accumulator
+            spent: Sequence[TurnUsage] = usage.turns[first:] if usage else []
+            if not usage or not spent:
+                return
+            model_calls.extend(spent)
+            turn_usage.append(summarize_usage(spent))
+            _log(f"usage: {_usage_text(turn_usage[-1])}, context {usage.current_context_tokens}")
+
         async def turn(prompt: str, *, with_skill: bool) -> bool:
             """Run one turn. A failed model call is retried, since the events are still current."""
             text = f"{skill}\n\n{prompt}" if skill and with_skill else prompt
+            usage = agent.usage_accumulator
+            first = len(usage.turns) if usage else 0
             for attempt in range(1, args.retries + 1):
                 try:
                     reply = await agent.send(text)
@@ -168,13 +199,9 @@ async def main() -> None:
                         await asyncio.sleep(delay)
                     continue
                 _log(f"turn ended: {reply.strip()[:300]}")
-                usage = agent.usage_accumulator
-                if usage is not None:
-                    _log(
-                        f"usage: context {usage.current_context_tokens}, "
-                        f"total {usage.summary.total}"
-                    )
+                record_usage(first)
                 return True
+            record_usage(first)
             # Drop what this wake-up delivered, or the wait below returns at once for ever.
             dropped = len(manager.take())
             _log(f"gave up on this turn, {dropped} undelivered events dropped")
@@ -206,6 +233,18 @@ async def main() -> None:
             if args.fresh:
                 clear()
             await turn(args.finish, with_skill=False)
+
+        total = summarize_usage(model_calls)
+        if model_calls:
+            _log(f"usage in total: {_usage_text(total)}")
+        if args.usage:
+            report = {
+                "model": model_calls[-1].model if model_calls else None,
+                "turns": [summary.model_dump(mode="json") for summary in turn_usage],
+                "total": total.model_dump(mode="json"),
+            }
+            Path(args.usage).write_text(json.dumps(report, indent=2), encoding="utf-8")
+            _log(f"wrote {args.usage}")
 
         if args.export and args.fresh:
             save_messages([*cleared, *agent.message_history], args.export)
