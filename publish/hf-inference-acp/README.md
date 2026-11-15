@@ -44,12 +44,12 @@ ACP sessions are always connection-scoped.
 
 - `kimi`
 - `glm`
-- `deepseek4pro`
+- `deepseek-hf` (DeepSeek V4.1 Flash)
 - `kimi25` (thinking profile)
 - `qwen35` (thinking profile)
 - `qwen35instruct` (instruct profile)
 
-Kimi 2.5 aliases resolve to `hf.moonshotai/Kimi-K2.5:fireworks-ai` with curated defaults:
+Kimi 2.5 aliases resolve to `hf.moonshotai/Kimi-K2.5:novita` with curated defaults:
 
 - `kimi25`: `temperature=1.0, top_p=0.95`
 

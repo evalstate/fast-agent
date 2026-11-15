@@ -432,10 +432,11 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="toggle", value=True),
     )
 
+    # The HF router can only switch Gemma 4 thinking via the chat template
+    # (enable_thinking); effort levels have no wire representation there.
     GEMMA4_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
-        kind="effort",
-        allowed_efforts=["none", "low", "medium", "high"],
-        default=ReasoningEffortSetting(kind="effort", value="none"),
+        kind="toggle",
+        default=ReasoningEffortSetting(kind="toggle", value=False),
     )
 
     DEEPSEEK_REASONING_EFFORT_SPEC = ReasoningEffortSpec(

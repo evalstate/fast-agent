@@ -450,6 +450,34 @@ def test_qwen38_disables_thinking_through_chat_template_contract() -> None:
 
 
 @pytest.mark.parametrize(
+    ("suffix", "query", "enabled"),
+    (
+        ("", "", False),
+        ("", "?reasoning=on", True),
+        (":other-backend", "?reasoning=off", False),
+        (":other-backend", "?reasoning=on", True),
+    ),
+)
+def test_gemma4_generic_route_sends_chat_template_toggle(
+    suffix: str, query: str, enabled: bool
+) -> None:
+    llm = ModelFactory.create_factory(f"hf.google/gemma-4-31B-it{suffix}{query}")(
+        agent=LlmAgent(AgentConfig(name="router-profile-test"))
+    )
+    assert isinstance(llm, HuggingFaceLLM)
+    # The model spec must only offer what the generic HF rule can put on the wire.
+    assert llm.reasoning_effort_spec is not None
+    assert llm.reasoning_effort_spec.kind == "toggle"
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}], None, llm.default_request_params
+    )
+
+    assert request["model"] == f"google/gemma-4-31B-it{suffix}"
+    assert "reasoning_effort" not in request
+    assert request["extra_body"] == {"chat_template_kwargs": {"enable_thinking": enabled}}
+
+
+@pytest.mark.parametrize(
     "model",
     (
         "Qwen/Qwen3.8-27B",

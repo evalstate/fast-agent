@@ -79,7 +79,7 @@
 | `glm53flash` | `hf` | Text, Vision | `json` (object) | effort: `low`, `high`, `max`<br>Example: `glm53flash?reasoning=max` | — | — |
 | `glm5` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm5?reasoning=off` | — | — |
 | `glm` | `hf` | Text | `json` (object) | effort: `low`, `high`, `max`<br>Example: `glm?reasoning=max` | — | — |
-| `google/gemma-4-31b-it` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `google/gemma-4-31b-it?reasoning=none` | — | — |
+| `google/gemma-4-31b-it` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `google/gemma-4-31b-it?reasoning=off` | — | — |
 | `gpt-oss-20b` | `hf` | Text | `json` (schema) | — | — | — |
 | `gpt-oss` | `hf` | Text | `json` (schema) | — | — | — |
 | `hf.minimaxai/minimax-m2.1` | `hf` | Text | `json` (schema) | — | — | — |
