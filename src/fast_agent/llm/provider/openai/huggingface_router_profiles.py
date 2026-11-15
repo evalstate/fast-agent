@@ -247,6 +247,8 @@ class HuggingFaceRouteProfile:
 HUGGINGFACE_CUSTOM_ENDPOINT_BACKEND = "custom-endpoint"
 
 _DEEPSEEK_V4_FLASH = "deepseek-ai/deepseek-v4-flash-0731"
+_DEEPSEEK_V41_FLASH = "deepseek-ai/deepseek-v4.1-flash"
+_DEEPSEEK_V41_FLASH_1017 = "deepseek-ai/deepseek-v4.1-flash-1017"
 _GLM_52 = "zai-org/glm-5.2"
 _KIMI_K3 = "moonshotai/kimi-k3"
 _GEMMA_4 = "google/gemma-4-31b-it"
@@ -256,6 +258,11 @@ _INKLING_2_SMALL = "thinkingmachines/inkling-2-small"
 _MUSE_GLIMMER_PROMPT_CONTEXT_WINDOW = 131_072 - 32_768
 
 _DEEPSEEK_REASONING = TopLevelReasoningEffort(default_effort="max")
+# Both V4.1 Flash checkpoints on Novita: backend output default instead of max_tokens.
+_DEEPSEEK_NOVITA_PROFILE = HuggingFaceRouteProfile(
+    reasoning=_DEEPSEEK_REASONING,
+    omit_default_max_tokens=True,
+)
 _KIMI_K3_REASONING = TopLevelReasoningEffort(
     default_effort="max",
     allowed_efforts=frozenset({"low", "high", "max"}),
@@ -312,6 +319,11 @@ _QWEN_38_REASONING = TopLevelReasoningEffort(
 HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
     (
         RouterProfileRule(
+            model=_DEEPSEEK_V41_FLASH_1017,
+            backends=frozenset({"novita"}),
+            profile=_DEEPSEEK_NOVITA_PROFILE,
+        ),
+        RouterProfileRule(
             model=_DEEPSEEK_V4_FLASH,
             backends=frozenset({"baseten"}),
             profile=HuggingFaceRouteProfile(
@@ -345,12 +357,9 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
             ),
         ),
         RouterProfileRule(
-            model="deepseek-ai/deepseek-v4.1-flash",
+            model=_DEEPSEEK_V41_FLASH,
             backends=frozenset({"novita"}),
-            profile=HuggingFaceRouteProfile(
-                reasoning=_DEEPSEEK_REASONING,
-                omit_default_max_tokens=True,
-            ),
+            profile=_DEEPSEEK_NOVITA_PROFILE,
         ),
         RouterProfileRule(
             model=_DEEPSEEK_V4_FLASH,
@@ -359,7 +368,7 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
         # Keep the existing DeepSeek chat API contract across HF backends.
         # V4.1's raw-weights numeric effort is not an API effort mapping.
         RouterProfileRule(
-            model="deepseek-ai/deepseek-v4.1-flash",
+            model=_DEEPSEEK_V41_FLASH,
             profile=HuggingFaceRouteProfile(reasoning=_DEEPSEEK_REASONING),
         ),
         RouterProfileRule(

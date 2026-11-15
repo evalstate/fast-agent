@@ -1101,6 +1101,16 @@ def test_legacy_native_deepseek_models_are_rejected(legacy_model: str):
         ModelFactory.parse_model_string(legacy_model)
 
 
+def test_deepseek_hf_alias_resolves_to_novita_1017() -> None:
+    resolved = ModelFactory.resolve_model_spec("deepseek-hf")
+
+    assert resolved.provider == Provider.HUGGINGFACE
+    assert resolved.wire_model_name == "deepseek-ai/DeepSeek-V4.1-Flash-1017:novita"
+    assert resolved.max_output_tokens == 393_216
+    assert resolved.context_window == 1_048_576
+    assert resolved.resolve_ptc_enabled() is False
+
+
 def test_hf_routed_gpt_oss_alias_resolves_model_metadata():
     resolved = ModelFactory.resolve_model_spec("gpt-oss")
 

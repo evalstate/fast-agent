@@ -115,6 +115,7 @@ BUILTIN_MODEL_ALIASES: Final[dict[str, str]] = {
     "zaiglm52": "zai.glm-5.2",
     "zaiglm53": "zai.glm-5.3",
     "zaiglm53flash": "zai.glm-5.3-flash",
+    "deepseek-hf": "hf.deepseek-ai/DeepSeek-V4.1-Flash-1017:novita",
     "deepseek41-hf": "hf.deepseek-ai/DeepSeek-V4.1-Flash:novita",
     "deepseek-v41-hf": "hf.deepseek-ai/DeepSeek-V4.1-Flash:novita",
     "DeepSeek V4.1 Flash (novita)": "hf.deepseek-ai/DeepSeek-V4.1-Flash:novita",

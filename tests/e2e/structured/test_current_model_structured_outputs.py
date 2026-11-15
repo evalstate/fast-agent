@@ -38,6 +38,7 @@ class ArithmeticResult(BaseModel):
         "copilot.sonnet55?reasoning=off",
         "copilot.claude-fable-5.1",
         "copilot.claude-fable-5.2",
+        "deepseek-hf",
     ],
 )
 @pytest.mark.parametrize("with_tools", [False, True], ids=["schema-only", "with-tools"])

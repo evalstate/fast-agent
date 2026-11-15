@@ -1,7 +1,8 @@
 from collections.abc import AsyncIterator
 
 import pytest
-from mcp.types import TextContent
+from mcp import Tool
+from mcp.types import CallToolResult, TextContent
 from openai.types.chat import ChatCompletionChunk
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -951,6 +952,176 @@ def test_deepseek_v41_hf_model_profile_fallback(backend: str, query: str, effort
         assert request["max_tokens"] == 393_216
     assert request["reasoning_effort"] == effort
     assert "extra_body" not in request
+
+
+@pytest.mark.parametrize(
+    "query, effort",
+    (
+        ("", "max"),
+        ("?reasoning=low", "low"),
+        ("?reasoning=high", "high"),
+        ("?reasoning=max", "max"),
+        ("?reasoning=none", "none"),
+        ("?reasoning=off", "none"),
+    ),
+)
+def test_deepseek_f1017_novita_request_contract(query: str, effort: str) -> None:
+    # Lowercase input must reach the case-sensitive provider with its canonical ID.
+    request = _factory_request(f"hf.deepseek-ai/deepseek-v4.1-flash-1017:novita{query}")
+
+    assert request["model"] == "deepseek-ai/DeepSeek-V4.1-Flash-1017:novita"
+    assert request["reasoning_effort"] == effort
+    assert "max_tokens" not in request
+    assert "max_completion_tokens" not in request
+    assert "extra_body" not in request
+
+
+def test_deepseek_f1017_novita_explicit_output_override() -> None:
+    request = _factory_request("deepseek-hf?max_tokens=128&reasoning=off")
+
+    assert request["model"] == "deepseek-ai/DeepSeek-V4.1-Flash-1017:novita"
+    assert request["max_tokens"] == 128
+    assert request["reasoning_effort"] == "none"
+
+
+@pytest.mark.parametrize(
+    ("alias", "deferred"),
+    (
+        ("deepseek-hf", True),
+        ("deepseek-hf?structured_tools=always", False),
+        ("deepseek41-hf", True),
+        ("deepseek-v41-hf", True),
+        ("deepseek41-hf?structured_tools=always", False),
+    ),
+)
+@pytest.mark.parametrize("after_tool", (False, True))
+def test_deepseek_v41_flash_hf_structured_request_phases(
+    alias: str, deferred: bool, after_tool: bool
+) -> None:
+    agent = LlmAgent(AgentConfig(name="router-profile-test"))
+    llm = ModelFactory.create_factory(alias)(agent=agent)
+    assert isinstance(llm, HuggingFaceLLM)
+    params = llm.default_request_params.model_copy(update={"structured_schema": _INKLING_SCHEMA})
+    tools = [
+        Tool(
+            name="lookup",
+            description="Lookup a value.",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        )
+    ]
+    messages = [
+        PromptMessageExtended(role="user", content=[TextContent(type="text", text="lookup")])
+    ]
+    if after_tool:
+        messages.append(
+            PromptMessageExtended(
+                role="user",
+                content=[],
+                tool_results={
+                    "call-lookup": CallToolResult(content=[TextContent(type="text", text="42")])
+                },
+            )
+        )
+
+    # Exercise the same offline preparation steps as generate, then build the real wire request.
+    prepared_messages, prepared_params = llm._prepare_structured_request(messages, params, tools)
+    prepared_tools = (
+        None
+        if llm._should_suppress_tools_for_structured_final(
+            prepared_messages, prepared_params, tools
+        )
+        else tools
+    )
+    request = llm._openai_completion_request(
+        llm._convert_extended_messages_to_provider(prepared_messages),
+        prepared_params,
+        prepared_tools,
+    ).arguments
+
+    if deferred and not after_tool:
+        assert "response_format" not in request
+    else:
+        assert request["response_format"] == llm.schema_to_response_format(_INKLING_SCHEMA)
+        assert request["response_format"]["type"] == "json_schema"
+        assert request["response_format"]["json_schema"]["strict"] is True
+    if deferred and after_tool:
+        assert "tools" not in request
+    else:
+        assert len(request["tools"]) == 1
+        assert request["tools"][0]["function"]["name"] == "lookup"
+    assert params.structured_schema == _INKLING_SCHEMA
+    assert params.response_format is None
+    assert "max_tokens" not in request
+
+
+@pytest.mark.asyncio
+async def test_deepseek_f1017_novita_image_stream_cumulative_usage() -> None:
+    agent = LlmAgent(AgentConfig(name="router-profile-test"))
+    llm = ModelFactory.create_factory("deepseek-hf")(agent=agent)
+    assert isinstance(llm, HuggingFaceLLM)
+    # Synthetic values/text based only on the sanitised conformance report (D11),
+    # not captured traces: role-only lead, reasoning then text, usage on every chunk,
+    # stop followed by an empty-choices usage chunk; reasoning equals completion usage.
+    deltas = [
+        {},
+        {"reasoning_content": "Inspect the image."},
+        {"content": "A blue"},
+        {"content": " square."},
+        {},
+        None,
+    ]
+    chunks = [
+        ChatCompletionChunk.model_validate(
+            {
+                "id": "synthetic-novita-image",
+                "created": 0,
+                "model": "deepseek-v4.1-flash-1017",
+                "object": "chat.completion.chunk",
+                "choices": (
+                    []
+                    if delta is None
+                    else [
+                        {
+                            "index": 0,
+                            "delta": {"role": "assistant", **delta},
+                            "finish_reason": "stop" if index == 4 else None,
+                        }
+                    ]
+                ),
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": index * 4,
+                    "total_tokens": 100 + index * 4,
+                    "completion_tokens_details": {"reasoning_tokens": index * 4},
+                },
+            }
+        )
+        for index, delta in enumerate(deltas)
+    ]
+    # Use the selected SDK stream path, not the manual accumulator.
+    model = "deepseek-ai/DeepSeek-V4.1-Flash-1017:novita"
+    completion, reasoning = await llm._process_stream(_stream_chunks(chunks), model)
+
+    assert completion.choices[0].message.content == "A blue square."
+    assert completion.choices[0].finish_reason == "stop"
+    assert reasoning == ["Inspect the image."]
+    assert completion.usage.prompt_tokens == 100
+    assert completion.usage.completion_tokens == 20
+    assert completion.usage.total_tokens == 120
+    assert completion.usage.completion_tokens_details.reasoning_tokens == 20
+
+    llm._track_openai_response_usage(completion, model, upstream_provider="novita")
+    [turn] = llm.usage_accumulator.turns
+    assert turn.prompt.total == 100
+    assert turn.completion.total == turn.completion.reasoning == 20
+    assert turn.total == 120
+    assert turn.upstream_provider == "novita"
+    assert turn.prompt.cache_read is None
+    assert turn.prompt.cache_write is None
+    assert turn.prompt.uncached is None
+    assert turn.prompt.tool_use is None
+    assert turn.cost_usd is None
+    assert turn.timing is None
 
 
 @pytest.mark.parametrize(

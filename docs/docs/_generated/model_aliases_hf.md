@@ -8,6 +8,8 @@
 | `deepseek-ai/deepseek-v4-flash-0731` | `deepseek-ai/deepseek-v4-flash-0731` |
 | `deepseek-ai/deepseek-v4-pro` | `deepseek-ai/deepseek-v4-pro` |
 | `deepseek-ai/deepseek-v4.1-flash` | `deepseek-ai/deepseek-v4.1-flash` |
+| `deepseek-ai/deepseek-v4.1-flash-1017` | `deepseek-ai/deepseek-v4.1-flash-1017` |
+| `deepseek-hf` | `hf.deepseek-ai/DeepSeek-V4.1-Flash-1017:novita` |
 | `deepseek-v41-hf` | `hf.deepseek-ai/DeepSeek-V4.1-Flash:novita` |
 | `deepseek41-hf` | `hf.deepseek-ai/DeepSeek-V4.1-Flash:novita` |
 | `glimmer` | `hf.meta-models/Muse-Glimmer-30B:together?temperature=1.0&top_p=0.95&top_k=64` |

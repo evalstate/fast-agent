@@ -240,8 +240,15 @@ class ModelSelectionCatalog:
                 display_label="DeepSeek V4 Flash 0731 (deepinfra)",
             ),
             _builtin_entry(
-                "DeepSeek V4.1 Flash (novita)",
+                "deepseek-hf",
                 display_label="DeepSeek V4.1 Flash (novita)",
+                description="1017 checkpoint",
+            ),
+            _builtin_entry(
+                "DeepSeek V4.1 Flash (novita)",
+                display_label="DeepSeek V4.1 Flash 0910 (novita)",
+                description="original 10 September checkpoint",
+                current=False,
             ),
             _builtin_entry(
                 "kimi26",

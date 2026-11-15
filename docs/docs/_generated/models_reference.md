@@ -72,6 +72,7 @@
 | `deepseek-ai/deepseek-v3.1` | `hf` | Text | `json` (schema) | — | — | — |
 | `deepseek-ai/deepseek-v3.2` | `hf` | Text | `json` (schema) | — | — | — |
 | `deepseek-ai/deepseek-v4-pro` | `hf` | Text | `json` (schema) | — | — | — |
+| `deepseek-hf` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseek-hf?reasoning=max` | — | — |
 | `deepseek41-hf` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseek41-hf?reasoning=max` | — | — |
 | `glimmer` | `hf` | Text, Vision | — | effort: `low`, `medium`, `high`, `xhigh`<br>Example: `glimmer?reasoning=high` | — | — |
 | `glm52` | `hf` | Text | `json` (object) | effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `glm52?reasoning=max` | — | — |

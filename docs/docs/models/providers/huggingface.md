@@ -37,7 +37,7 @@ Its structured-output requests use Together's legacy schema-bearing envelope
 to work around HF router translation; output is validated locally.
 See [Moonshot](moonshot.md) for the native route and model details.
 
-Curated aliases such as `kimi`, `deepseek41-hf`, `glm`, and `qwen35` include provider choices and request defaults. Capabilities and supported parameters vary by backing provider; see the route-specific notes below.
+Curated aliases such as `kimi`, `deepseek-hf`, `glm`, and `qwen35` include provider choices and request defaults. Capabilities and supported parameters vary by backing provider; see the route-specific notes below.
 
 ## GLM-5.3 and GLM-5.3-Flash
 
@@ -88,6 +88,70 @@ images through HF; native Z.ai PDF/MOV support is not available on HF routes.
 
 ## DeepSeek V4.1 Flash
 
+`deepseek-hf` selects DeepSeek V4.1 Flash on Novita, using the current
+[DeepSeek-V4.1-Flash-1017](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017)
+checkpoint. DeepSeek's native `deepseek-flash` API model has served this
+checkpoint since October 17, 2026, so `deepseek-hf` is the same model as the
+native [DeepSeek](deepseek.md) route:
+
+```bash
+fast-agent --model deepseek-hf
+fast-agent --model "deepseek-hf?reasoning=high"
+fast-agent --model "hf.deepseek-ai/DeepSeek-V4.1-Flash-1017:novita?reasoning=off"
+```
+
+`deepseek-hf` resolves to `hf.deepseek-ai/DeepSeek-V4.1-Flash-1017:novita`.
+It supplies no sampling overrides, so the provider's sampling defaults apply.
+`deepseek41-hf`, `deepseek-v41-hf` and `DeepSeek V4.1 Flash (novita)` remain on
+the original September 10 checkpoint (see
+[Original checkpoint](#original-september-10-checkpoint)).
+
+The model supports text and image input (JPEG, PNG, WebP and GIF) with text
+output and a 1,048,576-token context window. Fast-agent advertises a
+393,216-token output ceiling, also reported by Novita's rejection of a larger
+limit. It omits `max_tokens` by default so the backend default applies;
+`deepseek-hf?max_tokens=...` sends an explicit limit. Contract probes exceeded
+114,000 output tokens with the limit omitted, but did not establish the
+backend's exact default. The HF router's request-body size limit still
+applies (see [inline images](#inline-images-and-the-request-size-limit)).
+
+Reasoning defaults to `max`, as on the native DeepSeek route. Fast-agent
+exposes `none`, `low`, `high` and `max`, sent unchanged as top-level
+`reasoning_effort`; `reasoning=off` sends `none`. Generic efforts are
+normalized: `minimal` to `low`, `medium` to `high` and `xhigh` to `max`. No
+numeric effort conversion is made. The off/none checks returned no
+reasoning-channel content, although the model can still show its working in
+the visible answer. Reasoning history is replayed as `reasoning_content`.
+
+Structured output uses standard `json_schema`. With tools available, the
+default `defer` policy runs a tools-only phase before requesting a schema-only
+final answer without tools. Sending schema and tools together sometimes
+produced a fenced JSON answer that failed validation; the two-phase default
+passed the live conformance checks. `?structured_tools=always` restores the
+combined request.
+
+PDF, audio and video input are not advertised. Fast-agent removes unsupported
+attachments and warns the user, but the request currently does not tell the
+model that an attachment was removed. **When no tools are offered, the model
+can write tool-call markup as plain text**, including DeepSeek DSML,
+`<tool_call>` JSON or `<terminal>` tags. This occurred after an unsupported
+PDF was removed and on file-listing prompts without tools. That text is not an
+executed tool call. With tools offered, the tested calls were native and
+executed correctly.
+
+Programmatic tool calling is off by default. The PTC stage has not run for
+this checkpoint; this is an inherited default, not a new comparative
+performance finding.
+
+Live fast-agent onboarding on November 15, 2026 verified streaming, every
+exposed reasoning effort including `off`, shell and function tool loops with
+parallel calls, multi-turn reasoning replay, PNG input and image tool results,
+and schema output directly and after a tool call through
+`hf.deepseek-ai/DeepSeek-V4.1-Flash-1017:novita`. Other backends are not covered
+by this fast-agent conformance result.
+
+### Original September 10 checkpoint
+
 ```bash
 fast-agent --model deepseek41-hf
 fast-agent --model "hf.deepseek-ai/DeepSeek-V4.1-Flash:novita?reasoning=off"
@@ -95,13 +159,16 @@ fast-agent --model "hf.deepseek-ai/DeepSeek-V4.1-Flash:fireworks-ai"
 ```
 
 `deepseek41-hf`, `deepseek-v41-hf`, and `DeepSeek V4.1 Flash (novita)` select
-Novita. Native DeepSeek aliases are unchanged. Omitting the backend uses the
+the original `deepseek-ai/DeepSeek-V4.1-Flash` checkpoint on Novita; they are
+pinned there and do not follow `deepseek-hf`. Omitting the backend uses the
 configured HF default provider or HF auto-routing; other backends fall back to
 the same model-level request profile, not automatic retry/failover.
 
 The HF profile inherits V4.1's vision support, 1,048,576-token context,
 393,216-token output limit, and JSON Schema mode. Backend limits and capabilities
-may differ. Reasoning history is replayed as `reasoning_content`.
+may differ. Reasoning history is replayed as `reasoning_content`. Structured
+output with tools uses the same two-phase `defer` policy as `deepseek-hf`: the
+combined schema+tools request failed validation intermittently on Novita.
 
 For compatibility with the existing HF DeepSeek profile, requests send top-level
 `reasoning_effort`: `max` by default, `low`/`high`/`max` when selected, and `none`
@@ -113,7 +180,7 @@ without an effort mapping. Other backends may differ in which effort values they
 
 As of September 11, 2026, HF lists Novita and Fireworks as live routes. Local
 request-shaping tests cover default/max/off and backend profile fallback. Live
-FastAgent harness tests on Novita passed default/max/off reasoning, a tool-call
+fast-agent harness tests on Novita passed default/max/off reasoning, a tool-call
 roundtrip, and synthetic image recognition. Reasoning appeared for default/max
 and was absent for off. Low/high effort and other backends remain unverified live.
 

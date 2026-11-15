@@ -986,10 +986,13 @@ class ModelDatabase:
         update={"tokenizes": [*OPENAI_VISION, "image/gif"]}
     )
 
+    # Shared by both HF checkpoints (10 September and 1017). Combined schema+tools
+    # requests intermittently failed validation on Novita, so structured output defers.
     DEEPSEEK_V41_FLASH_HF = DEEPSEEK_V41_FLASH.model_copy(
         update={
             "reasoning": "reasoning_content",
             "default_provider": Provider.HUGGINGFACE,
+            "structured_tool_policy": "defer",
         }
     )
 
@@ -1567,6 +1570,7 @@ class ModelDatabase:
         "deepseek-v4-pro": DEEPSEEK_V4_PRO,
         "deepseek-ai/deepseek-v4-flash-0731": _with_fast(DEEPSEEK_V4_FLASH_HF),
         "deepseek-ai/deepseek-v4.1-flash": _with_fast(DEEPSEEK_V41_FLASH_HF),
+        "deepseek-ai/deepseek-v4.1-flash-1017": _with_fast(DEEPSEEK_V41_FLASH_HF),
         # Z.ai models
         "glm-5.2": GLM_5_2.model_copy(update={"default_provider": Provider.ZAI}),
         "glm-5.3": GLM_5_3,
@@ -1700,6 +1704,9 @@ class ModelDatabase:
         }
     )
     _PROVIDER_WIRE_MODEL_NAMES: ClassVar[dict[tuple[Provider, str], str]] = {
+        (Provider.HUGGINGFACE, "deepseek-ai/deepseek-v4.1-flash-1017"): (
+            "deepseek-ai/DeepSeek-V4.1-Flash-1017"
+        ),
         (Provider.HUGGINGFACE, "qwen/qwen3.8-27b"): "Qwen/Qwen3.8-27B",
         (Provider.HUGGINGFACE, "thinkingmachines/inkling-2-small"): (
             "thinkingmachines/Inkling-2-Small"

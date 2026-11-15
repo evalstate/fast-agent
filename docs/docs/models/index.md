@@ -104,7 +104,7 @@ Start with the native providers for common use, or use additional providers for 
 | Google               | `gemini37flash`, `gemini`, `gemini35flash`               | Gemini native API, structured outputs, thinking controls, text/image/PDF/audio/video input, YouTube links through media attachments             |
 | DeepSeek             | `deepseek`, `deepseekpro`                                | Native stateless Responses API, reasoning, function tools, JSON Schema structured output, and web search                                       |
 | xAI / Grok           | `grok`, `grok43`, `grok45`, `grok46`, `grok47`, `grok47fast` (OAuth required), `grok-4.3`, `grok-4.5`, `grok-4.6`, `grok-4.7` | Grok models, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports                                                      |
-| Hugging Face         | `kimi`, `kimi26instant`, `deepseek41-hf`, `glm`          | Hugging Face Inference Providers routing, curated aliases, and HF MCP authentication                                                            |
+| Hugging Face         | `kimi`, `kimi26instant`, `deepseek-hf`, `glm`            | Hugging Face Inference Providers routing, curated aliases, and HF MCP authentication                                                            |
 | Additional providers | `qwen-turbo`, `gpt-oss`                                  | Groq, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints                                                   |
 
 ### OpenAI Responses
@@ -211,7 +211,7 @@ function tools, JSON Schema structured output, and provider-managed web search.
 Flash accepts JPEG, PNG, GIF, and WebP images, with 1M context and up to 384K
 output tokens. Both `deepseek` and `deepseekvision` select V4.1 Flash. Retired
 Flash API IDs remain accepted and redirect to V4.1 Flash.
-Hugging Face aliases such as `deepseek41-hf` are separate routes.
+Hugging Face aliases such as `deepseek-hf` are separate routes.
 
 ### xAI
 
