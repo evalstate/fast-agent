@@ -305,8 +305,10 @@ explicit output cap.
 DeepInfra ends every response at 65,536 output tokens, reasoning included,
 whatever `max_tokens` or `max_completion_tokens` requests (verified November
 14, 2026), and fast-agent clamps explicit values to that. A turn that spends
-the whole allowance on reasoning returns no answer. Together has no such cap:
-use `Inkling 2 Small (together)` for work that needs longer single responses.
+the whole allowance on reasoning returns no answer. Together has not shown this
+cap: it returned an 82,475-token completion in a benchmark run, though its
+ceiling is not published or measured. Use `Inkling 2 Small (together)` for
+work that needs longer single responses.
 
 Reasoning is controlled by the top-level `reasoning_effort` field. Fast-agent
 accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max`, sends the
