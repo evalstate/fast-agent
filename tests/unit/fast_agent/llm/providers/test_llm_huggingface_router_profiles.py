@@ -16,7 +16,8 @@ from fast_agent.constants import REASONING
 from fast_agent.context import Context
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
-from fast_agent.llm.provider.openai.llm_openai_compatible import OpenAICompatibleLLM
+from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
@@ -989,15 +990,19 @@ def test_deepseek_f1017_novita_explicit_output_override() -> None:
 
 
 def _structured_phase_request(
-    model: str, after_tool: bool
-) -> tuple[OpenAICompatibleLLM, dict[str, Any]]:
+    model: str, after_tool: bool, request_model: str | None = None
+) -> tuple[OpenAILLM, dict[str, Any]]:
     """Build the real wire request for a structured turn with one tool available.
 
     ``after_tool`` selects the turn after a tool result, i.e. the final phase under defer.
+    ``request_model`` overrides the request model at construction (differs from ``model``).
     """
     agent = LlmAgent(AgentConfig(name="router-profile-test"))
-    llm = ModelFactory.create_factory(model)(agent=agent)
-    assert isinstance(llm, OpenAICompatibleLLM)
+    llm = ModelFactory.create_factory(model)(
+        agent=agent,
+        request_params=RequestParams(model=request_model) if request_model else None,
+    )
+    assert isinstance(llm, OpenAILLM)
     params = llm.default_request_params.model_copy(update={"structured_schema": _INKLING_SCHEMA})
     tools = [
         Tool(
@@ -1100,6 +1105,30 @@ def test_structured_with_tool_request_phases_by_route(
     assert bool(request.get("tools")) is tools_expected
     if tools_expected:
         assert [tool["function"]["name"] for tool in request["tools"]] == ["lookup"]
+
+
+@pytest.mark.parametrize(
+    ("model", "request_model", "policy"),
+    (
+        # A request model differing from the selected one must take the LLM's provider into
+        # account: the HF defer override applies on HF only.
+        ("kimi25", "moonshotai/kimi-k2.6:novita", "defer"),
+        ("openrouter.moonshotai/kimi-k2.5", "moonshotai/kimi-k2.6", "no_tools"),
+        ("moonshot.moonshotai/kimi-k2.5", "moonshotai/kimi-k2.6", "no_tools"),
+        ("zai.glm-5.3", "zai-org/glm-5.3-flash", "always"),
+    ),
+)
+@pytest.mark.parametrize("after_tool", (False, True))
+def test_structured_with_tool_request_model_override_keeps_provider_policy(
+    model: str, request_model: str, policy: str, after_tool: bool
+) -> None:
+    _, request = _structured_phase_request(model, after_tool, request_model=request_model)
+
+    assert request["model"] == request_model
+    schema_expected = policy != "defer" or after_tool
+    tools_expected = policy == "always" or (policy == "defer" and not after_tool)
+    assert ("response_format" in request) is schema_expected
+    assert bool(request.get("tools")) is tools_expected
 
 
 @pytest.mark.parametrize(

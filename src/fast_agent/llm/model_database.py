@@ -1791,6 +1791,26 @@ class ModelDatabase:
         return cls._RUNTIME_MODEL_PARAMS.get(normalized)
 
     @classmethod
+    def get_request_model_params(
+        cls,
+        model: str,
+        *,
+        request_provider: Provider,
+    ) -> ModelParameters | None:
+        """Parameters for a request model that differs from the LLM's resolved model.
+
+        Keeps the provider-less lookup, except that Hugging Face route overrides apply only
+        to requests sent through Hugging Face; other providers see the shared catalog entry.
+        """
+        normalized = cls.normalize_model_name(model)
+        hf_override = cls._PROVIDER_MODEL_OVERRIDES.get((Provider.HUGGINGFACE, normalized))
+        if hf_override is None:
+            return cls.get_model_params(model)
+        if request_provider is Provider.HUGGINGFACE:
+            return hf_override
+        return cls.MODELS[normalized]
+
+    @classmethod
     def normalize_model_name(cls, model: str) -> str:
         """Normalize model specs (provider/effort/aliases) to a ModelDatabase key.
 

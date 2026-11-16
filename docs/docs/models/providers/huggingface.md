@@ -65,6 +65,9 @@ reasoning; no toggle is offered.
 Kimi K2.5/K2.6, GLM 5 and MiniMax M2.5 structured output with tools uses the
 two-phase `defer` policy on HF; on Novita, GLM 5, MiniMax M2.5 and Kimi K2.6 use
 JSON object mode with schema instructions because `json_schema` is rejected or not enforced.
+On these three Novita routes the output is best-effort JSON validated client-side, not
+constrained decoding: the instructions describe field names and types but omit enum values
+and bounds, so responses can fail validation or contain wrong values.
 
 Muse Glimmer now sends top-level effort, retaining `low`, `medium`, `high`,
 `xhigh` and default `high`. GLM 5.3/Flash remain always-on (`low`, `high`, `max`);
