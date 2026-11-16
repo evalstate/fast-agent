@@ -178,3 +178,10 @@ def test_ptc_model_defaults_match_catalog_policy() -> None:
         params = ModelDatabase.get_model_params(name)
         assert params is not None
         assert (name in documented) is params.ptc_enabled, name
+    for provider, name in ModelDatabase._PROVIDER_MODEL_OVERRIDES:
+        params = ModelDatabase.get_model_params(name, provider=provider)
+        assert params is not None
+        assert (name in documented) is params.ptc_enabled, (
+            f"{provider.value}.{name} differs from the documented base default; "
+            "generate provider-specific PTC defaults"
+        )

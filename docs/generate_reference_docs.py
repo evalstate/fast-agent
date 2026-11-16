@@ -759,6 +759,9 @@ def generate_ptc_model_defaults_snippet() -> str:
     """Generate the bundled catalog's PTC defaults, not runtime overlay models."""
     from fast_agent.llm.model_database import ModelDatabase
 
+    # Base entries suffice while provider overrides share their base's PTC default
+    # (provider-only IDs are off). test_ptc_model_defaults_match_catalog_policy checks
+    # every override too, so a future divergence must be documented here explicitly.
     models = sorted(name for name, params in ModelDatabase.MODELS.items() if params.ptc_enabled)
     lines = [
         "<!-- GENERATED FILE — DO NOT EDIT. Source: ModelParameters.ptc_enabled -->\n\n",

@@ -51,7 +51,7 @@ class Case:
     path_check: Callable[[History], str | None]
 
     def check(self, history: History) -> str | None:
-        """Reject direct code-only calls, even when a later script takes the right path."""
+        """Reject direct code-only calls anywhere in this eval's saved history."""
         # This eval's card exposes only the sandbox and harness slash command directly.
         direct = [
             name

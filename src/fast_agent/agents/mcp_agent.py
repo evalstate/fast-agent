@@ -1687,15 +1687,10 @@ class McpAgent(ABC, ToolAgent):
             Result of the tool call
         """
         ptc_runtime = self._programmatic_tool_runtime()
-        if ptc_runtime is not None:
-            # Refresh the exposed surface even for callers that bypass the model turn.
-            await self.list_tools()
-            if name == ptc_runtime.tool_name:
-                return await self._call_ptc_tool(
-                    ptc_runtime, arguments or {}, tool_use_id, request_params=request_params
-                )
-            if hint := self._unavailable_tool_hint(name):
-                return CallToolResult(content=[TextContent(type="text", text=hint)], is_error=True)
+        if ptc_runtime is not None and name == ptc_runtime.tool_name:
+            return await self._call_ptc_tool(
+                ptc_runtime, arguments or {}, tool_use_id, request_params=request_params
+            )
         return await self._dispatch_tool_call(
             name, arguments, tool_use_id, request_params=request_params
         )
@@ -2610,12 +2605,17 @@ class McpAgent(ABC, ToolAgent):
         request_params: RequestParams | None,
     ) -> tuple[str, CallToolResult, float]:
         start_time = time.perf_counter()
-        result = await self.call_tool(
-            call.execution_tool_name,
-            call.tool_args,
-            call.correlation_id,
-            request_params=request_params,
-        )
+        # Only model-originated calls are constrained by the advertised PTC surface.
+        # run_tools already refreshed it; host call_tool and nested dispatch stay unrestricted.
+        if hint := self._unavailable_tool_hint(call.execution_tool_name):
+            result = CallToolResult(content=[TextContent(type="text", text=hint)], is_error=True)
+        else:
+            result = await self.call_tool(
+                call.execution_tool_name,
+                call.tool_args,
+                call.correlation_id,
+                request_params=request_params,
+            )
         end_time = time.perf_counter()
         return call.correlation_id, result, round((end_time - start_time) * 1000, 2)
 

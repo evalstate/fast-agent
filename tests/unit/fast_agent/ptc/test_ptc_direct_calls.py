@@ -1,10 +1,10 @@
-"""Real dispatch contracts: code-only tools cannot be reached by direct calls."""
+"""Only model direct calls are constrained by the code-only PTC surface."""
 
 from pathlib import Path
 from typing import Literal
 
 import pytest
-from mcp_types import CallToolRequest, CallToolRequestParams, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
@@ -13,6 +13,7 @@ from fast_agent.config import (
     MCPSettings,
     ProgrammaticToolCallingSettings,
     Settings,
+    ShellSettings,
 )
 from fast_agent.context import Context
 from fast_agent.core.harness_tools import set_harness_tools
@@ -21,6 +22,22 @@ from fast_agent.ptc import PTC_TOOL_NAME
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.function_tool_loader import build_default_function_tool
 from fast_agent.types import PromptMessageExtended
+
+
+async def _model_call(agent: McpAgent, name: str, arguments: dict[str, str]) -> CallToolResult:
+    turn = await agent.run_tools(
+        PromptMessageExtended(
+            role="assistant",
+            content=[],
+            tool_calls={
+                "call": CallToolRequest(
+                    params=CallToolRequestParams(name=name, arguments=arguments)
+                )
+            },
+        )
+    )
+    assert turn.tool_results is not None
+    return turn.tool_results["call"]
 
 
 @pytest.mark.asyncio
@@ -55,38 +72,31 @@ async def test_mcp_direct_and_code_dispatch(
     )
     try:
         await agent.initialize()
-        # Exercise both the public dispatch boundary and the model's turn planner,
-        # including the unprefixed alias accepted by the MCP router.
+        # Host calls remain unrestricted, including the MCP router's unprefixed alias.
+        received: list[str] = []
         for name in ("recording__record_call", "record_call"):
-            result = await agent.call_tool(name, {"value": "direct"})
+            result = await agent.call_tool(name, {"value": "host"})
+            assert not result.is_error, result
+            received.append("host")
+            assert record.read_text().splitlines() == received
+
+            result = await _model_call(agent, name, {"value": "turn"})
             assert bool(result.is_error) is (mode == "nested")
-            request = PromptMessageExtended(
-                role="assistant",
-                content=[],
-                tool_calls={
-                    "call": CallToolRequest(
-                        params=CallToolRequestParams(name=name, arguments={"value": "turn"})
-                    )
-                },
-            )
-            turn = await agent.run_tools(request)
-            assert turn.tool_results is not None
-            assert bool(turn.tool_results["call"].is_error) is (mode == "nested")
             if mode == "nested":
-                for rejected in (result, turn.tool_results["call"]):
-                    text = "\n".join(b.text for b in rejected.content if isinstance(b, TextContent))
-                    assert "not a direct tool" in text
-                    assert PTC_TOOL_NAME in text
-                    assert "await recording__record_call(" in text
-                assert not record.exists()
+                text = "\n".join(b.text for b in result.content if isinstance(b, TextContent))
+                assert "not a direct tool" in text
+                assert PTC_TOOL_NAME in text
+                assert "await recording__record_call(" in text
+            else:
+                received.append("turn")
+            # A rejected model call must not reach the server.
+            assert record.read_text().splitlines() == received
         if mode == "nested":
-            result = await agent.call_tool(
-                PTC_TOOL_NAME, {"code": "await recording__record_call(value='nested')"}
+            result = await _model_call(
+                agent, PTC_TOOL_NAME, {"code": "await recording__record_call(value='nested')"}
             )
             assert not result.is_error, result
-            assert record.read_text().splitlines() == ["nested"]
-        else:
-            assert record.read_text().splitlines() == ["direct", "turn", "direct", "turn"]
+            assert record.read_text().splitlines() == [*received, "nested"]
     finally:
         await agent.shutdown()
 
@@ -106,7 +116,7 @@ async def test_function_and_card_tools_reject_direct_calls(wrapped: bool) -> Non
         context=Context(config=Settings(), ptc_enabled=True),
     )
     try:
-        result = await agent.call_tool("card_tool", {"value": "direct"})
+        result = await _model_call(agent, "card_tool", {"value": "direct"})
         assert result.is_error and "await card_tool(" in str(result.content)
         assert received == []
         result = await agent.call_tool(PTC_TOOL_NAME, {"code": "await card_tool(value='nested')"})
@@ -136,7 +146,7 @@ async def test_skill_readers_are_code_only(tmp_path: Path, no_shell: bool) -> No
     try:
         name = "read_skill" if no_shell else "read_text_file"
         arguments = {"path": str(skill)}
-        result = await agent.call_tool(name, arguments)
+        result = await _model_call(agent, name, arguments)
         assert result.is_error and f"await {name}(" in str(result.content)
         result = await agent.call_tool(
             PTC_TOOL_NAME, {"code": f"await {name}(path={str(skill)!r})"}
@@ -151,14 +161,17 @@ async def test_skill_readers_are_code_only(tmp_path: Path, no_shell: bool) -> No
 async def test_builtin_guard_and_direct_harness_tool() -> None:
     agent = McpAgent(
         AgentConfig("builtins", model="passthrough", servers=[], shell=True, skills=[]),
-        context=Context(config=Settings(), ptc_enabled=True),
+        context=Context(
+            config=Settings(shell_execution=ShellSettings(enable_attach_media="on")),
+            ptc_enabled=True,
+        ),
     )
     try:
         set_harness_tools(agent, True)
-        for name in ("shell", "bash", "process", "read_text_file", "get_resource"):
-            result = await agent.call_tool(name, {})
+        for name in ("shell", "bash", "process", "read_text_file", "get_resource", "attach_media"):
+            result = await _model_call(agent, name, {})
             assert result.is_error and "not a direct tool" in str(result.content)
-        result = await agent.call_tool("slash_command", {"command": "/status"})
+        result = await _model_call(agent, "slash_command", {"command": "/status"})
         assert not result.is_error, result
     finally:
         await agent.shutdown()
