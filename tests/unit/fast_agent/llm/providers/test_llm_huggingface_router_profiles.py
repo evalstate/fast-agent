@@ -1498,40 +1498,34 @@ def test_disable_capable_hf_routes_keep_reasoning_disabled(
 
 
 @pytest.mark.parametrize(
-    ("backend", "query", "effort"),
+    ("query", "effort"),
     (
-        ("nebius", "", "max"),
-        ("together", "", "max"),
-        ("nebius", "?reasoning=minimal", "minimal"),
-        ("together", "?reasoning=low", "low"),
-        ("nebius", "?reasoning=medium", "medium"),
-        ("together", "?reasoning=high", "high"),
-        ("nebius", "?reasoning=xhigh", "xhigh"),
-        ("together", "?reasoning=max", "max"),
-        ("nebius", "?reasoning=none", "minimal"),
-        ("together", "?reasoning=off", "minimal"),
+        ("", "max"),
+        ("?reasoning=minimal", "minimal"),
+        ("?reasoning=low", "low"),
+        ("?reasoning=medium", "medium"),
+        ("?reasoning=high", "high"),
+        ("?reasoning=xhigh", "xhigh"),
+        ("?reasoning=max", "max"),
+        ("?reasoning=none", "minimal"),
+        ("?reasoning=off", "minimal"),
     ),
 )
-def test_beam_request_contract(backend: str, query: str, effort: str) -> None:
+def test_beam_request_contract(query: str, effort: str) -> None:
     # Lowercase input must recover the case-sensitive HF wire identifier.
-    request = _factory_request(f"hf.reflection/beam-1.0-501b-a23b:{backend}{query}")
+    request = _factory_request(f"hf.reflection/beam-1.0-501b-a23b:together{query}")
 
-    assert request["model"] == f"reflection/Beam-1.0-501B-A23B:{backend}"
+    assert request["model"] == "reflection/Beam-1.0-501B-A23B:together"
     assert request["reasoning_effort"] == effort
     assert "max_tokens" not in request
     assert "max_completion_tokens" not in request
     assert "extra_body" not in request
 
 
-@pytest.mark.parametrize("backend", ("nebius", "together"))
 @pytest.mark.parametrize(("requested", "expected"), ((4096, 4096), (200000, 131072)))
-def test_beam_explicit_output_budget_and_schema(
-    backend: str, requested: int, expected: int
-) -> None:
+def test_beam_explicit_output_budget_and_schema(requested: int, expected: int) -> None:
     agent = LlmAgent(AgentConfig(name="beam-contract-test"))
-    llm = ModelFactory.create_factory(
-        f"hf.reflection/Beam-1.0-501B-A23B:{backend}?max_tokens={requested}"
-    )(agent=agent)
+    llm = ModelFactory.create_factory(f"beam?max_tokens={requested}")(agent=agent)
     assert isinstance(llm, HuggingFaceLLM)
     schema = {
         "type": "object",
@@ -1553,15 +1547,14 @@ def test_beam_explicit_output_budget_and_schema(
     assert response_format["json_schema"]["schema"] == schema
 
 
-@pytest.mark.parametrize("backend", ("nebius", "together"))
-def test_beam_removes_obsolete_reasoning_controls(backend: str) -> None:
-    request = _request_with_extra_body(f"reflection/Beam-1.0-501B-A23B:{backend}")
+def test_beam_removes_obsolete_reasoning_controls() -> None:
+    request = _request_with_extra_body("reflection/Beam-1.0-501B-A23B:together")
 
     assert request["reasoning_effort"] == "max"
     assert request["extra_body"] == {"preserved": True}
 
 
-@pytest.mark.parametrize("backend", ("nebius", "together", "other-backend"))
+@pytest.mark.parametrize("backend", ("together", "other-backend"))
 def test_beam_replays_reasoning_without_inventing_missing_history(backend: str) -> None:
     llm = HuggingFaceLLM(
         context=Context(config=Settings()), model=f"reflection/Beam-1.0-501B-A23B:{backend}"
@@ -1610,7 +1603,7 @@ class _ReplayedHuggingFaceError(HuggingFaceLLM):
         self,
         body: dict[str, object],
         *,
-        model: str = "reflection/Beam-1.0-501B-A23B:nebius",
+        model: str = "reflection/Beam-1.0-501B-A23B:together",
         inference_provider: str = "openrouter",
         base_url: str = "https://router.huggingface.co/v1",
     ) -> None:
@@ -1659,7 +1652,7 @@ async def _replay_hf_fatal_error(llm: _ReplayedHuggingFaceError) -> BadRequestEr
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("with_provider_name", (True, False))
-@pytest.mark.parametrize("model", ("reflection/Beam-1.0-501B-A23B:nebius", "other/model:nebius"))
+@pytest.mark.parametrize("model", ("reflection/Beam-1.0-501B-A23B:together", "other/model:nebius"))
 async def test_hf_openrouter_missing_reasoning_sdk_error_carries_upstream_detail(
     with_provider_name: bool,
     model: str,
@@ -1809,10 +1802,9 @@ async def test_hf_openrouter_upstream_detail_is_single_line_and_bounded(
     assert "user_id" not in str(error) and "REDACTED" not in str(error)
 
 
-@pytest.mark.parametrize("backend", ("nebius", "together"))
 @pytest.mark.asyncio
-async def test_beam_streamed_reasoning_replays_on_tool_turn(backend: str) -> None:
-    model = f"reflection/Beam-1.0-501B-A23B:{backend}"
+async def test_beam_streamed_reasoning_replays_on_tool_turn() -> None:
+    model = "reflection/Beam-1.0-501B-A23B:together"
     llm = HuggingFaceLLM(context=Context(config=Settings()), model=model)
     # Synthetic fragments matching the contract's ordinary OpenAI stream shape.
     deltas = [

@@ -322,10 +322,10 @@ _QWEN_38_REASONING = TopLevelReasoningEffort(
 
 HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
     (
-        # Both Beam upstreams have the same OpenRouter wire contract.
+        # HF stopped serving Beam via Nebius (2026-11-16); Together is the evidenced upstream.
         RouterProfileRule(
             model=_BEAM_1,
-            backends=frozenset({"nebius", "together"}),
+            backends=frozenset({"together"}),
             profile=HuggingFaceRouteProfile(
                 reasoning=_BEAM_1_REASONING,
                 structured_json_mode="schema",

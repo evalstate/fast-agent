@@ -348,22 +348,23 @@ was not reliable in live testing.
 
 `beam` routes [Reflection Beam 1.0](https://huggingface.co/reflection/Beam-1.0-501B-A23B)
 through the Hugging Face Inference Providers router, served through OpenRouter
-with Nebius as the default upstream:
+with Together as the upstream:
 
 ```bash
 fast-agent --model beam
 fast-agent --model "beam?reasoning=minimal"
-fast-agent --model "hf.reflection/Beam-1.0-501B-A23B:together"
 ```
 
-The preset resolves to `hf.reflection/Beam-1.0-501B-A23B:nebius` and does
+The preset resolves to `hf.reflection/Beam-1.0-501B-A23B:together` and does
 not set sampling defaults; the provider's defaults apply. The HF picker lists
-it as `Beam 1.0 (nebius)`. Together uses the same request profile through
-OpenRouter; it is an alternative route, not automatic failover.
+it as `Beam 1.0 (together)`. Nebius no longer serves Beam through the router
+(November 16, 2026). Other upstreams the router lists for Beam have no
+fast-agent route profile and are untested; the backend suffix is a routing
+preference, not a guarantee, and upstreams can change.
 
 Beam supports text input and output only, with a 1,048,576-token context
 window and a 131,072-token output ceiling, including reasoning. Fast-agent
-omits `max_tokens` by default; both tested upstreams enforce the ceiling even
+omits `max_tokens` by default; Together enforces the ceiling even
 when a larger value is requested. Use `beam?max_tokens=...` for a smaller
 explicit output cap. Image, PDF, audio and video attachments are not supported
 by fast-agent for this model; unsupported content is removed with a warning.
@@ -384,8 +385,9 @@ requirement. The shared fatal-error path still prints a traceback.
 
 Structured output uses the standard `json_schema` response format, directly
 and with tools; no legacy envelope or separate schema-only final phase is
-required. Programmatic tool calling is off by default. The PTC stage has not
-run for this model; this is not a comparative performance finding.
+required. Programmatic tool calling is off by default: the PTC onboarding stage
+ran, and despite equal task success it showed systematic PTC interface friction.
+That evidence predates the canonical PTC tool names.
 
 **Stop-sequence caveat:** stop sequences can match inside Beam's reasoning
 and end a turn with no answer. Fast-agent sends requested stop sequences
@@ -396,9 +398,10 @@ exposed as fast-agent `cost_usd`, which remains unknown rather than zero.
 Live fast-agent onboarding on November 16, 2026 verified streaming, all six
 reasoning efforts, shell and function tool loops with parallel calls,
 multi-turn reasoning replay, unsupported-media removal, and schema output
-directly and after a tool call through `beam` (Nebius) and
-`hf.reflection/Beam-1.0-501B-A23B:together`. The missing-reasoning error
-explanation was also verified through `beam`.
+directly and after a tool call through both Together and the since-withdrawn
+Nebius upstream. The missing-reasoning error explanation was verified through
+Nebius. After the November 16 repoint, `beam` on Together was re-verified with
+a text turn, a shell tool turn and the onboarding conformance suite.
 
 ## Inkling 2 Small
 

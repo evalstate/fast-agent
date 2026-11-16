@@ -1,6 +1,6 @@
 | Model Alias | Maps to |
 | --- | --- |
-| `beam` | `hf.reflection/Beam-1.0-501B-A23B:nebius` |
+| `beam` | `hf.reflection/Beam-1.0-501B-A23B:together` |
 | `DeepSeek V4.1 Flash (novita)` | `hf.deepseek-ai/DeepSeek-V4.1-Flash:novita` |
 | `deepseek-ai/deepseek-v3.1` | `deepseek-ai/deepseek-v3.1` |
 | `deepseek-ai/deepseek-v3.2` | `deepseek-ai/deepseek-v3.2` |
