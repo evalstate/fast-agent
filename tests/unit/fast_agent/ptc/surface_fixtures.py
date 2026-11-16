@@ -31,7 +31,7 @@ from fast_agent.ptc.vocabulary import PTC_VOCABULARY_META
 from fast_agent.tools.tool_surface import ToolExposure
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Sequence
 
     from fast_agent.tools.shell_profiles import ShellToolProfile
 
@@ -111,29 +111,27 @@ def surface_digest(record: dict[str, Any]) -> str:
     ).hexdigest()
 
 
-def replace_digests(text: str, replacements: Mapping[str, str]) -> str:
-    """Replace every old digest in one pass, so a new digest equal to another row's old one
-    is not replaced again."""
-    if not replacements:
-        return text
-    pattern = re.compile("|".join(re.escape(old) for old in replacements))
-    return pattern.sub(lambda match: replacements[match.group()], text)
+_DIGEST_FIELD = re.compile(r'("sha256": ")[0-9a-f]{64}(")')
+
+
+def replace_digests(text: str, digests: Sequence[str]) -> str:
+    """Replace each row's digest in file order, leaving the layout untouched."""
+    pending = iter(digests)
+    result, count = _DIGEST_FIELD.subn(lambda m: f"{m[1]}{next(pending)}{m[2]}", text)
+    if count != len(digests):
+        raise ValueError(f"{count} digest fields for {len(digests)} rows")
+    return result
 
 
 async def refresh(*, write: bool) -> None:
     for mode in SURFACE_MODES:
         path = surface_path(mode)
         rows = surface_rows(mode)
-        # Rows with the same surface share a digest, so replace by digest, not by row.
-        replacements: dict[str, str] = {}
-        for row in rows:
-            digest = surface_digest(await surface_record(mode, row))
-            if replacements.setdefault(row["sha256"], digest) != digest:
-                raise ValueError(f"{mode}: rows sharing digest {row['sha256']} now differ")
-        changed = sum(replacements[row["sha256"]] != row["sha256"] for row in rows)
+        digests = [surface_digest(await surface_record(mode, row)) for row in rows]
+        changed = sum(digest != row["sha256"] for digest, row in zip(digests, rows, strict=True))
         print(f"{mode}: {changed} of {len(rows)} rows changed")
         if write:
-            path.write_text(replace_digests(path.read_text(), replacements))
+            path.write_text(replace_digests(path.read_text(), digests))
 
 
 if __name__ == "__main__":

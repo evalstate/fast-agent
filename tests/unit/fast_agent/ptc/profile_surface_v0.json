@@ -1,6 +1,6 @@
 {
   "captured_from": "146a72df8",
-  "refreshed_for": "process read_output wording (refresh with surface_fixtures.py)",
+  "refreshed_for": "process read_output wording; GPT-5.6+ process poll wait (refresh with surface_fixtures.py)",
   "rows": [
     {
       "model": "passthrough",
@@ -150,61 +150,61 @@
       "model": "gpt-6-astra",
       "profile": "auto",
       "extras": false,
-      "sha256": "5c2852365992503701b95a44ddcd3f37bfc390a1dced721c5b387453f700f66e"
+      "sha256": "c6ebdf9c38acbf3b6c2d77b8101d9c1a616776e2938c94199bc415d11448d07d"
     },
     {
       "model": "gpt-6-astra",
       "profile": "auto",
       "extras": true,
-      "sha256": "1cd66c206c32305b218366cce87dc782b15f8108188ab823cd6fa55e634b298f"
+      "sha256": "1929202213c6649d0723c700d155d5f68c0dde0731b1523b04ee0c040f0ad02e"
     },
     {
       "model": "gpt-6-astra",
       "profile": "minimal_process",
       "extras": false,
-      "sha256": "2a18e0eb440bf2a06e192263310cb7376e30cf9530ae1f6644e856b9f65c148a"
+      "sha256": "818b32531c0745ec89cb33e3ae6692c8ad097589397d5f0b81a8e1c29a5523b8"
     },
     {
       "model": "gpt-6-astra",
       "profile": "minimal_process",
       "extras": true,
-      "sha256": "97b7b6cd1de8edb8f1e0c3a82320255b53a8e7ff0dac83155435d92e1b4f7f0d"
+      "sha256": "d7d5aa64c83763bcf9132257e9912289833f46c3bb2c78e722da1008af1f134f"
     },
     {
       "model": "gpt-6-astra",
       "profile": "grok_shell",
       "extras": false,
-      "sha256": "a99894c0809aab5ce7726bac1a080ef514da1235ee4f6d06001325ba590c7727"
+      "sha256": "dcffdd8dfb6ee3bea8ad59d85d8e8ffcd743c4d2e1bc68f7dd1af9e376200eef"
     },
     {
       "model": "gpt-6-astra",
       "profile": "grok_shell",
       "extras": true,
-      "sha256": "0d6abe5c7d6c1be7fec5273c987f6f152a1e570e031f62b1bbe8d35cf8689308"
+      "sha256": "011a1352150bee67ead785ca2949deed80c1a3d0d1febe6664896b91c61483ce"
     },
     {
       "model": "gpt-6-astra",
       "profile": "luna_exec",
       "extras": false,
-      "sha256": "5c2852365992503701b95a44ddcd3f37bfc390a1dced721c5b387453f700f66e"
+      "sha256": "c6ebdf9c38acbf3b6c2d77b8101d9c1a616776e2938c94199bc415d11448d07d"
     },
     {
       "model": "gpt-6-astra",
       "profile": "luna_exec",
       "extras": true,
-      "sha256": "1cd66c206c32305b218366cce87dc782b15f8108188ab823cd6fa55e634b298f"
+      "sha256": "1929202213c6649d0723c700d155d5f68c0dde0731b1523b04ee0c040f0ad02e"
     },
     {
       "model": "gpt-6-astra",
       "profile": "freeform_shell",
       "extras": false,
-      "sha256": "5c2852365992503701b95a44ddcd3f37bfc390a1dced721c5b387453f700f66e"
+      "sha256": "c6ebdf9c38acbf3b6c2d77b8101d9c1a616776e2938c94199bc415d11448d07d"
     },
     {
       "model": "gpt-6-astra",
       "profile": "freeform_shell",
       "extras": true,
-      "sha256": "1cd66c206c32305b218366cce87dc782b15f8108188ab823cd6fa55e634b298f"
+      "sha256": "1929202213c6649d0723c700d155d5f68c0dde0731b1523b04ee0c040f0ad02e"
     },
     {
       "model": "gpt-6-astra",
@@ -222,61 +222,61 @@
       "model": "codexresponses.gpt-5.6-luna",
       "profile": "auto",
       "extras": false,
-      "sha256": "3e3dde6362b261daec3907ccd08c709f83f2be4da2f4f55acc657a658ef8b989"
+      "sha256": "722a8a9696d64fcfcc0c1350bd1b110687e39c0988df969b5ac3176f1fcba64c"
     },
     {
       "model": "codexresponses.gpt-5.6-luna",
       "profile": "auto",
       "extras": true,
-      "sha256": "d03f405365632dd87b14ace0ffe3926910a0fb0a670e65148014b1369fd9dd7e"
+      "sha256": "6d4a587023030197b7cf46aacc114268dd41e532733da10974c206eab1e2f458"
     },
     {
       "model": "codexresponses.gpt-5.6-luna",
       "profile": "minimal_process",
       "extras": false,
-      "sha256": "8f77a693f021ad729c27f49347c1d774aa0fe3f1d2c1dd00b0cd58527c3b5c1e"
+      "sha256": "8a25d3b7db83ed160b6e0818baa377aa32adf2c7d90d77defd8f96b2b226a966"
     },
     {
       "model": "codexresponses.gpt-5.6-luna",
       "profile": "minimal_process",
       "extras": true,
-      "sha256": "6f292ff879a82a52d3695121080cc9cb415aa34d975c3b9066fc85050894b734"
+      "sha256": "5d3b7d83e85e70042f8da1eb21cef09b9790b31ebbafcb4d36f3b02937d0dc58"
     },
     {
       "model": "codexresponses.gpt-5.6-luna",
       "profile": "grok_shell",
       "extras": false,
-      "sha256": "6533966fa71280e8a7e42dce9ebb44664c272af57c194179f8aa4e5269276b25"
+      "sha256": "5ef5cdfc526227d1fdf27523c43d0e273702f5daf3e85b8bc1470a666cc658d3"
     },
     {
       "model": "codexresponses.gpt-5.6-luna",
       "profile": "grok_shell",
       "extras": true,
-      "sha256": "e60084234bab9973d777946ddfe9f52d7e37ca19f95fc5c650be9cd148ce0d58"
+      "sha256": "74072d84228fc3c3c91568ccc684df24bf48a2ea2c1dbd6d212934728c7bc194"
     },
     {
       "model": "codexresponses.gpt-5.6-luna",
       "profile": "luna_exec",
       "extras": false,
-      "sha256": "3e3dde6362b261daec3907ccd08c709f83f2be4da2f4f55acc657a658ef8b989"
+      "sha256": "722a8a9696d64fcfcc0c1350bd1b110687e39c0988df969b5ac3176f1fcba64c"
     },
     {
       "model": "codexresponses.gpt-5.6-luna",
       "profile": "luna_exec",
       "extras": true,
-      "sha256": "d03f405365632dd87b14ace0ffe3926910a0fb0a670e65148014b1369fd9dd7e"
+      "sha256": "6d4a587023030197b7cf46aacc114268dd41e532733da10974c206eab1e2f458"
     },
     {
       "model": "codexresponses.gpt-5.6-luna",
       "profile": "freeform_shell",
       "extras": false,
-      "sha256": "3e3dde6362b261daec3907ccd08c709f83f2be4da2f4f55acc657a658ef8b989"
+      "sha256": "722a8a9696d64fcfcc0c1350bd1b110687e39c0988df969b5ac3176f1fcba64c"
     },
     {
       "model": "codexresponses.gpt-5.6-luna",
       "profile": "freeform_shell",
       "extras": true,
-      "sha256": "d03f405365632dd87b14ace0ffe3926910a0fb0a670e65148014b1369fd9dd7e"
+      "sha256": "6d4a587023030197b7cf46aacc114268dd41e532733da10974c206eab1e2f458"
     },
     {
       "model": "codexresponses.gpt-5.6-luna",
