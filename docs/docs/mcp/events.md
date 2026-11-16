@@ -54,6 +54,9 @@ each model call the inbox is drained into one user message, after the user's own
 message on the first step of a turn. Events that arrive while a turn is running
 join that turn at its next model call.
 
+The inbox holds 256 items. When it is full the oldest item is dropped, and the
+model is told that events from that subscription were skipped.
+
 !!! warning "Event payloads are untrusted"
 
     The message tells the model that the payloads are data from an external
