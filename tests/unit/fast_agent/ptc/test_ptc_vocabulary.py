@@ -32,6 +32,11 @@ from fast_agent.ptc.vocabulary import (
     PTC_VOCABULARY_META,
     PTC_VOCABULARY_VERSION,
 )
+from fast_agent.tools.shell_tool_definitions import (
+    MAX_ALIGNED_SHELL_TIMEOUT_SECONDS,
+    build_ptc_shell_tool,
+    parse_luna_exec_arguments,
+)
 from fast_agent.tools.tool_surface import ToolExposure
 
 if TYPE_CHECKING:
@@ -110,6 +115,66 @@ async def test_catalog_ptc_contract(model: str, profile: ShellToolProfile) -> No
         called = set(re.findall(r"await (\w+)\(", surface.programmatic.instructions))
         assert called <= functions.keys() | {"name", "store", "load", "stored", "settle"}
         assert "returned by shell" in (functions["process"].stub or "")
+    finally:
+        await agent.shutdown()
+
+
+def test_canonical_timeout_schema_matches_enforced_limit() -> None:
+    tool = build_ptc_shell_tool(shell_name="bash")
+    timeout = tool.input_schema["properties"]["timeout"]
+    assert timeout["minimum"] == 1
+    assert timeout["maximum"] == MAX_ALIGNED_SHELL_TIMEOUT_SECONDS
+    arguments = {"command": "true", "timeout": timeout["maximum"]}
+    assert (
+        parse_luna_exec_arguments(arguments, tool_name=tool.name).hard_timeout_seconds
+        == timeout["maximum"]
+    )
+    arguments["timeout"] += 1
+    with pytest.raises(ValueError, match=rf"timeout.*at most {timeout['maximum']}\b"):
+        parse_luna_exec_arguments(arguments, tool_name=tool.name)
+
+
+@pytest.mark.asyncio
+async def test_canonical_stubs_expose_schema_bounds_and_enums() -> None:
+    agent = McpAgent(
+        AgentConfig(name="bounds", servers=[], shell=True, model="passthrough", subagents=True),
+        context=Context(config=Settings(), ptc_enabled=True),
+    )
+    try:
+        install_subagent_tool(agent)
+        set_harness_tools(agent, True)
+        surface = await agent.tool_surface()
+        for entry in surface.exposed(ToolExposure.PROGRAMMATIC):
+            assert entry.stub is not None
+            for name, schema in entry.tool.input_schema.get("properties", {}).items():
+                bounds = [
+                    value
+                    for key, value in schema.items()
+                    if key in {"minimum", "maximum", "minLength", "maxLength"}
+                ]
+                if bounds:
+                    argument_doc = next(
+                        line
+                        for line in entry.stub.splitlines()
+                        if line.strip().startswith(f"{name}:")
+                    )
+                    assert all(f": {value}." in argument_doc for value in bounds)
+                if "enum" in schema:
+                    assert entry.signature is not None
+                    assert "Literal[" in entry.signature
+                    assert all(json.dumps(value) in entry.signature for value in schema["enum"])
+
+        command = surface.find("shell")
+        assert command is not None and command.stub is not None
+        assert f"Minimum: 1. Maximum: {MAX_ALIGNED_SHELL_TIMEOUT_SECONDS}." in command.stub
+        assert "For longer work, omit timeout" in command.stub
+        assert "process(action='wait')" in command.stub
+        assert "background=true for servers or services" in command.stub
+        result = await agent.call_tool(
+            "shell", {"command": "true", "timeout": MAX_ALIGNED_SHELL_TIMEOUT_SECONDS + 1}
+        )
+        assert result.is_error
+        assert f"at most {MAX_ALIGNED_SHELL_TIMEOUT_SECONDS}" in str(result.content)
     finally:
         await agent.shutdown()
 

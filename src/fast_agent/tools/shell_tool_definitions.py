@@ -514,7 +514,12 @@ def build_luna_exec_tool(*, shell_name: str, tool_name: str = LUNA_EXEC_TOOL_NAM
 
 def build_ptc_shell_tool(*, shell_name: str) -> Tool:
     """Canonical PTC command contract, independent of direct-mode model profiles."""
-    return build_luna_exec_tool(shell_name=shell_name, tool_name=PTC_SHELL_FUNCTION)
+    tool = build_luna_exec_tool(shell_name=shell_name, tool_name=PTC_SHELL_FUNCTION)
+    tool.description = (
+        f"{tool.description} For longer work, omit timeout and follow the returned process ID "
+        "with process(action='wait'); use background=true for servers or services."
+    )
+    return tool
 
 
 FREEFORM_SHELL_PRAGMA = "# @shell:"
