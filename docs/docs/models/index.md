@@ -264,10 +264,10 @@ provider.model_name[?reasoning=value][&query=value...]
 
 `ptc=on|true|off|false` (any provider) enables or disables
 [programmatic tool calling](../ref/config_file.md#programmatic-tool-calling-ptc).
-For example, `glm53flash?ptc=off` disables the GLM-5.3-Flash default, while
-`glm53?ptc=on` enables PTC for GLM-5.3. GPT-6 Astra, GPT-6.1 Sol/Terra, GPT-6 Luna and
-Kimi K3.1 Pro also default to on (`luna?ptc=off` to disable). The CLI flags `--ptc` / `--no-ptc`
-take precedence over the model string.
+For example, `glm53flash?ptc=off` disables PTC, while `glm53?ptc=on` enables it.
+The CLI flags `--ptc` / `--no-ptc` take precedence over the model string.
+
+--8<-- "_generated/ptc_model_defaults.md"
 
 Canonical PTC uses the same `shell`, `process`, and file functions for every model;
 model-specific shell names, profiles, and edit preferences apply only to direct mode.

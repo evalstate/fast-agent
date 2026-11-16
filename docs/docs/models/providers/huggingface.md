@@ -32,7 +32,8 @@ Kimi K3.1 Pro is available via Together using
 `together`, not `togetherai`. This route supports images and top-level
 `reasoning_effort` (`low`, `high`, `max`; default `max`), with preserved reasoning
 history. It is also the default HF model and the target of `kimi`/`kimithink`.
-PTC is enabled by default for K3.1 Pro; `--no-ptc` or `?ptc=off` disables it.
+See the [generated PTC model defaults](../../ref/config_file.md#ptc-model-defaults);
+`--no-ptc` or `?ptc=off` disables PTC.
 Its structured-output requests use Together's legacy schema-bearing envelope
 to work around HF router translation; output is validated locally.
 See [Moonshot](moonshot.md) for the native route and model details.

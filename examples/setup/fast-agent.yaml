@@ -126,6 +126,7 @@ anthropic:
 #   image_upload_ttl_seconds: 86400 # 1 hour to 30 days
 
 # Programmatic tool calling: null follows the model default.
+# Catalog defaults: https://fast-agent.ai/ref/config_file/#ptc-model-defaults
 # CLI --ptc/--no-ptc and model query ?ptc=on|off override this.
 # Local POSIX only (model defaults fall back to direct tools elsewhere);
 # pydantic-monty is included in the core install.

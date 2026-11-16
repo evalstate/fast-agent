@@ -158,3 +158,23 @@ def test_tui_reference_includes_managed_process_settings() -> None:
     assert f"`{defaults.process_poll_max_wait_seconds}`" in table
     assert "`shell_execution.managed_process_poll_history_folding`" in table
     assert f"`{defaults.managed_process_poll_history_folding}`" in table
+
+
+def test_ptc_model_defaults_snippet_is_current() -> None:
+    generator = _load_generator()
+    path = Path(__file__).parents[2] / "docs/docs/_generated/ptc_model_defaults.md"
+    assert path.read_text() == generator.generate_ptc_model_defaults_snippet(), (
+        "PTC defaults changed; run uv run scripts/docs.py generate"
+    )
+
+
+def test_ptc_model_defaults_match_catalog_policy() -> None:
+    from fast_agent.llm.model_database import ModelDatabase
+
+    snippet = _load_generator().generate_ptc_model_defaults_snippet()
+    documented = set(re.findall(r"^- `([^`]+)`$", snippet, re.MULTILINE))
+    assert documented <= set(ModelDatabase.MODELS)
+    for name in ModelDatabase.MODELS:
+        params = ModelDatabase.get_model_params(name)
+        assert params is not None
+        assert (name in documented) is params.ptc_enabled, name

@@ -20,8 +20,9 @@ uv run fast-agent go --ptc --servers orders \
   -m "Which EMEA customer has the highest total revenue from delivered orders? Include the runner-up."
 ```
 
-PTC is included as a standard feature from 0.10.53. GLM-5.3-Flash, GPT-6 Astra,
-GPT-6.1 Sol, GPT-6.1 Terra, GPT-6 Luna and Kimi K3.1 Pro default to on; other models default to off.
+PTC is included as a standard feature from 0.10.53. See the
+[generated PTC model defaults](https://fast-agent.ai/ref/config_file/#ptc-model-defaults)
+for the catalog's current defaults.
 Use `--ptc` / `--no-ptc` or a model string such as
 `--model 'glm53flash?ptc=off'` (`on`, `true`, `off`, `false` are accepted).
 Precedence is CLI flag, model query, `ptc.enabled` config, then model default.

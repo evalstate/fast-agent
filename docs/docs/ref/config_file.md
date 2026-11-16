@@ -63,9 +63,7 @@ Enablement precedence (highest first):
 1. CLI `--ptc` or `--no-ptc`.
 2. Model query `ptc=on|true|off|false`, for example `glm53flash?ptc=off`.
 3. YAML `ptc.enabled: true` or `false`.
-4. Model database default. **GLM-5.3-Flash, GPT-6 Astra, GPT-6.1 Sol, GPT-6.1 Terra,
-   GPT-6 Luna and Kimi K3.1 Pro default to on** (including their provider aliases); other models
-   default to off.
+4. Model database default (see [PTC model defaults](#ptc-model-defaults)).
 
 Omit `ptc.enabled` or set it to `null` to use model defaults. Limits and tool
 exposure settings are independent of enablement:
@@ -141,6 +139,10 @@ once for `shell`; hooks still see the outer code tool. MCP tools merely named
 
 See the [PTC example](https://github.com/evalstate/fast-agent/tree/main/examples/ptc)
 for a runnable demonstration.
+
+#### PTC model defaults
+
+--8<-- "_generated/ptc_model_defaults.md"
 
 ### History compaction defaults
 

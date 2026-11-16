@@ -42,3 +42,9 @@ hand.
 Keep the annotated setup template in `examples/setup/fast-agent.yaml`; packaged setup resources are
 copied from there during build. When setup defaults mirror code-owned settings, add focused tests so
 the sample config and generated docs fail visibly if the code default changes.
+
+The PTC-on model list is generated from `ModelParameters.ptc_enabled` in
+`ModelDatabase.MODELS` as `_generated/ptc_model_defaults.md`. Include that snippet in
+site pages; link to the [generated PTC model defaults](config_file.md#ptc-model-defaults)
+from examples and the setup template instead of copying the list.
+The unit suite checks that the committed snippet matches the catalog.
