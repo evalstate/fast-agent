@@ -146,6 +146,31 @@ async def test_duplicate_event_ids_are_dropped_and_truncation_reports_a_gap() ->
 
 
 @pytest.mark.asyncio
+async def test_full_inbox_drops_the_oldest_items_and_reports_a_gap() -> None:
+    stages = ["QUEUED", "RUNNING", "COMPLETED"]
+    poller = _Poller(
+        [
+            PollEventsResult(cursor="c0"),
+            PollEventsResult(events=[_occurrence(stage) for stage in stages], cursor="c1"),
+        ]
+    )
+    manager = _manager(poller, _Sleeps(), max_inbox=2)
+
+    await manager.subscribe("demo", EVENT, ARGS)
+    await poller.exhausted.wait()
+
+    assert manager.pending_count == 2
+    items = manager.take()
+    assert [item.kind for item in items] == ["gap", "event", "event"]
+    assert [item.occurrence.event_id for item in items if item.occurrence] == [
+        "job-1:RUNNING",
+        "job-1:COMPLETED",
+    ]
+    assert manager.take() == []
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
 async def test_subscribe_rejects_unknown_and_non_poll_event_types() -> None:
     push_only = _manager(_Poller([], delivery=["push", "webhook"]), _Sleeps())
     with pytest.raises(ValueError, match="does not support poll delivery"):
