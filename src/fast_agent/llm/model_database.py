@@ -1723,6 +1723,21 @@ class ModelDatabase:
             "process_poll_default_wait_seconds": 240,
         }
     )
+    # On these HF routes combined schema+tools requests answered without calling the tool
+    # (2026-11-15 sweep), so structured output defers: tools first, then a schema-only turn.
+    # Native Z.ai and other routes sharing these constants keep their policy.
+    for _model in (
+        "zai-org/glm-5",
+        "zai-org/glm-5.3",
+        "zai-org/glm-5.3-flash",
+        "moonshotai/kimi-k2.5",
+        "moonshotai/kimi-k2.6",
+        "minimaxai/minimax-m2.5",
+    ):
+        _PROVIDER_MODEL_OVERRIDES[(Provider.HUGGINGFACE, _model)] = MODELS[_model].model_copy(
+            update={"structured_tool_policy": "defer"}
+        )
+    del _model
     _PROVIDER_MODEL_OVERRIDES.update(
         {
             (Provider.OPENROUTER, f"x-ai/{model_name}"): params

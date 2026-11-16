@@ -62,6 +62,10 @@ accepted but showed no measurable effort difference. Its 1017 successor
 unchanged. MiniMax M2.5 on Novita is still served directly and cannot disable
 reasoning; no toggle is offered.
 
+Kimi K2.5/K2.6, GLM 5 and MiniMax M2.5 structured output with tools uses the
+two-phase `defer` policy on HF; on Novita, GLM 5, MiniMax M2.5 and Kimi K2.6 use
+JSON object mode with schema instructions because `json_schema` is rejected or not enforced.
+
 Muse Glimmer now sends top-level effort, retaining `low`, `medium`, `high`,
 `xhigh` and default `high`. GLM 5.3/Flash remain always-on (`low`, `high`, `max`);
 probes distinguished `max`, but not `low` from `high`. Kimi K3/K3.1 Pro and
@@ -128,6 +132,8 @@ later turns and tool-result continuations.
 
 Structured output uses JSON object mode with schema instructions and
 fast-agent validation, not strict `json_schema` mode.
+With tools available, structured output uses the two-phase `defer` policy on all
+HF routes (tools first, then a schema-only final turn); native [Z.ai](zai.md) is unchanged.
 
 [GLM-5.3](https://huggingface.co/zai-org/GLM-5.3) is text-only.
 [GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash) accepts text and

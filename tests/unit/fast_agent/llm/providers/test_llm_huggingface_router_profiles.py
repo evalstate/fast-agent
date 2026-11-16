@@ -1,5 +1,6 @@
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx2
 import pytest
@@ -15,6 +16,7 @@ from fast_agent.constants import REASONING
 from fast_agent.context import Context
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
+from fast_agent.llm.provider.openai.llm_openai_compatible import OpenAICompatibleLLM
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
@@ -986,27 +988,16 @@ def test_deepseek_f1017_novita_explicit_output_override() -> None:
     assert request["reasoning_effort"] == "none"
 
 
-@pytest.mark.parametrize(
-    ("model", "deferred", "max_tokens"),
-    (
-        ("deepseek-hf", True, None),
-        ("deepseek-hf?structured_tools=always", False, None),
-        ("deepseek41-hf", True, None),
-        ("deepseek-v41-hf", True, None),
-        ("deepseek41-hf?structured_tools=always", False, None),
-        # The unlisted 0731 checkpoint shares the defer default; route limits still apply.
-        ("hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten", True, 384_000),
-        ("hf.deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra", True, 131_072),
-        ("hf.deepseek-ai/DeepSeek-V4-Flash-0731:scaleway?structured_tools=always", False, 32_768),
-    ),
-)
-@pytest.mark.parametrize("after_tool", (False, True))
-def test_deepseek_flash_hf_structured_request_phases(
-    model: str, deferred: bool, max_tokens: int | None, after_tool: bool
-) -> None:
+def _structured_phase_request(
+    model: str, after_tool: bool
+) -> tuple[OpenAICompatibleLLM, dict[str, Any]]:
+    """Build the real wire request for a structured turn with one tool available.
+
+    ``after_tool`` selects the turn after a tool result, i.e. the final phase under defer.
+    """
     agent = LlmAgent(AgentConfig(name="router-profile-test"))
     llm = ModelFactory.create_factory(model)(agent=agent)
-    assert isinstance(llm, HuggingFaceLLM)
+    assert isinstance(llm, OpenAICompatibleLLM)
     params = llm.default_request_params.model_copy(update={"structured_schema": _INKLING_SCHEMA})
     tools = [
         Tool(
@@ -1043,6 +1034,30 @@ def test_deepseek_flash_hf_structured_request_phases(
         prepared_params,
         prepared_tools,
     ).arguments
+    assert params.structured_schema == _INKLING_SCHEMA
+    assert params.response_format is None
+    return llm, request
+
+
+@pytest.mark.parametrize(
+    ("model", "deferred", "max_tokens"),
+    (
+        ("deepseek-hf", True, None),
+        ("deepseek-hf?structured_tools=always", False, None),
+        ("deepseek41-hf", True, None),
+        ("deepseek-v41-hf", True, None),
+        ("deepseek41-hf?structured_tools=always", False, None),
+        # The unlisted 0731 checkpoint shares the defer default; route limits still apply.
+        ("hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten", True, 384_000),
+        ("hf.deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra", True, 131_072),
+        ("hf.deepseek-ai/DeepSeek-V4-Flash-0731:scaleway?structured_tools=always", False, 32_768),
+    ),
+)
+@pytest.mark.parametrize("after_tool", (False, True))
+def test_deepseek_flash_hf_structured_request_phases(
+    model: str, deferred: bool, max_tokens: int | None, after_tool: bool
+) -> None:
+    llm, request = _structured_phase_request(model, after_tool)
 
     if deferred and not after_tool:
         assert "response_format" not in request
@@ -1055,10 +1070,54 @@ def test_deepseek_flash_hf_structured_request_phases(
     else:
         assert len(request["tools"]) == 1
         assert request["tools"][0]["function"]["name"] == "lookup"
-    assert params.structured_schema == _INKLING_SCHEMA
-    assert params.response_format is None
     assert request.get("max_tokens") == max_tokens
     assert request["reasoning_effort"] == "max"
+
+
+@pytest.mark.parametrize(
+    ("model", "policy"),
+    (
+        # HF routes from the 2026-11-15 sweep: one per family.
+        ("GLM 5.3 (novita)", "defer"),
+        ("glm5", "defer"),
+        ("kimi26", "defer"),
+        ("minimax2.5", "defer"),
+        # Native providers share the catalog constants and keep their policy.
+        ("zai.glm-5.3", "always"),
+        ("moonshot.moonshotai/kimi-k2.6", "no_tools"),
+    ),
+)
+@pytest.mark.parametrize("after_tool", (False, True))
+def test_structured_with_tool_request_phases_by_route(
+    model: str, policy: str, after_tool: bool
+) -> None:
+    _, request = _structured_phase_request(model, after_tool)
+
+    # defer: tools only until a tool result arrives, then a schema-only final turn.
+    schema_expected = policy != "defer" or after_tool
+    tools_expected = policy == "always" or (policy == "defer" and not after_tool)
+    assert ("response_format" in request) is schema_expected
+    assert bool(request.get("tools")) is tools_expected
+    if tools_expected:
+        assert [tool["function"]["name"] for tool in request["tools"]] == ["lookup"]
+
+
+@pytest.mark.parametrize(
+    ("model", "format_type"),
+    (
+        # Novita rejects (GLM 5, MiniMax M2.5) or ignores (Kimi K2.6) json_schema.
+        ("glm5", "json_object"),
+        ("minimax2.5", "json_object"),
+        ("kimi26", "json_object"),
+        ("hf.zai-org/GLM-5:together", "json_schema"),
+        ("hf.moonshotai/Kimi-K2.6:together", "json_schema"),
+        ("kimi25", "json_schema"),
+    ),
+)
+def test_structured_final_response_format_by_backend(model: str, format_type: str) -> None:
+    _, request = _structured_phase_request(model, after_tool=True)
+
+    assert request["response_format"]["type"] == format_type
 
 
 @pytest.mark.asyncio
