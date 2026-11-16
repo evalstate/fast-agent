@@ -193,9 +193,7 @@ def build_functions(
     )
     for tool in ordered:
         python_name = _unique(_global_identifier(tool.name, reserved_names), functions)
-        function = _build_function(
-            tool, python_name, describe_bounds=not profile_names and is_builtin_tool(tool)
-        )
+        function = _build_function(tool, python_name)
         functions[python_name] = replace(function, builtin=False) if profile_names else function
     renamed = {
         f.tool_name: f.python_name
@@ -239,29 +237,7 @@ def render_stubs(functions: Mapping[str, PtcFunction]) -> str:
     )
 
 
-def _parameter_description(schema: Any, *, describe_bounds: bool) -> str | None:
-    if not isinstance(schema, Mapping):
-        return None
-    description = schema.get("description")
-    description = description if isinstance(description, str) else ""
-    if describe_bounds:
-        # Python annotations retain enums, but cannot express JSON Schema bounds.
-        # Keep the profile-name comparison arm's historical docstrings unchanged.
-        bounds = [
-            f"{label}: {schema[key]}."
-            for key, label in (
-                ("minimum", "Minimum"),
-                ("maximum", "Maximum"),
-                ("minLength", "Minimum length"),
-                ("maxLength", "Maximum length"),
-            )
-            if key in schema
-        ]
-        description = " ".join([description, *bounds]).strip()
-    return description or None
-
-
-def _build_function(tool: Tool, python_name: str, *, describe_bounds: bool) -> PtcFunction:
+def _build_function(tool: Tool, python_name: str) -> PtcFunction:
     options = tool_ptc_options(tool)
     ptc_schema = options.get("input_schema")
     schema = ptc_schema if isinstance(ptc_schema, Mapping) else tool.input_schema
@@ -281,15 +257,16 @@ def _build_function(tool: Tool, python_name: str, *, describe_bounds: bool) -> P
         is_required = schema_name in required_names
         # Optional parameters keep their exact schema type; only nullable ones accept None.
         annotation = _annotation(property_schema, definitions)
+        description = (
+            property_schema.get("description") if isinstance(property_schema, Mapping) else None
+        )
         parameters.append(
             PtcParameter(
                 python_name=parameter_name,
                 schema_name=str(schema_name),
                 annotation=annotation,
                 required=is_required,
-                description=_parameter_description(
-                    property_schema, describe_bounds=describe_bounds
-                ),
+                description=description if isinstance(description, str) else None,
             )
         )
 

@@ -536,12 +536,6 @@ class ProgrammaticToolRuntime:
             tool=example.tool_name,
             call=f"{example.example_call()}",
         )
-        # ptc-vocab-v0: remove the migration bridge after matched rollout.
-        if self.vocabulary == 1 and self._shell_function is not None:
-            note = note.rstrip("\n") + (
-                " Instructions may call the shell `bash`, `Shell`, `exec` or `execute`; "
-                "in code it is `shell`.\n"
-            )
         return note
 
     def _shell_output_note(self) -> str:
