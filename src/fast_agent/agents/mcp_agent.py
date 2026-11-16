@@ -83,6 +83,7 @@ from fast_agent.mcp.common import (
     get_resource_name,
     get_server_name,
     is_namespaced_name,
+    matches_server_filter,
 )
 from fast_agent.mcp.mcp_aggregator import (
     MCPAggregator,
@@ -826,6 +827,7 @@ class McpAgent(ABC, ToolAgent):
         new_instruction = await build_instruction(
             self._instruction_template,
             aggregator=self._aggregator,
+            tool_filters=self.config.tools,
             skill_manifests=resolve_instruction_skill_manifests(self, self._skill_manifests),
             skill_read_tool_name=self.skill_read_tool_name,
             context=self._instruction_context,
@@ -1612,13 +1614,9 @@ class McpAgent(ABC, ToolAgent):
         Args:
             tool_name: The name of the tool to check (namespaced)
         """
-        server_name = get_server_name(packed_name)
-        config_tools = self.config.tools or {}
-        if server_name not in config_tools:
-            return True
-        resource_name = get_resource_name(packed_name)
-        patterns = config_tools.get(server_name, [])
-        return any(self._matches_pattern(resource_name, pattern) for pattern in patterns)
+        return matches_server_filter(
+            self.config.tools, get_server_name(packed_name), get_resource_name(packed_name)
+        )
 
     def set_external_runtime(self, runtime: ExternalRuntime | None) -> None:
         """
@@ -2244,6 +2242,28 @@ class McpAgent(ABC, ToolAgent):
         target = namespace if namespace is not None else server_name
         result: ReadResourceResult = await self._aggregator.get_resource(resource_uri, target)
         return result
+
+    def _resource_matches_filter(self, server_name: str, resource_uri: str) -> bool:
+        """Apply the listing filter: server-keyed globs matched against the resource URI."""
+        return matches_server_filter(
+            self.config.resources, self._aggregator.server_display_name(server_name), resource_uri
+        )
+
+    async def get_model_resource(
+        self, resource_uri: str, server_name: str | None = None
+    ) -> ReadResourceResult:
+        """Read a resource for the model; unlike host get_resource, apply resources:."""
+        servers = [server_name] if server_name is not None else self._aggregator.server_names
+        allowed = [name for name in servers if self._resource_matches_filter(name, resource_uri)]
+        if allowed == servers:
+            return await self.get_resource(resource_uri, server_name=server_name)
+        # Search only servers whose filter allows this URI, so a denied server is never read.
+        for name in allowed:
+            try:
+                return await self.get_resource(resource_uri, server_name=name)
+            except Exception:
+                continue
+        raise ValueError(f"Resource '{resource_uri}' is not available")
 
     async def with_resource(
         self,

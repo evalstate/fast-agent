@@ -92,6 +92,7 @@ class SkillAgent:
             model=None,
             skills=SKILLS_DEFAULT,
             skill_manifests=list(self._skill_manifests),
+            tools={},
         )
 
     def clear(self, clear_prompts: bool = False) -> None:

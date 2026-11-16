@@ -2,6 +2,9 @@
 Common constants and utilities shared between modules to avoid circular imports.
 """
 
+import fnmatch
+from collections.abc import Mapping, Sequence
+
 # Constants
 SEP = "__"
 
@@ -24,3 +27,11 @@ def get_server_name(namespaced_name: str) -> str:
 def get_resource_name(namespaced_name: str) -> str:
     """Extract the resource name from a namespaced resource name"""
     return namespaced_name.split(SEP, 1)[1] if SEP in namespaced_name else namespaced_name
+
+
+def matches_server_filter(
+    filters: Mapping[str, Sequence[str]] | None, server_name: str, name: str
+) -> bool:
+    """Apply an agent filter: unlisted servers allow all; listed ones need a glob match."""
+    patterns = (filters or {}).get(server_name)
+    return patterns is None or any(fnmatch.fnmatch(name, pattern) for pattern in patterns)

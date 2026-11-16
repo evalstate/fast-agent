@@ -104,7 +104,14 @@ async def _read_resource(
 ) -> list[ContentBlock]:
     if uri.startswith("internal://"):
         return [text_content(read_internal_resource(uri))]
-    result = await agent.get_resource(resource_uri=uri, namespace=server_name)
+    # Model reads honour the agent's resources: filter; host get_resource stays unfiltered.
+    from fast_agent.agents.mcp_agent import McpAgent
+
+    result = (
+        await agent.get_model_resource(uri, server_name)
+        if isinstance(agent, McpAgent)
+        else await agent.get_resource(resource_uri=uri, namespace=server_name)
+    )
     return _resource_content(result)
 
 

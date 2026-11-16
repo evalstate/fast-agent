@@ -215,6 +215,7 @@ async def test_mcp_filter_constrains_model_routes(
     agent = McpAgent(
         AgentConfig(
             "filtered",
+            instruction="{{serverInstructions}}",
             model="passthrough",
             servers=["recording"],
             skills=[],
@@ -229,6 +230,9 @@ async def test_mcp_filter_constrains_model_routes(
 
     try:
         await agent.initialize()
+        # Server instructions list only the tools the filter allows.
+        assert ("recording__hidden_call" in agent.instruction) is hidden
+        assert ("recording__allowed_call" in agent.instruction) is allowed
         for local_name, permitted in (("hidden_call", hidden), ("allowed_call", allowed)):
             for name in (
                 f"recording__{local_name}",
@@ -385,5 +389,88 @@ async def test_mcp_filter_preserves_filesystem_collision_dispatch(
         result = await agent.call_tool("read_text_file", {"path": str(local_file)})
         assert not result.is_error and "LOCALCONTENT" in str(result.content)
         assert not record.exists()
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ptc", [False, True])
+@pytest.mark.parametrize(
+    ("patterns", "permitted"),
+    [
+        (None, {"allowed/doc", "allowed/item/7", "hidden/doc"}),
+        (["recording://allowed/doc"], {"allowed/doc"}),
+        (["recording://allowed/*"], {"allowed/doc", "allowed/item/7"}),
+        ([], set()),
+    ],
+)
+async def test_resource_filter_constrains_model_reads(
+    tmp_path: Path, ptc: bool, patterns: list[str] | None, permitted: set[str]
+) -> None:
+    record = tmp_path / "received"
+    other_record = tmp_path / "other"
+    settings = Settings(
+        ptc=ProgrammaticToolCallingSettings(enabled=ptc),
+        mcp=MCPSettings(
+            servers={
+                "recording": _recording_server(record),
+                "other": _recording_server(other_record),
+            }
+        ),
+    )
+    agent = McpAgent(
+        AgentConfig(
+            "resources",
+            model="passthrough",
+            servers=["recording", "other"],
+            skills=[],
+            resources={} if patterns is None else {"recording": patterns},
+        ),
+        context=Context(config=settings, server_registry=ServerRegistry(settings)),
+    )
+
+    def receipts(path: Path) -> list[str]:
+        return path.read_text().splitlines() if path.exists() else []
+
+    async def model_read(arguments: dict[str, str]) -> CallToolResult:
+        if not ptc:
+            return await _model_call(agent, "get_resource", arguments)
+        code = f"await get_resource({', '.join(f'{k}={v!r}' for k, v in arguments.items())})"
+        return await _model_call(agent, PTC_TOOL_NAME, {"code": code})
+
+    received: list[str] = []
+    other_received: list[str] = []
+    try:
+        await agent.initialize()
+        set_harness_tools(agent, True)
+        for path in ("allowed/doc", "allowed/item/7", "hidden/doc"):
+            uri = f"recording://{path}"
+            result = await model_read({"uri": uri, "server_name": "recording"})
+            assert bool(result.is_error) is (path not in permitted), result
+            if path in permitted:
+                received.append(path)
+            assert receipts(record) == received
+
+            # An omitted server skips servers whose filter denies the URI.
+            result = await model_read({"uri": uri})
+            assert not result.is_error, result
+            if path in permitted:
+                received.append(path)
+            else:
+                other_received.append(path)
+            assert receipts(record) == received
+            assert receipts(other_record) == other_received
+
+        result = await model_read({"uri": "internal://fast-agent/agent-cards"})
+        assert not result.is_error and "AgentCard" in str(result.content)
+
+        # resources: constrains model reads, not trusted host APIs.
+        for server in ("recording", None):
+            hidden = await agent.get_resource("recording://hidden/doc", server)
+            assert "hidden/doc" in str(hidden.contents)
+            received.append("hidden/doc")
+        await agent.get_embedded_resources("recording://hidden/doc", "recording")
+        received.append("hidden/doc")
+        assert receipts(record) == received
     finally:
         await agent.shutdown()

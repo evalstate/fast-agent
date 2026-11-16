@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastmcp import FastMCP
 
-app = FastMCP("ptc-recording")
+app = FastMCP("ptc-recording", instructions="Records calls.")
 record = Path(sys.argv[1])
 
 
@@ -29,6 +29,21 @@ def hidden_call(value: str) -> str:
 @app.tool(meta={"fast_agent": {"ptc": {"expose": "both"}}})
 def read_text_file(path: str) -> str:
     return record_call(path)
+
+
+@app.resource("recording://allowed/doc")
+def allowed_doc() -> str:
+    return record_call("allowed/doc")
+
+
+@app.resource("recording://hidden/doc")
+def hidden_doc() -> str:
+    return record_call("hidden/doc")
+
+
+@app.resource("recording://allowed/item/{item}")
+def allowed_item(item: str) -> str:
+    return record_call(f"allowed/item/{item}")
 
 
 if __name__ == "__main__":
