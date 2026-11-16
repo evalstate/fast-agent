@@ -39,6 +39,7 @@ class ArithmeticResult(BaseModel):
         "copilot.claude-fable-5.1",
         "copilot.claude-fable-5.2",
         "deepseek-hf",
+        "beam",
     ],
 )
 @pytest.mark.parametrize("with_tools", [False, True], ids=["schema-only", "with-tools"])

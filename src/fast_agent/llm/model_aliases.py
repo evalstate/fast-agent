@@ -98,6 +98,7 @@ BUILTIN_MODEL_ALIASES: Final[dict[str, str]] = {
     "musecontrib": "metaai.muse-spark-1.3-contributor",
     "muse-spark": "metaai.muse-spark-1.3",
     "glimmer": ("hf.meta-models/Muse-Glimmer-30B:together?temperature=1.0&top_p=0.95&top_k=64"),
+    "beam": "hf.reflection/Beam-1.0-501B-A23B:nebius",
     "inkling": "hf.thinkingmachines/Inkling-2-Small:deepinfra",
     "minimax2.5": "hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
     "kimi": "hf.moonshotai/Kimi-K3.1-Pro:together",

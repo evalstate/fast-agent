@@ -233,6 +233,7 @@ _GEMMA_4 = "google/gemma-4-31b-it"
 _MUSE_GLIMMER = "meta-models/muse-glimmer-30b"
 _QWEN_38 = "qwen/qwen3.8-27b"
 _INKLING_2_SMALL = "thinkingmachines/inkling-2-small"
+_BEAM_1 = "reflection/beam-1.0-501b-a23b"
 _MUSE_GLIMMER_PROMPT_CONTEXT_WINDOW = 131_072 - 32_768
 
 # The HF router now forwards these routes through OpenRouter (2026-11-15).
@@ -290,6 +291,12 @@ _MUSE_GLIMMER_REASONING = TopLevelReasoningEffort(
     toggle_disable=False,
     cleanup_extra_body=_ROUTED_CLEANUP,
 )
+_BEAM_1_REASONING = TopLevelReasoningEffort(
+    default_effort="max",
+    allowed_efforts=frozenset({"minimal", "low", "medium", "high", "xhigh", "max"}),
+    toggle_disable=False,
+    cleanup_extra_body=_ROUTED_CLEANUP,
+)
 # OpenRouter requires reasoning on both Inkling routes; "none" is rejected.
 _INKLING_2_REASONING = TopLevelReasoningEffort(
     default_effort="high",
@@ -315,6 +322,17 @@ _QWEN_38_REASONING = TopLevelReasoningEffort(
 
 HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
     (
+        # Both Beam upstreams have the same OpenRouter wire contract.
+        RouterProfileRule(
+            model=_BEAM_1,
+            backends=frozenset({"nebius", "together"}),
+            profile=HuggingFaceRouteProfile(
+                reasoning=_BEAM_1_REASONING,
+                structured_json_mode="schema",
+                omit_default_max_tokens=True,
+                max_output_tokens=131_072,
+            ),
+        ),
         # Dedicated endpoints retain their direct-backend contracts.
         *(
             RouterProfileRule(

@@ -1986,3 +1986,12 @@ def test_compact_at_query_reaches_the_llm() -> None:
     llm = ModelFactory.create_factory("sol?compact_at=150k")(LlmAgent(AgentConfig(name="test")))
 
     assert llm.compact_at_override == CompactAt(tokens=150_000)
+
+
+def test_beam_alias_pins_nebius_without_sampling_defaults() -> None:
+    config = ModelFactory.parse_model_string("beam")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "reflection/Beam-1.0-501B-A23B:nebius"
+    assert config.temperature is None
+    assert config.reasoning_effort is None

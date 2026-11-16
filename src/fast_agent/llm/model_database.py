@@ -413,6 +413,12 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value="max"),
     )
 
+    BEAM_1_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["minimal", "low", "medium", "high", "xhigh", "max"],
+        default=ReasoningEffortSetting(kind="effort", value="max"),
+    )
+
     KIMI_REASONING_TOGGLE_SPEC = ReasoningEffortSpec(
         kind="toggle",
         default=ReasoningEffortSetting(kind="toggle", value=True),
@@ -1169,6 +1175,17 @@ class ModelDatabase:
         model_specific="You have image understanding capabilities.",
     )
 
+    BEAM_1_HF = ModelParameters(
+        context_window=1_048_576,
+        max_output_tokens=131_072,
+        tokenizes=TEXT_ONLY,
+        json_mode="schema",
+        # Both HF upstreams require reasoning on every assistant turn.
+        reasoning="reasoning_content",
+        reasoning_effort_spec=BEAM_1_REASONING_EFFORT_SPEC,
+        default_provider=Provider.HUGGINGFACE,
+    )
+
     # No published output ceiling: 128K is a nominal budget; the route omits max_tokens.
     INKLING_2_SMALL_HF = ModelParameters(
         context_window=1_048_576,
@@ -1614,6 +1631,7 @@ class ModelDatabase:
         "moonshotai/kimi-k3": KIMI_K3_HF,
         "moonshotai/kimi-k3.1-pro": KIMI_K31_HF,
         "meta-models/muse-glimmer-30b": MUSE_GLIMMER_HF,
+        "reflection/beam-1.0-501b-a23b": BEAM_1_HF,
         "thinkingmachines/inkling-2-small": INKLING_2_SMALL_HF,
         "kimi-k3": KIMI_K3,
         "kimi-k3.1-pro": KIMI_K31,
@@ -1712,6 +1730,7 @@ class ModelDatabase:
         }
     )
     _PROVIDER_WIRE_MODEL_NAMES: ClassVar[dict[tuple[Provider, str], str]] = {
+        (Provider.HUGGINGFACE, "reflection/beam-1.0-501b-a23b"): "reflection/Beam-1.0-501B-A23B",
         (Provider.HUGGINGFACE, "deepseek-ai/deepseek-v4.1-flash-1017"): (
             "deepseek-ai/DeepSeek-V4.1-Flash-1017"
         ),

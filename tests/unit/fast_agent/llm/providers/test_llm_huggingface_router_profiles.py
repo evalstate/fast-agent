@@ -1,8 +1,11 @@
+import json
 from collections.abc import AsyncIterator
 
+import httpx2
 import pytest
 from mcp import Tool
 from mcp.types import CallToolResult, ImageContent, TextContent
+from openai import AsyncOpenAI, BadRequestError
 from openai.types.chat import ChatCompletionChunk
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -1433,3 +1436,381 @@ def test_disable_capable_hf_routes_keep_reasoning_disabled(
     else:
         assert request["reasoning_effort"] == "none"
         assert "extra_body" not in request
+
+
+@pytest.mark.parametrize(
+    ("backend", "query", "effort"),
+    (
+        ("nebius", "", "max"),
+        ("together", "", "max"),
+        ("nebius", "?reasoning=minimal", "minimal"),
+        ("together", "?reasoning=low", "low"),
+        ("nebius", "?reasoning=medium", "medium"),
+        ("together", "?reasoning=high", "high"),
+        ("nebius", "?reasoning=xhigh", "xhigh"),
+        ("together", "?reasoning=max", "max"),
+        ("nebius", "?reasoning=none", "minimal"),
+        ("together", "?reasoning=off", "minimal"),
+    ),
+)
+def test_beam_request_contract(backend: str, query: str, effort: str) -> None:
+    # Lowercase input must recover the case-sensitive HF wire identifier.
+    request = _factory_request(f"hf.reflection/beam-1.0-501b-a23b:{backend}{query}")
+
+    assert request["model"] == f"reflection/Beam-1.0-501B-A23B:{backend}"
+    assert request["reasoning_effort"] == effort
+    assert "max_tokens" not in request
+    assert "max_completion_tokens" not in request
+    assert "extra_body" not in request
+
+
+@pytest.mark.parametrize("backend", ("nebius", "together"))
+@pytest.mark.parametrize(("requested", "expected"), ((4096, 4096), (200000, 131072)))
+def test_beam_explicit_output_budget_and_schema(
+    backend: str, requested: int, expected: int
+) -> None:
+    agent = LlmAgent(AgentConfig(name="beam-contract-test"))
+    llm = ModelFactory.create_factory(
+        f"hf.reflection/Beam-1.0-501B-A23B:{backend}?max_tokens={requested}"
+    )(agent=agent)
+    assert isinstance(llm, HuggingFaceLLM)
+    schema = {
+        "type": "object",
+        "properties": {"ok": {"type": "boolean"}},
+        "required": ["ok"],
+        "additionalProperties": False,
+    }
+    params = llm.default_request_params.model_copy(
+        update={"response_format": llm.schema_to_response_format(schema)}
+    )
+
+    request = llm._prepare_api_request([{"role": "user", "content": "hello"}], None, params)
+
+    assert request["max_tokens"] == expected
+    assert "max_completion_tokens" not in request
+    assert llm._structured_json_mode(params) == "schema"
+    response_format = request["response_format"]
+    assert response_format["type"] == "json_schema"
+    assert response_format["json_schema"]["schema"] == schema
+
+
+@pytest.mark.parametrize("backend", ("nebius", "together"))
+def test_beam_removes_obsolete_reasoning_controls(backend: str) -> None:
+    request = _request_with_extra_body(f"reflection/Beam-1.0-501B-A23B:{backend}")
+
+    assert request["reasoning_effort"] == "max"
+    assert request["extra_body"] == {"preserved": True}
+
+
+@pytest.mark.parametrize("backend", ("nebius", "together", "other-backend"))
+def test_beam_replays_reasoning_without_inventing_missing_history(backend: str) -> None:
+    llm = HuggingFaceLLM(
+        context=Context(config=Settings()), model=f"reflection/Beam-1.0-501B-A23B:{backend}"
+    )
+    messages = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="answer")],
+            channels={REASONING: [TextContent(type="text", text="Check the result.")]},
+        ),
+        PromptMessageExtended(
+            role="assistant", content=[TextContent(type="text", text="imported")]
+        ),
+    ]
+
+    converted = llm._convert_extended_messages_to_provider(messages)
+
+    assert converted == [
+        {"role": "assistant", "content": "answer", "reasoning_content": "Check the result."},
+        {"role": "assistant", "content": "imported"},
+    ]
+
+
+# Sanitised HTTP body from fast-agent-model-lab:
+# onboarding/models/beam-1/evidence/conformance-missing-reasoning-400.json
+# (2026-11-16, HF router -> OpenRouter -> Nebius). Never retain the account ID.
+_BEAM_MISSING_REASONING_BODY = {
+    "error": {
+        "message": "Provider returned error",
+        "code": 400,
+        "metadata": {
+            "raw": '{"error":{"type":"BadRequest","message":"The assistant turn at messages[1] is missing its reasoning. Dropping reasoning from earlier turns degrades this model\'s output. Send it back in \'reasoning_content\', or set allow_missing_thinking=true to skip this check.","param":null,"code":"400"},"detail":"Invalid request. Please check the parameters and try again. Details: The assistant turn at messages[1] is missing its reasoning. Dropping reasoning from earlier turns degrades this model\'s output. Send it back in \'reasoning_content\', or set allow_missing_thinking=true to skip this check."}',
+            "provider_name": "Nebius",
+            "is_byok": False,
+            "provider_error_code": "400",
+        },
+    },
+    "user_id": "REDACTED",
+}
+
+
+class _ReplayedHuggingFaceError(HuggingFaceLLM):
+    """Real SDK + completion path; only the HTTP transport is an offline replay."""
+
+    def __init__(
+        self,
+        body: dict[str, object],
+        *,
+        model: str = "reflection/Beam-1.0-501B-A23B:nebius",
+        inference_provider: str = "openrouter",
+        base_url: str = "https://router.huggingface.co/v1",
+    ) -> None:
+        super().__init__(
+            context=Context(config=Settings(hf=HuggingFaceSettings(base_url=base_url))),
+            model=model,
+        )
+        self.body = body
+        self.inference_provider = inference_provider
+        self.requests: list[dict[str, object]] = []
+
+    def _respond(self, request: httpx2.Request) -> httpx2.Response:
+        self.requests.append(json.loads(request.content))
+        return httpx2.Response(
+            400,
+            headers={
+                "content-type": "application/json",
+                "x-inference-provider": self.inference_provider,
+            },
+            json=self.body,
+        )
+
+    def _openai_client(self) -> AsyncOpenAI:
+        return AsyncOpenAI(
+            api_key="unused-offline",
+            base_url=self._base_url(),
+            http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(self._respond)),
+        )
+
+
+async def _replay_hf_fatal_error(llm: _ReplayedHuggingFaceError) -> BadRequestError:
+    with pytest.raises(BadRequestError) as caught:
+        await llm._execute_with_retry(
+            llm._apply_prompt_provider_specific,
+            [
+                PromptMessageExtended(role=role, content=[TextContent(type="text", text="hello")])
+                for role in ("user", "assistant", "user")
+            ],
+        )
+    assert len(llm.requests) == 1  # Neither SDK nor harness retries this fatal 400.
+    assert llm.requests[0]["messages"] == [
+        {"role": role, "content": "hello"} for role in ("user", "assistant", "user")
+    ]  # D10: no placeholder reasoning was inserted.
+    return caught.value
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_provider_name", (True, False))
+@pytest.mark.parametrize("model", ("reflection/Beam-1.0-501B-A23B:nebius", "other/model:nebius"))
+async def test_hf_openrouter_missing_reasoning_sdk_error_carries_upstream_detail(
+    with_provider_name: bool,
+    model: str,
+) -> None:
+    body = json.loads(json.dumps(_BEAM_MISSING_REASONING_BODY))
+    if not with_provider_name:
+        body["error"]["metadata"].pop("provider_name")
+    llm = _ReplayedHuggingFaceError(body, model=model)
+    error = await _replay_hf_fatal_error(llm)
+
+    assert error.status_code == 400
+    assert error.body == body["error"]  # SDK unwraps the HTTP error envelope.
+    assert "Error code: 400 - Provider returned error" in str(error)
+    assert "The assistant turn at messages[1] is missing its reasoning." in str(error)
+    assert "Send it back in 'reasoning_content'" in str(error)
+    assert ("Nebius" in str(error)) is with_provider_name
+    assert "user_id" not in str(error)
+    assert "REDACTED" not in str(error)
+    assert str(error) == error.message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("body", "inference_provider", "base_url", "expected"),
+    (
+        (
+            {"error": {"message": "Invalid request", "type": "invalid_request_error"}},
+            "nebius",
+            "https://router.huggingface.co/v1",
+            "Error code: 400 - Invalid request",
+        ),
+        (
+            {
+                "error": {
+                    "message": "Provider returned error",
+                    "metadata": {"provider_name": "Nebius"},
+                }
+            },
+            "openrouter",
+            "https://router.huggingface.co/v1",
+            "Error code: 400 - Provider returned error",
+        ),
+        (
+            _BEAM_MISSING_REASONING_BODY,
+            "nebius",
+            "https://router.huggingface.co/v1",
+            "Error code: 400 - Provider returned error",
+        ),
+        (
+            _BEAM_MISSING_REASONING_BODY,
+            "openrouter",
+            "https://dedicated-endpoint.test/v1",
+            "Error code: 400 - Provider returned error",
+        ),
+    ),
+)
+async def test_hf_other_provider_errors_keep_exact_sdk_message(
+    body: dict[str, object], inference_provider: str, base_url: str, expected: str
+) -> None:
+    llm = _ReplayedHuggingFaceError(body, inference_provider=inference_provider, base_url=base_url)
+    error = await _replay_hf_fatal_error(llm)
+    assert str(error) == error.message == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("raw", "detail"),
+    (
+        ("Upstream request rejected", "Upstream request rejected"),
+        (" Upstream\nrequest\r\nrejected ", "Upstream request rejected"),
+        (
+            '{"message":"Upstream request rejected","user_id":"REDACTED"}',
+            "Upstream request rejected",
+        ),
+        ('"Upstream request rejected"', "Upstream request rejected"),
+        ("", None),
+        ("   ", None),
+        (None, None),
+        (42, None),
+        ('{"user_id":"REDACTED"}', None),
+        ('{"error":{"message":null},"user_id":"REDACTED"}', None),
+        ("[]", None),
+    ),
+)
+async def test_hf_openrouter_raw_detail_is_additive_and_allowlisted(
+    raw: object, detail: str | None
+) -> None:
+    llm = _ReplayedHuggingFaceError(
+        {"error": {"message": "Provider returned error", "metadata": {"raw": raw}}}
+    )
+    error = await _replay_hf_fatal_error(llm)
+    expected = "Error code: 400 - Provider returned error"
+    if detail is not None:
+        expected += f" — {detail}"
+    assert str(error) == error.message == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "raw",
+    (
+        "[" * 10000 + "0" + "]" * 10000,  # RecursionError from valid, nested JSON.
+        "9" * 50000,  # ValueError from the JSON integer conversion limit.
+    ),
+    ids=("nested-json", "oversized-integer"),
+)
+async def test_hf_openrouter_raw_parse_failure_preserves_fatal_400(raw: str) -> None:
+    body: dict[str, object] = {
+        "error": {"message": "Provider returned error", "metadata": {"raw": raw}},
+        "user_id": "REDACTED",
+    }
+    error = await _replay_hf_fatal_error(_ReplayedHuggingFaceError(body))
+
+    assert error.status_code == 400
+    assert error.body == body["error"]
+    assert str(error) == error.message == "Error code: 400 - Provider returned error"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("json_detail", (True, False), ids=("json", "plain-text"))
+@pytest.mark.parametrize("length", (399, 400, 401, 50000))
+@pytest.mark.parametrize("provider", (None, "Nebius\nupstream", "P" * 1000))
+async def test_hf_openrouter_upstream_detail_is_single_line_and_bounded(
+    json_detail: bool, length: int, provider: str | None
+) -> None:
+    text = "\n " + "x" * length + "\r\n"
+    raw = json.dumps({"error": {"message": text}, "user_id": "REDACTED"}) if json_detail else text
+    body: dict[str, object] = {
+        "error": {
+            "message": "Provider returned error",
+            "metadata": {"raw": raw, "provider_name": provider},
+        },
+        "user_id": "REDACTED",
+    }
+    error = await _replay_hf_fatal_error(_ReplayedHuggingFaceError(body))
+
+    prefix = "Error code: 400 - Provider returned error — "
+    assert error.status_code == 400
+    assert error.body == body["error"]
+    assert str(error) == error.message
+    assert str(error).startswith(prefix)
+    detail = str(error).removeprefix(prefix)
+    expected = (" ".join(provider.split()) + ": " if provider else "") + "x" * length
+    assert detail == (expected if len(expected) <= 400 else expected[:399] + "…")
+    assert len(detail) <= 400
+    assert "\n" not in detail and "\r" not in detail
+    assert "user_id" not in str(error) and "REDACTED" not in str(error)
+
+
+@pytest.mark.parametrize("backend", ("nebius", "together"))
+@pytest.mark.asyncio
+async def test_beam_streamed_reasoning_replays_on_tool_turn(backend: str) -> None:
+    model = f"reflection/Beam-1.0-501B-A23B:{backend}"
+    llm = HuggingFaceLLM(context=Context(config=Settings()), model=model)
+    # Synthetic fragments matching the contract's ordinary OpenAI stream shape.
+    deltas = [
+        {"role": "assistant"},
+        {"reasoning": "Check the result."},
+        {
+            "tool_calls": [
+                {
+                    "index": 0,
+                    "id": "beam-tool",
+                    "type": "function",
+                    "function": {"name": "check", "arguments": "{}"},
+                }
+            ]
+        },
+    ]
+    chunks = [
+        ChatCompletionChunk.model_validate(
+            {
+                "id": "beam-chunk",
+                "created": 0,
+                "model": model,
+                "object": "chat.completion.chunk",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": delta,
+                        "finish_reason": "tool_calls" if index == 2 else None,
+                    }
+                ],
+            }
+        )
+        for index, delta in enumerate(deltas)
+    ]
+
+    completion, reasoning = await llm._process_stream(_stream_chunks(chunks), model)
+
+    assert reasoning == ["Check the result."]
+    choice = completion.choices[0]
+    stop = await llm._openai_stop_result(choice, choice.message)
+    assistant = PromptMessageExtended(
+        role="assistant",
+        tool_calls=stop.requested_tool_calls,
+        channels={REASONING: [TextContent(type="text", text=reasoning[0])]},
+    )
+    converted = llm._convert_extended_messages_to_provider([assistant])
+    assert converted == [
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "Check the result.",
+            "tool_calls": [
+                {
+                    "id": "beam-tool",
+                    "type": "function",
+                    "function": {"name": "check", "arguments": "{}"},
+                }
+            ],
+        }
+    ]

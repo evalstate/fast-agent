@@ -180,6 +180,11 @@ class ModelSelectionCatalog:
         ),
         Provider.HUGGINGFACE: (
             _builtin_entry(
+                "beam",
+                display_label="Beam 1.0 (nebius)",
+                description="text-only HF route via OpenRouter",
+            ),
+            _builtin_entry(
                 "glimmer",
                 display_label="Muse Glimmer 30B (together)",
             ),
