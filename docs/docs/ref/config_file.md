@@ -90,10 +90,12 @@ With local shell access, every model gets the same keyword-only functions:
   The code tool remains `exec_sandbox` (JSON `code` or freeform `input`).
 
 Return values are unchanged, including text/JSON auto-conversion for file reads.
-Local Python function tools give code their JSON-able return value itself (`-> int`
-gives `137`, not `"137"`; a returned string stays a string even if it holds JSON), and
-their stubs declare the annotated return type. FastMCP-wrapped `{"result": ...}`
-results are unwrapped to the inner value and type.
+Local Python function tools that return JSON data give code the value itself (`-> int`
+gives `137`, not `"137"`), and their stubs declare that return type. A returned `str`
+keeps the text rules (JSON text is parsed) and is typed `Any`, as are other return
+types such as models, enums and dates. Structured results from FastMCP tools that
+wrap a value as `{"result": ...}` are unwrapped; their stubs add `dict[str, Any]`,
+the shape of a result that also carries media.
 Built-ins keep their names on collision; user/MCP tools receive a `_tool` suffix
 and a warning. Other Python identifier collisions are resolved deterministically.
 A user function moved aside when installing `subagent` or harness tools retains

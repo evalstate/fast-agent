@@ -1,19 +1,27 @@
-"""Typed values from function tools: PTC code gets the return value, direct calls get text."""
+"""Typed values from function tools: PTC code gets the return value, direct calls get text.
+
+A stub's return type must hold for every value the runtime can hand sandbox code; when the
+value can differ (strings parsed as JSON, serialised models, structured results with media),
+the stub says ``Any`` or includes the alternative.
+"""
 
 from __future__ import annotations
 
 import json
+from enum import IntEnum
 from typing import TYPE_CHECKING, Any
 
 import pytest
 import pytest_asyncio
-from fastmcp.tools import FunctionTool
-from mcp_types import CallToolResult, TextContent, Tool
+from mcp_types import CallToolResult, ImageContent, TextContent, Tool
+from pydantic import RootModel
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
+from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.config import ProgrammaticToolCallingSettings, Settings
 from fast_agent.context import Context
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.ptc import PTC_TOOL_NAME
 from fast_agent.ptc.runtime import ProgrammaticToolRuntime
 
@@ -35,16 +43,28 @@ def payload() -> str:
     return '{"a": 1}'
 
 
+class Level(IntEnum):
+    HIGH = 3
+
+
+def level() -> int:
+    return Level.HIGH
+
+
 def ready() -> bool:
     return False
+
+
+def maybe() -> int | None:
+    return None
 
 
 def pair() -> tuple[int, int]:
     return (1, 2)
 
 
-def multiply(a: int, b: int) -> int:
-    return a * b
+def rootint() -> RootModel[int]:
+    return RootModel[int](3)
 
 
 def _text(result: CallToolResult) -> str:
@@ -60,8 +80,7 @@ def _agent(*, ptc: bool) -> McpAgent:
     return McpAgent(
         AgentConfig(name="typed", servers=[]),
         context=Context(config=Settings(ptc=ProgrammaticToolCallingSettings(enabled=ptc))),
-        # A FastMCP tool built with its own output schema wraps the int as {"result": ...}.
-        tools=[add, code, payload, ready, pair, FunctionTool.from_function(multiply)],
+        tools=[add, code, payload, level, ready, maybe, pair, rootint],
     )
 
 
@@ -73,37 +92,57 @@ async def agent() -> AsyncIterator[McpAgent]:
     await agent.shutdown()
 
 
+async def _run(agent: McpAgent, code: str) -> Any:
+    return _value(await agent.call_tool(PTC_TOOL_NAME, {"code": code}, "call-1"))
+
+
 @pytest.mark.asyncio
-async def test_code_gets_typed_return_values(agent: McpAgent) -> None:
-    result = await agent.call_tool(
-        PTC_TOOL_NAME,
-        {
-            "code": (
-                "n = await add(a=100, b=37)\n"
-                "[n + 1, await code(), await payload(), await ready(), await pair(),\n"
-                " await multiply(a=6, b=7) + 1]"
-            )
-        },
-        "call-1",
+async def test_code_gets_json_return_values(agent: McpAgent) -> None:
+    value = await _run(
+        agent,
+        "n = await add(a=100, b=37)\n"
+        "[n + 1, await code(), (await payload())['a'], await level() + 1, await ready(),\n"
+        " await maybe(), await pair(), (await rootint()).isdigit()]",
     )
 
-    assert _value(result) == [138, "137", '{"a": 1}', False, [1, 2], 43]
+    # An IntEnum returned for `-> int` arrives as a plain int. Strings keep the text rules:
+    # "137" stays a str, JSON text is parsed. A RootModel and a tuple are not JSON values,
+    # so they keep the text path too.
+    assert value == [138, "137", 1, 4, False, None, [1, 2], True]
 
 
 @pytest.mark.asyncio
-async def test_stubs_declare_the_return_type(agent: McpAgent) -> None:
+async def test_stubs_narrow_only_values_passed_through(agent: McpAgent) -> None:
     surface = await agent.tool_surface()
-    stubs = {
-        name: tool.stub or ""
-        for name in ("add", "code", "ready", "multiply")
+    signatures = {
+        name: tool.signature
+        for name in ("add", "code", "payload", "ready", "maybe", "pair", "rootint")
         if (tool := surface.find(name)) is not None
     }
 
-    assert "async def add(*, a: int, b: int) -> int:" in stubs["add"]
-    assert "async def code() -> str:" in stubs["code"]
-    assert "async def ready() -> bool:" in stubs["ready"]
-    assert "async def multiply(*, a: int, b: int) -> int:" in stubs["multiply"]
-    assert "Returns:" not in stubs["multiply"]
+    assert signatures == {
+        "add": "add(*, a: int, b: int) -> int",
+        "code": "code() -> Any",
+        "payload": "payload() -> Any",
+        "ready": "ready() -> bool",
+        "maybe": "maybe() -> int | None",
+        "pair": "pair() -> Any",
+        "rootint": "rootint() -> Any",
+    }
+
+
+@pytest.mark.asyncio
+async def test_agent_tools_keep_json_text_parsing() -> None:
+    agent = _agent(ptc=True)
+    child = ToolAgent(AgentConfig(name="echo", servers=[]), tools=[], context=Context())
+    try:
+        await child.attach_llm(ModelFactory.create_factory("passthrough"))
+        agent.add_agent_tool(child, name="echo")
+        await agent.list_tools()
+        assert await _run(agent, "(await echo(message='{\"a\":1}'))['a']") == 1
+    finally:
+        await agent.shutdown()
+        await child.shutdown()
 
 
 @pytest.mark.asyncio
@@ -135,22 +174,42 @@ async def test_mcp_text_stays_text_and_wrapped_results_unwrap() -> None:
     tools = [
         Tool(name="label", input_schema={"type": "object"}),
         Tool(name="primes", input_schema={"type": "object"}, output_schema=wrapped),
+        Tool(name="chart", input_schema={"type": "object"}, output_schema=wrapped),
+        Tool(name="odd", input_schema={"type": "object"}, output_schema=wrapped),
     ]
     runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
     description = runtime.model_tools(tools)[0].description or ""
+    image = ImageContent(type="image", mime_type="image/png", data="aGk=")
 
     async def dispatch(name: str, arguments: dict[str, Any], call_id: str) -> CallToolResult:
-        if name == "label":
-            return CallToolResult(content=[TextContent(type="text", text="137")])
-        return CallToolResult(
-            content=[TextContent(type="text", text="[2,3,5]")],
-            structured_content={"result": [2, 3, 5]},
-        )
+        text = [TextContent(type="text", text="[2,3,5]")]
+        match name:
+            case "label":
+                return CallToolResult(content=[TextContent(type="text", text="137")])
+            case "primes":
+                return CallToolResult(content=text, structured_content={"result": [2, 3, 5]})
+            case "chart":
+                return CallToolResult(content=[*text, image], structured_content={"result": [2]})
+        return CallToolResult(content=text, structured_content={"other": 1})
 
     try:
-        result = await runtime.execute({"code": "[await label(), sum(await primes())]"}, dispatch)
+        result = await runtime.execute(
+            {
+                "code": (
+                    "out = [await label()]\n"
+                    "for value in [await primes(), await chart(), await odd()]:\n"
+                    "    if isinstance(value, list):\n"
+                    "        out.append(sum(value))\n"
+                    "    else:\n"
+                    "        out.append(sorted(value))\n"
+                    "out"
+                )
+            },
+            dispatch,
+        )
     finally:
         await runtime.close()
 
-    assert "async def primes() -> list[int]:" in description
-    assert _value(result) == ["137", 10]
+    assert "async def primes() -> list[int] | dict[str, Any]:" in description
+    # Media is kept in the structured_content/content envelope the stub allows for.
+    assert _value(result) == ["137", 10, ["content", "structured_content"], ["other"]]

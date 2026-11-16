@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import re
-from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -38,6 +36,14 @@ from fast_agent.tools.shell_tool_definitions import (
     parse_luna_exec_arguments,
 )
 from fast_agent.tools.tool_surface import ToolExposure
+from tests.unit.fast_agent.ptc.surface_fixtures import (
+    SURFACE_MODES,
+    SurfaceMode,
+    SurfaceRow,
+    surface_digest,
+    surface_record,
+    surface_rows,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -477,67 +483,16 @@ async def test_route_names_override_config_and_rebuild_on_switch() -> None:
         await agent.shutdown()
 
 
-# Full definitions, instruction prose, function order, signatures and stubs captured
-# offline from git archive 146a72df8 (digests refreshed for the process `read_output`
-# wording), using the same interpreter/resources. Only the
-# additive vocabulary marker is excluded; no names, descriptions or schemas are normalized.
-PARENT_SURFACES = [
-    (mode, row)
-    for mode in ("direct", "profile")
-    for row in json.loads(Path(__file__).with_name(f"{mode}_surface_v0.json").read_text())["rows"]
-]
+# Full surfaces captured from git archive 146a72df8; digests are refreshed with
+# surface_fixtures.py when a change deliberately alters a surface.
+PARENT_SURFACES = [(mode, row) for mode in SURFACE_MODES for row in surface_rows(mode)]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("mode", "baseline"), PARENT_SURFACES)
-async def test_full_surface_matches_parent(mode: str, baseline: dict) -> None:
-    enabled = mode == "profile"
-    agent = McpAgent(
-        AgentConfig(
-            name="t",
-            instruction="x",
-            servers=[],
-            shell=True,
-            model=baseline["model"],
-            subagents=baseline["extras"],
-        ),
-        context=Context(
-            config=Settings(
-                shell_execution=ShellSettings(
-                    tool_profile=baseline["profile"], enable_attach_media="on"
-                ),
-                ptc=ProgrammaticToolCallingSettings(function_names="profile"),
-            ),
-            ptc_enabled=enabled,
-        ),
-    )
-    try:
-        if baseline["extras"]:
-            install_subagent_tool(agent)
-            set_harness_tools(agent, True)
-        tools = [
-            tool.model_dump(mode="json", by_alias=True, exclude_none=True)
-            for tool in (await agent.list_tools()).tools
-        ]
-        for tool in tools:
-            tool.get("_meta", {}).pop(PTC_VOCABULARY_META, None)
-        record = {"tools": tools}
-        if enabled:
-            surface = await agent.tool_surface()
-            assert surface.programmatic is not None
-            programmatic = asdict(surface.programmatic)
-            programmatic.pop("vocabulary")
-            record["programmatic"] = programmatic
-            record["functions"] = [
-                (entry.python_name, entry.tool.name, entry.signature, entry.stub)
-                for entry in surface.exposed(ToolExposure.PROGRAMMATIC)
-            ]
-        digest = hashlib.sha256(
-            json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
-        assert digest == baseline["sha256"], (mode, baseline)
-    finally:
-        await agent.shutdown()
+async def test_full_surface_matches_parent(mode: SurfaceMode, baseline: SurfaceRow) -> None:
+    digest = surface_digest(await surface_record(mode, baseline))
+    assert digest == baseline["sha256"], (mode, baseline)
 
 
 @pytest.mark.asyncio

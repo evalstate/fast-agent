@@ -41,10 +41,7 @@ from fast_agent.mcp.tool_result_metadata import (
     url_elicitation_required_payload,
 )
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
-from fast_agent.tools.function_tool_loader import (
-    build_default_function_tool,
-    function_tool_ptc_returns,
-)
+from fast_agent.tools.function_tool_loader import DefaultFunctionTool, build_default_function_tool
 from fast_agent.tools.invocation_context import local_tool_invocation_context
 from fast_agent.tools.tool_sources import FAST_AGENT_TOOL_SOURCE_META, TOOL_SOURCE_LABELS
 from fast_agent.tools.transient_artifacts import TransientArtifactStore
@@ -73,7 +70,8 @@ def _schema_meta(tool: FunctionTool) -> dict[str, Any] | None:
     meta = dict(tool.meta or {})
     fast_agent_meta = dict(meta.get("fast_agent") or {})
     ptc = dict(fast_agent_meta.get("ptc") or {})
-    if "returns" in ptc or (returns := function_tool_ptc_returns(tool)) is None:
+    returns = tool.program_returns if isinstance(tool, DefaultFunctionTool) else None
+    if returns is None or "returns" in ptc:
         return meta or None
     meta["fast_agent"] = {**fast_agent_meta, "ptc": {**ptc, "returns": returns}}
     return meta

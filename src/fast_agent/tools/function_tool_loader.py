@@ -9,7 +9,20 @@ import inspect
 from collections.abc import Callable
 from functools import wraps
 from pathlib import Path
-from typing import Any, Protocol, TypeAlias, cast, runtime_checkable
+from types import NoneType, UnionType
+from typing import (
+    Annotated,
+    Any,
+    Final,
+    Literal,
+    Protocol,
+    TypeAlias,
+    Union,
+    cast,
+    get_args,
+    get_origin,
+    runtime_checkable,
+)
 
 from fastmcp.tools import FunctionTool, ToolResult
 from fastmcp.tools.function_parsing import ParsedFunction
@@ -48,27 +61,70 @@ def _set_signature(wrapper: Callable[..., Any], source: Callable[..., Any]) -> N
     signature_wrapper.__signature__ = inspect.signature(source)
 
 
-def _is_json_value(value: object) -> bool:
+_NOT_JSON: Final = object()
+
+
+def _json_value(value: object) -> object:
+    """``value`` as plain JSON data, with int/float/str subclasses such as enums reduced to
+    their base type; ``_NOT_JSON`` for anything else."""
     match value:
-        case None | bool() | int() | float() | str():
-            return True
+        case None | bool():
+            return value
+        case int():
+            return int(value)
+        case float():
+            return float(value)
+        case str():
+            return str.__str__(value)
         case list():
-            return all(_is_json_value(item) for item in value)
-        case dict():
-            return all(isinstance(key, str) and _is_json_value(item) for key, item in value.items())
-    return False
+            items = [_json_value(item) for item in value]
+            return _NOT_JSON if any(item is _NOT_JSON for item in items) else items
+        case dict() if all(isinstance(key, str) for key in value):
+            entries = {str.__str__(key): _json_value(item) for key, item in value.items()}
+            return _NOT_JSON if any(item is _NOT_JSON for item in entries.values()) else entries
+    return _NOT_JSON
 
 
 def _program_value_meta(raw: Any) -> dict[str, Any] | None:
-    """Give a programmatic (PTC) call the raw return, so sandbox code gets ``137``, not ``"137"``."""
+    """Give a programmatic (PTC) call the raw return, so sandbox code gets ``137``, not ``"137"``.
+
+    A ``str`` return keeps the text path, where JSON text is parsed for sandbox code.
+    """
     invocation = get_local_tool_invocation_context()
     if (
-        invocation is None
+        isinstance(raw, str)
+        or invocation is None
         or not is_programmatic_tool_call(invocation.tool_use_id)
-        or not _is_json_value(raw)
     ):
         return None
-    return {FAST_AGENT_PTC_VALUE: raw}
+    try:
+        value = _json_value(raw)
+    except RecursionError:  # a cyclic container; the text path reports it as before
+        return None
+    return None if value is _NOT_JSON else {FAST_AGENT_PTC_VALUE: value}
+
+
+def _program_value_type(annotation: object, *, top: bool = True) -> bool:
+    """Whether every value of ``annotation`` reaches sandbox code as itself.
+
+    True for JSON types that ``_program_value_meta`` passes through: bool, int, float, None,
+    and lists and str-keyed dicts of those or of str. A ``str`` return, alone or in a union,
+    is parsed when it holds JSON, so it is excluded at the top level.
+    """
+    origin, args = get_origin(annotation), get_args(annotation)
+    if origin is Annotated:
+        return _program_value_type(args[0], top=top)
+    if origin in (Union, UnionType):
+        return all(_program_value_type(arg, top=top) for arg in args)
+    if origin is Literal:
+        return all(type(arg) in (bool, int, float, NoneType) for arg in args)
+    if origin is list:
+        return _program_value_type(args[0], top=False)
+    if origin is dict:
+        return args[0] is str and _program_value_type(args[1], top=False)
+    if annotation is str:
+        return not top
+    return annotation in (bool, int, float, None, NoneType)
 
 
 def _as_default_tool_result(raw: Any) -> ToolResult:
@@ -83,16 +139,8 @@ class DefaultFunctionTool(FunctionTool):
     """A function tool with fast-agent's text-only result policy."""
 
     program_returns: dict[str, Any] | None = None
-    """JSON schema of the raw return value programmatic (PTC) calls receive."""
-
-
-def function_tool_ptc_returns(tool: FunctionTool) -> dict[str, Any] | None:
-    """JSON schema of the value PTC code receives from ``tool``, if its return type gives one.
-
-    Default tools hand PTC code their raw return (see ``_program_value_meta``); other tools
-    return structured content described by their output schema.
-    """
-    return tool.program_returns if isinstance(tool, DefaultFunctionTool) else tool.output_schema
+    """JSON schema of the value programmatic (PTC) calls receive, when the return annotation
+    guarantees it (see ``_program_value_type``); None means ``Any``."""
 
 
 def _wrap_default_tool_result(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -144,9 +192,9 @@ def build_default_function_tool(
         output_schema=None,
     )
     assert isinstance(tool, DefaultFunctionTool)  # from_function builds ``cls``
-    tool.program_returns = ParsedFunction.from_function(
-        wrapped, wrap_non_object_output_schema=False
-    ).output_schema
+    parsed = ParsedFunction.from_function(wrapped, wrap_non_object_output_schema=False)
+    if _program_value_type(parsed.return_type):
+        tool.program_returns = parsed.output_schema
     if metadata:
         current_meta = dict(tool.meta or {})
         current_meta.update(metadata)

@@ -298,13 +298,20 @@ def _build_function(tool: Tool, python_name: str, *, describe_bounds: bool) -> P
     additional = schema.get("additionalProperties")
     accepts_extra = additional is True or isinstance(additional, Mapping)
     returns_schema = options.get("returns")
-    output_schema = returns_schema if isinstance(returns_schema, Mapping) else tool.output_schema
+    # A declared program value is returned as is; MCP structured content may be wrapped.
+    program_schema = returns_schema if isinstance(returns_schema, Mapping) else None
+    structured = program_schema is None and tool.output_schema is not None
+    output_schema = tool.output_schema if structured else program_schema
     output_definitions = _definitions(output_schema or {})
-    wrapped = _wrapped_result_schema(output_schema)
-    unwrap_result = wrapped is not None
+    wrapped = _wrapped_result_schema(output_schema) if structured else None
     if wrapped is not None:
         output_schema = wrapped
-    returns = _annotation(output_schema, output_definitions) if output_schema else "Any"
+    members = _union_members(output_schema, output_definitions, 0) if output_schema else ["Any"]
+    if structured:
+        # Structured content with media arrives as {"structured_content", "content"}, and a
+        # peer's wrapped result may lack "result": both are dicts whatever the schema says.
+        members.append("dict[str, Any]")
+    returns = _union(members)
     returns_shape = _returns_shape(output_schema, output_definitions)
     description = options.get("description")
     return PtcFunction(
@@ -316,7 +323,7 @@ def _build_function(tool: Tool, python_name: str, *, describe_bounds: bool) -> P
         accepts_extra=accepts_extra,
         returns=returns,
         returns_shape=returns_shape if returns_shape != returns else None,
-        unwrap_result=unwrap_result,
+        unwrap_result=wrapped is not None,
     )
 
 
