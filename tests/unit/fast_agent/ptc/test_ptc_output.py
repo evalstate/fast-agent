@@ -148,7 +148,7 @@ def test_guidance_only_adds_its_note(
     else:
         assert "process(action='wait', process_id=r['process_id'])" in note
         assert "process(action='read_output', process_id=..., query='error')" in note
-        assert "long-running or long-output command" in note
+        assert "kept only when long or persistent" in note
 
 
 def test_guidance_needs_a_local_shell_in_code(tmp_path: Path) -> None:

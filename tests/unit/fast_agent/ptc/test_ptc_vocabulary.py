@@ -478,7 +478,8 @@ async def test_route_names_override_config_and_rebuild_on_switch() -> None:
 
 
 # Full definitions, instruction prose, function order, signatures and stubs captured
-# offline from git archive 146a72df8, using the same interpreter/resources. Only the
+# offline from git archive 146a72df8 (digests refreshed for the process `read_output`
+# wording), using the same interpreter/resources. Only the
 # additive vocabulary marker is excluded; no names, descriptions or schemas are normalized.
 PARENT_SURFACES = [
     (mode, row)

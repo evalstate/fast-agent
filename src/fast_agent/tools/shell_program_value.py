@@ -61,7 +61,7 @@ _PROCESS_RETURNS_NOTE = (
     "Returns: status/wait (and polling) give the same dict as the shell function, with the "
     "stdout/stderr produced since the previous read of that process; stop gives "
     '{"process_id", "status"}; list gives a list of process dicts; read_output gives a dict '
-    'whose "content" holds retained combined output.'
+    'whose "content" holds kept combined output.'
 )
 _SUCCESS_STATUSES = frozenset({"completed", "running"})
 # Output kept per stream in a check=True exception message; the full streams stay available

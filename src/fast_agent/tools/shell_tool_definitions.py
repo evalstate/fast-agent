@@ -352,8 +352,8 @@ def build_minimal_process_tool(
             "ID; `status` returns immediately; `wait` defaults to "
             f"{default_wait_seconds} seconds; parallel waits on one process do not extend "
             f"it, so wait again after it returns.{completion_guidance} `stop` terminates "
-            "the process group. `read_output` reads only that process's bounded "
-            "retained output, not arbitrary files."
+            "the process group. `read_output` reads output kept only when long or "
+            "persistent, not files."
         ),
         input_schema={
             "type": "object",
