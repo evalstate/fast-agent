@@ -65,6 +65,12 @@ compaction:
   keep_turns: 2 # recent turns kept verbatim after compaction
   # prompt: null # built-in prompt; set inline text or a relative file path
 
+# Keep provider prompt caches warm during tool waits and idle pauses.
+# cache_warm:
+#   auto: true # automatic warming for tools/subagents and idle sessions awaiting hc children
+#   max_minutes: 30 # automatic window after the last own model request; default /warm duration
+#   interval_seconds: null # unset: derive from provider cache retention
+
 # otel:
 #   enabled: true
 
@@ -119,16 +125,19 @@ anthropic:
 #   image_upload_mode: inline
 #   image_upload_ttl_seconds: 86400 # 1 hour to 30 days
 
-# Programmatic tool calling: null follows the model default (GLM-5.3-Flash on;
-# other models off). CLI --ptc/--no-ptc and model query ?ptc=on|off override this.
+# Programmatic tool calling: null follows the model default.
+# Catalog defaults: https://fast-agent.ai/ref/config_file/#ptc-model-defaults
+# CLI --ptc/--no-ptc and model query ?ptc=on|off override this.
 # Local POSIX only (model defaults fall back to direct tools elsewhere);
 # pydantic-monty is included in the core install.
 #ptc:
 #  enabled: null
+# Temporary benchmark comparison only: canonical vocabulary v1 | previous profile names.
+#  function_names: canonical
 
 #shell_execution:
-# model-facing shell tools: auto (Grok shell/Process; others Bash/Process),
-# minimal_process, grok_shell, or native
+# Direct-mode shell tools: auto selects the catalog profile. PTC uses shell/process.
+# minimal_process, grok_shell, luna_exec, freeform_shell, or native
 # (legacy execute/poll_process/terminate_process compatibility)
 #  tool_profile: auto
 # length of time before terminating subprocess

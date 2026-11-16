@@ -169,6 +169,7 @@ async def apply_instruction_context(
             continue
         resolved_context = build_agent_instruction_context(agent, context_vars)
         aggregator = None
+        tool_filters = None
         skill_manifests = None
         skill_read_tool_name = READ_SKILL_TOOL_NAME
         if isinstance(agent, InstructionContextCapable):
@@ -176,6 +177,7 @@ async def apply_instruction_context(
         if isinstance(agent, McpInstructionCapable):
             configured_agent = cast("ConfiguredMcpInstructionCapable", agent)
             aggregator = agent.aggregator
+            tool_filters = configured_agent.config.tools
             skill_manifests = resolve_instruction_skill_manifests(
                 configured_agent,
                 configured_agent.skill_manifests,
@@ -185,6 +187,7 @@ async def apply_instruction_context(
         resolved = await build_instruction(
             template,
             aggregator=aggregator,
+            tool_filters=tool_filters,
             skill_manifests=skill_manifests,
             skill_read_tool_name=skill_read_tool_name,
             context=dict(resolved_context),

@@ -314,7 +314,7 @@ class SessionHydrator:
             reason = "the saved workspace does not match the current workspace"
         else:
             try:
-                agent.enable_shell()
+                agent.enable_shell(access_mode="resumed")
             except (OSError, ValueError) as exc:
                 reason = f"shell runtime could not be started ({exc})"
             else:

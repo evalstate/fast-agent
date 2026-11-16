@@ -402,16 +402,6 @@ def test_kimi_alias_matches_current_promoted_kimi_defaults() -> None:
     )
 
 
-def test_kimi27code_alias_sets_thinking_sampling_defaults() -> None:
-    config = ModelFactory.parse_model_string("kimi27code")
-
-    assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "moonshotai/Kimi-K2.7-Code:fireworks-ai"
-    assert config.temperature == 1.0
-    assert config.top_p == 0.95
-    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
-
-
 def test_kimithink_alias_maps_to_current_kimi_defaults() -> None:
     assert ModelFactory.parse_model_string("kimithink") == ModelFactory.parse_model_string("kimi")
 
@@ -453,16 +443,6 @@ def test_kimi26instant_alias_sets_instant_sampling_defaults() -> None:
     assert config.temperature == 0.6
     assert config.top_p == 0.95
     assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=False)
-
-
-def test_minimax25_alias_sets_sampling_defaults() -> None:
-    config = ModelFactory.parse_model_string("minimax25")
-
-    assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "MiniMaxAI/MiniMax-M2.5:fireworks-ai"
-    assert config.temperature == 1.0
-    assert config.top_p == 0.95
-    assert config.top_k == 40
 
 
 def test_model_query_transport_websocket_alias():
@@ -1029,6 +1009,21 @@ def test_glimmer_alias_uses_together_with_recommended_sampling() -> None:
     assert config.top_k == 64
 
 
+@pytest.mark.parametrize(
+    ("alias", "model_name"),
+    (
+        ("inkling", "thinkingmachines/Inkling-2-Small:deepinfra"),
+        ("Inkling 2 Small (together)", "thinkingmachines/Inkling-2-Small:together"),
+    ),
+)
+def test_inkling_aliases_pin_backend_without_sampling_defaults(alias: str, model_name: str) -> None:
+    config = ModelFactory.parse_model_string(alias)
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == model_name
+    assert config.temperature is None
+
+
 def test_builtin_glm_alias_uses_glm_53_default() -> None:
     config = ModelFactory.parse_model_string("glm")
     assert config.provider == Provider.HUGGINGFACE
@@ -1106,6 +1101,16 @@ def test_legacy_native_deepseek_models_are_rejected(legacy_model: str):
         ModelFactory.parse_model_string(legacy_model)
 
 
+def test_deepseek_hf_alias_resolves_to_novita_1017() -> None:
+    resolved = ModelFactory.resolve_model_spec("deepseek-hf")
+
+    assert resolved.provider == Provider.HUGGINGFACE
+    assert resolved.wire_model_name == "deepseek-ai/DeepSeek-V4.1-Flash-1017:novita"
+    assert resolved.max_output_tokens == 393_216
+    assert resolved.context_window == 1_048_576
+    assert resolved.resolve_ptc_enabled() is False
+
+
 def test_hf_routed_gpt_oss_alias_resolves_model_metadata():
     resolved = ModelFactory.resolve_model_spec("gpt-oss")
 
@@ -1114,11 +1119,11 @@ def test_hf_routed_gpt_oss_alias_resolves_model_metadata():
     assert resolved.max_output_tokens == 32766
 
 
-def test_gemma4_alias_resolves_to_hf_cerebras_vision_model():
-    resolved = ModelFactory.resolve_model_spec("gemma4")
+def test_gemma4_model_id_resolves_to_hf_vision_model_without_alias():
+    resolved = ModelFactory.resolve_model_spec("hf.google/gemma-4-31B-it")
 
     assert resolved.provider == Provider.HUGGINGFACE
-    assert resolved.wire_model_name == "google/gemma-4-31B-it:cerebras"
+    assert resolved.wire_model_name == "google/gemma-4-31B-it"
     assert resolved.context_window == 131_000
     assert resolved.max_output_tokens == 40_000
 
@@ -1390,7 +1395,7 @@ def test_hf_sampling_overrides_route_non_openai_fields_to_extra_body() -> None:
     assert extra_body["top_k"] == 20
     assert extra_body["min_p"] == 0.0
     assert extra_body["repetition_penalty"] == 1.0
-    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+    assert "chat_template_kwargs" not in extra_body
 
 
 @pytest.mark.parametrize("field", ("reasoning_api", "reasoning_field"))
@@ -1418,7 +1423,7 @@ def test_hf_omits_empty_tools_for_router_compatibility() -> None:
     assert "tool_choice" not in args
 
 
-def test_hf_qwen36_instruct_alias_disables_thinking_via_chat_template_kwargs() -> None:
+def test_hf_qwen36_instruct_alias_disables_thinking_via_reasoning_effort() -> None:
     factory = ModelFactory.create_factory("qwen36instruct")
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
@@ -1433,10 +1438,11 @@ def test_hf_qwen36_instruct_alias_disables_thinking_via_chat_template_kwargs() -
 
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert args["reasoning_effort"] == "none"
+    assert "chat_template_kwargs" not in extra_body
 
 
-def test_hf_qwen35_instruct_alias_disables_thinking_via_chat_template_kwargs() -> None:
+def test_hf_qwen35_instruct_alias_disables_thinking_via_reasoning_effort() -> None:
     factory = ModelFactory.create_factory("qwen35instruct")
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
@@ -1451,7 +1457,8 @@ def test_hf_qwen35_instruct_alias_disables_thinking_via_chat_template_kwargs() -
 
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert args["reasoning_effort"] == "none"
+    assert "chat_template_kwargs" not in extra_body
 
 
 def test_hf_kimi25_alias_does_not_emit_thinking_override_for_thinking_mode() -> None:
@@ -1477,7 +1484,7 @@ def test_hf_kimi25_alias_does_not_emit_thinking_override_for_thinking_mode() -> 
         assert extra_body is None
 
 
-def test_hf_kimi25instant_alias_disables_thinking_via_extra_body() -> None:
+def test_hf_kimi25instant_alias_disables_thinking_via_reasoning_effort() -> None:
     factory = ModelFactory.create_factory("kimi25instant")
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
@@ -1493,9 +1500,8 @@ def test_hf_kimi25instant_alias_disables_thinking_via_extra_body() -> None:
     assert args["temperature"] == 0.6
     assert args["top_p"] == 0.95
 
-    extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
-    assert extra_body["thinking"] == {"type": "disabled"}
+    assert args["reasoning_effort"] == "none"
+    assert "extra_body" not in args
 
 
 def test_hf_kimi26_alias_does_not_emit_thinking_override_for_thinking_mode() -> None:
@@ -1521,7 +1527,7 @@ def test_hf_kimi26_alias_does_not_emit_thinking_override_for_thinking_mode() -> 
         assert extra_body is None
 
 
-def test_hf_kimi26instant_alias_disables_thinking_via_chat_template_kwargs() -> None:
+def test_hf_kimi26instant_alias_disables_thinking_via_reasoning_effort() -> None:
     factory = ModelFactory.create_factory("kimi26instant")
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
@@ -1537,9 +1543,8 @@ def test_hf_kimi26instant_alias_disables_thinking_via_chat_template_kwargs() -> 
     assert args["temperature"] == 0.6
     assert args["top_p"] == 0.95
 
-    extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {"thinking": False}
+    assert args["reasoning_effort"] == "none"
+    assert "extra_body" not in args
 
 
 @pytest.mark.parametrize(
@@ -1981,3 +1986,50 @@ def test_compact_at_query_reaches_the_llm() -> None:
     llm = ModelFactory.create_factory("sol?compact_at=150k")(LlmAgent(AgentConfig(name="test")))
 
     assert llm.compact_at_override == CompactAt(tokens=150_000)
+
+
+def test_beam_alias_pins_together_without_sampling_defaults() -> None:
+    config = ModelFactory.parse_model_string("beam")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "reflection/Beam-1.0-501B-A23B:together"
+    assert config.temperature is None
+    assert config.reasoning_effort is None
+
+
+@pytest.mark.parametrize("mode", ["canonical", "profile"])
+def test_temporary_ptc_names_query(mode: str) -> None:
+    resolved = ModelFactory.resolve_model_spec(f"passthrough?ptc=on&ptc_names={mode}")
+    assert resolved.model_config.ptc_names == mode
+    assert resolved.model_config.ptc is True
+
+
+@pytest.mark.parametrize("value", ["", "wrong", "true"])
+def test_invalid_ptc_names_query(value: str) -> None:
+    with pytest.raises(ModelConfigError, match="ptc_names"):
+        ModelFactory.parse_model_string(f"passthrough?ptc_names={value}")
+
+
+def test_ptc_names_query_inherits_preset_and_does_not_enable_ptc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.llm.model_factory import resolve_model_query_overrides
+
+    monkeypatch.setattr(
+        ModelFactory, "MODEL_PRESETS", {"test_names": "passthrough?ptc_names=profile"}
+    )
+    inherited = ModelFactory.parse_model_string("test_names")
+    assert inherited.ptc_names == "profile" and inherited.ptc is None
+    assert resolve_model_query_overrides("test_names").ptc_names == "profile"
+    explicit = "test_names?ptc_names=canonical"
+    assert ModelFactory.parse_model_string(explicit).ptc_names == "canonical"
+    assert resolve_model_query_overrides(explicit).ptc_names == "canonical"
+    resolved = ModelFactory.resolve_model_spec("passthrough?ptc_names=canonical")
+    assert not resolved.resolve_ptc_enabled()
+
+
+def test_ptc_names_query_uses_last_value_like_ptc_query() -> None:
+    config = ModelFactory.parse_model_string(
+        "passthrough?ptc_names=canonical&ptc_names=profile&ptc=off&ptc=on"
+    )
+    assert config.ptc_names == "profile" and config.ptc is True

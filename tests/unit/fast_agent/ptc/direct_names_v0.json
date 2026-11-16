@@ -1,0 +1,157 @@
+[
+  {
+    "model": "passthrough",
+    "profile": "auto",
+    "names": [
+      "bash",
+      "process",
+      "read_text_file",
+      "write_text_file",
+      "edit_file",
+      "attach_media"
+    ]
+  },
+  {
+    "model": "passthrough",
+    "profile": "minimal_process",
+    "names": [
+      "bash",
+      "process",
+      "read_text_file",
+      "write_text_file",
+      "edit_file",
+      "attach_media"
+    ]
+  },
+  {
+    "model": "passthrough",
+    "profile": "grok_shell",
+    "names": [
+      "shell",
+      "process",
+      "read_text_file",
+      "write_text_file",
+      "edit_file",
+      "attach_media"
+    ]
+  },
+  {
+    "model": "passthrough",
+    "profile": "luna_exec",
+    "names": [
+      "exec",
+      "process",
+      "read_text_file",
+      "write_text_file",
+      "edit_file",
+      "attach_media"
+    ]
+  },
+  {
+    "model": "passthrough",
+    "profile": "freeform_shell",
+    "names": [
+      "exec",
+      "process",
+      "read_text_file",
+      "write_text_file",
+      "edit_file",
+      "attach_media"
+    ]
+  },
+  {
+    "model": "passthrough",
+    "profile": "native",
+    "names": [
+      "execute",
+      "poll_process",
+      "terminate_process",
+      "read_text_file",
+      "write_text_file",
+      "edit_file",
+      "attach_media"
+    ]
+  },
+  {
+    "model": "opus55",
+    "profile": "auto",
+    "names": [
+      "bash",
+      "process",
+      "read_text_file",
+      "edit_file",
+      "attach_media"
+    ]
+  },
+  {
+    "model": "codexresponses.gpt-5.5",
+    "profile": "auto",
+    "names": [
+      "bash",
+      "process",
+      "read_text_file",
+      "apply_patch",
+      "attach_media"
+    ]
+  },
+  {
+    "model": "astra",
+    "profile": "auto",
+    "names": [
+      "shell",
+      "process",
+      "read_text_file",
+      "write_text_file",
+      "edit_file",
+      "attach_media"
+    ]
+  },
+  {
+    "model": "codexresponses.gpt-5.6-luna",
+    "profile": "auto",
+    "names": [
+      "exec",
+      "process",
+      "read_text_file",
+      "write_text_file",
+      "edit_file",
+      "attach_media"
+    ]
+  },
+  {
+    "model": "grok",
+    "profile": "auto",
+    "names": [
+      "shell",
+      "process",
+      "read_text_file",
+      "write_text_file",
+      "edit_file",
+      "attach_media"
+    ]
+  },
+  {
+    "model": "deepseek",
+    "profile": "auto",
+    "names": [
+      "Shell",
+      "process",
+      "read_text_file",
+      "write_text_file",
+      "edit_file",
+      "attach_media"
+    ]
+  },
+  {
+    "model": "kimi",
+    "profile": "auto",
+    "names": [
+      "bash",
+      "process",
+      "read_text_file",
+      "write_text_file",
+      "edit_file",
+      "attach_media"
+    ]
+  }
+]

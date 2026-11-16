@@ -15,6 +15,9 @@ from pathlib import Path
 
 import pytest
 
+from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.llm.provider_types import Provider
+
 
 def _ensure_hf_inference_acp_on_path() -> None:
     repo_root = Path(__file__).resolve().parents[3]
@@ -56,3 +59,13 @@ def test_wizard_curated_models_include_qwen35_and_kimi25_profiles() -> None:
     assert "kimi25instant" in ids
     assert "qwen35" in ids
     assert "qwen35instruct" in ids
+
+
+def test_wizard_curated_models_resolve_to_hf_models() -> None:
+    pytest.importorskip("ruamel.yaml")
+    _ensure_hf_inference_acp_on_path()
+
+    import hf_inference_acp.wizard.model_catalog as model_catalog  # ty: ignore[unresolved-import]
+
+    for entry in model_catalog.CURATED_MODELS:
+        assert ModelFactory.resolve_model_spec(entry.id).provider == Provider.HUGGINGFACE, entry.id

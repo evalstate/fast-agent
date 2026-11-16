@@ -19,6 +19,7 @@ class ProgressAction(str, Enum):
     COMPACTING = "Compacting (summary)"  # Harness-generated text summary.
     COMPACTING_IN_REQUEST = "Compacting (provider automatic)"  # Inside a normal provider request.
     COMPACTING_CHECKPOINT = "Compacting (provider checkpoint)"  # Explicit provider checkpoint call.
+    WARMING_CACHE = "Warming cache"  # Harness keep-warm request; the reply is discarded.
     ROUTING = "Routing"
     PLANNING = "Planning"
     MONITORING = "Monitoring"

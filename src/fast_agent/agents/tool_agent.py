@@ -41,7 +41,7 @@ from fast_agent.mcp.tool_result_metadata import (
     url_elicitation_required_payload,
 )
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
-from fast_agent.tools.function_tool_loader import build_default_function_tool
+from fast_agent.tools.function_tool_loader import DefaultFunctionTool, build_default_function_tool
 from fast_agent.tools.invocation_context import local_tool_invocation_context
 from fast_agent.tools.tool_sources import FAST_AGENT_TOOL_SOURCE_META, TOOL_SOURCE_LABELS
 from fast_agent.tools.transient_artifacts import TransientArtifactStore
@@ -63,6 +63,18 @@ _tool_progress_context: ContextVar[tuple[ToolExecutionHandler, str] | None] = Co
     "tool_progress_context",
     default=None,
 )
+
+
+def _schema_meta(tool: FunctionTool) -> dict[str, Any] | None:
+    """The tool's meta, plus the PTC return schema when the tool declares none itself."""
+    meta = dict(tool.meta or {})
+    fast_agent_meta = dict(meta.get("fast_agent") or {})
+    ptc = dict(fast_agent_meta.get("ptc") or {})
+    returns = tool.program_returns if isinstance(tool, DefaultFunctionTool) else None
+    if returns is None or "returns" in ptc:
+        return meta or None
+    meta["fast_agent"] = {**fast_agent_meta, "ptc": {**ptc, "returns": returns}}
+    return meta
 
 
 class ToolAgent(LlmAgent, _ToolLoopAgent):
@@ -200,7 +212,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 name=tool.name,
                 description=tool.description,
                 input_schema=tool.parameters,
-                meta=dict(tool.meta) if tool.meta else None,
+                meta=_schema_meta(tool),
             )
         )
 

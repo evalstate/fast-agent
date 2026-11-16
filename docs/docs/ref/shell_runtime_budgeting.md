@@ -82,6 +82,17 @@ shell_execution:
   process_poll_max_wait_seconds: 260
 ```
 
+For pauses that are not managed-process waits, see [prompt-cache warming](../guides/cache_warming.md).
+
+The default wait a model gets when it does not choose one comes from the model
+catalog and raises this ceiling when it is longer. Most models default to about
+four minutes, inside a five-minute prompt cache. GPT-5.6 and later keep a prompt
+cache for at least 30 minutes, so their default wait is 300 seconds. It is not
+longer because models use the wake-up to stop stuck or abandoned processes:
+across benchmark trajectories a 300-second wait pushed no trial past its
+deadline, while longer waits did on tasks with 10 to 15 minute deadlines.
+Override it per model with `?poll_period=<seconds>`.
+
 ### Outer agent/run timeout
 
 An embedding harness may terminate the whole Fast-Agent process after a task

@@ -1,7 +1,7 @@
 import asyncio
 import json
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
@@ -38,8 +38,11 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.fastagent_llm import FastAgentLLM, RequestParams
 from fast_agent.llm.provider.error_utils import (
+    EmptyCompletionDiagnostics,
     EmptyCompletionError,
+    attach_empty_completion_diagnostics,
     build_stream_failure_response,
+    empty_completion_diagnostics,
     is_empty_completion,
 )
 from fast_agent.llm.provider.openai._stream_capture import (
@@ -189,6 +192,7 @@ class _OpenAICompletionRequest:
 class _OpenAICompletionResponse:
     response: Any
     streamed_reasoning: list[str]
+    streamed: bool = True
 
 
 @dataclass(slots=True)
@@ -1266,6 +1270,7 @@ class OpenAILLM(
         capture_filename: Path | None,
     ) -> _OpenAICompletionResponse:
         timeout = request.params.streaming_timeout
+        streamed = True
         try:
             stream = await await_stream_start(
                 client.chat.completions.create(**request.arguments),
@@ -1286,6 +1291,7 @@ class OpenAILLM(
                 timed_stream, request.model_name, capture_filename
             )
         except EmptyStreamError as exc:
+            streamed = False
             self.logger.error(
                 "OpenAI stream returned no usable completion; retrying without streaming",
                 data={
@@ -1325,7 +1331,7 @@ class OpenAILLM(
             self._record_stream_outcome(
                 timed_stream.timing, error=None, model=request.model_name, timeout_seconds=timeout
             )
-        return _OpenAICompletionResponse(response, streamed_reasoning)
+        return _OpenAICompletionResponse(response, streamed_reasoning, streamed)
 
     async def _run_openai_completion_request(
         self,
@@ -1506,7 +1512,7 @@ class OpenAILLM(
         self.history.set(request.messages)
         self._log_chat_finished(model=request.model_name)
         reasoning_blocks = self._openai_reasoning_blocks(completion.streamed_reasoning)
-        return PromptMessageExtended(
+        result = PromptMessageExtended(
             role="assistant",
             content=response_content_blocks,
             tool_calls=stop_result.requested_tool_calls,
@@ -1517,6 +1523,20 @@ class OpenAILLM(
             ),
             stop_reason=stop_result.stop_reason,
         )
+
+        usage = _openai_usage(response)
+        details = usage.completion_tokens_details if usage is not None else None
+        attach_empty_completion_diagnostics(
+            result,
+            EmptyCompletionDiagnostics(
+                finish_reason=choice.finish_reason,
+                completion_tokens=usage.completion_tokens if usage is not None else None,
+                reasoning_tokens=details.reasoning_tokens if details is not None else None,
+                reasoning_chars=sum(len(part) for part in completion.streamed_reasoning),
+                streamed=completion.streamed,
+            ),
+        )
+        return result
 
     async def _openai_completion(
         self,
@@ -1536,16 +1556,24 @@ class OpenAILLM(
         # As for OpenAI Responses: an end_turn with nothing in it (often a stream cut
         # off mid-reasoning) would end the agent loop, so ask once more.
         model_name = self._openai_completion_model_name(request_params)
+        diagnostics = empty_completion_diagnostics(response)
         self.logger.warning(
             "OpenAI completion returned no assistant content or tool calls; retrying once",
-            data={"model": model_name},
+            data={"model": model_name, "empty_completion": asdict(diagnostics)},
         )
         retry = await self._openai_completion_once(message, request_params, tools)
         if is_empty_completion(retry):
-            error = EmptyCompletionError()
-            self.logger.error(str(error), data={"model": model_name})
+            attempts = (diagnostics, empty_completion_diagnostics(retry))
+            error = EmptyCompletionError(attempts)
+            self.logger.error(
+                str(error),
+                data={
+                    "model": model_name,
+                    "empty_completion_attempts": [asdict(a) for a in attempts],
+                },
+            )
             retry = build_stream_failure_response(self.provider, error, model_name)
-        append_retry_channel(retry, [self._empty_completion_retry()])
+        append_retry_channel(retry, [self._empty_completion_retry(diagnostics)])
         return retry
 
     async def _openai_completion_once(

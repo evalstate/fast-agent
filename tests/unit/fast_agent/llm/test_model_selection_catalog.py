@@ -340,10 +340,9 @@ def test_catalog_lists_legacy_aliases_when_configured() -> None:
     current_aliases = ModelSelectionCatalog.list_current_aliases(Provider.HUGGINGFACE)
     non_current_aliases = ModelSelectionCatalog.list_non_current_aliases(Provider.HUGGINGFACE)
 
-    assert "glm51" in current_aliases
+    assert "kimi26" in current_aliases
     assert "glm5" in non_current_aliases
-    assert "glm47" in non_current_aliases
-    assert "glm47" not in current_aliases
+    assert "glm5" not in current_aliases
 
 
 def test_list_all_models_for_provider() -> None:

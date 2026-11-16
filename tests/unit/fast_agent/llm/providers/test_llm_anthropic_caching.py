@@ -5,8 +5,10 @@ These tests directly test the _convert_extended_messages_to_provider method
 to verify cache_control markers are applied correctly based on cache_mode settings.
 """
 
+import copy
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Literal
 
 import httpx2
@@ -48,9 +50,23 @@ class RecordingCacheDiagnosticsLLM(AnthropicLLM):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.requests: list[dict[str, Any]] = []
+        self.keep_warm_requests: list[dict[str, Any]] = []
 
     def _initialize_anthropic_client(self) -> object:
-        return object()
+        return SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=self._create)))
+
+    async def _create(self, **arguments: Any) -> BetaMessage:
+        self.keep_warm_requests.append(arguments)
+        return BetaMessage(
+            id="msg_keep_warm",
+            type="message",
+            role="assistant",
+            content=[],
+            model=arguments["model"],
+            stop_reason="max_tokens",
+            stop_sequence=None,
+            usage=BetaUsage(input_tokens=1, output_tokens=0, cache_read_input_tokens=500),
+        )
 
     async def _execute_anthropic_stream(
         self,
@@ -62,7 +78,8 @@ class RecordingCacheDiagnosticsLLM(AnthropicLLM):
         timeout_seconds: float | None,
     ) -> tuple[BetaMessage, list[str], list[str]]:
         del anthropic, capture_filename, timeout_seconds
-        self.requests.append(arguments)
+        # Snapshot: the provider appends the reply to this message list afterwards.
+        self.requests.append(copy.deepcopy(arguments))
         response_id = f"msg_{len(self.requests)}"
         return (
             BetaMessage(
@@ -564,6 +581,38 @@ class TestAnthropicCaching:
 
         assert [tool["name"] for tool in first] == ["zeta", "alpha"]
         assert second == first
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("pending_tool_call", [False, True])
+    async def test_keep_warm_replays_the_last_request_without_generating(
+        self, pending_tool_call: bool
+    ):
+        llm = RecordingCacheDiagnosticsLLM(
+            context=self._create_context_with_cache_mode("auto"), model="claude-sonnet-5"
+        )
+        user = PromptMessageExtended(role="user", content=[TextContent(type="text", text="hi")])
+        assistant = await llm._anthropic_completion(
+            AnthropicConverter.convert_to_anthropic(user), history=[user], current_extended=user
+        )
+        if pending_tool_call:
+            assistant.tool_calls = {
+                "call_1": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(name="slow", arguments={}),
+                )
+            }
+
+        usage = await llm.warm_cache([user, assistant])
+
+        assert llm.keep_warm_requests == [{**llm.requests[0], "max_tokens": 0}]
+        assert usage.prompt.cache_read == 500
+        assert usage.completion.total == 0
+        assert len(llm.requests) == 1
+
+    def test_cache_retention_follows_the_configured_ttl(self):
+        assert self._create_llm("auto", "5m").cache_retention_seconds == 300
+        assert self._create_llm("auto", "1h").cache_retention_seconds == 3600
+        assert self._create_llm("off").cache_retention_seconds is None
 
     @pytest.mark.asyncio
     async def test_cache_diagnostics_links_consecutive_requests(self):

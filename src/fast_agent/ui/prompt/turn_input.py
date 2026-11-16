@@ -140,6 +140,9 @@ class TurnInputReader:
         self._keys: list[KeyPress] = []
         self._submissions: list[_Submission] = []
         self._line = ""
+        # A draft set aside while an hc message pasted behind it is submitted.
+        self._draft_keys: list[KeyPress] = []
+        self._draft_line = ""
         self._escape_pending = False
         self._escape_timer: asyncio.TimerHandle | None = None
         self._saved_attrs: list[Any] | None = None
@@ -149,7 +152,20 @@ class TurnInputReader:
 
     @property
     def held_keys(self) -> list[KeyPress]:
-        return list(self._keys)
+        return [*self._keys, *self._draft_keys]
+
+    def _set_draft_aside(self) -> None:
+        start = self._submissions[-1].end if self._submissions else 0
+        self._draft_keys = self._keys[start:]
+        self._draft_line = self._line
+        del self._keys[start:]
+        self._line = ""
+
+    def _restore_draft(self) -> None:
+        self._keys.extend(self._draft_keys)
+        self._line += self._draft_line
+        self._draft_keys = []
+        self._draft_line = ""
 
     def take_messages(self) -> list[str]:
         """Take a FIFO prefix of plain submitted text at a tool-loop boundary.
@@ -159,6 +175,7 @@ class TurnInputReader:
         """
         from prompt_toolkit.keys import Keys
 
+        from fast_agent.integrations.hc_children import is_hc_message
         from fast_agent.ui.prompt.pasted_paths import pasted_image_paths
         from fast_agent.ui.prompt.special_commands import is_bare_prompt_command
 
@@ -175,7 +192,7 @@ class TurnInputReader:
         for submission in self._submissions:
             end, text = submission.end, submission.text
             stripped = text.lstrip()
-            if (
+            if not is_hc_message(text) and (
                 stripped.startswith(("/", "!", "@", "#"))
                 or is_bare_prompt_command(text)
                 or any(word.startswith("^") for word in text.split())
@@ -357,6 +374,12 @@ class TurnInputReader:
         if key == Keys.Escape:
             self._escape_pending = True
         elif key == Keys.BracketedPaste:
+            from fast_agent.integrations.hc_children import is_hc_message
+
+            if self._line and not self._draft_keys and is_hc_message(key_press.data):
+                # hc pastes behind whatever the person was typing. Submit its
+                # message alone; the draft stays a draft.
+                self._set_draft_aside()
             self._keys.append(key_press)
             self._line += key_press.data.replace("\r\n", "\n").replace("\r", "\n")
         elif key == self._submit_key:
@@ -366,6 +389,7 @@ class TurnInputReader:
                 self._queued += 1
                 self._on_queued(self._queued)
             self._line = ""
+            self._restore_draft()
         elif key in (Keys.ControlM, Keys.ControlJ):
             self._keys.append(key_press)
             self._line += "\n"
@@ -385,6 +409,14 @@ def _store_typeahead(input: Input, key_presses: list[KeyPress]) -> None:
     from prompt_toolkit.input.typeahead import store_typeahead
 
     store_typeahead(input, key_presses)
+
+
+def keep_draft_for_next_prompt(input: Input, draft: str) -> None:
+    """Return an unfinished draft to the prompt after the current submission."""
+    from prompt_toolkit.key_binding import KeyPress
+    from prompt_toolkit.keys import Keys
+
+    _store_typeahead(input, [KeyPress(Keys.BracketedPaste, draft)])
 
 
 @contextmanager

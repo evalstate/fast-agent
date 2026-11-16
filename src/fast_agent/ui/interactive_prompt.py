@@ -1303,6 +1303,13 @@ class InteractivePrompt:
         if result:
             set_last_copyable_output(result)
 
+        from fast_agent.ui.prompt.input import refresh_session_attachments
+
+        for line in await refresh_session_attachments(
+            agent_name=agent_name, agent_provider=prompt_provider
+        ):
+            rich_print(Text(line, style="dim"))
+
         return result
 
     @staticmethod

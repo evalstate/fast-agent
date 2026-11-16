@@ -73,6 +73,7 @@ class ProgrammaticSurface:
     """Settings and model-facing instructions of the PTC code tool."""
 
     tool_name: str
+    vocabulary: int
     tool_format: Literal["json", "freeform"]
     instructions: str
     type_check: bool

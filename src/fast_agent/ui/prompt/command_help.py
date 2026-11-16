@@ -59,6 +59,8 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  /compact [instructions] - Compact history into a checkpoint summary",
             "  /compact preview - Show what compaction would keep (no model call)",
             "  /compact prompt - Show the active compaction prompt",
+            "  /warm [minutes] - Keep the prompt cache warm while the prompt is idle",
+            "  /warm status|off - Show keep-warm requests, or stop warming",
             "  /markdown      - Show last assistant message without markdown formatting",
             "  /environment   - List configured execution environments",
             "  /process [--history] - Show active, durable, or retained shell processes",

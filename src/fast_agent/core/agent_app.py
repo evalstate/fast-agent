@@ -4,7 +4,6 @@ Direct AgentApp implementation for interacting with agents without proxies.
 
 from __future__ import annotations
 
-import re
 import time
 import warnings
 from dataclasses import dataclass, field
@@ -15,6 +14,10 @@ from rich.markup import escape
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.prompt_cache import (
+    OPENAI_MINIMUM_CACHE_TTL_SECONDS,
+    uses_openai_minimum_cache_ttl,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import (
     UsageLedger,
@@ -52,11 +55,6 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# OpenAI prompt caching docs guarantee at least 30 minutes for GPT-5.6 and later,
-# including later major versions and model variants such as ``-mini``.
-# https://platform.openai.com/docs/guides/prompt-caching
-_OPENAI_MINIMUM_CACHE_TTL_MODEL_VERSION = (5, 6)
-_OPENAI_MINIMUM_CACHE_TTL_SECONDS = 30 * 60
 _SUBAGENT_TURN_INDEX_SUFFIX = "::subagents"
 
 
@@ -1174,10 +1172,10 @@ class AgentApp:
         if all(
             turn.provider in {Provider.OPENAI, Provider.RESPONSES, Provider.CODEX_RESPONSES}
             and turn.usage_schema is UsageSchema.OPENAI_RESPONSES
-            and self._uses_openai_minimum_cache_ttl(turn.model)
+            and uses_openai_minimum_cache_ttl(turn.model)
             for turn in turn_slice
         ):
-            return CacheTTLMinimum(seconds=_OPENAI_MINIMUM_CACHE_TTL_SECONDS)
+            return CacheTTLMinimum(seconds=OPENAI_MINIMUM_CACHE_TTL_SECONDS)
 
         cache_ttl = self._configured_cache_ttl(agent)
         if not cache_ttl:
@@ -1186,14 +1184,6 @@ class AgentApp:
         ttl_minutes = 60 if cache_ttl == "1h" else 5
         expiry = last_cache_activity + (ttl_minutes * 60)
         return CacheTTLExpiry(expires_at=expiry) if expiry > time.time() else None
-
-    @staticmethod
-    def _uses_openai_minimum_cache_ttl(model: str) -> bool:
-        match = re.search(r"gpt-(\d+)(?:\.(\d+))?", model.lower())
-        if match is None:
-            return False
-        version = (int(match.group(1)), int(match.group(2) or 0))
-        return version >= _OPENAI_MINIMUM_CACHE_TTL_MODEL_VERSION
 
     @staticmethod
     def _configured_cache_ttl(agent) -> str | None:

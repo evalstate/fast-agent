@@ -7,7 +7,7 @@ from typing import Literal
 from mcp_types import TextContent
 
 from fast_agent.constants import FAST_AGENT_RETRY
-from fast_agent.llm.provider.error_utils import EmptyCompletionError
+from fast_agent.llm.provider.error_utils import EmptyCompletionDiagnostics, EmptyCompletionError
 from fast_agent.llm.provider.streaming_timeouts import StreamIdleTimeoutError
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
@@ -36,6 +36,7 @@ class ProviderRetry:
     reason: Literal["stream_idle", "provider_error", "empty_completion"]
     boundary: RetryBoundary
     stream_events_received: int | None = None
+    empty_completion: EmptyCompletionDiagnostics | None = None
 
 
 def retry_boundary(messages: object) -> RetryBoundary:
@@ -87,6 +88,11 @@ def provider_retry(
             else "provider_error"
         ),
         boundary=boundary,
+        empty_completion=(
+            error.attempts[0]
+            if isinstance(error, EmptyCompletionError) and error.attempts
+            else None
+        ),
         stream_events_received=(
             idle_error.events_received if idle_error else stream_events_received
         ),

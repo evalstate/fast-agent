@@ -68,7 +68,10 @@ def test_request_contract(route: str, effort: str | None) -> None:
         [{"role": "user", "content": "hello"}], None, llm.default_request_params
     )
     assert request["model"] == route.split(".", 1)[1]
-    assert request["reasoning_effort"] == (effort if effort in {"low", "high"} else "max")
+    expected = effort if effort in {"low", "high"} else "max"
+    if effort == "off" and isinstance(llm, HuggingFaceLLM):
+        expected = "low"
+    assert request["reasoning_effort"] == expected
     assert "extra_body" not in request
     assert "thinking" not in request
     if isinstance(llm, MoonshotLLM):

@@ -28,7 +28,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from fast_agent.config import ProgrammaticToolCallingSettings
 from fast_agent.ptc import PTC_TOOL_NAME
+from fast_agent.ptc.vocabulary import PTC_VOCABULARY_META, PTC_VOCABULARY_VERSION
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -46,8 +48,19 @@ class Case:
     prompt: str
     expect: tuple[str, ...]
     """Case-insensitive substrings the final answer must contain."""
-    check: Callable[[History], str | None]
-    """Return a failure reason, or None when the run took the intended path."""
+    path_check: Callable[[History], str | None]
+
+    def check(self, history: History) -> str | None:
+        """Reject direct code-only calls anywhere in this eval's saved history."""
+        # This eval's card exposes only the sandbox and harness slash command directly.
+        direct = [
+            name
+            for _, name, _ in tool_calls(history)
+            if name not in {PTC_TOOL_NAME, "slash_command"}
+        ]
+        if direct:
+            return f"code-only tools called directly: {', '.join(direct)}"
+        return self.path_check(history)
 
 
 def tool_calls(history: History) -> list[tuple[str, str, dict[str, Any]]]:
@@ -214,13 +227,17 @@ CASES = (
 )
 
 
-def command(case: Case, results: Path | None, model: str | None) -> list[str]:
+def command(
+    case: Case, results: Path | None, model: str | None, function_names: str | None = None
+) -> list[str]:
     args = ["uv", "run", "fast-agent", "go", "--config-path", "fast-agent.yaml", "--ptc"]
     args += ["--card", "agent-cards/ptc-eval.md"]
     if model:
         args += ["--model", model]
     if results is not None:
         args += ["--quiet", "--results", str(results)]
+    if function_names is not None:
+        args = ["env", f"PTC__FUNCTION_NAMES={function_names}", *args]
     return [*args, "--message", case.prompt]
 
 
@@ -233,11 +250,13 @@ def clean_env() -> dict[str, str]:
     }
 
 
-async def run_case(case: Case, model: str | None, workdir: Path) -> tuple[bool, str, float]:
+async def run_case(
+    case: Case, model: str | None, workdir: Path, function_names: str
+) -> tuple[bool, str, float]:
     results = workdir / f"{case.name}.json"
     started = time.perf_counter()
     process = await asyncio.create_subprocess_exec(
-        *command(case, results, model),
+        *command(case, results, model, function_names),
         cwd=HERE,
         env=clean_env(),
         stdout=asyncio.subprocess.PIPE,
@@ -249,7 +268,17 @@ async def run_case(case: Case, model: str | None, workdir: Path) -> tuple[bool, 
     if process.returncode != 0 or not results.exists():
         return False, f"run failed (exit {process.returncode}): {text[-800:]}", elapsed
 
-    history: History = json.loads(results.read_text(encoding="utf-8"))["messages"]
+    document = json.loads(results.read_text(encoding="utf-8"))
+    history: History = document["messages"]
+    metadata = document.get("metadata") or {}
+    actual = metadata.get(PTC_VOCABULARY_META)
+    names = metadata.get("ptc_functions", [])
+    observed = f"vocabulary={actual}, functions={','.join(names)}"
+    print(f"{case.name}: {observed}", flush=True)
+    vocabulary = PTC_VOCABULARY_VERSION if function_names == "canonical" else 0
+    if actual != vocabulary or not names:
+        return False, f"expected PTC vocabulary {vocabulary}; observed {observed}", elapsed
+
     answer = next(
         (
             " ".join(block.get("text", "") for block in message["content"])
@@ -261,6 +290,11 @@ async def run_case(case: Case, model: str | None, workdir: Path) -> tuple[bool, 
     missing = [word for word in case.expect if word not in answer.lower()]
     if missing:
         return False, f"answer lacks {missing}: {answer.strip()[:300]!r}", elapsed
+    if any(
+        (result.get("_meta") or {}).get(PTC_VOCABULARY_META) != vocabulary
+        for result in code_results(history)
+    ):
+        return False, f"expected PTC vocabulary {vocabulary} in every code result", elapsed
     reason = case.check(history)
     if reason:
         return False, f"{reason}; answer: {answer.strip()[:120]!r}", elapsed
@@ -271,6 +305,12 @@ async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("cases", nargs="*", help="Case names (default: all)")
     parser.add_argument("--model", help="Model override, e.g. sonnet or passthrough")
+    parser.add_argument(
+        "--function-names",
+        choices=["canonical", "profile"],
+        default=ProgrammaticToolCallingSettings().function_names,
+        help="Temporary matched naming comparison switch",
+    )
     parser.add_argument("--jobs", type=int, default=3, help="Cases to run concurrently")
     parser.add_argument("--list", action="store_true", help="Print commands without running")
     options = parser.parse_args()
@@ -282,7 +322,9 @@ async def main() -> int:
 
     if options.list:
         for case in selected:
-            print(f"# {case.name}\n{shlex.join(command(case, None, options.model))}\n")
+            print(
+                f"# {case.name}\n{shlex.join(command(case, None, options.model, options.function_names))}\n"
+            )
         return 0
 
     semaphore = asyncio.Semaphore(max(1, options.jobs))
@@ -290,7 +332,7 @@ async def main() -> int:
 
         async def bounded(case: Case) -> tuple[bool, str, float]:
             async with semaphore:
-                return await run_case(case, options.model, Path(temp))
+                return await run_case(case, options.model, Path(temp), options.function_names)
 
         outcomes = await asyncio.gather(*(bounded(case) for case in selected))
 
@@ -299,7 +341,9 @@ async def main() -> int:
         failed += not passed
         print(f"{'PASS' if passed else 'FAIL'}  {case.name:<18} {elapsed:6.1f}s  {detail}")
         if not passed:
-            print(f"      reproduce: {shlex.join(command(case, None, options.model))}")
+            print(
+                f"      reproduce: {shlex.join(command(case, None, options.model, options.function_names))}"
+            )
     print(f"\n{len(selected) - failed}/{len(selected)} passed")
     return 1 if failed else 0
 

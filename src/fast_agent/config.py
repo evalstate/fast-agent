@@ -320,7 +320,8 @@ class ShellSettings(BaseModel):
     tool_profile: ShellToolProfile = Field(
         default="auto",
         description=(
-            "Model-facing shell contract: 'auto' selects a model-specific contract; "
+            "Direct-mode shell contract (canonical PTC always uses shell/process): "
+            "'auto' selects a model-specific contract; "
             "'minimal_process' exposes Bash and Process; "
             "'native' retains the legacy execute/poll_process/terminate_process tools; "
             "'grok_shell' exposes aligned shell plus Process; "
@@ -624,6 +625,35 @@ class CompactionSettings(BaseModel):
     def has_custom_prompt(self) -> bool:
         """Whether a custom prompt is configured; it requires a written summary."""
         return self.configured_prompt() is not None
+
+
+class CacheWarmSettings(BaseModel):
+    """Configuration for keeping provider prompt caches warm between model requests."""
+
+    auto: bool = Field(
+        default=True,
+        description=(
+            "Keep the prompt cache warm automatically while a turn waits on tools or "
+            "subagents, and while an idle session waits for herdr-core children to report"
+        ),
+    )
+    max_minutes: int = Field(
+        default=30,
+        ge=1,
+        le=24 * 60,
+        description=(
+            "How long automatic warming continues after the last model request; also the "
+            "default /warm duration"
+        ),
+    )
+    interval_seconds: int | None = Field(
+        default=None,
+        ge=10,
+        description=(
+            "Seconds between keep-warm requests. Unset derives it from the provider's cache "
+            "retention; set it to warm a model whose retention fast-agent does not know"
+        ),
+    )
 
 
 class MCPRootSettings(BaseModel):
@@ -1973,6 +2003,12 @@ class ProgrammaticToolCallingSettings(BaseModel):
     """Expose tools through the Python code tool; null uses the model default.
     Override with `--ptc` / `--no-ptc` or the `ptc` model query. Local POSIX only."""
 
+    # ptc-vocab-v0: remove the temporary comparison setting after matched rollout.
+    function_names: Literal["canonical", "profile"] = "canonical"
+    """Temporary benchmark comparison switch: canonical PTC vocabulary v1 (default), or
+    previous per-model profiles. Remove after the matched naming evaluation; not a permanent
+    compatibility setting. Direct (non-PTC) tools are unaffected."""
+
     direct_tools: list[str] = Field(default_factory=list)
     """Tool names (fnmatch patterns) that stay directly callable alongside the code tool."""
 
@@ -2549,6 +2585,9 @@ class Settings(BaseSettings):
 
     compaction: CompactionSettings = Field(default_factory=CompactionSettings)
     """History compaction settings (auto trigger threshold, retained turns, prompt)."""
+
+    cache_warm: CacheWarmSettings = Field(default_factory=CacheWarmSettings)
+    """Prompt-cache keep-warm settings (automatic warming, window, interval)."""
 
     copilot: CopilotSettings = Field(default_factory=CopilotSettings)
 

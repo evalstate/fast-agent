@@ -14,10 +14,12 @@ mcp:
 # Programmatic tool calling. `--ptc` on the command line sets `enabled: true`.
 ptc:
   enabled: false
+  # Temporary matched-benchmark switch: canonical (default) | profile.
+  # function_names: canonical
   # Tools (fnmatch patterns) that stay directly callable next to exec_sandbox.
   direct_tools: []
   # Tools (fnmatch patterns) callable only from code, overriding tools that declare direct
-  # access (shell/process use expose "both"). ["*"] gives a code-only run.
+  # access. Shell/process are already nested by default. ["*"] gives a code-only run.
   nested_tools: []
   # auto | json | freeform. freeform sends raw Python as a Responses custom (grammar) tool;
   # auto uses the model default (freeform for GPT-6).

@@ -180,8 +180,17 @@ class ModelSelectionCatalog:
         ),
         Provider.HUGGINGFACE: (
             _builtin_entry(
+                "beam",
+                display_label="Beam 1.0 (together)",
+                description="text-only HF route via OpenRouter",
+            ),
+            _builtin_entry(
                 "glimmer",
                 display_label="Muse Glimmer 30B (together)",
+            ),
+            _builtin_entry(
+                "inkling",
+                display_label="Inkling 2 Small (deepinfra)",
             ),
             _builtin_entry(
                 "Kimi K3.1 Pro (together)",
@@ -228,26 +237,16 @@ class ModelSelectionCatalog:
                 fast=True,
             ),
             _builtin_entry(
-                "kimi27",
-                display_label="Kimi 2.7-Code",
-                description="thinking mode",
-                fast=True,
-            ),
-            _builtin_entry("gemma4", display_label="Gemma 4 31B"),
-            _builtin_entry("minimax3", display_label="Minimax 3.0"),
-            _builtin_entry(
-                "DeepSeek V4 Flash 0731 (baseten)",
-                display_label="DeepSeek V4 Flash 0731 (baseten)",
-            ),
-            _builtin_entry(
-                "DeepSeek V4 Flash 0731 (deepinfra)",
-                display_label="DeepSeek V4 Flash 0731 (deepinfra)",
+                "deepseek-hf",
+                display_label="DeepSeek V4.1 Flash (novita)",
+                description="1017 checkpoint",
             ),
             _builtin_entry(
                 "DeepSeek V4.1 Flash (novita)",
-                display_label="DeepSeek V4.1 Flash (novita)",
+                display_label="DeepSeek V4.1 Flash 0910 (novita)",
+                description="original 10 September checkpoint",
+                current=False,
             ),
-            _builtin_entry("deepseek-hf", display_label="DeepSeek V4 Pro (HF)"),
             _builtin_entry(
                 "kimi26",
                 display_label="Kimi 2.6",
@@ -258,12 +257,6 @@ class ModelSelectionCatalog:
                 display_label="Kimi 2.6 (instant)",
                 description="instant mode",
                 fast=True,
-            ),
-            _builtin_entry("glm51", display_label="GLM 5.1"),
-            _builtin_entry(
-                "minimax27",
-                display_label="Minimax 2.7",
-                current=False,
             ),
             _builtin_entry(
                 "qwen35",
@@ -282,11 +275,6 @@ class ModelSelectionCatalog:
                 display_label="Qwen 3.6 35B-A3B (instruct)",
             ),
             _builtin_entry(
-                "minimax25",
-                display_label="Minimax 2.5",
-                current=False,
-            ),
-            _builtin_entry(
                 "kimi25",
                 display_label="Kimi 2.5",
                 fast=True,
@@ -300,10 +288,8 @@ class ModelSelectionCatalog:
             ),
             _builtin_entry("glm5", current=False),
             _builtin_entry("gpt-oss", fast=True),
-            _builtin_entry("glm47", current=False),
             _builtin_entry("gpt-oss-20b"),
             #            CatalogModelEntry(alias="deepseek31", model="hf.deepseek-ai/DeepSeek-V3.1"),
-            _builtin_entry("deepseek32", current=False),
         ),
         Provider.CODEX_RESPONSES: (
             _builtin_entry("astra", display_label="GPT-6-Astra"),

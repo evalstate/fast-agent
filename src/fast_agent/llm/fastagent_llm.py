@@ -49,7 +49,12 @@ from fast_agent.llm.compaction_support import (
 )
 from fast_agent.llm.memory import Memory, SimpleMemory
 from fast_agent.llm.model_database import ModelDatabase, ModelParameters
-from fast_agent.llm.provider.error_utils import EmptyCompletionError, provider_policy_code
+from fast_agent.llm.prompt_cache import CACHE_KEEP_WARM_MESSAGE, PromptCacheWarmError
+from fast_agent.llm.provider.error_utils import (
+    EmptyCompletionDiagnostics,
+    EmptyCompletionError,
+    provider_policy_code,
+)
 from fast_agent.llm.provider.streaming_timeouts import (
     StreamIdleTimeoutError,
     StreamTiming,
@@ -97,7 +102,7 @@ from fast_agent.llm.usage_tracking import InferenceTiming, TurnUsage, UsageAccum
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.provider_management import ProviderManagedMCPState
-from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 from fast_agent.ui.console import error_console
 from fast_agent.utils.text import casefold_text
 
@@ -271,6 +276,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self._initialize_usage_tracking()
         self._stream_listeners: set[Callable[[StreamChunk], None]] = set()
         self._tool_stream_listeners: set[Callable[[str, dict[str, Any] | None], None]] = set()
+        # Set while a keep-warm request runs: its reply is not part of the conversation.
+        self._stream_listeners_muted = False
         self.retry_count = self._resolve_retry_count()
         self.retry_backoff_seconds: float = 10.0
         self._provider_managed_mcp_state = ProviderManagedMCPState()
@@ -365,7 +372,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         if resolved_params is not None and self._resolved_model_matches(model_name):
             return resolved_params
 
-        return ModelDatabase.get_model_params(model_name)
+        return ModelDatabase.get_request_model_params(model_name, request_provider=self.provider)
 
     def _get_model_reasoning(self, model_name: str | None) -> str | None:
         params = self._get_model_params(model_name)
@@ -814,10 +821,12 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # This line satisfies Pylance that we never implicitly return None
         raise RuntimeError("Retry loop finished without success or exception")
 
-    def _empty_completion_retry(self) -> ProviderRetry:
+    def _empty_completion_retry(
+        self, diagnostics: EmptyCompletionDiagnostics | None = None
+    ) -> ProviderRetry:
         """Telemetry for a provider asking once more after an empty completion."""
         return provider_retry(
-            EmptyCompletionError(),
+            EmptyCompletionError((diagnostics,) if diagnostics is not None else ()),
             attempt=1,
             max_attempts=2,
             wait_seconds=0.0,
@@ -1144,6 +1153,80 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self._append_usage_channel(assistant_response, start_index=usage_start_index)
 
         return assistant_response
+
+    @property
+    def cache_retention_seconds(self) -> int | None:
+        """How long the provider keeps an unused prompt cache entry; None when unknown."""
+        return None
+
+    @property
+    def warm_cache_reports_cache_use(self) -> bool:
+        """Whether a keep-warm request's usage says how much was read from cache."""
+        return True
+
+    @property
+    def warms_cache_mid_turn(self) -> bool:
+        """Whether ``warm_cache`` works while the last response's tool calls are running."""
+        return True
+
+    async def warm_cache(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> TurnUsage:
+        """Refresh the provider prompt cache for the conversation ``messages``.
+
+        The reply is discarded. The request is billed and recorded like any
+        inference, but it is not part of the conversation: stream listeners hear
+        nothing, progress is labelled as cache warming, and the context-size
+        observation is left as it was. Callers must not overlap this with
+        another request on the same LLM (see ``CacheWarmer.keep_warm``).
+        """
+        accumulator = self.usage_accumulator
+        context_tokens = accumulator.current_context_tokens
+        start_index = len(accumulator.turns)
+        started = time.perf_counter()
+        previous_verb = self.verb
+        self.verb = ProgressAction.WARMING_CACHE
+        self._stream_listeners_muted = True
+        try:
+            await self._warm_cache_request(messages, self.get_request_params(request_params), tools)
+        finally:
+            self.verb = previous_verb
+            self._stream_listeners_muted = False
+            accumulator.record_timing(
+                InferenceTiming(duration_ms=round((time.perf_counter() - started) * 1000, 2)),
+                start_index=start_index,
+            )
+            accumulator.set_context_estimate(context_tokens)
+        if len(accumulator.turns) == start_index:
+            raise PromptCacheWarmError("The provider reported no usage for the keep-warm request.")
+        return accumulator.turns[-1]
+
+    async def _warm_cache_request(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None,
+    ) -> None:
+        """Send the keep-warm request. Providers with a no-output form override this.
+
+        This form extends the conversation with a throwaway user message, leaving
+        out a final assistant message whose tool calls are still running.
+        """
+        conversation = list(messages)
+        while conversation and conversation[-1].role == "assistant" and conversation[-1].tool_calls:
+            conversation.pop()
+        response = await self._apply_prompt_provider_specific(
+            [*conversation, Prompt.user(CACHE_KEEP_WARM_MESSAGE)], request_params, tools
+        )
+        if response.stop_reason == LlmStopReason.CANCELLED:
+            raise asyncio.CancelledError
+        if response.stop_reason == LlmStopReason.ERROR:
+            raise PromptCacheWarmError(response.last_text() or "the provider returned an error")
+        if response.tool_calls:
+            raise PromptCacheWarmError("The model answered the keep-warm request with a tool call.")
 
     def _append_usage_channel(
         self,
@@ -1660,7 +1743,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
     def _notify_stream_listeners(self, chunk: StreamChunk) -> None:
         """Notify registered listeners with a streaming chunk."""
-        if chunk.event == "delta" and not chunk.text:
+        if self._stream_listeners_muted or (chunk.event == "delta" and not chunk.text):
             return
         for listener in list(self._stream_listeners):
             try:
@@ -1692,6 +1775,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     ) -> None:
         """Notify listeners about tool streaming lifecycle events."""
 
+        if self._stream_listeners_muted:
+            return
         data = payload or {}
         for listener in list(self._tool_stream_listeners):
             try:

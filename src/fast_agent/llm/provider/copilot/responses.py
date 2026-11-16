@@ -8,6 +8,11 @@ from uuid import uuid4
 
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 
+from fast_agent.llm.fastagent_llm import FastAgentLLM
+from fast_agent.llm.prompt_cache import (
+    OPENAI_MINIMUM_CACHE_TTL_SECONDS,
+    uses_openai_minimum_cache_ttl,
+)
 from fast_agent.llm.provider.copilot import broker
 from fast_agent.llm.provider.copilot.images import CopilotImageUploads
 from fast_agent.llm.provider.copilot.models import get_copilot_model
@@ -36,9 +41,11 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.mime_utils import guess_mime_type
 
 if TYPE_CHECKING:
+    from mcp import Tool
+
     from fast_agent.llm.provider.copilot.broker import CopilotEndpoint
     from fast_agent.llm.provider.copilot.models import CopilotModelSpec
-    from fast_agent.types import RequestParams
+    from fast_agent.types import PromptMessageExtended, RequestParams
 
 
 class CopilotResponsesLLM(ResponsesLLM):
@@ -68,6 +75,32 @@ class CopilotResponsesLLM(ResponsesLLM):
     @property
     def _copilot_spec(self) -> CopilotModelSpec:
         return get_copilot_model(self.default_request_params.model or "")
+
+    # Copilot generates despite `generate: false` and `prompt_cache_options.prewarm`.
+    # It takes every request whole and reports exact cache reads, so the generic
+    # keep-warm message works here, including while tool calls are running.
+    @property
+    def cache_retention_seconds(self) -> int | None:
+        model = self.default_request_params.model
+        if model and uses_openai_minimum_cache_ttl(model):
+            return OPENAI_MINIMUM_CACHE_TTL_SECONDS
+        return None
+
+    @property
+    def warm_cache_reports_cache_use(self) -> bool:
+        return True
+
+    @property
+    def warms_cache_mid_turn(self) -> bool:
+        return True
+
+    async def _warm_cache_request(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None,
+    ) -> None:
+        await FastAgentLLM._warm_cache_request(self, messages, request_params, tools)
 
     def _default_transport_setting(self) -> ResponsesTransport:
         return "websocket" if "websocket" in self._copilot_spec.transports else "sse"

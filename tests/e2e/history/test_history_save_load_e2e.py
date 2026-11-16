@@ -21,7 +21,6 @@ DEFAULT_CREATE_MODELS = [
     "gpt-5-mini?reasoning=minimal",
     "haiku",
     "gemini25",
-    "minimax",
     "kimi",
     "glm",
 ]

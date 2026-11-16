@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, cast
 
 from prompt_toolkit.formatted_text import HTML
 
+from fast_agent.agents.llm_decorator import LlmDecorator
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.commands.model_capabilities import (
     resolve_model_info,
@@ -30,7 +31,11 @@ from fast_agent.core.agent_capabilities import (
     agent_capability_mode_supported,
     resolve_agent_capability_mode,
 )
+from fast_agent.core.cache_warmer import CacheWarmer
+from fast_agent.core.cache_warmer import format_status_summary as format_warm_summary
+from fast_agent.core.cache_warmer import status_level as warm_status_level
 from fast_agent.history.turns import total_user_turns
+from fast_agent.integrations.hc_children import current_hc_attachments, format_status_summary
 from fast_agent.llm.model_display_name import resolve_model_display_name
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
@@ -230,7 +235,11 @@ def render_input_toolbar(
         shortcut_text,
         attachment_summary=attachment_summary.summary,
     )
-    notification_segment = _build_notification_segment()
+    notification_segment = (
+        _build_hc_segment()
+        + _build_warm_segment(agent_provider, agent_name)
+        + _build_notification_segment()
+    )
     copy_notice_segment = _build_copy_notice_segment(
         copy_notice,
         copy_notice_until,
@@ -499,6 +508,17 @@ def _resolve_current_agent(
         return None
 
 
+def resolve_cache_warmer(agent_provider: "AgentApp | None", agent_name: str) -> CacheWarmer | None:
+    """The cache warmer of the named agent, when it talks to a model."""
+    agent = _resolve_current_agent(agent_provider, agent_name)
+    return agent.cache_warmer if isinstance(agent, LlmDecorator) else None
+
+
+def active_process_count(agent_provider: "AgentApp | None", agent_name: str) -> int:
+    """Managed background processes still running for the named agent."""
+    return _active_process_count_for_agent(_resolve_current_agent(agent_provider, agent_name))
+
+
 def _active_process_count_for_agent(agent: object) -> int:
     shell_runtime = getattr(agent, "shell_runtime", None)
     active_count = getattr(shell_runtime, "active_process_count", 0)
@@ -754,6 +774,30 @@ def _build_middle_segment(
     if shortcut_text:
         middle_segments.append(shortcut_text)
     return " | ".join(middle_segments)
+
+
+def _build_hc_segment() -> str:
+    """Children that will wake this session, and services it still owns."""
+    summary = format_status_summary(current_hc_attachments(), 0)
+    if summary is None:
+        return ""
+    return f" | {_toolbar_style_segment(f'hc: {summary}', foreground='ansiyellow')}"
+
+
+_WARM_COLOURS = {"ok": "ansigreen", "warning": "ansiyellow", "error": "ansired"}
+
+
+def _build_warm_segment(agent_provider: "AgentApp | None", agent_name: str) -> str:
+    """Keep-warm progress, or how long the agent's prompt cache is expected to last."""
+    warmer = resolve_cache_warmer(agent_provider, agent_name)
+    if warmer is None:
+        return ""
+    status = warmer.status()
+    summary = format_warm_summary(status)
+    if summary is None:
+        return ""
+    colour = _WARM_COLOURS[warm_status_level(status)]
+    return f" | {_toolbar_style_segment(summary, foreground=colour)}"
 
 
 def _build_notification_segment() -> str:

@@ -16,7 +16,6 @@ TEST_MODELS = [
     "hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
     "hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
     "hf.deepseek-ai/DeepSeek-V4-Pro:fireworks-ai",
-    "minimax",
 ]
 
 

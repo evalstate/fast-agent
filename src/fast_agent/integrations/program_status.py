@@ -82,6 +82,8 @@ class ProgramStatusReporter:
         self._state: ProgramState = "idle"
         self._kind: BlockedKind | None = None
         self._queued = 0
+        self._attached: str | None = None
+        self._warm: str | None = None
         self._title: str | None = None
         self._context: str | None = None
         self._usage: str | None = None
@@ -140,6 +142,16 @@ class ProgramStatusReporter:
         self._queued = max(0, count)
         self._emit()
 
+    def report_attached(self, summary: str | None) -> None:
+        """What the session is still attached to (children that will wake it)."""
+        self._attached = summary
+        self._emit()
+
+    def report_warm(self, summary: str | None) -> None:
+        """Whether the idle session is keeping its prompt cache warm."""
+        self._warm = summary
+        self._emit()
+
     def report_usage(self, usage: str) -> None:
         self._plugin_usage = usage
         self._emit()
@@ -150,6 +162,8 @@ class ProgramStatusReporter:
         self._active = False
         self._plugin_usage = None
         self._queued = 0
+        self._attached = None
+        self._warm = None
         self._last_sequence = None
 
     def _emit(self, *, force: bool = False) -> None:
@@ -159,7 +173,12 @@ class ProgramStatusReporter:
         # Keep the last completed-turn projection until replaced or the session changes.
         usage = self._plugin_usage or self._usage
         queued = f"{self._queued} queued" if self._queued else None
-        message = " · ".join(part for part in (queued, self._context, usage) if part) or None
+        message = (
+            " · ".join(
+                part for part in (queued, self._attached, self._warm, self._context, usage) if part
+            )
+            or None
+        )
         sequence = ProgramStatus(self._state, self._title, message, self._kind).encode()
         if (force or sequence != self._last_sequence) and self._write(sequence):
             self._last_sequence = sequence

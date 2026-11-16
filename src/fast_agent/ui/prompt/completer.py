@@ -308,6 +308,7 @@ class AgentCompleter(Completer):
                 "(or /history show|detail|save|load|clear|rewind|fix)"
             ),
             "compact": "Compact history into a checkpoint summary (/compact preview|prompt)",
+            "warm": "Keep the prompt cache warm while idle (/warm [minutes|off|status])",
             "tool": "Show one tool's input and structured output JSON schemas",
             "tools": "List tools or show one tool's JSON schemas",
             "model": _catalog_command_description("model"),

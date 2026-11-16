@@ -69,7 +69,7 @@ async def smoke() -> int:
             workspace=directory,
             skills_directory=[],
         )
-        for name, query in (("default", ""), ("max", "?reasoning=max"), ("off", "?reasoning=off")):
+        for name, query in (("default", ""), ("max", "?reasoning=max"), ("low", "?reasoning=low")):
             fast.agent(name=name, model=MODEL + query, instruction="Answer concisely.")(entrypoint)
         fast.agent(
             name="tools",
@@ -81,7 +81,7 @@ async def smoke() -> int:
 
         cases: list[tuple[str, PromptMessageExtended, str]] = [
             (name, Prompt.user("What is 2 + 3? Reply with only the digit."), "5")
-            for name in ("default", "max", "off")
+            for name in ("default", "max", "low")
         ]
         cases += [
             ("tools", Prompt.user("Look up the marker for label demo."), "NOVITA-SMOKE-729"),

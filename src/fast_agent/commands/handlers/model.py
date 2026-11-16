@@ -54,6 +54,7 @@ from fast_agent.core.exceptions import (
     ModelConfigError,
     format_fast_agent_error,
 )
+from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.reasoning_effort import (
     ReasoningEffortLevel,
     ReasoningEffortSetting,
@@ -440,19 +441,6 @@ def _resolve_reasoning_command_setting(
     if parsed.kind != "toggle":
         return parsed
 
-    if (
-        spec.kind == "effort"
-        and parsed.value is False
-        and "none" not in (spec.allowed_efforts or [])
-        and not spec.allow_toggle_disable
-    ):
-        outcome.add_message(
-            f"{REASONING_LABEL} disable is not supported for this model. "
-            f"Allowed values: {_reasoning_allowed_values_text(spec)}.",
-            channel="error",
-            right_info="model",
-        )
-        return None
     return _resolve_toggle_to_default(spec, bool(parsed.value))
 
 
@@ -463,7 +451,8 @@ def _set_reasoning_command_setting(
     setting: ReasoningEffortSetting,
     spec: ReasoningEffortSpec,
 ) -> None:
-    if setting.kind == "effort" and spec.kind == "budget":
+    # HF owns route-specific disable normalization; budget providers own effort mapping.
+    if isinstance(llm, HuggingFaceLLM) or (setting.kind == "effort" and spec.kind == "budget"):
         try:
             set_reasoning_effort(llm, setting)
         except ValueError as exc:

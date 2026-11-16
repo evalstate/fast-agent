@@ -128,6 +128,7 @@ def test_model_sees_code_tool_plus_direct_tools_only() -> None:
     [
         ("shell", True),
         ("runtime__Shell", True),
+        ("run_command", True),
         ("exec", True),
         ("process", False),
         ("read_text_file", False),
@@ -158,6 +159,13 @@ def test_cpython_guidance_requires_a_shell_command_tool(
         else []
     )
 
+    if expect_hint:
+        tool = programmatic_shell_tool(available[0])
+        assert tool.meta is not None
+        tool.meta["fast_agent"]["ptc"]["expose"] = (
+            exposure if exposure != "configured_direct" else "nested"
+        )
+        available = [tool]
     tools = runtime.model_tools(available, tool_format=tool_format)
     surface = runtime.surface(tools)
 
@@ -472,7 +480,7 @@ def test_instructions_call_sandbox_callables_functions_not_tools() -> None:
         },
     )
 
-    code_tool, *_ = runtime.model_tools([TOOLS[0], bash])
+    code_tool, *_ = runtime.model_tools([TOOLS[0], programmatic_shell_tool(bash)])
     instructions = (code_tool.description or "").split("Available functions:")[0]
     mentions = [line for line in instructions.splitlines() if re.search(r"\btools?\b", line, re.I)]
 
@@ -1214,10 +1222,10 @@ async def test_shell_from_code_returns_streams_and_exit_code_instead_of_raising(
         model_tools = {tool.name for tool in (await agent.list_tools()).tools}
         runtime = agent._programmatic_tool_runtime()
         assert runtime is not None
-        shell = next(name for name, f in runtime.functions.items() if f.tool_name == "exec")
+        shell = next(name for name, f in runtime.functions.items() if f.tool_name == "shell")
         # PTC is not optional: shell and process are reachable only through code.
         assert model_tools == {PTC_TOOL_NAME}
-        assert {"exec", "process"} <= {f.tool_name for f in runtime.functions.values()}
+        assert {"shell", "process"} <= {f.tool_name for f in runtime.functions.values()}
         code = (
             f"r = await {shell}(command=\"printf '1.5'; echo oops >&2; exit 4\")\n"
             "try:\n"
@@ -1281,7 +1289,7 @@ async def test_failed_nested_calls_raise_short_messages_not_display_text(
         await agent.list_tools()
         runtime = agent._programmatic_tool_runtime()
         assert runtime is not None
-        shell = next(name for name, f in runtime.functions.items() if f.tool_name == "exec")
+        shell = next(name for name, f in runtime.functions.items() if f.tool_name == "shell")
         code = (
             f"try:\n    {call.replace('SHELL', shell)}\n    message = None\n"
             "except RuntimeError as exc:\n    message = str(exc)\nmessage"

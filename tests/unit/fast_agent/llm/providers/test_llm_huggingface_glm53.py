@@ -50,10 +50,7 @@ def _assert_reasoning_wire(request: dict[str, object], backend: str, effort: str
     assert "reasoning_effort" not in extra
     assert "separate_reasoning" not in extra
     assert "thinking" not in request
-    if backend == "zai-org":
-        assert extra["thinking"] == {"type": "enabled", "clear_thinking": False}
-    else:
-        assert "thinking" not in extra
+    assert "thinking" not in extra
     if backend == "together":
         template = extra["chat_template_kwargs"]
         assert isinstance(template, dict)
@@ -71,10 +68,10 @@ def _assert_reasoning_wire(request: dict[str, object], backend: str, effort: str
         ("high", "high"),
         ("max", "max"),
         ("medium", "high"),
-        ("none", "max"),
-        ("off", "max"),
+        ("none", "low"),
+        ("off", "low"),
         ("on", "max"),
-        ("false", "max"),
+        ("false", "low"),
         ("auto", "max"),
         ("minimal", "low"),
         ("xhigh", "max"),
@@ -323,9 +320,9 @@ async def test_glm53_reasoning_replay_is_chunk_boundary_invariant(
 @pytest.mark.asyncio
 async def test_glm52_preserved_thinking_replays_raw_reasoning(backend: str) -> None:
     llm = _llm(f"hf.zai-org/GLM-5.2:{backend}")
-    extra = _request(llm)["extra_body"]
-    assert isinstance(extra, dict)
-    assert extra["thinking"]["clear_thinking"] is False
+    request = _request(llm)
+    assert request["reasoning_effort"] == "max"
+    assert "extra_body" not in request
     parts = [" \t", "first.", "Second", "\n", " sentence "]
     response = await _stream_response(llm, parts, with_tools=True)
     replay = llm._convert_extended_messages_to_provider([response])
@@ -336,7 +333,6 @@ async def test_glm52_preserved_thinking_replays_raw_reasoning(backend: str) -> N
     "model",
     (
         "zai-org/GLM-5.2:deepinfra",
-        "zai-org/GLM-5.2:fireworks-ai",
         "zai-org/GLM-5",
         "moonshotai/Kimi-K2.5:novita",
     ),

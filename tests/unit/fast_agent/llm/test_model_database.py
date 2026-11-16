@@ -199,16 +199,25 @@ def test_managed_process_poll_folding_is_enabled_for_validated_models() -> None:
         assert params.managed_process_poll_folding is True
         assert params.process_poll_default_wait_seconds == 250
 
-    gpt5_models = ("gpt-5.5", "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
+    # GPT-5.6 and later hold a prompt cache for at least 30 minutes; GPT-5.5 may not.
+    expected_waits = {
+        "gpt-5.5": 240,
+        "gpt-5.6": 300,
+        "gpt-5.6-sol": 300,
+        "gpt-5.6-terra": 300,
+        "gpt-5.6-luna": 300,
+        "gpt-6-astra": 300,
+        "gpt-6.1-terra": 300,
+    }
     for provider in (Provider.RESPONSES, Provider.CODEX_RESPONSES):
-        for model in gpt5_models:
+        for model, expected_wait in expected_waits.items():
             params = ModelDatabase.get_model_params(
                 model,
                 provider=provider,
             )
             assert params is not None
             assert params.managed_process_poll_folding is True
-            assert params.process_poll_default_wait_seconds == 240
+            assert params.process_poll_default_wait_seconds == expected_wait
 
 
 @pytest.mark.parametrize("provider", [Provider.ANTHROPIC, Provider.ANTHROPIC_VERTEX])
@@ -856,11 +865,9 @@ def test_huggingface_glm52_default_preserves_thinking():
     llm = _make_hf_llm("zai-org/glm-5.2:zai-org")
 
     args = _hf_request_args(llm)
-    extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
     assert args["model"] == "zai-org/glm-5.2:zai-org"
     assert args["reasoning_effort"] == "max"
-    assert extra_body["thinking"] == {"type": "enabled", "clear_thinking": False}
+    assert "extra_body" not in args
 
 
 def test_huggingface_glm52_default_ignores_openai_reasoning_default():
@@ -895,7 +902,7 @@ def test_huggingface_deepseek_v4_flash_routes_disable_reasoning():
 
 
 def test_huggingface_glm52_routes_use_json_object_structured_mode():
-    for provider in ("zai-org", "together", "deepinfra", "novita", "fireworks-ai"):
+    for provider in ("zai-org", "together", "deepinfra", "novita"):
         llm = _make_hf_llm(f"zai-org/glm-5.2:{provider}")
 
         assert llm._structured_json_mode(llm.default_request_params) == "object"
@@ -926,58 +933,28 @@ def test_huggingface_glm52_deepinfra_disable_reasoning_uses_none_effort():
     assert "extra_body" not in args
 
 
-def test_huggingface_glm52_fireworks_default_uses_reasoning_effort_only():
-    llm = _make_hf_llm("zai-org/glm-5.2:fireworks-ai")
-
-    args = _hf_request_args(llm)
-    assert args["model"] == "zai-org/glm-5.2:fireworks-ai"
-    assert args["reasoning_effort"] == "max"
-    assert "extra_body" not in args
-
-
-def test_huggingface_glm52_fireworks_passes_requested_reasoning_effort():
-    llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:fireworks-ai", reasoning="low")
-
-    args = _hf_request_args(llm)
-    assert args["reasoning_effort"] == "low"
-    assert "extra_body" not in args
-
-
-def test_huggingface_glm52_fireworks_disable_reasoning_uses_none_effort():
-    llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:fireworks-ai", reasoning=False)
-
-    args = _hf_request_args(llm)
-    assert args["reasoning_effort"] == "none"
-    assert "extra_body" not in args
-
-
 def test_huggingface_glm52_reasoning_effort():
     llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:zai-org", reasoning="high")
 
     args = _hf_request_args(llm)
-    extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
     assert args["reasoning_effort"] == "high"
-    assert extra_body["thinking"] == {"type": "enabled", "clear_thinking": False}
+    assert "extra_body" not in args
 
 
 def test_huggingface_glm52_disable_reasoning():
     llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:zai-org", reasoning=False)
 
     args = _hf_request_args(llm)
-    extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
-    assert "reasoning_effort" not in args
-    assert extra_body["thinking"] == {"type": "disabled"}
+    assert args["reasoning_effort"] == "none"
+    assert "extra_body" not in args
 
 
 def test_huggingface_kimi25_disable_reasoning_toggle():
     llm = _make_hf_llm_with_reasoning("moonshotai/kimi-k2.5", reasoning=False)
 
     args = _hf_request_args(llm)
-    extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
-    assert extra_body["thinking"] == {"type": "disabled"}
+    assert args["reasoning_effort"] == "none"
+    assert "extra_body" not in args
 
 
 def test_huggingface_kimi25_default_reasoning_toggle_enabled():
@@ -995,9 +972,8 @@ def test_huggingface_kimi26_disable_reasoning_toggle():
     llm = _make_hf_llm_with_reasoning("moonshotai/kimi-k2.6", reasoning=False)
 
     args = _hf_request_args(llm)
-    extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {"thinking": False}
+    assert args["reasoning_effort"] == "none"
+    assert "extra_body" not in args
 
 
 def test_huggingface_kimi26_default_reasoning_toggle_enabled():
@@ -1011,48 +987,23 @@ def test_huggingface_kimi26_default_reasoning_toggle_enabled():
         assert extra_body is None
 
 
-def test_huggingface_qwen35_reasoning_toggle_uses_chat_template_kwargs_disabled():
+def test_huggingface_qwen35_reasoning_toggle_uses_none_effort():
     llm = _make_hf_llm_with_reasoning("Qwen/Qwen3.5-397B-A17B", reasoning=False)
 
     args = _hf_request_args(llm)
-    extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
-
-
-def test_huggingface_qwen35_reasoning_toggle_uses_chat_template_kwargs_enabled():
-    llm = _make_hf_llm_with_reasoning("Qwen/Qwen3.5-397B-A17B", reasoning=True)
-
-    args = _hf_request_args(llm)
-    extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
-
-
-def test_huggingface_gemma4_cerebras_reasoning_effort_enabled():
-    llm = _make_hf_llm_with_reasoning("google/gemma-4-31B-it:cerebras", reasoning="medium")
-
-    args = _hf_request_args(llm)
-    assert args["reasoning_effort"] == "medium"
-    assert args["model"] == "google/gemma-4-31B-it:cerebras"
+    assert args["reasoning_effort"] == "none"
     assert "extra_body" not in args
 
 
-def test_huggingface_gemma4_cerebras_reasoning_effort_disabled():
-    llm = _make_hf_llm_with_reasoning("google/gemma-4-31B-it:cerebras", reasoning="none")
+def test_huggingface_qwen35_reasoning_toggle_uses_provider_default():
+    llm = _make_hf_llm_with_reasoning("Qwen/Qwen3.5-397B-A17B", reasoning=True)
 
     args = _hf_request_args(llm)
-    assert args["reasoning_effort"] == "none"
+    assert "extra_body" not in args
+    assert "reasoning_effort" not in args
 
 
-def test_huggingface_gemma4_cerebras_default_reasoning_is_disabled():
-    llm = _make_hf_llm("google/gemma-4-31B-it:cerebras")
-
-    args = _hf_request_args(llm)
-    assert args["reasoning_effort"] == "none"
-
-
-def test_huggingface_chat_template_reasoning_preserves_existing_values() -> None:
+def test_huggingface_routed_reasoning_removes_legacy_chat_template() -> None:
     llm = _make_hf_llm_with_reasoning("Qwen/Qwen3.5-397B-A17B", reasoning=False)
     request_params = llm.default_request_params.model_copy(
         update={
@@ -1069,22 +1020,16 @@ def test_huggingface_chat_template_reasoning_preserves_existing_values() -> None
         None,
         request_params,
     )
-    extra_body = args.get("extra_body")
-
-    assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {
-        "temperature": 0.2,
-        "enable_thinking": False,
-    }
+    assert args["reasoning_effort"] == "none"
+    assert "extra_body" not in args
 
 
-def test_huggingface_qwen35_default_reasoning_emits_chat_template_kwargs_enabled():
+def test_huggingface_qwen35_default_reasoning_uses_provider_default():
     llm = _make_hf_llm("Qwen/Qwen3.5-397B-A17B")
 
     args = _hf_request_args(llm)
-    extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+    assert "extra_body" not in args
+    assert "reasoning_effort" not in args
 
 
 def test_huggingface_deepseek_v4_pro_uses_reasoning_content_streaming_metadata():

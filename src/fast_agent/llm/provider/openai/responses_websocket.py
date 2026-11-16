@@ -396,7 +396,9 @@ class PlannedWsRequest:
 class ResponsesWsRequestPlanner(Protocol):
     """Policy object for choosing websocket request type/payload."""
 
-    def plan(self, full_arguments: Mapping[str, Any]) -> PlannedWsRequest: ...
+    def plan(
+        self, full_arguments: Mapping[str, Any], *, warmup: bool = False
+    ) -> PlannedWsRequest: ...
 
     def commit(
         self,
@@ -413,11 +415,11 @@ class ResponsesWsRequestPlanner(Protocol):
 class StatelessResponsesWsPlanner:
     """Always emits ``response.create`` and does not retain state."""
 
-    def plan(self, full_arguments: Mapping[str, Any]) -> PlannedWsRequest:
-        return PlannedWsRequest(
-            event_type=RESPONSES_CREATE_EVENT_TYPE,
-            arguments=_copy_arguments(full_arguments),
-        )
+    def plan(self, full_arguments: Mapping[str, Any], *, warmup: bool = False) -> PlannedWsRequest:
+        arguments = _copy_arguments(full_arguments)
+        if warmup:
+            arguments["generate"] = False
+        return PlannedWsRequest(event_type=RESPONSES_CREATE_EVENT_TYPE, arguments=arguments)
 
     def commit(
         self,
@@ -442,7 +444,14 @@ class StatefulContinuationResponsesWsPlanner:
         self._last_input_fingerprints: list[str] | None = None
         self._last_response_id: str | None = None
 
-    def plan(self, full_arguments: Mapping[str, Any]) -> PlannedWsRequest:
+    def plan(self, full_arguments: Mapping[str, Any], *, warmup: bool = False) -> PlannedWsRequest:
+        """Plan the next request; ``warmup`` prepares its state without generating."""
+        planned = self._plan(full_arguments, warmup=warmup)
+        if warmup:
+            planned.arguments["generate"] = False
+        return planned
+
+    def _plan(self, full_arguments: Mapping[str, Any], *, warmup: bool) -> PlannedWsRequest:
         signature = _sanitize_request_signature(full_arguments)
         input_items = _extract_input_items(full_arguments)
         input_fingerprints = _fingerprint_input_items(input_items)
@@ -458,16 +467,17 @@ class StatefulContinuationResponsesWsPlanner:
             return self._planned_create(full_arguments)
 
         prior_input = self._last_input_fingerprints
+        # A warmup may add nothing: it re-reads what the latest response already holds.
         if (
             signature != self._last_signature
-            or len(input_fingerprints) <= len(prior_input)
+            or len(input_fingerprints) < len(prior_input) + (0 if warmup else 1)
             or input_fingerprints[: len(prior_input)] != prior_input
         ):
             return self._planned_create(full_arguments)
 
         incremental_items = copy.deepcopy(input_items[len(prior_input) :])
         incremental_items = _strip_replayed_response_items(incremental_items)
-        if not incremental_items:
+        if not incremental_items and not warmup:
             return self._planned_create(full_arguments)
 
         continuation_arguments = _copy_arguments(full_arguments)

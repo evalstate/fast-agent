@@ -24,6 +24,23 @@ def test_router_profile_registry_prefers_first_matching_rule() -> None:
     assert registry.resolve(RouterRoute("org/model", None)) == "default"
 
 
+def test_router_profile_registry_none_backend_matches_only_unpinned_routes() -> None:
+    registry = RouterProfileRegistry(
+        (
+            RouterProfileRule(
+                model="org/model",
+                backends=frozenset({"special"}),
+                profile="special",
+            ),
+            RouterProfileRule(model="org/model", backends=frozenset({None}), profile="unpinned"),
+        )
+    )
+
+    assert registry.resolve(RouterRoute("org/model", "special")) == "special"
+    assert registry.resolve(RouterRoute("org/model", None)) == "unpinned"
+    assert registry.resolve(RouterRoute("org/model", "other")) is None
+
+
 def test_router_profile_registry_does_not_cross_model_boundaries() -> None:
     registry = RouterProfileRegistry((RouterProfileRule(model="org/model", profile="profile"),))
 

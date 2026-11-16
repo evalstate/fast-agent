@@ -180,6 +180,7 @@ _ACTION_STYLES = {
     ProgressAction.COMPACTING: "cyan",
     ProgressAction.COMPACTING_IN_REQUEST: "cyan",
     ProgressAction.COMPACTING_CHECKPOINT: "cyan",
+    ProgressAction.WARMING_CACHE: "cyan",
     ProgressAction.ROUTING: "blue",
     ProgressAction.PLANNING: "blue",
     ProgressAction.MONITORING: "blue",

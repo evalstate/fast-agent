@@ -183,6 +183,11 @@ METHOD_NOT_FOUND_ERROR_CODE = -32601
 METHOD_NOT_FOUND_MESSAGE = "method not found"
 
 
+def canonical_resource_uri(uri: str) -> str:
+    """The URI form sent in resources/read (scheme/host case, dot segments, backslashes)."""
+    return str(AnyUrl(uri))
+
+
 def _is_capability_probe_error(exc: Exception) -> bool:
     """Return True when exc indicates a server does not support a probed method."""
     if isinstance(exc, NotImplementedError):
@@ -252,10 +257,34 @@ class MCPToolCatalog:
             None,
         )
 
-    def routable_tool_names(self) -> frozenset[str]:
-        return frozenset(self._by_namespaced_name) | frozenset(
+    def routable_tool_names(
+        self, tool_matches_filter: Callable[[str], bool] | None = None
+    ) -> frozenset[str]:
+        names = frozenset(self._by_namespaced_name) | frozenset(
             tool.tool.name for tool in self._by_namespaced_name.values()
         )
+        if tool_matches_filter is None:
+            return names
+
+        # Index first-resolving aliases in router order, not catalog display order.
+        # A denied first destination must not grant access to a later server.
+        aliases: dict[str, NamespacedTool] = {}
+        for tools in self._by_server.values():
+            for tool in tools:
+                aliases.setdefault(tool.tool.name, tool)
+        allowed_destinations = {
+            name for name in self._by_namespaced_name if tool_matches_filter(name)
+        }
+        allowed_names: set[str] = set()
+        for name in names:
+            tool = self.namespaced_tool(name)
+            if tool is None:
+                # Tool names containing a namespace may use the router's prefix
+                # rules rather than plain alias lookup.
+                tool = self.resolve_tool(name) if is_namespaced_name(name) else aliases.get(name)
+            if tool is not None and tool.namespaced_tool_name in allowed_destinations:
+                allowed_names.add(name)
+        return frozenset(allowed_names)
 
     def server_tool_names(self, server_name: str) -> tuple[str, ...]:
         return tuple(
@@ -3714,7 +3743,7 @@ class MCPAggregator(ContextDependent):
         )
 
         try:
-            uri_value = str(AnyUrl(uri))
+            uri_value = canonical_resource_uri(uri)
         except Exception as e:
             raise ValueError(f"Invalid {noun.lower()} URI: {uri}. Error: {e}") from e
 

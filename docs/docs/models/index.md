@@ -104,7 +104,7 @@ Start with the native providers for common use, or use additional providers for 
 | Google               | `gemini37flash`, `gemini`, `gemini35flash`               | Gemini native API, structured outputs, thinking controls, text/image/PDF/audio/video input, YouTube links through media attachments             |
 | DeepSeek             | `deepseek`, `deepseekpro`                                | Native stateless Responses API, reasoning, function tools, JSON Schema structured output, and web search                                       |
 | xAI / Grok           | `grok`, `grok43`, `grok45`, `grok46`, `grok47`, `grok47fast` (OAuth required), `grok-4.3`, `grok-4.5`, `grok-4.6`, `grok-4.7` | Grok models, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports                                                      |
-| Hugging Face         | `kimi`, `kimi26instant`, `deepseek-hf`, `glm`, `minimax` | Hugging Face Inference Providers routing, curated aliases, and HF MCP authentication                                                            |
+| Hugging Face         | `kimi`, `kimi26instant`, `deepseek-hf`, `glm`            | Hugging Face Inference Providers routing, curated aliases, and HF MCP authentication                                                            |
 | Additional providers | `qwen-turbo`, `gpt-oss`                                  | Groq, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints                                                   |
 
 ### OpenAI Responses
@@ -264,10 +264,18 @@ provider.model_name[?reasoning=value][&query=value...]
 
 `ptc=on|true|off|false` (any provider) enables or disables
 [programmatic tool calling](../ref/config_file.md#programmatic-tool-calling-ptc).
-For example, `glm53flash?ptc=off` disables the GLM-5.3-Flash default, while
-`glm53?ptc=on` enables PTC for GLM-5.3. GPT-6 Astra, GPT-6.1 Sol/Terra, GPT-6 Luna and
-Kimi K3.1 Pro also default to on (`luna?ptc=off` to disable). The CLI flags `--ptc` / `--no-ptc`
-take precedence over the model string.
+For example, `glm53flash?ptc=off` disables PTC, while `glm53?ptc=on` enables it.
+The CLI flags `--ptc` / `--no-ptc` take precedence over the model string.
+
+--8<-- "_generated/ptc_model_defaults.md"
+
+Canonical PTC uses the same `shell`, `process`, and file functions for every model;
+model-specific shell names, profiles, and edit preferences apply only to direct mode.
+For temporary matched comparisons, `ptc_names=profile|canonical` overrides
+`ptc.function_names` without an environment variable, for example
+`kimi?ptc=on&ptc_names=profile`. It does not enable PTC by itself and is scheduled
+for removal after the naming evaluation.
+See the [PTC vocabulary and temporary comparison switch](../ref/config_file.md#programmatic-tool-calling-ptc).
 
 `compact_at` (any provider) sets when auto-compaction fires for this model: input tokens
 (`grok?compact_at=150k`) or a context-window fraction (`sonnet?compact_at=0.7`, `70%`).

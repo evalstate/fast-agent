@@ -32,7 +32,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.text_verbosity import TextVerbosityLevel, TextVerbositySpec
-from fast_agent.llm.usage_tracking import UsageAccumulator
+from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
@@ -141,6 +141,22 @@ class FastAgentLLMProtocol(Protocol):
         self,
         request_params: RequestParams,
     ) -> bool: ...
+
+    @property
+    def cache_retention_seconds(self) -> int | None: ...
+
+    @property
+    def warms_cache_mid_turn(self) -> bool: ...
+
+    @property
+    def warm_cache_reports_cache_use(self) -> bool: ...
+
+    async def warm_cache(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> TurnUsage: ...
 
     default_request_params: RequestParams
     instruction: str | None

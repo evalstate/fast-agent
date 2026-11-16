@@ -32,6 +32,11 @@ from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES
 from fast_agent.tools.shell_profiles import ResolvedShellToolProfile
 from fast_agent.utils.text import strip_casefold, strip_to_none
 
+# GPT-5.6 and later keep a prompt cache for at least 30 minutes, so a managed-process
+# wait need not return to the model every few minutes to stay cached. The wait is
+# kept well short of that so a stuck process is still noticed.
+OPENAI_LONG_CACHE_POLL_WAIT_SECONDS = 300
+
 
 class ModelParameters(BaseModel):
     """Configuration parameters for a specific model"""
@@ -413,6 +418,12 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value="max"),
     )
 
+    BEAM_1_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["minimal", "low", "medium", "high", "xhigh", "max"],
+        default=ReasoningEffortSetting(kind="effort", value="max"),
+    )
+
     KIMI_REASONING_TOGGLE_SPEC = ReasoningEffortSpec(
         kind="toggle",
         default=ReasoningEffortSetting(kind="toggle", value=True),
@@ -432,10 +443,11 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="toggle", value=True),
     )
 
+    # The HF router can only switch Gemma 4 thinking via the chat template
+    # (enable_thinking); effort levels have no wire representation there.
     GEMMA4_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
-        kind="effort",
-        allowed_efforts=["none", "low", "medium", "high"],
-        default=ReasoningEffortSetting(kind="effort", value="none"),
+        kind="toggle",
+        default=ReasoningEffortSetting(kind="toggle", value=False),
     )
 
     DEEPSEEK_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
@@ -518,6 +530,13 @@ class ModelDatabase:
     MUSE_GLIMMER_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="high"),
+    )
+
+    # Inkling 2: reasoning is mandatory on the HF OpenRouter routes.
+    INKLING_2_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["minimal", "low", "medium", "high", "xhigh", "max"],
         default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
@@ -680,7 +699,7 @@ class ModelDatabase:
         default_provider=Provider.RESPONSES,
         model_specific=GPT_53_PLUS_MODEL_SPECIFIC,
         managed_process_poll_folding=True,
-        process_poll_default_wait_seconds=240,
+        process_poll_default_wait_seconds=OPENAI_LONG_CACHE_POLL_WAIT_SECONDS,
     )
 
     OPENAI_GPT_56_LUNA = OPENAI_GPT_56.model_copy(
@@ -717,7 +736,7 @@ class ModelDatabase:
         default_provider=Provider.RESPONSES,
         model_specific=GPT_53_PLUS_MODEL_SPECIFIC,
         managed_process_poll_folding=True,
-        process_poll_default_wait_seconds=240,
+        process_poll_default_wait_seconds=OPENAI_LONG_CACHE_POLL_WAIT_SECONDS,
     )
 
     OPENAI_GPT_6_SOL_LUNA = OPENAI_GPT_6_ASTRA.model_copy(
@@ -968,21 +987,32 @@ class ModelDatabase:
         shell_tool_name="Shell",
         shell_edit_tool="write_text_file",
     )
-    DEEPSEEK_V4_FLASH_HF = DEEPSEEK_V4_FLASH.model_copy(
-        update={
-            "reasoning": "reasoning_content",
-            "default_provider": Provider.HUGGINGFACE,
-        }
-    )
     DEEPSEEK_V4_PRO = DEEPSEEK_V4_FLASH
     DEEPSEEK_V41_FLASH = DEEPSEEK_V4_FLASH.model_copy(
         update={"tokenizes": [*OPENAI_VISION, "image/gif"]}
     )
 
+    # Shared by the HF V4.1 Flash checkpoints (10 September and 1017). Combined schema+tools
+    # requests intermittently failed validation on Novita, so structured output defers.
     DEEPSEEK_V41_FLASH_HF = DEEPSEEK_V41_FLASH.model_copy(
         update={
             "reasoning": "reasoning_content",
             "default_provider": Provider.HUGGINGFACE,
+            "structured_tool_policy": "defer",
+        }
+    )
+    # The unlisted 0731 checkpoint shares the HF block; vision arrived with V4.1.
+    DEEPSEEK_V4_FLASH_HF = DEEPSEEK_V41_FLASH_HF.model_copy(update={"tokenizes": TEXT_ONLY})
+    # The 10 September checkpoint cannot disable reasoning on HF. Keep 1017 and
+    # the unprobed 0731 checkpoint's specs separate. Efforts are accepted, but
+    # showed no measurable effect in the 2026-11-15 probes.
+    DEEPSEEK_V41_FLASH_SEPT_HF = DEEPSEEK_V41_FLASH_HF.model_copy(
+        update={
+            "reasoning_effort_spec": replace(
+                DEEPSEEK_REASONING_EFFORT_SPEC,
+                allowed_efforts=["low", "high", "max"],
+                allow_toggle_disable=False,
+            )
         }
     )
 
@@ -1150,6 +1180,29 @@ class ModelDatabase:
         model_specific="You have image understanding capabilities.",
     )
 
+    BEAM_1_HF = ModelParameters(
+        context_window=1_048_576,
+        max_output_tokens=131_072,
+        tokenizes=TEXT_ONLY,
+        json_mode="schema",
+        # Both HF upstreams require reasoning on every assistant turn.
+        reasoning="reasoning_content",
+        reasoning_effort_spec=BEAM_1_REASONING_EFFORT_SPEC,
+        default_provider=Provider.HUGGINGFACE,
+    )
+
+    # No published output ceiling: 128K is a nominal budget; the route omits max_tokens.
+    INKLING_2_SMALL_HF = ModelParameters(
+        context_window=1_048_576,
+        max_output_tokens=128_000,
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        structured_tool_policy="defer",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=INKLING_2_REASONING_EFFORT_SPEC,
+        default_provider=Provider.HUGGINGFACE,
+    )
+
     GROK_43 = ModelParameters(
         context_window=1_000_000,
         max_output_tokens=65535,
@@ -1284,7 +1337,6 @@ class ModelDatabase:
         json_mode="schema",
         structured_tool_policy="no_tools",
         reasoning="reasoning_content",
-        reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
         stream_mode="manual",
     )
     MINIMAX_27 = ModelParameters(
@@ -1547,7 +1599,8 @@ class ModelDatabase:
         "deepseek-v4-flash-vision-exp": _with_fast(DEEPSEEK_V41_FLASH),
         "deepseek-v4-pro": DEEPSEEK_V4_PRO,
         "deepseek-ai/deepseek-v4-flash-0731": _with_fast(DEEPSEEK_V4_FLASH_HF),
-        "deepseek-ai/deepseek-v4.1-flash": _with_fast(DEEPSEEK_V41_FLASH_HF),
+        "deepseek-ai/deepseek-v4.1-flash": _with_fast(DEEPSEEK_V41_FLASH_SEPT_HF),
+        "deepseek-ai/deepseek-v4.1-flash-1017": _with_fast(DEEPSEEK_V41_FLASH_HF),
         # Z.ai models
         "glm-5.2": GLM_5_2.model_copy(update={"default_provider": Provider.ZAI}),
         "glm-5.3": GLM_5_3,
@@ -1583,6 +1636,8 @@ class ModelDatabase:
         "moonshotai/kimi-k3": KIMI_K3_HF,
         "moonshotai/kimi-k3.1-pro": KIMI_K31_HF,
         "meta-models/muse-glimmer-30b": MUSE_GLIMMER_HF,
+        "reflection/beam-1.0-501b-a23b": BEAM_1_HF,
+        "thinkingmachines/inkling-2-small": INKLING_2_SMALL_HF,
         "kimi-k3": KIMI_K3,
         "kimi-k3.1-pro": KIMI_K31,
         "qwen/qwen3-32b": QWEN3_REASONER,
@@ -1668,6 +1723,21 @@ class ModelDatabase:
             "process_poll_default_wait_seconds": 240,
         }
     )
+    # On these HF routes combined schema+tools requests answered without calling the tool
+    # (2026-11-15 sweep), so structured output defers: tools first, then a schema-only turn.
+    # Native Z.ai and other routes sharing these constants keep their policy.
+    for _model in (
+        "zai-org/glm-5",
+        "zai-org/glm-5.3",
+        "zai-org/glm-5.3-flash",
+        "moonshotai/kimi-k2.5",
+        "moonshotai/kimi-k2.6",
+        "minimaxai/minimax-m2.5",
+    ):
+        _PROVIDER_MODEL_OVERRIDES[(Provider.HUGGINGFACE, _model)] = MODELS[_model].model_copy(
+            update={"structured_tool_policy": "defer"}
+        )
+    del _model
     _PROVIDER_MODEL_OVERRIDES.update(
         {
             (Provider.OPENROUTER, f"x-ai/{model_name}"): params
@@ -1680,7 +1750,14 @@ class ModelDatabase:
         }
     )
     _PROVIDER_WIRE_MODEL_NAMES: ClassVar[dict[tuple[Provider, str], str]] = {
+        (Provider.HUGGINGFACE, "reflection/beam-1.0-501b-a23b"): "reflection/Beam-1.0-501B-A23B",
+        (Provider.HUGGINGFACE, "deepseek-ai/deepseek-v4.1-flash-1017"): (
+            "deepseek-ai/DeepSeek-V4.1-Flash-1017"
+        ),
         (Provider.HUGGINGFACE, "qwen/qwen3.8-27b"): "Qwen/Qwen3.8-27B",
+        (Provider.HUGGINGFACE, "thinkingmachines/inkling-2-small"): (
+            "thinkingmachines/Inkling-2-Small"
+        ),
     }
 
     @classmethod
@@ -1712,6 +1789,26 @@ class ModelDatabase:
         if params is not None:
             return params
         return cls._RUNTIME_MODEL_PARAMS.get(normalized)
+
+    @classmethod
+    def get_request_model_params(
+        cls,
+        model: str,
+        *,
+        request_provider: Provider,
+    ) -> ModelParameters | None:
+        """Parameters for a request model that differs from the LLM's resolved model.
+
+        Keeps the provider-less lookup, except that Hugging Face route overrides apply only
+        to requests sent through Hugging Face; other providers see the shared catalog entry.
+        """
+        normalized = cls.normalize_model_name(model)
+        hf_override = cls._PROVIDER_MODEL_OVERRIDES.get((Provider.HUGGINGFACE, normalized))
+        if hf_override is None:
+            return cls.get_model_params(model)
+        if request_provider is Provider.HUGGINGFACE:
+            return hf_override
+        return cls.MODELS[normalized]
 
     @classmethod
     def normalize_model_name(cls, model: str) -> str:

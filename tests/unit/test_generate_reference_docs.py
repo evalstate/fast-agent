@@ -128,6 +128,25 @@ def test_compaction_snippets_use_compaction_settings_defaults() -> None:
         assert f"`compaction.{field_name}`" in table
 
 
+def test_cache_warm_snippets_use_settings_defaults_and_descriptions() -> None:
+    import yaml
+
+    from fast_agent.config import CacheWarmSettings
+
+    generator = _load_generator()
+    defaults = CacheWarmSettings()
+    snippet = generator.generate_cache_warm_config_snippet()
+    table = generator.generate_cache_warm_settings_reference()
+
+    config = yaml.safe_load(snippet.split("```yaml\n", 1)[1].split("```", 1)[0])
+    assert config["cache_warm"] == defaults.model_dump(exclude_none=True)
+    assert re.search(r"# interval_seconds:\s+null\b", snippet)
+
+    for name, field in CacheWarmSettings.model_fields.items():
+        value = yaml.safe_dump(defaults.model_dump()[name]).splitlines()[0]
+        assert f"| `cache_warm.{name}` | `{value}` | {field.description} |" in table
+
+
 def test_tui_reference_includes_managed_process_settings() -> None:
     from fast_agent.config import ShellSettings
 
@@ -139,3 +158,30 @@ def test_tui_reference_includes_managed_process_settings() -> None:
     assert f"`{defaults.process_poll_max_wait_seconds}`" in table
     assert "`shell_execution.managed_process_poll_history_folding`" in table
     assert f"`{defaults.managed_process_poll_history_folding}`" in table
+
+
+def test_ptc_model_defaults_snippet_is_current() -> None:
+    generator = _load_generator()
+    path = Path(__file__).parents[2] / "docs/docs/_generated/ptc_model_defaults.md"
+    assert path.read_text() == generator.generate_ptc_model_defaults_snippet(), (
+        "PTC defaults changed; run uv run scripts/docs.py generate"
+    )
+
+
+def test_ptc_model_defaults_match_catalog_policy() -> None:
+    from fast_agent.llm.model_database import ModelDatabase
+
+    snippet = _load_generator().generate_ptc_model_defaults_snippet()
+    documented = set(re.findall(r"^- `([^`]+)`$", snippet, re.MULTILINE))
+    assert documented <= set(ModelDatabase.MODELS)
+    for name in ModelDatabase.MODELS:
+        params = ModelDatabase.get_model_params(name)
+        assert params is not None
+        assert (name in documented) is params.ptc_enabled, name
+    for provider, name in ModelDatabase._PROVIDER_MODEL_OVERRIDES:
+        params = ModelDatabase.get_model_params(name, provider=provider)
+        assert params is not None
+        assert (name in documented) is params.ptc_enabled, (
+            f"{provider.value}.{name} differs from the documented base default; "
+            "generate provider-specific PTC defaults"
+        )

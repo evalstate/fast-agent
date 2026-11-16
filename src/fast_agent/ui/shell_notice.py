@@ -35,7 +35,8 @@ def format_shell_notice(
         environment_parts: list[str] = []
         if runtime_info.environment_name:
             environment_parts.append(runtime_info.environment_name)
-        environment_parts.append(runtime_info.kind)
+        if runtime_info.kind != runtime_info.environment_name:
+            environment_parts.append(runtime_info.kind)
         if runtime_info.provider and runtime_info.provider != runtime_info.kind:
             environment_parts.append(runtime_info.provider)
         environment_display = " ".join(environment_parts)

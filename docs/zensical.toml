@@ -49,6 +49,7 @@ nav = [
     "guides/structured-outputs.md",
     { "Privacy Filter" = "guides/privacy_filter.md" },
     { "Compaction" = "guides/compaction.md" },
+    { "Prompt-cache warming" = "guides/cache_warming.md" },
     { "Responses prompt caching" = "guides/responses-caching.md" },
   ] },
   { "Agents" = [
@@ -89,7 +90,8 @@ nav = [
     { "Model Overlays" = "models/model_overlays.md" },
     { "Models Reference" = "models/models_reference.md" },
     { "Internal Models" = "models/internal_models.md" },
-    ]}
+    ]},
+    { "Integration Reports" = "models/integration/index.md" },
   ] },
   { "ACP" = [
     {"Agent Client Protocol"  = [
