@@ -243,7 +243,7 @@ async def test_mcp_filter_constrains_model_routes(
                 if executes:
                     received.append(name)
                 else:
-                    assert "not available" in str(result.content)
+                    assert str(result.content).count("not available") == 1
                 assert receipts() == received
 
                 if enabled:
@@ -314,14 +314,24 @@ async def test_mcp_alias_checks_destination_not_other_servers(tmp_path: Path) ->
 @pytest.mark.parametrize(
     ("enabled", "names"), [(False, "canonical"), (True, "canonical"), (True, "profile")]
 )
-async def test_mcp_filter_blocks_filesystem_collision(
-    tmp_path: Path, enabled: bool, names: Literal["canonical", "profile"]
+@pytest.mark.parametrize("patterns", [[], ["read_text_file"], None])
+@pytest.mark.parametrize("direct", [False, True])
+async def test_mcp_filter_preserves_filesystem_collision_dispatch(
+    tmp_path: Path,
+    enabled: bool,
+    names: Literal["canonical", "profile"],
+    patterns: list[str] | None,
+    direct: bool,
 ) -> None:
     record = tmp_path / "received"
     local_file = tmp_path / "local.txt"
-    local_file.write_text("local content")
+    local_file.write_text("LOCALCONTENT")
     settings = Settings(
-        ptc=ProgrammaticToolCallingSettings(enabled=enabled, function_names=names),
+        ptc=ProgrammaticToolCallingSettings(
+            enabled=enabled,
+            function_names=names,
+            direct_tools=["read_text_file"] if direct else [],
+        ),
         mcp=MCPSettings(servers={"recording": _recording_server(record)}),
     )
     agent = McpAgent(
@@ -330,7 +340,7 @@ async def test_mcp_filter_blocks_filesystem_collision(
             model="passthrough",
             servers=["recording"],
             skills=[],
-            tools={"recording": []},
+            tools={} if patterns is None else {"recording": patterns},
         ),
         context=Context(config=settings, server_registry=ServerRegistry(settings)),
     )
@@ -339,19 +349,41 @@ async def test_mcp_filter_blocks_filesystem_collision(
         agent.set_filesystem_runtime(
             LocalFilesystemRuntime(agent.logger, working_directory=tmp_path)
         )
-        for name in ("read_text_file", "READ_TEXT_FILE", "recording__read_text_file"):
+        remote_allowed = patterns is None or bool(patterns)
+        for name in ("read_text_file", "READ_TEXT_FILE"):
             result = await _model_call(agent, name, {"path": str(local_file)})
-            assert result.is_error and "not available" in str(result.content)
+            local_advertised = not enabled or direct
+            executes = local_advertised or (remote_allowed and name == "read_text_file")
+            assert bool(result.is_error) is not executes, result
+            if not executes:
+                assert str(result.content).count("not available") == 1
+                assert "recording__read_text_file" not in str(result.content) or remote_allowed
+                assert not record.exists()
+            elif remote_allowed:
+                assert record.exists()
+                record.unlink()
+            else:
+                assert "LOCALCONTENT" in str(result.content)
+                assert "recording__read_text_file" not in str(result.content)
+                assert not record.exists()
+
+        result = await _model_call(agent, "recording__read_text_file", {"path": str(local_file)})
+        assert bool(result.is_error) is not remote_allowed, result
+        if remote_allowed:
+            assert record.exists()
+            record.unlink()
+        else:
+            assert str(result.content).count("not available") == 1
             assert not record.exists()
 
-        # The allowed local implementation is still callable from code and by host.
-        if enabled:
+        # The local implementation remains callable from code and by host.
+        if enabled and not direct:
             result = await _model_call(
                 agent, PTC_TOOL_NAME, {"code": f"await read_text_file(path={str(local_file)!r})"}
             )
-            assert not result.is_error and "local content" in str(result.content)
+            assert not result.is_error and "LOCALCONTENT" in str(result.content)
         result = await agent.call_tool("read_text_file", {"path": str(local_file)})
-        assert not result.is_error and "local content" in str(result.content)
+        assert not result.is_error and "LOCALCONTENT" in str(result.content)
         assert not record.exists()
     finally:
         await agent.shutdown()

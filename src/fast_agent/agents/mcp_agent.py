@@ -1884,21 +1884,26 @@ class McpAgent(ABC, ToolAgent):
             cwd = directory.absolute().as_posix()
         return cwd
 
+    def _model_call_blocked(self, name: str) -> bool:
+        """Check the final MCP destination without restricting trusted host calls."""
+        if self._handles_tool_locally(name) or (
+            self._programmatic_tool_runtime() is not None and name in self._ptc_tool_aliases
+        ):
+            return False
+        tool = self._aggregator.tool_catalog().resolve_tool(name)
+        return tool is not None and not self._tool_matches_filter(tool.namespaced_tool_name)
+
     def _unavailable_tool_hint(self, name: str) -> str | None:
         runtime = self._programmatic_tool_runtime()
         hint = runtime.unavailable_tool_hint(name) if runtime is not None else None
-        if self._handles_tool_locally(name) or (
-            runtime is not None and name in self._ptc_tool_aliases
+        if (
+            hint is not None
+            or self._handles_tool_locally(name)
+            or (runtime is not None and name in self._ptc_tool_aliases)
         ):
             return hint
-        # Check the execution destination too: filesystem collisions can rewrite an
-        # advertised local name to an MCP route after the known-name check.
-        tool = self._aggregator.tool_catalog().resolve_tool(name)
-        if tool is not None and not self._tool_matches_filter(tool.namespaced_tool_name):
-            return f"Tool '{name}' is not available."
-        if hint is not None:
-            return hint
         # The MCP router also accepts unprefixed aliases. They must not bypass PTC.
+        tool = self._aggregator.tool_catalog().resolve_tool(name)
         return (
             runtime.unavailable_tool_hint(tool.namespaced_tool_name)
             if runtime is not None and tool is not None
@@ -2406,15 +2411,9 @@ class McpAgent(ABC, ToolAgent):
         tool_catalog = self._aggregator.tool_catalog()
         # Check the alias's actual destination, not whether some server exposes that name.
         # Keep allowed code-only tools here so the PTC direct-call guard can explain them.
-        routable_tools = {
-            name
-            for name in tool_catalog.routable_tool_names()
-            if not self.config.tools
-            or (
-                (tool := tool_catalog.resolve_tool(name)) is not None
-                and self._tool_matches_filter(tool.namespaced_tool_name)
-            )
-        }
+        routable_tools = tool_catalog.routable_tool_names(
+            self._tool_matches_filter if self.config.tools else None
+        )
         known_tool_names = {
             HUMAN_INPUT_TOOL_NAME,
             *available_tools,
@@ -2629,7 +2628,14 @@ class McpAgent(ABC, ToolAgent):
         # Only model-originated calls are constrained by tools: and the PTC surface.
         # run_tools refreshed both; host calls stay unrestricted and PTC builds its
         # nested functions from the filtered tool list.
-        if hint := self._unavailable_tool_hint(call.execution_tool_name):
+        if self._model_call_blocked(call.execution_tool_name):
+            result = CallToolResult(
+                content=[
+                    TextContent(type="text", text=f"Tool '{call.tool_name}' is not available.")
+                ],
+                is_error=True,
+            )
+        elif hint := self._unavailable_tool_hint(call.execution_tool_name):
             result = CallToolResult(content=[TextContent(type="text", text=hint)], is_error=True)
         else:
             result = await self.call_tool(
@@ -2800,6 +2806,7 @@ class McpAgent(ABC, ToolAgent):
             catalog=tool_catalog,
             local_tool_exists=local_tool is not None,
             is_filesystem_runtime_tool=is_filesystem_runtime_tool,
+            tool_matches_filter=self._tool_matches_filter,
         )
 
         metadata = self._metadata_for_planned_tool(
