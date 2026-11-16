@@ -87,6 +87,7 @@ from fast_agent.ui.command_payloads import (
     TitleSessionCommand,
     UnknownCommand,
     UnpinSessionCommand,
+    WarmCommand,
 )
 from fast_agent.utils.commandline import split_commandline
 from fast_agent.utils.shell_detection import default_shell_command
@@ -290,6 +291,17 @@ def _parse_attach_command(remainder: str) -> AttachCommand:
         return AttachCommand(paths=(), clear=True)
 
     return AttachCommand(paths=tuple(tokens))
+
+
+def _parse_warm_command(remainder: str) -> CommandPayload:
+    argument = strip_casefold(remainder)
+    if not argument:
+        return WarmCommand()
+    if argument in ("off", "status"):
+        return WarmCommand(action=argument)
+    if argument.isdecimal() and 1 <= int(argument) <= 24 * 60:
+        return WarmCommand(minutes=int(argument))
+    return WarmCommand(error="Usage: /warm [minutes|off|status] (minutes: 1-1440)")
 
 
 def _parse_compact_command(remainder: str) -> CommandPayload:
@@ -745,6 +757,7 @@ _COMMAND_PARSERS: dict[str, _RemainderCommandParser] = {
     "a2a": _parse_a2a_command,
     "tasks": lambda remainder: A2ACommand(action="tasks", argument=remainder or None),
     "compact": _parse_compact_command,
+    "warm": _parse_warm_command,
     "history": _parse_history_command,
     "session": _parse_session_command,
     "card": _parse_card_command,

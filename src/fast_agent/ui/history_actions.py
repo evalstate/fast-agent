@@ -96,6 +96,7 @@ class _HistoryTurnDisplayContext:
     tool_metadata_lookup: dict[str, JsonObject]
     user_group: list["PromptMessageExtended"] = field(default_factory=list)
     tool_name_lookup: dict[str, str] = field(default_factory=dict)
+    turn_header_shown: bool = False
 
     def record_tool_calls(self, message: "PromptMessageExtended") -> None:
         tool_calls = message.tool_calls
@@ -117,20 +118,25 @@ class _HistoryTurnDisplayContext:
         from fast_agent.ui.message_display_helpers import (
             build_user_message_display,
             build_user_message_image_previews,
+            group_user_messages_by_sender,
         )
 
-        message_text, attachments = build_user_message_display(self.user_group)
-        image_previews = build_user_message_image_previews(self.user_group)
-        turn_range = (self.turn_index, self.turn_index) if self.turn_index else None
-        self.display.show_user_message(
-            message=message_text,
-            attachments=attachments,
-            image_previews=image_previews or None,
-            name=self.agent_name,
-            part_count=len(self.user_group),
-            turn_range=turn_range,
-            total_turns=self.total_turns,
-        )
+        for heading, group in group_user_messages_by_sender(self.user_group):
+            message_text, attachments = build_user_message_display(group)
+            image_previews = build_user_message_image_previews(group)
+            # Only the prompt that opens the turn carries the turn header; input that
+            # arrived later (herdr-core messages, typed-ahead text) is part of that turn.
+            opens_turn = not self.turn_header_shown and self.turn_index is not None
+            self.turn_header_shown = True
+            self.display.show_user_message(
+                message=message_text,
+                attachments=attachments,
+                image_previews=image_previews or None,
+                name=heading or self.agent_name,
+                part_count=len(group),
+                turn_range=(self.turn_index, self.turn_index) if opens_turn else None,
+                total_turns=self.total_turns if opens_turn else None,
+            )
         self.user_group.clear()
 
     async def display_message(self, message: "PromptMessageExtended") -> None:

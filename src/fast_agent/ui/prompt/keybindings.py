@@ -19,6 +19,7 @@ from fast_agent.command_actions.accessors import (
     plugin_commands_for_provider,
 )
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.integrations.hc_children import is_hc_message
 from fast_agent.ui.console import rich_print
 from fast_agent.ui.prompt.attachment_tokens import (
     append_attachment_tokens,
@@ -32,6 +33,7 @@ from fast_agent.ui.prompt.pasted_paths import (
     pasted_image_tokens,
     unsupported_image_paste_message,
 )
+from fast_agent.ui.prompt.turn_input import keep_draft_for_next_prompt
 from fast_agent.utils.async_utils import run_in_thread
 
 if TYPE_CHECKING:
@@ -362,6 +364,11 @@ def _add_attachment_keybindings(
         """Attach terminal-uploaded images; retain normal paste behavior otherwise."""
         buffer = event.current_buffer
         data = event.data.replace("\r\n", "\n").replace("\r", "\n")
+        if buffer.text.strip() and is_hc_message(data):
+            # hc pastes its message behind whatever is being typed and submits
+            # the line. Send its message alone; the draft returns afterwards.
+            keep_draft_for_next_prompt(event.app.input, buffer.text)
+            buffer.text = ""
         # Slash commands and shell input expect literal paths, not attachment tokens.
         literal_context = buffer.text.lstrip().startswith(("/", "!", "#"))
         if enable_clipboard_image_paste:

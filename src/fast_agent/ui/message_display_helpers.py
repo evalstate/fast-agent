@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from itertools import groupby
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from rich.text import Text
 
 from fast_agent.constants import FAST_AGENT_SAFETY_DETAILS
+from fast_agent.integrations.hc_children import hc_message_heading, is_hc_message
 from fast_agent.mcp.helpers.content_helpers import (
     get_text,
     is_image_content,
@@ -144,6 +146,26 @@ def build_user_message_display(
             lines.append("")
 
     return "\n".join(lines), None
+
+
+def group_user_messages_by_sender(
+    messages: Sequence[PromptMessageExtended],
+) -> list[tuple[str | None, list[PromptMessageExtended]]]:
+    """Split consecutive user messages into panels, each with its hc heading.
+
+    Input delivered by herdr-core gets its own heading; a person did not type it.
+    The heading is None for typed input.
+    """
+    panels: list[tuple[str | None, list[PromptMessageExtended]]] = []
+    for from_hc, group in groupby(
+        messages, key=lambda message: is_hc_message(message.first_text())
+    ):
+        panel = list(group)
+        heading = (
+            hc_message_heading([message.first_text() for message in panel]) if from_hc else None
+        )
+        panels.append((heading, panel))
+    return panels
 
 
 def build_tool_use_additional_message(

@@ -35,6 +35,12 @@ from fast_agent.llm.compaction_support import (
     provider_checkpoint_marker,
 )
 from fast_agent.llm.fastagent_llm import FastAgentLLM
+from fast_agent.llm.prompt_cache import (
+    CODEX_OBSERVED_CACHE_TTL_SECONDS,
+    OPENAI_MINIMUM_CACHE_TTL_SECONDS,
+    PromptCacheWarmError,
+    uses_openai_minimum_cache_ttl,
+)
 from fast_agent.llm.provider.error_utils import (
     EmptyCompletionDiagnostics,
     EmptyCompletionError,
@@ -338,6 +344,7 @@ class ResponsesLLM(
         self._tool_kind_map: dict[str, str] = {}
         self._seen_tool_call_ids: set[str] = set()
         self._tool_call_diagnostics: dict[str, Any] | None = None
+        self._keep_warm_request = False
         self._last_ws_request_type: str | None = None
         self._last_ws_request_mode: Literal["create", "continuation"] | None = None
         self._last_ws_turn_outcome: ResponsesWsTurnOutcome | None = None
@@ -432,6 +439,51 @@ class ResponsesLLM(
     def configured_transport(self) -> ResponsesTransport:
         """Return configured transport preference for this LLM instance."""
         return self._transport
+
+    @property
+    def cache_retention_seconds(self) -> int | None:
+        model = self.default_request_params.model
+        if not model or not uses_openai_minimum_cache_ttl(model):
+            return None
+        if self.provider is Provider.CODEX_RESPONSES:
+            return CODEX_OBSERVED_CACHE_TTL_SECONDS
+        return OPENAI_MINIMUM_CACHE_TTL_SECONDS if self.provider is Provider.RESPONSES else None
+
+    @property
+    def warm_cache_reports_cache_use(self) -> bool:
+        # A request that generates nothing reports zero cached tokens either way.
+        return False
+
+    @property
+    def warms_cache_mid_turn(self) -> bool:
+        # Over a websocket the provider continues only from its latest response.
+        # A warmup can follow one whose tool calls are still running, but the
+        # tool results then cannot follow the warmup, and re-sending the whole
+        # conversation instead is a full cache miss.
+        return self._last_transport_used != RESPONSES_TRANSPORT_WEBSOCKET
+
+    async def _warm_cache_request(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None,
+    ) -> None:
+        """Re-send the conversation without generating.
+
+        Over a websocket this is a ``generate: false`` warmup chained from the
+        latest response, which the next real request then continues from. Over
+        SSE it is the same request with ``prompt_cache_options.prewarm``.
+        """
+        conversation = list(messages)
+        while conversation and conversation[-1].role == "assistant" and conversation[-1].tool_calls:
+            conversation.pop()
+        if not conversation:
+            raise PromptCacheWarmError("Nothing to keep warm: the conversation is empty.")
+        self._keep_warm_request = True
+        try:
+            await self._apply_prompt_provider_specific(conversation, request_params, tools)
+        finally:
+            self._keep_warm_request = False
 
     @property
     def websocket_turn_indicator(self) -> str | None:
@@ -902,7 +954,11 @@ class ResponsesLLM(
         req_params = self.get_request_params(request_params)
 
         last_message = multipart_messages[-1]
-        if last_message.role == "assistant" and last_message.stop_reason != LlmStopReason.CONTINUE:
+        if (
+            last_message.role == "assistant"
+            and last_message.stop_reason != LlmStopReason.CONTINUE
+            and not self._keep_warm_request
+        ):
             return last_message
 
         cache_state = None
@@ -1557,7 +1613,7 @@ class ResponsesLLM(
                 stop_reason=LlmStopReason.CANCELLED,
             )
         message = self._finalize_responses_completion(result=result, context=context)
-        if not self._is_empty_responses_completion(message):
+        if self._keep_warm_request or not self._is_empty_responses_completion(message):
             return message
 
         diagnostics = empty_completion_diagnostics(message)
@@ -1626,6 +1682,15 @@ class ResponsesLLM(
                     client, input_items, display_model=model_name
                 )
                 arguments = self._build_response_args(normalized_input, request_params, tools)
+                if self._keep_warm_request:
+                    if self.provider is Provider.CODEX_RESPONSES:
+                        raise PromptCacheWarmError(
+                            "Codex accepts keep-warm requests over websocket only."
+                        )
+                    arguments["prompt_cache_options"] = {
+                        **arguments.get("prompt_cache_options", {}),
+                        "prewarm": True,
+                    }
                 self.logger.debug("Responses request", data=arguments)
                 capture_filename = _stream_capture_filename(self.chat_turn())
                 _save_stream_request(capture_filename, arguments)
@@ -1790,7 +1855,9 @@ class ResponsesLLM(
             data={"model": context.model_name, "url": context.ws_url},
         )
         phase_started_at = time.perf_counter()
-        planned_request = attempt_state.planner.plan(context.arguments)
+        planned_request = attempt_state.planner.plan(
+            context.arguments, warmup=self._keep_warm_request
+        )
         self._record_ws_phase(context.phase_timings, "plan_request", phase_started_at)
         self._last_ws_request_type = planned_request.event_type
         self._report_ws_request_plan(

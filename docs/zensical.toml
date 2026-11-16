@@ -49,6 +49,7 @@ nav = [
     "guides/structured-outputs.md",
     { "Privacy Filter" = "guides/privacy_filter.md" },
     { "Compaction" = "guides/compaction.md" },
+    { "Prompt-cache warming" = "guides/cache_warming.md" },
     { "Responses prompt caching" = "guides/responses-caching.md" },
   ] },
   { "Agents" = [

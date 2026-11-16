@@ -18,6 +18,7 @@ from fast_agent.constants import (
     FAST_AGENT_TOOL_LOOP_MESSAGE,
     FAST_AGENT_TOOL_MEDIA_MESSAGE,
 )
+from fast_agent.integrations.hc_children import is_hc_message
 
 if TYPE_CHECKING:
     from fast_agent.types import PromptMessageExtended
@@ -51,6 +52,22 @@ def user_turn_starts(messages: list[PromptMessageExtended]) -> list[int]:
         elif message.role == "assistant":
             awaiting_reply = False
     return starts
+
+
+def is_hc_prompt(message: PromptMessageExtended) -> bool:
+    """True for a prompt that herdr-core delivered rather than a person typing it."""
+    return is_user_prompt(message) and is_hc_message(message.first_text())
+
+
+def typed_turn_starts(messages: list[PromptMessageExtended]) -> list[int]:
+    """Indices where the turns a person reviews or rewinds to start.
+
+    herdr-core wakes an idle agent with peer messages and notices. Each starts a
+    turn for the model, but to the person it continues what they last asked, so
+    those turns join the one before. Only the first turn may open with one.
+    """
+    starts = user_turn_starts(messages)
+    return [start for start in starts if start == starts[0] or not is_hc_prompt(messages[start])]
 
 
 def compacted_turn_count(message: PromptMessageExtended) -> int:

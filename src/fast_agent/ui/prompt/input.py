@@ -7,7 +7,7 @@ from __future__ import annotations
 import os
 import threading
 import time
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from dataclasses import dataclass
 from html import escape as escape_html
 from importlib.metadata import version
@@ -36,6 +36,13 @@ from fast_agent.commands.model_capabilities import (
 from fast_agent.core.agent_capabilities import cycle_agent_capability_mode
 from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.integrations.hc_children import (
+    format_status_summary,
+    format_turn_end_lines,
+    hc_terminal_id,
+    refresh_hc_attachments,
+)
+from fast_agent.integrations.herdr_lifecycle import report_session_attached
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.agent_identity import is_default_agent_name
 from fast_agent.ui.console import rich_print
@@ -59,6 +66,7 @@ from fast_agent.ui.prompt.agent_info import (
 from fast_agent.ui.prompt.agent_info import (
     display_all_agents_with_hierarchy as _display_all_agents_with_hierarchy_impl,
 )
+from fast_agent.ui.prompt.cache_warm import idle_cache_warming
 from fast_agent.ui.prompt.input_runtime import (
     build_prompt_style,
     cleanup_prompt_session,
@@ -71,8 +79,10 @@ from fast_agent.ui.prompt.special_commands import handle_special_commands_async
 from fast_agent.ui.prompt.status_bar import (
     ShellToolbarState,
     ToolbarRenderCache,
+    active_process_count,
     render_input_toolbar,
     resolve_active_llm,
+    resolve_cache_warmer,
 )
 from fast_agent.ui.prompt.status_bar.service_tier import cycle_service_tier
 from fast_agent.utils.env import env_flag
@@ -739,6 +749,22 @@ async def _show_input_startup(
     help_message_shown = True
 
 
+async def refresh_session_attachments(
+    *, agent_name: str, agent_provider: "AgentApp | None", reuse_recent: bool = False
+) -> list[str]:
+    """Update what an idle session is still attached to inside herdr-core.
+
+    Feeds the toolbar and the terminal status message; returns the lines to
+    print when a turn ends. Empty outside herdr-core.
+    """
+    if hc_terminal_id() is None:
+        return []
+    attachments = await refresh_hc_attachments(reuse_recent=reuse_recent)
+    background = active_process_count(agent_provider, agent_name)
+    report_session_attached(format_status_summary(attachments, background))
+    return format_turn_end_lines(attachments, background)
+
+
 def _show_a2a_prompt_status(
     *,
     agent_name: str,
@@ -797,6 +823,10 @@ async def get_enhanced_input(
         agent_name=agent_name,
         agent_provider=agent_provider,
     )
+    if not is_human_input:
+        await refresh_session_attachments(
+            agent_name=agent_name, agent_provider=agent_provider, reuse_recent=True
+        )
     session: PromptSession | None = None
 
     def session_factory() -> PromptSession:
@@ -883,15 +913,23 @@ async def get_enhanced_input(
         shell_enabled=shell_input.context.enabled,
     )
 
-    try:
-        return await run_prompt_once(
-            session=session,
-            agent_name=agent_name,
-            default_agent_name=default_agent_name,
-            default_buffer=buffer_default,
-            resolve_prompt_text=resolve_prompt_text,
-            parse_special_input=parse_special_input,
+    warming = (
+        nullcontext()
+        if is_human_input
+        else idle_cache_warming(
+            session=session, warmer=resolve_cache_warmer(agent_provider, agent_name)
         )
+    )
+    try:
+        async with warming:
+            return await run_prompt_once(
+                session=session,
+                agent_name=agent_name,
+                default_agent_name=default_agent_name,
+                default_buffer=buffer_default,
+                resolve_prompt_text=resolve_prompt_text,
+                parse_special_input=parse_special_input,
+            )
     finally:
         await cleanup_prompt_session(
             session=session,

@@ -128,6 +128,25 @@ def test_compaction_snippets_use_compaction_settings_defaults() -> None:
         assert f"`compaction.{field_name}`" in table
 
 
+def test_cache_warm_snippets_use_settings_defaults_and_descriptions() -> None:
+    import yaml
+
+    from fast_agent.config import CacheWarmSettings
+
+    generator = _load_generator()
+    defaults = CacheWarmSettings()
+    snippet = generator.generate_cache_warm_config_snippet()
+    table = generator.generate_cache_warm_settings_reference()
+
+    config = yaml.safe_load(snippet.split("```yaml\n", 1)[1].split("```", 1)[0])
+    assert config["cache_warm"] == defaults.model_dump(exclude_none=True)
+    assert re.search(r"# interval_seconds:\s+null\b", snippet)
+
+    for name, field in CacheWarmSettings.model_fields.items():
+        value = yaml.safe_dump(defaults.model_dump()[name]).splitlines()[0]
+        assert f"| `cache_warm.{name}` | `{value}` | {field.description} |" in table
+
+
 def test_tui_reference_includes_managed_process_settings() -> None:
     from fast_agent.config import ShellSettings
 

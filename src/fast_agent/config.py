@@ -626,6 +626,35 @@ class CompactionSettings(BaseModel):
         return self.configured_prompt() is not None
 
 
+class CacheWarmSettings(BaseModel):
+    """Configuration for keeping provider prompt caches warm between model requests."""
+
+    auto: bool = Field(
+        default=True,
+        description=(
+            "Keep the prompt cache warm automatically while a turn waits on tools or "
+            "subagents, and while an idle session waits for herdr-core children to report"
+        ),
+    )
+    max_minutes: int = Field(
+        default=30,
+        ge=1,
+        le=24 * 60,
+        description=(
+            "How long automatic warming continues after the last model request; also the "
+            "default /warm duration"
+        ),
+    )
+    interval_seconds: int | None = Field(
+        default=None,
+        ge=10,
+        description=(
+            "Seconds between keep-warm requests. Unset derives it from the provider's cache "
+            "retention; set it to warm a model whose retention fast-agent does not know"
+        ),
+    )
+
+
 class MCPRootSettings(BaseModel):
     """Represents a root directory configuration for an MCP server."""
 
@@ -2549,6 +2578,9 @@ class Settings(BaseSettings):
 
     compaction: CompactionSettings = Field(default_factory=CompactionSettings)
     """History compaction settings (auto trigger threshold, retained turns, prompt)."""
+
+    cache_warm: CacheWarmSettings = Field(default_factory=CacheWarmSettings)
+    """Prompt-cache keep-warm settings (automatic warming, window, interval)."""
 
     copilot: CopilotSettings = Field(default_factory=CopilotSettings)
 

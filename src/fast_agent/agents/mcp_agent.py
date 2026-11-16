@@ -510,7 +510,9 @@ class McpAgent(ABC, ToolAgent):
         await self._aggregator.close()
         await self._finalize_shutdown(run_hook=False)
 
-    def enable_shell(self, working_directory: Path | None = None) -> None:
+    def enable_shell(
+        self, working_directory: Path | None = None, *, access_mode: str = "direct"
+    ) -> None:
         """
         Enable shell runtime on this agent after creation.
 
@@ -519,6 +521,7 @@ class McpAgent(ABC, ToolAgent):
         Args:
             working_directory: Optional custom working directory for shell commands.
                               If not specified, uses the current working directory.
+            access_mode: Label shown in the shell notice describing how access was granted.
         """
         if self._shell_runtime_enabled:
             # Already enabled, but update working directory if specified
@@ -535,7 +538,7 @@ class McpAgent(ABC, ToolAgent):
         self._activate_shell_runtime(
             "via enable_shell() call",
             working_directory=working_directory,
-            access_modes=("[red]direct[/red]",),
+            access_modes=(access_mode,),
         )
 
     async def get_server_status(self) -> dict[str, ServerStatus]:

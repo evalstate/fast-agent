@@ -65,6 +65,12 @@ compaction:
   keep_turns: 2 # recent turns kept verbatim after compaction
   # prompt: null # built-in prompt; set inline text or a relative file path
 
+# Keep provider prompt caches warm during tool waits and idle pauses.
+# cache_warm:
+#   auto: true # automatic warming for tools/subagents and idle sessions awaiting hc children
+#   max_minutes: 30 # automatic window after the last own model request; default /warm duration
+#   interval_seconds: null # unset: derive from provider cache retention
+
 # otel:
 #   enabled: true
 

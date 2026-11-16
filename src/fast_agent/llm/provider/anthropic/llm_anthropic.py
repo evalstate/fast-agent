@@ -79,6 +79,7 @@ from fast_agent.llm.fastagent_llm import (
     FastAgentLLM,
     RequestParams,
 )
+from fast_agent.llm.prompt_cache import PromptCacheWarmError
 from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanner
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
     ANTHROPIC_FILE_ID_META_KEY,
@@ -197,6 +198,19 @@ class _AnthropicStructuredMode:
     effective_schema: dict[str, Any] | None
     mode: StructuredOutputMode | None
     auto_tool_use_fallback: bool
+
+
+@dataclass(slots=True)
+class _AnthropicWireRequest:
+    """A fully assembled Messages API request and what is needed to read its reply."""
+
+    client: Any
+    arguments: dict[str, Any]
+    model: str
+    messages: list[BetaMessageParam]
+    params: RequestParams
+    structured: _AnthropicStructuredMode
+    cache_diagnostics_enabled: bool
 
 
 @dataclass(slots=True)
@@ -2878,7 +2892,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         except Exception as exc:
             logger.warning(f"Failed to track usage: {exc}")
 
-    async def _anthropic_completion(
+    async def _build_anthropic_wire_request(
         self,
         message_param,
         request_params: RequestParams | None = None,
@@ -2888,12 +2902,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         pre_messages: list[BetaMessageParam] | None = None,
         history: list[PromptMessageExtended] | None = None,
         current_extended: PromptMessageExtended | None = None,
-    ) -> PromptMessageExtended:
-        """
-        Process a query using an LLM and available tools.
-        Override this method to use a different LLM.
-        """
-
+    ) -> _AnthropicWireRequest:
+        """Assemble the request exactly as a completion sends it, cache plan included."""
         try:
             await self._prepare_anthropic_client(
                 self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
@@ -2973,7 +2983,6 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if provider_mcp_payload.servers:
             base_args["mcp_servers"] = provider_mcp_payload.servers
 
-        self._log_chat_progress(self.chat_turn(), model=model)
         # Use the base class method to prepare all arguments with Anthropic-specific exclusions
         # Do this BEFORE applying cache control so metadata doesn't override cached fields
         arguments = self.prepare_provider_arguments(
@@ -2992,6 +3001,46 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         )
 
         logger.debug(f"{arguments}")
+        return _AnthropicWireRequest(
+            client=request.client,
+            arguments=arguments,
+            model=model,
+            messages=request.messages,
+            params=request.params,
+            structured=structured,
+            cache_diagnostics_enabled=cache_diagnostics_enabled,
+        )
+
+    async def _anthropic_completion(
+        self,
+        message_param,
+        request_params: RequestParams | None = None,
+        structured_model: type[ModelT] | None = None,
+        structured_schema: dict[str, Any] | None = None,
+        tools: list[Tool] | None = None,
+        pre_messages: list[BetaMessageParam] | None = None,
+        history: list[PromptMessageExtended] | None = None,
+        current_extended: PromptMessageExtended | None = None,
+    ) -> PromptMessageExtended:
+        """
+        Process a query using an LLM and available tools.
+        Override this method to use a different LLM.
+        """
+        request = await self._build_anthropic_wire_request(
+            message_param,
+            request_params,
+            structured_model=structured_model,
+            structured_schema=structured_schema,
+            tools=tools,
+            pre_messages=pre_messages,
+            history=history,
+            current_extended=current_extended,
+        )
+        arguments = request.arguments
+        model = request.model
+        structured = request.structured
+        cache_diagnostics_enabled = request.cache_diagnostics_enabled
+        self._log_chat_progress(self.chat_turn(), model=model)
 
         # Generate stream capture filename once (before streaming starts)
         capture_filename = _stream_capture_filename(self.chat_turn())
@@ -3057,6 +3106,47 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
         self._log_chat_finished(model=model)
         return result
+
+    @property
+    def cache_retention_seconds(self) -> int | None:
+        if self._get_cache_mode() == "off":
+            return None
+        return 3600 if self._get_cache_ttl() == "1h" else 300
+
+    async def _warm_cache_request(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None,
+    ) -> None:
+        """Replay the last request with ``max_tokens: 0``: a cache read, no generation."""
+        messages = list(messages)
+        while messages and messages[-1].role == "assistant":
+            messages.pop()
+        if not messages:
+            raise PromptCacheWarmError("Nothing to keep warm: no request has been sent yet.")
+        last_message = messages[-1]
+        request = await self._build_anthropic_wire_request(
+            AnthropicConverter.convert_to_anthropic(last_message),
+            request_params,
+            tools=tools,
+            history=messages,
+            current_extended=last_message,
+        )
+        thinking = request.arguments.get("thinking")
+        if isinstance(thinking, dict) and thinking.get("type") == "enabled":
+            raise PromptCacheWarmError(
+                "Anthropic rejects max_tokens: 0 with budgeted extended thinking; "
+                "use anthropic.cache_ttl: 1h for this model instead."
+            )
+        self._log_chat_progress(self.chat_turn(), model=request.model)
+        try:
+            response = await request.client.beta.messages.create(
+                **{**request.arguments, "max_tokens": 0}
+            )
+        finally:
+            self._log_chat_finished(model=request.model)
+        self._track_anthropic_usage(response, request.model)
 
     def _prepare_structured_request(
         self,

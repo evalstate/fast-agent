@@ -52,6 +52,7 @@ from fast_agent.constants import (
     FAST_AGENT_REMOVED_METADATA_CHANNEL,
 )
 from fast_agent.context import Context
+from fast_agent.core.cache_warmer import CacheWarmer
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.model_resolution import get_context_model_references, resolve_model_reference
@@ -63,10 +64,11 @@ from fast_agent.interfaces import (
     StreamingAgentProtocol,
     ToolRunnerHookCapable,
 )
+from fast_agent.llm.prompt_cache import PromptCacheWarmError
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.structured_schema import validate_json_schema_definition
-from fast_agent.llm.usage_tracking import UsageAccumulator
+from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list, text_content
 from fast_agent.mcp.mime_utils import is_text_mime_type
 from fast_agent.mcp.prompt_metadata import prompt_display_name
@@ -209,6 +211,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._lifecycle_hooks: "AgentLifecycleHooks | None" = None
         self._session_history_persistence_enabled = True
         self._subagent_usage_accumulator = UsageAccumulator()
+        self.cache_warmer = CacheWarmer(self)
         self._capture_subagent_trajectories = False
         self._subagent_trajectory_records: list["TrajectoryRecord"] = []
 
@@ -829,6 +832,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._llm.clear(clear_prompts=clear_prompts)
         self._subagent_usage_accumulator.reset()
         self._subagent_trajectory_records.clear()
+        self.cache_warmer.disarm()
         if clear_prompts:
             self._message_history = []
         else:
@@ -997,6 +1001,25 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             except Exception:
                 pass
         return structured_result, call_ctx.summary
+
+    async def warm_prompt_cache(
+        self,
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> TurnUsage:
+        """Re-send the conversation to refresh the provider prompt cache.
+
+        History is unchanged. Callers hold a ``cache_warmer.keep_warm`` scope so
+        this never overlaps a request of the agent's own.
+        """
+        call_ctx = self._prepare_llm_call([], request_params)
+        if not any(message.role == "assistant" for message in call_ctx.full_history):
+            raise PromptCacheWarmError("Nothing to keep warm: the conversation is empty.")
+        if tools is None:
+            tools = (await self.list_tools()).tools
+        return await self._require_llm().warm_cache(
+            call_ctx.full_history, call_ctx.call_params, tools
+        )
 
     def _prepare_llm_call(
         self, messages: list[PromptMessageExtended], request_params: RequestParams | None = None

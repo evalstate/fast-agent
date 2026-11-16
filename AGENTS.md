@@ -1,6 +1,11 @@
 <!-- fast-agent-subagents -->
 
 
+Feel free to use herdr-core to delegate out task work. Good models for this are:
+ - codexresponses.gpt-6-astra?reasoning=high ; strong openai model excellent for reviews and coordination and second opinions
+ - codexresponses.gpt-6.1-sol?reasoning=high ; excellent and efficient execution and analysis
+ - copilot.claude-opus-5-5?reasoning=high ; excellent implementor and designer
+
 ## fast-agent contributor notes
 
 - Use `uv run` for repo scripts and examples.

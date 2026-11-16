@@ -422,6 +422,16 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
             ],
             "examples": ["/compact", "/compact preview", "/compact focus on the DB migration"],
         },
+        {
+            "name": "warm",
+            "summary": "Keep the prompt cache warm while the prompt is idle",
+            "usage": "/warm [minutes|off|status]",
+            "actions": [
+                {"name": "off", "summary": "stop warming at the idle prompt"},
+                {"name": "status", "summary": "show settings and recent keep-warm requests"},
+            ],
+            "examples": ["/warm", "/warm 60", "/warm status", "/warm off"],
+        },
         _simple_command_entry(
             "connect",
             summary="Attach a configured MCP server or connect an ad-hoc target",

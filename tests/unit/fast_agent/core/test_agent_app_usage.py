@@ -11,6 +11,7 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.integrations import herdr_lifecycle
+from fast_agent.llm.prompt_cache import uses_openai_minimum_cache_ttl
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import (
     CompletionTokenUsage,
@@ -379,7 +380,7 @@ def test_openai_minimum_cache_ttl_model_range(
     model: str,
     uses_minimum_ttl: bool,
 ) -> None:
-    assert AgentApp._uses_openai_minimum_cache_ttl(model) is uses_minimum_ttl
+    assert uses_openai_minimum_cache_ttl(model) is uses_minimum_ttl
 
 
 def test_older_openai_responses_usage_omits_org_dependent_cache_ttl() -> None:

@@ -107,3 +107,37 @@ def test_prompts_before_a_reply_share_a_turn() -> None:
     turns = collect_user_turns(history)
     assert len(turns) == 1
     assert len(turns[0].messages) == 3
+
+
+def test_hc_deliveries_continue_the_turn_a_person_started() -> None:
+    history = [
+        _user("delegate the build"),
+        _reply("started t9"),
+        _user("<hc>t9 exited 0</hc>"),
+        _reply("build finished"),
+        _user('<hc from="t7">any news?</hc>'),
+        _reply("told t7"),
+        _user("thanks, now deploy"),
+        _reply("deployed"),
+    ]
+
+    turns = collect_user_turns(history)
+
+    assert [turn.prompt.first_text() for turn in turns] == [
+        "delegate the build",
+        "thanks, now deploy",
+    ]
+    assert [len(turn.messages) for turn in turns] == [6, 2]
+    # The model still sees four prompts; only review and rewind group them.
+    assert len(split_into_turns(history)) == 4
+
+
+def test_hc_delivery_opening_a_session_is_still_a_turn() -> None:
+    history = [
+        _user('<hc from="t1">your task</hc>'),
+        _reply("on it"),
+        _user("status?"),
+        _reply("ok"),
+    ]
+
+    assert [turn.start_index for turn in collect_user_turns(history)] == [0, 2]

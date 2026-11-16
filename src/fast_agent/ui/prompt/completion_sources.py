@@ -524,6 +524,24 @@ def _history_command_completions(
     return _subcommand_completions(partial, subcommands)
 
 
+def _warm_command_completions(
+    completer: "AgentCompleter",
+    text: str,
+    text_lower: str,
+) -> list[Completion] | None:
+    del completer
+    if not text_lower.startswith("/warm "):
+        return None
+
+    return _subcommand_completions(
+        text[len("/warm ") :],
+        {
+            "off": "Stop warming at the idle prompt",
+            "status": "Show settings and recent keep-warm requests",
+        },
+    )
+
+
 def _compact_command_completions(
     completer: "AgentCompleter",
     text: str,
@@ -1483,6 +1501,7 @@ def command_completions(
         _tools_command_completions,
         _history_command_completions,
         _compact_command_completions,
+        _warm_command_completions,
         _prompt_command_completions,
         _attach_command_completions,
         _session_command_completions,

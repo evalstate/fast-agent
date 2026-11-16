@@ -263,19 +263,26 @@ def _process_wait_maximum(agent: McpAgent) -> int:
 
 
 @pytest.mark.asyncio
-async def test_default_process_wait_ceiling_is_cache_warm() -> None:
+@pytest.mark.parametrize(
+    ("model", "ceiling"),
+    [
+        ("codexresponses.gpt-5.5", 260),  # cache may lapse within minutes
+        ("codexresponses.gpt-6-luna", 300),  # cache kept for at least 30 minutes
+    ],
+)
+async def test_default_process_wait_ceiling_is_cache_warm(model: str, ceiling: int) -> None:
     agent = McpAgent(
         AgentConfig(
             name="test",
             instruction="Instruction",
             servers=[],
             shell=True,
-            model="codexresponses.gpt-6-luna",
+            model=model,
         ),
         context=Context(),
     )
     try:
-        assert _process_wait_maximum(agent) == 260
+        assert _process_wait_maximum(agent) == ceiling
     finally:
         await agent._aggregator.close()
 

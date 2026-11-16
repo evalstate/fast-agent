@@ -199,16 +199,25 @@ def test_managed_process_poll_folding_is_enabled_for_validated_models() -> None:
         assert params.managed_process_poll_folding is True
         assert params.process_poll_default_wait_seconds == 250
 
-    gpt5_models = ("gpt-5.5", "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
+    # GPT-5.6 and later hold a prompt cache for at least 30 minutes; GPT-5.5 may not.
+    expected_waits = {
+        "gpt-5.5": 240,
+        "gpt-5.6": 300,
+        "gpt-5.6-sol": 300,
+        "gpt-5.6-terra": 300,
+        "gpt-5.6-luna": 300,
+        "gpt-6-astra": 300,
+        "gpt-6.1-terra": 300,
+    }
     for provider in (Provider.RESPONSES, Provider.CODEX_RESPONSES):
-        for model in gpt5_models:
+        for model, expected_wait in expected_waits.items():
             params = ModelDatabase.get_model_params(
                 model,
                 provider=provider,
             )
             assert params is not None
             assert params.managed_process_poll_folding is True
-            assert params.process_poll_default_wait_seconds == 240
+            assert params.process_poll_default_wait_seconds == expected_wait
 
 
 @pytest.mark.parametrize("provider", [Provider.ANTHROPIC, Provider.ANTHROPIC_VERTEX])

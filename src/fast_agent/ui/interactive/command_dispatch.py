@@ -36,6 +36,7 @@ from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.handlers import subagents as subagents_handlers
 from fast_agent.commands.handlers import tools as tools_handlers
+from fast_agent.commands.handlers import warm as warm_handlers
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.commands.session_export_help import render_session_export_help_markdown
 from fast_agent.commands.shared_command_intents import should_default_export_agent
@@ -105,6 +106,7 @@ from fast_agent.ui.command_payloads import (
     TitleSessionCommand,
     UnknownCommand,
     UnpinSessionCommand,
+    WarmCommand,
 )
 from fast_agent.ui.console import rich_print
 from fast_agent.ui.history_display import display_history_show
@@ -1136,6 +1138,27 @@ def _mcp_handler(
     )
 
 
+async def _dispatch_warm_payload(
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+    session_manager: "SessionManager | None",
+) -> DispatchResult | None:
+    if not isinstance(payload, WarmCommand):
+        return None
+
+    if payload.error:
+        _print_styled(payload.error, "red")
+        return DispatchResult(handled=True)
+    context = build_command_context(prompt_provider, agent, session_manager=session_manager)
+    outcome = await warm_handlers.handle_warm(
+        context, agent_name=agent, action=payload.action, minutes=payload.minutes
+    )
+    await emit_command_outcome(context, outcome)
+    return DispatchResult(handled=True)
+
+
 async def _dispatch_compact_payload(
     payload: CommandPayload,
     *,
@@ -1766,6 +1789,15 @@ async def dispatch_command_payload(
             _DispatchStep(
                 name="compact command",
                 run=lambda: _dispatch_compact_payload(
+                    payload,
+                    prompt_provider=prompt_provider,
+                    agent=agent,
+                    session_manager=session_manager,
+                ),
+            ),
+            _DispatchStep(
+                name="warm command",
+                run=lambda: _dispatch_warm_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,

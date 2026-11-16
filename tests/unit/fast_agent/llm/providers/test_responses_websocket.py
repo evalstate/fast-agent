@@ -580,6 +580,37 @@ def test_continuation_planner_prefix_extension_uses_previous_response_id() -> No
     assert planned.arguments["model"] == "gpt-5.3-codex"
 
 
+def test_real_request_continues_from_a_warmup_without_resending_history() -> None:
+    planner = StatefulContinuationResponsesWsPlanner()
+    first_arguments = _build_ws_arguments([_build_input_message("one")])
+    planner.commit(first_arguments, planner.plan(first_arguments), {"id": "resp_1"})
+    conversation = [_build_input_message("one"), _build_assistant_message("answer")]
+    arguments = _build_ws_arguments(conversation)
+
+    for previous_id, response_id in (("resp_1", "warm_1"), ("warm_1", "warm_2")):
+        planned = planner.plan(arguments, warmup=True)
+        assert planned.arguments["generate"] is False
+        assert planned.arguments["previous_response_id"] == previous_id
+        assert planned.arguments["input"] == []
+        planner.commit(arguments, planned, {"id": response_id})
+
+    planned = planner.plan(_build_ws_arguments([*conversation, _build_input_message("two")]))
+
+    assert "generate" not in planned.arguments
+    assert planned.arguments["previous_response_id"] == "warm_2"
+    assert planned.arguments["input"] == [_build_input_message("two")]
+
+
+def test_warmup_on_a_new_connection_sends_the_whole_conversation() -> None:
+    arguments = _build_ws_arguments([_build_input_message("one")])
+
+    planned = StatefulContinuationResponsesWsPlanner().plan(arguments, warmup=True)
+
+    assert planned.arguments["generate"] is False
+    assert "previous_response_id" not in planned.arguments
+    assert planned.arguments["input"] == [_build_input_message("one")]
+
+
 def test_continuation_planner_strips_replayed_assistant_items_from_incremental_input() -> None:
     planner = StatefulContinuationResponsesWsPlanner()
     first_arguments = _build_ws_arguments([_build_input_message("one")])

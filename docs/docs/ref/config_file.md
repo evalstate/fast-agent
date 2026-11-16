@@ -100,6 +100,12 @@ resolved from the process current working directory.
 `llm_retries` defaults to `2` and is the preferred way to control retry attempts. If unset in
 config, the `FAST_AGENT_RETRIES` environment variable is used as a fallback.
 
+### Prompt-cache warming defaults
+
+Prompt-cache warming defaults are generated from `fast_agent.config.CacheWarmSettings`:
+
+--8<-- "_generated/cache_warm_config_snippet.md"
+
 ## Namespaced Model References
 
 Use `model_references` to create exact-token model references such as `$system.fast` and reuse them in
@@ -207,6 +213,17 @@ You can also compact on demand:
 - `/compact prompt` &mdash; print the active summarization prompt.
 
 The pre-compaction history is archived to a `compacted_*.json` file in the session directory so the original conversation is never lost.
+
+### Prompt-cache warming
+
+`cache_warm` controls keep-warm requests during tool waits and idle pauses.
+Automatic warming is bounded by `max_minutes` after the agent's last own model request;
+`/warm [minutes]` starts an explicit idle-prompt window.
+
+--8<-- "_generated/cache_warm_settings_reference.md"
+
+See [Prompt-cache warming](../guides/cache_warming.md) for provider behaviour, commands,
+diagnostics, and costs.
 
 ## Model Providers
 

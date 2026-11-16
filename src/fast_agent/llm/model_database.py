@@ -32,6 +32,11 @@ from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES
 from fast_agent.tools.shell_profiles import ResolvedShellToolProfile
 from fast_agent.utils.text import strip_casefold, strip_to_none
 
+# GPT-5.6 and later keep a prompt cache for at least 30 minutes, so a managed-process
+# wait need not return to the model every few minutes to stay cached. The wait is
+# kept well short of that so a stuck process is still noticed.
+OPENAI_LONG_CACHE_POLL_WAIT_SECONDS = 300
+
 
 class ModelParameters(BaseModel):
     """Configuration parameters for a specific model"""
@@ -694,7 +699,7 @@ class ModelDatabase:
         default_provider=Provider.RESPONSES,
         model_specific=GPT_53_PLUS_MODEL_SPECIFIC,
         managed_process_poll_folding=True,
-        process_poll_default_wait_seconds=240,
+        process_poll_default_wait_seconds=OPENAI_LONG_CACHE_POLL_WAIT_SECONDS,
     )
 
     OPENAI_GPT_56_LUNA = OPENAI_GPT_56.model_copy(
@@ -731,7 +736,7 @@ class ModelDatabase:
         default_provider=Provider.RESPONSES,
         model_specific=GPT_53_PLUS_MODEL_SPECIFIC,
         managed_process_poll_folding=True,
-        process_poll_default_wait_seconds=240,
+        process_poll_default_wait_seconds=OPENAI_LONG_CACHE_POLL_WAIT_SECONDS,
     )
 
     OPENAI_GPT_6_SOL_LUNA = OPENAI_GPT_6_ASTRA.model_copy(

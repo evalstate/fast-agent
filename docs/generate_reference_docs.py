@@ -723,6 +723,38 @@ def generate_compaction_config_snippet() -> str:
     return "".join(lines)
 
 
+def generate_cache_warm_config_snippet() -> str:
+    """Generate prompt-cache warming defaults from the settings model."""
+    from fast_agent.config import CacheWarmSettings
+
+    lines = [
+        "<!-- GENERATED FILE — DO NOT EDIT. Source: CacheWarmSettings -->\n\n",
+        "```yaml\ncache_warm:\n",
+    ]
+    for name, value in CacheWarmSettings().model_dump().items():
+        prefix = "# " if value is None else ""
+        lines.append(f"  {prefix}{name}: {_yaml_scalar(value)}\n")
+    lines.append("```\n")
+    return "".join(lines)
+
+
+def generate_cache_warm_settings_reference() -> str:
+    """Generate the prompt-cache warming table from settings field descriptions."""
+    from fast_agent.config import CacheWarmSettings
+
+    lines = [
+        "<!-- GENERATED FILE — DO NOT EDIT. Source: CacheWarmSettings -->\n\n",
+        "| Setting | Default | Description |\n",
+        "| --- | --- | --- |\n",
+    ]
+    for name, field in CacheWarmSettings.model_fields.items():
+        lines.append(
+            f"| `cache_warm.{name}` | {_yaml_default_text(field.default)} | "
+            f"{_escape_table(field.description or '')} |\n"
+        )
+    return "".join(lines)
+
+
 def generate_ptc_config_snippet() -> str:
     """Generate bundled PTC defaults from the settings model."""
     from fast_agent.config import ProgrammaticToolCallingSettings
@@ -1608,6 +1640,11 @@ def main() -> int:
         _write(GENERATED_DIR / "current_models_metaai.md", generate_current_model_table("metaai"))
         _write(GENERATED_DIR / "tui_runtime_reference.md", generate_tui_runtime_reference())
         _write(GENERATED_DIR / "compaction_config_snippet.md", generate_compaction_config_snippet())
+        _write(GENERATED_DIR / "cache_warm_config_snippet.md", generate_cache_warm_config_snippet())
+        _write(
+            GENERATED_DIR / "cache_warm_settings_reference.md",
+            generate_cache_warm_settings_reference(),
+        )
         _write(GENERATED_DIR / "copilot_config_snippet.md", generate_copilot_config_snippet())
         _write(GENERATED_DIR / "ptc_config_snippet.md", generate_ptc_config_snippet())
         _write(
