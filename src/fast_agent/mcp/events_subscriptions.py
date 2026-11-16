@@ -12,7 +12,7 @@ import hashlib
 import json
 from collections import OrderedDict
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from html import escape
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
@@ -38,6 +38,7 @@ DEFAULT_POLL_INTERVAL_MS = 30_000
 MIN_POLL_INTERVAL_MS = 1_000
 MAX_ERROR_BACKOFF_MS = 300_000
 MAX_SEEN_EVENT_IDS = 1_024
+MAX_INBOX_ITEMS = 256
 MAX_LIST_PAGES = 100
 
 EVENT_MESSAGE_PREAMBLE = (
@@ -152,15 +153,19 @@ class EventSubscriptionManager:
         *,
         min_poll_ms: int = MIN_POLL_INTERVAL_MS,
         default_poll_ms: int = DEFAULT_POLL_INTERVAL_MS,
+        max_inbox: int = MAX_INBOX_ITEMS,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._poller = poller
         self._min_poll_ms = min_poll_ms
         self._default_poll_ms = default_poll_ms
+        self._max_inbox = max_inbox
         self._sleep = sleep
         self._running: dict[str, _Running] = {}
         self._terminated: dict[str, EventSubscription] = {}
         self._inbox: list[EventInboxItem] = []
+        # A gap notice for each subscription that lost items to a full inbox.
+        self._overflow: dict[str, EventInboxItem] = {}
         self._listeners: list[Callable[[EventInboxItem], None]] = []
         self._wake = asyncio.Event()
 
@@ -261,8 +266,10 @@ class EventSubscriptionManager:
         return True
 
     def take(self) -> list[EventInboxItem]:
-        """Hand over everything in the inbox."""
-        items, self._inbox = self._inbox, []
+        """Hand over everything in the inbox, after a gap for each subscription that lost items."""
+        items = [*self._overflow.values(), *self._inbox]
+        self._inbox = []
+        self._overflow = {}
         self._wake.clear()
         return items
 
@@ -400,6 +407,17 @@ class EventSubscriptionManager:
             detail=detail,
         )
         self._inbox.append(item)
+        if len(self._inbox) > self._max_inbox:
+            dropped = self._inbox.pop(0)
+            self._overflow[dropped.subscription_key] = replace(
+                dropped,
+                kind="gap",
+                occurrence=None,
+                detail=(
+                    "The inbox was full and older events were dropped. "
+                    "Read current state with tools if it matters."
+                ),
+            )
         if subscription.wake:
             self._wake.set()
         for listener in self._listeners:
