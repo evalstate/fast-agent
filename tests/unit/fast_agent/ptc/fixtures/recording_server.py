@@ -16,5 +16,20 @@ def record_call(value: str) -> str:
     return value
 
 
+@app.tool(meta={"fast_agent": {"ptc": {"expose": "both"}}})
+def allowed_call(value: str) -> str:
+    return record_call(value)
+
+
+@app.tool(meta={"fast_agent": {"ptc": {"expose": "both"}}})
+def hidden_call(value: str) -> str:
+    return record_call(value)
+
+
+@app.tool(meta={"fast_agent": {"ptc": {"expose": "both"}}})
+def read_text_file(path: str) -> str:
+    return record_call(path)
+
+
 if __name__ == "__main__":
     app.run(transport="stdio", show_banner=False)
