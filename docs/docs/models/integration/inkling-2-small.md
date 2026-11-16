@@ -15,6 +15,8 @@ source: https://huggingface.co/thinkingmachines/Inkling-2-Small
 
 ## Wire contract
 
+Tested 2026-11-14.
+
 | Check | Result | Finding |
 | --- | --- | --- |
 | Each effort accepted, with observable effect; default and off behaviour | ⚠️ caveat | 66 valid-setting runs correct; adjacent efforts overlap, none remains soft, historical default outlier reproduces at 4x allowance |
@@ -29,7 +31,27 @@ source: https://huggingface.co/thinkingmachines/Inkling-2-Small
 | Usage fields and cached-token reporting | ✅ pass | Usage fields recorded; corrected roughly 5K prefix with different final lines reports 4864 cached tokens on repeat |
 | Proposed model parameters and route profile | ✅ pass | Evidence-to-field table complete; product recommendations provisional under D1-D4/D7-D8 |
 
+## Wire contract — `hf.thinkingmachines/Inkling-2-Small:deepinfra`
+
+Tested 2026-11-14.
+
+| Check | Result | Finding |
+| --- | --- | --- |
+| Each effort accepted, with observable effect; default and off behaviour | ⚠️ caveat | Seven efforts and omission accepted, 3/3 correct each; none empties the reasoning channel and writes the working into visible content; bogus rejected 422 |
+| Reasoning field, streaming shape and replay requirement | ✅ pass | reasoning_content in stream and message; replay as reasoning, reasoning_content and omitted all answered |
+| Default and maximum output tokens; truncation finish reason | ⚠️ caveat | Omission generated 60593 tokens (stop); both limit fields truncate at 64; max_tokens up to 2000000 accepted, ceiling not discoverable |
+| Enforced context window and request size limits | ⚠️ caveat | 1048576 window enforced; 287050-token prompt answered; router body cap exactly 5242880 bytes, configured 4718592 stays |
+| Chunk shape, finish reasons, terminal usage | ✅ pass | stop/length/tool_calls, DONE, usage in its own chunk only with include_usage |
+| Single, parallel and forced tool calls; streamed arguments | ⚠️ caveat | Single, parallel, forced, forced at none and continuation correct on the wire; explicit-null placeholder fragments break the SDK accumulator, so the route needs manual stream mode |
+| JSON schema, JSON object, and schema with tools | ⚠️ caveat | Standard json_schema valid 8/8 incl. non-strict, streamed and max; legacy envelope unreliable; schema with tools skips the tool 4/4 |
+| Each documented modality; unsupported types rejected cleanly | ✅ pass | PNG/JPEG/WebP and HTTPS images correct; PDF answered correctly (route-only); video/audio 400; image in tool message 422 |
+| Accepted and rejected sampling parameters | ✅ pass | All nine parameters accepted; stop honoured |
+| Usage fields and cached-token reporting | ✅ pass | Usage plus estimated_cost; cold 0 then 6144 cached tokens on a fresh ~6K prefix |
+| Proposed model parameters and route profile | ✅ pass | Together profile without the legacy schema envelope, plus route-level manual stream mode; un-pinned router route provisionally gets the DeepInfra profile |
+
 ## Harness conformance
+
+Tested 2026-11-14.
 
 | Check | Result | Finding |
 | --- | --- | --- |
@@ -42,6 +64,22 @@ source: https://huggingface.co/thinkingmachines/Inkling-2-Small
 | Usage and context accounting | ✅ pass | 1 pass |
 | Raw request and stream traces inspected | ✅ pass | Requests/chunks inspected; route, reasoning order/replay, tool IDs/fragments, finishes and usage verified; raw traces deleted |
 | Picker, effort cycling and check commands | ✅ pass | Picker, all seven efforts, off, invalid-value rejection and full F6 wrap verified; seven distinct renderer styles; 106 unit tests pass |
+
+## Harness conformance — `hf.thinkingmachines/Inkling-2-Small:deepinfra`
+
+Tested 2026-11-14.
+
+| Check | Result | Finding |
+| --- | --- | --- |
+| Streamed text turn | ✅ pass | 1 pass |
+| Every ladder value through the alias; effective wire value recorded | ⚠️ caveat | 7 pass, 1 warn |
+| Tool call, execution, continuation, final answer | ✅ pass | 3 pass |
+| History and reasoning replay across turns | ✅ pass | 1 pass |
+| Structured output validated against the schema | ✅ pass | 2 pass |
+| Each supported modality understood; unsupported types handled | ⚠️ caveat | Suite 3 pass; manual: PDF correctly removed, but the follow-up turn returned empty stops in 6/8 DeepInfra attempts (2/4 runs failed), 0/3 on Together |
+| Usage and context accounting | ✅ pass | 1 pass |
+| Raw request and stream traces inspected | ✅ pass | Requests/chunks inspected; wire fields, reasoning order and replay, tool fragments, finishes and usage verified; raw traces deleted |
+| Picker, effort cycling and check commands | ⚠️ caveat | Static checks only (task forbids starting agents); no picker entry by design; ladder and F6 are model-level and verified on Together |
 
 ## Structured output — Wire contract
 
