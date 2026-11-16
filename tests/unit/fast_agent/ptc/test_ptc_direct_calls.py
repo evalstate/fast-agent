@@ -4,7 +4,13 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
-from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import (
+    CallToolRequest,
+    CallToolRequestParams,
+    CallToolResult,
+    ReadResourceResult,
+    TextContent,
+)
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
@@ -472,5 +478,112 @@ async def test_resource_filter_constrains_model_reads(
         await agent.get_embedded_resources("recording://hidden/doc", "recording")
         received.append("hidden/doc")
         assert receipts(record) == received
+    finally:
+        await agent.shutdown()
+
+
+_CANONICAL_FILTER = ["https://example.test/allowed/*", "recording://host/allowed/*"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ptc", [False, True])
+@pytest.mark.parametrize("server_name", ["recording", None])
+@pytest.mark.parametrize("patterns", [_CANONICAL_FILTER, []])
+async def test_resource_filter_checks_the_uri_the_server_receives(
+    tmp_path: Path, ptc: bool, server_name: str | None, patterns: list[str]
+) -> None:
+    record = tmp_path / "received"
+    other_record = tmp_path / "other"
+    settings = Settings(
+        ptc=ProgrammaticToolCallingSettings(enabled=ptc),
+        mcp=MCPSettings(
+            servers={
+                "recording": _recording_server(record),
+                "other": _recording_server(other_record),
+            }
+        ),
+    )
+    # Every server is filtered, so an omitted server has nowhere to fall back to.
+    agent = McpAgent(
+        AgentConfig(
+            "canonical",
+            model="passthrough",
+            servers=["recording", "other"],
+            skills=[],
+            resources={"recording": patterns, "other": patterns},
+        ),
+        context=Context(config=settings, server_registry=ServerRegistry(settings)),
+    )
+
+    async def model_read(uri: str) -> CallToolResult:
+        arguments = (
+            {"uri": uri} if server_name is None else {"uri": uri, "server_name": server_name}
+        )
+        if not ptc:
+            return await _model_call(agent, "get_resource", arguments)
+        code = f"await get_resource({', '.join(f'{k}={v!r}' for k, v in arguments.items())})"
+        return await _model_call(agent, PTC_TOOL_NAME, {"code": code})
+
+    def receipts() -> list[str]:
+        return [
+            line
+            for path in (record, other_record)
+            if path.exists()
+            for line in path.read_text().splitlines()
+        ]
+
+    try:
+        await agent.initialize()
+        set_harness_tools(agent, True)
+        for uri in (
+            "https://example.test/hidden/doc",
+            "https://example.test/allowed/../hidden/doc",
+            "https://example.test/allowed/%2e%2e/hidden/doc",
+            "https://example.test/allowed/%2E./hidden/doc",
+            "https://example.test/allowed/..\\hidden/doc",
+            "recording://host/hidden/doc",
+            "recording://host/allowed/../hidden/doc",
+            "recording://host/allowed/%2e%2e/hidden/doc",
+        ):
+            result = await model_read(uri)
+            assert result.is_error, (uri, result)
+            assert receipts() == [], uri
+
+        # The allowed decision is made on the same URI that is sent.
+        result = await model_read("https://example.test/hidden/../allowed/doc")
+        assert bool(result.is_error) is (not patterns), result
+        assert receipts() == (["https/allowed/doc"] if patterns else [])
+    finally:
+        await agent.shutdown()
+
+
+class _NamespaceOverrideAgent(McpAgent):
+    """Overrides get_resource with the AgentProtocol signature (namespace only)."""
+
+    async def get_resource(  # ty: ignore[invalid-method-override]
+        self, resource_uri: str, namespace: str | None = None
+    ) -> ReadResourceResult:
+        return await super().get_resource(resource_uri, namespace=namespace)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("resources", [{}, {"recording": ["https://example.test/allowed/*"]}])
+async def test_model_reads_call_namespace_only_get_resource_override(
+    tmp_path: Path, resources: dict[str, list[str]]
+) -> None:
+    record = tmp_path / "received"
+    settings = Settings(mcp=MCPSettings(servers={"recording": _recording_server(record)}))
+    agent = _NamespaceOverrideAgent(
+        AgentConfig("override", servers=["recording"], skills=[], resources=resources),
+        context=Context(config=settings, server_registry=ServerRegistry(settings)),
+    )
+    try:
+        await agent.initialize()
+        set_harness_tools(agent, True)
+        uri = "https://example.test/allowed/doc"
+        for arguments in ({"uri": uri, "server_name": "recording"}, {"uri": uri}):
+            result = await _model_call(agent, "get_resource", arguments)
+            assert not result.is_error, result
+        assert record.read_text().splitlines() == ["https/allowed/doc"] * 2
     finally:
         await agent.shutdown()

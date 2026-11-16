@@ -92,6 +92,7 @@ from fast_agent.mcp.mcp_aggregator import (
     MCPDetachResult,
     MCPToolCatalog,
     ServerStatus,
+    canonical_resource_uri,
 )
 from fast_agent.mcp.prompt_metadata import prompt_display_name
 from fast_agent.mcp.provider_management import (
@@ -2253,14 +2254,22 @@ class McpAgent(ABC, ToolAgent):
         self, resource_uri: str, server_name: str | None = None
     ) -> ReadResourceResult:
         """Read a resource for the model; unlike host get_resource, apply resources:."""
+        if not self.config.resources:
+            return await self.get_resource(resource_uri, namespace=server_name)
+        # Check and dispatch the canonical URI the server receives, so dot segments
+        # or backslashes cannot move an allowed-looking URI onto a denied one.
+        try:
+            uri = canonical_resource_uri(resource_uri)
+        except ValueError as exc:
+            raise ValueError(f"Invalid resource URI: {resource_uri}. Error: {exc}") from exc
         servers = [server_name] if server_name is not None else self._aggregator.server_names
-        allowed = [name for name in servers if self._resource_matches_filter(name, resource_uri)]
+        allowed = [name for name in servers if self._resource_matches_filter(name, uri)]
         if allowed == servers:
-            return await self.get_resource(resource_uri, server_name=server_name)
+            return await self.get_resource(uri, namespace=server_name)
         # Search only servers whose filter allows this URI, so a denied server is never read.
         for name in allowed:
             try:
-                return await self.get_resource(resource_uri, server_name=name)
+                return await self.get_resource(uri, namespace=name)
             except Exception:
                 continue
         raise ValueError(f"Resource '{resource_uri}' is not available")

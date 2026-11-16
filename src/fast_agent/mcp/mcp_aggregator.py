@@ -183,6 +183,11 @@ METHOD_NOT_FOUND_ERROR_CODE = -32601
 METHOD_NOT_FOUND_MESSAGE = "method not found"
 
 
+def canonical_resource_uri(uri: str) -> str:
+    """The URI form sent in resources/read (scheme/host case, dot segments, backslashes)."""
+    return str(AnyUrl(uri))
+
+
 def _is_capability_probe_error(exc: Exception) -> bool:
     """Return True when exc indicates a server does not support a probed method."""
     if isinstance(exc, NotImplementedError):
@@ -3738,7 +3743,7 @@ class MCPAggregator(ContextDependent):
         )
 
         try:
-            uri_value = str(AnyUrl(uri))
+            uri_value = canonical_resource_uri(uri)
         except Exception as e:
             raise ValueError(f"Invalid {noun.lower()} URI: {uri}. Error: {e}") from e
 

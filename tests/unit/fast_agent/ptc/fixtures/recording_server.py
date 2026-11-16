@@ -46,5 +46,20 @@ def allowed_item(item: str) -> str:
     return record_call(f"allowed/item/{item}")
 
 
+@app.resource("https://example.test/allowed/doc")
+def https_allowed_doc() -> str:
+    return record_call("https/allowed/doc")
+
+
+@app.resource("https://example.test/hidden/doc")
+def https_hidden_doc() -> str:
+    return record_call("https/hidden/doc")
+
+
+@app.resource("recording://host/hidden/doc")
+def host_hidden_doc() -> str:
+    return record_call("host/hidden/doc")
+
+
 if __name__ == "__main__":
     app.run(transport="stdio", show_banner=False)
