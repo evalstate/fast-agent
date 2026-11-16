@@ -141,7 +141,9 @@ def test_canonical_timeout_schema_matches_enforced_limit() -> None:
 
 
 @pytest.mark.asyncio
-async def test_canonical_stubs_expose_schema_bounds_and_enums() -> None:
+async def test_canonical_stubs_keep_enums_but_not_schema_bounds_or_shell_aliases() -> None:
+    """Bounds stay schema-enforced at call time; the model-facing text does not list them,
+    nor any alternative shell names."""
     agent = McpAgent(
         AgentConfig(name="bounds", servers=[], shell=True, model="passthrough", subagents=True),
         context=Context(config=Settings(), ptc_enabled=True),
@@ -152,19 +154,9 @@ async def test_canonical_stubs_expose_schema_bounds_and_enums() -> None:
         surface = await agent.tool_surface()
         for entry in surface.exposed(ToolExposure.PROGRAMMATIC):
             assert entry.stub is not None
-            for name, schema in entry.tool.input_schema.get("properties", {}).items():
-                bounds = [
-                    value
-                    for key, value in schema.items()
-                    if key in {"minimum", "maximum", "minLength", "maxLength"}
-                ]
-                if bounds:
-                    argument_doc = next(
-                        line
-                        for line in entry.stub.splitlines()
-                        if line.strip().startswith(f"{name}:")
-                    )
-                    assert all(f": {value}." in argument_doc for value in bounds)
+            for label in ("Minimum:", "Maximum:", "Minimum length:", "Maximum length:"):
+                assert label not in entry.stub
+            for schema in entry.tool.input_schema.get("properties", {}).values():
                 if "enum" in schema:
                     assert entry.signature is not None
                     assert "Literal[" in entry.signature
@@ -172,10 +164,12 @@ async def test_canonical_stubs_expose_schema_bounds_and_enums() -> None:
 
         command = surface.find("shell")
         assert command is not None and command.stub is not None
-        assert f"Minimum: 1. Maximum: {MAX_ALIGNED_SHELL_TIMEOUT_SECONDS}." in command.stub
         assert "For longer work, omit timeout" in command.stub
         assert "process(action='wait')" in command.stub
         assert "background=true for servers or services" in command.stub
+        descriptions = [tool.description or "" for tool in (await agent.list_tools()).tools]
+        assert any("await shell(" in text for text in descriptions)  # the code tool's text
+        assert not any("Instructions may call the shell" in text for text in descriptions)
         result = await agent.call_tool(
             "shell", {"command": "true", "timeout": MAX_ALIGNED_SHELL_TIMEOUT_SECONDS + 1}
         )
