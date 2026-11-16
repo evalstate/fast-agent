@@ -1723,6 +1723,21 @@ class ModelDatabase:
             "process_poll_default_wait_seconds": 240,
         }
     )
+    # On these HF routes combined schema+tools requests answered without calling the tool
+    # (2026-11-15 sweep), so structured output defers: tools first, then a schema-only turn.
+    # Native Z.ai and other routes sharing these constants keep their policy.
+    for _model in (
+        "zai-org/glm-5",
+        "zai-org/glm-5.3",
+        "zai-org/glm-5.3-flash",
+        "moonshotai/kimi-k2.5",
+        "moonshotai/kimi-k2.6",
+        "minimaxai/minimax-m2.5",
+    ):
+        _PROVIDER_MODEL_OVERRIDES[(Provider.HUGGINGFACE, _model)] = MODELS[_model].model_copy(
+            update={"structured_tool_policy": "defer"}
+        )
+    del _model
     _PROVIDER_MODEL_OVERRIDES.update(
         {
             (Provider.OPENROUTER, f"x-ai/{model_name}"): params
@@ -1774,6 +1789,26 @@ class ModelDatabase:
         if params is not None:
             return params
         return cls._RUNTIME_MODEL_PARAMS.get(normalized)
+
+    @classmethod
+    def get_request_model_params(
+        cls,
+        model: str,
+        *,
+        request_provider: Provider,
+    ) -> ModelParameters | None:
+        """Parameters for a request model that differs from the LLM's resolved model.
+
+        Keeps the provider-less lookup, except that Hugging Face route overrides apply only
+        to requests sent through Hugging Face; other providers see the shared catalog entry.
+        """
+        normalized = cls.normalize_model_name(model)
+        hf_override = cls._PROVIDER_MODEL_OVERRIDES.get((Provider.HUGGINGFACE, normalized))
+        if hf_override is None:
+            return cls.get_model_params(model)
+        if request_provider is Provider.HUGGINGFACE:
+            return hf_override
+        return cls.MODELS[normalized]
 
     @classmethod
     def normalize_model_name(cls, model: str) -> str:

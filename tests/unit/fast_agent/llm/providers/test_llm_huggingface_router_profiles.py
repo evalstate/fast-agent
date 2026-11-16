@@ -1,5 +1,6 @@
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx2
 import pytest
@@ -15,6 +16,8 @@ from fast_agent.constants import REASONING
 from fast_agent.context import Context
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
+from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
@@ -986,27 +989,20 @@ def test_deepseek_f1017_novita_explicit_output_override() -> None:
     assert request["reasoning_effort"] == "none"
 
 
-@pytest.mark.parametrize(
-    ("model", "deferred", "max_tokens"),
-    (
-        ("deepseek-hf", True, None),
-        ("deepseek-hf?structured_tools=always", False, None),
-        ("deepseek41-hf", True, None),
-        ("deepseek-v41-hf", True, None),
-        ("deepseek41-hf?structured_tools=always", False, None),
-        # The unlisted 0731 checkpoint shares the defer default; route limits still apply.
-        ("hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten", True, 384_000),
-        ("hf.deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra", True, 131_072),
-        ("hf.deepseek-ai/DeepSeek-V4-Flash-0731:scaleway?structured_tools=always", False, 32_768),
-    ),
-)
-@pytest.mark.parametrize("after_tool", (False, True))
-def test_deepseek_flash_hf_structured_request_phases(
-    model: str, deferred: bool, max_tokens: int | None, after_tool: bool
-) -> None:
+def _structured_phase_request(
+    model: str, after_tool: bool, request_model: str | None = None
+) -> tuple[OpenAILLM, dict[str, Any]]:
+    """Build the real wire request for a structured turn with one tool available.
+
+    ``after_tool`` selects the turn after a tool result, i.e. the final phase under defer.
+    ``request_model`` overrides the request model at construction (differs from ``model``).
+    """
     agent = LlmAgent(AgentConfig(name="router-profile-test"))
-    llm = ModelFactory.create_factory(model)(agent=agent)
-    assert isinstance(llm, HuggingFaceLLM)
+    llm = ModelFactory.create_factory(model)(
+        agent=agent,
+        request_params=RequestParams(model=request_model) if request_model else None,
+    )
+    assert isinstance(llm, OpenAILLM)
     params = llm.default_request_params.model_copy(update={"structured_schema": _INKLING_SCHEMA})
     tools = [
         Tool(
@@ -1043,6 +1039,30 @@ def test_deepseek_flash_hf_structured_request_phases(
         prepared_params,
         prepared_tools,
     ).arguments
+    assert params.structured_schema == _INKLING_SCHEMA
+    assert params.response_format is None
+    return llm, request
+
+
+@pytest.mark.parametrize(
+    ("model", "deferred", "max_tokens"),
+    (
+        ("deepseek-hf", True, None),
+        ("deepseek-hf?structured_tools=always", False, None),
+        ("deepseek41-hf", True, None),
+        ("deepseek-v41-hf", True, None),
+        ("deepseek41-hf?structured_tools=always", False, None),
+        # The unlisted 0731 checkpoint shares the defer default; route limits still apply.
+        ("hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten", True, 384_000),
+        ("hf.deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra", True, 131_072),
+        ("hf.deepseek-ai/DeepSeek-V4-Flash-0731:scaleway?structured_tools=always", False, 32_768),
+    ),
+)
+@pytest.mark.parametrize("after_tool", (False, True))
+def test_deepseek_flash_hf_structured_request_phases(
+    model: str, deferred: bool, max_tokens: int | None, after_tool: bool
+) -> None:
+    llm, request = _structured_phase_request(model, after_tool)
 
     if deferred and not after_tool:
         assert "response_format" not in request
@@ -1055,10 +1075,78 @@ def test_deepseek_flash_hf_structured_request_phases(
     else:
         assert len(request["tools"]) == 1
         assert request["tools"][0]["function"]["name"] == "lookup"
-    assert params.structured_schema == _INKLING_SCHEMA
-    assert params.response_format is None
     assert request.get("max_tokens") == max_tokens
     assert request["reasoning_effort"] == "max"
+
+
+@pytest.mark.parametrize(
+    ("model", "policy"),
+    (
+        # HF routes from the 2026-11-15 sweep: one per family.
+        ("GLM 5.3 (novita)", "defer"),
+        ("glm5", "defer"),
+        ("kimi26", "defer"),
+        ("minimax2.5", "defer"),
+        # Native providers share the catalog constants and keep their policy.
+        ("zai.glm-5.3", "always"),
+        ("moonshot.moonshotai/kimi-k2.6", "no_tools"),
+    ),
+)
+@pytest.mark.parametrize("after_tool", (False, True))
+def test_structured_with_tool_request_phases_by_route(
+    model: str, policy: str, after_tool: bool
+) -> None:
+    _, request = _structured_phase_request(model, after_tool)
+
+    # defer: tools only until a tool result arrives, then a schema-only final turn.
+    schema_expected = policy != "defer" or after_tool
+    tools_expected = policy == "always" or (policy == "defer" and not after_tool)
+    assert ("response_format" in request) is schema_expected
+    assert bool(request.get("tools")) is tools_expected
+    if tools_expected:
+        assert [tool["function"]["name"] for tool in request["tools"]] == ["lookup"]
+
+
+@pytest.mark.parametrize(
+    ("model", "request_model", "policy"),
+    (
+        # A request model differing from the selected one must take the LLM's provider into
+        # account: the HF defer override applies on HF only.
+        ("kimi25", "moonshotai/kimi-k2.6:novita", "defer"),
+        ("openrouter.moonshotai/kimi-k2.5", "moonshotai/kimi-k2.6", "no_tools"),
+        ("moonshot.moonshotai/kimi-k2.5", "moonshotai/kimi-k2.6", "no_tools"),
+        ("zai.glm-5.3", "zai-org/glm-5.3-flash", "always"),
+    ),
+)
+@pytest.mark.parametrize("after_tool", (False, True))
+def test_structured_with_tool_request_model_override_keeps_provider_policy(
+    model: str, request_model: str, policy: str, after_tool: bool
+) -> None:
+    _, request = _structured_phase_request(model, after_tool, request_model=request_model)
+
+    assert request["model"] == request_model
+    schema_expected = policy != "defer" or after_tool
+    tools_expected = policy == "always" or (policy == "defer" and not after_tool)
+    assert ("response_format" in request) is schema_expected
+    assert bool(request.get("tools")) is tools_expected
+
+
+@pytest.mark.parametrize(
+    ("model", "format_type"),
+    (
+        # Novita rejects (GLM 5, MiniMax M2.5) or ignores (Kimi K2.6) json_schema.
+        ("glm5", "json_object"),
+        ("minimax2.5", "json_object"),
+        ("kimi26", "json_object"),
+        ("hf.zai-org/GLM-5:together", "json_schema"),
+        ("hf.moonshotai/Kimi-K2.6:together", "json_schema"),
+        ("kimi25", "json_schema"),
+    ),
+)
+def test_structured_final_response_format_by_backend(model: str, format_type: str) -> None:
+    _, request = _structured_phase_request(model, after_tool=True)
+
+    assert request["response_format"]["type"] == format_type
 
 
 @pytest.mark.asyncio
@@ -1439,40 +1527,34 @@ def test_disable_capable_hf_routes_keep_reasoning_disabled(
 
 
 @pytest.mark.parametrize(
-    ("backend", "query", "effort"),
+    ("query", "effort"),
     (
-        ("nebius", "", "max"),
-        ("together", "", "max"),
-        ("nebius", "?reasoning=minimal", "minimal"),
-        ("together", "?reasoning=low", "low"),
-        ("nebius", "?reasoning=medium", "medium"),
-        ("together", "?reasoning=high", "high"),
-        ("nebius", "?reasoning=xhigh", "xhigh"),
-        ("together", "?reasoning=max", "max"),
-        ("nebius", "?reasoning=none", "minimal"),
-        ("together", "?reasoning=off", "minimal"),
+        ("", "max"),
+        ("?reasoning=minimal", "minimal"),
+        ("?reasoning=low", "low"),
+        ("?reasoning=medium", "medium"),
+        ("?reasoning=high", "high"),
+        ("?reasoning=xhigh", "xhigh"),
+        ("?reasoning=max", "max"),
+        ("?reasoning=none", "minimal"),
+        ("?reasoning=off", "minimal"),
     ),
 )
-def test_beam_request_contract(backend: str, query: str, effort: str) -> None:
+def test_beam_request_contract(query: str, effort: str) -> None:
     # Lowercase input must recover the case-sensitive HF wire identifier.
-    request = _factory_request(f"hf.reflection/beam-1.0-501b-a23b:{backend}{query}")
+    request = _factory_request(f"hf.reflection/beam-1.0-501b-a23b:together{query}")
 
-    assert request["model"] == f"reflection/Beam-1.0-501B-A23B:{backend}"
+    assert request["model"] == "reflection/Beam-1.0-501B-A23B:together"
     assert request["reasoning_effort"] == effort
     assert "max_tokens" not in request
     assert "max_completion_tokens" not in request
     assert "extra_body" not in request
 
 
-@pytest.mark.parametrize("backend", ("nebius", "together"))
 @pytest.mark.parametrize(("requested", "expected"), ((4096, 4096), (200000, 131072)))
-def test_beam_explicit_output_budget_and_schema(
-    backend: str, requested: int, expected: int
-) -> None:
+def test_beam_explicit_output_budget_and_schema(requested: int, expected: int) -> None:
     agent = LlmAgent(AgentConfig(name="beam-contract-test"))
-    llm = ModelFactory.create_factory(
-        f"hf.reflection/Beam-1.0-501B-A23B:{backend}?max_tokens={requested}"
-    )(agent=agent)
+    llm = ModelFactory.create_factory(f"beam?max_tokens={requested}")(agent=agent)
     assert isinstance(llm, HuggingFaceLLM)
     schema = {
         "type": "object",
@@ -1494,15 +1576,14 @@ def test_beam_explicit_output_budget_and_schema(
     assert response_format["json_schema"]["schema"] == schema
 
 
-@pytest.mark.parametrize("backend", ("nebius", "together"))
-def test_beam_removes_obsolete_reasoning_controls(backend: str) -> None:
-    request = _request_with_extra_body(f"reflection/Beam-1.0-501B-A23B:{backend}")
+def test_beam_removes_obsolete_reasoning_controls() -> None:
+    request = _request_with_extra_body("reflection/Beam-1.0-501B-A23B:together")
 
     assert request["reasoning_effort"] == "max"
     assert request["extra_body"] == {"preserved": True}
 
 
-@pytest.mark.parametrize("backend", ("nebius", "together", "other-backend"))
+@pytest.mark.parametrize("backend", ("together", "other-backend"))
 def test_beam_replays_reasoning_without_inventing_missing_history(backend: str) -> None:
     llm = HuggingFaceLLM(
         context=Context(config=Settings()), model=f"reflection/Beam-1.0-501B-A23B:{backend}"
@@ -1551,7 +1632,7 @@ class _ReplayedHuggingFaceError(HuggingFaceLLM):
         self,
         body: dict[str, object],
         *,
-        model: str = "reflection/Beam-1.0-501B-A23B:nebius",
+        model: str = "reflection/Beam-1.0-501B-A23B:together",
         inference_provider: str = "openrouter",
         base_url: str = "https://router.huggingface.co/v1",
     ) -> None:
@@ -1600,7 +1681,7 @@ async def _replay_hf_fatal_error(llm: _ReplayedHuggingFaceError) -> BadRequestEr
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("with_provider_name", (True, False))
-@pytest.mark.parametrize("model", ("reflection/Beam-1.0-501B-A23B:nebius", "other/model:nebius"))
+@pytest.mark.parametrize("model", ("reflection/Beam-1.0-501B-A23B:together", "other/model:nebius"))
 async def test_hf_openrouter_missing_reasoning_sdk_error_carries_upstream_detail(
     with_provider_name: bool,
     model: str,
@@ -1750,10 +1831,9 @@ async def test_hf_openrouter_upstream_detail_is_single_line_and_bounded(
     assert "user_id" not in str(error) and "REDACTED" not in str(error)
 
 
-@pytest.mark.parametrize("backend", ("nebius", "together"))
 @pytest.mark.asyncio
-async def test_beam_streamed_reasoning_replays_on_tool_turn(backend: str) -> None:
-    model = f"reflection/Beam-1.0-501B-A23B:{backend}"
+async def test_beam_streamed_reasoning_replays_on_tool_turn() -> None:
+    model = "reflection/Beam-1.0-501B-A23B:together"
     llm = HuggingFaceLLM(context=Context(config=Settings()), model=model)
     # Synthetic fragments matching the contract's ordinary OpenAI stream shape.
     deltas = [

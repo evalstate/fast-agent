@@ -63,9 +63,7 @@ Enablement precedence (highest first):
 1. CLI `--ptc` or `--no-ptc`.
 2. Model query `ptc=on|true|off|false`, for example `glm53flash?ptc=off`.
 3. YAML `ptc.enabled: true` or `false`.
-4. Model database default. **GLM-5.3-Flash, GPT-6 Astra, GPT-6.1 Sol, GPT-6.1 Terra,
-   GPT-6 Luna and Kimi K3.1 Pro default to on** (including their provider aliases); other models
-   default to off.
+4. Model database default (see [PTC model defaults](#ptc-model-defaults)).
 
 Omit `ptc.enabled` or set it to `null` to use model defaults. Limits and tool
 exposure settings are independent of enablement:
@@ -75,6 +73,68 @@ exposure settings are independent of enablement:
 `direct_tools` keeps matching tools callable directly; `nested_tools` makes
 matching tools code-only, with `direct_tools` taking precedence. The engine
 is not configurable.
+
+PTC vocabulary **v1** is independent of the model and its direct-mode profile.
+With local shell access, every model gets the same keyword-only functions:
+
+- `shell(command=..., working_directory=..., background=..., timeout=..., check=...)`.
+  Only `command` is required. `background=True` starts a service; `check=True` waits
+  and raises on failure. Shell results retain `stdout`, `stderr`, `exit_code`, `status`,
+  `process_id`, and `truncated`.
+- `process(process_id=..., action=..., wait_sec=..., offset=..., limit=..., query=...)`,
+  with the existing `list`, `status`, `wait`, `stop`, and `read_output` actions.
+- `read_text_file`, `write_text_file`, and `edit_file`. Model edit preferences and
+  `apply_patch` are direct-mode only. Config `write_text_file_mode: off` still disables
+  writing/editing; `enable_read_text_file: false` still disables reading.
+- `subagent`, `attach_media`, and `get_resource` keep their names when enabled.
+  The code tool remains `exec_sandbox` (JSON `code` or freeform `input`).
+
+Return values are unchanged, including text/JSON auto-conversion for file reads.
+Local Python function tools annotated with a JSON type (`bool`, `int`, `float`, `None`,
+`list[...]`, `dict[str, ...]` and unions of those) give code the value itself (`-> int`
+gives `137`, not `"137"`), and their stubs declare that type. Other annotations, including
+`str`, unions with `str`, `Annotated`, models, enums and dates, keep the text rules (JSON
+text is parsed) and are typed `Any`. Structured results from FastMCP tools that
+wrap a value as `{"result": ...}` are unwrapped; their stubs add `dict[str, Any]`,
+the shape of a result that also carries media.
+Built-ins keep their names on collision; user/MCP tools receive a `_tool` suffix
+and a warning. Other Python identifier collisions are resolved deterministically.
+A user function moved aside when installing `subagent` or harness tools retains
+that installed alias for the lifetime of the agent, including a later switch to
+direct mode; a fresh direct-mode agent still rejects reserved-name conflicts.
+
+**Temporary comparison switch:** `ptc.function_names: profile` restores the previous
+per-model PTC vocabulary for matched benchmarks; `canonical` is the default.
+The temporary model query `ptc_names=profile|canonical` takes precedence over this
+setting (for example `kimi?ptc=on&ptc_names=profile`), so benchmark routes can select
+an arm without adding an environment variable. It does not enable PTC itself.
+Profile mode retains the parent instruction/stub ordering and prose, including
+historical `exec_tool` diagnostics; canonical fixes those diagnostics.
+This switch is scheduled for removal after the naming evaluation, not a permanent
+compatibility option. Direct mode is unaffected. For two or three releases, old
+PTC names such as `bash`, `Shell`, `exec_tool`, `execute`, `poll_process`,
+`terminate_process`, and `apply_patch` receive a type-error hint naming the
+replacement; they are not hidden aliases.
+
+`ptc.direct_tools: ["shell"]` exposes the canonical shell directly on every model
+(and removes it from the sandbox, as with other `direct_tools` matches).
+An old exact `["bash"]` selector is migrated to `shell` with a warning.
+Use `/tools` to inspect the vocabulary version: `1` for canonical, `0` for the
+temporary profile arm. Code-tool and result metadata carry
+`fast-agent-ptc-vocabulary`; nested call records also carry `function` alongside
+the dispatched `tool` name. JSON `--results` headers also record the actual
+vocabulary and `ptc_functions`, including runs with no code calls.
+
+This comparison measures the whole v1 contract, not names alone: non-GPT-6
+profiles gain `working_directory` and hard `timeout`, `background` replaces
+`run_in_background`, minimal-profile `description` is removed, and Grok/Qwen
+adopt the aligned shell guidance. GPT-5.6/Sol/Terra lose extended shell/process
+verification guidance and `apply_patch`; native profiles lose `cwd`,
+`yield_after_idle_sec`, and `output_byte_limit`. Process lifecycle, default
+auto-await behavior and program-facing return values are unchanged.
+ACP local-shell users with persisted allows for old names will be prompted
+once for `shell`; hooks still see the outer code tool. MCP tools merely named
+`bash`/`Shell` no longer receive local-shell dict-result guidance.
 
 !!! warning "Local POSIX only"
     PTC does not yet support Docker, remote, ACP-owned terminal/filesystem, custom
@@ -86,6 +146,10 @@ is not configurable.
 
 See the [PTC example](https://github.com/evalstate/fast-agent/tree/main/examples/ptc)
 for a runnable demonstration.
+
+#### PTC model defaults
+
+--8<-- "_generated/ptc_model_defaults.md"
 
 ### History compaction defaults
 
@@ -891,7 +955,7 @@ skills:
 
 ```yaml
 shell_execution:
-  tool_profile: auto  # Grok uses shell + process; other models use bash + process
+  tool_profile: auto  # Direct mode: select the model's catalog profile; PTC uses shell + process
   timeout_seconds: 90
   warning_interval_seconds: 30
   interactive_use_pty: true  # Use PTY for interactive prompt shell commands
@@ -906,14 +970,16 @@ shell_execution:
   managed_process_poll_history_folding: auto  # auto | on | off
 ```
 
-`tool_profile` controls the model-facing contract only. The default `auto`
-profile selects the catalog contract for the active model. Grok models expose
-`shell(command, working_directory?, background?, timeout?)` plus unified
-`process(...)`; other models retain `bash(...)` plus unified `process(...)`.
+`tool_profile` controls the **direct-mode** contract. `auto` selects the catalog
+contract: for example Grok/Qwen3.8 use `shell`, GPT-6 uses freeform `shell`,
+DeepSeek uses `Shell`, and the generic fallback is `bash`. All use unified
+`process` unless the `native` profile is selected. Canonical PTC instead always
+uses the vocabulary above, regardless of this setting.
 Use `process(action="list")` to list retained managed processes in creation
 order; `process_id` is required for `status`, `wait`, and `stop`.
 
-Set `tool_profile` explicitly to `minimal_process`, `grok_shell`, or `native`
+Set `tool_profile` explicitly to `minimal_process`, `grok_shell`, `luna_exec`,
+`freeform_shell`, or `native`
 to override automatic selection, including after runtime model switches.
 `native` remains a compatibility escape hatch for the legacy `execute`,
 `poll_process`, and `terminate_process` schemas. All profiles use the same

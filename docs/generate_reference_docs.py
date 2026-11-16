@@ -755,6 +755,29 @@ def generate_cache_warm_settings_reference() -> str:
     return "".join(lines)
 
 
+def generate_ptc_model_defaults_snippet() -> str:
+    """Generate the bundled catalog's PTC defaults, not runtime overlay models."""
+    from fast_agent.llm.model_database import ModelDatabase
+
+    # Base entries suffice while provider overrides share their base's PTC default
+    # (provider-only IDs are off). test_ptc_model_defaults_match_catalog_policy checks
+    # every override too, so a future divergence must be documented here explicitly.
+    models = sorted(name for name, params in ModelDatabase.MODELS.items() if params.ptc_enabled)
+    lines = [
+        "<!-- GENERATED FILE — DO NOT EDIT. Source: ModelParameters.ptc_enabled -->\n\n",
+        (
+            "PTC defaults to **on** for these catalog model IDs, including aliases that resolve "
+            "to them:\n\n"
+        ),
+    ]
+    lines.extend(f"- `{name}`\n" for name in models)
+    lines.append(
+        "\nOther models default to **off**. Model defaults apply only in supported local POSIX "
+        "environments; unsupported environments fall back to direct tools.\n"
+    )
+    return "".join(lines)
+
+
 def generate_ptc_config_snippet() -> str:
     """Generate bundled PTC defaults from the settings model."""
     from fast_agent.config import ProgrammaticToolCallingSettings
@@ -1009,7 +1032,7 @@ def generate_tui_runtime_reference() -> str:
         ),
         "logger.terminal_images.width": "Image render width.",
         "logger.terminal_images.height": "Image render height.",
-        "shell_execution.tool_profile": "Model-specific shell/process contract.",
+        "shell_execution.tool_profile": "Direct-mode shell/process contract; canonical PTC uses shell/process.",
         "shell_execution.output_display_lines": "Maximum shell/read_text_file lines to display.",
         "shell_execution.show_bash": "Show shell command output on the console.",
         "shell_execution.interactive_use_pty": "Use a PTY for interactive prompt shell commands.",
@@ -1647,6 +1670,7 @@ def main() -> int:
         )
         _write(GENERATED_DIR / "copilot_config_snippet.md", generate_copilot_config_snippet())
         _write(GENERATED_DIR / "ptc_config_snippet.md", generate_ptc_config_snippet())
+        _write(GENERATED_DIR / "ptc_model_defaults.md", generate_ptc_model_defaults_snippet())
         _write(
             GENERATED_DIR / "compaction_settings_reference.md",
             generate_compaction_settings_reference(),

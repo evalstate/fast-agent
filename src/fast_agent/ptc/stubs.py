@@ -12,10 +12,11 @@ import json
 import keyword
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from fast_agent.ptc.store import STORE_FUNCTION_NAMES, STORE_STUBS
+from fast_agent.ptc.vocabulary import is_builtin_tool
 
 if TYPE_CHECKING:
     from mcp_types import Tool
@@ -62,6 +63,7 @@ _JSON_SCALAR_TYPES = {
 }
 _MAX_ANNOTATION_DEPTH = 4
 _MAX_RETURNS_CHARS = 1200
+_FASTMCP_WRAP_RESULT = "x-fastmcp-wrap-result"
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +87,9 @@ class PtcFunction:
     returns: str
     returns_shape: str | None = None
     """Compact rendering of the output schema, e.g. ``{id: str, tags?: list[str]}``."""
+    builtin: bool = False
+    unwrap_result: bool = False
+    """FastMCP wrapped a non-object return as structured ``{"result": value}``."""
 
     def bind_arguments(self, kwargs: Mapping[str, Any]) -> dict[str, Any]:
         """Map supplied keywords to schema names, preserving explicit null values."""
@@ -135,7 +140,7 @@ class PtcFunction:
 
     def _docstring(self) -> str:
         parts: list[str] = []
-        if self.tool_name != self.python_name:
+        if self.tool_name != self.python_name and not self.builtin:
             parts.append(f"Tool `{self.tool_name}`.")
         if self.description:
             parts.append(self.description.strip())
@@ -170,16 +175,39 @@ def tool_ptc_options(tool: Tool) -> Mapping[str, Any]:
 
 
 def build_functions(
-    tools: Sequence[Tool], *, reserved_names: frozenset[str] = frozenset()
+    tools: Sequence[Tool],
+    *,
+    reserved_names: frozenset[str] = frozenset(),
+    profile_names: bool = False,
 ) -> dict[str, PtcFunction]:
     """Build sandbox functions keyed by Python name, resolving name collisions.
 
     ``reserved_names`` are other sandbox globals that tool functions must not shadow.
     """
     functions: dict[str, PtcFunction] = {}
-    for tool in tools:
+    # ptc-vocab-v0: preserve the parent rendering exactly in the comparison arm.
+    ordered = (
+        tools
+        if profile_names
+        else sorted(tools, key=lambda tool: (not is_builtin_tool(tool), tool.name))
+    )
+    for tool in ordered:
         python_name = _unique(_global_identifier(tool.name, reserved_names), functions)
-        functions[python_name] = _build_function(tool, python_name)
+        function = _build_function(
+            tool, python_name, describe_bounds=not profile_names and is_builtin_tool(tool)
+        )
+        functions[python_name] = replace(function, builtin=False) if profile_names else function
+    renamed = {
+        f.tool_name: f.python_name
+        for f in functions.values()
+        if f.builtin and f.tool_name != f.python_name
+    }
+    for name, function in functions.items():
+        if function.builtin:
+            description = function.description
+            for old, new in renamed.items():
+                description = re.sub(rf"\b{re.escape(old)}\b", new, description)
+            functions[name] = replace(function, description=description)
     return functions
 
 
@@ -211,7 +239,29 @@ def render_stubs(functions: Mapping[str, PtcFunction]) -> str:
     )
 
 
-def _build_function(tool: Tool, python_name: str) -> PtcFunction:
+def _parameter_description(schema: Any, *, describe_bounds: bool) -> str | None:
+    if not isinstance(schema, Mapping):
+        return None
+    description = schema.get("description")
+    description = description if isinstance(description, str) else ""
+    if describe_bounds:
+        # Python annotations retain enums, but cannot express JSON Schema bounds.
+        # Keep the profile-name comparison arm's historical docstrings unchanged.
+        bounds = [
+            f"{label}: {schema[key]}."
+            for key, label in (
+                ("minimum", "Minimum"),
+                ("maximum", "Maximum"),
+                ("minLength", "Minimum length"),
+                ("maxLength", "Maximum length"),
+            )
+            if key in schema
+        ]
+        description = " ".join([description, *bounds]).strip()
+    return description or None
+
+
+def _build_function(tool: Tool, python_name: str, *, describe_bounds: bool) -> PtcFunction:
     options = tool_ptc_options(tool)
     ptc_schema = options.get("input_schema")
     schema = ptc_schema if isinstance(ptc_schema, Mapping) else tool.input_schema
@@ -231,16 +281,15 @@ def _build_function(tool: Tool, python_name: str) -> PtcFunction:
         is_required = schema_name in required_names
         # Optional parameters keep their exact schema type; only nullable ones accept None.
         annotation = _annotation(property_schema, definitions)
-        description = (
-            property_schema.get("description") if isinstance(property_schema, Mapping) else None
-        )
         parameters.append(
             PtcParameter(
                 python_name=parameter_name,
                 schema_name=str(schema_name),
                 annotation=annotation,
                 required=is_required,
-                description=description if isinstance(description, str) else None,
+                description=_parameter_description(
+                    property_schema, describe_bounds=describe_bounds
+                ),
             )
         )
 
@@ -249,17 +298,42 @@ def _build_function(tool: Tool, python_name: str) -> PtcFunction:
     additional = schema.get("additionalProperties")
     accepts_extra = additional is True or isinstance(additional, Mapping)
     returns_schema = options.get("returns")
-    output_schema = returns_schema if isinstance(returns_schema, Mapping) else tool.output_schema
+    # A declared program value is returned as is; MCP structured content may be wrapped.
+    program_schema = returns_schema if isinstance(returns_schema, Mapping) else None
+    structured = program_schema is None and tool.output_schema is not None
+    output_schema = tool.output_schema if structured else program_schema
+    output_definitions = _definitions(output_schema or {})
+    wrapped = _wrapped_result_schema(output_schema) if structured else None
+    if wrapped is not None:
+        output_schema = wrapped
+    members = _union_members(output_schema, output_definitions, 0) if output_schema else ["Any"]
+    if structured:
+        # Structured content with media arrives as {"structured_content", "content"}, and a
+        # peer's wrapped result may lack "result": both are dicts whatever the schema says.
+        members.append("dict[str, Any]")
+    returns = _union(members)
+    returns_shape = _returns_shape(output_schema, output_definitions)
     description = options.get("description")
     return PtcFunction(
         python_name=python_name,
         tool_name=tool.name,
+        builtin=is_builtin_tool(tool),
         description=description if isinstance(description, str) else tool.description or "",
         parameters=tuple(parameters),
         accepts_extra=accepts_extra,
-        returns="dict[str, Any]" if output_schema else "Any",
-        returns_shape=_returns_shape(output_schema, _definitions(output_schema or {})),
+        returns=returns,
+        returns_shape=returns_shape if returns_shape != returns else None,
+        unwrap_result=wrapped is not None,
     )
+
+
+def _wrapped_result_schema(schema: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+    """The ``result`` schema of a FastMCP-wrapped non-object return, else None."""
+    if not schema or schema.get(_FASTMCP_WRAP_RESULT) is not True:
+        return None
+    properties = schema.get("properties")
+    result = properties.get("result") if isinstance(properties, Mapping) else None
+    return result if isinstance(result, Mapping) else None
 
 
 def _definitions(schema: Mapping[str, Any]) -> Mapping[str, Any]:

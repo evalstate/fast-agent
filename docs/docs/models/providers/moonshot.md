@@ -163,8 +163,8 @@ claim a fixed cache TTL.
 
 ## K3.1 Pro PTC and structured output
 
-PTC is enabled by default on both K3.1 Pro routes (local POSIX execution);
-disable it with `?ptc=off`, `--no-ptc`, or `ptc.enabled: false`.
+See the [generated PTC model defaults](../../ref/config_file.md#ptc-model-defaults)
+for both K3.1 Pro routes. Disable PTC with `?ptc=off`, `--no-ptc`, or `ptc.enabled: false`.
 The default reasoning effort remains `max`; the default output budget is
 131,072 tokens. Both routes passed the live `examples/ptc/` orders/batching
 and image-return cases.

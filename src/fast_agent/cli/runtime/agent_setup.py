@@ -328,14 +328,34 @@ async def _save_result_history(
     messages_override: list["PromptMessageExtended"] | None = None,
 ) -> None:
     from fast_agent.history.history_exporter import HistoryExporter
-    from fast_agent.mcp.prompt_serialization import save_messages
+    from fast_agent.mcp.prompt_serialization import save_messages, to_json_bytes
+    from fast_agent.ptc.vocabulary import PTC_VOCABULARY_META
+    from fast_agent.tools.tool_surface import ToolExposure, ToolSurfaceProvider
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    agent_obj = agent_app._agent(agent_name)
+    if output_path.suffix.casefold() == ".json" and isinstance(agent_obj, ToolSurfaceProvider):
+        surface = await agent_obj.tool_surface()
+        if surface.programmatic is not None:
+            # Record the actual surface even when the model never calls the code tool.
+            messages = (
+                messages_override if messages_override is not None else agent_obj.message_history
+            )
+            payload = to_json_bytes(
+                messages,
+                metadata={
+                    PTC_VOCABULARY_META: surface.programmatic.vocabulary,
+                    "ptc_functions": [
+                        tool.python_name for tool in surface.exposed(ToolExposure.PROGRAMMATIC)
+                    ],
+                },
+            )
+            await asyncio.to_thread(output_path.write_bytes, payload)
+            return
     if messages_override is not None:
         save_messages(messages_override, str(output_path))
         return
 
-    agent_obj = agent_app._agent(agent_name)
     await HistoryExporter.save(agent_obj, str(output_path))
 
 

@@ -322,10 +322,10 @@ _QWEN_38_REASONING = TopLevelReasoningEffort(
 
 HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
     (
-        # Both Beam upstreams have the same OpenRouter wire contract.
+        # HF stopped serving Beam via Nebius (2026-11-16); Together is the evidenced upstream.
         RouterProfileRule(
             model=_BEAM_1,
-            backends=frozenset({"nebius", "together"}),
+            backends=frozenset({"together"}),
             profile=HuggingFaceRouteProfile(
                 reasoning=_BEAM_1_REASONING,
                 structured_json_mode="schema",
@@ -497,6 +497,21 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
             model=_INKLING_2_SMALL,
             backends=frozenset({None}),
             profile=_INKLING_2_DEEPINFRA_PROFILE,
+        ),
+        # Novita rejects json_schema for GLM 5 and MiniMax M2.5 (HTTP 400, json_object
+        # only) and accepts but does not enforce it for Kimi K2.6 (fenced JSON, invented
+        # keys). JSON object mode adds fast-agent's schema instructions instead.
+        *(
+            RouterProfileRule(
+                model=model,
+                backends=frozenset({"novita"}),
+                profile=HuggingFaceRouteProfile(reasoning=reasoning, structured_json_mode="object"),
+            )
+            for model, reasoning in (
+                ("zai-org/glm-5", _ROUTED_TOGGLE),
+                ("minimaxai/minimax-m2.5", None),
+                ("moonshotai/kimi-k2.6", _ROUTED_TOGGLE),
+            )
         ),
         *(
             RouterProfileRule(

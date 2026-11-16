@@ -1988,10 +1988,48 @@ def test_compact_at_query_reaches_the_llm() -> None:
     assert llm.compact_at_override == CompactAt(tokens=150_000)
 
 
-def test_beam_alias_pins_nebius_without_sampling_defaults() -> None:
+def test_beam_alias_pins_together_without_sampling_defaults() -> None:
     config = ModelFactory.parse_model_string("beam")
 
     assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "reflection/Beam-1.0-501B-A23B:nebius"
+    assert config.model_name == "reflection/Beam-1.0-501B-A23B:together"
     assert config.temperature is None
     assert config.reasoning_effort is None
+
+
+@pytest.mark.parametrize("mode", ["canonical", "profile"])
+def test_temporary_ptc_names_query(mode: str) -> None:
+    resolved = ModelFactory.resolve_model_spec(f"passthrough?ptc=on&ptc_names={mode}")
+    assert resolved.model_config.ptc_names == mode
+    assert resolved.model_config.ptc is True
+
+
+@pytest.mark.parametrize("value", ["", "wrong", "true"])
+def test_invalid_ptc_names_query(value: str) -> None:
+    with pytest.raises(ModelConfigError, match="ptc_names"):
+        ModelFactory.parse_model_string(f"passthrough?ptc_names={value}")
+
+
+def test_ptc_names_query_inherits_preset_and_does_not_enable_ptc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.llm.model_factory import resolve_model_query_overrides
+
+    monkeypatch.setattr(
+        ModelFactory, "MODEL_PRESETS", {"test_names": "passthrough?ptc_names=profile"}
+    )
+    inherited = ModelFactory.parse_model_string("test_names")
+    assert inherited.ptc_names == "profile" and inherited.ptc is None
+    assert resolve_model_query_overrides("test_names").ptc_names == "profile"
+    explicit = "test_names?ptc_names=canonical"
+    assert ModelFactory.parse_model_string(explicit).ptc_names == "canonical"
+    assert resolve_model_query_overrides(explicit).ptc_names == "canonical"
+    resolved = ModelFactory.resolve_model_spec("passthrough?ptc_names=canonical")
+    assert not resolved.resolve_ptc_enabled()
+
+
+def test_ptc_names_query_uses_last_value_like_ptc_query() -> None:
+    config = ModelFactory.parse_model_string(
+        "passthrough?ptc_names=canonical&ptc_names=profile&ptc=off&ptc=on"
+    )
+    assert config.ptc_names == "profile" and config.ptc is True

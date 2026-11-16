@@ -50,6 +50,7 @@ from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import load_messages
 from fast_agent.privacy.sanitizer import RedactionAccumulator
+from fast_agent.ptc.vocabulary import PTC_VOCABULARY_META
 from fast_agent.session.atif_models import (
     AtifAgent,
     AtifAudioSource,
@@ -345,6 +346,9 @@ def _tool_result_extra(
     metadata = (_json_channel_mapping(message, FAST_AGENT_TOOL_METADATA) or {}).get(call_id)
     if isinstance(metadata, dict):
         extra["tool_metadata"] = metadata
+    vocabulary = (result.meta or {}).get(PTC_VOCABULARY_META)
+    if isinstance(vocabulary, int):
+        extra["ptc_vocabulary"] = vocabulary
     ptc_calls = (result.meta or {}).get(FAST_AGENT_PTC_CALLS)
     if isinstance(ptc_calls, list):
         extra["ptc_calls"] = ptc_calls

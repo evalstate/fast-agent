@@ -104,9 +104,7 @@ _HELPERS_NOTE = (
 )
 _HELPERS_RUNNING = " If `status` is 'running', `print(show({wait}))` waits for it."
 _STORE_NOTE = ' To use `r` in a later run, `await store("r", r)`.'
-_RETAINED_NOTE = (
-    " `{read}` searches the output the process tool kept for a long-running or long-output command."
-)
+_RETAINED_NOTE = " `{read}` searches kept output, if any."
 
 
 def shell_output_note(

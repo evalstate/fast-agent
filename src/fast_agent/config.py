@@ -320,7 +320,8 @@ class ShellSettings(BaseModel):
     tool_profile: ShellToolProfile = Field(
         default="auto",
         description=(
-            "Model-facing shell contract: 'auto' selects a model-specific contract; "
+            "Direct-mode shell contract (canonical PTC always uses shell/process): "
+            "'auto' selects a model-specific contract; "
             "'minimal_process' exposes Bash and Process; "
             "'native' retains the legacy execute/poll_process/terminate_process tools; "
             "'grok_shell' exposes aligned shell plus Process; "
@@ -2001,6 +2002,12 @@ class ProgrammaticToolCallingSettings(BaseModel):
     enabled: bool | None = None
     """Expose tools through the Python code tool; null uses the model default.
     Override with `--ptc` / `--no-ptc` or the `ptc` model query. Local POSIX only."""
+
+    # ptc-vocab-v0: remove the temporary comparison setting after matched rollout.
+    function_names: Literal["canonical", "profile"] = "canonical"
+    """Temporary benchmark comparison switch: canonical PTC vocabulary v1 (default), or
+    previous per-model profiles. Remove after the matched naming evaluation; not a permanent
+    compatibility setting. Direct (non-PTC) tools are unaffected."""
 
     direct_tools: list[str] = Field(default_factory=list)
     """Tool names (fnmatch patterns) that stay directly callable alongside the code tool."""

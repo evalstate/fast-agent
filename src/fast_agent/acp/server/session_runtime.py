@@ -553,12 +553,14 @@ class ACPServerSessionRuntime:
             return None
 
         aggregator = None
+        tool_filters = None
         skill_manifests = None
         skill_read_tool_name = "read_skill"
         effective_context = dict(context)
         if isinstance(agent, McpInstructionCapable):
             configured_agent = cast("ConfiguredMcpInstructionCapable", agent)
             aggregator = agent.aggregator
+            tool_filters = configured_agent.config.tools
             skill_manifests = resolve_instruction_skill_manifests(
                 configured_agent,
                 configured_agent.skill_manifests,
@@ -577,6 +579,7 @@ class ACPServerSessionRuntime:
         return await build_instruction(
             template,
             aggregator=aggregator,
+            tool_filters=tool_filters,
             skill_manifests=skill_manifests,
             skill_read_tool_name=skill_read_tool_name,
             context=effective_context,

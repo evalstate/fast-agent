@@ -14,6 +14,7 @@ from fast_agent.context import Context
 from fast_agent.mcp_server_registry import ServerRegistry
 from fast_agent.ptc import PTC_TOOL_NAME
 from fast_agent.ptc.runtime import ProgrammaticToolRuntime
+from fast_agent.tools.shell_program_value import programmatic_shell_tool
 
 pytest.importorskip("pydantic_monty")
 
@@ -73,7 +74,7 @@ _SHELL = Tool(
 )
 async def test_sandbox_gaps_point_at_the_system_python(code: str, hinted: bool) -> None:
     runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings())
-    runtime.model_tools([_SHELL])
+    runtime.model_tools([programmatic_shell_tool(_SHELL)])
     try:
         result = await runtime.execute({"code": code}, _no_tools)
         assert result.is_error
@@ -88,7 +89,7 @@ async def test_sandbox_gaps_point_at_the_system_python(code: str, hinted: bool) 
 @pytest.mark.asyncio
 async def test_gather_bracket_typo_gets_a_hint() -> None:
     runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings())
-    runtime.model_tools([_SHELL])
+    runtime.model_tools([programmatic_shell_tool(_SHELL)])
     try:
         typo = await runtime.execute(
             {"code": 'r = await asyncio.gather(*[bash(command=c) for c in ["a", "b"])'},

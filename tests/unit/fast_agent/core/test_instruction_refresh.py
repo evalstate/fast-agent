@@ -47,7 +47,7 @@ class StubAgent:
         self._instruction_template = template
         self._instruction_context: dict[str, str] = {}
         self._skill_manifests: list = []
-        self.config = SimpleNamespace(skills=SKILLS_DEFAULT)
+        self.config = SimpleNamespace(skills=SKILLS_DEFAULT, tools={})
         self._skill_registry = None
         self._aggregator = aggregator or StubAggregator()
         self._skill_read_tool_name = "read_skill"

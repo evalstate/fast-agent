@@ -372,7 +372,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         if resolved_params is not None and self._resolved_model_matches(model_name):
             return resolved_params
 
-        return ModelDatabase.get_model_params(model_name)
+        return ModelDatabase.get_request_model_params(model_name, request_provider=self.provider)
 
     def _get_model_reasoning(self, model_name: str | None) -> str | None:
         params = self._get_model_params(model_name)

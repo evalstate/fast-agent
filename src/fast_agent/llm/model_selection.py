@@ -181,7 +181,7 @@ class ModelSelectionCatalog:
         Provider.HUGGINGFACE: (
             _builtin_entry(
                 "beam",
-                display_label="Beam 1.0 (nebius)",
+                display_label="Beam 1.0 (together)",
                 description="text-only HF route via OpenRouter",
             ),
             _builtin_entry(

@@ -22,7 +22,7 @@ from weakref import WeakKeyDictionary
 
 from fast_agent.core.instruction import InstructionBuilder
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.common import create_namespaced_name
+from fast_agent.mcp.common import create_namespaced_name, matches_server_filter
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
 
@@ -151,12 +151,16 @@ def resolve_instruction_skill_manifests(
     return skill_manifests
 
 
-def format_server_instructions(instructions_data: dict[str, tuple[str | None, list[str]]]) -> str:
+def format_server_instructions(
+    instructions_data: dict[str, tuple[str | None, list[str]]],
+    tool_filters: Mapping[str, Sequence[str]] | None = None,
+) -> str:
     """
     Format server instructions with XML tags and tool lists.
 
     Args:
         instructions_data: Dict mapping server name to (instructions, tool_names)
+        tool_filters: The agent's tools: filter; excluded tool names are not rendered
 
     Returns:
         Formatted string with server instructions
@@ -169,7 +173,11 @@ def format_server_instructions(instructions_data: dict[str, tuple[str | None, li
         if instructions is None:
             continue
 
-        prefixed_tools = [create_namespaced_name(server_name, tool) for tool in tool_names]
+        prefixed_tools = [
+            create_namespaced_name(server_name, tool)
+            for tool in tool_names
+            if matches_server_filter(tool_filters, server_name, tool)
+        ]
         tools_list = ", ".join(prefixed_tools) if prefixed_tools else "No tools available"
 
         formatted_parts.append(
@@ -205,6 +213,7 @@ async def build_instruction(
     template: str,
     *,
     aggregator: "MCPAggregator | None" = None,
+    tool_filters: Mapping[str, Sequence[str]] | None = None,
     skill_manifests: Sequence["SkillManifest"] | None = None,
     skill_read_tool_name: str = READ_SKILL_TOOL_NAME,
     context: Mapping[str, str] | None = None,
@@ -222,6 +231,7 @@ async def build_instruction(
     Args:
         template: The instruction template with {{placeholder}} patterns
         aggregator: MCP aggregator for fetching server instructions
+        tool_filters: The agent's tools: filter applied to rendered server tool names
         skill_manifests: List of skill manifests for {{agentSkills}}
         skill_read_tool_name: Tool name used to read skill files in prompts
         context: Additional context values (env, workspaceRoot, etc.)
@@ -240,7 +250,7 @@ async def build_instruction(
         async def resolve_server_instructions() -> str:
             try:
                 instructions_data = await aggregator.get_server_instructions()
-                return format_server_instructions(instructions_data)
+                return format_server_instructions(instructions_data, tool_filters)
             except Exception as e:
                 logger.warning(f"Failed to get server instructions: {e}")
                 return ""
@@ -367,6 +377,7 @@ async def rebuild_agent_instruction(
         new_instruction = await build_instruction(
             template,
             aggregator=configured_agent.aggregator,
+            tool_filters=configured_agent.config.tools,
             skill_manifests=resolve_instruction_skill_manifests(
                 configured_agent,
                 configured_agent.skill_manifests,

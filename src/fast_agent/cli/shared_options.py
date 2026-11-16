@@ -208,7 +208,7 @@ class CommonAgentOptions:
             False,
             "--shell",
             "-x",
-            help="Enable a local shell runtime and expose the execute tool (bash or pwsh).",
+            help="Enable a local shell runtime and expose shell tools (canonical `shell` under PTC) (bash or pwsh).",
         )
 
     @staticmethod
