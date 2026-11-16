@@ -335,8 +335,15 @@ hc: 2 running - probe-a (t134), probe-b (t135) · will resume when they report o
   the session when they end; use `hc run --bg` for work the agent must come back to.
 
 The same summary appears in the prompt toolbar (`hc: waiting on 2: probe-a, probe-b`) and
-leads the OSC 7501 status message, so a terminal manager can show it. Outside herdr-core
-nothing is read or printed.
+leads the OSC 7501 status message, so a terminal manager can show it. Both update as hc
+reports changes to the children (fast-agent follows `hc events`), so a child that ends
+without a note stops showing as running. Outside herdr-core nothing is read or printed.
+
+Children are labelled `fast-agent.session=<session id>` and their addresses are kept in
+the session record (`hc_children`). When a session is resumed in another terminal, live
+terminals carrying its label are shown as `hc: earlier run 1: keeper`; hc still sends their
+notes to the old parent, so check them with `hc read`. Find them yourself with
+`hc ls --label fast-agent.session=<session id>`.
 
 Messages delivered by hc are shown under their own heading (`hc · t135 exited`,
 `hc · t7 review`) rather than as text typed by a person.

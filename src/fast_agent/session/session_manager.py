@@ -701,6 +701,17 @@ class Session:
             self.info.last_activity = datetime.now()
             self._save_metadata_locked()
 
+    def record_hc_children(self, addresses: Sequence[str]) -> None:
+        """Remember herdr-core terminals this session started, in first-seen order."""
+        recorded = self.info.metadata.get("hc_children")
+        known = [str(item) for item in recorded] if isinstance(recorded, list) else []
+        new = [address for address in addresses if address not in known]
+        if not new:
+            return
+        with self._mutation_lock():
+            self.info.metadata["hc_children"] = [*known, *new]
+            self._save_metadata_locked()
+
     def set_last_user_prompt(self, prompt: object) -> str | None:
         """Persist the normalized latest external user prompt."""
         normalized = normalize_user_prompt(prompt)

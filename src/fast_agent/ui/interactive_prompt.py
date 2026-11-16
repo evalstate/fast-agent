@@ -1306,7 +1306,9 @@ class InteractivePrompt:
         from fast_agent.ui.prompt.input import refresh_session_attachments
 
         for line in await refresh_session_attachments(
-            agent_name=agent_name, agent_provider=prompt_provider
+            agent_name=agent_name,
+            agent_provider=prompt_provider,
+            session_manager=runtime_state.session_manager,
         ):
             rich_print(Text(line, style="dim"))
 

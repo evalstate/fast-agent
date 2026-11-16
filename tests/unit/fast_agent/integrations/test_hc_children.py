@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import sys
 from typing import TYPE_CHECKING
@@ -21,15 +23,20 @@ from fast_agent.integrations.hc_children import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-# A stand-in for the hc CLI: answers `wait --children` and `get <t>` from a JSON file.
+# A stand-in for the hc CLI: answers `wait --children`, `get <t>`, `ls` and
+# `events` from a JSON file; `label` is only recorded.
 _FAKE_HC = """#!{python}
 import json, sys
 state = json.load(open({state!r}))
 open({calls!r}, "a").write(" ".join(sys.argv[1:]) + "\\n")
 if sys.argv[1] == "wait":
     print(state["wait"])
-else:
+elif sys.argv[1] == "get":
     print(json.dumps(state["get"][sys.argv[2]]))
+elif sys.argv[1] == "ls":
+    print(json.dumps({{"terminals": state["ls"]}}))
+elif sys.argv[1] == "events":
+    print(json.dumps({{"type": "finished"}}), flush=True)
 """
 
 
@@ -52,9 +59,13 @@ def hc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("HC_TERMINAL_ID", "t1")
     monkeypatch.setenv("HC_TERMINAL_SOCKET", "/run/hc.sock")
 
-    def configure(wait: object, get: dict[str, dict[str, object]] | None = None) -> Path:
+    def configure(
+        wait: object,
+        get: dict[str, dict[str, object]] | None = None,
+        ls: list[dict[str, object]] | None = None,
+    ) -> Path:
         text = wait if isinstance(wait, str) else json.dumps(wait)
-        state.write_text(json.dumps({"wait": text, "get": get or {}}))
+        state.write_text(json.dumps({"wait": text, "get": get or {}, "ls": ls or []}))
         return calls
 
     return configure
@@ -81,8 +92,52 @@ def test_unfinished_children_are_sorted_by_what_they_mean_for_the_session(hc) ->
         },
     )
     assert read_hc_attachments() == HcAttachments(
-        resuming=(HcChild("t2", "probe"), HcChild("t5")), services=1
+        resuming=(HcChild("t2", "probe"), HcChild("t5")),
+        services=1,
+        addresses=("t2", "t3", "t4", "t5"),
     )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="simulated hc is a POSIX script")
+def test_session_children_are_labelled_and_earlier_runs_are_found(hc) -> None:
+    calls = hc(
+        {"children": [_child("t2"), _child("t3")]},
+        {
+            "t2": {"name": "probe", "notify": True, "labels": {}},
+            "t3": {"notify": True, "labels": {"fast-agent.session": "s1"}},
+        },
+        ls=[
+            {"address": "t3", "parent": "t1", "state": "live"},
+            {"address": "t9", "name": "napper", "parent": "t0", "state": "live"},
+            {"address": "t8", "parent": "t0", "state": "finished"},
+        ],
+    )
+    attachments = read_hc_attachments("s1")
+
+    assert attachments.detached == (HcChild("t9", "napper"),)
+    assert "label t2 fast-agent.session=s1" in calls.read_text()
+    assert "label t3" not in calls.read_text()
+    assert "napper (t9)" in format_turn_end_lines(attachments, 0)[-1]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="simulated hc is a POSIX script")
+@pytest.mark.asyncio
+async def test_child_events_trigger_a_refresh(hc) -> None:
+    hc({"children": []})
+    changed = asyncio.Event()
+
+    async def on_change() -> None:
+        changed.set()
+
+    hc_children.watch_hc_children(on_change)
+    watcher = hc_children._watcher
+    assert watcher is not None
+    try:
+        await asyncio.wait_for(changed.wait(), 5)
+    finally:
+        watcher.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await watcher
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="simulated hc is a POSIX script")

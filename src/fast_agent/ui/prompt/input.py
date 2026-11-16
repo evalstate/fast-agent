@@ -14,6 +14,7 @@ from importlib.metadata import version
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.application import get_app_or_none
 from prompt_toolkit.completion import Completer, WordCompleter
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import HTML
@@ -41,6 +42,7 @@ from fast_agent.integrations.hc_children import (
     format_turn_end_lines,
     hc_terminal_id,
     refresh_hc_attachments,
+    watch_hc_children,
 )
 from fast_agent.integrations.herdr_lifecycle import report_session_attached
 from fast_agent.mcp.types import McpAgentProtocol
@@ -750,18 +752,38 @@ async def _show_input_startup(
 
 
 async def refresh_session_attachments(
-    *, agent_name: str, agent_provider: "AgentApp | None", reuse_recent: bool = False
+    *,
+    agent_name: str,
+    agent_provider: "AgentApp | None",
+    session_manager: "SessionManager | None",
+    reuse_recent: bool = False,
 ) -> list[str]:
     """Update what an idle session is still attached to inside herdr-core.
 
-    Feeds the toolbar and the terminal status message; returns the lines to
-    print when a turn ends. Empty outside herdr-core.
+    Feeds the toolbar and the terminal status message, records this session's
+    hc children, and keeps both current as hc reports child changes. Returns
+    the lines to print when a turn ends. Empty outside herdr-core.
     """
     if hc_terminal_id() is None:
         return []
-    attachments = await refresh_hc_attachments(reuse_recent=reuse_recent)
+    session = session_manager.current_session if session_manager is not None else None
+    attachments = await refresh_hc_attachments(
+        reuse_recent=reuse_recent,
+        session_id=session.info.name if session is not None else None,
+    )
+    if session is not None:
+        session.record_hc_children(attachments.addresses)
     background = active_process_count(agent_provider, agent_name)
     report_session_attached(format_status_summary(attachments, background))
+
+    async def on_child_change() -> None:
+        await refresh_session_attachments(
+            agent_name=agent_name, agent_provider=agent_provider, session_manager=session_manager
+        )
+        if (app := get_app_or_none()) is not None:
+            app.invalidate()
+
+    watch_hc_children(on_child_change)
     return format_turn_end_lines(attachments, background)
 
 
@@ -825,7 +847,10 @@ async def get_enhanced_input(
     )
     if not is_human_input:
         await refresh_session_attachments(
-            agent_name=agent_name, agent_provider=agent_provider, reuse_recent=True
+            agent_name=agent_name,
+            agent_provider=agent_provider,
+            session_manager=session_manager,
+            reuse_recent=True,
         )
     session: PromptSession | None = None
 
