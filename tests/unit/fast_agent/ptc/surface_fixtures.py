@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -30,6 +31,8 @@ from fast_agent.ptc.vocabulary import PTC_VOCABULARY_META
 from fast_agent.tools.tool_surface import ToolExposure
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from fast_agent.tools.shell_profiles import ShellToolProfile
 
 type SurfaceMode = Literal["direct", "profile"]
@@ -108,6 +111,15 @@ def surface_digest(record: dict[str, Any]) -> str:
     ).hexdigest()
 
 
+def replace_digests(text: str, replacements: Mapping[str, str]) -> str:
+    """Replace every old digest in one pass, so a new digest equal to another row's old one
+    is not replaced again."""
+    if not replacements:
+        return text
+    pattern = re.compile("|".join(re.escape(old) for old in replacements))
+    return pattern.sub(lambda match: replacements[match.group()], text)
+
+
 async def refresh(*, write: bool) -> None:
     for mode in SURFACE_MODES:
         path = surface_path(mode)
@@ -121,10 +133,7 @@ async def refresh(*, write: bool) -> None:
         changed = sum(replacements[row["sha256"]] != row["sha256"] for row in rows)
         print(f"{mode}: {changed} of {len(rows)} rows changed")
         if write:
-            text = path.read_text()
-            for old, new in replacements.items():
-                text = text.replace(old, new)
-            path.write_text(text)
+            path.write_text(replace_digests(path.read_text(), replacements))
 
 
 if __name__ == "__main__":

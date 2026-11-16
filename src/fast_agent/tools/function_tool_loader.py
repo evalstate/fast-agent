@@ -7,14 +7,13 @@ Supports both direct callables and string specs like "module.py:function_name".
 
 import inspect
 from collections.abc import Callable
+from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
 from types import NoneType, UnionType
 from typing import (
-    Annotated,
     Any,
     Final,
-    Literal,
     Protocol,
     TypeAlias,
     Union,
@@ -25,7 +24,6 @@ from typing import (
 )
 
 from fastmcp.tools import FunctionTool, ToolResult
-from fastmcp.tools.function_parsing import ParsedFunction
 
 from fast_agent.agents.agent_types import ScopedFunctionToolConfig
 from fast_agent.constants import FAST_AGENT_PTC_VALUE
@@ -104,35 +102,57 @@ def _program_value_meta(raw: Any) -> dict[str, Any] | None:
     return None if value is _NOT_JSON else {FAST_AGENT_PTC_VALUE: value}
 
 
-def _program_value_type(annotation: object, *, top: bool = True) -> bool:
-    """Whether every value of ``annotation`` reaches sandbox code as itself.
+_SCALAR_SCHEMAS: Final = (
+    (bool, "boolean"),
+    (int, "integer"),
+    (float, "number"),
+    (NoneType, "null"),
+    (None, "null"),
+)
 
-    True for JSON types that ``_program_value_meta`` passes through: bool, int, float, None,
-    and lists and str-keyed dicts of those or of str. A ``str`` return, alone or in a union,
-    is parsed when it holds JSON, so it is excluded at the top level.
+
+def _program_value_schema(annotation: object, *, top: bool = True) -> dict[str, Any] | None:
+    """JSON schema of the value sandbox code receives for a return ``annotation``, or None
+    (``Any``) unless every such value passes through ``_program_value_meta`` as itself.
+
+    Recognised: bool, int, float, None, ``list[T]``, ``dict[str, T]`` and unions of those, with
+    ``str`` allowed below the top level; a top-level ``str`` is parsed when it holds JSON.
+    Anything else, including ``Annotated`` (serializers change the schema, not the value) and
+    unparameterised ``List``/``Dict``, is None. The schema is built here, not taken from
+    pydantic, so it describes the raw value.
     """
-    origin, args = get_origin(annotation), get_args(annotation)
-    if origin is Annotated:
-        return _program_value_type(args[0], top=top)
-    if origin in (Union, UnionType):
-        return all(_program_value_type(arg, top=top) for arg in args)
-    if origin is Literal:
-        return all(type(arg) in (bool, int, float, NoneType) for arg in args)
-    if origin is list:
-        return _program_value_type(args[0], top=False)
-    if origin is dict:
-        return args[0] is str and _program_value_type(args[1], top=False)
+    for scalar, schema_type in _SCALAR_SCHEMAS:
+        if annotation is scalar:
+            return {"type": schema_type}
     if annotation is str:
-        return not top
-    return annotation in (bool, int, float, None, NoneType)
+        return None if top else {"type": "string"}
+    origin, args = get_origin(annotation), get_args(annotation)
+    if origin is Union or origin is UnionType:
+        members = [_program_value_schema(arg, top=top) for arg in args]
+        return None if None in members else {"anyOf": members}
+    if origin is list and len(args) == 1:
+        items = _program_value_schema(args[0], top=False)
+        return None if items is None else {"type": "array", "items": items}
+    if origin is dict and len(args) == 2 and args[0] is str:
+        values = _program_value_schema(args[1], top=False)
+        return None if values is None else {"type": "object", "additionalProperties": values}
+    return None
 
 
-def _as_default_tool_result(raw: Any) -> ToolResult:
+@dataclass(slots=True)
+class _ProgramValuePolicy:
+    """Whether calls hand PTC code their raw return; set once the return type is classified,
+    so only tools with a narrowed stub change what PTC code receives."""
+
+    attach: bool = False
+
+
+def _as_default_tool_result(raw: Any, policy: _ProgramValuePolicy) -> ToolResult:
     if isinstance(raw, ToolResult):
         return raw
     if raw is None:
         return ToolResult(content=[])
-    return ToolResult(content=raw, meta=_program_value_meta(raw))
+    return ToolResult(content=raw, meta=_program_value_meta(raw) if policy.attach else None)
 
 
 class DefaultFunctionTool(FunctionTool):
@@ -140,16 +160,18 @@ class DefaultFunctionTool(FunctionTool):
 
     program_returns: dict[str, Any] | None = None
     """JSON schema of the value programmatic (PTC) calls receive, when the return annotation
-    guarantees it (see ``_program_value_type``); None means ``Any``."""
+    guarantees it (see ``_program_value_schema``); None means ``Any``."""
 
 
-def _wrap_default_tool_result(fn: Callable[..., Any]) -> Callable[..., Any]:
+def _wrap_default_tool_result(
+    fn: Callable[..., Any], policy: _ProgramValuePolicy
+) -> Callable[..., Any]:
     if inspect.iscoroutinefunction(fn):
 
         @wraps(fn)
         async def async_wrapped(*args: Any, **kwargs: Any) -> ToolResult:
             raw = await fn(*args, **kwargs)
-            return _as_default_tool_result(raw)
+            return _as_default_tool_result(raw, policy)
 
         _set_signature(async_wrapped, fn)
         return async_wrapped
@@ -161,10 +183,10 @@ def _wrap_default_tool_result(fn: Callable[..., Any]) -> Callable[..., Any]:
 
             async def await_and_wrap() -> ToolResult:
                 awaited = await raw
-                return _as_default_tool_result(awaited)
+                return _as_default_tool_result(awaited, policy)
 
             return await_and_wrap()
-        return _as_default_tool_result(raw)
+        return _as_default_tool_result(raw, policy)
 
     _set_signature(sync_wrapped, fn)
     return sync_wrapped
@@ -184,7 +206,8 @@ def build_default_function_tool(
     preserves normal content rendering while suppressing implicit structured output.
     Explicit ``ToolResult`` returns pass through unchanged.
     """
-    wrapped = _wrap_default_tool_result(fn)
+    policy = _ProgramValuePolicy()
+    wrapped = _wrap_default_tool_result(fn, policy)
     tool = DefaultFunctionTool.from_function(
         wrapped,
         name=name,
@@ -192,9 +215,8 @@ def build_default_function_tool(
         output_schema=None,
     )
     assert isinstance(tool, DefaultFunctionTool)  # from_function builds ``cls``
-    parsed = ParsedFunction.from_function(wrapped, wrap_non_object_output_schema=False)
-    if _program_value_type(parsed.return_type):
-        tool.program_returns = parsed.output_schema
+    tool.program_returns = _program_value_schema(tool.return_type)
+    policy.attach = tool.program_returns is not None
     if metadata:
         current_meta = dict(tool.meta or {})
         current_meta.update(metadata)
