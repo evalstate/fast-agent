@@ -12,10 +12,16 @@ from pathlib import Path
 from typing import Any, Protocol, TypeAlias, cast, runtime_checkable
 
 from fastmcp.tools import FunctionTool, ToolResult
+from fastmcp.tools.function_parsing import ParsedFunction
 
 from fast_agent.agents.agent_types import ScopedFunctionToolConfig
+from fast_agent.constants import FAST_AGENT_PTC_VALUE
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.tools.function_tool_config import FunctionToolSpec
+from fast_agent.tools.invocation_context import (
+    get_local_tool_invocation_context,
+    is_programmatic_tool_call,
+)
 from fast_agent.tools.python_file_loader import (
     PythonCallableLoadMessages,
     load_callable_from_file_spec,
@@ -42,12 +48,51 @@ def _set_signature(wrapper: Callable[..., Any], source: Callable[..., Any]) -> N
     signature_wrapper.__signature__ = inspect.signature(source)
 
 
+def _is_json_value(value: object) -> bool:
+    match value:
+        case None | bool() | int() | float() | str():
+            return True
+        case list():
+            return all(_is_json_value(item) for item in value)
+        case dict():
+            return all(isinstance(key, str) and _is_json_value(item) for key, item in value.items())
+    return False
+
+
+def _program_value_meta(raw: Any) -> dict[str, Any] | None:
+    """Give a programmatic (PTC) call the raw return, so sandbox code gets ``137``, not ``"137"``."""
+    invocation = get_local_tool_invocation_context()
+    if (
+        invocation is None
+        or not is_programmatic_tool_call(invocation.tool_use_id)
+        or not _is_json_value(raw)
+    ):
+        return None
+    return {FAST_AGENT_PTC_VALUE: raw}
+
+
 def _as_default_tool_result(raw: Any) -> ToolResult:
     if isinstance(raw, ToolResult):
         return raw
     if raw is None:
         return ToolResult(content=[])
-    return ToolResult(content=raw)
+    return ToolResult(content=raw, meta=_program_value_meta(raw))
+
+
+class DefaultFunctionTool(FunctionTool):
+    """A function tool with fast-agent's text-only result policy."""
+
+    program_returns: dict[str, Any] | None = None
+    """JSON schema of the raw return value programmatic (PTC) calls receive."""
+
+
+def function_tool_ptc_returns(tool: FunctionTool) -> dict[str, Any] | None:
+    """JSON schema of the value PTC code receives from ``tool``, if its return type gives one.
+
+    Default tools hand PTC code their raw return (see ``_program_value_meta``); other tools
+    return structured content described by their output schema.
+    """
+    return tool.program_returns if isinstance(tool, DefaultFunctionTool) else tool.output_schema
 
 
 def _wrap_default_tool_result(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -83,7 +128,7 @@ def build_default_function_tool(
     name: str | None = None,
     description: str | None = None,
     metadata: dict[str, Any] | None = None,
-) -> FunctionTool:
+) -> DefaultFunctionTool:
     """
     Build a FastMCP FunctionTool with fast-agent's text-only-by-default policy.
 
@@ -91,12 +136,17 @@ def build_default_function_tool(
     preserves normal content rendering while suppressing implicit structured output.
     Explicit ``ToolResult`` returns pass through unchanged.
     """
-    tool = FunctionTool.from_function(
-        _wrap_default_tool_result(fn),
+    wrapped = _wrap_default_tool_result(fn)
+    tool = DefaultFunctionTool.from_function(
+        wrapped,
         name=name,
         description=description,
         output_schema=None,
     )
+    assert isinstance(tool, DefaultFunctionTool)  # from_function builds ``cls``
+    tool.program_returns = ParsedFunction.from_function(
+        wrapped, wrap_non_object_output_schema=False
+    ).output_schema
     if metadata:
         current_meta = dict(tool.meta or {})
         current_meta.update(metadata)

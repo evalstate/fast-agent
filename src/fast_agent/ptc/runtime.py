@@ -877,7 +877,12 @@ class ProgrammaticToolRuntime:
                 function.bind_arguments(kwargs),
                 function_name=function.python_name,
             )
-            return tool_result_to_value(result, self._media, name=function.python_name)
+            return tool_result_to_value(
+                result,
+                self._media,
+                name=function.python_name,
+                unwrap_result=function.unwrap_result,
+            )
 
         return call
 

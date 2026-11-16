@@ -63,6 +63,7 @@ _JSON_SCALAR_TYPES = {
 }
 _MAX_ANNOTATION_DEPTH = 4
 _MAX_RETURNS_CHARS = 1200
+_FASTMCP_WRAP_RESULT = "x-fastmcp-wrap-result"
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +88,8 @@ class PtcFunction:
     returns_shape: str | None = None
     """Compact rendering of the output schema, e.g. ``{id: str, tags?: list[str]}``."""
     builtin: bool = False
+    unwrap_result: bool = False
+    """FastMCP wrapped a non-object return as structured ``{"result": value}``."""
 
     def bind_arguments(self, kwargs: Mapping[str, Any]) -> dict[str, Any]:
         """Map supplied keywords to schema names, preserving explicit null values."""
@@ -296,6 +299,13 @@ def _build_function(tool: Tool, python_name: str, *, describe_bounds: bool) -> P
     accepts_extra = additional is True or isinstance(additional, Mapping)
     returns_schema = options.get("returns")
     output_schema = returns_schema if isinstance(returns_schema, Mapping) else tool.output_schema
+    output_definitions = _definitions(output_schema or {})
+    wrapped = _wrapped_result_schema(output_schema)
+    unwrap_result = wrapped is not None
+    if wrapped is not None:
+        output_schema = wrapped
+    returns = _annotation(output_schema, output_definitions) if output_schema else "Any"
+    returns_shape = _returns_shape(output_schema, output_definitions)
     description = options.get("description")
     return PtcFunction(
         python_name=python_name,
@@ -304,9 +314,19 @@ def _build_function(tool: Tool, python_name: str, *, describe_bounds: bool) -> P
         description=description if isinstance(description, str) else tool.description or "",
         parameters=tuple(parameters),
         accepts_extra=accepts_extra,
-        returns="dict[str, Any]" if output_schema else "Any",
-        returns_shape=_returns_shape(output_schema, _definitions(output_schema or {})),
+        returns=returns,
+        returns_shape=returns_shape if returns_shape != returns else None,
+        unwrap_result=unwrap_result,
     )
+
+
+def _wrapped_result_schema(schema: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+    """The ``result`` schema of a FastMCP-wrapped non-object return, else None."""
+    if not schema or schema.get(_FASTMCP_WRAP_RESULT) is not True:
+        return None
+    properties = schema.get("properties")
+    result = properties.get("result") if isinstance(properties, Mapping) else None
+    return result if isinstance(result, Mapping) else None
 
 
 def _definitions(schema: Mapping[str, Any]) -> Mapping[str, Any]:

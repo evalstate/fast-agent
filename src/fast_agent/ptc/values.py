@@ -83,7 +83,9 @@ class MediaStore:
                 self._collect(item, found, depth=depth + 1)
 
 
-def tool_result_to_value(result: CallToolResult, media: MediaStore, *, name: str) -> Any:
+def tool_result_to_value(
+    result: CallToolResult, media: MediaStore, *, name: str, unwrap_result: bool = False
+) -> Any:
     """Return the tool's program value, structured content, or parsed content blocks.
 
     A program value is the tool's own answer to sandbox code and is returned even for an error
@@ -93,7 +95,8 @@ def tool_result_to_value(result: CallToolResult, media: MediaStore, *, name: str
 
     Structured results with non-text blocks use a ``structured_content``/``content`` envelope
     to preserve the payload without colliding with server-defined fields. Text blocks are
-    superseded by structured content, as in direct tool results.
+    superseded by structured content, as in direct tool results. ``unwrap_result`` returns
+    ``value`` from a FastMCP-wrapped ``{"result": value}``.
     """
     meta = result.meta or {}
     program_value = meta.get(FAST_AGENT_PTC_VALUE)
@@ -104,15 +107,17 @@ def tool_result_to_value(result: CallToolResult, media: MediaStore, *, name: str
         if not isinstance(message, str):
             message = _error_message(_result_text(result))
         raise ToolCallFailed(f"{name}: {message or 'tool call failed'}")
-    if result.structured_content is not None:
+    if (structured := result.structured_content) is not None:
+        if unwrap_result and isinstance(structured, Mapping) and "result" in structured:
+            structured = structured["result"]
         content_values = [
             _content_to_value(block, media)
             for block in result.content
             if not isinstance(block, TextContent)
         ]
         if not content_values:
-            return result.structured_content
-        return {"structured_content": result.structured_content, "content": content_values}
+            return structured
+        return {"structured_content": structured, "content": content_values}
     values = [_content_to_value(block, media) for block in result.content]
     if not values:
         return None

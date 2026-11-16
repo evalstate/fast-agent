@@ -89,7 +89,7 @@ async def test_tools_summary_separates_model_tools_from_code_functions() -> None
 async def test_tools_all_lists_code_function_signatures() -> None:
     rendered = await _tools(_agent(ptc=True), "--all")
 
-    assert "await list_tool(*, source: str = ...) -> Any" in rendered
+    assert "await list_tool(*, source: str = ...) -> str" in rendered
     assert "tool: list" in rendered
     assert "/tools --all" not in rendered
 
@@ -101,7 +101,7 @@ async def test_tools_detail_resolves_code_functions_by_tool_or_python_name(name:
 
     assert "# Tool schema: list" in rendered
     assert f"Callable from `{PTC_TOOL_NAME}` as `await list_tool(...)`" in rendered
-    assert "async def list_tool(*, source: str = ...) -> Any:" in rendered
+    assert "async def list_tool(*, source: str = ...) -> str:" in rendered
 
 
 @pytest.mark.asyncio
