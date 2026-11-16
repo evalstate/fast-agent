@@ -1687,10 +1687,15 @@ class McpAgent(ABC, ToolAgent):
             Result of the tool call
         """
         ptc_runtime = self._programmatic_tool_runtime()
-        if ptc_runtime is not None and name == ptc_runtime.tool_name:
-            return await self._call_ptc_tool(
-                ptc_runtime, arguments or {}, tool_use_id, request_params=request_params
-            )
+        if ptc_runtime is not None:
+            # Refresh the exposed surface even for callers that bypass the model turn.
+            await self.list_tools()
+            if name == ptc_runtime.tool_name:
+                return await self._call_ptc_tool(
+                    ptc_runtime, arguments or {}, tool_use_id, request_params=request_params
+                )
+            if hint := self._unavailable_tool_hint(name):
+                return CallToolResult(content=[TextContent(type="text", text=hint)], is_error=True)
         return await self._dispatch_tool_call(
             name, arguments, tool_use_id, request_params=request_params
         )
@@ -1886,7 +1891,14 @@ class McpAgent(ABC, ToolAgent):
 
     def _unavailable_tool_hint(self, name: str) -> str | None:
         runtime = self._programmatic_tool_runtime()
-        return runtime.unavailable_tool_hint(name) if runtime is not None else None
+        if runtime is None:
+            return None
+        hint = runtime.unavailable_tool_hint(name)
+        if hint is not None or self._handles_tool_locally(name) or name in self._ptc_tool_aliases:
+            return hint
+        # The MCP router also accepts unprefixed aliases. They must not bypass PTC.
+        tool = self._aggregator.tool_catalog().resolve_tool(name)
+        return runtime.unavailable_tool_hint(tool.namespaced_tool_name) if tool else None
 
     async def _call_ptc_tool(
         self,

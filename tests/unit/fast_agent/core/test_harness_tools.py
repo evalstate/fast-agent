@@ -505,11 +505,12 @@ async def test_get_resource_returns_images_as_media_and_slash_command_stays_dire
     )
     assert set_harness_tools(agent, True)
 
-    result = await agent.call_tool(GET_RESOURCE_TOOL_NAME, {"uri": "res://shot"})
+    result = await agent.call_tool(PTC_TOOL_NAME, {"code": "await get_resource(uri='res://shot')"})
     tools = (await agent.list_tools()).tools
 
-    assert [block.type for block in result.content] == ["text", "text", "image"]
-    assert "caption" in (get_text(result.content[0]) or "")
+    assert not result.is_error
+    assert any(block.type == "image" for block in result.content)
+    assert "caption" in str(result.content)
     assert [tool.name for tool in tools] == [PTC_TOOL_NAME, SLASH_COMMAND_TOOL_NAME]
     assert "async def get_resource(" in (tools[0].description or "")
     await agent.shutdown()

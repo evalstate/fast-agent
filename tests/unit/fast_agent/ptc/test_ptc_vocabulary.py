@@ -171,7 +171,10 @@ async def test_canonical_stubs_expose_schema_bounds_and_enums() -> None:
         assert "process(action='wait')" in command.stub
         assert "background=true for servers or services" in command.stub
         result = await agent.call_tool(
-            "shell", {"command": "true", "timeout": MAX_ALIGNED_SHELL_TIMEOUT_SECONDS + 1}
+            "exec_sandbox",
+            {
+                "code": f"await shell(command='true', timeout={MAX_ALIGNED_SHELL_TIMEOUT_SECONDS + 1})"
+            },
         )
         assert result.is_error
         assert f"at most {MAX_ALIGNED_SHELL_TIMEOUT_SECONDS}" in str(result.content)

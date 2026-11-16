@@ -1192,7 +1192,12 @@ async def test_attach_media_from_code_stages_media_and_returns_a_handle_free_val
             PTC_TOOL_NAME, {"code": "await attach_media(source='pixel.png')"}, "call-1"
         )
         staged_from_code = agent._consume_pending_media_attachments()
-        direct = await agent.call_tool("attach_media", {"source": "pixel.png"}, "call-2")
+        rejected = await agent.call_tool("attach_media", {"source": "pixel.png"}, "call-2")
+        assert rejected.is_error and "await attach_media(" in _text(rejected)
+        assert not agent._consume_pending_media_attachments()
+        assert agent.context is not None
+        agent.context.ptc_enabled = False
+        direct = await agent.call_tool("attach_media", {"source": "pixel.png"}, "call-3")
 
         assert not from_code.is_error, _text(from_code)
         assert '"staged": true' in _text(from_code)

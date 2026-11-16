@@ -62,6 +62,27 @@ def test_checker_ignores_other_top_level_tools(history: evals.History) -> None:
     assert evals.nested_tools(history) == []
 
 
+@pytest.mark.parametrize("position", ["before", "alongside", "after"])
+@pytest.mark.parametrize("name", ["orders__list_customers", "orders__get_orders", "read_text_file"])
+def test_case_rejects_direct_calls_even_with_successful_code_path(
+    history: evals.History, position: str, name: str
+) -> None:
+    direct = {"direct": {"params": {"name": name, "arguments": {}}}}
+    if position == "alongside":
+        history[0]["tool_calls"].update(direct)
+    else:
+        history.insert(0 if position == "before" else len(history), {"tool_calls": direct})
+
+    assert evals.batched_orders(history) is None
+    reason = evals.CASES[0].check(history)
+    assert reason is not None and name in reason
+
+
+def test_case_allows_deliberately_direct_slash_command(history: evals.History) -> None:
+    history[0]["tool_calls"]["status"] = {"params": {"name": "slash_command"}}
+    assert evals.CASES[0].check(history) is None
+
+
 def test_batch_dispatches_must_belong_to_the_gather_invocation(history: evals.History) -> None:
     results = history[1]["tool_results"]
     results["other"] = results.pop("batch")

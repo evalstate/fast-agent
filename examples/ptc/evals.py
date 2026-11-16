@@ -48,8 +48,19 @@ class Case:
     prompt: str
     expect: tuple[str, ...]
     """Case-insensitive substrings the final answer must contain."""
-    check: Callable[[History], str | None]
-    """Return a failure reason, or None when the run took the intended path."""
+    path_check: Callable[[History], str | None]
+
+    def check(self, history: History) -> str | None:
+        """Reject direct code-only calls, even when a later script takes the right path."""
+        # This eval's card exposes only the sandbox and harness slash command directly.
+        direct = [
+            name
+            for _, name, _ in tool_calls(history)
+            if name not in {PTC_TOOL_NAME, "slash_command"}
+        ]
+        if direct:
+            return f"code-only tools called directly: {', '.join(direct)}"
+        return self.path_check(history)
 
 
 def tool_calls(history: History) -> list[tuple[str, str, dict[str, Any]]]:
