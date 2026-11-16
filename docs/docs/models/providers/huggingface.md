@@ -337,6 +337,62 @@ Fast-agent does not advertise structured JSON support for `glimmer`. Prompted
 JSON and tool-assisted JSON can succeed, but native Pydantic structured output
 was not reliable in live testing.
 
+## Reflection Beam 1.0
+
+`beam` routes [Reflection Beam 1.0](https://huggingface.co/reflection/Beam-1.0-501B-A23B)
+through the Hugging Face Inference Providers router, served through OpenRouter
+with Nebius as the default upstream:
+
+```bash
+fast-agent --model beam
+fast-agent --model "beam?reasoning=minimal"
+fast-agent --model "hf.reflection/Beam-1.0-501B-A23B:together"
+```
+
+The preset resolves to `hf.reflection/Beam-1.0-501B-A23B:nebius` and does
+not set sampling defaults; the provider's defaults apply. The HF picker lists
+it as `Beam 1.0 (nebius)`. Together uses the same request profile through
+OpenRouter; it is an alternative route, not automatic failover.
+
+Beam supports text input and output only, with a 1,048,576-token context
+window and a 131,072-token output ceiling, including reasoning. Fast-agent
+omits `max_tokens` by default; both tested upstreams enforce the ceiling even
+when a larger value is requested. Use `beam?max_tokens=...` for a smaller
+explicit output cap. Image, PDF, audio and video attachments are not supported
+by fast-agent for this model; unsupported content is removed with a warning.
+
+Reasoning is mandatory. Fast-agent accepts `minimal`, `low`, `medium`, `high`,
+`xhigh` and `max`, sends the value unchanged as top-level `reasoning_effort`,
+and explicitly defaults to `max`. Neither `none` nor off is offered.
+A requested `?reasoning=none` or `?reasoning=off` maps to `minimal`, with a
+one-time logged warning; that warning is not currently shown on the console.
+
+Reasoning is replayed as `reasoning_content` on every turn, including plain
+assistant replies and tool-call turns. A history containing an assistant turn
+without reasoning (for example, from another model) is rejected by the provider
+with an explanatory error identifying the missing reasoning. Switching models
+mid-conversation into Beam is not supported; start a new conversation instead.
+Fast-agent does not insert placeholder reasoning or override the provider's
+requirement. The shared fatal-error path still prints a traceback.
+
+Structured output uses the standard `json_schema` response format, directly
+and with tools; no legacy envelope or separate schema-only final phase is
+required. Programmatic tool calling is off by default. The PTC stage has not
+run for this model; this is not a comparative performance finding.
+
+**Stop-sequence caveat:** stop sequences can match inside Beam's reasoning
+and end a turn with no answer. Fast-agent sends requested stop sequences
+unchanged and retries an empty completion once, but the turn can still fail.
+Provider token usage is recorded; OpenRouter's reported cost is not currently
+exposed as fast-agent `cost_usd`, which remains unknown rather than zero.
+
+Live fast-agent onboarding on November 16, 2026 verified streaming, all six
+reasoning efforts, shell and function tool loops with parallel calls,
+multi-turn reasoning replay, unsupported-media removal, and schema output
+directly and after a tool call through `beam` (Nebius) and
+`hf.reflection/Beam-1.0-501B-A23B:together`. The missing-reasoning error
+explanation was also verified through `beam`.
+
 ## Inkling 2 Small
 
 `inkling` routes [Inkling 2 Small](https://huggingface.co/thinkingmachines/Inkling-2-Small)

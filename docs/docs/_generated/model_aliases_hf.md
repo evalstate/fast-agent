@@ -1,5 +1,6 @@
 | Model Alias | Maps to |
 | --- | --- |
+| `beam` | `hf.reflection/Beam-1.0-501B-A23B:nebius` |
 | `DeepSeek V4.1 Flash (novita)` | `hf.deepseek-ai/DeepSeek-V4.1-Flash:novita` |
 | `deepseek-ai/deepseek-v3.1` | `deepseek-ai/deepseek-v3.1` |
 | `deepseek-ai/deepseek-v3.2` | `deepseek-ai/deepseek-v3.2` |
@@ -57,6 +58,7 @@
 | `qwen35instruct` | `hf.Qwen/Qwen3.5-397B-A17B:novita?temperature=0.7&top_p=0.8&top_k=20&min_p=0.0&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off` |
 | `qwen36` | `hf.Qwen/Qwen3.6-35B-A3B:deepinfra?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0&presence_penalty=0.0&repetition_penalty=1.0&reasoning=on` |
 | `qwen36instruct` | `hf.Qwen/Qwen3.6-35B-A3B:deepinfra?temperature=0.7&top_p=0.8&top_k=20&min_p=0.0&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off` |
+| `reflection/beam-1.0-501b-a23b` | `reflection/beam-1.0-501b-a23b` |
 | `thinkingmachines/inkling-2-small` | `thinkingmachines/inkling-2-small` |
 | `zai-org/glm-5.2` | `zai-org/glm-5.2` |
 | `zai-org/glm-5.3` | `zai-org/glm-5.3` |
