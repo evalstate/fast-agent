@@ -19,18 +19,18 @@ PtcFunctionNames = Literal["canonical", "profile"]
 PTC_SHELL_FUNCTION: Final = "shell"
 PTC_VOCABULARY_VERSION: Final = 1
 PTC_VOCABULARY_META: Final = "fast-agent-ptc-vocabulary"
-PTC_BUILTIN_FUNCTIONS: Final = frozenset(
-    {
-        PTC_SHELL_FUNCTION,
-        "process",
-        "read_text_file",
-        "write_text_file",
-        "edit_file",
-        "subagent",
-        "attach_media",
-        "get_resource",
-    }
+PTC_BUILTIN_ORDER: Final = (
+    PTC_SHELL_FUNCTION,
+    "process",
+    "read_text_file",
+    "write_text_file",
+    "edit_file",
+    "attach_media",
+    "get_resource",
+    "subagent",
 )
+"""Order of built-in functions in the code tool's stubs; other tools follow alphabetically."""
+PTC_BUILTIN_FUNCTIONS: Final = frozenset(PTC_BUILTIN_ORDER)
 
 # ptc-vocab-v0: remove after matched rollout; deliberately not aliases in the stub/type-check surface.
 LEGACY_FUNCTIONS: Final = {
@@ -58,6 +58,15 @@ def is_builtin_tool(tool: Tool) -> bool:
     return tool_source(tool) == SHELL_TOOL_SOURCE or (
         isinstance(metadata, Mapping) and metadata.get("builtin") in {"harness", "subagent"}
     )
+
+
+def function_order(tool: Tool) -> tuple[int, str]:
+    """Sort key: built-ins in ``PTC_BUILTIN_ORDER``, then other built-ins, then the rest by name."""
+    if not is_builtin_tool(tool):
+        return len(PTC_BUILTIN_ORDER) + 1, tool.name
+    if tool.name in PTC_BUILTIN_ORDER:
+        return PTC_BUILTIN_ORDER.index(tool.name), ""
+    return len(PTC_BUILTIN_ORDER), tool.name
 
 
 def legacy_name_hint(detail: str, available: Mapping[str, object]) -> str:

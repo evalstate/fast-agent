@@ -27,6 +27,7 @@ from fast_agent.ptc.stubs import build_functions
 from fast_agent.ptc.vocabulary import (
     LEGACY_FUNCTIONS,
     PTC_BUILTIN_FUNCTIONS,
+    PTC_BUILTIN_ORDER,
     PTC_VOCABULARY_META,
     PTC_VOCABULARY_VERSION,
 )
@@ -106,6 +107,7 @@ async def test_catalog_ptc_contract(model: str, profile: ShellToolProfile) -> No
         surface = await agent.tool_surface()
         functions = {t.python_name: t for t in surface.exposed(ToolExposure.PROGRAMMATIC)}
         assert functions.keys() == PTC_BUILTIN_FUNCTIONS
+        assert list(functions) == list(PTC_BUILTIN_ORDER)
         assert {name: f.signature for name, f in functions.items()} == SIGNATURES
         assert all(t.python_name == t.tool.name for t in functions.values())
         assert surface.programmatic is not None

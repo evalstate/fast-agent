@@ -16,7 +16,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from fast_agent.ptc.store import STORE_FUNCTION_NAMES, STORE_STUBS
-from fast_agent.ptc.vocabulary import is_builtin_tool
+from fast_agent.ptc.vocabulary import function_order, is_builtin_tool
 
 if TYPE_CHECKING:
     from mcp_types import Tool
@@ -186,11 +186,7 @@ def build_functions(
     """
     functions: dict[str, PtcFunction] = {}
     # ptc-vocab-v0: preserve the parent rendering exactly in the comparison arm.
-    ordered = (
-        tools
-        if profile_names
-        else sorted(tools, key=lambda tool: (not is_builtin_tool(tool), tool.name))
-    )
+    ordered = tools if profile_names else sorted(tools, key=function_order)
     for tool in ordered:
         python_name = _unique(_global_identifier(tool.name, reserved_names), functions)
         function = _build_function(tool, python_name)
