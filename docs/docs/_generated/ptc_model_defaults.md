@@ -2,6 +2,9 @@
 
 PTC defaults to **on** for these catalog model IDs, including aliases that resolve to them:
 
+- `gemini-4-argon`
+- `gemini-4-carbon`
+- `gemini-4-hydrogen`
 - `glm-5.3-flash`
 - `gpt-6-astra`
 - `gpt-6-luna`

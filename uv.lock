@@ -1166,7 +1166,7 @@ requires-dist = [
     { name = "fastmcp-slim", extras = ["server"], specifier = "==4.1.3" },
     { name = "filelock", specifier = "==4.2.4" },
     { name = "gepa", marker = "extra == 'gepa'", specifier = ">=0.1.1" },
-    { name = "google-genai", specifier = "==2.33.0" },
+    { name = "google-genai", specifier = "==3.4.0" },
     { name = "huggingface-hub", specifier = "==2.3.0" },
     { name = "jsonschema", specifier = "==4.26.0" },
     { name = "keyring", specifier = "==25.7.0" },
@@ -1430,13 +1430,13 @@ requests = [
 
 [[package]]
 name = "google-genai"
-version = "2.33.0"
+version = "3.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "distro" },
     { name = "google-auth", extra = ["requests"] },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "pydantic" },
     { name = "requests" },
     { name = "sniffio" },
@@ -1444,9 +1444,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/83/a4/b83b378b4a2fbbfb300c3fde0ff9f443f049c33e2accedf06bc0ad9bf393/google_genai-2.33.0.tar.gz", hash = "sha256:fced7f746da45264b34bcf6044a6fcdb91ebad1825e95c324ee48addb6e557ae", size = 758627, upload-time = "2026-10-23T00:06:28.332Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c5/db/1b80f0357e67a226e53560e42b5e5b5534f1b134adb96c5c8476764d8226/google_genai-3.4.0.tar.gz", hash = "sha256:498ff46909743b7c84929a77263a8b5e3cfb030fcf0505eab32aae8d424e2e77", size = 849822, upload-time = "2026-11-16T21:45:13.063Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ba/3b/9ae8e16c5b2177bfdec1c64769a93eea9093de684e0bbb95c10c77645fef/google_genai-2.33.0-py3-none-any.whl", hash = "sha256:f3f8ab696b35caf95c222e05268740c1ccd6934257890506be73b126150d3b14", size = 1222487, upload-time = "2026-10-23T00:06:26.528Z" },
+    { url = "https://files.pythonhosted.org/packages/2b/7a/daed011805af7b3ef07c18d4ea8e9534891c7dfeeac438b0d22361f65e0a/google_genai-3.4.0-py3-none-any.whl", hash = "sha256:1da2cb06b4560e2046d04c0a5c91b3ba0a0b9155e98158b584f3583ad000090d", size = 1403713, upload-time = "2026-11-16T21:45:11.203Z" },
 ]
 
 [[package]]

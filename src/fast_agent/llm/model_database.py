@@ -508,6 +508,19 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value="medium"),
     )
 
+    # https://aistudio.google.com/docs/thinking
+    GOOGLE_GEMINI_4_THINKING_LEVEL_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    GOOGLE_GEMINI_4_HYDROGEN_THINKING_LEVEL_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="high"),
+    )
+
     XAI_GROK_43_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["low", "medium", "high"],
@@ -1084,6 +1097,16 @@ class ModelDatabase:
     # Gemini 3.8 retains the documented 3.7 limits, thinking levels, and Flex support.
     GEMINI_38_FLASH = GEMINI_37_FLASH.model_copy()
 
+    # Gemini 4 shares a unified 1M input/output window. Keep the normal 64K
+    # streaming output cap here; larger outputs require long-decode continuation.
+    # https://aistudio.google.com/docs/models/gemini-4-argon
+    GEMINI_4_STANDARD = GEMINI_38_FLASH.model_copy(
+        update={"reasoning_effort_spec": GOOGLE_GEMINI_4_THINKING_LEVEL_SPEC, "ptc_enabled": True}
+    )
+    GEMINI_4_HYDROGEN = GEMINI_4_STANDARD.model_copy(
+        update={"reasoning_effort_spec": GOOGLE_GEMINI_4_HYDROGEN_THINKING_LEVEL_SPEC}
+    )
+
     GEMINI_2_FLASH = ModelParameters(
         context_window=1_048_576,
         max_output_tokens=8192,
@@ -1617,6 +1640,9 @@ class ModelDatabase:
         "glm-5.3": GLM_5_3,
         "glm-5.3-flash": GLM_5_3_FLASH,
         # Google Gemini Models (vanilla aliases and versioned)
+        "gemini-4-argon": GEMINI_4_STANDARD,
+        "gemini-4-hydrogen": _with_fast(GEMINI_4_HYDROGEN),
+        "gemini-4-carbon": GEMINI_4_STANDARD,
         "gemini-2.0-flash": _with_fast(GEMINI_2_FLASH),
         "gemini-2.5-pro": GEMINI_25_STANDARD,
         "gemini-2.5-flash": _with_fast(GEMINI_25_STANDARD),
@@ -2450,7 +2476,7 @@ ModelDatabase._PROVIDER_MODEL_OVERRIDES.update(
 #     the gateway exposes no Anthropic server-side web tools or beta headers.
 # Unknown models stay unknown.
 def _copilot_route_overrides(spec: CopilotModelSpec) -> dict[str, object]:
-    return {
+    overrides: dict[str, object] = {
         "default_provider": Provider.COPILOT,
         "response_transports": spec.transports,
         "response_websocket_providers": (
@@ -2463,10 +2489,35 @@ def _copilot_route_overrides(spec: CopilotModelSpec) -> dict[str, object]:
         "anthropic_web_fetch_version": None,
         "anthropic_required_betas": None,
     }
+    if spec.wire_api == "chat_completions":
+        # Copilot /models, 2026-11-17: Gemini uses an OpenAI-compatible gateway,
+        # not native Google's thinking, grounding, service tiers or media APIs.
+        efforts: list[ReasoningEffortLevel] = ["low", "medium", "high"]
+        if spec.model_id == "gemini-4-hydrogen":
+            efforts.append("xhigh")
+        overrides.update(
+            context_window=1_000_000 if spec.model_id == "gemini-4-carbon" else 1_048_576,
+            max_output_tokens=64_000 if spec.model_id == "gemini-4-carbon" else 65_536,
+            reasoning="openai",
+            reasoning_effort_spec=ReasoningEffortSpec(kind="effort", allowed_efforts=efforts),
+            google_service_tiers=(),
+            google_search_supported=False,
+            model_specific=None,
+            json_mode=None,
+            tokenizes=[
+                "text/plain",
+                "image/jpeg",
+                "image/png",
+                "image/webp",
+                "image/heic",
+                "image/heif",
+            ],
+        )
+    return overrides
 
 
 COPILOT_ROUTE_OVERRIDE_FIELDS: Final[frozenset[str]] = frozenset(
-    _copilot_route_overrides(next(iter(COPILOT_MODELS.values())))
+    key for spec in COPILOT_MODELS.values() for key in _copilot_route_overrides(spec)
 )
 
 for _copilot_spec in COPILOT_MODELS.values():

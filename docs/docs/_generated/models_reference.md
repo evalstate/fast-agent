@@ -54,6 +54,8 @@
 | `playback` | `fast-agent` | Text | `json` (schema) | — | — | — |
 | `silent` | `fast-agent` | Text | `json` (schema) | — | — | — |
 | `slow` | `fast-agent` | Text | `json` (schema) | — | — | — |
+| `argon` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `argon?reasoning=medium` | — | — |
+| `carbon` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `carbon?reasoning=medium` | — | — |
 | `gemini25` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `auto`, `minimal`, `low`, `medium`, `high`, `off`<br>Example: `gemini25?reasoning=auto` | — | — |
 | `gemini25pro` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `auto`, `minimal`, `low`, `medium`, `high`, `off`<br>Example: `gemini25pro?reasoning=auto` | — | — |
 | `gemini2` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | — | — | — |
@@ -64,6 +66,7 @@
 | `gemini3` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini3?reasoning=medium` | — | — |
 | `gemini3flash` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini3flash?reasoning=medium` | — | — |
 | `gemini` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `gemini?reasoning=medium` | — | — |
+| `hydrogen` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `low`, `medium`, `high`, `xhigh`<br>Example: `hydrogen?reasoning=high` | — | — |
 | `moonshotai/kimi-k2-instruct-0905` | `groq` | Text | `json` (schema) | — | — | — |
 | `moonshotai/kimi-k2-thinking` | `groq` | Text | `json` (schema) | — | — | — |
 | `moonshotai/kimi-k2` | `groq` | Text | `json` (schema) | — | — | — |

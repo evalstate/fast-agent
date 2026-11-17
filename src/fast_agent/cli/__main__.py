@@ -16,6 +16,9 @@ from fast_agent.utils.async_utils import configure_uvloop, ensure_event_loop
 
 _OPTIONS_WITHOUT_VALUES = {
     "--no-home",
+    "--argon",
+    "--hydrogen",
+    "--carbon",
     "--shell",
     "--no-shell",
     "--subagents",
