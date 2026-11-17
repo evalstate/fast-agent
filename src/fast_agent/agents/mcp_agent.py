@@ -1862,6 +1862,8 @@ class McpAgent(ABC, ToolAgent):
         """The session's PTC decision; before an LLM is attached, from the configured model."""
         if self._ptc_decision is None:
             self._ptc_decision = self._decide_ptc(self._llm)
+            if self._llm is not None:
+                self._configure_tool_runtimes(self._llm)
         return self._ptc_decision
 
     def _environment_bound(self) -> None:
@@ -1881,6 +1883,19 @@ class McpAgent(ABC, ToolAgent):
         """Resume a session's PTC setting; falls back to direct tools where it cannot be served."""
         self._restored_ptc = enabled
         self._environment_bound()
+
+    async def clear_session_ptc(self, *, refresh_instruction: bool) -> None:
+        """Drop the previous session's override when starting a new conversation."""
+        if self._restored_ptc is None:
+            return
+        self._restored_ptc = None
+        # A new model may be about to attach. Defer deciding until attachment or
+        # first use so the previous model's policy cannot reject the transition.
+        self._ptc_decision = None
+        if refresh_instruction:
+            from fast_agent.core.instruction_utils import apply_instruction_context
+
+            await apply_instruction_context([self], self.instruction_context)
 
     def _programmatic_tool_runtime(self) -> ProgrammaticToolRuntime | None:
         """Return the PTC runtime when programmatic tool calling is enabled."""
@@ -3229,6 +3244,9 @@ class McpAgent(ABC, ToolAgent):
             (tool, True) for tool in local_tools if not is_builtin_tool(tool)
         ]
         claimed = {tool.name for tool in builtins} | {"exec_sandbox"}
+        # Host dispatch still owns the reader when sandbox open() hides it.
+        if self.has_filesystem_read_text_file_tool:
+            claimed.add(READ_TEXT_FILE_TOOL_NAME)
         occupied = claimed | {tool.name for tool, _ in others}
         aliases: dict[str, _PtcToolAlias] = {}
         merged = list(builtins)

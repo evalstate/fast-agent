@@ -279,7 +279,16 @@ async def test_legacy_names_fail_before_side_effects_with_hint(old: str, tmp_pat
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "name", ["shell", "process", "write_text_file", "subagent", "get_resource", "exec_sandbox"]
+    "name",
+    [
+        "shell",
+        "process",
+        "read_text_file",
+        "write_text_file",
+        "subagent",
+        "get_resource",
+        "exec_sandbox",
+    ],
 )
 async def test_user_collision_preserves_builtin_and_user_dispatch(
     name: str, warnings_recorded: list[Event]
@@ -298,7 +307,8 @@ async def test_user_collision_preserves_builtin_and_user_dispatch(
         install_subagent_tool(agent)
         set_harness_tools(agent, True)
         surface = await agent.tool_surface()
-        assert surface.find(name) is not None
+        # Canonical PTC exposes sandbox open() for the built-in file reader.
+        assert (surface.find(name) is None) == (name == "read_text_file")
         assert surface.find(f"{name}_tool") is not None
         # Let the actual asynchronous logger deliver the scheduled event.
         await asyncio.sleep(0)

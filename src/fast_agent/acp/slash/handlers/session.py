@@ -230,7 +230,7 @@ async def handle_session_new(handler: "SlashCommandHandler", argument: str | Non
         session_id=handler.session_id,
         replace_existing=True,
     )
-    sessions_handlers.apply_session_new_history_reset(ctx, outcome, logger=handler._logger)
+    await sessions_handlers.apply_session_new_history_reset(ctx, outcome, logger=handler._logger)
     return handler._format_outcome_as_markdown(outcome, "session new", io=io)
 
 

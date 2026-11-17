@@ -176,6 +176,11 @@ class SessionHydrator:
         effective_policy = policy or SessionHydrationPolicy()
         state = _HydrationState(warnings=warnings)
 
+        if effective_policy.restore_runtime_state:
+            for name, agent in agents.items():
+                if name not in agent_snapshots and isinstance(agent, PtcSessionAgent):
+                    await agent.clear_session_ptc(refresh_instruction=False)
+
         for agent_name, agent_snapshot in agent_snapshots.items():
             await self._hydrate_agent(
                 session=session,
@@ -451,8 +456,11 @@ class SessionHydrator:
     ) -> None:
         # Before the model, whose attachment decides PTC with the session's own setting.
         restored_ptc = agent_snapshot.ptc_enabled
-        if restored_ptc is not None and isinstance(agent, PtcSessionAgent):
-            agent.restore_ptc(restored_ptc)
+        if isinstance(agent, PtcSessionAgent):
+            if restored_ptc is None:
+                await agent.clear_session_ptc(refresh_instruction=False)
+            else:
+                agent.restore_ptc(restored_ptc)
         await self._restore_agent_model(
             agent=agent,
             agent_name=agent_name,

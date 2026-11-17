@@ -286,6 +286,8 @@ class PtcSessionAgent(PtcSettingProvider, Protocol):
 
     def restore_ptc(self, enabled: bool) -> None: ...
 
+    async def clear_session_ptc(self, *, refresh_instruction: bool) -> None: ...
+
 
 @runtime_checkable
 class PtcStoreProvider(Protocol):

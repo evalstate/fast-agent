@@ -195,14 +195,14 @@ async def handle_create_session(
     return outcome
 
 
-def apply_session_new_history_reset(
+async def apply_session_new_history_reset(
     ctx: CommandContext,
     outcome: CommandOutcome,
     *,
     logger: "Logger | None" = None,
 ) -> None:
     """Clear in-memory histories after starting a new conversation session."""
-    cleared = clear_agent_histories(ctx.agent_provider.registered_agents(), logger)
+    cleared = await clear_agent_histories(ctx.agent_provider.registered_agents(), logger)
     if cleared:
         outcome.add_message(
             f"Cleared agent history: {', '.join(sorted(cleared))}",
