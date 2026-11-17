@@ -256,11 +256,9 @@ class AnthropicConverter:
             # Pass through raw BetaThinkingBlock/BetaRedactedThinkingBlock.
             # These contain signatures or encrypted data needed for API verification.
             if isinstance(thinking_block, BetaThinkingBlock):
-                thinking_blocks.append(
-                    BetaThinkingBlockParam(
-                        type="thinking",
-                        thinking=thinking_block.thinking,
-                        signature=thinking_block.signature,
+                thinking_blocks.extend(
+                    AnthropicConverter._replayable_thinking_blocks(
+                        thinking_block.thinking, thinking_block.signature
                     )
                 )
                 continue
@@ -282,11 +280,9 @@ class AnthropicConverter:
 
             block_type = payload.get("type")
             if block_type == "thinking":
-                thinking_blocks.append(
-                    BetaThinkingBlockParam(
-                        type="thinking",
-                        thinking=payload.get("thinking", ""),
-                        signature=payload.get("signature", ""),
+                thinking_blocks.extend(
+                    AnthropicConverter._replayable_thinking_blocks(
+                        payload.get("thinking", ""), payload.get("signature", "")
                     )
                 )
             elif block_type == "redacted_thinking":
@@ -300,6 +296,27 @@ class AnthropicConverter:
         return thinking_blocks
 
     @staticmethod
+    def _replayable_thinking_blocks(
+        thinking: str,
+        signature: str,
+    ) -> list[BetaContentBlockParam]:
+        """Replay a thinking block, or its text when it was stored without a signature.
+
+        Older releases could persist a thinking block from a stream that was cut before
+        its signature arrived. Anthropic rejects such a block on every later request, so
+        keep the partial reasoning as plain assistant text instead.
+        """
+        if signature:
+            return [BetaThinkingBlockParam(type="thinking", thinking=thinking, signature=signature)]
+        _logger.warning(
+            "Replaying unsigned thinking block as text",
+            data={"thinking_chars": len(thinking)},
+        )
+        if not thinking:
+            return []
+        return [BetaTextBlockParam(type="text", text=thinking)]
+
+    @staticmethod
     def _deserialize_assistant_raw_blocks(
         channels: Mapping[str, Sequence[ContentBlock]],
     ) -> list[BetaContentBlockParam]:
@@ -311,6 +328,11 @@ class AnthropicConverter:
         for block in raw_blocks:
             payload = AnthropicConverter._text_content_json_payload(block)
             if payload is None:
+                continue
+            if payload.get("type") == "thinking" and not payload.get("signature"):
+                deserialized.extend(
+                    AnthropicConverter._replayable_thinking_blocks(payload.get("thinking", ""), "")
+                )
                 continue
 
             normalized = AnthropicConverter._validated_anthropic_content_block(
