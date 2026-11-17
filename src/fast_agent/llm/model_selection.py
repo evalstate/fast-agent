@@ -57,8 +57,10 @@ class ModelSelectionCatalog:
 
     CATALOG_ENTRIES_BY_PROVIDER: ClassVar[dict[Provider, tuple[CatalogModelEntry, ...]]] = {
         Provider.RESPONSES: (
-            _builtin_entry("gpt-6-astra"),
-            _builtin_entry("gpt-6.1-sol"),
+            _builtin_entry("gpt-6.2-astra"),
+            _builtin_entry("gpt-6.2-sol"),
+            _builtin_entry("gpt-6-astra", current=False),
+            _builtin_entry("gpt-6.1-sol", current=False),
             _builtin_entry("gpt-6.1-terra", fast=True),
             _builtin_entry("gpt-6-sol"),
             _builtin_entry("gpt-6-luna", fast=True),
@@ -292,8 +294,10 @@ class ModelSelectionCatalog:
             #            CatalogModelEntry(alias="deepseek31", model="hf.deepseek-ai/DeepSeek-V3.1"),
         ),
         Provider.CODEX_RESPONSES: (
-            _builtin_entry("astra", display_label="GPT-6-Astra"),
-            _builtin_entry("sol", display_label="GPT-6.1-Sol"),
+            _builtin_entry("astra", display_label="GPT-6.2-Astra"),
+            _builtin_entry("sol", display_label="GPT-6.2-Sol"),
+            _builtin_entry("astra6", display_label="GPT-6-Astra", current=False),
+            _builtin_entry("sol61", display_label="GPT-6.1-Sol", current=False),
             _builtin_entry("terra", display_label="GPT-6.1-Terra", fast=True),
             _builtin_entry("sol6", display_label="GPT-6-Sol"),
             _builtin_entry("luna", display_label="GPT-6-Luna", fast=True),

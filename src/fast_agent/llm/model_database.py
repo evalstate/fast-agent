@@ -750,6 +750,15 @@ class ModelDatabase:
     # `none`/`minimal` effort (verified on Codex OAuth and Copilot Responses).
     OPENAI_GPT_61_SOL = OPENAI_GPT_6_ASTRA
 
+    # GPT-6.2 preserves the preceding tool/reasoning contracts, but Flex is unverified.
+    # Keep sent tool results intact: 6.2 drops reasoning after prefix rewrites.
+    OPENAI_GPT_62_ASTRA = OPENAI_GPT_6_ASTRA.model_copy(
+        update={"response_service_tiers": ("fast",), "managed_process_poll_folding": False}
+    )
+    OPENAI_GPT_62_SOL = OPENAI_GPT_61_SOL.model_copy(
+        update={"response_service_tiers": ("fast",), "managed_process_poll_folding": False}
+    )
+
     # Terra supports none through max effort, with medium as the API default.
     # https://developers.openai.com/api/docs/models/gpt-6.1-terra
     OPENAI_GPT_61_TERRA = _with_fast(OPENAI_GPT_6_SOL_LUNA)
@@ -1533,6 +1542,8 @@ class ModelDatabase:
         "gpt-5.6-sol": OPENAI_GPT_56,
         "gpt-5.6-terra": _with_fast(OPENAI_GPT_56),
         "gpt-5.6-luna": _with_fast(OPENAI_GPT_56_LUNA),
+        "gpt-6.2-astra": OPENAI_GPT_62_ASTRA,
+        "gpt-6.2-sol": OPENAI_GPT_62_SOL,
         "gpt-6-astra": OPENAI_GPT_6_ASTRA,
         "gpt-6.1-sol": OPENAI_GPT_61_SOL,
         "gpt-6.1-terra": OPENAI_GPT_61_TERRA,
@@ -1691,6 +1702,8 @@ class ModelDatabase:
         {
             (provider, model): _with_long_context(params, window)
             for model, params in (
+                ("gpt-6.2-astra", OPENAI_GPT_62_ASTRA),
+                ("gpt-6.2-sol", OPENAI_GPT_62_SOL),
                 ("gpt-6-astra", OPENAI_GPT_6_ASTRA),
                 ("gpt-6.1-sol", OPENAI_GPT_61_SOL),
                 ("gpt-6.1-terra", OPENAI_GPT_61_TERRA),
@@ -1703,9 +1716,11 @@ class ModelDatabase:
             )
         }
     )
-    # Codex Responses defaults Astra, GPT-6.1 Sol/Terra and Luna to high effort, and serves
-    # GPT-6.1 Sol with a 500k base window (the opt-in long-context window is unchanged).
+    # Keep the intentional high-effort Codex defaults, including GPT-6.2 successors.
+    # GPT-6.1/6.2 Sol have a 500k base window; their opt-in long window is unchanged.
     for _model, _window in (
+        ("gpt-6.2-astra", None),
+        ("gpt-6.2-sol", 500_000),
         ("gpt-6-astra", None),
         ("gpt-6.1-sol", 500_000),
         ("gpt-6.1-terra", None),

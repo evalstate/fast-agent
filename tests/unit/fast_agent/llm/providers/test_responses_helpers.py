@@ -1029,7 +1029,7 @@ def test_gpt_6_astra_codex_client_meets_minimum_version() -> None:
 
     headers = llm._build_websocket_headers()
 
-    assert headers["User-Agent"].startswith("codex_cli_rs/0.153.0 ")
+    assert headers["User-Agent"].startswith("codex_cli_rs/0.171.0 ")
 
 
 def test_codexresponses_lite_adds_per_request_websocket_metadata() -> None:

@@ -10,9 +10,10 @@ Resuming that history restores the latest key; clearing the conversation creates
 one. Independent LLM instances start with different keys. Other providers keep
 their existing behavior, including xAI Responses.
 
-## Changing Astra effort
+## Changing reasoning effort
 
-For **`gpt-6-astra` in standard, single-agent mode only**, changing reasoning
+For **`gpt-6-astra`, `gpt-6.2-astra`, and `gpt-6.2-sol` on Responses/Codex
+in standard, single-agent mode only**, changing reasoning
 effort preserves the original request-level `reasoning.effort`. Before the next
 user message, fast-agent inserts:
 
@@ -40,13 +41,16 @@ not implement configuration updates for other controls or execution modes.
 
 ## Compaction and overrides
 
-Fast-agent uses summary compaction by default, never `/responses/compact`. After
-replacing or truncating local history, surviving records establish a fresh
+fast-agent uses provider-native checkpoints where supported and enabled, with
+client-side summary compaction as a fallback; it never calls `/responses/compact`.
+After replacing or truncating local history, surviving records establish a fresh
 baseline; if none survive, the current desired effort becomes the baseline. Old
 update positions are never reused against a shortened input array.
 
-Automatic provider compaction and truncation are incompatible with Astra
-configuration updates and are rejected. OpenAI's standalone `/responses/compact`
+fast-agent currently rejects automatic provider compaction and truncation with
+managed configuration updates. The newer API permits automatic compaction with
+updates, but this integration continues to use explicit checkpoints.
+OpenAI's standalone `/responses/compact`
 also rejects histories containing updates. The API separately permits explicit
 `compaction_trigger` items in `/responses`, which fast-agent uses for
 [provider-native checkpoints](compaction.md#openai-provider-native-checkpoints)
@@ -55,11 +59,20 @@ a fresh desired-effort update before the next user message, as the API requires.
 
 `RequestParams.metadata["prompt_cache_key"]` overrides the generated key.
 The latest explicit key remains in use on subsequent turns and resume.
-For Astra, `metadata["reasoning"]["effort"]` selects the **desired** effort, not a
+For these models, `metadata["reasoning"]["effort"]` selects the **desired** effort, not a
 replacement baseline; other reasoning options are retained. Use direct metadata
 for these options, not `extra_body`. `extra_body.model` overrides into or out of
-Astra are rejected. Raw `input` and `previous_response_id` overrides are rejected
-for managed Astra history because they bypass the persisted turn boundaries.
+these models are rejected. Raw `input` and `previous_response_id` overrides are rejected
+for managed configuration-update history because they bypass the persisted turn boundaries.
 WebSocket continuation remains automatic.
 
 See OpenAI's [Change reasoning mid-conversation](https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation).
+
+## GPT-6.2 history preservation
+
+GPT-6.2 may remove encrypted reasoning after edits or insertions before a reasoning
+item, or after changing `safety_identifier`. Appending items or deleting complete
+items does not by itself trigger a prefix mismatch. The provider reports removal
+reasons in `input_transformations`. Local history rewrites and client-side summary
+compaction do not guarantee reasoning preservation; provider-native checkpoints
+are the appropriate option when preservation matters.

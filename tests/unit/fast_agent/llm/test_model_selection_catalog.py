@@ -100,15 +100,15 @@ def test_metaai_muse_aliases_select_the_current_and_contributor_tiers() -> None:
 
 def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() -> None:
     expected = {
-        "astra": "codexresponses.gpt-6-astra?reasoning=high",
-        "sol": "codexresponses.gpt-6.1-sol?reasoning=high",
+        "astra": "codexresponses.gpt-6.2-astra?reasoning=high",
+        "sol": "codexresponses.gpt-6.2-sol?reasoning=high",
         "sol6": "codexresponses.gpt-6-sol?reasoning=medium",
         "luna": "codexresponses.gpt-6-luna?reasoning=high",
         "sol56": "codexresponses.gpt-5.6-sol?reasoning=high",
         "luna56": "codexresponses.gpt-5.6-luna?reasoning=medium",
         "terra": "codexresponses.gpt-6.1-terra?reasoning=high",
         "terra56": "codexresponses.gpt-5.6-terra?reasoning=high",
-        "codexplan": "codexresponses.gpt-6-astra?reasoning=high",
+        "codexplan": "codexresponses.gpt-6.2-astra?reasoning=high",
     }
     entries = {
         entry.alias: entry.model
@@ -128,8 +128,8 @@ def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() ->
 @pytest.mark.parametrize(
     ("name", "model", "codex_effort"),
     [
-        ("astra", "gpt-6-astra", "high"),
-        ("sol", "gpt-6.1-sol", "high"),
+        ("astra", "gpt-6.2-astra", "high"),
+        ("sol", "gpt-6.2-sol", "high"),
         ("terra", "gpt-6.1-terra", "high"),
         ("sol6", "gpt-6-sol", "medium"),
         ("luna", "gpt-6-luna", "high"),
@@ -142,6 +142,33 @@ def test_gpt_6_models_are_available_through_codex_and_api_routes(
     assert BUILTIN_MODEL_ALIASES[model] == f"responses.{model}?reasoning=medium"
     assert name in ModelSelectionCatalog.list_current_aliases(Provider.CODEX_RESPONSES)
     assert model in ModelSelectionCatalog.list_current_aliases(Provider.RESPONSES)
+
+
+@pytest.mark.parametrize(
+    ("provider", "promoted", "previous"),
+    [
+        (Provider.RESPONSES, "gpt-6.2-astra", "gpt-6-astra"),
+        (Provider.RESPONSES, "gpt-6.2-sol", "gpt-6.1-sol"),
+        (Provider.CODEX_RESPONSES, "astra", "astra6"),
+        (Provider.CODEX_RESPONSES, "sol", "sol61"),
+    ],
+)
+def test_gpt_62_picker_promotes_successors_without_removing_predecessors(
+    provider: Provider, promoted: str, previous: str
+) -> None:
+    current = ModelSelectionCatalog.list_current_aliases(provider)
+    assert promoted in current
+    assert previous not in current
+    assert any(
+        entry.alias == previous and entry.model == BUILTIN_MODEL_ALIASES[previous]
+        for entry in ModelSelectionCatalog.list_non_current_entries(provider)
+    )
+
+
+def test_gpt_62_is_not_advertised_on_unconfirmed_copilot_route() -> None:
+    assert not any(
+        "gpt-6.2-" in entry.model for entry in ModelSelectionCatalog.list_entries(Provider.COPILOT)
+    )
 
 
 def test_deepseek_catalog_exposes_native_responses_models() -> None:

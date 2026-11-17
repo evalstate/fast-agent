@@ -151,14 +151,23 @@ def test_huggingface_provider_is_inactive_without_hub_login_or_token(
 
 
 @pytest.mark.parametrize(
-    ("model", "default"),
-    [("astra", "high"), ("codexplan", "high"), ("gpt-6-astra", "medium")],
+    ("model", "model_name", "default"),
+    [
+        ("astra", "gpt-6.2-astra", "high"),
+        ("codexplan", "gpt-6.2-astra", "high"),
+        ("gpt-6.2-astra", "gpt-6.2-astra", "medium"),
+        ("astra6", "gpt-6-astra", "high"),
+        ("gpt-6-astra", "gpt-6-astra", "medium"),
+        ("sol", "gpt-6.2-sol", "high"),
+        ("gpt-6.2-sol", "gpt-6.2-sol", "medium"),
+        ("sol61", "gpt-6.1-sol", "high"),
+    ],
 )
-def test_astra_picker_default_reasoning_by_route(model: str, default: str) -> None:
+def test_astra_picker_default_reasoning_by_route(model: str, model_name: str, default: str) -> None:
     # Codex Responses defaults Astra to high effort; the Responses route keeps medium.
     capabilities = model_capabilities(model)
 
-    assert capabilities.model_name == "gpt-6-astra"
+    assert capabilities.model_name == model_name
     assert capabilities.default_reasoning == f"effort={default}"
     assert "low" in capabilities.reasoning_values
 

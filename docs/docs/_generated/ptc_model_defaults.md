@@ -7,6 +7,8 @@ PTC defaults to **on** for these catalog model IDs, including aliases that resol
 - `gpt-6-luna`
 - `gpt-6.1-sol`
 - `gpt-6.1-terra`
+- `gpt-6.2-astra`
+- `gpt-6.2-sol`
 - `kimi-k3.1-pro`
 - `moonshotai/kimi-k3.1-pro`
 - `zai-org/glm-5.3-flash`
