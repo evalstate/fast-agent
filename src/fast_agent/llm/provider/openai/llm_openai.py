@@ -81,7 +81,7 @@ class EmptyStreamError(RuntimeError):
     """Raised when a response yields no usable assistant completion."""
 
 
-DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+DEFAULT_OPENAI_MODEL = "gpt-6-luna"
 DEFAULT_REASONING_EFFORT = "low"
 OPENAI_FINISH_REASON_MAP: dict[str, LlmStopReason] = {
     "length": LlmStopReason.MAX_TOKENS,

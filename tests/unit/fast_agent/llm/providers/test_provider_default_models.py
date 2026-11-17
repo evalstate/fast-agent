@@ -220,17 +220,19 @@ def test_azure_default_model_overrides_azure_deployment() -> None:
     assert llm.default_request_params.model == "preferred-model"
 
 
-def test_openai_hard_coded_fallback_is_not_deprecated() -> None:
-    # gpt-5-mini shutdown 2026-12-11, gpt-4.1-mini shutdown 2027-01-14 (issue #959).
-    # The fallback must be a model with no published shutdown date.
-    assert DEFAULT_OPENAI_MODEL == "gpt-4o-mini"
+def test_openai_default_model_fallback_is_gpt_6_luna() -> None:
+    # Selection contract only: pins the bare fallback and checks local resolution.
+    # It does not query OpenAI for lifecycle status. gpt-5-mini (shutdown
+    # 2026-12-11), gpt-4.1-mini and gpt-4o-mini (both shutdown 2027-01-14) are
+    # deprecated; gpt-6-luna is OpenAI's named replacement (issue #959).
+    assert DEFAULT_OPENAI_MODEL == "gpt-6-luna"
     llm = OpenAILLM(context=Context(config=Settings()), model="")
-    assert llm.default_request_params.model == "gpt-4o-mini"
+    assert llm.default_request_params.model == "gpt-6-luna"
 
 
-def test_responses_hard_coded_fallback_is_not_deprecated() -> None:
-    # gpt-5.2 is listed as deprecated by OpenAI (issue #959).
-    # The fallback must be a model that is not on the deprecations list.
+def test_responses_default_model_fallback_is_gpt_5_6() -> None:
+    # Selection contract only: pins the bare fallback and checks local resolution.
+    # gpt-5.2 was replaced as the Responses default (issue #959).
     assert DEFAULT_RESPONSES_MODEL == "gpt-5.6"
     llm = ResponsesLLM(context=Context(config=Settings()), model="")
     assert llm.default_request_params.model == "gpt-5.6"
