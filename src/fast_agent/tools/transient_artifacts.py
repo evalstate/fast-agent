@@ -8,12 +8,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.tools.filesystem_tool_definitions import READ_TEXT_FILE_TOOL_NAME
 
 if TYPE_CHECKING:
     from fast_agent.tools.execution_environment import (
         EnvironmentTemporaryArtifacts,
         TemporaryArtifact,
     )
+    from fast_agent.tools.runtime_host import FileReadAccessProvider
 
 TRANSIENT_ARTIFACT_MAX_BYTES = 2 * 1024 * 1024
 TOOL_RESULT_ARTIFACT_MAX_BYTES = 32 * 1024 * 1024
@@ -65,8 +67,9 @@ def format_retained_artifact_notice(
     retained_bytes: int,
     complete: bool,
     description: str,
+    reader: str = READ_TEXT_FILE_TOOL_NAME,
 ) -> str:
-    """Format the shared model-facing locator contract."""
+    """Format the shared model-facing locator contract; ``reader`` names the file reader."""
 
     availability = (
         f"The complete {description} is available during this session at {path}."
@@ -77,7 +80,7 @@ def format_retained_artifact_notice(
         )
     )
     return (
-        f"{availability} Use read_text_file for selected line ranges or run a targeted "
+        f"{availability} Use {reader} for selected line ranges or run a targeted "
         "search against that file; avoid reading the entire file unless necessary."
     )
 
@@ -93,8 +96,14 @@ class TransientArtifactResult:
 class TransientArtifactStore:
     """Track temporary files owned by one parent agent."""
 
-    def __init__(self, environment: EnvironmentTemporaryArtifacts) -> None:
+    def __init__(
+        self,
+        environment: EnvironmentTemporaryArtifacts,
+        *,
+        host: FileReadAccessProvider | None = None,
+    ) -> None:
         self._environment = environment
+        self._host = host
         self._artifacts: list[TemporaryArtifact] = []
         self._lock = asyncio.Lock()
         self._closed = False
@@ -125,6 +134,11 @@ class TransientArtifactStore:
                 retained_bytes=artifact.retained_bytes,
                 complete=artifact.complete,
                 description=description,
+                reader=(
+                    self._host.file_read_access.reader
+                    if self._host is not None
+                    else READ_TEXT_FILE_TOOL_NAME
+                ),
             ),
         )
 

@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from fast_agent.llm.model_info import ModelInfo
-    from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
+    from fast_agent.tools.runtime_host import RuntimeHost
     from fast_agent.types import RequestParams
 
 
@@ -62,8 +62,7 @@ class FilesystemRuntimeBase(ABC):
         enable_attach_media: str | None = "auto",
         attach_media_max_bytes: int = DEFAULT_ATTACH_MEDIA_MAX_BYTES,
         model_info: ModelInfo | None = None,
-        tool_handler_resolver: Callable[[RequestParams | None], ToolExecutionHandler | None]
-        | None = None,
+        host: RuntimeHost | None = None,
     ) -> None:
         self._tracking_source = tracking_source
         self._enable_read = enable_read
@@ -73,12 +72,11 @@ class FilesystemRuntimeBase(ABC):
         self._enable_attach_media = enable_attach_media or "auto"
         self._attach_media_max_bytes = normalize_attach_media_max_bytes(attach_media_max_bytes)
         self._model_info = model_info
-        self._tool_handler_resolver = tool_handler_resolver
+        self._host = host
         self._read_tool = set_tool_source(build_read_text_file_tool(), SHELL_TOOL_SOURCE)
         self._write_tool = set_tool_source(build_write_text_file_tool(), SHELL_TOOL_SOURCE)
         self._apply_patch_tool = set_tool_source(build_apply_patch_tool(), SHELL_TOOL_SOURCE)
         self._edit_file_tool = set_tool_source(build_edit_file_tool(), SHELL_TOOL_SOURCE)
-        self._attach_media_tool = self._build_attach_media_tool()
         self._pending_media_attachments: list[ContentBlock] = []
         self._tool_specs: tuple[FilesystemToolSpec, ...] = (
             FilesystemToolSpec(
@@ -108,7 +106,7 @@ class FilesystemRuntimeBase(ABC):
             FilesystemToolSpec(
                 name=ATTACH_MEDIA_TOOL_NAME,
                 enabled=self._attach_media_enabled,
-                tool=lambda: self._attach_media_tool,
+                tool=self._build_attach_media_tool,
                 handler=self.attach_media,
             ),
         )
@@ -136,13 +134,10 @@ class FilesystemRuntimeBase(ABC):
 
     def set_model_info(self, model_info: ModelInfo | None) -> None:
         self._model_info = model_info
-        self._attach_media_tool = self._build_attach_media_tool()
 
-    def set_tool_handler_resolver(
-        self,
-        resolver: Callable[[RequestParams | None], ToolExecutionHandler | None] | None,
-    ) -> None:
-        self._tool_handler_resolver = resolver
+    def bind(self, host: RuntimeHost) -> None:
+        """Bind to the agent that owns this runtime."""
+        self._host = host
 
     def _build_attach_media_tool(self) -> Tool:
         return set_tool_source(
@@ -150,6 +145,11 @@ class FilesystemRuntimeBase(ABC):
                 supported_attach_media_mime_types(self._model_info),
                 is_google=self._model_uses_google_media_payloads(),
                 max_bytes=self._attach_media_max_bytes,
+                text_reader=(
+                    self._host.file_read_access.reader
+                    if self._host is not None
+                    else READ_TEXT_FILE_TOOL_NAME
+                ),
             ),
             SHELL_TOOL_SOURCE,
         )
@@ -199,9 +199,7 @@ class FilesystemRuntimeBase(ABC):
         ],
     ) -> CallToolResult:
         tool_handler = (
-            self._tool_handler_resolver(request_params)
-            if self._tool_handler_resolver is not None
-            else None
+            self._host.tool_handler_for(request_params) if self._host is not None else None
         )
         tool_call_id: str | None = None
         if tool_handler is not None:

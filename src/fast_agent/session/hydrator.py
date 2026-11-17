@@ -18,6 +18,7 @@ from fast_agent.mcp.prompts.prompt_load import (
 )
 
 from .snapshot import (
+    PtcSessionAgent,
     PtcStoreProvider,
     SessionAgentSnapshot,
     SessionAttachmentRef,
@@ -448,12 +449,27 @@ class SessionHydrator:
         agents: Mapping[str, AgentProtocol],
         warnings: list[SessionHydrationWarning],
     ) -> None:
+        # Before the model, whose attachment decides PTC with the session's own setting.
+        restored_ptc = agent_snapshot.ptc_enabled
+        if restored_ptc is not None and isinstance(agent, PtcSessionAgent):
+            agent.restore_ptc(restored_ptc)
         await self._restore_agent_model(
             agent=agent,
             agent_name=agent_name,
             agent_snapshot=agent_snapshot,
             warnings=warnings,
         )
+        if restored_ptc and isinstance(agent, PtcSessionAgent) and not agent.ptc_enabled:
+            warnings.append(
+                SessionHydrationWarning(
+                    code="ptc-restore-fallback",
+                    message=(
+                        f"Agent {agent_name!r} used programmatic tool calling, which this "
+                        "environment cannot serve; it resumes with direct tools."
+                    ),
+                    agent_name=agent_name,
+                )
+            )
         self._restore_agent_request_settings(agent, agent_name, agent_snapshot, warnings)
         self._restore_agent_capability_mode(agent, agent_name, agent_snapshot, warnings)
         await self._restore_mcp_attachments(agent, agent_name, agent_snapshot, warnings)

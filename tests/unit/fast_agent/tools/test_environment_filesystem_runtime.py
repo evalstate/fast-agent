@@ -28,6 +28,7 @@ from fast_agent.tools.execution_environment import (
     ShellExecutionResult,
     ShellRuntimeInfo,
 )
+from fast_agent.tools.file_read_access import TOOL_FILE_READS
 from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
 from fast_agent.tools.local_shell_executor import LocalEnvironment
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
@@ -833,7 +834,7 @@ async def test_mcp_agent_reads_environment_skills_with_environment_read_tool() -
     # read_text_file tool, so no host-side read_skill fallback is advertised.
     assert "read_text_file" in tool_names
     assert READ_SKILL_TOOL_NAME not in tool_names
-    assert agent.skill_read_tool_name == "read_text_file"
+    assert agent.skill_read_access == TOOL_FILE_READS
 
     read = await agent.call_tool("read_text_file", {"path": str(manifest.path)})
     assert read.is_error is False

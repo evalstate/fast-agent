@@ -35,14 +35,11 @@ from fast_agent.utils.text import split_lines
 from .execution_environment import EnvironmentFilesystemWithBytes
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from mcp_types import CallToolResult
 
     from fast_agent.llm.model_info import ModelInfo
-    from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
     from fast_agent.tools.execution_environment import EnvironmentFilesystem
-    from fast_agent.types import RequestParams
+    from fast_agent.tools.runtime_host import RuntimeHost
 
 
 class EnvironmentFilesystemRuntime(FilesystemRuntimeBase):
@@ -64,8 +61,7 @@ class EnvironmentFilesystemRuntime(FilesystemRuntimeBase):
         enable_attach_media: str | None = "auto",
         attach_media_max_bytes: int = DEFAULT_ATTACH_MEDIA_MAX_BYTES,
         model_info: "ModelInfo | None" = None,
-        tool_handler_resolver: "Callable[[RequestParams | None], ToolExecutionHandler | None]"
-        | None = None,
+        host: "RuntimeHost | None" = None,
     ) -> None:
         self._filesystem = filesystem
         super().__init__(
@@ -77,7 +73,7 @@ class EnvironmentFilesystemRuntime(FilesystemRuntimeBase):
             enable_attach_media=enable_attach_media,
             attach_media_max_bytes=attach_media_max_bytes,
             model_info=model_info,
-            tool_handler_resolver=tool_handler_resolver,
+            host=host,
         )
 
     def _attach_media_enabled(self) -> bool:

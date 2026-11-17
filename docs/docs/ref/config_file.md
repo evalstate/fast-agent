@@ -83,13 +83,15 @@ With local shell access, every model gets the same keyword-only functions:
   `process_id`, and `truncated`.
 - `process(process_id=..., action=..., wait_sec=..., offset=..., limit=..., query=...)`,
   with the existing `list`, `status`, `wait`, `stop`, and `read_output` actions.
-- `read_text_file`, `write_text_file`, and `edit_file`. Model edit preferences and
-  `apply_patch` are direct-mode only. Config `write_text_file_mode: off` still disables
-  writing/editing; `enable_read_text_file: false` still disables reading.
+- `write_text_file` and `edit_file`. Model edit preferences and `apply_patch` are
+  direct-mode only. Config `write_text_file_mode: off` still disables writing/editing.
+- No `read_text_file`: code reads files with `open()`/`pathlib`, and the skills prompt,
+  `attach_media` and retained-output notices say so. Add `read_text_file` to
+  `ptc.direct_tools` to keep it as a direct tool.
 - `subagent`, `attach_media`, and `get_resource` keep their names when enabled.
   The code tool remains `exec_sandbox` (JSON `code` or freeform `input`).
 
-Return values are unchanged, including text/JSON auto-conversion for file reads.
+Return values are unchanged.
 Local Python function tools annotated with a JSON type (`bool`, `int`, `float`, `None`,
 `list[...]`, `dict[str, ...]` and unions of those) give code the value itself (`-> int`
 gives `137`, not `"137"`), and their stubs declare that type. Other annotations, including
@@ -143,6 +145,11 @@ once for `shell`; hooks still see the outer code tool. MCP tools merely named
     `ptc.enabled: true` is rejected. With local shell/filesystem access
     enabled, sandbox file operations access the host working directory directly,
     without tool permission prompts; this is not a filesystem sandbox.
+
+PTC is decided when a session starts and stays fixed for it: when the model is
+attached (including `/model`, which starts a new session) and, for ACP, when the
+client's terminal or filesystem is bound. A resumed session keeps the setting it was
+saved with, falling back to direct tools (with a warning) where it cannot be served.
 
 See the [PTC example](https://github.com/evalstate/fast-agent/tree/main/examples/ptc)
 for a runnable demonstration.

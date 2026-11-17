@@ -15,7 +15,7 @@ import time
 from abc import ABC
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import (
@@ -110,7 +110,7 @@ from fast_agent.mcp.tool_result_truncation import (
     page_read_text_file_result,
 )
 from fast_agent.paths import resolve_home_paths
-from fast_agent.ptc import ProgrammaticToolRuntime
+from fast_agent.ptc import PTC_TOOL_NAME, ProgrammaticToolRuntime
 from fast_agent.ptc.vocabulary import PtcFunctionNames, is_builtin_tool
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
@@ -121,6 +121,12 @@ from fast_agent.tools.elicitation import (
     get_elicitation_tool,
     run_elicitation_form,
     set_elicitation_input_callback,
+)
+from fast_agent.tools.file_read_access import (
+    SKILL_READER_FILE_READS,
+    TOOL_FILE_READS,
+    FileReadAccess,
+    SandboxFileReads,
 )
 from fast_agent.tools.filesystem_tool_definitions import (
     READ_TEXT_FILE_TOOL_NAME,
@@ -207,6 +213,18 @@ class _PtcSelection:
     """Chosen by CLI, model query or config rather than the model database default."""
 
 
+@dataclass(frozen=True, slots=True)
+class _PtcDecision:
+    """Whether a session uses PTC; decided when its model is attached or environment bound."""
+
+    enabled: bool
+    function_names: PtcFunctionNames
+
+    @property
+    def canonical(self) -> bool:
+        return self.enabled and self.function_names == "canonical"
+
+
 if TYPE_CHECKING:
     from a2a.types import AgentCard, AgentSkill
     from rich.text import Text
@@ -254,6 +272,9 @@ class McpAgent(ABC, ToolAgent):
         **kwargs,
     ) -> None:
         self._shell_environment = shell_environment
+        # Decided at session start (LLM attachment or environment binding), then fixed.
+        self._ptc_decision: _PtcDecision | None = None
+        self._restored_ptc: bool | None = None
         super().__init__(
             config=config,
             context=context,
@@ -785,18 +806,34 @@ class McpAgent(ABC, ToolAgent):
         )
 
     @property
-    def skill_read_tool_name(self) -> str:
-        """Return the tool name that should be referenced for reading skill content.
+    def file_read_access(self) -> FileReadAccess:
+        """How the model reads files: sandbox ``open()`` under canonical PTC, else the tool."""
+        return self._sandbox_file_reads() or TOOL_FILE_READS
 
-        Skills are discovered from the active environment filesystem, so the
-        environment ``read_text_file`` tool reads skill paths directly;
-        ``read_skill`` remains the fallback when no read tool is exposed.
-        """
+    @property
+    def skill_read_access(self) -> FileReadAccess:
+        """How the model loads skills; ``read_skill`` is the fallback without a file reader."""
+        if (sandbox := self._sandbox_file_reads()) is not None:
+            return sandbox
         return (
-            READ_TEXT_FILE_TOOL_NAME
-            if self.has_filesystem_read_text_file_tool
-            else READ_SKILL_TOOL_NAME
+            TOOL_FILE_READS if self.has_filesystem_read_text_file_tool else SKILL_READER_FILE_READS
         )
+
+    def _sandbox_file_reads(self) -> SandboxFileReads | None:
+        """Sandbox ``open()`` access when it replaces ``read_text_file``.
+
+        Canonical PTC with the local shell gives sandbox code host file access, unless
+        ``ptc.direct_tools`` keeps ``read_text_file`` as a direct tool.
+        """
+        if not self._shell_runtime_enabled or not self._ptc.canonical:
+            return None
+        assert self._context is not None and self._context.config is not None
+        if any(
+            fnmatch.fnmatchcase(READ_TEXT_FILE_TOOL_NAME, pattern)
+            for pattern in self._context.config.ptc.direct_tools
+        ):
+            return None
+        return SandboxFileReads(code_tool=PTC_TOOL_NAME)
 
     @property
     def initialized(self) -> bool:
@@ -830,7 +867,7 @@ class McpAgent(ABC, ToolAgent):
             aggregator=self._aggregator,
             tool_filters=self.config.tools,
             skill_manifests=resolve_instruction_skill_manifests(self, self._skill_manifests),
-            skill_read_tool_name=self.skill_read_tool_name,
+            skill_read_access=self.skill_read_access,
             context=self._instruction_context,
             source=self._name,
         )
@@ -843,7 +880,7 @@ class McpAgent(ABC, ToolAgent):
         if self._skill_manifests and "{{agentSkills}}" not in self._instruction_template:
             formatted_skills = format_agent_skills(
                 self._skill_manifests,
-                self.skill_read_tool_name,
+                self.skill_read_access,
             )
             if formatted_skills and formatted_skills not in new_instruction:
                 warning_message = f"[dim]Agent '{self._name}' skills are configured but no {{{{agentSkills}}}} in system prompt.[/dim]"
@@ -1003,7 +1040,7 @@ class McpAgent(ABC, ToolAgent):
             else None
         )
         mode = strip_casefold(mode_raw) if isinstance(mode_raw, str) else None
-        if self._canonical_ptc_for(llm):
+        if self._ptc.canonical:
             return ShellEditToolMode.OFF if mode == "off" else ShellEditToolMode.WRITE_TEXT_FILE
         configured_modes = {
             "on": ShellEditToolMode.WRITE_TEXT_FILE,
@@ -1137,7 +1174,7 @@ class McpAgent(ABC, ToolAgent):
                     enable_attach_media=enable_attach_media,
                 )
                 environment_runtime.set_model_info(model_info)
-                environment_runtime.set_tool_handler_resolver(self._get_tool_handler)
+                environment_runtime.bind(self)
                 return
 
             environment_runtime = EnvironmentFilesystemRuntime(
@@ -1148,7 +1185,7 @@ class McpAgent(ABC, ToolAgent):
                 enable_edit_file=edit_flags.edit_file,
                 enable_attach_media=enable_attach_media,
                 model_info=model_info,
-                tool_handler_resolver=self._get_tool_handler,
+                host=self,
             )
             if self._filesystem_runtime is None:
                 self._filesystem_runtime = environment_runtime
@@ -1177,7 +1214,7 @@ class McpAgent(ABC, ToolAgent):
             if working_directory is not None:
                 local_runtime.set_working_directory(working_directory)
             local_runtime.set_model_info(model_info)
-            local_runtime.set_tool_handler_resolver(self._get_tool_handler)
+            local_runtime.bind(self)
             local_runtime.set_enabled_tools(
                 enable_read=enable_read,
                 enable_write=edit_flags.write_text_file,
@@ -1199,7 +1236,7 @@ class McpAgent(ABC, ToolAgent):
             enable_edit_file=edit_flags.edit_file,
             enable_attach_media=enable_attach_media,
             model_info=model_info,
-            tool_handler_resolver=self._get_tool_handler,
+            host=self,
         )
         if self._filesystem_runtime is None:
             self._filesystem_runtime = local_runtime
@@ -1228,7 +1265,7 @@ class McpAgent(ABC, ToolAgent):
     def _validate_llm_attachment(self, llm: FastAgentLLMProtocol) -> None:
         super()._validate_llm_attachment(llm)
         # Reject an unservable PTC selection before the LLM replaces the active one.
-        self._ptc_enabled_for(llm)
+        self._decide_ptc(llm)
         resolved_model = resolve_resolved_model(llm)
         if not isinstance(resolved_model, ResolvedModelSpec):
             return
@@ -1287,6 +1324,11 @@ class McpAgent(ABC, ToolAgent):
                 )
             llm.set_provider_managed_mcp_state(self._provider_managed_mcp_state)
 
+        self._ptc_decision = self._decide_ptc(llm)
+        self._configure_tool_runtimes(llm)
+
+    def _configure_tool_runtimes(self, llm: FastAgentLLMProtocol) -> None:
+        """Apply model- and PTC-dependent settings to the filesystem and shell runtimes."""
         local_runtime = self._local_filesystem_runtime()
         if local_runtime is not None:
             edit_flags = self._shell_edit_tool_flags(llm)
@@ -1331,7 +1373,7 @@ class McpAgent(ABC, ToolAgent):
         )
         self._shell_runtime.set_tool_profile(
             configured_profile,
-            canonical_ptc=self._canonical_ptc_for(llm),
+            canonical_ptc=self._ptc.canonical,
             model_profile=(model_params.shell_tool_profile if model_params is not None else None),
             model_shell_tool_name=(
                 model_params.shell_tool_name if model_params is not None else None
@@ -1427,7 +1469,7 @@ class McpAgent(ABC, ToolAgent):
             process_poll_default_wait_seconds=(shell_settings.process_poll_default_wait_seconds),
             tool_profile=shell_settings.tool_profile,
             model_tool_profile=shell_settings.model_tool_profile,
-            canonical_ptc=self._canonical_ptc_for(),
+            canonical_ptc=self._ptc.canonical,
             model_shell_tool_name=shell_settings.model_shell_tool_name,
             process_poll_max_wait_seconds=shell_settings.process_poll_max_wait_seconds,
             config=config,
@@ -1440,6 +1482,7 @@ class McpAgent(ABC, ToolAgent):
             ),
             durable_process_root=durable_process_root,
             session_id_provider=self._current_shell_session_id,
+            host=self,
         )
         self._shell_runtime_enabled = self._shell_runtime.enabled
         self._bash_tool = self._shell_runtime.tool
@@ -1634,6 +1677,7 @@ class McpAgent(ABC, ToolAgent):
             f"External runtime injected: {type(runtime).__name__}",
             runtime_type=type(runtime).__name__,
         )
+        self._environment_bound()
 
     def set_filesystem_runtime(self, runtime: FilesystemRuntime) -> None:
         """
@@ -1660,11 +1704,12 @@ class McpAgent(ABC, ToolAgent):
             self._filesystem_runtime = runtime
         current_local_runtime = self._local_filesystem_runtime()
         if current_local_runtime is not None:
-            current_local_runtime.set_tool_handler_resolver(self._get_tool_handler)
+            current_local_runtime.bind(self)
         self.logger.info(
             f"Filesystem runtime injected: {type(runtime).__name__}",
             runtime_type=type(runtime).__name__,
         )
+        self._environment_bound()
 
     async def call_tool(
         self,
@@ -1743,6 +1788,9 @@ class McpAgent(ABC, ToolAgent):
     def _ptc_selection(self, llm: FastAgentLLMProtocol | None) -> _PtcSelection:
         """Resolve the PTC policy and whether a user setting, not a model default, chose it."""
         assert self._context is not None and self._context.config is not None
+        if self._restored_ptc is not None:
+            # Not explicit: an environment that cannot serve it falls back to direct tools.
+            return _PtcSelection(self._restored_ptc, explicit=False)
         if self._context.ptc_enabled is not None:
             return _PtcSelection(self._context.ptc_enabled, explicit=True)
         configured = self._context.config.ptc.enabled
@@ -1791,18 +1839,17 @@ class McpAgent(ABC, ToolAgent):
             override = resolve_model_query_overrides(model).ptc_names if model else None
         return override or self._context.config.ptc.function_names
 
-    def _ptc_enabled_for(self, llm: FastAgentLLMProtocol | None) -> bool:
-        """Whether PTC is enabled for ``llm``; raises if explicitly selected but unservable."""
+    def _decide_ptc(self, llm: FastAgentLLMProtocol | None) -> _PtcDecision:
+        """Decide PTC for ``llm`` here; raises if explicitly selected but unservable."""
         if not self._context or not self._context.config:
-            return False
+            return _PtcDecision(enabled=False, function_names="canonical")
         selection = self._ptc_selection(llm)
-        if not selection.enabled:
-            return False
-        if self._ptc_environment_supported():
-            return True
+        decision = _PtcDecision(selection.enabled, self._ptc_function_names(llm))
+        if not selection.enabled or self._ptc_environment_supported():
+            return decision
         if not selection.explicit:
             # A model default must not break environments PTC cannot serve yet.
-            return False
+            return replace(decision, enabled=False)
         raise AgentConfigError(
             "PTC currently supports local POSIX execution only",
             "Use --no-ptc, ptc=off or ptc.enabled: false for ACP-owned, remote, Docker or "
@@ -1810,23 +1857,39 @@ class McpAgent(ABC, ToolAgent):
             "Host-local file access was not enabled.",
         )
 
-    def _canonical_ptc_for(self, llm: FastAgentLLMProtocol | None = None) -> bool:
-        if self._context is None or self._context.config is None:
-            return False
-        return (
-            self._ptc_environment_supported()
-            and self._ptc_selection(llm or self._llm).enabled
-            and self._ptc_function_names(llm) == "canonical"
-        )
+    @property
+    def _ptc(self) -> _PtcDecision:
+        """The session's PTC decision; before an LLM is attached, from the configured model."""
+        if self._ptc_decision is None:
+            self._ptc_decision = self._decide_ptc(self._llm)
+        return self._ptc_decision
+
+    def _environment_bound(self) -> None:
+        """A session start bound another execution environment: decide PTC again."""
+        # If this raises, later use decides (and raises) again rather than keep the old one.
+        self._ptc_decision = None
+        self._ptc_decision = self._decide_ptc(self._llm)
+        if self._llm is not None:
+            self._configure_tool_runtimes(self._llm)
+
+    @property
+    def ptc_enabled(self) -> bool:
+        """Whether this session uses programmatic tool calling."""
+        return self._ptc.enabled
+
+    def restore_ptc(self, enabled: bool) -> None:
+        """Resume a session's PTC setting; falls back to direct tools where it cannot be served."""
+        self._restored_ptc = enabled
+        self._environment_bound()
 
     def _programmatic_tool_runtime(self) -> ProgrammaticToolRuntime | None:
         """Return the PTC runtime when programmatic tool calling is enabled."""
-        if not self._ptc_enabled_for(self._llm):
+        if not self._ptc.enabled:
             return None
         assert self._context is not None and self._context.config is not None
         if self._ptc_runtime is None:
             self._ptc_runtime = ProgrammaticToolRuntime(self._context.config.ptc)
-        self._ptc_runtime.function_names = self._ptc_function_names()
+        self._ptc_runtime.function_names = self._ptc.function_names
         return self._ptc_runtime
 
     def _ptc_environment_supported(self) -> bool:
@@ -1847,7 +1910,6 @@ class McpAgent(ABC, ToolAgent):
                 and runtime.filesystem is self._shell_environment
             )
 
-        acp = self._context.acp if self._context is not None else None
         return not (
             os.name != "posix"
             or (
@@ -1856,10 +1918,6 @@ class McpAgent(ABC, ToolAgent):
             )
             or self._external_runtime is not None
             or not local_filesystem(self._filesystem_runtime)
-            or (
-                acp is not None
-                and (acp.terminal_runtime is not None or acp.filesystem_runtime is not None)
-            )
         )
 
     @property
@@ -1921,7 +1979,7 @@ class McpAgent(ABC, ToolAgent):
         # Local import: the fast_agent.acp package is only needed on this path.
         from fast_agent.acp.tool_call_context import acp_tool_call_context
 
-        tool_handler = self._get_tool_handler(request_params)
+        tool_handler = self.tool_handler_for(request_params)
         acp_call_id: str | None = None
         if tool_handler is not None:
             with suppress(Exception):
@@ -3148,7 +3206,7 @@ class McpAgent(ABC, ToolAgent):
 
     def reserve_ptc_builtin_name(self, name: str) -> bool:
         """Move an installed user function aside before installing a canonical PTC built-in."""
-        if not self._canonical_ptc_for(self._llm):
+        if not self._ptc.canonical:
             return False
         tool = self._execution_tools[name]
         alias = f"{name}_tool"
@@ -3231,13 +3289,19 @@ class McpAgent(ABC, ToolAgent):
     def _filesystem_runtime_tools(self) -> list[Tool]:
         if not self._filesystem_runtime:
             return []
-        return [tool for tool in self._filesystem_runtime.tools if tool is not None]
+        # Sandbox open() replaces read_text_file; decided live, like the guidance naming it.
+        sandbox_reads = self._sandbox_file_reads() is not None
+        return [
+            tool
+            for tool in self._filesystem_runtime.tools
+            if tool is not None and not (sandbox_reads and tool.name == READ_TEXT_FILE_TOOL_NAME)
+        ]
 
     def _skill_reader_fallback_tool(self) -> Tool | None:
         if (
             self._skill_reader
             and self._skill_reader.enabled
-            and self.skill_read_tool_name == READ_SKILL_TOOL_NAME
+            and self.skill_read_access == SKILL_READER_FILE_READS
         ):
             return self._skill_reader.tool
         return None

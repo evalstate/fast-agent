@@ -16,8 +16,9 @@ def build_attach_media_tool(
     *,
     is_google: bool = False,
     max_bytes: int | None = None,
+    text_reader: str = READ_TEXT_FILE_TOOL_NAME,
 ) -> Tool:
-    """Return the shared ``attach_media`` tool definition."""
+    """Return the shared ``attach_media`` tool definition; ``text_reader`` names the file reader."""
     capability_text = "No embedded media MIME types are advertised for the current model."
     if supported_mime_types:
         capability_text = (
@@ -37,8 +38,8 @@ def build_attach_media_tool(
             "media/document URL as multimodal user input for the next model call. "
             f"{capability_text}{size_text}{youtube_text} Convert unsupported image formats to "
             "a supported format and unsupported video to image frames. Do not use this for "
-            "internal:// or MCP resource URIs; use get_resource for those. Use read_text_file "
-            "for plain text/code files."
+            "internal:// or MCP resource URIs; use get_resource for those. "
+            f"Use {text_reader} for plain text/code files."
         ),
         input_schema={
             "type": "object",

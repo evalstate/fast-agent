@@ -60,6 +60,7 @@ from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol, LlmCapablePro
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions
 from fast_agent.mcp.types import McpAgentProtocol
+from fast_agent.tools.file_read_access import SKILL_READER_FILE_READS, FileReadAccess
 from fast_agent.types import RequestParams
 from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
 
@@ -555,7 +556,7 @@ class ACPServerSessionRuntime:
         aggregator = None
         tool_filters = None
         skill_manifests = None
-        skill_read_tool_name = "read_skill"
+        skill_read_access: FileReadAccess = SKILL_READER_FILE_READS
         effective_context = dict(context)
         if isinstance(agent, McpInstructionCapable):
             configured_agent = cast("ConfiguredMcpInstructionCapable", agent)
@@ -565,7 +566,7 @@ class ACPServerSessionRuntime:
                 configured_agent,
                 configured_agent.skill_manifests,
             )
-            skill_read_tool_name = configured_agent.skill_read_tool_name
+            skill_read_access = configured_agent.skill_read_access
             if agent.instruction_context:
                 effective_context = dict(agent.instruction_context)
 
@@ -581,7 +582,7 @@ class ACPServerSessionRuntime:
             aggregator=aggregator,
             tool_filters=tool_filters,
             skill_manifests=skill_manifests,
-            skill_read_tool_name=skill_read_tool_name,
+            skill_read_access=skill_read_access,
             context=effective_context,
             source=agent.name if isinstance(agent, AgentProtocol) else None,
         )

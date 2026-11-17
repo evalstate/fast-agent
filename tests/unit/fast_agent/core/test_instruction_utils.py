@@ -32,6 +32,7 @@ from fast_agent.core.prompt_templates import (
 )
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.tools.execution_environment import ShellRuntimeInfo
+from fast_agent.tools.file_read_access import SKILL_READER_FILE_READS, FileReadAccess
 from fast_agent.tools.local_shell_executor import LocalEnvironment
 
 if TYPE_CHECKING:
@@ -122,8 +123,8 @@ class StubMcpAgent(StubAgent):
         self._instruction_context.update(context)
 
     @property
-    def skill_read_tool_name(self) -> str:
-        return "read_skill"
+    def skill_read_access(self) -> FileReadAccess:
+        return SKILL_READER_FILE_READS
 
 
 class _PromptEnvironment:
