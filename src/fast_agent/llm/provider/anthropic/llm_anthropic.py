@@ -1825,6 +1825,35 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         )
         raise RuntimeError(format_incomplete_tool_call_error(tool_labels))
 
+    @staticmethod
+    def _raise_for_incomplete_anthropic_thinking(
+        model: str,
+        state: _AnthropicStreamState,
+    ) -> None:
+        """A thinking block only gets its signature just before it closes.
+
+        A stream that ends with a thinking block still open was cut short; keeping the
+        unsigned block would make every later request fail signature verification.
+        """
+        if not state.thinking_indices:
+            return
+        logger.error(
+            "Anthropic stream ended inside a thinking block",
+            data={"model": model, "open_thinking_blocks": sorted(state.thinking_indices)},
+        )
+        raise RuntimeError("Streaming ended before a thinking block finished (no signature)")
+
+    @staticmethod
+    def _raise_for_unfinished_anthropic_message(model: str, message: BetaMessage) -> None:
+        """A complete Messages stream always reports a stop_reason in message_delta."""
+        if message.stop_reason is not None:
+            return
+        logger.error(
+            "Anthropic stream ended without a stop_reason",
+            data={"model": model, "message_id": message.id},
+        )
+        raise RuntimeError("Streaming ended before the message finished (no stop_reason)")
+
     async def _final_anthropic_stream_message(
         self,
         stream: _AnthropicMessageStream,
@@ -1888,7 +1917,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                     self._handle_anthropic_message_delta(event, model)
 
             self._raise_for_incomplete_anthropic_tools(model, state)
+            self._raise_for_incomplete_anthropic_thinking(model, state)
             message = await self._final_anthropic_stream_message(stream, model, state)
+            self._raise_for_unfinished_anthropic_message(model, message)
             if message.usage:
                 logger.info(
                     f"Streaming complete - Model: {model}, Input tokens: {message.usage.input_tokens}, Output tokens: {message.usage.output_tokens}"
