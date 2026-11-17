@@ -11,6 +11,7 @@ from mcp_types import (
     BlobResourceContents,
     CallToolRequest,
     CallToolRequestParams,
+    CallToolResult,
     EmbeddedResource,
     ImageContent,
     ResourceLink,
@@ -53,6 +54,8 @@ from fast_agent.llm.provider.openai.openresponses_streaming import (
 from fast_agent.llm.provider.openai.responses import (
     RESPONSE_INCLUDE_WEB_SEARCH_SOURCES,
     ResponsesLLM,
+    _ResponsesCompletionContext,
+    _ResponsesCompletionResult,
 )
 from fast_agent.llm.provider.openai.responses_content import ResponsesContentMixin
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
@@ -68,6 +71,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.mcp.prompt_serialization import load_messages, save_messages
 from fast_agent.mcp.provider_management import (
     ProviderManagedMCPAttachment,
     ProviderManagedMCPState,
@@ -441,9 +445,141 @@ def test_convert_tool_calls_serializes_apply_patch_as_custom_tool_call() -> None
             "type": "custom_tool_call",
             "call_id": "call_patch",
             "name": "apply_patch",
-            "input": ("*** Begin Patch\n*** Add File: hello.txt\n+hello\n*** End Patch"),
+            "input": ("*** Begin Patch\n*** Add File: hello.txt\n+hello\n*** End Patch\n"),
         }
     ]
+
+
+@pytest.mark.parametrize("call_prefix", ["call_", "opaque-"])
+@pytest.mark.parametrize("provider", [Provider.RESPONSES, Provider.CODEX_RESPONSES])
+@pytest.mark.parametrize("raw_input", ["  def hello():\n    print('héllo')\n\n", "", " \t\n"])
+def test_custom_tool_replay_survives_history_load_into_fresh_llm(
+    tmp_path: Path, call_prefix: str, provider: Provider, raw_input: str
+) -> None:
+    original = _build_responses_family_llm(provider)
+    call_ids = [f"{call_prefix}{index}" for index in range(3)]
+    response = Response.model_validate(
+        {
+            "id": "resp_replay",
+            "object": "response",
+            "created_at": 0,
+            "model": "gpt-test",
+            "status": "completed",
+            "parallel_tool_calls": True,
+            "tool_choice": "auto",
+            "tools": [],
+            "output": [
+                {
+                    "type": "custom_tool_call",
+                    "id": "ctc_original",
+                    "call_id": call_ids[0],
+                    "name": "execute",
+                    "input": raw_input,
+                },
+                {
+                    "type": "function_call",
+                    "id": "fc_same_name",
+                    "call_id": call_ids[1],
+                    "name": "execute",
+                    "arguments": json.dumps({"input": raw_input}),
+                },
+                {
+                    "type": "function_call",
+                    "id": "fc_normal",
+                    "call_id": call_ids[2],
+                    "name": "echo",
+                    "arguments": json.dumps({"input": "ordinary argument"}),
+                },
+            ],
+        }
+    )
+    assistant = original._finalize_responses_completion(
+        result=_ResponsesCompletionResult(response, [], []),
+        context=_ResponsesCompletionContext("gpt-test", "sse", "gpt-test", None),
+    )
+    assert assistant.tool_calls is not None
+    assert assistant.tool_calls[call_ids[0]].params.arguments == {"input": raw_input}
+    results = PromptMessageExtended(
+        role="user",
+        tool_results={
+            call_id: CallToolResult(content=[TextContent(type="text", text=f"result {index}")])
+            for index, call_id in enumerate(call_ids)
+        },
+    )
+    history_path = str(tmp_path / "history.json")
+    save_messages([assistant, results], history_path)
+    restored = load_messages(history_path)
+
+    fresh = _build_responses_family_llm(provider)
+    assert not fresh._tool_kind_map
+    assert not fresh._tool_call_id_map
+    items = fresh._convert_extended_messages_to_provider(restored)
+
+    assert len(items) == 6
+    assert items[0] == {
+        "type": "custom_tool_call",
+        "id": "ctc_original",
+        "call_id": call_ids[0],
+        "name": "execute",
+        "input": raw_input,
+    }
+    for index, (item_id, name, arguments) in enumerate(
+        [
+            ("fc_same_name", "execute", {"input": raw_input}),
+            ("fc_normal", "echo", {"input": "ordinary argument"}),
+        ],
+        start=1,
+    ):
+        assert items[index] == {
+            "type": "function_call",
+            "id": item_id,
+            "call_id": call_ids[index],
+            "name": name,
+            "arguments": json.dumps(arguments),
+        }
+    for index, output_type in enumerate(
+        ["custom_tool_call_output", "function_call_output", "function_call_output"]
+    ):
+        assert items[index + 3] == {
+            "type": output_type,
+            "call_id": call_ids[index],
+            "output": f"result {index}",
+        }
+
+
+@pytest.mark.parametrize("tool_name", ["execute", "apply_patch", "server.apply_patch"])
+def test_legacy_tool_history_does_not_infer_custom_kind_from_input(
+    tmp_path: Path, tool_name: str
+) -> None:
+    history = [
+        PromptMessageExtended(
+            role="assistant",
+            tool_calls={
+                "call_legacy": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name=tool_name, arguments={"input": "*** Begin Patch\n*** End Patch"}
+                    ),
+                )
+            },
+        ),
+        PromptMessageExtended(
+            role="user",
+            tool_results={
+                "call_legacy": CallToolResult(content=[TextContent(type="text", text="ok")])
+            },
+        ),
+    ]
+    history_path = str(tmp_path / "legacy.json")
+    save_messages(history, history_path)
+    fresh = _build_responses_family_llm(Provider.RESPONSES)
+
+    items = fresh._convert_extended_messages_to_provider(load_messages(history_path))
+
+    assert [item["type"] for item in items] == ["function_call", "function_call_output"]
+    assert items[0]["name"] == tool_name
+    assert json.loads(items[0]["arguments"]) == {"input": "*** Begin Patch\n*** End Patch"}
+    assert items[1]["call_id"] == "call_legacy"
 
 
 def test_convert_tool_results_serializes_apply_patch_as_custom_tool_call_output() -> None:

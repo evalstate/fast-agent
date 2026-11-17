@@ -21,6 +21,7 @@ from fast_agent.constants import (
     OPENAI_COMPACTION_TRIGGER,
     OPENAI_MCP_LIST_TOOLS_ITEMS,
     OPENAI_REASONING_ENCRYPTED,
+    OPENAI_TOOL_CALL_METADATA,
     REASONING,
 )
 from fast_agent.core.exceptions import (
@@ -1504,8 +1505,14 @@ class ResponsesLLM(
         self._log_chat_finished(model=context.model_name)
         channels = self._responses_reasoning_channels(response, result.streamed_summary)
         stop_reason = self._map_response_stop_reason(response)
+        tool_call_metadata: list[ContentBlock] = []
         tool_calls = (
-            None if stop_reason == LlmStopReason.SAFETY else self._extract_tool_calls(response)
+            None
+            if stop_reason == LlmStopReason.SAFETY
+            else self._extract_tool_calls(response, replay_metadata=tool_call_metadata)
+        )
+        channels = self._add_response_channel(
+            channels, OPENAI_TOOL_CALL_METADATA, tool_call_metadata
         )
         channels, message_phase = self._responses_raw_item_channels(response, channels)
         # end_turn is a provider extension, not a typed SDK Response field.

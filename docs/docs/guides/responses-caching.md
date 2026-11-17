@@ -76,3 +76,14 @@ items does not by itself trigger a prefix mismatch. The provider reports removal
 reasons in `input_transformations`. Local history rewrites and client-side summary
 compaction do not guarantee reasoning preservation; provider-native checkpoints
 are the appropriate option when preservation matters.
+
+## Saved custom-tool calls
+
+New Responses histories retain each tool call's provider IDs and function/custom
+kind in an internal channel. Saving and loading that history into a fresh LLM
+instance preserves custom calls and their result types, including raw input
+whitespace. The metadata is not sent as tool arguments or added to tool schemas.
+
+Older histories without this provenance retain the previous replay behavior;
+fast-agent does not guess a custom-tool type from a tool name or an `input`
+argument, which ordinary function tools can also use.
