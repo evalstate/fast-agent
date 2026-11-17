@@ -24,7 +24,7 @@ from fast_agent.core.instruction import InstructionBuilder
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.common import create_namespaced_name, matches_server_filter
 from fast_agent.skills import SKILLS_DEFAULT
-from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
+from fast_agent.tools.file_read_access import SKILL_READER_FILE_READS, FileReadAccess
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -95,7 +95,7 @@ class McpInstructionCapable(InstructionCapable, Protocol):
     def set_instruction_context(self, context: dict[str, str]) -> None: ...
 
     @property
-    def skill_read_tool_name(self) -> str: ...
+    def skill_read_access(self) -> FileReadAccess: ...
 
 
 class ConfiguredMcpInstructionCapable(McpInstructionCapable, Protocol):
@@ -192,21 +192,21 @@ def format_server_instructions(
 
 def format_agent_skills(
     manifests: Sequence["SkillManifest"],
-    read_tool_name: str = READ_SKILL_TOOL_NAME,
+    read_access: FileReadAccess = SKILL_READER_FILE_READS,
 ) -> str:
     """
     Format skill manifests for inclusion in the instruction.
 
     Args:
         manifests: List of skill manifests
-        read_tool_name: Tool name used to read skill files in prompts
+        read_access: How the model reads skill files
 
     Returns:
         Formatted skills text
     """
     from fast_agent.skills.registry import format_skills_for_prompt
 
-    return format_skills_for_prompt(manifests, read_tool_name=read_tool_name)
+    return format_skills_for_prompt(manifests, read_access=read_access)
 
 
 async def build_instruction(
@@ -215,7 +215,7 @@ async def build_instruction(
     aggregator: "MCPAggregator | None" = None,
     tool_filters: Mapping[str, Sequence[str]] | None = None,
     skill_manifests: Sequence["SkillManifest"] | None = None,
-    skill_read_tool_name: str = READ_SKILL_TOOL_NAME,
+    skill_read_access: FileReadAccess = SKILL_READER_FILE_READS,
     context: Mapping[str, str] | None = None,
     source: str | None = None,
 ) -> str:
@@ -233,7 +233,7 @@ async def build_instruction(
         aggregator: MCP aggregator for fetching server instructions
         tool_filters: The agent's tools: filter applied to rendered server tool names
         skill_manifests: List of skill manifests for {{agentSkills}}
-        skill_read_tool_name: Tool name used to read skill files in prompts
+        skill_read_access: How the model reads skill files, reported by the agent
         context: Additional context values (env, workspaceRoot, etc.)
         source: Optional label for diagnostics (agent name, card, etc.)
 
@@ -261,7 +261,7 @@ async def build_instruction(
     if skill_manifests is not None:
 
         async def resolve_agent_skills() -> str:
-            return format_agent_skills(skill_manifests, skill_read_tool_name)
+            return format_agent_skills(skill_manifests, skill_read_access)
 
         builder.set_resolver("agentSkills", resolve_agent_skills)
 
@@ -382,7 +382,7 @@ async def rebuild_agent_instruction(
                 configured_agent,
                 configured_agent.skill_manifests,
             ),
-            skill_read_tool_name=configured_agent.skill_read_tool_name,
+            skill_read_access=configured_agent.skill_read_access,
             context=build_context,
             source=configured_agent.name,
         )
@@ -397,7 +397,7 @@ async def rebuild_agent_instruction(
 
         if (
             needs_tool_update
-            and configured_agent.skill_read_tool_name == READ_SKILL_TOOL_NAME
+            and configured_agent.skill_read_access == SKILL_READER_FILE_READS
             and isinstance(configured_agent, ToolUpdateNotifyingAgent)
         ):
             try:

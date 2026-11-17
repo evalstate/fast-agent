@@ -98,21 +98,21 @@ def test_metaai_muse_aliases_select_the_current_and_contributor_tiers() -> None:
     }
 
 
-def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() -> None:
+def test_codex_catalog_aliases_resolve_through_the_canonical_runtime_presets() -> None:
     expected = {
-        "astra": "codexresponses.gpt-6-astra?reasoning=high",
-        "sol": "codexresponses.gpt-6.1-sol?reasoning=high",
+        "astra": "codexresponses.gpt-6.2-astra?reasoning=high",
+        "sol": "codexresponses.gpt-6.2-sol?reasoning=high",
         "sol6": "codexresponses.gpt-6-sol?reasoning=medium",
         "luna": "codexresponses.gpt-6-luna?reasoning=high",
         "sol56": "codexresponses.gpt-5.6-sol?reasoning=high",
         "luna56": "codexresponses.gpt-5.6-luna?reasoning=medium",
         "terra": "codexresponses.gpt-6.1-terra?reasoning=high",
         "terra56": "codexresponses.gpt-5.6-terra?reasoning=high",
-        "codexplan": "codexresponses.gpt-6-astra?reasoning=high",
+        "codexplan": "codexresponses.gpt-6.2-astra?reasoning=high",
     }
     entries = {
         entry.alias: entry.model
-        for entry in ModelSelectionCatalog.list_current_entries(Provider.CODEX_RESPONSES)
+        for entry in ModelSelectionCatalog.list_entries(Provider.CODEX_RESPONSES)
         if entry.alias in expected
     }
 
@@ -128,8 +128,8 @@ def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() ->
 @pytest.mark.parametrize(
     ("name", "model", "codex_effort"),
     [
-        ("astra", "gpt-6-astra", "high"),
-        ("sol", "gpt-6.1-sol", "high"),
+        ("astra", "gpt-6.2-astra", "high"),
+        ("sol", "gpt-6.2-sol", "high"),
         ("terra", "gpt-6.1-terra", "high"),
         ("sol6", "gpt-6-sol", "medium"),
         ("luna", "gpt-6-luna", "high"),
@@ -140,8 +140,40 @@ def test_gpt_6_models_are_available_through_codex_and_api_routes(
 ) -> None:
     assert BUILTIN_MODEL_ALIASES[name] == f"codexresponses.{model}?reasoning={codex_effort}"
     assert BUILTIN_MODEL_ALIASES[model] == f"responses.{model}?reasoning=medium"
-    assert name in ModelSelectionCatalog.list_current_aliases(Provider.CODEX_RESPONSES)
-    assert model in ModelSelectionCatalog.list_current_aliases(Provider.RESPONSES)
+    current = name != "sol6"
+    assert (name in ModelSelectionCatalog.list_current_aliases(Provider.CODEX_RESPONSES)) == current
+    assert (model in ModelSelectionCatalog.list_current_aliases(Provider.RESPONSES)) == current
+
+
+@pytest.mark.parametrize(
+    ("provider", "promoted", "previous"),
+    [
+        (Provider.RESPONSES, "gpt-6.2-astra", "gpt-6-astra"),
+        (Provider.RESPONSES, "gpt-6.2-sol", "gpt-6.1-sol"),
+        (Provider.CODEX_RESPONSES, "astra", "astra6"),
+        (Provider.CODEX_RESPONSES, "sol", "sol61"),
+    ],
+)
+def test_gpt_62_picker_promotes_successors_without_removing_predecessors(
+    provider: Provider, promoted: str, previous: str
+) -> None:
+    current = ModelSelectionCatalog.list_current_aliases(provider)
+    assert promoted in current
+    assert previous not in current
+    assert any(
+        entry.alias == previous and entry.model == BUILTIN_MODEL_ALIASES[previous]
+        for entry in ModelSelectionCatalog.list_non_current_entries(provider)
+    )
+
+
+@pytest.mark.parametrize("model", ["gpt-6.2-astra", "gpt-6.2-sol"])
+def test_copilot_gpt_62_picker_entries_resolve_to_sse(model: str) -> None:
+    spec = f"copilot.{model}"
+    assert spec in ModelSelectionCatalog.list_current_models(Provider.COPILOT)
+    resolved = ModelFactory.resolve_model_spec(spec)
+    assert resolved.provider is Provider.COPILOT
+    assert resolved.wire_model_name == model
+    assert resolved.model_config.transport == "sse"
 
 
 def test_deepseek_catalog_exposes_native_responses_models() -> None:
@@ -323,17 +355,15 @@ def test_google_catalog_exposes_curated_and_fast_models() -> None:
     assert ModelSelectionCatalog.list_all_models(Provider.GOOGLE)
 
 
-def test_google_picker_lists_gemini38_flash_first() -> None:
+def test_google_picker_leads_with_the_gemini4_short_aliases() -> None:
     entries = ModelSelectionCatalog.list_entries(Provider.GOOGLE)
     current_entries = [entry for entry in entries if entry.current]
 
-    assert current_entries
-    first = current_entries[0]
-    assert first.alias == "gemini38flash"
-    assert first.model == "google.gemini-3.8-flash"
-    assert first.fast is True
-    assert "$0.75/M input" in (first.description or "")
-    assert "$0.375/M input" in (first.description or "")
+    assert [entry.alias for entry in current_entries[:3]] == ["argon", "hydrogen", "carbon"]
+    legacy_flash = next(entry for entry in entries if entry.alias == "gemini38flash")
+    assert legacy_flash.model == "google.gemini-3.8-flash"
+    assert "$0.75/M input" in (legacy_flash.description or "")
+    assert "$0.375/M input" in (legacy_flash.description or "")
 
 
 def test_catalog_lists_legacy_aliases_when_configured() -> None:
@@ -381,11 +411,13 @@ def test_cross_provider_overlay_alias_does_not_hide_curated_model(tmp_path: Path
             os.environ["FAST_AGENT_HOME"] = previous_home
 
 
-def test_codexresponses_current_entries_use_explicit_transports() -> None:
-    current = ModelSelectionCatalog.list_current_models(Provider.CODEX_RESPONSES)
-    assert "codexresponses.gpt-5.4?reasoning=high" in current
-    assert "codexresponses.gpt-5.5?reasoning=medium" in current
-    assert "codexresponses.gpt-5.3-codex-spark" in current
+@pytest.mark.parametrize(
+    "alias", ["codexplan54", "codexplan55", "codexspark", "sol56", "terra56", "luna56"]
+)
+def test_demoted_codex_aliases_remain_selectable_by_name(alias: str) -> None:
+    assert alias in ModelSelectionCatalog.list_non_current_aliases(Provider.CODEX_RESPONSES)
+    resolved = ModelFactory.resolve_model_spec(alias)
+    assert resolved.model_config == ModelFactory.parse_model_string(BUILTIN_MODEL_ALIASES[alias])
 
 
 def test_openrouter_list_all_models_uses_discovery(monkeypatch) -> None:
@@ -475,7 +507,7 @@ def test_opus_55_picker_defaults_and_limits() -> None:
     anthropic = ModelSelectionCatalog.list_current_models(Provider.ANTHROPIC)
     copilot = ModelSelectionCatalog.list_current_models(Provider.COPILOT)
     assert "claude-opus-5-5" in anthropic
-    assert copilot.index("copilot.claude-opus-5.5") < copilot.index("copilot.claude-opus-5")
+    assert "copilot.claude-opus-5.5" in copilot
     for model in ("claude-opus-5-5", "copilot.claude-opus-5.5"):
         params = ModelDatabase.get_model_params(model)
         assert params is not None
@@ -499,7 +531,7 @@ def test_catalog_entries_resolve_to_known_models() -> None:
 def test_sonnet_55_picker_defaults_and_limits() -> None:
     assert "claude-sonnet-5-5" in ModelSelectionCatalog.list_current_models(Provider.ANTHROPIC)
     copilot = ModelSelectionCatalog.list_current_models(Provider.COPILOT)
-    assert copilot.index("copilot.claude-sonnet-5.5") < copilot.index("copilot.claude-sonnet-5")
+    assert "copilot.claude-sonnet-5.5" in copilot
     for model in ("claude-sonnet-5-5", "copilot.claude-sonnet-5.5"):
         params = ModelDatabase.get_model_params(model)
         assert params is not None

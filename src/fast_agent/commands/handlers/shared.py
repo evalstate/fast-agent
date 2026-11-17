@@ -100,12 +100,12 @@ async def prompt_selection_after_message(
     )
 
 
-def clear_agent_histories(
+async def clear_agent_histories(
     agents: "Mapping[str, object]",
     logger: Logger | None = None,
 ) -> list[str]:
     """
-    Clear in-memory histories for all agents.
+    Clear agent histories and the previous session's PTC setting for a new session.
 
     Args:
         agents: Dictionary mapping agent names to agent instances
@@ -114,12 +114,16 @@ def clear_agent_histories(
     Returns:
         List of agent names that were successfully cleared
     """
+    from fast_agent.session.snapshot import PtcSessionAgent
+
     cleared: list[str] = []
     for name, agent in agents.items():
         if not isinstance(agent, HistoryEditableAgent):
             continue
         try:
             agent.clear()
+            if isinstance(agent, PtcSessionAgent):
+                await agent.clear_session_ptc(refresh_instruction=True)
             cleared.append(name)
         except Exception as exc:
             if logger:

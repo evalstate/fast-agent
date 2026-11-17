@@ -46,6 +46,43 @@ Encrypted reasoning blocks are used to maintain model intelligence between tool 
 The tables below show current recommended aliases for each OpenAI-facing provider path.
 For the complete generated capability reference, see [Models Reference](../models_reference/).
 
+### GPT-6.2 Astra and Sol
+
+`astra` / `codexplan` and `sol` select `codexresponses.gpt-6.2-astra` and
+`codexresponses.gpt-6.2-sol` at `high` reasoning. For API-key access, use
+`gpt62astra` / `gpt62sol`, or the explicit `responses.gpt-6.2-astra` /
+`responses.gpt-6.2-sol` names (default `medium`). These are fast-agent defaults,
+not claims about the provider's omitted-effort default. `astra6` and `sol61`
+retain the preceding Codex models; existing explicit model IDs are unchanged.
+
+Both support `low`, `medium`, `high`, `xhigh`, and `max` reasoning with the
+existing freeform shell/PTC contract. `none` is unsupported. Codex's advertised
+`ultra` delegation mode is not exposed as a standard reasoning effort.
+
+The default context budget is 272,000 tokens, except Codex Sol uses 500,000.
+`?long_context=true` enables 1,050,000 on Responses or 872,000 on Codex.
+Output capacity remains 128,000; Codex does not accept explicit output limits.
+Standard and `service_tier=fast` are available; Flex is not advertised for these
+models in the current pricing docs and is not enabled. Copilot did not list
+either GPT-6.2 model in the catalogue checked on 2026-11-17.
+
+[Published Standard pricing](https://developers.openai.com/api/docs/pricing) per
+million tokens is **$8 / $0.40 / $40** for Astra and **$2 / $0.10 / $10** for Sol
+(input / cached input / output). Above 272,000 input tokens, input and cache
+rates double and output rates increase by 50% for the entire request.
+Cache writes have separate retention-dependent rates. Estimates are maintained
+in the [card-packs price-calculator plugin](https://github.com/fast-agent-ai/card-packs/tree/main/plugins/price-calculator),
+not the core model registry; Codex estimates are API-equivalent, not subscription charges.
+
+GPT-6.2 can discard encrypted reasoning after earlier history is edited or
+`safety_identifier` changes. Keep histories and identifiers stable; fast-agent
+preserves the request-level effort and inserts configuration updates when
+changing effort on these models. Automatic managed-process poll folding is off
+for GPT-6.2 so it does not rewrite already-sent tool results. See [Responses caching](../../guides/responses-caching.md).
+Provider multi-agent, Ultrafast, audio inputs advertised by the Codex Sol
+catalogue, and discounted background completion windows are not enabled by
+this onboarding.
+
 ### Responses models
 
 Use `responses` for OpenAI Responses API models and for using the `flex` service tier or Remote MCP/Connectors.

@@ -8,6 +8,7 @@ if TYPE_CHECKING:
 
     from fast_agent.tools.shell_program_value import ShellStreamCapture
 
+from fast_agent.tools.filesystem_tool_definitions import READ_TEXT_FILE_TOOL_NAME
 from fast_agent.tools.output_truncation import (
     OutputByteWindow,
     format_output_truncation_notice,
@@ -76,6 +77,8 @@ class ShellOutputBuffer:
     retained_output_complete: bool = True
     retained_output_via_process: bool = False
     extended_guidance: bool = False
+    text_file_reader: str = READ_TEXT_FILE_TOOL_NAME
+    """How the retained-output notice names the model's file reader."""
     # Separate stdout/stderr for sandbox code; only set for programmatic shell calls.
     streams: ShellStreamCapture | None = None
 
@@ -252,6 +255,7 @@ class ShellOutputBuffer:
             retained_bytes=self.retained_output_bytes,
             complete=self.retained_output_complete,
             description="output",
+            reader=self.text_file_reader,
         )
         if self.extended_guidance:
             return (

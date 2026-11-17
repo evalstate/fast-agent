@@ -1335,7 +1335,7 @@ async def _dispatch_create_session_command(
         context,
         session_name=payload.session_name,
     )
-    sessions_handlers.apply_session_new_history_reset(context, outcome)
+    await sessions_handlers.apply_session_new_history_reset(context, outcome)
     await emit_command_outcome(context, outcome)
     return result
 

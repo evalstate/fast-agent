@@ -12,10 +12,10 @@ social:
 
 The `copilot` provider uses native GitHub authentication and provides
 direct access to Anthropic models via Messages, and OpenAI and xAI models
-via Responses. GPT models support websockets.
+via Responses, plus Gemini 4 models via Chat Completions. GPT models support websockets.
 
 The native provider sends `Copilot-Integration-Id: copilot-sdk` by default on
-Messages, Responses HTTP/SSE and WebSocket requests. 
+Messages, Chat Completions, Responses HTTP/SSE and WebSocket requests.
 
 ## Setup
 
@@ -108,15 +108,33 @@ not canonical and has no alias; use `copilot.claude-opus-5`.
 | `copilot.gpt-5.6-luna` | Responses |
 | `copilot.gpt-5.6-terra` | Responses |
 | `copilot.gpt-5.6-sol` | Responses |
+| `copilot.gpt-6.2-astra` (`copilot.astra`) | Responses (SSE) |
+| `copilot.gpt-6.2-sol` (`copilot.sol`) | Responses (SSE) |
 | `copilot.gpt-6-astra` | Responses |
 | `copilot.gpt-6.1-sol` | Responses |
 | `copilot.gpt-6.1-terra` | Responses |
 | `copilot.gpt-6-sol` | Responses |
 | `copilot.gpt-6-luna` | Responses |
+| `copilot.gemini-4-argon` | Chat Completions (SSE) |
+| `copilot.gemini-4-carbon` | Chat Completions (SSE) |
+| `copilot.gemini-4-hydrogen` | Chat Completions (SSE) |
 
 Provider identity stays Copilot regardless of wire API; Anthropic/OpenAI API
 keys are not used for these models. The status bar prefixes Copilot model labels
 with `(cp)`; this does not change the model name used in configuration.
+
+## Gemini 4 Chat Completions
+
+The Copilot `/models` catalog confirmed these three exact IDs and their
+`/chat/completions` endpoint on November 17, 2026. Argon and Carbon advertise
+`low`, `medium`, and `high` reasoning effort; Hydrogen also advertises `xhigh`.
+Use, for example, `copilot.gemini-4-hydrogen?reasoning=xhigh`.
+
+This is an OpenAI-compatible gateway route, not the native Google API. Native
+Google thinking configuration, thought-signature replay, Search grounding, and
+service tiers are not enabled through Copilot. No Gemini 4 inference or
+structured-output verification was performed for this addition. Catalog
+availability does not guarantee entitlement for every account.
 
 ## Structured output
 
@@ -255,7 +273,7 @@ threshold compaction.
 
 ## Transport and compatibility
 
-The GPT models default to **WebSockets**, using static curated capability
+GPT-6.2 Astra and Sol use HTTP/SSE. The other GPT models default to **WebSockets**, using static curated capability
 metadata; no remote catalog is required. Select HTTP/SSE explicitly if needed:
 
 ```bash

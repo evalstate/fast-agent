@@ -448,15 +448,21 @@ def test_kimi26instant_alias_sets_instant_sampling_defaults() -> None:
 def test_model_query_transport_websocket_alias():
     config = ModelFactory.parse_model_string("codexplan?transport=ws")
     assert config.provider == Provider.CODEX_RESPONSES
-    assert config.model_name == "gpt-6-astra"
+    assert config.model_name == "gpt-6.2-astra"
     assert config.transport == "websocket"
 
 
-def test_codexplan_resolves_validated_process_poll_folding() -> None:
-    resolved = ModelFactory.resolve_model_spec("codexplan")
+@pytest.mark.parametrize(
+    ("model", "folding"),
+    [("codexplan", False), ("astra", False), ("sol", False), ("astra6", True), ("sol61", True)],
+)
+def test_codex_aliases_preserve_model_specific_process_poll_folding(
+    model: str, folding: bool
+) -> None:
+    resolved = ModelFactory.resolve_model_spec(model)
 
     assert resolved.model_params is not None
-    assert resolved.model_params.managed_process_poll_folding is True
+    assert resolved.model_params.managed_process_poll_folding is folding
 
 
 @pytest.mark.parametrize("provider", ["responses", "codexresponses"])
@@ -1562,7 +1568,7 @@ def test_astra_long_context_query(query: str, expected: bool) -> None:
     config = ModelFactory.parse_model_string(f"astra?{query}")
     assert config.long_context is expected
     assert config.provider == Provider.CODEX_RESPONSES
-    assert config.model_name == "gpt-6-astra"
+    assert config.model_name == "gpt-6.2-astra"
 
 
 @pytest.mark.parametrize("value", ["", "maybe", "2", "1m", "null"])
@@ -1605,6 +1611,10 @@ def test_long_context_false_overrides_preset(default: str) -> None:
         ("codexresponses.gpt-6.1-terra", "high"),
         ("responses.gpt-6.1-terra", "medium"),
         ("luna", "high"),
+        ("codexresponses.gpt-6.2-astra", "high"),
+        ("codexresponses.gpt-6.2-sol", "high"),
+        ("responses.gpt-6.2-astra", "medium"),
+        ("responses.gpt-6.2-sol", "medium"),
         ("codexresponses.gpt-6-astra", "high"),
         ("codexresponses.gpt-6.1-sol", "high"),
         ("codexresponses.gpt-6-luna", "high"),
@@ -1689,9 +1699,13 @@ def test_gpt_6_sol_luna_reasoning_default_and_none(model: str, query: str, expec
     [
         # Sol/Luna share Astra's contract (asserted in test_model_database).
         ("astra", 872_000, 272_000),
+        ("gpt-6.2-astra", 1_050_000, 272_000),
+        ("astra6", 872_000, 272_000),
         ("gpt-6-astra", 1_050_000, 272_000),
         # Codex serves GPT-6.1 Sol with a 500k base window; other routes keep 272k.
         ("sol", 872_000, 500_000),
+        ("gpt-6.2-sol", 1_050_000, 272_000),
+        ("sol61", 872_000, 500_000),
         ("gpt-6.1-sol", 1_050_000, 272_000),
         ("terra", 872_000, 272_000),
         ("gpt-6.1-terra", 1_050_000, 272_000),
@@ -1715,6 +1729,55 @@ def test_astra_long_context_real_llm(model: str, window: int, base: int, query: 
     assert resolved_info is not None
     assert resolved_info.context_window == expected
     assert ("Context window", str(expected), False) in _iter_model_identity_lines(llm)
+
+
+@pytest.mark.parametrize(
+    ("alias", "explicit"),
+    [
+        ("gpt62astra", "responses.gpt-6.2-astra?reasoning=medium"),
+        ("gpt62sol", "responses.gpt-6.2-sol?reasoning=medium"),
+        ("astra", "codexresponses.gpt-6.2-astra?reasoning=high"),
+        ("sol", "codexresponses.gpt-6.2-sol?reasoning=high"),
+        ("codexplan", "codexresponses.gpt-6.2-astra?reasoning=high"),
+        ("astra6", "codexresponses.gpt-6-astra?reasoning=high"),
+        ("sol61", "codexresponses.gpt-6.1-sol?reasoning=high"),
+        ("gpt6astra", "responses.gpt-6-astra?reasoning=medium"),
+        ("gpt61sol", "responses.gpt-6.1-sol?reasoning=medium"),
+    ],
+)
+def test_gpt_62_and_predecessor_alias_resolution(alias: str, explicit: str) -> None:
+    assert ModelFactory.parse_model_string(alias) == ModelFactory.parse_model_string(explicit)
+
+
+@pytest.mark.parametrize("model", ["gpt-6.2-astra", "gpt-6.2-sol"])
+@pytest.mark.parametrize(
+    ("provider", "default"), [("responses", "medium"), ("codexresponses", "high")]
+)
+@pytest.mark.parametrize(
+    "effort", ["none", "off", "minimal", "low", "medium", "high", "xhigh", "max"]
+)
+def test_gpt_62_requests_use_supported_reasoning(
+    model: str, provider: str, default: str, effort: str
+) -> None:
+    agent = LlmAgent(AgentConfig(name="test"), context=Context(config=Settings()))
+    llm = ModelFactory.create_factory(f"{provider}.{model}?reasoning={effort}")(
+        agent, context=agent.context
+    )
+
+    assert isinstance(llm, ResponsesLLM)
+    args = llm._build_response_args(
+        [], RequestParams(model=llm.model_name, system_prompt="instructions"), None
+    )
+    expected = default if effort in {"none", "off"} else "low" if effort == "minimal" else effort
+    assert args["model"] == model
+    assert args["reasoning"]["effort"] == expected
+
+
+@pytest.mark.parametrize("model", ["gpt-6.2-astra", "gpt-6.2-sol"])
+@pytest.mark.parametrize("provider", ["responses", "codexresponses"])
+def test_gpt_62_rejects_delegation_only_ultra_effort(model: str, provider: str) -> None:
+    with pytest.raises(ModelConfigError, match="Invalid reasoning query value"):
+        ModelFactory.parse_model_string(f"{provider}.{model}?reasoning=ultra")
 
 
 def test_long_context_preserves_explicit_context_window_override() -> None:

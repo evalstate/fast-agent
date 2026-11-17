@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     from fast_agent.config import Settings
     from fast_agent.tools.execution_environment import ShellEnvironment, ShellExecutionResult
+    from fast_agent.tools.runtime_host import FileReadAccessProvider
 
 # Import tool progress context for reporting shell execution progress
 from fast_agent.agents.tool_agent import _tool_progress_context
@@ -54,6 +55,7 @@ from fast_agent.tools.execution_environment import (
     ShellRuntimeInfo,
     execute_shell,
 )
+from fast_agent.tools.filesystem_tool_definitions import READ_TEXT_FILE_TOOL_NAME
 from fast_agent.tools.invocation_context import is_programmatic_tool_call
 from fast_agent.tools.local_shell_executor import LocalShellExecutor
 from fast_agent.tools.output_truncation import (
@@ -275,6 +277,7 @@ class ShellRuntime:
         foreground_auto_await_max_seconds: float | None = None,
         durable_process_root: Path | None = None,
         session_id_provider: Callable[[], str | None] | None = None,
+        host: FileReadAccessProvider | None = None,
         canonical_ptc: bool = False,
     ) -> None:
         self._working_directory = str(working_directory) if working_directory is not None else None
@@ -305,6 +308,7 @@ class ShellRuntime:
         self._minimal_shell_tool_name = minimal_shell_tool_name
         self._minimal_shell_tool_requires_description = minimal_shell_tool_requires_description
         self._extended_guidance = extended_guidance
+        self._host = host
         self._managed_processes: dict[str, ManagedShellProcess] = {}
         self._durable_process_store: DurableProcessStore | None = None
         if durable_process_root is not None and isinstance(self._environment, LocalShellExecutor):
@@ -1554,6 +1558,13 @@ class ShellRuntime:
     def _uses_unified_process_profile(self) -> bool:
         return self._minimal_process_profile or self._grok_shell_profile or self._luna_exec_profile
 
+    def _text_file_reader(self) -> str:
+        return (
+            self._host.file_read_access.reader
+            if self._host is not None
+            else READ_TEXT_FILE_TOOL_NAME
+        )
+
     def set_max_process_poll_seconds(self, value: int) -> None:
         """Set the effective wait ceiling; set_tool_profile rebuilds the tool schemas."""
         self._max_process_poll_seconds = value
@@ -1818,6 +1829,7 @@ class ShellRuntime:
             retained_output_max_bytes=self._retained_output_max_bytes,
             retained_output_via_process=self._retained_output_via_process,
             extended_guidance=self._extended_guidance,
+            text_file_reader=self._text_file_reader(),
         )
         display_state = self._build_display_state(
             defer_display_to_tool_result=defer_display_to_tool_result,
@@ -1869,6 +1881,7 @@ class ShellRuntime:
             retained_output_max_bytes=self._retained_output_max_bytes,
             retained_output_via_process=self._retained_output_via_process,
             extended_guidance=self._extended_guidance,
+            text_file_reader=self._text_file_reader(),
             streams=streams or ShellStreamCapture(limit=output_byte_limit),
         )
         display_state = self._build_display_state(

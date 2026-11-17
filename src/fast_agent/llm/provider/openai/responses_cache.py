@@ -16,8 +16,10 @@ from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 CACHE_STATE_CHANNEL = "fast-agent-responses-cache-state"
-# The model whose reasoning effort is changed with configuration updates.
+# Copilot checkpoint replay remains limited to the previously verified Astra route.
 ASTRA_MODEL = "gpt-6-astra"
+# Verified Responses/Codex models supporting prefix-preserving effort updates.
+EFFORT_UPDATE_MODELS = (ASTRA_MODEL, "gpt-6.2-astra", "gpt-6.2-sol")
 
 
 class ResponsesCacheState(BaseModel):
@@ -71,11 +73,11 @@ def prepare_cached_request(
     if (
         isinstance(extra, dict)
         and "model" in extra
-        and (model == ASTRA_MODEL or extra["model"] == ASTRA_MODEL)
+        and (model in EFFORT_UPDATE_MODELS or extra["model"] in EFFORT_UPDATE_MODELS)
     ):
         raise ModelConfigError("Set model directly in metadata, not extra_body")
     effort = None
-    if model == ASTRA_MODEL:
+    if model in EFFORT_UPDATE_MODELS:
         validate_cache_overrides(metadata)
         effort = requested_astra_effort(params, default_effort)
     items, state, baseline = prepare_cached_input(
@@ -104,7 +106,7 @@ def prepare_cached_input(
 ) -> tuple[list[dict[str, Any]], ResponsesCacheState, str | None]:
     """Replay effort at user boundaries, using surviving history as the baseline.
 
-    Only Astra callers supply effort. Tool-result continuations keep the current
+    Only models supporting configuration updates supply effort. Tool-result continuations keep the current
     effective effort; a setting change takes effect at the next user message.
     """
     states = [read_cache_state(message) for message in messages]

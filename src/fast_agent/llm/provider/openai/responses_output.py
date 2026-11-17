@@ -281,7 +281,9 @@ class ResponsesOutputMixin:
     ) -> TurnUsage:
         return usage_from_openai_responses(usage, provider=provider, model=model)
 
-    def _extract_tool_calls(self, response: Any) -> dict[str, CallToolRequest] | None:
+    def _extract_tool_calls(
+        self, response: Any, *, replay_metadata: list[ContentBlock] | None = None
+    ) -> dict[str, CallToolRequest] | None:
         tool_calls: dict[str, CallToolRequest] = {}
         duplicate_call_ids: list[str] = []
         duplicate_call_names: dict[str, str] = {}
@@ -329,6 +331,15 @@ class ResponsesOutputMixin:
                 tool_kind_map=tool_kind_map,
                 seen_tool_call_ids=seen_tool_call_ids,
             )
+            if replay_metadata is not None:
+                metadata = {
+                    "tool_use_id": tool_use_id,
+                    "type": item_type,
+                    "call_id": call_id,
+                }
+                if item_id is not None:
+                    metadata["id"] = item_id
+                replay_metadata.append(text_content(json.dumps(metadata)))
             tool_calls[tool_use_id] = CallToolRequest(
                 method="tools/call",
                 params=CallToolRequestParams(name=name, arguments=arguments),

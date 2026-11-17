@@ -252,6 +252,38 @@ async def test_session_shell_restoration_respects_runtime_and_workspace(
 
 
 @pytest.mark.asyncio
+async def test_resume_legacy_snapshot_after_ptc_fallback(tmp_path: Path) -> None:
+    from unittest.mock import Mock
+
+    from acp import AgentSideConnection
+
+    from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+    from fast_agent.config import Settings
+    from fast_agent.ptc import PTC_TOOL_NAME
+
+    manager = SessionManager(cwd=tmp_path, home_override=tmp_path / ".fast-agent")
+    session = manager.create_session()
+    snapshot = session.load_snapshot()
+    snapshot.continuation.agents["worker"] = SessionAgentSnapshot(model_spec="passthrough?ptc=off")
+    _write_snapshot(session, snapshot)
+    agent = McpAgent(AgentConfig("worker", skills=[]), context=Context(config=Settings()))
+    try:
+        agent.restore_ptc(True)
+        await agent.attach_llm(ModelFactory.create_factory("passthrough?ptc=on"))
+        agent.set_external_runtime(ACPTerminalRuntime(Mock(spec=AgentSideConnection), "s", "t"))
+
+        result = await SessionHydrator().hydrate_session(
+            session=session, agents={"worker": agent}, fallback_agent_name="worker"
+        )
+        assert not result.warnings
+        assert agent.config.model == "passthrough?ptc=off"
+        agent.set_external_runtime(None)
+        assert PTC_TOOL_NAME not in {tool.name for tool in (await agent.list_tools()).tools}
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_hydrator_rejects_non_resumable_execution_session(tmp_path: Path) -> None:
     manager = SessionManager(
         cwd=tmp_path,

@@ -65,6 +65,12 @@ class HistoryAgent:
 
         return self.agent.ptc_store if isinstance(self.agent, PtcStoreProvider) else None
 
+    @property
+    def ptc_enabled(self) -> bool | None:
+        from fast_agent.session.snapshot import PtcSettingProvider
+
+        return self.agent.ptc_enabled if isinstance(self.agent, PtcSettingProvider) else None
+
     def list_attached_mcp_servers(self) -> list[str]:
         if isinstance(self.agent, _AttachedMcpServerProvider):
             return self.agent.list_attached_mcp_servers()

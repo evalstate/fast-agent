@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import secrets
 from collections.abc import Mapping
 from contextlib import suppress
@@ -95,6 +96,7 @@ def _google_thinking_effort_config(effort: str) -> tuple[int | None, str | None]
         "low": "LOW",
         "medium": "MEDIUM",
         "high": "HIGH",
+        "xhigh": "XHIGH",
     }
     level = level_map.get(effort)
     if level is not None:
@@ -105,6 +107,7 @@ def _google_thinking_effort_config(effort: str) -> tuple[int | None, str | None]
 @dataclass(slots=True)
 class _GoogleTextTimelineEntry:
     text: str
+    thought_signature: bytes | None = None
 
 
 @dataclass(slots=True)
@@ -120,7 +123,7 @@ class _GoogleToolTimelineEntry:
 
 @dataclass(slots=True)
 class _GoogleSignatureTimelineEntry:
-    thought_signature: bytes
+    part: types.Part
 
 
 @dataclass(slots=True)
@@ -334,7 +337,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             (thinking_budget, thinking_level) tuple where:
             - thinking_budget: None if not configured, 0 to disable, -1 for auto,
               or a positive token count for explicit budgets.
-            - thinking_level: SDK ThinkingLevel name (MINIMAL/LOW/MEDIUM/HIGH)
+            - thinking_level: SDK ThinkingLevel name (MINIMAL/LOW/MEDIUM/HIGH/XHIGH)
               when an effort level is selected, None otherwise.
         """
         setting = self.reasoning_effort
@@ -416,7 +419,11 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
     ) -> types.HttpOptions | None:
         base_url = self._base_url()
         headers = self._default_headers()
-        api_version: str | None = None
+        # SDK 3 defaults to v1. Keep preview models and beta features working,
+        # but let the SDK interpret explicit overrides (including 'beta').
+        api_version = None
+        if not vertex_enabled and not os.environ.get("GOOGLE_GENAI_API_VERSION"):
+            api_version = "v1beta"
         timeout: int | None = None
         if service_tier == "flex":
             timeout = round(
@@ -575,13 +582,19 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
     def _append_google_text_timeline(
         timeline: list[GoogleTimelineEntry],
         text: str,
+        thought_signature: bytes | None = None,
     ) -> None:
         if not text:
             return
-        if timeline and isinstance(timeline[-1], _GoogleTextTimelineEntry):
+        if (
+            timeline
+            and isinstance(timeline[-1], _GoogleTextTimelineEntry)
+            and timeline[-1].thought_signature is None
+            and thought_signature is None
+        ):
             timeline[-1].text += text
             return
-        timeline.append(_GoogleTextTimelineEntry(text=text))
+        timeline.append(_GoogleTextTimelineEntry(text=text, thought_signature=thought_signature))
 
     @staticmethod
     def _append_google_reasoning_timeline(
@@ -594,7 +607,8 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         if (
             timeline
             and isinstance(timeline[-1], _GoogleReasoningTimelineEntry)
-            and timeline[-1].thought_signature == thought_signature
+            and timeline[-1].thought_signature is None
+            and thought_signature is None
         ):
             timeline[-1].text += text
             return
@@ -698,7 +712,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         tool_buffers: dict[str, _GoogleToolBuffer],
     ) -> types.Part | None:
         if isinstance(entry, _GoogleTextTimelineEntry):
-            return types.Part.from_text(text=entry.text)
+            return types.Part(text=entry.text, thought_signature=entry.thought_signature)
         if isinstance(entry, _GoogleReasoningTimelineEntry):
             return types.Part(
                 text=entry.text,
@@ -706,7 +720,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 thought_signature=entry.thought_signature,
             )
         if isinstance(entry, _GoogleSignatureTimelineEntry):
-            return types.Part(text="", thought_signature=entry.thought_signature)
+            return entry.part
 
         tool_buffer = tool_buffers.get(entry.tool_use_id)
         if tool_buffer is None:
@@ -775,11 +789,11 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         state: _GoogleStreamState,
         part: types.Part,
     ) -> None:
-        text = getattr(part, "text", None) or ""
+        text = part.text or ""
         if not text:
             return
 
-        if getattr(part, "thought", False):
+        if part.thought:
             self._notify_stream_listeners(StreamChunk(text=text, is_reasoning=True))
             self._append_google_reasoning_timeline(
                 state.timeline,
@@ -788,7 +802,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             )
             return
 
-        self._append_google_text_timeline(state.timeline, text)
+        self._append_google_text_timeline(state.timeline, text, part.thought_signature)
         state.estimated_tokens = self._emit_stream_text_delta(
             text=text,
             model=state.model,
@@ -800,9 +814,21 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         state: _GoogleStreamState,
         part: types.Part,
     ) -> None:
-        function_call = getattr(part, "function_call", None)
+        function_call = part.function_call
         if function_call is None:
             return
+
+        if state.active_tool_index is not None:
+            active_tool = state.tracker.resolve_open(index=state.active_tool_index)
+            # Full calls without IDs are separate parts, even when names match.
+            # Calls with IDs may instead be cumulative argument updates.
+            starts_new_call = (
+                function_call.id is not None
+                and active_tool is not None
+                and function_call.id != active_tool.tool_use_id
+            ) or (function_call.id is None and function_call.name is not None)
+            if starts_new_call:
+                self._close_google_active_tool(state)
 
         if state.active_tool_index is None:
             state.active_tool_index = state.tool_counter
@@ -812,8 +838,8 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 tool_buffers=state.tool_buffers,
                 timeline=state.timeline,
                 tool_index=state.active_tool_index,
-                tool_name=getattr(function_call, "name", None) or "tool",
-                provider_call_id=getattr(function_call, "id", None),
+                tool_name=function_call.name or "tool",
+                provider_call_id=function_call.id,
                 thought_signature=part.thought_signature,
             )
 
@@ -822,7 +848,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
     def _update_google_tool_buffer(
         self,
         state: _GoogleStreamState,
-        function_call: Any,
+        function_call: types.FunctionCall,
         part: types.Part,
     ) -> None:
         active_tool_index = state.active_tool_index
@@ -845,7 +871,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         if thought_signature is not None:
             tool_buffer.thought_signature = thought_signature
 
-        raw_args = getattr(function_call, "args", None)
+        raw_args = function_call.args
         if raw_args is None:
             return
         serialized_args = self._serialize_google_tool_args(raw_args or {})
@@ -882,16 +908,8 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         part: types.Part,
     ) -> None:
         thought_signature = part.thought_signature
-        if (
-            thought_signature is not None
-            and not getattr(part, "function_call", None)
-            and not getattr(part, "text", None)
-        ):
-            state.timeline.append(
-                _GoogleSignatureTimelineEntry(
-                    thought_signature=thought_signature,
-                )
-            )
+        if thought_signature is not None and part.function_call is None and not part.text:
+            state.timeline.append(_GoogleSignatureTimelineEntry(part=part.model_copy(deep=True)))
 
     def _close_google_tool_if_finished(
         self,
@@ -940,7 +958,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         if request_params.structured_schema and response_schema is None:
             return (
                 response_mime_type or "application/json",
-                self._converter._clean_schema_for_google(request_params.structured_schema),
+                request_params.structured_schema,
             )
         return response_mime_type, response_schema
 
@@ -992,7 +1010,9 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         )
         if response_mime_type:
             generate_content_config.response_mime_type = response_mime_type
-        if response_schema is not None:
+        if isinstance(response_schema, dict):
+            generate_content_config.response_json_schema = response_schema
+        elif response_schema is not None:
             generate_content_config.response_schema = response_schema
         if service_tier == "flex" and not vertex_enabled:
             generate_content_config.service_tier = types.ServiceTier.FLEX
@@ -1675,7 +1695,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             return self._structured_schema_from_multipart(last_message, schema)
 
         request_params = self.get_request_params(request_params)
-        response_schema = self._converter._clean_schema_for_google(schema)
 
         turn_messages: list[types.Content] = []
         if last_message:
@@ -1686,7 +1705,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             request_params=request_params,
             tools=None,
             response_mime_type="application/json",
-            response_schema=response_schema,
+            response_schema=schema,
         )
         return self._structured_schema_from_multipart(assistant_msg, schema)
 

@@ -915,7 +915,7 @@ class AgentsAsToolsAgent(McpAgent):
             else None
         )
 
-        tool_handler = self._get_tool_handler(request_params)
+        tool_handler = self.tool_handler_for(request_params)
         progress_step = 0
         tool_call_id = await self._start_child_tool_call(
             tool_handler=tool_handler,

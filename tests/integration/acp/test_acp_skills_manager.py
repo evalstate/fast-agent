@@ -14,6 +14,7 @@ from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.commands.context import StaticAgentProvider
 from fast_agent.config import get_settings
 from fast_agent.skills import SKILLS_DEFAULT
+from fast_agent.tools.file_read_access import SKILL_READER_FILE_READS, FileReadAccess
 from fast_agent.utils.markdown import escape_markdown_text
 
 if TYPE_CHECKING:
@@ -83,8 +84,8 @@ class SkillAgent:
         self._skill_manifests = list(manifests)
 
     @property
-    def skill_read_tool_name(self) -> str:
-        return "read_skill"
+    def skill_read_access(self) -> FileReadAccess:
+        return SKILL_READER_FILE_READS
 
     @property
     def config(self) -> object:

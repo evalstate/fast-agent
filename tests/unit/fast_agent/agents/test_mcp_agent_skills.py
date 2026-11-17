@@ -10,6 +10,7 @@ from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.context import Context
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.skills.registry import SkillRegistry, format_skills_for_prompt
+from fast_agent.tools.file_read_access import TOOL_FILE_READS
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME, SkillReader
 from fast_agent.ui import console, notification_tracker
 
@@ -459,7 +460,7 @@ def test_format_skills_for_prompt_custom_read_tool(tmp_path: Path) -> None:
     create_skill(skills_root, "test-skill", description="Test description")
 
     manifests = SkillRegistry.load_directory(skills_root)
-    prompt = format_skills_for_prompt(manifests, read_tool_name="read_text_file")
+    prompt = format_skills_for_prompt(manifests, read_access=TOOL_FILE_READS)
 
     # Check preamble mentions the custom tool name
     assert "read_text_file" in prompt
