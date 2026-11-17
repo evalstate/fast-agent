@@ -1408,7 +1408,7 @@ class OpenAIWebSearchSettings(BaseModel):
 class XAIWebSearchSettings(OpenAIWebSearchSettings):
     """xAI Responses web_search tool settings."""
 
-    tool_type: Literal["web_search"] = "web_search"  # ty: ignore[invalid-mutable-override] -- provider restricts accepted config values; settings are not mutated after validation
+    tool_type: Literal["web_search"] = "web_search"  # ty: ignore[incompatible-mutable-override] -- provider restricts accepted config values; settings are not mutated after validation
     excluded_domains: list[str] | None = Field(
         default=None,
         description="Domains to exclude from xAI web search results (maximum 5).",
@@ -1683,7 +1683,7 @@ class XAISettings(BaseModel):
 class MetaAIWebSearchSettings(OpenAIWebSearchSettings):
     """MetaAI Responses web_search (search grounding) settings."""
 
-    tool_type: Literal["web_search"] = "web_search"  # ty: ignore[invalid-mutable-override] -- provider restricts accepted config values; settings are not mutated after validation
+    tool_type: Literal["web_search"] = "web_search"  # ty: ignore[incompatible-mutable-override] -- provider restricts accepted config values; settings are not mutated after validation
 
 
 class MetaAISettings(BaseModel):

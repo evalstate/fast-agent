@@ -5,9 +5,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
 
 from acp.exceptions import RequestError
-from acp.helpers import ContentBlock as ACPContentBlock
-from acp.helpers import update_agent_message_text, update_agent_thought_text
-from acp.schema import PromptResponse, StopReason
+from acp.schema import (
+    AgentMessageChunk,
+    AgentThoughtChunk,
+    PromptResponse,
+    StopReason,
+    TextContentBlock,
+)
 
 from fast_agent.acp.content_conversion import (
     convert_acp_prompt_to_mcp_content_blocks,
@@ -35,6 +39,7 @@ if TYPE_CHECKING:
 
     from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
     from fast_agent.acp.server.models import ACPSessionState
+    from fast_agent.acp.types import ACPContentBlock
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.llm.stream_types import StreamChunk
@@ -586,7 +591,7 @@ class ACPPromptFlow:
 
         if self._host._connection and response_text:
             try:
-                message_chunk = update_agent_message_text(response_text)
+                message_chunk = AgentMessageChunk(content=TextContentBlock(text=response_text))
                 await self._host._connection.session_update(
                     session_id=session_id,
                     update=message_chunk,
@@ -627,9 +632,9 @@ class ACPPromptFlow:
                     return
                 try:
                     if chunk.is_reasoning:
-                        message_chunk = update_agent_thought_text(chunk.text)
+                        message_chunk = AgentThoughtChunk(content=TextContentBlock(text=chunk.text))
                     else:
-                        message_chunk = update_agent_message_text(chunk.text)
+                        message_chunk = AgentMessageChunk(content=TextContentBlock(text=chunk.text))
                     await connection.session_update(
                         session_id=session_id,
                         update=message_chunk,
@@ -752,7 +757,7 @@ class ACPPromptFlow:
 
         if not assistant_text_streamed and self._host._connection and response_text:
             try:
-                message_chunk = update_agent_message_text(response_text)
+                message_chunk = AgentMessageChunk(content=TextContentBlock(text=response_text))
                 if status_line_meta:
                     await self._host._connection.session_update(
                         session_id=session_id,
@@ -782,7 +787,7 @@ class ACPPromptFlow:
             and emit_empty_status_update
         ):
             try:
-                message_chunk = update_agent_message_text("")
+                message_chunk = AgentMessageChunk(content=TextContentBlock(text=""))
                 await self._host._connection.session_update(
                     session_id=session_id,
                     update=message_chunk,

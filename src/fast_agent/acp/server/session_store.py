@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn, Protocol, cast
 
 from acp.exceptions import RequestError
-from acp.helpers import update_agent_message, update_user_message
 from acp.schema import (
     AcpMcpServer,
     AgentMessageChunk,
@@ -246,8 +245,8 @@ class ACPServerSessionStore:
     ) -> list[UserMessageChunk | AgentMessageChunk]:
         updates: list[UserMessageChunk | AgentMessageChunk] = []
         update_builders = {
-            "user": update_user_message,
-            "assistant": update_agent_message,
+            "user": UserMessageChunk,
+            "assistant": AgentMessageChunk,
         }
         for message in history:
             role_value = str(message.role)
@@ -259,7 +258,7 @@ class ACPServerSessionStore:
                 acp_block = convert_mcp_content_to_acp(content)
                 if acp_block is None:
                     continue
-                updates.append(update_builder(acp_block))
+                updates.append(update_builder(content=acp_block))
 
         return updates
 

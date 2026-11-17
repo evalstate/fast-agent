@@ -9,8 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from acp.exceptions import RequestError
-from acp.helpers import text_block
-from acp.schema import ClientCapabilities, FileSystemCapabilities, Implementation
+from acp.schema import ClientCapabilities, FileSystemCapabilities, Implementation, TextContentBlock
 from acp.stdio import spawn_agent_process
 from mcp_types import TextContent
 
@@ -93,7 +92,7 @@ async def test_acp_prompt_saves_session_history(
         prompt_text = "session history integration test"
         await connection.prompt(
             session_id=session_response.session_id,
-            prompt=[text_block(prompt_text)],
+            prompt=[TextContentBlock(text=prompt_text)],
         )
         await _wait_for_session_info_update(client, session_response.session_id)
 
@@ -173,7 +172,7 @@ async def test_acp_prompt_saves_session_history_in_workspace_store_for_session_c
         )
         await connection.prompt(
             session_id=session_response.session_id,
-            prompt=[text_block("persist under request cwd")],
+            prompt=[TextContentBlock(text="persist under request cwd")],
         )
         await _wait_for_session_info_update(client, session_response.session_id)
         listed = await connection.list_sessions(cwd=str(session_cwd))
@@ -227,7 +226,7 @@ async def test_acp_prompt_saves_session_history_in_configured_home(
         )
         await connection.prompt(
             session_id=session_response.session_id,
-            prompt=[text_block("persist under configured env dir")],
+            prompt=[TextContentBlock(text="persist under configured env dir")],
         )
         await _wait_for_session_info_update(client, session_response.session_id)
         listed = await connection.list_sessions(cwd=str(session_cwd))
@@ -269,7 +268,7 @@ async def test_acp_session_title_command_emits_info_update(
         title = "ACP session title"
         await connection.prompt(
             session_id=session_response.session_id,
-            prompt=[text_block(f"/session title {title}")],
+            prompt=[TextContentBlock(text=f"/session title {title}")],
         )
         await _wait_for_session_info_update(client, session_response.session_id)
 
@@ -311,7 +310,7 @@ async def test_acp_prompt_emits_session_info_update_when_only_updated_at_changes
         session_response = await connection.new_session(mcp_servers=[], cwd=str(tmp_path))
         await connection.prompt(
             session_id=session_response.session_id,
-            prompt=[text_block("first prompt title seed")],
+            prompt=[TextContentBlock(text="first prompt title seed")],
         )
         await _wait_for_session_info_update(client, session_response.session_id)
         first_count = len(
@@ -325,7 +324,7 @@ async def test_acp_prompt_emits_session_info_update_when_only_updated_at_changes
 
         await connection.prompt(
             session_id=session_response.session_id,
-            prompt=[text_block("second prompt keeps same title")],
+            prompt=[TextContentBlock(text="second prompt keeps same title")],
         )
 
         loop = asyncio.get_running_loop()
@@ -436,7 +435,7 @@ async def test_acp_session_resume_emits_current_mode_update(
         session_response = await connection.new_session(mcp_servers=[], cwd=str(tmp_path))
         await connection.prompt(
             session_id=session_response.session_id,
-            prompt=[text_block(f"/session resume {session.info.name}")],
+            prompt=[TextContentBlock(text=f"/session resume {session.info.name}")],
         )
 
     mode_updates = [

@@ -34,6 +34,7 @@ SANDBOX_MODULES = frozenset(
         "dataclasses",
         "datetime",
         "decimal",
+        "fnmatch",
         "functools",
         "hashlib",
         "itertools",

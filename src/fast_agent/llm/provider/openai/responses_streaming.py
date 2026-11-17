@@ -157,7 +157,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
 
         verb: str | ProgressAction | None
         logger: Logger
-        name: str | None
+        name: str
 
         def _notify_stream_listeners(self, chunk: StreamChunk) -> None: ...
 

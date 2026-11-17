@@ -28,7 +28,12 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: release-drafter/release-drafter@v6
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v7
+      - uses: release-drafter/release-drafter@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      # v7 split autolabeling out of the release-drafting action.
+      - uses: release-drafter/release-drafter/autolabeler@v7
+        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

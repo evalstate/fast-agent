@@ -121,7 +121,7 @@ the machine's Python. Only `print()` output and the final expression value come 
 filter and aggregate large results in code.
 {input_note}\
 - Sandbox Python: the only importable modules are asyncio, base64, binascii, bisect, \
-collections, copy, csv, dataclasses, datetime, decimal, functools, hashlib, itertools, json, \
+collections, copy, csv, dataclasses, datetime, decimal, fnmatch, functools, hashlib, itertools, json, \
 math, os, os.path, pathlib, random, re, sys, time, tomllib, typing and unicodedata. No other \
 standard library (difflib, heapq, io, string, struct, subprocess, ...), no packages, no \
 environment variables. Unsupported syntax: class inheritance, `@staticmethod`/`@classmethod`/\

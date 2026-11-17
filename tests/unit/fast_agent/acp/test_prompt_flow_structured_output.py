@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock
 
 import pytest
-from acp.helpers import text_block, update_agent_thought_text
+from acp.schema import AgentThoughtChunk, TextContentBlock
 
 from fast_agent.acp.server import prompt_flow as prompt_flow_module
 from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
@@ -167,7 +167,7 @@ async def test_acp_prompt_holds_herdr_working_scope_until_agent_completes(
 
     prompt_task = asyncio.create_task(
         flow.prompt_locked(
-            prompt=[text_block("delegate this")],
+            prompt=[TextContentBlock(text="delegate this")],
             session_id="session-1",
         )
     )
@@ -292,7 +292,7 @@ async def test_structured_output_without_assistant_text_returns_refusal() -> Non
     }
 
     response = await flow.prompt_locked(
-        prompt=[text_block("return json")],
+        prompt=[TextContentBlock(text="return json")],
         session_id="session-1",
         **structured_meta,
     )
@@ -339,7 +339,7 @@ async def test_structured_output_streaming_emits_final_status_line_update(
     monkeypatch.setattr(flow, "_run_with_status_hooks", fake_run_with_status_hooks)
 
     response = await flow.prompt_locked(
-        prompt=[text_block("return json")],
+        prompt=[TextContentBlock(text="return json")],
         session_id="session-1",
         **structured_meta,
     )
@@ -376,7 +376,7 @@ async def test_reasoning_only_streaming_preserves_final_status_line_update(
         async def send_reasoning_update() -> None:
             await host._connection.session_update(
                 session_id=session_id,
-                update=update_agent_thought_text("thinking"),
+                update=AgentThoughtChunk(content=TextContentBlock(text="thinking")),
             )
 
         return {
@@ -390,7 +390,7 @@ async def test_reasoning_only_streaming_preserves_final_status_line_update(
     monkeypatch.setattr(flow, "_prepare_streaming_context", fake_prepare_streaming_context)
 
     response = await flow.prompt_locked(
-        prompt=[text_block("return json")],
+        prompt=[TextContentBlock(text="return json")],
         session_id="session-1",
         **structured_meta,
     )

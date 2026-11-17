@@ -416,7 +416,8 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
     ) -> types.HttpOptions | None:
         base_url = self._base_url()
         headers = self._default_headers()
-        api_version: str | None = None
+        # Native Google model aliases/previews require the Developer beta API.
+        api_version = None if vertex_enabled else "v1beta"
         timeout: int | None = None
         if service_tier == "flex":
             timeout = round(

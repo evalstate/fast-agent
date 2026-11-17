@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 import pytest
-from acp.helpers import text_block
+from acp.schema import TextContentBlock
 
 if TYPE_CHECKING:
     from acp.client.connection import ClientSideConnection
@@ -56,7 +56,7 @@ async def test_acp_terminal_support_enabled(
     # The passthrough model will echo our input, so we craft a tool call request
     prompt_text = 'use the execute tool to run: echo "test terminal"'
     prompt_response = await connection.prompt(
-        session_id=session_id, prompt=[text_block(prompt_text)]
+        session_id=session_id, prompt=[TextContentBlock(text=prompt_text)]
     )
     assert _get_stop_reason(prompt_response) == END_TURN
 

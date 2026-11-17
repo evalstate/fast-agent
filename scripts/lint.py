@@ -1,18 +1,10 @@
-# /// script
-# requires-python = ">=3.10"
-# dependencies = [
-#     "ruff==0.16.8",
-#     "typer==0.27.2",
-# ]
-# ///
-
 import subprocess
 import sys
 
 import typer
 
 
-def main(fix: bool = False, watch: bool = False, path: str = None) -> None:
+def main(fix: bool = False, watch: bool = False, path: str | None = None) -> None:
     try:
         command = ["ruff", "check"]
         if fix:

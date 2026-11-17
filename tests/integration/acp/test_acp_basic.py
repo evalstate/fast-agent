@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from acp.exceptions import RequestError
-from acp.helpers import text_block
+from acp.schema import TextContentBlock
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
@@ -113,7 +113,7 @@ async def test_acp_initialize_and_prompt_roundtrip(
 
     prompt_text = "echo from ACP integration test"
     prompt_response = await connection.prompt(
-        session_id=session_id, prompt=[text_block(prompt_text)]
+        session_id=session_id, prompt=[TextContentBlock(text=prompt_text)]
     )
     assert prompt_response.stop_reason == END_TURN
 
@@ -151,7 +151,7 @@ async def test_acp_structured_output_prompt_uses_normal_text_transport(
     structured_meta: dict[str, Any] = _structured_meta()
     prompt_response = await connection.prompt(
         session_id=session_id,
-        prompt=[text_block(prompt_text)],
+        prompt=[TextContentBlock(text=prompt_text)],
         **structured_meta,
     )
     assert prompt_response.stop_reason == END_TURN
@@ -182,7 +182,7 @@ async def test_acp_structured_output_invalid_model_text_remains_best_effort(
     structured_meta: dict[str, Any] = _structured_meta()
     prompt_response = await connection.prompt(
         session_id=session_id,
-        prompt=[text_block("not json")],
+        prompt=[TextContentBlock(text="not json")],
         **structured_meta,
     )
     assert prompt_response.stop_reason == END_TURN
@@ -216,7 +216,7 @@ async def test_acp_structured_output_rejects_malformed_extension(
     with pytest.raises(RequestError):
         await connection.prompt(
             session_id=session_id,
-            prompt=[text_block('{"answer":"ok"}')],
+            prompt=[TextContentBlock(text='{"answer":"ok"}')],
             **malformed_meta,
         )
 
@@ -235,7 +235,7 @@ async def test_acp_structured_output_rejects_slash_commands(
     with pytest.raises(RequestError):
         await connection.prompt(
             session_id=session_id,
-            prompt=[text_block("/tools")],
+            prompt=[TextContentBlock(text="/tools")],
             **structured_meta,
         )
 
@@ -314,12 +314,14 @@ async def test_acp_overlapping_prompts_are_serialized(
     # Send two prompts truly concurrently (no sleep between them)
     # This ensures they both arrive before either completes
     prompt1_task = asyncio.create_task(
-        connection.prompt(session_id=session_id, prompt=[text_block("first prompt")])
+        connection.prompt(session_id=session_id, prompt=[TextContentBlock(text="first prompt")])
     )
 
     # Send immediately without waiting - ensures actual overlap
     prompt2_task = asyncio.create_task(
-        connection.prompt(session_id=session_id, prompt=[text_block("overlapping prompt")])
+        connection.prompt(
+            session_id=session_id, prompt=[TextContentBlock(text="overlapping prompt")]
+        )
     )
 
     # Wait for both to complete
@@ -331,6 +333,6 @@ async def test_acp_overlapping_prompts_are_serialized(
 
     # After both complete, a new prompt should also succeed
     prompt3_response = await connection.prompt(
-        session_id=session_id, prompt=[text_block("third prompt")]
+        session_id=session_id, prompt=[TextContentBlock(text="third prompt")]
     )
     assert _get_stop_reason(prompt3_response) == END_TURN

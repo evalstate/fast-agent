@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
-from acp.helpers import text_block
+from acp.schema import TextContentBlock
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
@@ -53,7 +53,7 @@ async def test_acp_omits_status_line_without_token_usage(
 
     prompt_text = "status line integration test"
     prompt_response = await connection.prompt(
-        session_id=session_id, prompt=[text_block(prompt_text)]
+        session_id=session_id, prompt=[TextContentBlock(text=prompt_text)]
     )
     assert prompt_response.stop_reason == END_TURN
 

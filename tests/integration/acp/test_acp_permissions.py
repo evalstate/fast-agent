@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 import pytest
-from acp.helpers import text_block
+from acp.schema import TextContentBlock
 
 from fast_agent.mcp.common import create_namespaced_name
 
@@ -85,7 +85,7 @@ async def test_permission_request_sent_when_tool_called(
     tool_name = create_namespaced_name("progress_test", "progress_task")
     prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 1}}'
     prompt_response = await connection.prompt(
-        session_id=session_id, prompt=[text_block(prompt_text)]
+        session_id=session_id, prompt=[TextContentBlock(text=prompt_text)]
     )
 
     # The tool should have been denied (permission cancelled)
@@ -118,7 +118,7 @@ async def test_allow_once_permits_execution_without_persistence(
         tool_name = create_namespaced_name("progress_test", "progress_task")
         prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 1}}'
         prompt_response = await connection.prompt(
-            session_id=session_id, prompt=[text_block(prompt_text)]
+            session_id=session_id, prompt=[TextContentBlock(text=prompt_text)]
         )
 
         # The tool should have executed successfully
@@ -153,7 +153,7 @@ async def test_allow_always_persists(
         tool_name = create_namespaced_name("progress_test", "progress_task")
         prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 1}}'
         prompt_response = await connection.prompt(
-            session_id=session_id, prompt=[text_block(prompt_text)]
+            session_id=session_id, prompt=[TextContentBlock(text=prompt_text)]
         )
 
         # The tool should have executed successfully
@@ -191,7 +191,7 @@ async def test_reject_once_blocks_without_persistence(
         tool_name = create_namespaced_name("progress_test", "progress_task")
         prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 1}}'
         prompt_response = await connection.prompt(
-            session_id=session_id, prompt=[text_block(prompt_text)]
+            session_id=session_id, prompt=[TextContentBlock(text=prompt_text)]
         )
 
         # The tool should have been rejected
@@ -228,7 +228,7 @@ async def test_reject_always_blocks_and_persists(
         tool_name = create_namespaced_name("progress_test", "progress_task")
         prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 1}}'
         prompt_response = await connection.prompt(
-            session_id=session_id, prompt=[text_block(prompt_text)]
+            session_id=session_id, prompt=[TextContentBlock(text=prompt_text)]
         )
 
         # The tool should have been rejected
@@ -266,7 +266,7 @@ async def test_no_permissions_flag_disables_checks(
     tool_name = create_namespaced_name("progress_test", "progress_task")
     prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 1}}'
     prompt_response = await connection.prompt(
-        session_id=session_id, prompt=[text_block(prompt_text)]
+        session_id=session_id, prompt=[TextContentBlock(text=prompt_text)]
     )
 
     # The tool should have executed without permission request

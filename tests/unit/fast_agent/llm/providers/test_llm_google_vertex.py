@@ -234,7 +234,7 @@ def test_current_flash_flex_service_tier_configures_developer_api(model: str) ->
     )
     assert http_options is not None
     assert http_options.timeout == 900_000
-    assert http_options.api_version is None
+    assert http_options.api_version == "v1beta"
     assert http_options.headers == {"X-Test": "developer"}
 
     llm.set_service_tier(None)

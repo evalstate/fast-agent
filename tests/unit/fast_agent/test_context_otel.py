@@ -94,6 +94,59 @@ def test_configure_otel_samples_and_flushes_spans() -> None:
     assert result.returncode == 0, result.stderr
 
 
+def test_configure_otel_instruments_installed_provider_sdks() -> None:
+    """An SDK upgrade must not silently disable its declared instrumentation."""
+    script = textwrap.dedent(
+        """
+        import asyncio
+        from unittest.mock import patch
+
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+        import fast_agent.context as context_module
+        from fast_agent.config import OpenTelemetrySettings, Settings
+
+        exporter = InMemorySpanExporter()
+        settings = Settings(
+            otel=OpenTelemetrySettings(
+                enabled=True,
+                otlp_endpoint="http://collector.invalid/v1/traces",
+            )
+        )
+        with patch(
+            "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter",
+            return_value=exporter,
+        ):
+            asyncio.run(context_module.configure_otel(settings))
+
+        from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
+        from opentelemetry.instrumentation.openai import OpenAIInstrumentor
+
+        instrumentors = (GoogleGenAiSdkInstrumentor(), OpenAIInstrumentor())
+        try:
+            for instrumentor in instrumentors:
+                assert instrumentor.is_instrumented_by_opentelemetry, (
+                    type(instrumentor).__name__,
+                    instrumentor.instrumentation_dependencies(),
+                )
+        finally:
+            for instrumentor in instrumentors:
+                if instrumentor.is_instrumented_by_opentelemetry:
+                    instrumentor.uninstrument()
+            asyncio.run(context_module.cleanup_context())
+            context_module._otel_tracer_provider.shutdown()
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_disabled_telemetry_does_not_load_sdk() -> None:
     result = subprocess.run(
         [

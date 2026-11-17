@@ -6,14 +6,15 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from acp.helpers import update_agent_message_text
 from acp.schema import (
     AcpMcpServer,
+    AgentMessageChunk,
     HttpMcpServer,
     McpServerStdio,
     SessionMode,
     SessionModeState,
     SseMcpServer,
+    TextContentBlock,
 )
 
 from fast_agent.acp.acp_context import ACPContext, ClientInfo
@@ -1290,7 +1291,7 @@ class ACPServerSessionRuntime:
         if not status_line_meta:
             return
         try:
-            message_chunk = update_agent_message_text("")
+            message_chunk = AgentMessageChunk(content=TextContentBlock(text=""))
             await self._host._connection.session_update(
                 session_id=session_id,
                 update=message_chunk,

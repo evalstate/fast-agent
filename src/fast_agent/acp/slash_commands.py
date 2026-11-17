@@ -21,10 +21,11 @@ from typing import (
     cast,
 )
 
-from acp.helpers import update_agent_message_text
 from acp.schema import (
+    AgentMessageChunk,
     AvailableCommand,
     AvailableCommandInput,
+    TextContentBlock,
     UnstructuredCommandInput,
 )
 
@@ -663,9 +664,7 @@ class SlashCommandHandler:
                 settings=settings,
             )
         return CommandContext(
-            agent_provider=StaticAgentProvider(
-                cast("dict[str, object]", dict(self.instance.agents))
-            ),
+            agent_provider=StaticAgentProvider(dict(self.instance.agents)),
             current_agent_name=self.current_agent_name,
             io=ACPCommandIO(),
             settings=settings,
@@ -746,7 +745,9 @@ class SlashCommandHandler:
         if self._acp_context is None:
             return
         try:
-            await self._acp_context.send_session_update(update_agent_message_text(message))
+            await self._acp_context.send_session_update(
+                AgentMessageChunk(content=TextContentBlock(text=message))
+            )
         except Exception as exc:
             self._logger.debug(
                 "Failed to send ACP progress update",

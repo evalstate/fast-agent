@@ -560,7 +560,7 @@ async def test_resource_filter_checks_the_uri_the_server_receives(
 class _NamespaceOverrideAgent(McpAgent):
     """Overrides get_resource with the AgentProtocol signature (namespace only)."""
 
-    async def get_resource(  # ty: ignore[invalid-method-override]
+    async def get_resource(  # ty: ignore[incompatible-method-override]
         self, resource_uri: str, namespace: str | None = None
     ) -> ReadResourceResult:
         return await super().get_resource(resource_uri, namespace=namespace)

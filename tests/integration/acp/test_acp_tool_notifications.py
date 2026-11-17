@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 import pytest
-from acp.helpers import text_block
+from acp.schema import TextContentBlock
 
 from fast_agent.mcp.common import create_namespaced_name
 
@@ -73,7 +73,7 @@ async def test_acp_tool_call_notifications(
     tool_name = create_namespaced_name("progress_test", "progress_task")
     prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 3}}'
     prompt_response = await connection.prompt(
-        session_id=session_id, prompt=[text_block(prompt_text)]
+        session_id=session_id, prompt=[TextContentBlock(text=prompt_text)]
     )
     assert _get_stop_reason(prompt_response) == END_TURN
 
@@ -128,7 +128,7 @@ async def test_acp_tool_progress_updates(
     # Call a tool that reports progress
     tool_name = create_namespaced_name("progress_test", "progress_task")
     prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 5}}'
-    await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
+    await connection.prompt(session_id=session_id, prompt=[TextContentBlock(text=prompt_text)])
 
     # Wait for multiple progress updates
     await _wait_for_notifications(client, count=7, timeout=5.0)
@@ -167,7 +167,7 @@ async def test_acp_tool_kinds_inferred(
     # Call a tool - progress_task should be inferred as "other"
     tool_name = create_namespaced_name("progress_test", "progress_task")
     prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 2}}'
-    await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
+    await connection.prompt(session_id=session_id, prompt=[TextContentBlock(text=prompt_text)])
 
     # Wait for notifications
     await _wait_for_notifications(client, count=3, timeout=3.0)

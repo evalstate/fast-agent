@@ -1414,7 +1414,15 @@ async def test_documented_sandbox_modules_match_the_installed_monty() -> None:
     async with AsyncMonty(min_processes=1, max_processes=1) as pool:
         missing = [name for name in available if not await imports(pool, name)]
         present = [name for name in unavailable if await imports(pool, name)]
+        async with pool.checkout(script_name="fnmatch_probe.py") as session:
+            matches = await session.feed_run(
+                "import fnmatch\n"
+                '(fnmatch.filter(["agent.py", "README.md", "AGENT.PY"], "*.py"), '
+                'fnmatch.fnmatchcase("AGENT.PY", "*.py"), '
+                'fnmatch.fnmatchcase("AGENT.PY", "*.PY"))'
+            )
 
+    assert matches == (["agent.py"], False, True)
     assert missing == [] and present == []
     assert {name.split(".")[0] for name in available} <= SANDBOX_MODULES
 

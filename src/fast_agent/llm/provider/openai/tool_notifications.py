@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 class OpenAIToolNotificationMixin:
     if TYPE_CHECKING:
         logger: Logger
-        name: str | None
+        name: str
 
         def _notify_tool_stream_listeners(
             self, event_type: str, payload: dict[str, Any] | None = None

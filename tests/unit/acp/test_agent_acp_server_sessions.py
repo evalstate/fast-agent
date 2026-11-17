@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import pytest
+from acp.agent.router import build_agent_router
 from acp.exceptions import RequestError
 from acp.schema import AgentMessageChunk, SessionModeState, UserMessageChunk
 from mcp_types import TextContent
@@ -1497,3 +1498,24 @@ async def test_unadvertised_sdk_methods_return_method_not_found() -> None:
             await request
         assert exc_info.value.code == -32601
     await server.ext_notification("example.com/unknown", {})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "params"),
+    [
+        ("session/delete", {"sessionId": "unknown"}),
+        ("providers/list", {}),
+        ("logout", {}),
+    ],
+)
+async def test_unadvertised_requests_return_method_not_found(
+    method: str, params: dict[str, str]
+) -> None:
+    server = _build_server(_build_instance(["main"]))
+    router = build_agent_router(server, use_unstable_protocol=True)
+
+    with pytest.raises(RequestError) as error:
+        await router(method, params, is_notification=False)
+
+    assert error.value.code == -32601
