@@ -6,6 +6,7 @@ import pytest
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers.model import (
     handle_model_fast,
@@ -17,6 +18,8 @@ from fast_agent.commands.handlers.model import (
     handle_model_web_search,
     handle_model_x_search,
 )
+from fast_agent.commands.handlers.sessions import apply_session_new_history_reset
+from fast_agent.commands.results import CommandOutcome
 from fast_agent.config import CompactionSettings, Settings, ShellSettings
 from fast_agent.context import Context
 from fast_agent.core.exceptions import ModelConfigError
@@ -32,6 +35,7 @@ from fast_agent.llm.resolved_model import ResolvedModelSpec, resolve_base_model_
 from fast_agent.llm.task_budget import format_task_budget_tokens
 from fast_agent.llm.text_verbosity import TextVerbositySpec
 from fast_agent.llm.usage_tracking import UsageAccumulator
+from fast_agent.ptc import PTC_BATCHING_INSTRUCTION, PTC_TOOL_NAME
 from fast_agent.session import SessionManager
 
 
@@ -925,6 +929,57 @@ async def test_model_switch_starts_new_session_before_setting_model(tmp_path: Pa
         str(message.text) == "Model: switched from claude-haiku-4-5 to gpt-4.1-mini."
         for message in outcome.messages
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("saved_ptc", [True, False])
+async def test_model_switch_discards_resumed_ptc_setting(saved_ptc: bool) -> None:
+    agent = McpAgent(
+        AgentConfig("test", model="passthrough", servers=[], skills=[]),
+        context=Context(config=Settings()),
+    )
+    ctx = CommandContext(
+        agent_provider=_StubAgentProvider(agent),
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+        no_home=True,
+    )
+    try:
+        agent.restore_ptc(saved_ptc)
+        await agent.attach_llm(ModelFactory.create_factory("passthrough"))
+        agent.set_external_runtime(None)
+        assert agent.ptc_enabled is saved_ptc
+
+        model = f"passthrough?ptc={'off' if saved_ptc else 'on'}"
+        await handle_model_switch(ctx, agent_name="test", value=model)
+
+        assert agent.config.model == model
+        tools = {tool.name for tool in (await agent.list_tools()).tools}
+        assert (PTC_TOOL_NAME in tools) is (not saved_ptc)
+        assert (PTC_BATCHING_INSTRUCTION in agent.instruction) is (not saved_ptc)
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_new_session_refreshes_prompt_after_resumed_ptc(tmp_path: Path) -> None:
+    agent = McpAgent(AgentConfig("test", skills=[]), context=Context(config=Settings()))
+    ctx = CommandContext(
+        agent_provider=_StubAgentProvider(agent),
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(home=str(tmp_path)),
+    )
+    try:
+        agent.restore_ptc(True)
+        await agent.attach_llm(ModelFactory.create_factory("passthrough?ptc=off"))
+        assert PTC_BATCHING_INSTRUCTION in agent.instruction
+        await apply_session_new_history_reset(ctx, CommandOutcome())
+        assert PTC_BATCHING_INSTRUCTION not in agent.instruction
+        assert PTC_TOOL_NAME not in {tool.name for tool in (await agent.list_tools()).tools}
+    finally:
+        await agent.shutdown()
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,5 @@
 import base64
-from typing import Any, TypeAlias, cast
+from typing import Any, TypeAlias
 
 # Import necessary types from google.genai
 from google.genai import types
@@ -16,7 +16,6 @@ from mcp_types import (
     TextResourceContents,
 )
 
-from fast_agent.llm.structured_schema import resolve_local_ref
 from fast_agent.mcp.helpers.content_helpers import (
     canonicalize_tool_result_content_for_llm,
     get_image_data,
@@ -41,97 +40,6 @@ class GoogleConverter:
     def _is_thought_part(part: types.Part) -> bool:
         """Return True when Gemini marks a part as internal reasoning."""
         return bool(getattr(part, "thought", False))
-
-    def _clean_schema_for_google(self, schema: dict[str, Any]) -> dict[str, Any]:
-        """
-        Recursively removes unsupported JSON schema keywords for google.genai.types.Schema.
-        Specifically removes 'additionalProperties', '$schema', 'exclusiveMaximum', and 'exclusiveMinimum'.
-        Also resolves $ref references and inlines $defs.
-
-        Pydantic structured outputs are passed to google.genai as model classes
-        so the SDK can normalize them. This helper is only for arbitrary raw
-        schema dicts, where fast-agent strips known-unsupported keywords before
-        handing the schema to the SDK.
-        """
-        # First, resolve any $ref references in the schema
-        schema = self._resolve_refs(schema, schema)
-
-        cleaned_schema = {}
-        unsupported_keys = {
-            "additionalProperties",
-            "$schema",
-            "exclusiveMaximum",
-            "exclusiveMinimum",
-            "$defs",  # Remove $defs after resolving references
-        }
-        supported_string_formats = {"enum", "date-time"}
-
-        for key, value in schema.items():
-            if key in unsupported_keys:
-                continue  # Skip this key
-
-            # Rewrite unsupported 'const' to a safe form for Gemini tools
-            # - For string const, convert to enum [value]
-            # - For non-string const (booleans/numbers), drop the constraint
-            if key == "const":
-                if isinstance(value, str):
-                    cleaned_schema["enum"] = [value]
-                continue
-
-            if (
-                key == "format"
-                and schema.get("type") == "string"
-                and value not in supported_string_formats
-            ):
-                continue  # Remove unsupported string formats
-
-            if isinstance(value, dict):
-                cleaned_schema[key] = self._clean_schema_for_google(value)
-            elif isinstance(value, list):
-                cleaned_schema[key] = [
-                    self._clean_schema_for_google(item) if isinstance(item, dict) else item
-                    for item in value
-                ]
-            else:
-                cleaned_schema[key] = value
-        return cleaned_schema
-
-    def _resolve_refs(self, schema: dict[str, Any], root_schema: dict[str, Any]) -> dict[str, Any]:
-        """
-        Resolve $ref references in a JSON schema by inlining the referenced definitions.
-
-        Args:
-            schema: The current schema fragment being processed
-            root_schema: The root schema containing $defs
-
-        Returns:
-            Schema with $ref references resolved
-        """
-        if not isinstance(schema, dict):
-            return schema
-
-        if "$ref" in schema:
-            ref_path = schema["$ref"]
-            if isinstance(ref_path, str):
-                ref_target = resolve_local_ref(root_schema, ref_path)
-                if isinstance(ref_target, dict):
-                    schema = {**ref_target, **schema}
-                    schema.pop("$ref", None)
-
-        # Otherwise, recursively process all values in the schema
-        resolved = {}
-        for key, value in schema.items():
-            if isinstance(value, dict):
-                resolved[key] = self._resolve_refs(value, root_schema)
-            elif isinstance(value, list):
-                resolved[key] = [
-                    self._resolve_refs(item, root_schema) if isinstance(item, dict) else item
-                    for item in value
-                ]
-            else:
-                resolved[key] = value
-
-        return resolved
 
     def convert_to_google_content(
         self, messages: list[PromptMessageExtended]
@@ -227,11 +135,10 @@ class GoogleConverter:
         """
         google_tools: list[types.Tool] = []
         for tool in tools:
-            cleaned_input_schema = self._clean_schema_for_google(tool.input_schema)
             function_declaration = types.FunctionDeclaration(
                 name=tool.name,
                 description=tool.description if tool.description else "",
-                parameters=types.Schema(**cleaned_input_schema),
+                parameters_json_schema=tool.input_schema,
             )
             google_tools.append(types.Tool(function_declarations=[function_declaration]))
         return google_tools
@@ -445,7 +352,7 @@ class GoogleConverter:
                 0 disables thinking, -1 enables automatic budget, positive
                 values set an explicit token budget.
             thinking_level: Optional SDK ThinkingLevel name
-                (MINIMAL/LOW/MEDIUM/HIGH). When set, takes precedence over
+                (MINIMAL/LOW/MEDIUM/HIGH/XHIGH). When set, takes precedence over
                 thinking_budget for named effort levels.
         """
         config_args = self._google_generation_config_args(
@@ -464,12 +371,17 @@ class GoogleConverter:
     ) -> dict[str, Any]:
         config_args: dict[str, Any] = {}
         model = strip_casefold(request_params.model or "")
-        is_gemini_3 = "gemini-3" in model or "gemini-3.5" in model
-        config_args.update(self._google_sampling_config_args(request_params, is_gemini_3))
+        uses_thinking_levels = "gemini-3" in model or "gemini-4" in model
+        config_args.update(self._google_sampling_config_args(request_params, uses_thinking_levels))
         config_args.update(self._google_base_config_args(request_params))
 
         thinking_config = self._google_thinking_config(
-            is_gemini_3=is_gemini_3,
+            uses_thinking_levels=uses_thinking_levels,
+            default_thinking_level=(
+                types.ThinkingLevel.HIGH
+                if "gemini-4-hydrogen" in model
+                else types.ThinkingLevel.MEDIUM
+            ),
             thinking_budget=thinking_budget,
             thinking_level=thinking_level,
         )
@@ -486,9 +398,10 @@ class GoogleConverter:
         return None
 
     def _google_sampling_config_args(
-        self, request_params: RequestParams, is_gemini_3: bool
+        self, request_params: RequestParams, uses_thinking_levels: bool
     ) -> dict[str, Any]:
-        if is_gemini_3:
+        # Gemini 3/4 use fixed sampling; Gemini 4 ignores custom values.
+        if uses_thinking_levels:
             return {}
 
         config_args: dict[str, Any] = {}
@@ -532,45 +445,26 @@ class GoogleConverter:
     @staticmethod
     def _google_thinking_config(
         *,
-        is_gemini_3: bool,
+        uses_thinking_levels: bool,
+        default_thinking_level: types.ThinkingLevel,
         thinking_budget: int | None,
         thinking_level: str | None,
     ) -> types.ThinkingConfig | None:
         if thinking_level is None and thinking_budget is None:
             return None
 
-        sdk_thinking_level = cast("Any", thinking_level)
-        if is_gemini_3:
-            return GoogleConverter._google_gemini_3_thinking_config(
-                thinking_budget=thinking_budget,
-                thinking_level=sdk_thinking_level,
-            )
-        if thinking_level is not None and thinking_budget is not None:
+        sdk_thinking_level = (
+            types.ThinkingLevel(thinking_level.strip().upper())
+            if thinking_level is not None
+            else None
+        )
+        if uses_thinking_levels:
             return types.ThinkingConfig(
                 include_thoughts=True,
-                thinking_level=sdk_thinking_level,
-                thinking_budget=thinking_budget,
+                thinking_level=sdk_thinking_level or default_thinking_level,
             )
-        if thinking_level is not None:
-            return types.ThinkingConfig(
-                include_thoughts=True,
-                thinking_level=sdk_thinking_level,
-            )
-        return types.ThinkingConfig(include_thoughts=True, thinking_budget=thinking_budget)
-
-    @staticmethod
-    def _google_gemini_3_thinking_config(
-        *,
-        thinking_budget: int | None,
-        thinking_level: Any,
-    ) -> types.ThinkingConfig:
-        if thinking_level is not None:
-            return types.ThinkingConfig(
-                include_thoughts=True,
-                thinking_level=thinking_level,
-            )
-
         return types.ThinkingConfig(
             include_thoughts=True,
-            thinking_level=cast("Any", "MEDIUM"),
+            thinking_level=sdk_thinking_level,
+            thinking_budget=thinking_budget,
         )

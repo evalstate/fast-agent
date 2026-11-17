@@ -231,6 +231,42 @@ def test_openai_responses_uses_its_required_typed_details() -> None:
     assert turn.completion == CompletionTokenUsage(total=300, reasoning=120)
 
 
+@pytest.mark.parametrize("provider", [Provider.RESPONSES, Provider.CODEX_RESPONSES])
+def test_responses_cache_write_lifetimes_survive_usage_serialization(provider: Provider) -> None:
+    usage = ResponseUsage.model_validate(
+        {
+            "input_tokens": 12_000,
+            "input_tokens_details": {
+                "cached_tokens": 4_000,
+                "cache_write_tokens": 7_000,
+                "cache_write_tokens_details": {
+                    "ttl_30m_tokens": 3_000,
+                    "ttl_12h_tokens": 4_000,
+                },
+            },
+            "output_tokens": 100,
+            "output_tokens_details": {"reasoning_tokens": 20},
+            "total_tokens": 12_100,
+        }
+    )
+    turn = usage_from_openai_responses(usage, provider=provider, model="gpt-6.2-astra")
+    restored = UsageReport.model_validate_json(
+        UsageReport(provider_attempts=[turn]).model_dump_json(by_alias=True)
+    ).final_attempt
+
+    assert restored.prompt.total == 12_000
+    assert restored.prompt.cache_read == 4_000
+    assert restored.prompt.cache_write == 7_000
+    assert restored.raw_usage == usage.model_dump(mode="json")
+    assert isinstance(restored.raw_usage, dict)
+    details = restored.raw_usage["input_tokens_details"]
+    assert isinstance(details, dict)
+    assert details["cache_write_tokens_details"] == {
+        "ttl_30m_tokens": 3_000,
+        "ttl_12h_tokens": 4_000,
+    }
+
+
 def test_openai_chat_accepts_top_level_cached_tokens() -> None:
     usage = CompletionUsage.model_validate(
         {

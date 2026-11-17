@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import sys
+from unittest.mock import Mock
 
 import pytest
+from typer.testing import CliRunner
 
 from fast_agent.cli import __main__ as cli_main
 from fast_agent.cli.__main__ import _first_positional_argument
@@ -82,6 +84,28 @@ def test_root_go_options_auto_route_to_go(
     cli_main.main()
 
     assert captured == expected
+
+
+@pytest.mark.parametrize("command", [[], ["go"]])
+@pytest.mark.parametrize("alias", ["argon", "hydrogen", "carbon"])
+def test_gemini_shortcut_selects_native_google(command, alias, monkeypatch):
+    run = Mock()
+    monkeypatch.setattr("fast_agent.cli.commands.go.run_request", run)
+    monkeypatch.setattr(
+        sys, "argv", ["fast-agent", *command, f"--{alias}", "--no-home", "-m", "test"]
+    )
+    with pytest.raises(SystemExit) as exit_info:
+        cli_main.main()
+    assert exit_info.value.code == 0
+    run.assert_called_once()
+    assert run.call_args.args[0].model == f"google.gemini-4-{alias}"
+
+
+@pytest.mark.parametrize("other", [["--carbon"], ["--models", "passthrough"]])
+def test_gemini_shortcut_rejects_conflicting_model(other):
+    result = CliRunner().invoke(cli_main.app, ["go", "--argon", *other])
+    assert result.exit_code == 2
+    assert "Choose only one" in result.output
 
 
 def test_resume_sentinel_is_not_added_for_batch(

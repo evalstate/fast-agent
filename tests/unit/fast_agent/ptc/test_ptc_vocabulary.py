@@ -27,6 +27,7 @@ from fast_agent.ptc.stubs import build_functions
 from fast_agent.ptc.vocabulary import (
     LEGACY_FUNCTIONS,
     PTC_BUILTIN_FUNCTIONS,
+    PTC_BUILTIN_ORDER,
     PTC_VOCABULARY_META,
     PTC_VOCABULARY_VERSION,
 )
@@ -76,7 +77,6 @@ async def warnings_recorded() -> AsyncIterator[list[Event]]:
 SIGNATURES = {
     "shell": "shell(*, command: str, working_directory: str = ..., background: bool = ..., timeout: int = ..., check: bool = ...) -> dict[str, Any]",
     "process": 'process(*, process_id: str = ..., action: Literal["list", "status", "wait", "stop", "read_output"] = ..., wait_sec: int = ..., offset: int = ..., limit: int = ..., query: str = ...) -> Any',
-    "read_text_file": "read_text_file(*, path: str, line: int = ..., limit: int = ...) -> Any",
     "write_text_file": "write_text_file(*, path: str, content: str) -> Any",
     "edit_file": "edit_file(*, path: str, new_string: str, old_string: str = ..., replace_all: bool = ...) -> Any",
     "attach_media": "attach_media(*, source: str, mime_type: str = ..., name: str = ..., description: str = ...) -> Any",
@@ -106,6 +106,7 @@ async def test_catalog_ptc_contract(model: str, profile: ShellToolProfile) -> No
         surface = await agent.tool_surface()
         functions = {t.python_name: t for t in surface.exposed(ToolExposure.PROGRAMMATIC)}
         assert functions.keys() == PTC_BUILTIN_FUNCTIONS
+        assert list(functions) == list(PTC_BUILTIN_ORDER)
         assert {name: f.signature for name, f in functions.items()} == SIGNATURES
         assert all(t.python_name == t.tool.name for t in functions.values())
         assert surface.programmatic is not None
@@ -232,7 +233,7 @@ async def test_temporary_switch_and_profile_diagnostics(
             {
                 "code": (
                     f"await {name}(command='printf done')\n"
-                    "await read_text_file(path='/nonexistent-ptc-vocabulary-file')"
+                    "await process(action='status', process_id='nonexistent-ptc-vocabulary')"
                 )
             },
         )
@@ -278,7 +279,16 @@ async def test_legacy_names_fail_before_side_effects_with_hint(old: str, tmp_pat
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "name", ["shell", "process", "read_text_file", "subagent", "get_resource", "exec_sandbox"]
+    "name",
+    [
+        "shell",
+        "process",
+        "read_text_file",
+        "write_text_file",
+        "subagent",
+        "get_resource",
+        "exec_sandbox",
+    ],
 )
 async def test_user_collision_preserves_builtin_and_user_dispatch(
     name: str, warnings_recorded: list[Event]
@@ -297,7 +307,8 @@ async def test_user_collision_preserves_builtin_and_user_dispatch(
         install_subagent_tool(agent)
         set_harness_tools(agent, True)
         surface = await agent.tool_surface()
-        assert surface.find(name) is not None
+        # Canonical PTC exposes sandbox open() for the built-in file reader.
+        assert (surface.find(name) is None) == (name == "read_text_file")
         assert surface.find(f"{name}_tool") is not None
         # Let the actual asynchronous logger deliver the scheduled event.
         await asyncio.sleep(0)
@@ -366,7 +377,8 @@ async def test_ptc_file_policy_only_off_applies(mode: str) -> None:
     )
     try:
         surface = await agent.tool_surface()
-        assert surface.find("read_text_file")
+        # Sandbox open() replaces read_text_file.
+        assert surface.find("read_text_file") is None
         assert surface.find("apply_patch") is None
         assert (surface.find("write_text_file") is None) == (mode == "off")
         assert (surface.find("edit_file") is None) == (mode == "off")
@@ -405,8 +417,9 @@ async def test_file_values_are_deliberately_unchanged(tmp_path: Path) -> None:
             "exec_sandbox",
             {
                 "code": (
+                    "import json\n"
                     f"written = await write_text_file(path={str(tmp_path / 'data.json')!r}, content={json.dumps({'a': 1})!r})\n"
-                    f"read = await read_text_file(path={str(tmp_path / 'data.json')!r})\n"
+                    f"read = json.loads(open({str(tmp_path / 'data.json')!r}).read())\n"
                     "print(written)\nprint(read['a'])"
                 )
             },

@@ -9,8 +9,11 @@ from pydantic import BaseModel
 
 from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
 from fast_agent.llm.model_database import ModelDatabase
-from fast_agent.llm.model_overlays import ModelOverlayRegistry, load_model_overlay_registry
-from fast_agent.llm.provider.copilot.models import COPILOT_MODELS
+from fast_agent.llm.model_overlays import (
+    ModelOverlayRegistry,
+    load_model_overlay_registry,
+)
+from fast_agent.llm.provider.copilot.models import COPILOT_PICKER_MODELS
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_model_catalog import ProviderModelCatalogRegistry
 from fast_agent.llm.provider_types import Provider
@@ -57,21 +60,23 @@ class ModelSelectionCatalog:
 
     CATALOG_ENTRIES_BY_PROVIDER: ClassVar[dict[Provider, tuple[CatalogModelEntry, ...]]] = {
         Provider.RESPONSES: (
-            _builtin_entry("gpt-6-astra"),
-            _builtin_entry("gpt-6.1-sol"),
+            _builtin_entry("gpt-6.2-astra"),
+            _builtin_entry("gpt-6.2-sol"),
+            _builtin_entry("gpt-6-astra", current=False),
+            _builtin_entry("gpt-6.1-sol", current=False),
             _builtin_entry("gpt-6.1-terra", fast=True),
-            _builtin_entry("gpt-6-sol"),
+            _builtin_entry("gpt-6-sol", current=False),
             _builtin_entry("gpt-6-luna", fast=True),
             _builtin_entry("gpt-5.6-sol"),
             _builtin_entry("gpt-5.6-terra", fast=True),
             _builtin_entry("gpt-5.6-luna", fast=True),
             _builtin_entry("chat-latest"),
-            _builtin_entry("gpt-5.5"),
-            _builtin_entry("gpt-5.4"),
+            _builtin_entry("gpt-5.5", current=False),
+            _builtin_entry("gpt-5.4", current=False),
             _builtin_entry("gpt-5.4-mini", fast=True),
             _builtin_entry("gpt-5.4-nano", fast=True),
-            _builtin_entry("gpt-5.3-codex"),
-            _builtin_entry("gpt-5.2"),
+            _builtin_entry("gpt-5.3-codex", current=False),
+            _builtin_entry("gpt-5.2", current=False),
         ),
         Provider.OPENAI: (
             _builtin_entry("gpt-4.1"),
@@ -99,6 +104,25 @@ class ModelSelectionCatalog:
             ),
         ),
         Provider.GOOGLE: (
+            CatalogModelEntry(
+                alias="argon",
+                display_label="Gemini 4 Argon",
+                model="google.gemini-4-argon",
+                description="Efficient frontier reasoning for complex coding and agents.",
+            ),
+            CatalogModelEntry(
+                alias="hydrogen",
+                display_label="Gemini 4 Hydrogen",
+                model="google.gemini-4-hydrogen",
+                fast=True,
+                description="Fast Gemini 4 model for everyday coding and agentic workflows.",
+            ),
+            CatalogModelEntry(
+                alias="carbon",
+                display_label="Gemini 4 Carbon",
+                model="google.gemini-4-carbon",
+                description="Most capable Gemini 4 reasoning for demanding coding and science.",
+            ),
             CatalogModelEntry(
                 alias="gemini38flash",
                 display_label="Gemini 3.8 Flash",
@@ -134,8 +158,8 @@ class ModelSelectionCatalog:
             ),
         ),
         Provider.COPILOT: tuple(
-            CatalogModelEntry(alias=model_id, model=f"copilot.{model_id}")
-            for model_id in COPILOT_MODELS
+            CatalogModelEntry(alias=spec.model_id, model=f"copilot.{spec.model_id}")
+            for spec in COPILOT_PICKER_MODELS
         ),
         Provider.XAI: (
             _builtin_entry("Grok 4.7"),
@@ -292,23 +316,26 @@ class ModelSelectionCatalog:
             #            CatalogModelEntry(alias="deepseek31", model="hf.deepseek-ai/DeepSeek-V3.1"),
         ),
         Provider.CODEX_RESPONSES: (
-            _builtin_entry("astra", display_label="GPT-6-Astra"),
-            _builtin_entry("sol", display_label="GPT-6.1-Sol"),
+            _builtin_entry("astra", display_label="GPT-6.2-Astra"),
+            _builtin_entry("sol", display_label="GPT-6.2-Sol"),
+            _builtin_entry("astra6", display_label="GPT-6-Astra", current=False),
+            _builtin_entry("sol61", display_label="GPT-6.1-Sol", current=False),
             _builtin_entry("terra", display_label="GPT-6.1-Terra", fast=True),
-            _builtin_entry("sol6", display_label="GPT-6-Sol"),
+            _builtin_entry("sol6", display_label="GPT-6-Sol", current=False),
             _builtin_entry("luna", display_label="GPT-6-Luna", fast=True),
-            _builtin_entry("sol56"),
-            _builtin_entry("terra56"),
-            _builtin_entry("luna56"),
+            _builtin_entry("sol56", current=False),
+            _builtin_entry("terra56", current=False),
+            _builtin_entry("luna56", current=False),
             _builtin_entry("codexplan"),
-            _builtin_entry("codexplan55"),
-            _builtin_entry("codexplan54"),
-            _builtin_entry("codexplan53"),
-            _builtin_entry("codexspark", fast=True),
+            _builtin_entry("codexplan55", current=False),
+            _builtin_entry("codexplan54", current=False),
+            _builtin_entry("codexplan53", current=False),
+            _builtin_entry("codexspark", current=False, fast=True),
             CatalogModelEntry(
                 alias="gpt-5.4-mini",
                 model="codexresponses.gpt-5.4-mini?reasoning=medium",
                 fast=True,
+                current=False,
             ),
         ),
         Provider.GROQ: (
@@ -572,7 +599,9 @@ class ModelSelectionCatalog:
             provider_name = provider.config_name
 
             if provider == Provider.ANTHROPIC_VERTEX:
-                from fast_agent.llm.provider.anthropic.vertex_config import anthropic_vertex_ready
+                from fast_agent.llm.provider.anthropic.vertex_config import (
+                    anthropic_vertex_ready,
+                )
 
                 ready, _ = anthropic_vertex_ready(config_payload)
                 if ready:

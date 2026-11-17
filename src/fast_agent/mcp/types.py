@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     )
     from fast_agent.skills import SkillManifest
     from fast_agent.skills.registry import SkillRegistry
+    from fast_agent.tools.file_read_access import FileReadAccess
     from fast_agent.tools.shell_runtime import ShellRuntime
     from fast_agent.ui.console_display import ConsoleDisplay
 
@@ -56,7 +57,7 @@ class McpAgentProtocol(AgentProtocol, Protocol):
     def skill_manifests(self) -> Sequence["SkillManifest"]: ...
 
     @property
-    def skill_read_tool_name(self) -> str: ...
+    def skill_read_access(self) -> FileReadAccess: ...
 
     def set_skill_manifests(self, manifests: Sequence["SkillManifest"]) -> None: ...
 

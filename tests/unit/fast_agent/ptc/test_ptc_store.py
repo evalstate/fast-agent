@@ -5,11 +5,14 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
+from unittest.mock import Mock
 
 import pytest
 import pytest_asyncio
+from acp import AgentSideConnection
 from mcp_types import CallToolResult, TextContent, Tool
 
+from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.config import ProgrammaticToolCallingSettings, Settings
@@ -159,27 +162,38 @@ async def test_stored_values_are_saved_forked_and_resumed_with_the_session(tmp_p
         await original.shutdown()
 
     filename = "ptc_store_coder.json"
-    assert session.load_snapshot().continuation.agents["coder"].ptc_store_file == filename
+    saved = session.load_snapshot().continuation.agents["coder"]
+    assert saved.ptc_store_file == filename
+    assert saved.ptc_enabled is True
     fork = manager.fork_session(session.info.name)
     assert fork is not None and (fork.directory / filename).is_file()
 
-    resumed, without_ptc = _agent(), _agent(ptc=False)
+    # A resumed session keeps its own PTC setting, not the one the agent started with.
+    resumed, started_without_ptc, unservable = _agent(), _agent(ptc=False), _agent(ptc=False)
+    unservable.set_external_runtime(ACPTerminalRuntime(Mock(spec=AgentSideConnection), "p", "t"))
+    loaded: list[CallToolResult] = []
     try:
-        await resumed.list_tools()
-        restored = await SessionHydrator().hydrate_session(
-            session=fork, agents={"coder": resumed}, fallback_agent_name="coder"
-        )
-        loaded = await resumed.call_tool(
-            PTC_TOOL_NAME, {"code": "await load('rows') == [(1, b'x')]"}
-        )
-        skipped = await SessionHydrator().hydrate_session(
-            session=fork, agents={"coder": without_ptc}, fallback_agent_name="coder"
-        )
+        hydrations = []
+        for agent in (resumed, started_without_ptc, unservable):
+            hydrations.append(
+                await SessionHydrator().hydrate_session(
+                    session=fork, agents={"coder": agent}, fallback_agent_name="coder"
+                )
+            )
+        for agent in (resumed, started_without_ptc):
+            loaded.append(
+                await agent.call_tool(PTC_TOOL_NAME, {"code": "await load('rows') == [(1, b'x')]"})
+            )
     finally:
-        await resumed.shutdown()
-        await without_ptc.shutdown()
+        for agent in (resumed, started_without_ptc, unservable):
+            await agent.shutdown()
 
-    assert restored.warnings == []
-    block = loaded.content[0]
-    assert isinstance(block, TextContent) and block.text.endswith("Result:\ntrue"), block
-    assert [warning.code for warning in skipped.warnings] == ["ptc-store-restore-skipped"]
+    assert [[warning.code for warning in h.warnings] for h in hydrations] == [
+        [],
+        [],
+        ["ptc-restore-fallback", "ptc-store-restore-skipped"],
+    ]
+    assert not unservable.ptc_enabled
+    for result in loaded:
+        block = result.content[0]
+        assert isinstance(block, TextContent) and block.text.endswith("Result:\ntrue"), block

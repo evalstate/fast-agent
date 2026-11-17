@@ -45,30 +45,32 @@ def test_cache_keys_are_instance_scoped_not_explicit_breakpoints() -> None:
         {"previous_response_id": "resp_external"},
     ],
 )
-def test_incompatible_astra_overrides_are_validated(metadata) -> None:
-    llm = ResponsesLLM(model="gpt-6-astra")
+@pytest.mark.parametrize("model", ["gpt-6-astra", "gpt-6.2-astra", "gpt-6.2-sol"])
+def test_incompatible_astra_overrides_are_validated(metadata, model: str) -> None:
+    llm = ResponsesLLM(model=model)
     with pytest.raises(ModelConfigError):
         prepare_cached_request(
             [Prompt.user("Work")],
-            RequestParams(model="gpt-6-astra", metadata=metadata),
+            RequestParams(model=model, metadata=metadata),
             key="key",
             default_effort="low",
             convert=llm._convert_message_to_items,
         )
 
 
+@pytest.mark.parametrize("model", ["gpt-6-astra", "gpt-6.2-astra", "gpt-6.2-sol"])
 @pytest.mark.parametrize("error_text", [False, True])
 @pytest.mark.parametrize("pending_media", [False, True])
 def test_tool_continuation_defers_effort_change_until_next_user(
-    error_text: bool, pending_media: bool
+    error_text: bool, pending_media: bool, model: str
 ) -> None:
-    llm = ResponsesLLM(model="gpt-6-astra")
+    llm = ResponsesLLM(model=model)
     history = [Prompt.user("Work")]
 
     def prepare(effort: str):
         return prepare_cached_request(
             history,
-            RequestParams(model="gpt-6-astra"),
+            RequestParams(model=model),
             key="key",
             default_effort=effort,
             convert=llm._convert_message_to_items,
@@ -117,7 +119,7 @@ def test_tool_continuation_defers_effort_change_until_next_user(
     assert read_cache_state(restored[-1]) == state
     replay, replay_state, _ = prepare_cached_request(
         [*restored, Prompt.user("Continue")],
-        RequestParams(model="gpt-6-astra"),
+        RequestParams(model=model),
         key="new-instance",
         default_effort="high",
         convert=llm._convert_message_to_items,

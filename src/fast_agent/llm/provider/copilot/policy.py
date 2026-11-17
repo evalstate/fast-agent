@@ -1,4 +1,4 @@
-"""Wire-payload policy shared by the two Copilot protocol adapters."""
+"""Wire-payload policy shared by the Copilot protocol adapters."""
 
 from collections.abc import Mapping
 from typing import Any
@@ -80,7 +80,7 @@ def request_headers(payload: object) -> dict[str, str]:
     latest = payload[-1] if isinstance(payload, list) and payload else payload
     agent = False
     if isinstance(latest, Mapping):
-        agent = latest.get("role") == "assistant" or latest.get("type") in (
+        agent = latest.get("role") in ("assistant", "tool") or latest.get("type") in (
             "function_call_output",
             "custom_tool_call_output",
         )
@@ -95,7 +95,7 @@ def request_headers(payload: object) -> dict[str, str]:
                 )
             )
     headers = {"x-initiator": "agent" if agent else "user"}
-    if contains_type(payload, {"image", "input_image"}):
+    if contains_type(payload, {"image", "input_image", "image_url"}):
         headers["copilot-vision-request"] = "true"
     return headers
 
@@ -135,7 +135,7 @@ def apply_policy(
             allowed.add("web_search")
         if tool.get("type") not in allowed:
             raise ValueError(f"Copilot provider-hosted tool is not supported for {spec.model_id}.")
-    input_key = "messages" if spec.wire_api == "messages" else "input"
+    input_key = "input" if spec.wire_api == "responses" else "messages"
     payload = effective.get(input_key)
     reject_files(payload)
     headers = arguments.get("extra_headers") or {}

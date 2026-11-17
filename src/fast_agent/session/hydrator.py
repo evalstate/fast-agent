@@ -18,6 +18,7 @@ from fast_agent.mcp.prompts.prompt_load import (
 )
 
 from .snapshot import (
+    PtcSessionAgent,
     PtcStoreProvider,
     SessionAgentSnapshot,
     SessionAttachmentRef,
@@ -174,6 +175,11 @@ class SessionHydrator:
         )
         effective_policy = policy or SessionHydrationPolicy()
         state = _HydrationState(warnings=warnings)
+
+        if effective_policy.restore_runtime_state:
+            for name, agent in agents.items():
+                if name not in agent_snapshots and isinstance(agent, PtcSessionAgent):
+                    await agent.clear_session_ptc(refresh_instruction=False)
 
         for agent_name, agent_snapshot in agent_snapshots.items():
             await self._hydrate_agent(
@@ -448,12 +454,30 @@ class SessionHydrator:
         agents: Mapping[str, AgentProtocol],
         warnings: list[SessionHydrationWarning],
     ) -> None:
+        # Before the model, whose attachment decides PTC with the session's own setting.
+        restored_ptc = agent_snapshot.ptc_enabled
+        if isinstance(agent, PtcSessionAgent):
+            if restored_ptc is None:
+                await agent.clear_session_ptc(refresh_instruction=False)
+            else:
+                agent.restore_ptc(restored_ptc)
         await self._restore_agent_model(
             agent=agent,
             agent_name=agent_name,
             agent_snapshot=agent_snapshot,
             warnings=warnings,
         )
+        if restored_ptc and isinstance(agent, PtcSessionAgent) and not agent.ptc_enabled:
+            warnings.append(
+                SessionHydrationWarning(
+                    code="ptc-restore-fallback",
+                    message=(
+                        f"Agent {agent_name!r} used programmatic tool calling, which this "
+                        "environment cannot serve; it resumes with direct tools."
+                    ),
+                    agent_name=agent_name,
+                )
+            )
         self._restore_agent_request_settings(agent, agent_name, agent_snapshot, warnings)
         self._restore_agent_capability_mode(agent, agent_name, agent_snapshot, warnings)
         await self._restore_mcp_attachments(agent, agent_name, agent_snapshot, warnings)

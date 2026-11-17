@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Literal, cast
 
 from fast_agent.commands import model_capabilities as _model_capabilities
 from fast_agent.commands.handlers import sessions as sessions_handlers
-from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.model_capabilities import (
     SERVICE_TIER_VALUES,
     ServiceTierValue,
@@ -524,12 +523,7 @@ async def _start_model_switch_session(ctx: CommandContext, outcome: CommandOutco
             channel="info",
         )
 
-    cleared = clear_agent_histories(ctx.agent_provider.registered_agents())
-    if cleared:
-        outcome.add_message(
-            f"Cleared agent history: {', '.join(sorted(cleared))}",
-            channel="info",
-        )
+    await sessions_handlers.apply_session_new_history_reset(ctx, outcome)
 
 
 async def handle_model_switch(

@@ -45,6 +45,7 @@ from fast_agent.mcp.tool_result_metadata import (
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.apply_patch_tool import get_openai_responses_custom_tool_payload
 from fast_agent.tools.durable_processes import DurableProcessStore
+from fast_agent.tools.file_read_access import SKILL_READER_FILE_READS
 from fast_agent.tools.shell_process import process_result_metadata
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
 from fast_agent.types import PromptMessageExtended
@@ -1691,7 +1692,7 @@ async def test_skills_fallback_to_read_skill_when_local_read_text_file_disabled(
     assert "write_text_file" in tool_names
     assert "read_text_file" not in tool_names
     assert READ_SKILL_TOOL_NAME in tool_names
-    assert agent.skill_read_tool_name == READ_SKILL_TOOL_NAME
+    assert agent.skill_read_access == SKILL_READER_FILE_READS
 
     await agent._aggregator.close()
 

@@ -296,9 +296,10 @@ def enrich_with_environment_context(
     # In ACP context, use read_text_file as the tool for reading skills
     if cwd:
         from fast_agent.skills.registry import format_skills_for_prompt
+        from fast_agent.tools.file_read_access import TOOL_FILE_READS
 
         skill_manifests = load_skills_for_context(cwd, skills_directory_override, no_home=no_home)
-        skills_text = format_skills_for_prompt(skill_manifests, read_tool_name="read_text_file")
+        skills_text = format_skills_for_prompt(skill_manifests, read_access=TOOL_FILE_READS)
         context["agentSkills"] = skills_text
 
     internal_resources = list_internal_resources()

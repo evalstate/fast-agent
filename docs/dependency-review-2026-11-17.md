@@ -1,5 +1,14 @@
 # Dependency review — 17 November 2026
 
+> **Post-review merge decision:** main's `google-genai==3.4.0` is retained for
+> current Gemini model support. This supersedes the Google 3.x deferral and
+> selected version below; the inventory and validation results describe the
+> original dependency review, not the merged tree. Google SDK auto-instrumentation
+> is unavailable with the current OpenTelemetry instrumentor (`google-genai<3`);
+> this is an accepted limitation, not a reason to bypass its compatibility check.
+> OpenAI instrumentation remains enabled. The merged provider preserves main's
+> beta-endpoint default, explicit API-version overrides, and SDK 3 schema handling.
+
 Scope: runtime dependencies, optional extras, development/build tools, workspace wrappers, standalone example manifests, inline script dependencies, GitHub Actions, and the complete transitive lockfile. Versions were checked against live PyPI metadata and upstream release sources; stable releases are preferred, except the already-beta OpenTelemetry instrumentation family. The supported Python range remains 3.12–3.15.
 
 ## Summary

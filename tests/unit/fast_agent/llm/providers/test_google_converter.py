@@ -2,6 +2,7 @@ import base64
 
 import pytest
 from google.genai import types
+from mcp import Tool
 from mcp_types import (
     BlobResourceContents,
     CallToolResult,
@@ -48,57 +49,24 @@ def test_convert_function_results_to_google_text_only():
     assert fn_resp.response.get("result") == "Weather is sunny"
 
 
-def test_clean_schema_for_google_const_string_to_enum():
-    converter = GoogleConverter()
-    schema = {"type": "string", "const": "all"}
-    cleaned = converter._clean_schema_for_google(schema)
-    # Expect const rewritten to enum ["all"]
-    assert "const" not in cleaned
-    assert cleaned.get("enum") == ["all"]
-
-
-def test_clean_schema_for_google_const_non_string_dropped():
-    converter = GoogleConverter()
-    schema_bool = {"type": "boolean", "const": True}
-    cleaned_bool = converter._clean_schema_for_google(schema_bool)
-    # Non-string const dropped
-    assert "const" not in cleaned_bool
-    assert "enum" not in cleaned_bool
-
-    schema_num = {"type": "number", "const": 3.14}
-    cleaned_num = converter._clean_schema_for_google(schema_num)
-    assert "const" not in cleaned_num
-    assert "enum" not in cleaned_num
-
-
-def test_clean_schema_for_google_resolves_escaped_refs_and_preserves_siblings():
-    converter = GoogleConverter()
+def test_google_tools_preserve_mcp_json_schema():
+    # Recursive tool parameters cannot be flattened into an inline Schema.
     schema = {
         "$defs": {
-            "path/with~tilde": {
-                "type": "string",
-                "minLength": 3,
+            "node": {
+                "type": "object",
+                "properties": {"child": {"$ref": "#/$defs/node"}},
+                "additionalProperties": False,
             }
         },
         "type": "object",
-        "properties": {
-            "name": {
-                "$ref": "#/$defs/path~1with~0tilde",
-                "description": "Display name",
-                "default": "Ada",
-            }
-        },
+        "properties": {"root": {"$ref": "#/$defs/node"}},
     }
-
-    cleaned = converter._clean_schema_for_google(schema)
-
-    assert "$defs" not in cleaned
-    assert cleaned["properties"]["name"] == {
-        "type": "string",
-        "minLength": 3,
-        "description": "Display name",
-        "default": "Ada",
-    }
+    (tool,) = GoogleConverter().convert_to_google_tools([Tool(name="tree", input_schema=schema)])
+    assert tool.function_declarations
+    declaration = tool.function_declarations[0]
+    assert declaration.parameters_json_schema == schema
+    assert declaration.parameters is None
 
 
 def test_convert_from_google_content_handles_missing_content_parts():
@@ -573,3 +541,62 @@ def test_convert_multiple_function_results_into_single_content():
     assert part2.id == "id_2"
     assert isinstance(part2.response, dict)
     assert part2.response.get("result") == "Output 2"
+
+
+@pytest.mark.parametrize(
+    ("model", "default_level"),
+    [
+        ("gemini-4-carbon", types.ThinkingLevel.MEDIUM),
+        ("gemini-4-argon", types.ThinkingLevel.MEDIUM),
+        ("gemini-4-hydrogen", types.ThinkingLevel.HIGH),
+        ("models/gemini-4-hydrogen", types.ThinkingLevel.HIGH),
+        (
+            "projects/p/locations/global/publishers/google/models/gemini-4-carbon",
+            types.ThinkingLevel.MEDIUM,
+        ),
+    ],
+)
+@pytest.mark.parametrize("budget", [-1, 0, 8192])
+def test_gemini4_uses_fixed_sampling_and_model_default_thinking(
+    model: str, default_level: types.ThinkingLevel, budget: int
+) -> None:
+    config = GoogleConverter().convert_request_params_to_google_config(
+        RequestParams(
+            model=model,
+            temperature=0.7,
+            top_p=0.9,
+            top_k=40,
+            max_tokens=131072,
+            system_prompt="Be concise.",
+        ),
+        thinking_budget=budget,
+    )
+    assert config.temperature is None
+    assert config.top_p is None
+    assert config.top_k is None
+    assert config.candidate_count is None
+    assert config.max_output_tokens == 131072
+    assert config.system_instruction == "Be concise."
+    assert config.thinking_config is not None
+    assert config.thinking_config.thinking_level == default_level
+    assert config.thinking_config.thinking_budget is None
+
+
+@pytest.mark.parametrize("level", ["low", "medium", "high", "xhigh"])
+def test_gemini4_explicit_thinking_level_takes_precedence_over_budget(level: str) -> None:
+    config = GoogleConverter().convert_request_params_to_google_config(
+        RequestParams(model="gemini-4-hydrogen"),
+        thinking_level=level,
+        thinking_budget=8192,
+    )
+    assert config.thinking_config is not None
+    assert config.thinking_config.thinking_level == types.ThinkingLevel(level.upper())
+    assert config.thinking_config.thinking_budget is None
+    assert config.thinking_config.include_thoughts is True
+
+
+def test_gemini4_without_thinking_override_preserves_server_default() -> None:
+    config = GoogleConverter().convert_request_params_to_google_config(
+        RequestParams(model="gemini-4-hydrogen")
+    )
+    assert config.thinking_config is None

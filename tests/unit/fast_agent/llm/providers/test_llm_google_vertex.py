@@ -195,6 +195,18 @@ def test_initialize_google_developer_client_uses_run_base_url_override(monkeypat
     assert http_options.headers == {"X-Proxy": "developer"}
 
 
+@pytest.mark.parametrize(("override", "expected"), [(None, "v1beta"), ("v1", None)])
+def test_google_developer_api_version_default_and_sdk_override(monkeypatch, override, expected):
+    if override is None:
+        monkeypatch.delenv("GOOGLE_GENAI_API_VERSION", raising=False)
+    else:
+        monkeypatch.setenv("GOOGLE_GENAI_API_VERSION", override)
+    llm = _build_llm(Settings(google=GoogleSettings(base_url="https://proxy.example")))
+    options = llm._google_http_options()
+    assert options is not None
+    assert options.api_version == expected
+
+
 @pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.8-flash"])
 def test_current_flash_flex_service_tier_configures_developer_api(model: str) -> None:
     settings = Settings(
@@ -234,7 +246,6 @@ def test_current_flash_flex_service_tier_configures_developer_api(model: str) ->
     )
     assert http_options is not None
     assert http_options.timeout == 900_000
-    assert http_options.api_version == "v1beta"
     assert http_options.headers == {"X-Test": "developer"}
 
     llm.set_service_tier(None)
@@ -587,7 +598,8 @@ async def test_structured_schema_in_generate_path_can_keep_google_tools(
 
     config = cast("google_types.GenerateContentConfig", captured["config"])
     assert config.response_mime_type == "application/json"
-    assert config.response_schema is not None
+    assert config.response_json_schema == schema
+    assert config.response_schema is None
     assert bool(config.tools) is expected_tools
     assert response.last_text() == '{"answer":"ok"}'
 

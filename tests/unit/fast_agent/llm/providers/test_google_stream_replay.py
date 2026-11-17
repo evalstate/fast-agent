@@ -8,8 +8,10 @@ from typing import Any, cast
 
 import pytest
 from google.genai import types as google_types
+from mcp_types import CallToolResult, TextContent
 
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.provider.google.google_converter import GoogleConverter
 from fast_agent.llm.provider.google.llm_google_native import GoogleNativeLLM
 from fast_agent.llm.provider.streaming_timeouts import StreamIdleTimeoutError
 
@@ -331,3 +333,161 @@ async def test_google_stream_tool_call_uses_final_arguments_and_closes_stream() 
     assert parts[0].function_call.args == {"city": "Paris"}
     assert parts[0].function_call.id == "call_weather"
     assert parts[0].thought_signature == b"sig"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_ids", [True, False])
+@pytest.mark.parametrize("separate_chunks", [True, False])
+async def test_gemini4_parallel_calls_preserve_arguments_ids_and_signature_placement(
+    with_ids: bool,
+    separate_chunks: bool,
+) -> None:
+    harness = _GoogleReplayHarness()
+    calls = [
+        google_types.Part(
+            function_call=google_types.FunctionCall(
+                id="call_paris" if with_ids else None,
+                name="weather",
+                args={"city": "Paris"},
+            ),
+            thought_signature=b"first-call-signature",
+        ),
+        google_types.Part(
+            function_call=google_types.FunctionCall(
+                id="call_london" if with_ids else None,
+                name="weather",
+                args={"city": "London"},
+            ),
+        ),
+    ]
+    stream = _SyntheticGoogleStream(
+        [
+            google_types.GenerateContentResponse(
+                candidates=[
+                    google_types.Candidate(
+                        content=google_types.Content(role="model", parts=parts),
+                        finish_reason=(
+                            google_types.FinishReason.STOP if parts[-1] is calls[-1] else None
+                        ),
+                    )
+                ]
+            )
+            for parts in ([calls[:1], calls[1:]] if separate_chunks else [calls])
+        ]
+    )
+    response = await harness._consume_google_stream(stream, model="gemini-4-hydrogen")
+    assert response is not None
+    assert response.candidates is not None
+    content = response.candidates[0].content
+    assert content is not None
+    assert content.parts is not None
+    assert len(content.parts) == 2
+    first, second = content.parts
+    assert first.function_call is not None
+    assert second.function_call is not None
+    assert first.function_call.args == {"city": "Paris"}
+    assert second.function_call.args == {"city": "London"}
+    assert first.function_call.id != second.function_call.id
+    if with_ids:
+        assert first.function_call.id == "call_paris"
+        assert second.function_call.id == "call_london"
+    assert first.thought_signature == b"first-call-signature"
+    assert second.thought_signature is None
+    assert [event["event_type"] for event in harness.tool_events] == [
+        "start",
+        "delta",
+        "stop",
+        "start",
+        "delta",
+        "stop",
+    ]
+    provider_calls = harness._provider_google_tool_calls(content)
+    results = GoogleConverter().convert_function_results_to_google(
+        [
+            (
+                name,
+                call_id,
+                CallToolResult(
+                    content=[TextContent(type="text", text=str(args["city"]))],
+                    is_error=index == 1,
+                ),
+            )
+            for index, (call_id, name, args) in enumerate(provider_calls)
+        ]
+    )
+    assert len(results) == 1
+    assert results[0].role == "user"
+    assert results[0].parts is not None
+    responses = [part.function_response for part in results[0].parts]
+    assert all(response is not None for response in responses)
+    for function_response, (call_id, name, _) in zip(responses, provider_calls, strict=True):
+        assert function_response is not None
+        assert function_response.id == call_id
+        assert function_response.name == name
+    assert responses[0] is not None
+    assert responses[0].response == {"result": "Paris"}
+    assert responses[1] is not None
+    assert responses[1].response == {"error": "London"}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("thought", [True, False])
+async def test_gemini4_stream_keeps_signed_text_parts_separate(thought: bool) -> None:
+    harness = _GoogleReplayHarness()
+    response = await harness._consume_google_stream(
+        _SyntheticGoogleStream(
+            [
+                _google_chunk(text="unsigned", thought=thought),
+                _google_chunk(text="signed", thought=thought, thought_signature=b"sig"),
+                _google_chunk(text="also signed", thought=thought, thought_signature=b"sig"),
+                _google_chunk(text="tail", thought=thought, finish_reason="STOP"),
+            ]
+        ),
+        model="gemini-4-carbon",
+    )
+    assert response is not None
+    assert response.candidates is not None
+    content = response.candidates[0].content
+    assert content is not None
+    assert content.parts is not None
+    assert [part.text for part in content.parts] == ["unsigned", "signed", "also signed", "tail"]
+    assert [part.thought_signature for part in content.parts] == [None, b"sig", b"sig", None]
+    assert all(bool(part.thought) is thought for part in content.parts)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text", ["", None])
+@pytest.mark.parametrize("thought", [True, False, None])
+async def test_gemini4_stream_preserves_empty_signature_part(
+    text: str | None, thought: bool | None
+) -> None:
+    harness = _GoogleReplayHarness()
+    signature_chunk = _google_chunk(
+        text=text,
+        thought=thought,
+        thought_signature=b"last-signature",
+        finish_reason="STOP",
+    )
+    response = await harness._consume_google_stream(
+        _SyntheticGoogleStream(
+            [
+                _google_chunk(text="answer"),
+                signature_chunk,
+            ]
+        ),
+        model="gemini-4-argon",
+    )
+    assert response is not None
+    assert response.candidates is not None
+    content = response.candidates[0].content
+    assert content is not None
+    assert content.parts is not None
+    assert [part.text for part in content.parts] == ["answer", text]
+    assert signature_chunk.candidates is not None
+    signature_content = signature_chunk.candidates[0].content
+    assert signature_content is not None
+    assert signature_content.parts is not None
+    assert content.parts[-1] == signature_content.parts[0]

@@ -1027,6 +1027,19 @@ class TestAnthropicAssistantConverter(unittest.TestCase):
         self.assertEqual(blocks[0]["text"], "Replay this text")
         self.assertNotIn("parsed_output", blocks[0])
 
+    def test_assistant_unsigned_thinking_replays_as_text(self):
+        """A thinking block cut off before its signature must not be replayed as thinking."""
+        unsigned = json.dumps({"type": "thinking", "thinking": "I am weighing", "signature": ""})
+        channels = {
+            ANTHROPIC_ASSISTANT_RAW_CONTENT: [TextContent(type="text", text=unsigned)],
+            ANTHROPIC_THINKING_BLOCKS: [TextContent(type="text", text=unsigned)],
+        }
+
+        multipart = PromptMessageExtended(role="assistant", content=[], channels=channels)
+        blocks = content_blocks(AnthropicConverter.convert_to_anthropic(multipart))
+
+        self.assertEqual(blocks, [{"type": "text", "text": "I am weighing"}])
+
     def test_assistant_tool_use_fallback_keeps_assistant_text(self):
         """Legacy replay path should preserve assistant text when rebuilding tool_use turns."""
         channels = {

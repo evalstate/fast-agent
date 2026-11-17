@@ -95,7 +95,7 @@ def test_configure_otel_samples_and_flushes_spans() -> None:
 
 
 def test_configure_otel_instruments_installed_provider_sdks() -> None:
-    """An SDK upgrade must not silently disable its declared instrumentation."""
+    """Keep OpenAI tracing active and make the accepted Google SDK 3 gap explicit."""
     script = textwrap.dedent(
         """
         import asyncio
@@ -124,11 +124,11 @@ def test_configure_otel_instruments_installed_provider_sdks() -> None:
 
         instrumentors = (GoogleGenAiSdkInstrumentor(), OpenAIInstrumentor())
         try:
-            for instrumentor in instrumentors:
-                assert instrumentor.is_instrumented_by_opentelemetry, (
-                    type(instrumentor).__name__,
-                    instrumentor.instrumentation_dependencies(),
-                )
+            # SDK 3 is required for current Gemini models, but the Google
+            # instrumentor only supports SDK <3. Do not bypass its safety check.
+            google_instrumentor, openai_instrumentor = instrumentors
+            assert not google_instrumentor.is_instrumented_by_opentelemetry
+            assert openai_instrumentor.is_instrumented_by_opentelemetry
         finally:
             for instrumentor in instrumentors:
                 if instrumentor.is_instrumented_by_opentelemetry:
@@ -145,6 +145,7 @@ def test_configure_otel_instruments_installed_provider_sdks() -> None:
     )
 
     assert result.returncode == 0, result.stderr
+    assert 'GoogleGenAiSdkInstrumentor only instruments "google-genai>=1.32.0,<3"' in result.stderr
 
 
 def test_disabled_telemetry_does_not_load_sdk() -> None:

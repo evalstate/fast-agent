@@ -404,14 +404,17 @@ async def test_custom_and_mixed_filesystems_require_an_adapter(tmp_path, shell, 
         AgentConfig(name="ptc-custom", servers=[], shell=shell, cwd=tmp_path),
         context=Context(config=Settings(ptc=ProgrammaticToolCallingSettings(enabled=enabled))),
     )
-    agent.set_filesystem_runtime(filesystem)
     try:
         if enabled:
+            # Binding the environment is a session start: an explicit PTC fails there.
+            with pytest.raises(AgentConfigError, match="local POSIX"):
+                agent.set_filesystem_runtime(filesystem)
             with pytest.raises(AgentConfigError, match="local POSIX"):
                 await agent.list_tools()
             with pytest.raises(AgentConfigError, match="local POSIX"):
                 await _run(agent, "open('out.txt', 'w').write('wrong workspace')")
         else:
+            agent.set_filesystem_runtime(filesystem)
             tools = await agent.list_tools()
             assert PTC_TOOL_NAME not in {tool.name for tool in tools.tools}
             assert not (await agent.call_tool("read_text_file", {"path": "notes.txt"})).is_error
@@ -435,22 +438,20 @@ async def test_nonlocal_and_unknown_environments_are_rejected(tmp_path, kind) ->
         if kind == "docker"
         else CustomEnvironment(logger=get_logger(__name__), working_directory=tmp_path)
     )
-    agent = McpAgent(
-        AgentConfig(name="ptc-environment", servers=[], shell=True),
-        shell_environment=environment,
-        context=Context(config=Settings(ptc=ProgrammaticToolCallingSettings(enabled=True))),
-    )
     try:
         with pytest.raises(AgentConfigError, match="local POSIX"):
-            await agent.__aenter__()
+            McpAgent(
+                AgentConfig(name="ptc-environment", servers=[], shell=True),
+                shell_environment=environment,
+                context=Context(config=Settings(ptc=ProgrammaticToolCallingSettings(enabled=True))),
+            )
     finally:
-        await agent.shutdown()
         await environment.close()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("context_only", [False, True])
-async def test_acp_terminal_requires_an_adapter(context_only) -> None:
+async def test_acp_terminal_requires_an_adapter(context_only: bool) -> None:
     from unittest.mock import Mock
 
     from acp import AgentSideConnection
@@ -468,13 +469,15 @@ async def test_acp_terminal_requires_an_adapter(context_only) -> None:
             config=Settings(ptc=ProgrammaticToolCallingSettings(enabled=True)), acp=acp
         ),
     )
-    if context_only:
-        acp.set_terminal_runtime(terminal)
-    else:
-        agent.set_external_runtime(terminal)
     try:
-        with pytest.raises(AgentConfigError, match="local POSIX"):
-            await agent.list_tools()
+        if context_only:
+            # The terminal serves other agents; this one keeps the local environment.
+            acp.set_terminal_runtime(terminal)
+            tools = await agent.list_tools()
+            assert PTC_TOOL_NAME in {tool.name for tool in tools.tools}
+        else:
+            with pytest.raises(AgentConfigError, match="local POSIX"):
+                agent.set_external_runtime(terminal)
     finally:
         await agent.shutdown()
 
@@ -603,7 +606,8 @@ async def test_environment_changes_cannot_reuse_a_local_ptc_runtime(tmp_path) ->
     )
     try:
         await agent.list_tools()
-        agent.set_filesystem_runtime(_RecordingFilesystem())
+        with pytest.raises(AgentConfigError, match="local POSIX"):
+            agent.set_filesystem_runtime(_RecordingFilesystem())
         with pytest.raises(AgentConfigError, match="local POSIX"):
             await _run(agent, "open('wrong', 'w').write('no')")
         settings.ptc.enabled = False

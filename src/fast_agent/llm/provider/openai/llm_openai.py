@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass, field
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, ClassVar, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol, cast, runtime_checkable
 
 import httpx
 from mcp import Tool
@@ -83,6 +83,9 @@ from fast_agent.utils.reasoning_chunk_join import (
     normalize_reasoning_delta,
 )
 from fast_agent.utils.text import strip_casefold, strip_to_none
+
+if TYPE_CHECKING:
+    from fast_agent.config import OpenAISettings
 
 _logger = get_logger(__name__)
 
@@ -234,8 +237,8 @@ class OpenAILLM(
 
         # Set up reasoning-related attributes
         raw_setting = kwargs.get("reasoning_effort")
-        if self.context and self.context.config and self.context.config.openai:
-            config = self.context.config.openai
+        config = self._openai_reasoning_settings()
+        if config is not None:
             if raw_setting is None:
                 raw_setting, warn_deprecated_reasoning_effort = reasoning_setting_from_config(
                     config
@@ -261,6 +264,11 @@ class OpenAILLM(
                 f"Using reasoning model '{chosen_model}' (mode='{self._reasoning_mode}') with "
                 f"'{format_reasoning_setting(self.reasoning_effort)}' reasoning effort"
             )
+
+    def _openai_reasoning_settings(self) -> "OpenAISettings | None":
+        if self.context and self.context.config:
+            return self.context.config.openai
+        return None
 
     async def _download_remote_file(
         self,

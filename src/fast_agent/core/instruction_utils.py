@@ -13,7 +13,7 @@ from fast_agent.core.instruction_refresh import (
     resolve_instruction_skill_manifests,
 )
 from fast_agent.llm.model_database import ModelDatabase
-from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
+from fast_agent.tools.file_read_access import SKILL_READER_FILE_READS, FileReadAccess
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -171,7 +171,7 @@ async def apply_instruction_context(
         aggregator = None
         tool_filters = None
         skill_manifests = None
-        skill_read_tool_name = READ_SKILL_TOOL_NAME
+        skill_read_access: FileReadAccess = SKILL_READER_FILE_READS
         if isinstance(agent, InstructionContextCapable):
             agent.set_instruction_context(dict(resolved_context))
         if isinstance(agent, McpInstructionCapable):
@@ -182,14 +182,14 @@ async def apply_instruction_context(
                 configured_agent,
                 configured_agent.skill_manifests,
             )
-            skill_read_tool_name = configured_agent.skill_read_tool_name
+            skill_read_access = configured_agent.skill_read_access
 
         resolved = await build_instruction(
             template,
             aggregator=aggregator,
             tool_filters=tool_filters,
             skill_manifests=skill_manifests,
-            skill_read_tool_name=skill_read_tool_name,
+            skill_read_access=skill_read_access,
             context=dict(resolved_context),
             source=agent.name,
         )

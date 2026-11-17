@@ -402,7 +402,7 @@ def _validate_attachment(
 ) -> None:
     if is_text_mime_type(mime_type):
         raise ValueError(
-            f"Error: '{mime_type}' is text content; use read_text_file for text/code files"
+            f"Error: '{mime_type}' is text content; read text/code files as text instead"
         )
 
     if model_info is not None and not model_info.supports_mime(

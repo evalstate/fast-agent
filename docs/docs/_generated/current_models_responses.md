@@ -1,17 +1,12 @@
 | Model string or alias | Resolves to / equivalent | Notes |
 | --- | --- | --- |
-| `gpt-6-astra` | `responses.gpt-6-astra?reasoning=medium` | — |
-| `gpt-6.1-sol` | `responses.gpt-6.1-sol?reasoning=medium` | — |
+| `gpt-6.2-astra` | `responses.gpt-6.2-astra?reasoning=medium` | — |
+| `gpt-6.2-sol` | `responses.gpt-6.2-sol?reasoning=medium` | — |
 | `gpt-6.1-terra` | `responses.gpt-6.1-terra?reasoning=medium` | Fast |
-| `gpt-6-sol` | `responses.gpt-6-sol?reasoning=medium` | — |
 | `gpt-6-luna` | `responses.gpt-6-luna?reasoning=medium` | Fast |
 | `gpt-5.6-sol` | `responses.gpt-5.6-sol?reasoning=medium` | — |
 | `gpt-5.6-terra` | `responses.gpt-5.6-terra?reasoning=medium` | Fast |
 | `gpt-5.6-luna` | `responses.gpt-5.6-luna?reasoning=medium` | Fast |
 | `chat-latest` | `responses.chat-latest` | — |
-| `gpt-5.5` | `responses.gpt-5.5?reasoning=medium` | — |
-| `gpt-5.4` | `responses.gpt-5.4?reasoning=medium` | — |
 | `gpt-5.4-mini` | `responses.gpt-5.4-mini?reasoning=medium` | Fast |
 | `gpt-5.4-nano` | `responses.gpt-5.4-nano?reasoning=medium` | Fast |
-| `gpt-5.3-codex` | `responses.gpt-5.3-codex?reasoning=high` | — |
-| `gpt-5.2` | `responses.gpt-5.2?reasoning=medium` | — |

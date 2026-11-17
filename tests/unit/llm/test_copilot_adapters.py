@@ -47,6 +47,12 @@ if TYPE_CHECKING:
     from fast_agent.llm.stream_types import StreamChunk
 
 
+def _sdk_client_target(wire: str) -> str:
+    if wire == "messages":
+        return "fast_agent.llm.provider.copilot.messages.AsyncAnthropic"
+    return "fast_agent.llm.provider.copilot.openai_client.AsyncOpenAI"
+
+
 class FakeBroker:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, str]] = []
@@ -214,10 +220,7 @@ async def test_parent_sse_loop_fresh_binding_and_payload(
         kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
         return AsyncAnthropic(**kwargs) if wire == "messages" else AsyncOpenAI(**kwargs)
 
-    module = f"fast_agent.llm.provider.copilot.{wire}"
-    monkeypatch.setattr(
-        f"{module}.{'AsyncAnthropic' if wire == 'messages' else 'AsyncOpenAI'}", client_factory
-    )
+    monkeypatch.setattr(_sdk_client_target(wire), client_factory)
     llm = (
         CopilotMessagesLLM(context=context, model=model)
         if wire == "messages"
@@ -768,11 +771,7 @@ async def test_factory_tool_agent_round_trip(
         kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
         return AsyncAnthropic(**kwargs) if wire == "messages" else AsyncOpenAI(**kwargs)
 
-    monkeypatch.setattr(
-        f"fast_agent.llm.provider.copilot.{wire}."
-        + ("AsyncAnthropic" if wire == "messages" else "AsyncOpenAI"),
-        client_factory,
-    )
+    monkeypatch.setattr(_sdk_client_target(wire), client_factory)
     model = "claude-fable-5.1" if wire == "messages" else "gpt-6-astra"
     agent = ToolAgent(AgentConfig("offline-copilot"), [echo_marker], context=context)
     model_spec = f"copilot.{model}?transport=sse" + ("&web_search=true" if web_search else "")
@@ -844,11 +843,7 @@ async def test_broker_headers_are_the_only_credentials_serialized(
         kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
         return AsyncAnthropic(**kwargs) if wire == "messages" else AsyncOpenAI(**kwargs)
 
-    monkeypatch.setattr(
-        f"fast_agent.llm.provider.copilot.{wire}."
-        + ("AsyncAnthropic" if wire == "messages" else "AsyncOpenAI"),
-        client_factory,
-    )
+    monkeypatch.setattr(_sdk_client_target(wire), client_factory)
     model = "claude-sonnet-5" if wire == "messages" else "gpt-6-astra"
     headers = {"authorization": "Bearer broker-token", "x-broker-header": "trusted"}
     endpoint = CopilotEndpoint(
@@ -909,7 +904,7 @@ async def test_responses_extra_body_matches_sse_and_websocket_wire_payload(
         kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
         return AsyncOpenAI(**kwargs)
 
-    monkeypatch.setattr("fast_agent.llm.provider.copilot.responses.AsyncOpenAI", client_factory)
+    monkeypatch.setattr("fast_agent.llm.provider.copilot.openai_client.AsyncOpenAI", client_factory)
     llm = CopilotResponsesLLM(context=context, model="gpt-6-astra")
     effective_input = [
         {
@@ -1349,7 +1344,7 @@ async def test_gpt6_structured_output_wire_contract(
         kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
         return AsyncOpenAI(**kwargs)
 
-    module = "copilot.responses" if copilot else "openai.responses"
+    module = "copilot.openai_client" if copilot else "openai.responses"
     monkeypatch.setattr(f"fast_agent.llm.provider.{module}.AsyncOpenAI", client_factory)
     llm = (
         CopilotResponsesLLM(context=context, model=model, transport="sse")
@@ -1668,10 +1663,7 @@ async def test_inline_pdf_through_parent_loop(
         kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
         return AsyncAnthropic(**kwargs) if wire == "messages" else AsyncOpenAI(**kwargs)
 
-    monkeypatch.setattr(
-        f"fast_agent.llm.provider.copilot.{wire}.{'AsyncAnthropic' if wire == 'messages' else 'AsyncOpenAI'}",
-        client_factory,
-    )
+    monkeypatch.setattr(_sdk_client_target(wire), client_factory)
     llm = (
         CopilotMessagesLLM(context=context, model="claude-sonnet-5")
         if wire == "messages"

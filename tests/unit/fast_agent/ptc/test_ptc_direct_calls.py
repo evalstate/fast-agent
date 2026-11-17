@@ -23,11 +23,14 @@ from fast_agent.config import (
 )
 from fast_agent.context import Context
 from fast_agent.core.harness_tools import set_harness_tools
+from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.mcp_server_registry import ServerRegistry
 from fast_agent.ptc import PTC_TOOL_NAME
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.function_tool_loader import build_default_function_tool
 from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
+from fast_agent.tools.local_shell_executor import LocalEnvironment
 from fast_agent.types import PromptMessageExtended
 
 
@@ -150,18 +153,82 @@ async def test_skill_readers_are_code_only(tmp_path: Path, no_shell: bool) -> No
             skills=root,
             skill_manifests=SkillRegistry.load_directory(root),
         ),
-        context=Context(config=Settings(), ptc_enabled=True, no_shell=no_shell),
+        context=Context(
+            config=Settings(),
+            ptc_enabled=True,
+            no_shell=no_shell,
+            server_registry=ServerRegistry(Settings()),
+        ),
     )
     try:
-        name = "read_skill" if no_shell else "read_text_file"
-        arguments = {"path": str(skill)}
-        result = await _model_call(agent, name, arguments)
-        assert result.is_error and f"await {name}(" in str(result.content)
-        result = await agent.call_tool(
-            PTC_TOOL_NAME, {"code": f"await {name}(path={str(skill)!r})"}
-        )
+        await agent.initialize()
+        if no_shell:
+            # Without host file access, skills load through the read_skill function.
+            read = f"await read_skill(path={str(skill)!r})"
+            result = await _model_call(agent, "read_skill", {"path": str(skill)})
+            assert result.is_error and "await read_skill(" in str(result.content)
+        else:
+            # Sandbox open() replaces read_text_file, and the skills prompt says so.
+            read = f"open({str(skill)!r}).read()"
+            assert f"with `open()` in `{PTC_TOOL_NAME}` code" in agent.instruction
+            names = {tool.name for tool in (await agent.list_tools()).tools}
+            surface = await agent.tool_surface()
+            assert "read_text_file" not in names and surface.find("read_text_file") is None
+        result = await agent.call_tool(PTC_TOOL_NAME, {"code": read})
         assert not result.is_error, result
         assert "Skill body" in str(result.content)
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ptc", [True, False])
+async def test_guidance_names_only_reachable_file_readers(tmp_path: Path, ptc: bool) -> None:
+    root = tmp_path / "skills"
+    skill = root / "alpha" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: alpha\ndescription: Test skill\n---\nSkill body\n")
+    settings = Settings(
+        shell_execution=ShellSettings(enable_attach_media="on", output_byte_limit=1000),
+        # Under PTC a direct shell still returns its retained-output notice to the model.
+        ptc=ProgrammaticToolCallingSettings(enabled=ptc, direct_tools=["shell"]),
+    )
+    agent = McpAgent(
+        AgentConfig(
+            "guidance",
+            model="passthrough",
+            servers=[],
+            shell=True,
+            skills=root,
+            skill_manifests=SkillRegistry.load_directory(root),
+        ),
+        context=Context(config=settings, server_registry=ServerRegistry(settings)),
+        shell_environment=LocalEnvironment(logger=get_logger(__name__), working_directory=tmp_path),
+    )
+    try:
+        await agent.initialize()
+        await agent.attach_llm(ModelFactory.create_factory("passthrough"))
+        tools = (await agent.list_tools()).tools
+        store = agent.transient_artifact_store()
+        assert store is not None
+        artifact = await store.write_text(
+            producer="test", suffix=".txt", content="x", description="output"
+        )
+        shell_tool = "shell" if ptc else "bash"
+        shell = await _model_call(agent, shell_tool, {"command": "seq 1 5000"})
+        descriptions = [tool.description or "" for tool in tools]
+        texts = [agent.instruction, artifact.notice, str(shell.content), *descriptions]
+        reader = "`open()`" if ptc else "read_text_file"
+        assert ("read_text_file" in {tool.name for tool in tools}) is not ptc
+        assert not ptc or not any("read_text_file" in text for text in texts)
+        assert (
+            f"with `open()` in `{PTC_TOOL_NAME}` code" if ptc else "using the 'read_text_file' tool"
+        ) in agent.instruction
+        assert f"Use {reader} for selected line ranges" in artifact.notice
+        assert f"Use {reader} for selected line ranges" in str(shell.content)
+        assert any(f"Use {reader} for plain text/code files" in text for text in descriptions)
+        result = await _model_call(agent, "read_text_file", {"path": str(skill)})
+        assert ("Skill body" in str(result.content)) is not ptc
     finally:
         await agent.shutdown()
 
@@ -177,7 +244,7 @@ async def test_builtin_guard_and_direct_harness_tool() -> None:
     )
     try:
         set_harness_tools(agent, True)
-        for name in ("shell", "bash", "process", "read_text_file", "get_resource", "attach_media"):
+        for name in ("shell", "bash", "process", "write_text_file", "get_resource", "attach_media"):
             result = await _model_call(agent, name, {})
             assert result.is_error and "not a direct tool" in str(result.content)
         result = await _model_call(agent, "slash_command", {"command": "/status"})

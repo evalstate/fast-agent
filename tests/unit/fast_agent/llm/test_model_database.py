@@ -126,6 +126,30 @@ def test_gpt_6_sol_luna_match_astra_contract_with_none_effort(model: str) -> Non
         assert routed.shell_tool_profile == params.shell_tool_profile
 
 
+@pytest.mark.parametrize(
+    ("model", "predecessor"),
+    [("gpt-6.2-astra", "gpt-6-astra"), ("gpt-6.2-sol", "gpt-6.1-sol")],
+)
+@pytest.mark.parametrize("provider", [Provider.RESPONSES, Provider.CODEX_RESPONSES])
+def test_gpt_62_inherits_tools_with_conservative_cache_and_tier_policy(
+    model: str, predecessor: str, provider: Provider
+) -> None:
+    params = ModelDatabase.get_model_params(model, provider=provider)
+    previous = ModelDatabase.get_model_params(predecessor, provider=provider)
+
+    assert params is not None and previous is not None
+    # Includes shell/freeform PTC, structured output, modalities, transport, reasoning
+    # and route-specific windows. Onboarding must not alter older defaults.
+    changed = {"response_service_tiers", "managed_process_poll_folding"}
+    assert params.model_dump(exclude=changed) == previous.model_dump(exclude=changed)
+    assert params.managed_process_poll_folding is False
+    assert previous.managed_process_poll_folding is True
+    assert params.response_service_tiers == ("fast",)
+    assert previous.response_service_tiers == ("fast", "flex")
+    assert params.max_output_tokens == 128_000
+    assert params.ptc_enabled is True
+
+
 def test_gpt_61_sol_uses_sol_layout_without_none_effort() -> None:
     params = ModelDatabase.get_model_params("gpt-6.1-sol")
     sol = ModelDatabase.get_model_params("gpt-6-sol")

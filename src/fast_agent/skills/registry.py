@@ -10,7 +10,12 @@ import frontmatter
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.paths import default_skill_paths
 from fast_agent.skills.models import SKILL_MANIFEST_FILENAME
-from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
+from fast_agent.tools.file_read_access import (
+    SKILL_READER_FILE_READS,
+    FileReadAccess,
+    SandboxFileReads,
+    ToolFileReads,
+)
 from fast_agent.utils.text import strip_casefold, strip_str_to_none, strip_to_none
 
 if TYPE_CHECKING:
@@ -255,7 +260,7 @@ class SkillRegistry:
 def format_skills_for_prompt(
     manifests: Sequence[SkillManifest],
     *,
-    read_tool_name: str = READ_SKILL_TOOL_NAME,
+    read_access: FileReadAccess = SKILL_READER_FILE_READS,
     include_preamble: bool = True,
 ) -> str:
     """
@@ -271,7 +276,7 @@ def format_skills_for_prompt(
 
     Args:
         manifests: Collection of skill manifests to format
-        read_tool_name: Name of the tool used to read skill files (for preamble)
+        read_access: How the model reads skill files (for preamble)
         include_preamble: Whether to include instructional preamble text
     """
     if not manifests:
@@ -308,9 +313,7 @@ def format_skills_for_prompt(
     preamble = (
         "Skills provide specialized capabilities and domain knowledge. Use a Skill if it seems "
         "relevant to the user's task, intent, or would increase your effectiveness.\n"
-        f"To use a Skill, read its SKILL.md file from the specified location using the '{read_tool_name}' tool.\n"
-        "Prefer that file-reading tool over shell commands when loading skill content or "
-        "skill resources.\n"
+        f"{_skill_read_instruction(read_access)}\n"
         "The <location> value is the absolute path to the skill's SKILL.md file, and "
         "<directory> is the resolved absolute path to the skill's root directory.\n"
         f"When present, {_skill_resource_directory_tags()} provide resolved absolute paths "
@@ -321,6 +324,22 @@ def format_skills_for_prompt(
     )
 
     return preamble + skills_xml
+
+
+def _skill_read_instruction(access: FileReadAccess) -> str:
+    match access:
+        case ToolFileReads(tool=tool):
+            return (
+                "To use a Skill, read its SKILL.md file from the specified location using the "
+                f"'{tool}' tool.\nPrefer that file-reading tool over shell commands when loading "
+                "skill content or skill resources."
+            )
+        case SandboxFileReads(code_tool=code_tool):
+            return (
+                "To use a Skill, read its SKILL.md file from the specified location with "
+                f"`open()` in `{code_tool}` code.\nPrefer Python file reads over shell commands "
+                "when loading skill content or skill resources."
+            )
 
 
 def _xml_element(tag_name: str, value: str) -> str:
