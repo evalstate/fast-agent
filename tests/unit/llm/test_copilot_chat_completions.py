@@ -139,9 +139,7 @@ async def test_gateway_wire_auth_effort_tools_and_usage(
         kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
         return AsyncOpenAI(**kwargs)
 
-    monkeypatch.setattr(
-        "fast_agent.llm.provider.copilot.chat_completions.AsyncOpenAI", client_factory
-    )
+    monkeypatch.setattr("fast_agent.llm.provider.copilot.openai_client.AsyncOpenAI", client_factory)
     context = Context(
         config=Settings(
             openai=OpenAISettings(

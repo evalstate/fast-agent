@@ -6,15 +6,15 @@ from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from openai import AsyncOpenAI, DefaultAsyncHttpxClient
-
 from fast_agent.llm.provider.copilot import broker
 from fast_agent.llm.provider.copilot.models import get_copilot_model
+from fast_agent.llm.provider.copilot.openai_client import create_openai_client
 from fast_agent.llm.provider.copilot.policy import apply_policy, reject_files, reject_overrides
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider_types import Provider
 
 if TYPE_CHECKING:
+    from openai import AsyncOpenAI
     from openai.types.chat import (
         ChatCompletionMessageParam,
         ChatCompletionToolParam,
@@ -96,24 +96,7 @@ class CopilotChatCompletionsLLM(OpenAILLM):
         return await super()._run_openai_completion_request(request)
 
     def _openai_client(self) -> AsyncOpenAI:
-        endpoint = self._copilot_endpoint.get()
-        headers = {
-            "User-Agent" if name.lower() == "user-agent" else name: value
-            for name, value in endpoint.headers.items()
-        }
-        client = AsyncOpenAI(
-            api_key="",
-            base_url=endpoint.base_url,
-            default_headers=headers,
-            max_retries=0,
-            organization="",
-            project="",
-            admin_api_key="",
-            _enforce_credentials=False,
-            http_client=DefaultAsyncHttpxClient(trust_env=False, follow_redirects=False),
-        )
-        client._custom_headers = headers
-        return client
+        return create_openai_client(self._copilot_endpoint.get())
 
     async def _normalize_chat_completion_files(
         self,

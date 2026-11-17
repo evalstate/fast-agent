@@ -6,8 +6,6 @@ from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from openai import AsyncOpenAI, DefaultAsyncHttpxClient
-
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.prompt_cache import (
     OPENAI_MINIMUM_CACHE_TTL_SECONDS,
@@ -16,6 +14,7 @@ from fast_agent.llm.prompt_cache import (
 from fast_agent.llm.provider.copilot import broker
 from fast_agent.llm.provider.copilot.images import CopilotImageUploads
 from fast_agent.llm.provider.copilot.models import get_copilot_model
+from fast_agent.llm.provider.copilot.openai_client import create_openai_client
 from fast_agent.llm.provider.copilot.policy import (
     apply_policy,
     reject_files,
@@ -42,6 +41,7 @@ from fast_agent.mcp.mime_utils import guess_mime_type
 
 if TYPE_CHECKING:
     from mcp import Tool
+    from openai import AsyncOpenAI
 
     from fast_agent.llm.provider.copilot.broker import CopilotEndpoint
     from fast_agent.llm.provider.copilot.models import CopilotModelSpec
@@ -147,29 +147,7 @@ class CopilotResponsesLLM(ResponsesLLM):
         return dict(self._copilot_endpoint.get().headers)
 
     def _responses_client(self) -> AsyncOpenAI:
-        endpoint = self._copilot_endpoint.get()
-        # Match the SDK's spelling so its default User-Agent is replaced, not
-        # sent alongside the native fast-agent identity under another casing.
-        headers = {
-            "User-Agent" if name.lower() == "user-agent" else name: value
-            for name, value in endpoint.headers.items()
-        }
-        client = AsyncOpenAI(
-            api_key="",
-            base_url=endpoint.base_url,
-            default_headers=headers,
-            max_retries=0,
-            organization="",
-            project="",
-            admin_api_key="",
-            # The broker validates credentials, including header-only bearer auth.
-            _enforce_credentials=False,
-            http_client=DefaultAsyncHttpxClient(trust_env=False, follow_redirects=False),
-        )
-        # The SDK merges OPENAI_CUSTOM_HEADERS during construction; only broker
-        # headers belong on this client, without changing the process environment.
-        client._custom_headers = headers
-        return client
+        return create_openai_client(self._copilot_endpoint.get())
 
     def _response_sse_stream(
         self,
