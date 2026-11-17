@@ -19,6 +19,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     merge_headers_case_insensitive,
 )
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.request_params import MAX_TOKEN_LIMIT_METADATA_KEYS
 from fast_agent.mcp.mime_utils import guess_mime_type
 
 if TYPE_CHECKING:
@@ -65,13 +66,7 @@ class CodexResponsesLLM(ResponsesLLM):
                 "the Codex Responses endpoint does not accept max_output_tokens."
             )
         metadata = request_params.metadata or {}
-        unsupported_metadata = (
-            "max_tokens",
-            "maxTokens",
-            "max_output_tokens",
-            "maxOutputTokens",
-        )
-        if any(metadata.get(key) is not None for key in unsupported_metadata):
+        if any(metadata.get(key) is not None for key in MAX_TOKEN_LIMIT_METADATA_KEYS):
             raise ModelConfigError(
                 "Provider 'codexresponses' does not support max token limits in request metadata."
             )

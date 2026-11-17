@@ -55,6 +55,10 @@ harness_tools: true
   `-xx`. Enable these options only when those model-controlled changes are
   appropriate.
 
+When a child switches to Codex Responses, it drops inherited output-token
+limits because that route does not accept them. An explicit `max_tokens` on
+the child's Codex model string is still a configuration error.
+
 ## 2. User defined
 
 Use [Agent Cards](../agents/defining/agent_cards.md) when you want named,

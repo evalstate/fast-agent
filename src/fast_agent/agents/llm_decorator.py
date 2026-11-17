@@ -66,6 +66,7 @@ from fast_agent.interfaces import (
 )
 from fast_agent.llm.prompt_cache import PromptCacheWarmError
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.request_params import MAX_TOKEN_LIMIT_METADATA_KEYS
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.structured_schema import validate_json_schema_definition
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
@@ -596,6 +597,14 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
                     resolved_model = ModelFactory.resolve_model_spec(model_with_aliases)
                     llm_factory = ModelFactory.create_factory(model_with_aliases)
                     wire_model = resolved_model.wire_model_name
+                    if resolved_model.provider == Provider.CODEX_RESPONSES:
+                        # Only strip inherited limits, not explicit settings in the new model spec.
+                        for params in (clone._default_request_params, request_params):
+                            if params is not None:
+                                params.max_tokens = None
+                                if params.metadata is not None:
+                                    for key in MAX_TOKEN_LIMIT_METADATA_KEYS:
+                                        params.metadata.pop(key, None)
                     if request_params is not None:
                         request_params.model = wire_model
 

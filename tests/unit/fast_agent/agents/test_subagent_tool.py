@@ -48,6 +48,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction, ProgressEvent
 from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol
 from fast_agent.llm.internal.passthrough import PassthroughLLM
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import (
@@ -893,6 +894,52 @@ async def test_detached_instance_accepts_model_override() -> None:
         assert clone.llm.resolved_model.selected_model_name == "playback"
     finally:
         await clone.shutdown()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit_source", ["agent_config", "attachment"])
+@pytest.mark.parametrize(
+    ("model_override", "expected_limit"),
+    [
+        ("codexresponses.gpt-6.2-astra?reasoning=high", None),
+        ("responses.gpt-6.2-astra?reasoning=high", 64_000),
+    ],
+)
+async def test_subagent_inherits_token_limit_only_on_supported_route(
+    limit_source: str, model_override: str, expected_limit: int | None
+) -> None:
+    params = RequestParams(
+        max_tokens=64_000, max_iterations=8, metadata={"max_output_tokens": 64_000, "tag": "keep"}
+    )
+    parent = ToolAgent(
+        AgentConfig(
+            "parent", default_request_params=params if limit_source == "agent_config" else None
+        )
+    )
+    parent_llm = await parent.attach_llm(
+        ModelFactory.create_factory("copilot.gemini-4-carbon"),
+        request_params=params if limit_source == "attachment" else None,
+    )
+    try:
+        clone = await parent.spawn_isolated_instance(model=model_override, for_subagent=True)
+        try:
+            assert clone.llm is not None
+            child_params = clone.llm.default_request_params
+            assert child_params.max_tokens == expected_limit
+            assert child_params.max_iterations == 8
+            assert child_params.metadata == (
+                {"tag": "keep"} if expected_limit is None else params.metadata
+            )
+            assert parent_llm.default_request_params.max_tokens == 64_000
+            assert parent_llm.default_request_params.metadata == {
+                "max_output_tokens": 64_000,
+                "tag": "keep",
+            }
+        finally:
+            await clone.shutdown()
+    finally:
+        await parent.shutdown()
 
 
 @pytest.mark.unit

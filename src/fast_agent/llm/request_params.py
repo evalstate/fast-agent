@@ -23,6 +23,7 @@ ResponseMode: TypeAlias = Literal["inherit", "postprocess", "passthrough"]
 ToolResultMode: TypeAlias = Literal["postprocess", "passthrough", "selectable"]
 StructuredToolPolicy: TypeAlias = Literal["auto", "always", "defer", "no_tools"]
 SamplingToolChoicePolicy: TypeAlias = Literal["auto", "required", "none"]
+MAX_TOKEN_LIMIT_METADATA_KEYS = ("max_tokens", "maxTokens", "max_output_tokens", "maxOutputTokens")
 _RESPONSE_MODE_TOOL_RESULT_MODES: dict[ResponseMode, ToolResultMode | None] = {
     "inherit": None,
     "postprocess": "postprocess",
