@@ -221,11 +221,11 @@ def test_azure_default_model_overrides_azure_deployment() -> None:
 
 
 def test_openai_hard_coded_fallback_is_not_deprecated() -> None:
-    # gpt-5-mini is scheduled for shutdown 2026-12-11 (issue #959).
+    # gpt-5-mini shutdown 2026-12-11, gpt-4.1-mini shutdown 2027-01-14 (issue #959).
     # The fallback must be a model with no published shutdown date.
-    assert DEFAULT_OPENAI_MODEL == "gpt-4.1-mini"
+    assert DEFAULT_OPENAI_MODEL == "gpt-4o-mini"
     llm = OpenAILLM(context=Context(config=Settings()), model="")
-    assert llm.default_request_params.model == "gpt-4.1-mini"
+    assert llm.default_request_params.model == "gpt-4o-mini"
 
 
 def test_responses_hard_coded_fallback_is_not_deprecated() -> None:
