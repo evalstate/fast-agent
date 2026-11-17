@@ -11,8 +11,8 @@ _WINDOWS_RESERVED_FILENAMES = frozenset(
         "PRN",
         "AUX",
         "NUL",
-        *(f"COM{index}" for index in range(1, 10)),
-        *(f"LPT{index}" for index in range(1, 10)),
+        *(f"COM{digit}" for digit in "123456789¹²³"),
+        *(f"LPT{digit}" for digit in "123456789¹²³"),
     }
 )
 _PATH_OR_SPACE_SEPARATOR_PATTERN = re.compile(r"[\\/\s]+")
