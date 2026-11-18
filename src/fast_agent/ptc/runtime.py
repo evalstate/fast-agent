@@ -452,7 +452,7 @@ class ProgrammaticToolRuntime:
 
         ``result_byte_limit`` is how much of a code tool result the model sees, for the
         shell output guidance and search results. ``sources`` overrides the source group of
-        local tools by tool name; ``unavailable_sources`` notes configured sources without
+        tools by listed name; ``unavailable_sources`` notes configured sources without
         loaded functions; ``routes`` (the tools' origins by listed name) is kept with the
         catalogue for dispatching its runs' calls.
         """
@@ -511,7 +511,9 @@ class ProgrammaticToolRuntime:
         )
         tools = {tool.name: tool for tool in nested}
         function_sources = {
-            name: function_source(tools[function.tool_name], sources)
+            name: function_source(
+                tools[function.tool_name], sources, routes.get(function.tool_name)
+            )
             for name, function in functions.items()
         }
         # Built-ins and functions the model can also call directly always stay upfront.

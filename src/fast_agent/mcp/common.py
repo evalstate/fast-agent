@@ -4,9 +4,33 @@ Common constants and utilities shared between modules to avoid circular imports.
 
 import fnmatch
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fast_agent.llm.resolved_model import ResolvedModelSpec
 
 # Constants
 SEP = "__"
+
+
+@dataclass(frozen=True, slots=True)
+class McpDestination:
+    """The MCP tool a call reaches: configured server key and full remote tool name.
+
+    Unlike a namespaced name, which is truncated for display, this identifies one tool.
+    """
+
+    server_name: str
+    tool_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class AgentSamplingTarget:
+    """The agent's committed model selection and the API key override attached with it."""
+
+    model: "ResolvedModelSpec"
+    api_key: str | None
 
 
 def create_namespaced_name(server_name: str, resource_name: str) -> str:

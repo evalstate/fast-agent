@@ -131,6 +131,12 @@ def _message_display_text(message: PromptMessageExtended) -> str:
         if isinstance(original_text, str):
             return original_text
         return content.text
+    for content in reversed(message.content):
+        if is_generated_ptc_context_block(content):
+            continue
+        text = get_text(content)
+        if text is not None:
+            return text
     return ""
 
 

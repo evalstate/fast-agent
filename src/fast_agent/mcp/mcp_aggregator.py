@@ -57,13 +57,21 @@ from fast_agent.mcp.app_integrations import (
     supported_mime_types,
 )
 from fast_agent.mcp.auth.context import request_bearer_token
-from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
+from fast_agent.mcp.client_callback_runtime import (
+    AgentSamplingTargetResolver,
+    MCPClientCallbackRuntime,
+)
 from fast_agent.mcp.client_connection import MCPClientConnection
 from fast_agent.mcp.client_gateway import (
     is_http_auth_challenge,
     resolve_oauth_mode,
 )
-from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
+from fast_agent.mcp.common import (
+    SEP,
+    McpDestination,
+    create_namespaced_name,
+    is_namespaced_name,
+)
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.interfaces import ServerRegistryProtocol
@@ -214,6 +222,10 @@ class NamespacedTool(BaseModel):
     server_name: str
     namespaced_tool_name: str
 
+    @property
+    def destination(self) -> McpDestination:
+        return McpDestination(self.server_name, self.tool.name)
+
 
 @dataclass(frozen=True, slots=True)
 class ToolNameResolution:
@@ -247,6 +259,12 @@ class MCPToolCatalog:
 
     def namespaced_tool(self, name: str) -> NamespacedTool | None:
         return self._by_namespaced_name.get(name)
+
+    def has_destination(self, destination: McpDestination) -> bool:
+        return any(
+            tool.tool.name == destination.tool_name
+            for tool in self._by_server.get(destination.server_name, ())
+        )
 
     def first_tool_named(self, local_name: str) -> NamespacedTool | None:
         return next(
@@ -515,7 +533,7 @@ class MCPAggregator(ContextDependent):
         config: Any | None = None,  # Accept the agent config for elicitation_handler access
         tool_handler: ToolExecutionHandler | None = None,
         permission_handler: ToolPermissionHandler | None = None,
-        agent_api_key_resolver: Callable[[], str | None] | None = None,
+        agent_sampling_target_resolver: AgentSamplingTargetResolver | None = None,
         **kwargs,
     ) -> None:
         """
@@ -538,7 +556,7 @@ class MCPAggregator(ContextDependent):
         self.connection_persistence = connection_persistence
         self.agent_name = name
         self.config = config  # Agent-specific callback configuration.
-        self._agent_api_key_resolver = agent_api_key_resolver
+        self._agent_sampling_target_resolver = agent_sampling_target_resolver
         self._persistent_connection_manager: MCPConnectionManager | None = None
         self._owns_connection_manager = False
         self._lifecycle_lock = Lock()
@@ -768,8 +786,8 @@ class MCPAggregator(ContextDependent):
             agent_model=self._resolve_callback_agent_model(),
             agent_model_resolver=self._resolve_callback_agent_model,
             agent_name=agent_name,
-            api_key=api_key if self._agent_api_key_resolver is None else None,
-            agent_api_key_resolver=self._agent_api_key_resolver,
+            api_key=api_key if self._agent_sampling_target_resolver is None else None,
+            agent_sampling_target_resolver=self._agent_sampling_target_resolver,
             custom_elicitation_handler=elicitation_handler,
             aggregator=self,
             context=self.context,
@@ -2890,6 +2908,7 @@ class MCPAggregator(ContextDependent):
         tool_use_id: str | None = None,
         *,
         request_tool_handler: ToolExecutionHandler | None = None,
+        destination: McpDestination | None = None,
     ) -> CallToolResult:
         """
         Call a namespaced tool, e.g., 'server_name__tool_name'.
@@ -2899,14 +2918,20 @@ class MCPAggregator(ContextDependent):
             arguments: Tool arguments
             tool_use_id: LLM's tool use ID (for matching with stream events)
             request_tool_handler: Optional per-request handler for tool execution events
+            destination: The exact tool to call; not found unless still discovered
         """
         if not self.initialized:
             await self.load_servers()
 
-        # Use the common parser to get server and tool name
-        tool_name_resolution = self.resolve_tool_name(name)
-        server_name = tool_name_resolution.server_name
-        local_tool_name = tool_name_resolution.local_name
+        if destination is None:
+            # Use the common parser to get server and tool name
+            tool_name_resolution = self.resolve_tool_name(name)
+            server_name = tool_name_resolution.server_name
+            local_tool_name = tool_name_resolution.local_name
+        else:
+            discovered = self.tool_catalog().has_destination(destination)
+            server_name = destination.server_name if discovered else None
+            local_tool_name = destination.tool_name
 
         if server_name is None:
             logger.error(f"Error: Tool '{name}' not found")

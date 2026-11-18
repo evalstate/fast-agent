@@ -513,6 +513,20 @@ def test_filler_name_matches_only_when_nothing_else_matches() -> None:
     assert sorted(issues) == ["github__create_issue", "github__list_issues"]
 
 
+def test_filler_only_queries_match_names_and_parameters_not_prose() -> None:
+    catalog = _catalog_runtime(
+        [
+            *CATALOG_TOOLS,
+            _tool("svc__fetch", "Get the latest value."),
+            _tool("svc__lookup", "Look up a key.", get={"type": "string"}),
+        ]
+    ).catalog
+    names = _result_names(search_tools(catalog, query="get", limit=20))
+    assert {"github__get_file_contents", "svc__lookup"} <= set(names)
+    assert "svc__fetch" not in names
+    assert _result_names(search_tools(catalog, query="the", limit=20)) == []
+
+
 @pytest.mark.asyncio
 async def test_exclude_skips_seen_functions_in_code_and_direct_search() -> None:
     runtime = _catalog_runtime()

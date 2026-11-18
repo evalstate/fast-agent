@@ -16,6 +16,7 @@ from fast_agent.mcp.prompts.prompt_load import (
     load_transcript_into_agent,
     rehydrate_usage_from_history,
 )
+from fast_agent.ptc.catalog import PtcBindings
 
 from .snapshot import (
     PtcBindingsRestorer,
@@ -360,7 +361,22 @@ class SessionHydrator:
                     )
                 )
             return
-        unresolved = await agent.restore_ptc_bindings(snapshot.ptc_bindings)
+        try:
+            unresolved = await agent.restore_ptc_bindings(snapshot.ptc_bindings)
+        except ValueError:
+            # Drop any earlier names too: runtime-only hydration keeps the agent's ledger.
+            await agent.restore_ptc_bindings(PtcBindings({}, {}))
+            warnings.append(
+                SessionHydrationWarning(
+                    code="ptc-bindings-invalid",
+                    message=(
+                        f"The session's saved PTC bindings for {agent_name!r} are invalid. "
+                        "Check current tool names before reusing old calls."
+                    ),
+                    agent_name=agent_name,
+                )
+            )
+            return
         if unresolved:
             examples = ", ".join(sorted(unresolved)[:5])
             if len(unresolved) > 5:

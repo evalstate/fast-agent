@@ -8,11 +8,13 @@ from mcp_types import CreateMessageRequestParams
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.tool_agent import ToolAgent
-from fast_agent.config import MCPSamplingSettings, MCPServerSettings
+from fast_agent.config import MCPSamplingSettings, MCPServerSettings, OpenAISettings, Settings
+from fast_agent.context import Context
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.model_factory import ModelFactory, with_run_model_endpoint
 from fast_agent.llm.provider.bedrock.llm_bedrock import BedrockLLM
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
+from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 
 if TYPE_CHECKING:
@@ -74,16 +76,25 @@ async def test_model_handoff_retains_harness_controls_not_old_request_options(
         await agent.shutdown()
 
 
+def _require_destination_key(api_key: str) -> None:
+    # Never compare in an assert: pytest would print a key that is not the dummy.
+    if api_key != "dummy-destination-key":
+        pytest.fail("handoff did not use the dummy destination credential", pytrace=False)
+
+
 @pytest.mark.unit
 @pytest.mark.asyncio
 @pytest.mark.parametrize("action", ["switch", "subagent"])
-async def test_model_handoff_uses_destination_credentials_and_connection(
-    action: Change, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_model_handoff_uses_destination_credentials_and_connection(action: Change) -> None:
     source = "anthropic.claude-sonnet-4-6"
-    agent = ToolAgent(AgentConfig("agent", model=source, api_key=_DUMMY_SOURCE_KEY))
-    monkeypatch.setenv("OPENAI_API_KEY", "dummy-destination-key")
-    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    destination = OpenAISettings(
+        api_key="dummy-destination-key", base_url="https://destination.example.invalid/v1"
+    )
+    # Configured keys outrank the environment: never let the operator's settings leak in.
+    context = Context(config=Settings(_env_file=None, responses=destination, openai=destination))
+    agent = ToolAgent(
+        AgentConfig("agent", model=source, api_key=_DUMMY_SOURCE_KEY), context=context
+    )
     await agent.attach_llm(
         ModelFactory.create_factory(source),
         api_key=_DUMMY_SOURCE_KEY,
@@ -95,14 +106,14 @@ async def test_model_handoff_uses_destination_credentials_and_connection(
             assert changed.config.api_key == _DUMMY_SOURCE_KEY
             assert isinstance(changed.llm, ResponsesLLM)
             async with changed.llm._responses_client() as client:
-                assert client.api_key == "dummy-destination-key"
-                assert client.base_url.host != "source.example.invalid"
+                _require_destination_key(client.api_key)
+                assert client.base_url.host == "destination.example.invalid"
                 assert "X-Source-Only" not in client.default_headers
             # A descendant using exactly this destination cannot resurrect the source key.
             async with _change_model(changed, _SOURCE, "subagent") as grandchild:
                 assert isinstance(grandchild.llm, ResponsesLLM)
                 async with grandchild.llm._responses_client() as client:
-                    assert client.api_key == "dummy-destination-key"
+                    _require_destination_key(client.api_key)
     finally:
         await agent.shutdown()
 
@@ -245,13 +256,17 @@ async def test_existing_mcp_callback_uses_current_attachment_key(
         params = CreateMessageRequestParams(max_tokens=64, messages=[])
         await runtime.sampling_callback(request_context, params)
         assert sample.await_args is not None
-        assert sample.await_args.kwargs["api_key"] == _DUMMY_SOURCE_KEY
+        sampling_target = sample.await_args.kwargs["agent_target"]
+        assert sampling_target.model.provider == Provider.RESPONSES
+        if sampling_target.api_key != _DUMMY_SOURCE_KEY:
+            pytest.fail("sampling did not use the attachment key", pytrace=False)
 
-        target = "anthropic.claude-sonnet-4-6"
-        await agent.set_model(target)
+        await agent.set_model("anthropic.claude-sonnet-4-6")
         await runtime.sampling_callback(request_context, params)
         assert sample.await_args is not None
-        assert sample.await_args.kwargs["agent_model"] == target
+        sampling_target = sample.await_args.kwargs["agent_target"]
+        assert sampling_target.model.provider == Provider.ANTHROPIC
+        assert sampling_target.api_key is None
         assert sample.await_args.kwargs["api_key"] is None
         assert agent.config.api_key == _DUMMY_SOURCE_KEY
     finally:

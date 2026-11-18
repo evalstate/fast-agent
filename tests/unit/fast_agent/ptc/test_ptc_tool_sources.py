@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import json
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import TYPE_CHECKING
 
 import pytest
@@ -30,7 +31,7 @@ from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp_server_registry import ServerRegistry
 from fast_agent.ptc.catalog import TOOL_SOURCES_FINGERPRINT_META
-from fast_agent.session import SessionHydrator
+from fast_agent.session import SessionHydrationPolicy, SessionHydrator
 from fast_agent.session.session_manager import SessionManager
 from fast_agent.tools.function_tool_loader import build_default_function_tool
 from fast_agent.types import RequestParams
@@ -105,11 +106,14 @@ class _Agent:
 
 @asynccontextmanager
 async def _running(
-    ptc: ProgrammaticToolCallingSettings | None = None, *, human_input: bool = False
+    ptc: ProgrammaticToolCallingSettings | None = None,
+    *,
+    human_input: bool = False,
+    name: str = "sources",
 ) -> AsyncGenerator[_Agent]:
     agent = McpAgent(
         AgentConfig(
-            "sources",
+            name,
             instruction="{{serverInstructions}}",
             skills=[],
             servers=[],
@@ -179,6 +183,20 @@ async def test_roster_skips_continuations_and_inactive_search(harness: _Agent) -
     harness.tools = _tools("github", 3)
     await harness.send()
     assert harness.notices() == []
+
+
+@pytest.mark.asyncio
+async def test_roster_needs_a_request_that_exposes_the_sandbox(harness: _Agent) -> None:
+    sandbox = (await harness.agent.list_tools()).tools
+    assert [tool.name for tool in sandbox] == ["exec_sandbox"]
+    other = Tool(name="other", input_schema={"type": "object"})
+    for tools in ([], [other]):
+        response = await harness.agent.generate("hi", RequestParams(max_iterations=1), tools=tools)
+        assert "<fastagent:tool-sources>" not in (response.all_text() or "")
+    assert harness.notices() == []
+
+    await harness.agent.generate("hi", RequestParams(max_iterations=1), tools=[*sandbox, other])
+    assert len(harness.notices()) == 1
 
 
 @pytest.mark.asyncio
@@ -368,6 +386,51 @@ async def test_session_restores_original_routes_and_reports_missing_tools(
         await resumed.agent.list_tools()
         await _run(resumed.agent, "await svc__missing()")
         assert seen[-1] == f"mcp:{missing.name}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", ["not-a-name", "class"])
+@pytest.mark.parametrize("restore_transcript", [True, False])
+async def test_invalid_saved_bindings_are_dropped_and_hydration_continues(
+    tmp_path: Path, invalid: str, restore_transcript: bool
+) -> None:
+    manager = SessionManager(cwd=tmp_path, home_override=tmp_path, respect_env_override=False)
+    session = manager.create_session()
+    async with _running(name="first") as first, _running(name="second") as second:
+        for state in (first, second):
+            await state.send()
+            await session.save_history(state.agent)
+        saved = second.agent.ptc_bindings
+    metadata = session.directory / "session.json"
+    payload = json.loads(metadata.read_text(encoding="utf-8"))
+    functions = payload["continuation"]["agents"]["first"]["ptc_bindings"]["functions"]
+    functions[invalid] = functions.pop("github__op_0")
+    metadata.write_text(json.dumps(payload), encoding="utf-8")
+
+    async with AsyncExitStack() as stack:
+        first = await stack.enter_async_context(_running(name="first"))
+        second = await stack.enter_async_context(_running(name="second"))
+        # A name this conversation reserved for a tool that has since disconnected.
+        first.tools = [*first.tools, *_tools("stale", 1)]
+        await first.agent.list_tools()
+        first.tools = _tools("github", 4)
+        await first.agent.list_tools()
+        assert "stale__op_0" in first.agent.ptc_bindings.functions
+
+        result = await SessionHydrator().hydrate_session(
+            session=session,
+            agents={"first": first.agent, "second": second.agent},
+            fallback_agent_name="first",
+            policy=SessionHydrationPolicy(restore_transcript=restore_transcript),
+        )
+
+        assert [w.code for w in result.warnings if w.agent_name == "first"] == [
+            "ptc-bindings-invalid"
+        ]
+        assert set(first.agent.ptc_bindings.functions) == {tool.name for tool in first.tools}
+        assert second.agent.ptc_bindings == saved
+        if restore_transcript:
+            assert first.agent.message_history and second.agent.message_history
 
 
 @pytest.mark.asyncio

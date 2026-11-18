@@ -97,6 +97,7 @@ async def test_runtime_sampling_callback_captures_fast_agent_configuration(
         agent_model: str | None,
         api_key: str | None,
         app_context: Context | None,
+        agent_target: object,
     ) -> object:
         captured.update(
             params=params,
@@ -105,6 +106,7 @@ async def test_runtime_sampling_callback_captures_fast_agent_configuration(
             agent_model=agent_model,
             api_key=api_key,
             app_context=app_context,
+            agent_target=agent_target,
         )
         return "sampled"
 
@@ -138,6 +140,7 @@ async def test_runtime_sampling_callback_captures_fast_agent_configuration(
         "agent_model": "restored-model",
         "api_key": "agent-key",
         "app_context": app_context,
+        "agent_target": None,
     }
     assert runtime.sampling_capabilities is not None
 

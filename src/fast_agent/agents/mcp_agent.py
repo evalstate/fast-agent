@@ -336,7 +336,7 @@ class McpAgent(ABC, ToolAgent):
             context=context,
             config=self.config,  # Pass the full config for access to elicitation_handler
             **kwargs,
-            agent_api_key_resolver=self._active_attachment_api_key,
+            agent_sampling_target_resolver=self._active_sampling_target,
         )
         self._provider_managed_server_names = tuple(
             self._aggregator.server_display_name(name)
@@ -1839,7 +1839,7 @@ class McpAgent(ABC, ToolAgent):
                         return await super().call_tool(
                             tool.name, arguments, tool_use_id, request_params=request_params
                         )
-        elif self._mcp_tool_listed(route.name):
+        elif route.destination is not None and self._mcp_tool_listed(route):
             return await self._aggregator.call_tool(
                 route.name,
                 arguments,
@@ -1847,6 +1847,7 @@ class McpAgent(ABC, ToolAgent):
                 request_tool_handler=(
                     request_params.tool_execution_handler if request_params else None
                 ),
+                destination=route.destination,
             )
         return CallToolResult(
             content=[TextContent(type="text", text=unavailable_tool_message(name))],
@@ -1864,10 +1865,14 @@ class McpAgent(ABC, ToolAgent):
             return None
         return tool
 
-    def _mcp_tool_listed(self, namespaced_name: str) -> bool:
-        """Whether the agent's MCP tools still include ``namespaced_name``."""
-        tool = self._aggregator.tool_catalog().namespaced_tool(namespaced_name)
-        return tool is not None and self._tool_matches_filter(namespaced_name)
+    def _mcp_tool_listed(self, route: ToolRoute) -> bool:
+        """Whether the agent's MCP tools still list ``route``'s exact destination."""
+        tool = self._aggregator.tool_catalog().namespaced_tool(route.name)
+        return (
+            tool is not None
+            and tool.destination == route.destination
+            and self._tool_matches_filter(route.name)
+        )
 
     async def _call_unrouted_tool(
         self,
@@ -3347,7 +3352,9 @@ class McpAgent(ABC, ToolAgent):
                 if tools is None:
                     # Refresh the catalogue so the source roster reflects this turn's tools.
                     tools = (await self.list_tools()).tools
-                messages = self._with_tool_sources_notice(ptc_runtime, messages, request_params)
+                # Only point the model at search when this request exposes the sandbox.
+                if any(tool.name == ptc_runtime.tool_name for tool in tools):
+                    messages = self._with_tool_sources_notice(ptc_runtime, messages, request_params)
             return await super()._generate_tool_turn_impl(
                 messages, request_params, tools, refresh_tools=refresh_tools
             )
@@ -3426,11 +3433,23 @@ class McpAgent(ABC, ToolAgent):
             if discover_mcp or self._aggregator.initialized
             else []
         )
+        # Resolve listed names to destinations before any await lets a refresh replace them.
+        mcp_catalog = self._aggregator.tool_catalog()
+        mcp_routes = [
+            ToolRoute(
+                "mcp",
+                tool.name,
+                entry.destination if (entry := mcp_catalog.namespaced_tool(tool.name)) else None,
+            )
+            for tool in mcp_tools
+        ]
         local_tools = await self._additional_runtime_tools()
         # ptc-vocab-v0: preserve parent merging/order for the profile comparison arm.
         routes: dict[str, ToolRoute] = {}
         if ptc_runtime is not None and ptc_runtime.vocabulary == 1:
-            merged_tools, routes = self._merge_ptc_tools(mcp_tools, local_tools)
+            merged_tools, routes = self._merge_ptc_tools(
+                list(zip(mcp_tools, mcp_routes, strict=True)), local_tools
+            )
         else:
             # Preserve direct-mode precedence and names.
             merged_tools = list(mcp_tools)
@@ -3447,7 +3466,7 @@ class McpAgent(ABC, ToolAgent):
             )
             merged_tools = ptc_runtime.model_tools(
                 merged_tools,
-                sources=self._ptc_function_sources(),
+                sources=self._ptc_function_sources(routes),
                 unavailable_sources=self._ptc_unavailable_sources(mcp_tools),
                 routes=routes,
                 file_read=self._shell_runtime_enabled
@@ -3493,7 +3512,7 @@ class McpAgent(ABC, ToolAgent):
         return True
 
     def _merge_ptc_tools(
-        self, mcp_tools: list[Tool], local_tools: list[Tool]
+        self, mcp_tools: list[tuple[Tool, ToolRoute]], local_tools: list[Tool]
     ) -> tuple[list[Tool], dict[str, ToolRoute]]:
         """Keep built-in routes intact; give colliding external tools explicit aliases.
 
@@ -3509,7 +3528,7 @@ class McpAgent(ABC, ToolAgent):
             for name, moved in self._ptc_displaced_functions.items()
             if self._execution_tools.get(moved.name) is moved
         }
-        others = [(tool, ToolRoute("mcp", tool.name)) for tool in mcp_tools] + [
+        others = mcp_tools + [
             (tool, ToolRoute("local", original_names.get(tool.name, tool.name)))
             for tool in local_tools
             if not is_builtin_tool(tool)
@@ -3559,15 +3578,18 @@ class McpAgent(ABC, ToolAgent):
         self._ptc_tool_aliases = aliases
         return merged, routes
 
-    def _ptc_function_sources(self) -> dict[str, str]:
-        """Source groups of local tools that are not plain local functions."""
-        sources = {name: CARD_SOURCE for name in self.card_tool_names}
-        sources.update({name: AGENTS_SOURCE for name in self.agent_backed_tools})
-        for alias, target in self._ptc_tool_aliases.items():
-            if target.origin == "mcp" and is_namespaced_name(target.name):
-                sources[alias] = get_server_name(target.name)
-            elif target.name in sources:
-                sources[alias] = sources[target.name]
+    def _ptc_function_sources(self, routes: Mapping[str, ToolRoute]) -> dict[str, str]:
+        """Source groups by listed name: MCP servers' display names, card and agent tools."""
+        local = {name: CARD_SOURCE for name in self.card_tool_names}
+        local.update({name: AGENTS_SOURCE for name in self.agent_backed_tools})
+        sources = dict(local)
+        for name, route in routes.items():
+            if route.destination is not None:
+                sources[name] = self._aggregator.server_display_name(route.destination.server_name)
+            elif route.origin == "local" and route.name in local:
+                sources[name] = local[route.name]
+            else:
+                sources.pop(name, None)
         return sources
 
     def _ptc_unavailable_sources(self, mcp_tools: list[Tool]) -> dict[str, str]:

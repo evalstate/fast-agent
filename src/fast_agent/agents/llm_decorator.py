@@ -70,6 +70,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.structured_schema import validate_json_schema_definition
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
+from fast_agent.mcp.common import AgentSamplingTarget
 from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list, text_content
 from fast_agent.mcp.mime_utils import is_text_mime_type
 from fast_agent.mcp.prompt_metadata import prompt_display_name
@@ -585,6 +586,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             return None
         key = self._llm_attach_kwargs.get("api_key")
         return key if isinstance(key, str) else None
+
+    def _active_sampling_target(self) -> AgentSamplingTarget | None:
+        """The committed model selection with its override, for automatic MCP sampling."""
+        if self._llm is None:
+            return None
+        return AgentSamplingTarget(self._llm.resolved_model, self._active_attachment_api_key())
 
     def _clone_constructor_kwargs(self) -> dict[str, Any]:
         """Hook for subclasses/mixins to supply constructor kwargs when cloning."""

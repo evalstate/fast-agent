@@ -254,7 +254,7 @@ def rank(
         match = _Match(document, score + boost, primary_hits)
         # Filler words ("get", "the", ...) count only when no content word matches anything,
         # and then only in names and parameters, never in prose.
-        if not meaningful or meaningful_hit or boost:
+        if meaningful_hit or boost or (not meaningful and filler_name_hit):
             strong.append(match)
         elif filler_name_hit:
             weak.append(match)

@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, Final, Literal
 
-from fast_agent.mcp.common import get_server_name, is_namespaced_name
+from fast_agent.mcp.common import McpDestination, get_server_name, is_namespaced_name
 from fast_agent.ptc.vocabulary import is_builtin_tool
 
 if TYPE_CHECKING:
@@ -44,10 +44,16 @@ _ROSTER_HEADER = (
 
 @dataclass(frozen=True, slots=True)
 class ToolRoute:
-    """A tool's origin and raw name (server-qualified for MCP), independent of any alias."""
+    """A tool's origin and raw name (server-qualified for MCP), independent of any alias.
+
+    ``name`` is the listed (possibly truncated) name; an MCP tool discovered by the agent is
+    identified by its full ``destination``, so a different tool sharing that name is a
+    different route.
+    """
 
     origin: Literal["builtin", "local", "mcp"]
     name: str
+    destination: McpDestination | None = None
 
     @classmethod
     def from_tool(cls, tool: Tool) -> ToolRoute:
@@ -69,15 +75,21 @@ def unavailable_tool_message(name: str) -> str:
     return f"`{name}` is no longer available (its tool source was disconnected or removed)."
 
 
-def function_source(tool: Tool, overrides: Mapping[str, str]) -> str:
-    """The source group a function is listed and searched under."""
-    if is_builtin_tool(tool):
+def function_source(tool: Tool, overrides: Mapping[str, str], route: ToolRoute | None) -> str:
+    """The source group a function is listed and searched under.
+
+    ``route`` is the tool's origin; without one, the origin is inferred from the tool.
+    """
+    route = route or ToolRoute.from_tool(tool)
+    if route.origin == "builtin":
         return BUILTIN_SOURCE
     override = overrides.get(tool.name)
     if override is not None:
         return override
-    if is_namespaced_name(tool.name):
-        return get_server_name(tool.name)
+    if route.origin == "mcp":
+        if route.destination is not None:
+            return route.destination.server_name
+        return get_server_name(route.name)
     return LOCAL_SOURCE
 
 
