@@ -273,7 +273,12 @@ threshold compaction.
 
 ## Transport and compatibility
 
-GPT-6.2 Astra and Sol use HTTP/SSE. The other GPT models default to **WebSockets**, using static curated capability
+GPT-6.2 Astra and Sol use HTTP/SSE; the gateway's WebSocket endpoint returns
+`internal_error` for them (rechecked 2026-11-18). Their history is append-only like
+OpenAI Responses: the system prompt leads the input, and effort and structured-output
+changes are sent as `configuration_update` items (see
+[Responses prompt caching](../../guides/responses-caching.md)).
+The other GPT models default to **WebSockets**, using static curated capability
 metadata; no remote catalog is required. Select HTTP/SSE explicitly if needed:
 
 ```bash

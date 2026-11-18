@@ -39,7 +39,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.mcp.prompt import Prompt
-from fast_agent.types import RequestParams
+from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -1314,7 +1314,9 @@ def test_factory_opus48_high_reasoning(context: Context) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model", ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"])
+@pytest.mark.parametrize(
+    "model", ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-6.2-sol"]
+)
 @pytest.mark.parametrize("copilot", [False, True], ids=["native", "copilot"])
 @pytest.mark.parametrize(
     "with_tools,policy",
@@ -1369,10 +1371,18 @@ async def test_gpt6_structured_output_wire_contract(
         body = json.loads(requests[0].content)
         assert isinstance(body, dict)
         assert body["model"] == model
-        if policy == "defer":
+        # Configuration-update models keep the request-level format unchanged.
+        updates = [
+            item["text"]["format"]
+            for item in body["input"]
+            if item.get("type") == "configuration_update" and "text" in item
+        ]
+        if updates:
             assert "format" not in body.get("text", {})
+        if policy == "defer":
+            assert "format" not in body.get("text", {}) and not updates
         else:
-            output_format = body["text"]["format"]
+            output_format = updates[-1] if updates else body["text"]["format"]
             assert output_format["type"] == "json_schema"
             assert output_format["strict"] is True
             assert output_format["schema"]["properties"] == schema["properties"]
@@ -1813,3 +1823,50 @@ async def test_messages_threshold_compaction_wire_contract(
     }
     assert "compact-2026-01-12" in betas.split(",")
     assert "compact-2026-09-04" not in betas
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("model", "turn_scoped"), [("gpt-6.2-sol", True), ("gpt-6.1-sol", False)])
+@pytest.mark.parametrize("copilot", [False, True], ids=["native", "copilot"])
+async def test_gpt62_system_prompt_leads_input_and_effort_is_appended(
+    model: str,
+    turn_scoped: bool,
+    copilot: bool,
+    broker: FakeBroker,
+    context: Context,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.llm.provider.openai.responses import ResponsesLLM
+
+    llm = (
+        CopilotResponsesLLM(context=context, model=model, instruction="System")
+        if copilot
+        else ResponsesLLM(context=context, model=model, instruction="System")
+    )
+    sent: list[dict[str, Any]] = []
+
+    async def capture(
+        input_items: list[dict[str, Any]],
+        request_params: RequestParams,
+        tools: list[Tool] | None = None,
+    ) -> PromptMessageExtended:
+        await llm._prepare_responses_client(model, "sse")
+        sent.append(llm._build_response_args(input_items, request_params, tools))
+        return Prompt.assistant("ok")
+
+    monkeypatch.setattr(llm, "_responses_completion", capture)
+    try:
+        llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value="low"))
+        history = [Prompt.user("One")]
+        history.append(await llm._apply_prompt_provider_specific(history))
+        llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value="high"))
+        await llm._apply_prompt_provider_specific([*history, Prompt.user("Two")])
+        first, second = sent
+        assert ("instructions" in second) is not turn_scoped
+        if turn_scoped:
+            assert first["input"][0]["role"] == second["input"][0]["role"] == "developer"
+            # Effort changes are appended, so the request-level setting stays put.
+            assert first["reasoning"]["effort"] == second["reasoning"]["effort"] == "low"
+            assert second["input"][: len(first["input"])] == first["input"]
+    finally:
+        await llm.close()

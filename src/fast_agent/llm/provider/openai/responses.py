@@ -64,7 +64,10 @@ from fast_agent.llm.provider.openai.responses_cache import (
     requested_astra_effort,
     requested_model,
 )
-from fast_agent.llm.provider.openai.responses_content import ResponsesContentMixin
+from fast_agent.llm.provider.openai.responses_content import (
+    ResponsesContentMixin,
+    developer_message_item,
+)
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
 from fast_agent.llm.provider.openai.responses_output import ResponsesOutputMixin
 from fast_agent.llm.provider.openai.responses_streaming import ResponsesStreamingMixin
@@ -963,13 +966,16 @@ class ResponsesLLM(
             return last_message
 
         cache_state = None
-        if self.provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES}:
+        if self._manages_responses_cache(requested_model(req_params)):
             input_items, cache_state, req_params = prepare_cached_request(
                 multipart_messages,
                 req_params,
                 key=self._responses_prompt_cache_key,
                 default_effort=self._resolve_reasoning_effort(),
                 convert=self._convert_message_to_items,
+                text_format=self._normalize_text_format(req_params.response_format)
+                if req_params.response_format
+                else None,
             )
             input_items = self._dedupe_input_items(input_items)
         elif (
@@ -1022,6 +1028,11 @@ class ResponsesLLM(
         if origin in _ROUTE_BOUND_CHECKPOINT_ORIGINS:
             return origin == self.provider.config_name
         return True
+
+    def _manages_responses_cache(self, model: object) -> bool:
+        """Routes sending a prompt cache key and configuration updates for ``model``."""
+        del model
+        return self.provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES}
 
     def _resends_astra_effort_after_checkpoint(self) -> bool:
         """Routes that re-send effort without the OpenAI cache configuration contract."""
@@ -1222,6 +1233,10 @@ class ResponsesLLM(
         if service_tier is not None:
             base_args["service_tier"] = self._map_service_tier_to_wire_value(service_tier)
 
+    def _turn_scoped_instructions(self, model: str) -> bool:
+        params = self._get_model_params(model)
+        return params is not None and params.responses_turn_scoped_instructions
+
     def _build_response_args(
         self,
         input_items: list[dict[str, Any]],
@@ -1240,7 +1255,9 @@ class ResponsesLLM(
             base_args["prompt_cache_key"] = self._responses_prompt_cache_key
 
         system_prompt = self.instruction or request_params.system_prompt
-        if system_prompt:
+        if system_prompt and self._turn_scoped_instructions(model):
+            base_args["input"] = [developer_message_item(system_prompt), *input_items]
+        elif system_prompt:
             base_args["instructions"] = system_prompt
 
         tools_payload = self._build_declared_tools_payload(tools, model)

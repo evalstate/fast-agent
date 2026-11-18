@@ -44,6 +44,7 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.provider.openai.codex_responses import (
     CODEX_RESPONSES_LITE_HEADER,
     CODEX_ROUTING_HINT_HEADER,
+    CODEX_SESSION_HEADERS,
     CodexResponsesLLM,
 )
 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
@@ -1078,7 +1079,7 @@ def test_codexresponses_lite_uses_internal_request_contract(model_name: str) -> 
         [tool],
     )
 
-    assert args["extra_headers"] == {
+    assert _routing_headers(args) == {
         CODEX_RESPONSES_LITE_HEADER: "true",
         CODEX_ROUTING_HINT_HEADER: f"model={model_name}",
     }
@@ -1095,6 +1096,30 @@ def test_codexresponses_lite_uses_internal_request_contract(model_name: str) -> 
     assert args["input"][1]["role"] == "developer"
 
 
+def _routing_headers(args: dict[str, Any]) -> dict[str, str]:
+    """Codex headers other than the per-conversation session headers."""
+    return {
+        name: value
+        for name, value in args["extra_headers"].items()
+        if name not in CODEX_SESSION_HEADERS
+    }
+
+
+def test_codexresponses_sends_cache_key_as_session_headers() -> None:
+    """ChatGPT routes cache affinity by session-id, so it must track prompt_cache_key."""
+    llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name="gpt-6.2-sol")
+    generated = llm._build_response_args([], RequestParams(model="gpt-6.2-sol"), None)
+    explicit = llm._build_response_args(
+        [], RequestParams(model="gpt-6.2-sol", metadata={"prompt_cache_key": "resumed"}), None
+    )
+
+    for args in (generated, explicit):
+        assert {args["extra_headers"][name] for name in CODEX_SESSION_HEADERS} == {
+            args["prompt_cache_key"]
+        }
+    assert explicit["prompt_cache_key"] == "resumed"
+
+
 def test_codexresponses_lite_fast_preserves_both_routing_headers() -> None:
     llm = _build_responses_family_llm(
         Provider.CODEX_RESPONSES,
@@ -1109,7 +1134,7 @@ def test_codexresponses_lite_fast_preserves_both_routing_headers() -> None:
     )
 
     assert args["service_tier"] == "priority"
-    assert args["extra_headers"] == {
+    assert _routing_headers(args) == {
         CODEX_RESPONSES_LITE_HEADER: "true",
         CODEX_ROUTING_HINT_HEADER: "model=gpt-5.6-luna;tier=priority",
     }
@@ -1288,7 +1313,7 @@ def test_codexresponses_standard_model_omits_lite_contract(model_name: str) -> N
         None,
     )
 
-    assert args["extra_headers"] == {CODEX_ROUTING_HINT_HEADER: f"model={model_name}"}
+    assert _routing_headers(args) == {CODEX_ROUTING_HINT_HEADER: f"model={model_name}"}
     assert args["instructions"] == "instructions"
     assert args["parallel_tool_calls"] is True
     assert "client_metadata" not in args
@@ -2451,7 +2476,7 @@ def test_codexresponses_routing_hint_overrides_configured_header_case_insensitiv
         None,
     )
 
-    assert args["extra_headers"] == {CODEX_ROUTING_HINT_HEADER: "model=gpt-5.3-codex"}
+    assert _routing_headers(args) == {CODEX_ROUTING_HINT_HEADER: "model=gpt-5.3-codex"}
 
 
 def test_build_response_args_omits_service_tier_when_unset() -> None:

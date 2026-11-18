@@ -135,6 +135,14 @@ class ModelParameters(BaseModel):
     google_service_tiers: tuple[Literal["flex"], ...] = ()
     """Supported service_tier values for the native Google API."""
 
+    responses_turn_scoped_instructions: bool = False
+    """Whether top-level Responses ``instructions`` are turn-scoped (GPT-6.2+).
+
+    The API appends them after ``input`` and bills them uncached on every request, so
+    the system prompt is sent as the first ``developer`` input message instead.
+    https://developers.openai.com/api/docs/guides/keep-prefix-unchanged
+    """
+
     codex_responses_lite: bool = False
     """Whether the Codex internal Responses Lite request contract is available.
 
@@ -766,10 +774,18 @@ class ModelDatabase:
     # GPT-6.2 preserves the preceding tool/reasoning contracts, but Flex is unverified.
     # Keep sent tool results intact: 6.2 drops reasoning after prefix rewrites.
     OPENAI_GPT_62_ASTRA = OPENAI_GPT_6_ASTRA.model_copy(
-        update={"response_service_tiers": ("fast",), "managed_process_poll_folding": False}
+        update={
+            "response_service_tiers": ("fast",),
+            "managed_process_poll_folding": False,
+            "responses_turn_scoped_instructions": True,
+        }
     )
     OPENAI_GPT_62_SOL = OPENAI_GPT_61_SOL.model_copy(
-        update={"response_service_tiers": ("fast",), "managed_process_poll_folding": False}
+        update={
+            "response_service_tiers": ("fast",),
+            "managed_process_poll_folding": False,
+            "responses_turn_scoped_instructions": True,
+        }
     )
 
     # Terra supports none through max effort, with medium as the API default.

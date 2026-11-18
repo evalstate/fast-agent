@@ -695,6 +695,9 @@ def _sanitize_request_signature(arguments: Mapping[str, Any]) -> dict[str, Any] 
     comparable.pop("input", None)
     comparable.pop("type", None)
     comparable.pop("stream", None)
+    # Per-request routing metadata (e.g. Codex turn state) does not change the model
+    # context, so it must not force a full re-send.
+    comparable.pop("client_metadata", None)
     return comparable
 
 

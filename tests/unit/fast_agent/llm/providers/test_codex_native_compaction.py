@@ -674,3 +674,26 @@ def test_gpt62_cached_request_restates_effort_after_checkpoint(
     assert state.model == model
     assert state.effort == "high"
     assert params.metadata and params.metadata["reasoning"]["effort"] == "high"
+
+
+def test_gpt62_cached_request_restates_format_after_checkpoint() -> None:
+    llm = ResponsesLLM(
+        context=Context(config=Settings(responses=OpenAISettings(api_key="test"))),
+        model="gpt-6.2-sol",
+    )
+    text_format = {"type": "json_schema", "name": "count", "schema": {"type": "object"}}
+    items, state, params = prepare_cached_request(
+        [_checkpoint_with_item("responses"), _user("Continue")],
+        RequestParams(model="gpt-6.2-sol", response_format=text_format),
+        key="key",
+        default_effort="high",
+        convert=llm._convert_message_to_items,
+        text_format=text_format,
+    )
+    assert items[1] == {
+        "type": "configuration_update",
+        "reasoning": {"effort": "high"},
+        "text": {"format": text_format},
+    }
+    assert state.text_format == text_format
+    assert params.response_format is None

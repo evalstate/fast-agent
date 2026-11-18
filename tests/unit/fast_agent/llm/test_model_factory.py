@@ -1810,7 +1810,10 @@ def test_codex_responses_lite_is_opt_in_from_model_string(model: str, lite: bool
     )
 
     assert args["parallel_tool_calls"] is not lite
-    assert ("instructions" in args) is not lite
+    # The system prompt is sent once: top-level, or as a developer message (Lite, GPT-6.2).
+    developer = [item for item in args["input"] if item.get("role") == "developer"]
+    assert ("instructions" in args) is not bool(developer)
+    assert bool(developer) or not lite
     assert llm.standalone_web_search_enabled() is False  # web search is off by default
     from fast_agent.commands.model_details import _iter_model_identity_lines
 

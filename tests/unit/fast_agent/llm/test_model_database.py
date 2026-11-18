@@ -140,8 +140,14 @@ def test_gpt_62_inherits_tools_with_conservative_cache_and_tier_policy(
     assert params is not None and previous is not None
     # Includes shell/freeform PTC, structured output, modalities, transport, reasoning
     # and route-specific windows. Onboarding must not alter older defaults.
-    changed = {"response_service_tiers", "managed_process_poll_folding"}
+    changed = {
+        "response_service_tiers",
+        "managed_process_poll_folding",
+        "responses_turn_scoped_instructions",
+    }
     assert params.model_dump(exclude=changed) == previous.model_dump(exclude=changed)
+    assert params.responses_turn_scoped_instructions is True
+    assert previous.responses_turn_scoped_instructions is False
     assert params.managed_process_poll_folding is False
     assert previous.managed_process_poll_folding is True
     assert params.response_service_tiers == ("fast",)
