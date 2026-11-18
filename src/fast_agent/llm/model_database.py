@@ -2511,9 +2511,13 @@ def _copilot_route_overrides(spec: CopilotModelSpec) -> dict[str, object]:
         efforts: list[ReasoningEffortLevel] = ["low", "medium", "high"]
         if spec.model_id == "gemini-4-hydrogen":
             efforts.append("xhigh")
+        # Copilot's Gemini gateway pricing and prompt reliability degrade past 200k
+        # input tokens (the catalog's default context tier), so auto-compact at 190k
+        # unless compact_at or compaction.threshold overrides it.
         overrides.update(
             context_window=1_000_000 if spec.model_id == "gemini-4-carbon" else 1_048_576,
             max_output_tokens=64_000 if spec.model_id == "gemini-4-carbon" else 65_536,
+            compaction_trigger_tokens=190_000,
             reasoning="openai",
             reasoning_effort_spec=ReasoningEffortSpec(kind="effort", allowed_efforts=efforts),
             google_service_tiers=(),

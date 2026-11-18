@@ -522,7 +522,7 @@ class OpenAILLM(
             self._notify_stream_listeners(StreamChunk(text=normalized_text, is_reasoning=True))
             return reasoning_active
 
-        if reasoning_mode in {"stream", "reasoning_content", "gpt_oss"}:
+        if reasoning_mode in {"stream", "reasoning_content", "gpt_oss", "openai"}:
             # Emit reasoning as-is
             self._notify_stream_listeners(StreamChunk(text=normalized_text, is_reasoning=True))
             return reasoning_active
@@ -656,6 +656,7 @@ class OpenAILLM(
             reasoning_text = self._extract_reasoning_text(
                 reasoning=getattr(delta, "reasoning", None),
                 reasoning_content=getattr(delta, "reasoning_content", None),
+                reasoning_text=getattr(delta, "reasoning_text", None),
             )
             if reasoning_text:
                 raw_reasoning_segments.append(reasoning_text)
@@ -1101,6 +1102,7 @@ class OpenAILLM(
         reasoning_text = OpenAILLM._extract_reasoning_text(
             reasoning=model_extra.get("reasoning"),
             reasoning_content=model_extra.get("reasoning_content"),
+            reasoning_text=model_extra.get("reasoning_text"),
         )
         return [reasoning_text] if reasoning_text.strip() else []
 
@@ -1299,6 +1301,14 @@ class OpenAILLM(
                 timed_stream, request.model_name, capture_filename
             )
         except EmptyStreamError as exc:
+            if not self._fallback_to_non_streaming_on_empty_stream(request.model_name):
+                self._record_stream_outcome(
+                    timed_stream.timing,
+                    error=exc,
+                    model=request.model_name,
+                    timeout_seconds=timeout,
+                )
+                raise
             streamed = False
             self.logger.error(
                 "OpenAI stream returned no usable completion; retrying without streaming",
@@ -1307,8 +1317,14 @@ class OpenAILLM(
                     "error": str(exc),
                 },
             )
-            response = await client.chat.completions.create(
-                **self._prepare_non_streaming_request(request.arguments)
+            response = await await_stream_start(
+                client.chat.completions.create(
+                    **self._prepare_non_streaming_request(request.arguments)
+                ),
+                timeout_seconds=timeout,
+                timeout_message=(
+                    f"OpenAI non-streaming fallback did not complete within {timeout} seconds."
+                ),
             )
             choices = _openai_choices(response)
             fallback_message = (
@@ -1493,6 +1509,23 @@ class OpenAILLM(
             ]
         return channels or None
 
+    def _fallback_to_non_streaming_on_empty_stream(self, model: str) -> bool:
+        """Return whether an empty SSE stream should immediately retry non-streaming."""
+        del model
+        return True
+
+    def _extra_openai_response_channels(
+        self, message: ChatCompletionMessage
+    ) -> dict[str, list[ContentBlock]]:
+        """Optional provider-specific channels extracted from the assistant message."""
+        del message
+        return {}
+
+    def _sanitize_completion_text(self, model: str, text: str) -> str:
+        """Strip provider-specific token artifacts from visible assistant text."""
+        del model
+        return text
+
     def _unusable_completion_text(self, model: str, text: str) -> str | None:
         """Describe provider-specific text artifacts that are not usable assistant output."""
         return None
@@ -1528,6 +1561,10 @@ class OpenAILLM(
         ):
             unusable_output = self._unusable_completion_text(request.model_name, message.content)
         if unusable_output is None:
+            if isinstance(message.content, str) and message.content:
+                sanitized = self._sanitize_completion_text(request.model_name, message.content)
+                if sanitized != message.content:
+                    message = message.model_copy(update={"content": sanitized})
             response_content_blocks = self._append_openai_assistant_history(
                 request.messages, message, request.model_name
             )
@@ -1538,26 +1575,36 @@ class OpenAILLM(
             self._notify_stream_listeners(StreamChunk(event="rollback"))
         self._log_chat_finished(model=request.model_name)
         reasoning_blocks = self._openai_reasoning_blocks(completion.streamed_reasoning)
+        channels = self._openai_response_channels(
+            reasoning_blocks=reasoning_blocks,
+            choice=choice,
+            stop_result=stop_result,
+        )
+        if unusable_output is None:
+            extra_channels = self._extra_openai_response_channels(message)
+            if extra_channels:
+                channels = {**(channels or {}), **extra_channels}
         result = PromptMessageExtended(
             role="assistant",
             content=response_content_blocks,
             tool_calls=stop_result.requested_tool_calls,
-            channels=self._openai_response_channels(
-                reasoning_blocks=reasoning_blocks,
-                choice=choice,
-                stop_result=stop_result,
-            ),
+            channels=channels,
             stop_reason=stop_result.stop_reason,
         )
 
         usage = _openai_usage(response)
         details = usage.completion_tokens_details if usage is not None else None
+        diag_reasoning_tokens = details.reasoning_tokens if details is not None else None
+        if diag_reasoning_tokens is None and usage is not None and usage.model_extra:
+            raw_reasoning_tokens = usage.model_extra.get("reasoning_tokens")
+            if isinstance(raw_reasoning_tokens, int) and not isinstance(raw_reasoning_tokens, bool):
+                diag_reasoning_tokens = raw_reasoning_tokens
         attach_empty_completion_diagnostics(
             result,
             EmptyCompletionDiagnostics(
                 finish_reason=choice.finish_reason,
                 completion_tokens=usage.completion_tokens if usage is not None else None,
-                reasoning_tokens=details.reasoning_tokens if details is not None else None,
+                reasoning_tokens=diag_reasoning_tokens,
                 reasoning_chars=sum(len(part) for part in completion.streamed_reasoning),
                 streamed=completion.streamed,
                 unusable_output=unusable_output,
@@ -1628,8 +1675,8 @@ class OpenAILLM(
         return await self._finalize_openai_completion(request, completion)
 
     def _handle_retry_failure(self, error: Exception) -> PromptMessageExtended | None:
-        """Return the legacy error-channel response when retries are exhausted."""
-        if isinstance(error, APIError):
+        """Persist exhausted provider failures without hiding programming/config errors."""
+        if isinstance(error, (APIError, TimeoutError, EmptyStreamError)):
             model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
             return build_stream_failure_response(self.provider, error, model_name)
         return None
@@ -1739,10 +1786,14 @@ class OpenAILLM(
         return non_stream_args
 
     @staticmethod
-    def _extract_reasoning_text(reasoning: Any = None, reasoning_content: Any | None = None) -> str:
+    def _extract_reasoning_text(
+        reasoning: Any = None,
+        reasoning_content: Any | None = None,
+        reasoning_text: Any | None = None,
+    ) -> str:
         """Extract text from provider-specific reasoning payloads.
 
-        Priority: explicit `reasoning` field (string/object/list) > `reasoning_content` list.
+        Priority: explicit `reasoning` field > `reasoning_content` > `reasoning_text`.
         """
         combined = _combine_reasoning_text(reasoning)
         if combined.strip():
@@ -1755,6 +1806,10 @@ class OpenAILLM(
             )
             if reasoning_content_text:
                 return reasoning_content_text
+        if reasoning_text is not None:
+            coerced = _combine_reasoning_text(reasoning_text)
+            if coerced:
+                return coerced
 
         return combined
 

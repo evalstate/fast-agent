@@ -344,6 +344,11 @@ def usage_from_openai_chat(
         raw_cached_tokens = usage.model_extra.get("cached_tokens")
         if isinstance(raw_cached_tokens, int):
             cache_read = raw_cached_tokens
+    reasoning = completion_details.reasoning_tokens if completion_details is not None else None
+    if reasoning is None and usage.model_extra:
+        raw_reasoning_tokens = usage.model_extra.get("reasoning_tokens")
+        if isinstance(raw_reasoning_tokens, int) and not isinstance(raw_reasoning_tokens, bool):
+            reasoning = raw_reasoning_tokens
     return TurnUsage(
         provider=provider,
         upstream_provider=upstream_provider,
@@ -356,9 +361,7 @@ def usage_from_openai_chat(
         ),
         completion=CompletionTokenUsage(
             total=usage.completion_tokens,
-            reasoning=(
-                completion_details.reasoning_tokens if completion_details is not None else None
-            ),
+            reasoning=reasoning,
         ),
         raw_usage=snapshot_json_value(usage),
     )

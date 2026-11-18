@@ -19,6 +19,9 @@ class CopilotModelSpec:
     """Anthropic threshold compaction passes the gateway (on-demand compaction does not)."""
     supports_native_compaction: bool = False
     """OpenAI ``compaction_trigger`` checkpoints pass the gateway."""
+    max_prompt_images: int | None = None
+    max_prompt_image_bytes: int | None = None
+    max_prompt_tokens: int | None = None
 
 
 def _messages_model(
@@ -73,7 +76,15 @@ COPILOT_PICKER_MODELS: Final = (
     ),
     # Confirmed by Copilot /models; no native Google wire features implied.
     *(
-        CopilotModelSpec(model_id, "chat_completions", False, ("sse",))
+        CopilotModelSpec(
+            model_id,
+            "chat_completions",
+            False,
+            ("sse",),
+            max_prompt_images=10,
+            max_prompt_image_bytes=3_145_728,
+            max_prompt_tokens=936_000 if model_id == "gemini-4-carbon" else 983_040,
+        )
         for model_id in (
             "gemini-4-argon",
             "gemini-4-hydrogen",
